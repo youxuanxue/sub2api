@@ -50,21 +50,23 @@
         />
         <div class="mt-3">
           <div class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.aspectLabel') }}</div>
+          <!-- Ratios are the SELECTED MODEL's actual supported set, shown raw (the
+               exact value goes on the wire). Imagen ⇒ ratio code; Seedream ⇒ the
+               literal pixel size is shown as a subtext. -->
           <div class="flex flex-wrap gap-2">
             <button
-              v-for="p in IMAGE_ASPECT_PRESETS"
-              :key="p.id"
+              v-for="opt in sizeOptions"
+              :key="opt.ratio"
               type="button"
               class="rounded-lg border px-3 py-1.5 text-left transition"
-              :class="aspectId === p.id
+              :class="selectedRatio === opt.ratio
                 ? 'border-primary-600 bg-primary-600 text-white'
                 : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-              @click="aspectId = p.id"
+              data-testid="studio-image-aspect"
+              @click="selectedRatio = opt.ratio"
             >
-              <div class="text-sm font-medium">{{ t(p.labelKey) }}</div>
-              <!-- Real size + price multiplier on the chip: this is a SIZE control,
-                   not a bare aspect ratio — landscape/portrait bill at ×1.5. -->
-              <div class="text-[10px] tabular-nums opacity-70">{{ p.size }} · ×{{ presetMultiplier(p) }}</div>
+              <div class="text-sm font-medium tabular-nums">{{ opt.ratio }}</div>
+              <div v-if="sizeSubtext(opt.value, opt.ratio)" class="text-[10px] tabular-nums opacity-70">{{ sizeSubtext(opt.value, opt.ratio) }}</div>
             </button>
           </div>
           <p class="mt-1.5 text-[11px] text-gray-400 dark:text-dark-500">
@@ -168,13 +170,11 @@ import { useI18n } from 'vue-i18n'
 import { gatewayImageGenerations } from '@/api/playground'
 import { extractImageItems } from '@/constants/playgroundMedia.tk'
 import {
-  IMAGE_ASPECT_PRESETS,
   IMAGE_N_MIN,
   IMAGE_N_MAX,
   resolveAvailableModels,
   defaultModelId,
   type MediaPriceMap,
-  type ImageAspectPreset,
 } from '@/constants/mediaTiers.tk'
 import {
   classifyImageBillingTier,
@@ -205,13 +205,23 @@ const models = computed(() => resolveAvailableModels('image', props.availableIds
 const selectedModelId = ref<string>('')
 const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
 
-const aspectId = ref<string>(IMAGE_ASPECT_PRESETS[0].id)
-const aspectPreset = computed(() => IMAGE_ASPECT_PRESETS.find((p) => p.id === aspectId.value) ?? IMAGE_ASPECT_PRESETS[0])
-const classifiedTier = computed(() => classifyImageBillingTier(aspectPreset.value.size))
+// Aspect options are MODEL-SPECIFIC: each model declares the ratios its upstream
+// accepts (Imagen ⇒ ratio codes; Seedream ⇒ pixel WxH). We track the chosen RATIO
+// so it survives a model switch (both vendors expose the same ratio labels), and
+// put the option's exact `value` on the wire.
+const sizeOptions = computed(() => selected.value?.model.imageSizes ?? [])
+const selectedRatio = ref<string>('')
+const selectedSize = computed(
+  () => sizeOptions.value.find((o) => o.ratio === selectedRatio.value) ?? sizeOptions.value[0] ?? null
+)
+// Exact string sent as the request `size` (ratio code or WxH — never wrapped).
+const sentSize = computed(() => selectedSize.value?.value ?? '')
+const classifiedTier = computed(() => classifyImageBillingTier(sentSize.value))
 const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value])
-// Per-preset billing multiplier (shown on each chip so the size→price tie is visible).
-function presetMultiplier(p: ImageAspectPreset): number {
-  return IMAGE_SIZE_MULTIPLIER[classifyImageBillingTier(p.size)]
+// Show the literal pixel size as a subtext when it differs from the ratio label
+// (Seedream); for Imagen the value IS the ratio, so no redundant subtext.
+function sizeSubtext(value: string, ratio: string): string {
+  return value === ratio ? '' : value.replace('x', '×')
 }
 
 const n = ref(1)
@@ -225,7 +235,7 @@ const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageCost({
     baseImagePrice: selected.value.baseImagePrice || 0,
-    size: aspectPreset.value.size,
+    size: sentSize.value,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
   })
@@ -267,6 +277,17 @@ watch(
   { immediate: true }
 )
 watch(selected, () => applySamplePrompt(), { immediate: true })
+// Keep the chosen ratio valid as the model (and thus its option set) changes:
+// preserve it when the new model also offers it, else fall back to the first.
+watch(
+  sizeOptions,
+  (opts) => {
+    if (!opts.some((o) => o.ratio === selectedRatio.value)) {
+      selectedRatio.value = opts[0]?.ratio ?? ''
+    }
+  },
+  { immediate: true }
+)
 
 function reuse(img: ImageHistoryItem): void {
   prompt.value = img.prompt
@@ -288,14 +309,14 @@ async function generate(): Promise<void> {
     const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
       model: resolved.servedId,
       prompt: text,
-      size: aspectPreset.value.size,
+      size: sentSize.value,
       n: n.value,
     })
     const items = extractImageItems(raw)
     if (!items.length) throw new Error(t('studio.image.noResult'))
     const perImage = estimateImageCost({
       baseImagePrice: resolved.baseImagePrice || 0,
-      size: aspectPreset.value.size,
+      size: sentSize.value,
       n: 1,
       rateMultiplier: props.rateMultiplier,
     })
@@ -307,7 +328,7 @@ async function generate(): Promise<void> {
       revisedPrompt: it.revisedPrompt,
       model: resolved.servedId,
       vendorLabel: resolved.model.vendorLabel,
-      size: aspectPreset.value.size,
+      size: sentSize.value,
       cost: perImage,
       ts,
     }))

@@ -6,6 +6,8 @@ import {
   resolveAvailableModels,
   defaultModelId,
   MEDIA_MODELS,
+  IMAGEN_IMAGE_SIZES,
+  SEEDREAM_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
 } from '@/constants/mediaTiers.tk'
@@ -214,5 +216,56 @@ describe('capability map honesty (verified against new-api adaptors)', () => {
     expect(s).toContain('seed')
     expect(s).toContain('firstFrameImage')
     expect(s).not.toContain('negativePrompt')
+  })
+})
+
+describe('image aspect options (per-model, upstream-valid wire values)', () => {
+  // Imagen's documented aspectRatio set. The reported bug was the studio sending
+  // 1536x1024 / 1024x1536 → the adaptor maps those to 3:2 / 2:3, which Imagen
+  // hard-400s ("Invalid aspect ratio, 3:2"). So NO image model may offer 3:2/2:3,
+  // and Imagen must send the ratio code verbatim.
+  const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
+
+  it('every image model carries a non-empty imageSizes; video models carry none', () => {
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+      expect(m.imageSizes && m.imageSizes.length).toBeTruthy()
+    }
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'video')) {
+      expect(m.imageSizes).toBeUndefined()
+    }
+  })
+
+  it('no image model offers an Imagen-invalid ratio (regression: 3:2 / 2:3)', () => {
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+      for (const opt of m.imageSizes ?? []) {
+        expect(opt.ratio).not.toBe('3:2')
+        expect(opt.ratio).not.toBe('2:3')
+        expect(IMAGEN_VALID.has(opt.ratio)).toBe(true)
+      }
+    }
+  })
+
+  it('Imagen sends the ratio code verbatim on the wire (value === ratio)', () => {
+    for (const opt of IMAGEN_IMAGE_SIZES) {
+      expect(opt.value).toBe(opt.ratio)
+      expect(IMAGEN_VALID.has(opt.value)).toBe(true)
+    }
+    expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
+  })
+
+  it('Seedream sends pixel WxH within ARK range [1024², 4096²], ratio range [1/16,16]', () => {
+    for (const opt of SEEDREAM_IMAGE_SIZES) {
+      const m = /^(\d+)x(\d+)$/.exec(opt.value)
+      expect(m).not.toBeNull() // pixels, never a ratio string
+      const [w, h] = [Number(m![1]), Number(m![2])]
+      const total = w * h
+      expect(total).toBeGreaterThanOrEqual(1024 * 1024)
+      expect(total).toBeLessThanOrEqual(4096 * 4096)
+      const ratio = w / h
+      expect(ratio).toBeGreaterThanOrEqual(1 / 16)
+      expect(ratio).toBeLessThanOrEqual(16)
+      // maxEdge ≤ 2048 keeps every Seedream option in the 2K billing tier.
+      expect(Math.max(w, h)).toBeLessThanOrEqual(2048)
+    }
   })
 })

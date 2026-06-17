@@ -796,13 +796,24 @@
       "rationale": "PR #788: the thin wiring that mounts the redesign — useTkUseKey() composable, onPickModel (servable-model picker, injected into every client snippet), onTest (live 'test key' button), and tkIsCCOnly (CC-only anthropic groups render ONLY Claude Code + a warning, killing the ~414/wk 'use claude-cli' 403 class). Upstream sub2api's modal has none of these; a git merge upstream/main that overwrites this upstream-shaped .vue back to upstream shape would silently drop the picker, live test and CC-only gate while still compiling and passing the default-path tests. Complements idx 59/60 on the same file (anthropic [1m] literal + antigravity scope gate)."
     },
     {
+      "path": "frontend/src/views/user/studio/ImageStudio.vue",
+      "must_contain": [
+        "data-testid=\"studio-image-model\"",
+        "data-testid=\"studio-image-aspect\"",
+        "data-testid=\"studio-image-generate\""
+      ],
+      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (mediaTiers.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
+    },
+    {
       "path": "frontend/src/constants/mediaTiers.tk.ts",
       "must_contain": [
         "export const MEDIA_MODELS",
         "export function resolveAvailableModels",
-        "supportedParams"
+        "supportedParams",
+        "export const IMAGEN_IMAGE_SIZES",
+        "export const SEEDREAM_IMAGE_SIZES"
       ],
-      "rationale": "TK-only Studio model catalog + capability map. MEDIA_MODELS lists each priced+servable media model (friendly name, vendor, price, supportedParams); resolveAvailableModels(modality, availableIds) is the priced∩servable filter the model-card picker drives (replacing the tier-card selection). Dropping these silently regresses the transparent model picker or, worse, lets an unservable/unpriced model surface as a 400-on-submit footgun. supportedParams is the honest Advanced-panel capability gate — only params a model actually honors are rendered."
+      "rationale": "TK-only Studio model catalog + capability map. MEDIA_MODELS lists each priced+servable media model (friendly name, vendor, price, supportedParams); resolveAvailableModels(modality, availableIds) is the priced∩servable filter the model-card picker drives (replacing the tier-card selection). Dropping these silently regresses the transparent model picker or, worse, lets an unservable/unpriced model surface as a 400-on-submit footgun. supportedParams is the honest Advanced-panel capability gate — only params a model actually honors are rendered. IMAGEN_IMAGE_SIZES / SEEDREAM_IMAGE_SIZES are the per-model aspect-ratio option sets: Imagen MUST send ratio codes {1:1,3:4,4:3,9:16,16:9} verbatim and Seedream MUST send pixel WxH — losing them reverts to the fixed-pixel preset that made the gemini/vertex adaptor emit 3:2/2:3, which Imagen hard-400s ('Invalid aspect ratio, 3:2')."
     },
     {
       "path": "frontend/src/views/user/KeysView.vue",

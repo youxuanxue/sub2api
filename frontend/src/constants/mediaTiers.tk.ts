@@ -111,23 +111,52 @@ export function pickModalityKey(
 }
 
 /**
- * Image aspect/size presets. We send only sizes the current gateway path is
- * proven to accept (the existing playground set), and surface each preset's
- * CLASSIFIED billing tier + multiplier (mirrored client-side) so pricing stays
- * transparent without inventing fragile upstream sizes (god-view deviation from
- * the mockup's literal 1K/2K/4K ladder — see design-delta).
+ * Image aspect ratios are MODEL-SPECIFIC and sent transparently — no opaque
+ * "landscape/portrait" wrapper hiding a fixed pixel size. Each model declares the
+ * exact ratios its UPSTREAM accepts, and the option's `value` is the literal
+ * `size` string put on the wire. We do NOT invent sizes the upstream rejects:
+ *
+ *  - Imagen (Vertex/gemini adaptor, ConvertImageRequest): the openai-compat `size`
+ *    is mapped to imagen `aspectRatio`, and a `size` already containing ":" passes
+ *    straight through. Imagen ONLY accepts 1:1, 3:4, 4:3, 9:16, 16:9 — the old
+ *    1536x1024 / 1024x1536 presets mapped to 3:2 / 2:3, which Imagen hard-400s
+ *    ("Invalid aspect ratio, 3:2"). The adaptor's WxH switch can't even PRODUCE
+ *    4:3 / 3:4, so the only way to offer Imagen's full set is to send the ratio
+ *    code verbatim. (ref: Google Imagen docs — supported aspectRatio set.)
+ *  - Seedream 4.0 (VolcEngine ARK, openai-compat passthrough): `size` is a PIXEL
+ *    "WxH" (or a 1K/2K/4K tier), NOT a ratio string — total pixels in
+ *    [1024x1024, 4096x4096], ratio range [1/16, 16]. So Seedream's options carry
+ *    the same ratio LABELS but a pixel `value`. (ref: VolcEngine doubao-seedream-4.0.)
+ *
+ * The chip shows the ratio (transparent); when `value` differs from the ratio
+ * (Seedream pixels) the exact wire size is shown as a subtext.
  */
-export interface ImageAspectPreset {
-  id: string
-  labelKey: string
-  /** WxH string sent as the request `size`. */
-  size: string
+export interface ImageSizeOption {
+  /** Aspect-ratio label shown on the chip, e.g. "16:9". */
+  ratio: string
+  /** EXACT string sent as the request `size` (ratio code for Imagen, WxH for Seedream). */
+  value: string
 }
 
-export const IMAGE_ASPECT_PRESETS: ImageAspectPreset[] = [
-  { id: 'square', labelKey: 'studio.image.aspect.square', size: '1024x1024' },
-  { id: 'landscape', labelKey: 'studio.image.aspect.landscape', size: '1536x1024' },
-  { id: 'portrait', labelKey: 'studio.image.aspect.portrait', size: '1024x1536' },
+/** Imagen: send the ratio code verbatim — the adaptor maps it to `aspectRatio`. */
+export const IMAGEN_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '1:1' },
+  { ratio: '3:4', value: '3:4' },
+  { ratio: '4:3', value: '4:3' },
+  { ratio: '9:16', value: '9:16' },
+  { ratio: '16:9', value: '16:9' },
+]
+
+/**
+ * Seedream: ARK wants pixels, not a ratio string. Same ratio labels, pixel values
+ * at the 2K tier (maxEdge ≤ 2048 ⇒ "2K"), all within ARK's documented range.
+ */
+export const SEEDREAM_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '2048x2048' },
+  { ratio: '3:4', value: '1536x2048' },
+  { ratio: '4:3', value: '2048x1536' },
+  { ratio: '9:16', value: '1152x2048' },
+  { ratio: '16:9', value: '2048x1152' },
 ]
 
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
@@ -202,6 +231,12 @@ export interface MediaModel {
   aliasIds?: string[]
   /** True ⇒ never auto-select; render a hard "needs apikey account" warning. */
   needsApikeyAccount?: boolean
+  /**
+   * Image modality only: the aspect-ratio options this model's UPSTREAM accepts,
+   * each carrying the exact `size` string to send. Imagen ⇒ ratio codes, Seedream
+   * ⇒ pixel WxH (see ImageSizeOption). Absent for video models.
+   */
+  imageSizes?: ImageSizeOption[]
 }
 
 /**
@@ -223,6 +258,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VERTEX,
     modality: 'image',
     supportedParams: [],
+    imageSizes: IMAGEN_IMAGE_SIZES,
   },
   {
     modelId: 'seedream-4-0-250828',
@@ -233,6 +269,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VOLC,
     modality: 'image',
     supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
   },
   {
     modelId: 'imagen-4.0-generate-001',
@@ -242,6 +279,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VERTEX,
     modality: 'image',
     supportedParams: [],
+    imageSizes: IMAGEN_IMAGE_SIZES,
   },
   {
     modelId: 'imagen-4.0-ultra-generate-001',
@@ -251,6 +289,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VERTEX,
     modality: 'image',
     supportedParams: [],
+    imageSizes: IMAGEN_IMAGE_SIZES,
   },
   // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
   // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
