@@ -2649,7 +2649,7 @@
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_org_ban_403.go",
       "must_contain": [
         "var tkAnthropicOrgBan403Keywords = []string{",
-        "\"not allowed for this organization\"",
+        "\"authentication is currently not allowed for this organization\"",
         "\"organization has been disabled\"",
         "func (s *RateLimitService) tkTryDisableAnthropicOrgBan403(",
         "s.handleAuthError(ctx, account, msg)"

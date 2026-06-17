@@ -20,8 +20,20 @@ import (
 // too so the HTTP status code never decides recoverability for an
 // account-fatal condition. Matching is case-insensitive substring
 // (matchTempUnschedKeyword).
+//
+// Precision bar (permanent disable is irreversible — no auto-recovery, needs an
+// operator): match ONLY phrases that are unambiguously account/auth-level. The
+// incident phrase keeps the "authentication is currently not allowed" qualifier
+// rather than the bare "not allowed for this organization" tail — the bare tail
+// would also match a MODEL/feature-level denial (e.g. "Model X is not allowed
+// for this organization"), and a client requesting a model the org lacks could
+// then permanently disable a perfectly healthy account (the poison-request
+// fan-out the 413/429/400 client-induced skips exist to prevent). Biasing tight
+// is safe here: a missed/reworded ban merely falls back to the pre-existing
+// transient-flap behaviour (recoverable by ops), whereas a false match is a
+// self-inflicted outage.
 var tkAnthropicOrgBan403Keywords = []string{
-	"not allowed for this organization",
+	"authentication is currently not allowed for this organization",
 	"organization has been disabled",
 }
 

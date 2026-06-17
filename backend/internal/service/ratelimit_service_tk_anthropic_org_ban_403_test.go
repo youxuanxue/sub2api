@@ -67,6 +67,12 @@ func TestTryDisableAnthropicOrgBan403_IgnoresNonOrgBan403(t *testing.T) {
 		body string
 	}{
 		{"generic permission error", "", `{"type":"error","error":{"type":"permission_error","message":"You do not have access to this model."}}`},
+		// Boundary: a MODEL/feature-level "not allowed for this organization" denial
+		// must NOT permanently disable a healthy account — only the account/auth-level
+		// "authentication is currently not allowed for this organization" does. A
+		// client requesting a model the org lacks must never poison the account.
+		{"model-level not-allowed (must not disable)", "", `{"type":"error","error":{"type":"permission_error","message":"Model claude-opus-4 is not allowed for this organization."}}`},
+		{"oauth token lacks scopes", "", `{"type":"error","error":{"type":"permission_error","message":"OAuth token lacks required scopes"}}`},
 		{"tls/bot challenge", "", `<html>Just a moment... cloudflare challenge</html>`},
 		{"empty body and msg", "", ""},
 		{"unrelated organization word", "", `{"error":{"message":"Rate limit reached in organization org on tokens per min."}}`},
