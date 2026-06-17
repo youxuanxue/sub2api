@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
+
+	gocache "github.com/patrickmn/go-cache"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,11 +39,17 @@ import (
 // reject a newly launched model until someone edits the list; this learns from
 // upstream ground truth.
 //
-// Scope: Anthropic only (other platforms' 404 semantics differ). In-memory,
-// per-replica (an optimization cache, not correctness-critical — each replica
-// learns independently within the TTL; no Redis, no Wire change). Keyed by
-// (platform, post-mapping model name): a 404 not_found_error means the NAME is
-// globally unknown, whereas per-account access gating returns 403
+// Storage: a janitor-backed go-cache (same primitive as userGroupRateCache /
+// modelsListCache one field over in GatewayService). go-cache's background
+// janitor periodically evicts expired entries, so the map stays bounded even
+// under an adversarial flood of distinct (client-controlled) bad model names —
+// a hand-rolled sync.Map would only evict lazily on re-read of the same key and
+// would leak entries for names never requested again. In-memory, per-replica
+// (an optimization cache, not correctness-critical — each replica learns
+// independently within the TTL; no Redis, no Wire change).
+//
+// Keyed by (platform, post-mapping model name): a 404 not_found_error means the
+// NAME is globally unknown, whereas per-account access gating returns 403
 // permission_error (NOT 404) — so a platform-wide key is safe because
 // IsAnthropicModelNotFound404 only captures the former, never a model that some
 // sibling account could actually serve. Complementary to
@@ -51,16 +58,34 @@ import (
 // cache handles the in-namespace claude-* typos that guard intentionally lets
 // through to the upstream.
 
-// tkModelNotFoundNegativeCacheTTL bounds how long a confirmed not-found verdict
-// is trusted. Short on purpose (see file doc). Const, not a runtime setting:
-// the feature is safe by construction (never cools an account, self-heals in
-// <=TTL) so it needs no kill switch.
-const tkModelNotFoundNegativeCacheTTL = 60 * time.Second
+const (
+	// tkModelNotFoundNegativeCacheTTL bounds how long a confirmed not-found
+	// verdict is trusted. Short on purpose (see file doc). Const, not a runtime
+	// setting: the feature is safe by construction (never cools an account,
+	// self-heals in <=TTL) so it needs no kill switch.
+	tkModelNotFoundNegativeCacheTTL = 60 * time.Second
+	// tkModelNotFoundNegativeCacheCleanup is the go-cache janitor sweep interval
+	// (matches userGroupRateCache / modelsListCache). Bounds worst-case memory to
+	// entries added within roughly one sweep window beyond their TTL.
+	tkModelNotFoundNegativeCacheCleanup = time.Minute
+)
 
 // tkModelNotFoundNegativeCache is an in-memory, per-replica negative cache
-// keyed by (platform, lower(trim(model))) -> expiry time.
+// keyed by (platform, lower(trim(model))). Backed by go-cache so expired
+// entries are swept by its janitor (bounded memory) rather than leaking.
 type tkModelNotFoundNegativeCache struct {
-	m sync.Map // string key -> time.Time (expiry instant)
+	c *gocache.Cache
+}
+
+// newTkModelNotFoundNegativeCache builds the production cache (60s TTL).
+func newTkModelNotFoundNegativeCache() *tkModelNotFoundNegativeCache {
+	return newTkModelNotFoundNegativeCacheWithTTL(tkModelNotFoundNegativeCacheTTL, tkModelNotFoundNegativeCacheCleanup)
+}
+
+// newTkModelNotFoundNegativeCacheWithTTL is the parameterized constructor (tests
+// pass a tiny TTL to exercise expiry without a long sleep).
+func newTkModelNotFoundNegativeCacheWithTTL(ttl, cleanup time.Duration) *tkModelNotFoundNegativeCache {
+	return &tkModelNotFoundNegativeCache{c: gocache.New(ttl, cleanup)}
 }
 
 // tkModelNotFoundCacheKey builds the (platform, model) key. Lower/trim the
@@ -74,38 +99,30 @@ func tkModelNotFoundCacheKey(platform, model string) string {
 	return platform + "\x00" + model
 }
 
-// get reports whether (platform, model) currently has a live not-found verdict,
-// lazily evicting an expired entry. nil-receiver safe.
+// get reports whether (platform, model) currently has a live not-found verdict.
+// go-cache's Get already treats an expired entry as absent. nil-safe.
 func (cstore *tkModelNotFoundNegativeCache) get(platform, model string) bool {
-	if cstore == nil {
+	if cstore == nil || cstore.c == nil {
 		return false
 	}
 	key := tkModelNotFoundCacheKey(platform, model)
 	if key == "" {
 		return false
 	}
-	v, ok := cstore.m.Load(key)
-	if !ok {
-		return false
-	}
-	expiry, _ := v.(time.Time)
-	if time.Now().After(expiry) {
-		cstore.m.Delete(key)
-		return false
-	}
-	return true
+	_, ok := cstore.c.Get(key)
+	return ok
 }
 
-// put records/refreshes a not-found verdict with a fresh TTL. nil-receiver safe.
+// put records/refreshes a not-found verdict with a fresh TTL. nil-safe.
 func (cstore *tkModelNotFoundNegativeCache) put(platform, model string) {
-	if cstore == nil {
+	if cstore == nil || cstore.c == nil {
 		return
 	}
 	key := tkModelNotFoundCacheKey(platform, model)
 	if key == "" {
 		return
 	}
-	cstore.m.Store(key, time.Now().Add(tkModelNotFoundNegativeCacheTTL))
+	cstore.c.Set(key, struct{}{}, gocache.DefaultExpiration)
 }
 
 // tkModelNotFoundShortCircuit is the pre-forward gate (read side). On a cache
@@ -114,7 +131,8 @@ func (cstore *tkModelNotFoundNegativeCache) put(platform, model string) {
 // WITHOUT contacting the upstream. The error is a plain error — NOT an
 // *UpstreamFailoverError (so it never triggers failover) and the written body
 // makes the handler's gatewayForwardErrorAlreadyCommunicated suppress any
-// double write. Mirrors the deprecated-model gate
+// double write (the handler also logs gateway.forward_failed, so no extra log
+// here). Mirrors the deprecated-model gate
 // (gateway_anthropic_deprecated_model_tk.go). Anthropic-only; nil-safe on
 // cache / c / account.
 func (s *GatewayService) tkModelNotFoundShortCircuit(c *gin.Context, account *Account, mappedModel string) (bool, error) {
@@ -131,11 +149,6 @@ func (s *GatewayService) tkModelNotFoundShortCircuit(c *gin.Context, account *Ac
 			"message": TkUnsupportedModelMessage(mappedModel),
 		},
 	})
-	slog.Info("tk_model_notfound_negative_cache_short_circuit",
-		"platform", account.Platform,
-		"model", mappedModel,
-		"account_id", account.ID,
-		"ttl", tkModelNotFoundNegativeCacheTTL.String())
 	return true, fmt.Errorf("model not found (negative-cache short-circuit): %s", mappedModel)
 }
 

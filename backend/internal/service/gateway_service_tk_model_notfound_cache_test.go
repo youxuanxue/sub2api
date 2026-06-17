@@ -25,7 +25,9 @@ func TestTkModelNotFoundCacheKey(t *testing.T) {
 }
 
 func TestTkModelNotFoundCacheGetPutTTL(t *testing.T) {
-	cache := &tkModelNotFoundNegativeCache{}
+	// tiny TTL so expiry is exercised without a long sleep; the janitor sweep
+	// interval is short too so expired entries are reclaimed, not leaked.
+	cache := newTkModelNotFoundNegativeCacheWithTTL(20*time.Millisecond, 10*time.Millisecond)
 
 	// miss on empty cache
 	require.False(t, cache.get(PlatformAnthropic, "claude-haiku-4-6"))
@@ -37,12 +39,10 @@ func TestTkModelNotFoundCacheGetPutTTL(t *testing.T) {
 	cache.put(PlatformAnthropic, "claude-haiku-4-6")
 	require.True(t, cache.get(PlatformAnthropic, "claude-haiku-4-6"))
 
-	// force-expire the entry and confirm get() returns false AND lazily evicts it
-	key := tkModelNotFoundCacheKey(PlatformAnthropic, "claude-haiku-4-6")
-	cache.m.Store(key, time.Now().Add(-time.Second))
+	// after the TTL elapses the entry must read as absent (go-cache treats an
+	// expired item as a miss; its janitor reclaims the memory)
+	time.Sleep(40 * time.Millisecond)
 	require.False(t, cache.get(PlatformAnthropic, "claude-haiku-4-6"))
-	_, stillThere := cache.m.Load(key)
-	require.False(t, stillThere, "expired entry must be evicted on read")
 
 	// nil-receiver safe
 	var nilCache *tkModelNotFoundNegativeCache
@@ -58,7 +58,7 @@ func newGinTestCtx() (*gin.Context, *httptest.ResponseRecorder) {
 }
 
 func TestTkModelNotFoundShortCircuit_Hit(t *testing.T) {
-	cache := &tkModelNotFoundNegativeCache{}
+	cache := newTkModelNotFoundNegativeCache()
 	cache.put(PlatformAnthropic, "claude-haiku-4-6")
 	s := &GatewayService{tkModelNotFoundCache: cache}
 	acct := &Account{ID: 1, Platform: PlatformAnthropic}
@@ -75,7 +75,7 @@ func TestTkModelNotFoundShortCircuit_Hit(t *testing.T) {
 }
 
 func TestTkModelNotFoundShortCircuit_Miss(t *testing.T) {
-	s := &GatewayService{tkModelNotFoundCache: &tkModelNotFoundNegativeCache{}}
+	s := &GatewayService{tkModelNotFoundCache: newTkModelNotFoundNegativeCache()}
 	acct := &Account{ID: 1, Platform: PlatformAnthropic}
 	c, w := newGinTestCtx()
 
@@ -92,7 +92,7 @@ func TestTkModelNotFoundShortCircuit_Miss(t *testing.T) {
 // with the mapped (valid) name, which is never the cached not-found key — so it
 // must NOT be short-circuited even while the typo name is cached.
 func TestTkModelNotFoundShortCircuit_MappedNameNotShortCircuited(t *testing.T) {
-	cache := &tkModelNotFoundNegativeCache{}
+	cache := newTkModelNotFoundNegativeCache()
 	cache.put(PlatformAnthropic, "claude-haiku-4-6") // the passthrough typo got 404'd
 	s := &GatewayService{tkModelNotFoundCache: cache}
 	acct := &Account{ID: 2, Platform: PlatformAnthropic}
@@ -107,7 +107,7 @@ func TestTkModelNotFoundShortCircuit_MappedNameNotShortCircuited(t *testing.T) {
 }
 
 func TestTkModelNotFoundShortCircuit_PlatformScoped(t *testing.T) {
-	cache := &tkModelNotFoundNegativeCache{}
+	cache := newTkModelNotFoundNegativeCache()
 	cache.put(PlatformAnthropic, "claude-haiku-4-6")
 	s := &GatewayService{tkModelNotFoundCache: cache}
 	// non-Anthropic account must never be gated, even with a populated cache
@@ -132,7 +132,7 @@ func TestTkModelNotFoundShortCircuit_NilSafety(t *testing.T) {
 	require.NoError(t, err)
 
 	// nil gin context
-	s2 := &GatewayService{tkModelNotFoundCache: &tkModelNotFoundNegativeCache{}}
+	s2 := &GatewayService{tkModelNotFoundCache: newTkModelNotFoundNegativeCache()}
 	handled, err = s2.tkModelNotFoundShortCircuit(nil, acct, "claude-haiku-4-6")
 	require.False(t, handled)
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestTkModelNotFoundShortCircuit_NilSafety(t *testing.T) {
 }
 
 func TestTkModelNotFoundRecordUpstream404(t *testing.T) {
-	cache := &tkModelNotFoundNegativeCache{}
+	cache := newTkModelNotFoundNegativeCache()
 	s := &GatewayService{tkModelNotFoundCache: cache}
 
 	// records an Anthropic not-found so a later gate hits

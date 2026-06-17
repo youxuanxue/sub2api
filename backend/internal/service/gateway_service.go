@@ -734,7 +734,7 @@ func NewGatewayService(
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 		kiroGateway:           kiroGateway,
-		tkModelNotFoundCache:  &tkModelNotFoundNegativeCache{},
+		tkModelNotFoundCache:  newTkModelNotFoundNegativeCache(),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
