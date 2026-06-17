@@ -2688,6 +2688,13 @@
         "sjson.SetBytes(anthropicBody, \"image_config.aspect_ratio\", ar)"
       ],
       "rationale": "Gemini-native image aspect-ratio passthrough, prod side. The Studio rides extra_body.google.image_config.aspect_ratio on /v1/chat/completions; apicompat.ChatCompletionsRequest does not model extra_body, so the OpenAI-compat path (ForwardAsChatCompletions) would silently drop it (exactly how it was lost pre-fix — PR #807 R-001). This helper re-reads the ratio off the raw CC body (parity with extractCCReasoningEffortFromBody) and stamps it onto the relayed Anthropic /v1/messages body as image_config.aspect_ratio, where the edge antigravity transform turns it into generationConfig.imageConfig.aspectRatio. A prod canary (2026-06-17) confirmed cloudcode-pa honors all 10 ratios. The call site lives in gateway_forward_as_chat_completions.go (anchored there); the antigravity request_transformer.go emit is anchored in antigravity.json. If any is dropped by an upstream merge the ratio silently reverts to upstream default and the regression is invisible."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_service.go",
+      "must_contain": [
+        "return antigravity.IsImageModel(model)"
+      ],
+      "rationale": "isImageGenerationModel delegates to the canonical antigravity.IsImageModel (single source of truth for gemini-native image detection; #814 R-002 consolidation). antigravity_gateway_service.go is a large gateway file that attracts upstream merges; one that rewrites this helper could silently restore the old hardcoded gemini-image allowlist body, re-forking the predicate into 3 divergent copies and silently failing to bill future gemini image models (imageCount never fires). Pinning the one-line delegation keeps the dedup mechanical. Pairs with the antigravity.IsImageModel definition sentinel (antigravity.json) and the TestIsImageGenerationModel_DelegatesToCanonical behavioral guard."
     }
   ]
 }

@@ -40,6 +40,18 @@ func TestIsImageGenerationModel_CaseInsensitive(t *testing.T) {
 	require.True(t, isImageGenerationModel("GEMINI-2.5-FLASH-IMAGE"))
 }
 
+// TestIsImageGenerationModel_DelegatesToCanonical locks the R-002 consolidation
+// (#814): isImageGenerationModel delegates to antigravity.IsImageModel, so a FUTURE
+// gemini image model is recognized without touching a hardcoded allowlist (the old
+// allowlist would have silently failed to bill it). Reverting to a narrow allowlist
+// fails here. nano-banana (an alias family) is likewise recognized.
+func TestIsImageGenerationModel_DelegatesToCanonical(t *testing.T) {
+	require.True(t, isImageGenerationModel("gemini-4-flash-image"))       // future family, not in old allowlist
+	require.True(t, isImageGenerationModel("gemini-5-pro-image-preview")) // future family + variant
+	require.True(t, isImageGenerationModel("nano-banana-pro"))            // alias family
+	require.False(t, isImageGenerationModel("gemini-4-flash"))            // future chat model, no -image
+}
+
 // TestExtractImageSize_ValidSizes 测试有效尺寸解析
 func TestExtractImageSize_ValidSizes(t *testing.T) {
 	svc := &AntigravityGatewayService{}
