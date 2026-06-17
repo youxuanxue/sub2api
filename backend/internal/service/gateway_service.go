@@ -661,6 +661,10 @@ type GatewayService struct {
 	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
 	// vendored CodeWhisperer EventStream protocol layer.
 	kiroGateway *KiroGatewayService
+	// TK: per-replica Anthropic model-not-found negative cache — short-circuits a
+	// model name the upstream already confirmed not-found so we stop re-forwarding
+	// it. Always on, in-memory, 60s TTL. See gateway_service_tk_model_notfound_cache.go.
+	tkModelNotFoundCache *tkModelNotFoundNegativeCache
 }
 
 // NewGatewayService creates a new GatewayService
@@ -730,6 +734,7 @@ func NewGatewayService(
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 		kiroGateway:           kiroGateway,
+		tkModelNotFoundCache:  newTkModelNotFoundNegativeCache(),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -4868,6 +4873,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
+	// TK: if this exact (mapped) Anthropic model name was recently confirmed
+	// not-found upstream, return the same 400 now and skip the wasted upstream
+	// round-trip. See gateway_service_tk_model_notfound_cache.go.
+	if handled, ncErr := s.tkModelNotFoundShortCircuit(c, account, mappedModel); handled {
+		return nil, ncErr
+	}
+
 	if s.shouldInjectAnthropicCacheTTL1h(ctx, account) {
 		if err := replaceBody(injectAnthropicCacheControlTTL1h(body)); err != nil {
 			return nil, err
@@ -8043,6 +8055,9 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 			statusCode = http.StatusBadRequest
 			errType = TkUnsupportedModelErrType
 			errMsg = TkUnsupportedModelMessage(model)
+			// TK: remember this confirmed upstream model-not-found so identical
+			// requests short-circuit for the next TTL instead of re-forwarding.
+			s.tkModelNotFoundRecordUpstream404(account.Platform, model)
 		} else {
 			statusCode = http.StatusBadGateway
 			errType = "upstream_error"

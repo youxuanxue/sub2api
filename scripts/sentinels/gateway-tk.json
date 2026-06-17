@@ -2695,6 +2695,24 @@
         "return antigravity.IsImageModel(model)"
       ],
       "rationale": "isImageGenerationModel delegates to the canonical antigravity.IsImageModel (single source of truth for gemini-native image detection; #814 R-002 consolidation). antigravity_gateway_service.go is a large gateway file that attracts upstream merges; one that rewrites this helper could silently restore the old hardcoded gemini-image allowlist body, re-forking the predicate into 3 divergent copies and silently failing to bill future gemini image models (imageCount never fires). Pinning the one-line delegation keeps the dedup mechanical. Pairs with the antigravity.IsImageModel definition sentinel (antigravity.json) and the TestIsImageGenerationModel_DelegatesToCanonical behavioral guard."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.tkModelNotFoundShortCircuit(c, account, mappedModel)",
+        "s.tkModelNotFoundRecordUpstream404(account.Platform, model)"
+      ],
+      "rationale": "Anthropic model-not-found negative cache wiring (PR #817). These two call-sites inject the cache into the upstream-shaped Forward()/handleErrorResponse paths: the pre-forward gate (tkModelNotFoundShortCircuit, just after the deprecated-model gate) short-circuits a model name already confirmed not-found so repeated requests stop re-forwarding to api.anthropic.com; the populate (tkModelNotFoundRecordUpstream404, inside the case-404 IsAnthropicModelNotFound404 block already anchored in this registry) records a confirmed upstream 404. The unit tests exercise the cache functions directly, NOT the wiring, so an upstream merge that rewrites Forward() or the case-404 block could silently drop either call and the feature would degrade to a no-op with green tests — the exact silent-regression mode this registry guards. Companion implementation is anchored in gateway_service_tk_model_notfound_cache.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_model_notfound_cache.go",
+      "must_contain": [
+        "func (s *GatewayService) tkModelNotFoundShortCircuit(",
+        "func (s *GatewayService) tkModelNotFoundRecordUpstream404(",
+        "gocache.New(ttl, cleanup)",
+        "account.Platform != PlatformAnthropic"
+      ],
+      "rationale": "Anthropic model-not-found negative cache implementation (PR #817). gocache.New(ttl, cleanup) MUST stay the backing store (NOT a hand-rolled sync.Map): the go-cache janitor sweep bounds memory under an adversarial flood of distinct client-controlled bad model names — a sync.Map only evicts lazily on re-read and would leak entries for names never requested again (review R-001). The Anthropic-only guard (account.Platform != PlatformAnthropic) keeps the cache scoped to where a 404 not_found_error means the name is globally unknown (other platforms' 404 semantics differ). The cache is keyed by the POST-mapping model name so an account that remaps a typo to a valid model is never short-circuited (verified against prod data: claude-haiku-4-6 succeeds via prod model_mapping but 404s on passthrough edges)."
     }
   ]
 }
