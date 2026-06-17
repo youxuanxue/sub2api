@@ -48,12 +48,26 @@ func buildPoolExhaustedText(site, platform string, trigger *Account, until time.
 	if !until.IsZero() {
 		untilText = formatAlertTime(until)
 	}
-	return fmt.Sprintf("**节点**：%s\n**平台**：%s\n**事件**：该平台可调度账号数已降为 0,所有流量将快速失败(429)\n**压垮池的最后账号**：%s\n**该账号 reason**：%s\n**该账号冷却至**：%s\n**时间**：%s\n\n**建议**：先跑 ops/observability/scan-edge-health.sh 看各 edge 自身健康;若 reason 是 anthropic_upstream_error 且各账号几乎同秒进入冷却,优先怀疑单请求确定性 429(如长上下文 usage-credits 策略拒绝)被 failover 扇出,而非账号/edge 真实故障。",
+	return fmt.Sprintf("**节点**：%s\n**平台**：%s\n**事件**：该平台可调度账号数已降为 0,所有流量将快速失败(429)\n**压垮池的最后账号**：%s\n**该账号 reason**：%s\n**该账号冷却至**：%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(site),
 		escapeFeishuText(strings.TrimSpace(platform)),
 		escapeFeishuText(triggerLabel),
 		escapeFeishuText(strings.TrimSpace(reason)),
 		escapeFeishuText(untilText),
 		escapeFeishuText(formatAlertTime(now)),
+		// 建议文本与既有非转义字面量同形(含 / 路径),不过 escapeFeishuText。
+		poolExhaustedAdvice(platform),
 	)
+}
+
+// poolExhaustedAdvice 按平台给出"池全空"时的处置建议。anthropic 是 prod→edge
+// 镜像中继形态,排障先看各 edge 自身健康 + failover 扇出连锁(2026-06-11);而
+// openai(gpt)/gemini(google) 等是本地账号池,没有 edge 拓扑,scan-edge-health.sh
+// 对它们无意义——处置就是直接为该平台补充账号(线上 2026-06-17 反馈"我就开始配号"),
+// 或核对席位是否被打满。给错平台的 CTA 会在事故里把运维带偏,故按平台分流。
+func poolExhaustedAdvice(platform string) string {
+	if strings.TrimSpace(platform) == PlatformAnthropic {
+		return "先跑 ops/observability/scan-edge-health.sh 看各 edge 自身健康;若 reason 是 anthropic_upstream_error 且各账号几乎同秒进入冷却,优先怀疑单请求确定性 429(如长上下文 usage-credits 策略拒绝)被 failover 扇出,而非账号/edge 真实故障。"
+	}
+	return "该平台号池已空,需立即为该平台补充可调度账号;若现有账号均健康却仍不可调度,多为并发/会话席位被打满或集中冷却,核对各账号 concurrency/max_sessions 余量与冷却状态。"
 }

@@ -75,21 +75,49 @@ func TestTkPlatformPoolExhaustedCheck_QuietOnQueryError(t *testing.T) {
 	require.Empty(t, notifier.pools, "query failure must fail quiet, not page")
 }
 
-// The async wrapper only arms for anthropic; other platforms must not even
-// query (mirror-pool fan-out is the failure shape this watches).
-func TestTkCheckPlatformPoolExhausted_NonAnthropicIsNoop(t *testing.T) {
+// The pool-exhausted check is enabled per-platform; platforms outside the set
+// (kiro/newapi/grok/antigravity) must not even query the repo.
+func TestTkCheckPlatformPoolExhausted_DisabledPlatformIsNoop(t *testing.T) {
 	repo := &poolExhaustedRepoStub{}
 	notifier := &poolExhaustedNotifierStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetAccountIncidentNotifier(notifier)
 
-	service.tkCheckPlatformPoolExhausted(&Account{ID: 1, Platform: PlatformOpenAI}, time.Now(), "429")
+	service.tkCheckPlatformPoolExhausted(&Account{ID: 1, Platform: PlatformKiro}, time.Now(), "429")
 	service.tkCheckPlatformPoolExhausted(nil, time.Now(), "429")
 
-	// The anthropic path is async (delay + goroutine), so a non-anthropic
+	// The armed path is async (delay + goroutine), so a disabled-platform
 	// no-op is observable as: no goroutine ever queries the repo. Give any
 	// stray goroutine a beat to surface before asserting.
 	time.Sleep(50 * time.Millisecond)
 	require.Zero(t, repo.calls)
 	require.Empty(t, notifier.pools)
+}
+
+// The 95%-pool incident (2026-06-17) extended the immediate P0 from
+// anthropic-only to the gpt/google pools: openai + gemini must now be armed,
+// while non-pool platforms stay out.
+func TestTkPoolExhaustedEnabled_PlatformSet(t *testing.T) {
+	for _, p := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
+		require.Truef(t, tkPoolExhaustedEnabled(p), "platform %q must be armed for pool-exhausted P0", p)
+	}
+	for _, p := range []string{PlatformKiro, PlatformNewAPI, PlatformGrok, PlatformAntigravity, ""} {
+		require.Falsef(t, tkPoolExhaustedEnabled(p), "platform %q must not be armed", p)
+	}
+}
+
+// The sync check body is platform-agnostic (gating lives in the async wrapper),
+// so an empty openai/gemini pool fires the P0 just like anthropic does.
+func TestTkPlatformPoolExhaustedCheck_FiresForOpenAIAndGemini(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformGemini} {
+		repo := &poolExhaustedRepoStub{schedulable: nil}
+		notifier := &poolExhaustedNotifierStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		service.SetAccountIncidentNotifier(notifier)
+		trigger := &Account{ID: 16, Platform: platform, Type: AccountTypeAPIKey}
+
+		service.tkPlatformPoolExhaustedCheck(context.Background(), platform, trigger, time.Now().Add(10*time.Minute), "429")
+
+		require.Equalf(t, []string{platform}, notifier.pools, "empty %s pool must page P0", platform)
+	}
 }
