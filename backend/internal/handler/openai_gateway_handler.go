@@ -262,6 +262,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	// TK: /v1/responses 入口补套 group messages-dispatch 模型映射（claude 家族名 →
+	// 配置的 gpt 模型），与 /v1/messages、/v1/chat/completions 同源。否则裸 claude 名
+	// 透传 Codex/ChatGPT 后端会被上游拒为 400 "model not supported"。
+	// 见 openai_gateway_handler_tk_responses_dispatch.go。
+	forwardBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)
 
 	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
 	if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
@@ -320,6 +325,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 
+	// TK: route account selection on the same dispatch-mapped model that the forward
+	// body carries (claude 家族名 → 配置 gpt 模型），与 /v1/messages 对齐，避免
+	// scheduler 的渠道计价/模型限制与粘性按一个永不真打到上游的 claude 名判定。
+	// 见 openai_gateway_handler_tk_responses_dispatch.go。
+	selectionModel := tkResolveResponsesSelectionModel(apiKey, reqModel)
+
 	for {
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
@@ -328,7 +339,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
-			reqModel,
+			selectionModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			service.OpenAIEndpointCapabilityChatCompletions,

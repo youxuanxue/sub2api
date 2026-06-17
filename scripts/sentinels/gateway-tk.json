@@ -2662,6 +2662,22 @@
         "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {"
       ],
       "rationale": "Injection point that wires the Anthropic 403 org-ban permanent-disable (ratelimit_service_tk_anthropic_org_ban_403.go) into handle403, BEFORE the TLS-fingerprint cooldown and the handleAnthropicUpstreamError 3/3 ladder. handle403 is an upstream-shaped file whose 403 branch attracts upstream merges; without this anchor, a merge that rewrites the anthropic 403 branch could drop the one-line call and silently restore the eternal-flap behaviour (the companion file would still compile, so the gateway-tk.json file sentinel alone would not catch a dead call site). Pairs with the ratelimit_service_tk_anthropic_org_ban_403.go function/keyword sentinel."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "forwardBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)",
+        "selectionModel := tkResolveResponsesSelectionModel(apiKey, reqModel)"
+      ],
+      "rationale": "TK fix (PR #809): the two thin injection points that make the /v1/responses inbound handler apply the group messages_dispatch_model_config mapping (claude family name -> configured gpt model), at parity with /v1/messages and /v1/chat/completions. (1) tkApplyResponsesDispatchModelMapping rewrites the forward-body model before dispatch so a claude model name (e.g. claude-opus-4-7) is not sent raw to the Codex/ChatGPT backend, which rejects it with upstream 400 'model not supported when using Codex with a ChatGPT account'. (2) tkResolveResponsesSelectionModel routes account selection on the same mapped model so the scheduler's channel-pricing / model-restriction filtering and load/sticky decisions see the real upstream-bound model instead of a claude name that never reaches the upstream. service.Forward resolves the upstream model via account-level GetMappedModel + codex normalization and never consults the group dispatch config, so the body must be rewritten here. An upstream merge that rewrites the Responses handler forward-body construction or the account-selection loop would silently drop either hook and regress the fix. Pairs with the openai_gateway_handler_tk_responses_dispatch.go sentinel."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_responses_dispatch.go",
+      "must_contain": [
+        "func tkApplyResponsesDispatchModelMapping(",
+        "func tkResolveResponsesSelectionModel("
+      ],
+      "rationale": "TK companion (PR #809) holding the /v1/responses dispatch model-mapping helpers: forward-body rewrite (tkApplyResponsesDispatchModelMapping) and account-selection model (tkResolveResponsesSelectionModel). Load-bearing: deleting the file silently regresses /v1/responses for claude model names (upstream 400) and the responses<->messages selection parity. Anchored so an upstream merge or refactor cannot remove the companion without tripping the sentinel; pairs with the openai_gateway_handler.go injection-site sentinel above."
     }
   ]
 }
