@@ -84,9 +84,12 @@ func buildSessionForShape(recs []SourceRecord, summary *ExportSummary) (TrajSess
 	switch groupShape(recs) {
 	case WireAnthropicMessages:
 		return buildAnthropicMessagesSession(recs, summary)
-	// Commit B wires WireOpenAIChat / WireOpenAIResponses, Commit C wires
-	// WireGemini here. Until then non-anthropic shapes skip (the export handler
-	// still pins anthropic, so they are unreachable in production).
+	case WireOpenAIChat:
+		return buildOpenAIChatSession(recs, summary)
+	case WireOpenAIResponses:
+		return buildOpenAIResponsesSession(recs, summary)
+	// Commit C wires WireGemini here. Until then gemini/unknown shapes skip
+	// (the export handler still pins anthropic, so they are unreachable in prod).
 	default:
 		return TrajSessionV2{}, false
 	}
@@ -356,7 +359,14 @@ func buildMetaV2(recs []SourceRecord, lastReq gjson.Result, assistantModel strin
 			meta.Sampling = sampling
 		}
 	}
-	// synth/opt-in 字段（若有）。
+	applySynthMeta(&meta, recs)
+	return meta
+}
+
+// applySynthMeta folds the synth / opt-in record fields (dialog_synth,
+// synth_session_id, engineer_level, trajectory_id) into a TrajMetaV2. Shared by
+// every platform's meta builder so the synth-pipeline contract is one place.
+func applySynthMeta(meta *TrajMetaV2, recs []SourceRecord) {
 	for _, rec := range recs {
 		r := rec.Record
 		if r == nil {
@@ -375,7 +385,6 @@ func buildMetaV2(recs []SourceRecord, lastReq gjson.Result, assistantModel strin
 			meta.TrajectoryID = strings.TrimSpace(*r.TrajectoryID)
 		}
 	}
-	return meta
 }
 
 // reconstructAssistantTurn 从一条记录的 blob 重建 assistant turn 的 blocks 与 call_meta。
