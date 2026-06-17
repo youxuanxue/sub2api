@@ -232,6 +232,48 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 	require.Equal(t, 4.0, got.Usage.SevenDay.Utilization)
 }
 
+// OpenAI OAuth (codex) accounts must also carry the passive 5h/7d usage windows
+// on the prod cross-edge overview, matching the edge's own admin page. Before the
+// gate widened to IsOpenAIOAuth, only anthropic rows passed GetPassiveUsage and
+// OpenAI cells rendered "-" even though the edge page showed the 5h/7d bars.
+func TestEdgeAccountsHandler_PopulatesOpenAIOAuthUsageWindows(t *testing.T) {
+	openaiAcct := service.Account{
+		ID:          9,
+		Name:        "edge-openai-1",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		CreatedAt:   time.Now(),
+	}
+	stub := &edgeAccountsListerStub{accounts: []service.Account{openaiAcct}}
+	h := NewEdgeAccountsHandler(
+		stub,
+		fakeConcReader{m: map[int64]int{9: 1}},
+		nil,
+		nil,
+		fakeUsageReader{
+			passive: &service.UsageInfo{Source: "passive", FiveHour: &service.UsageProgress{Utilization: 12}, SevenDay: &service.UsageProgress{Utilization: 34}},
+		},
+	)
+	w := performEdgeAccountsRequest(t, h, "?platform=openai")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Accounts, 1)
+	got := env.Data.Accounts[0]
+
+	require.NotNil(t, got.Usage, "openai oauth account must carry passive 5h/7d windows on the edge overview")
+	require.Equal(t, "passive", got.Usage.Source)
+	require.NotNil(t, got.Usage.FiveHour)
+	require.Equal(t, 12.0, got.Usage.FiveHour.Utilization)
+	require.NotNil(t, got.Usage.SevenDay)
+	require.Equal(t, 34.0, got.Usage.SevenDay.Utilization)
+}
+
 func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {
 	h := NewEdgeAccountsHandler(&edgeAccountsListerStub{}, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=bogus")
