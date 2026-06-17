@@ -25,10 +25,12 @@ import "net/http"
 // non-strict edge will serve it during canary) and leave stub health untouched.
 //
 // Boundary discipline (mirrors tkSkipDownstreamNoAvailableAccountsPenalty):
-// match ONLY TokenKey's own rejection phrase. A genuine Anthropic 403
-// (organization disabled, TLS/bot challenge, permission revocation) carries no
-// such phrase and still flows through the TLS-keyword check and the tiered
-// cooldown.
+// match ONLY TokenKey's own rejection phrase. A genuine Anthropic 403 carries no
+// such phrase and falls through to the rest of handle403: an account-fatal
+// org-level ban ("not allowed for this organization" / "organization has been
+// disabled") is permanently disabled by tkTryDisableAnthropicOrgBan403, a
+// TLS/bot challenge takes the short TLS-fingerprint cooldown, and any other 403
+// flows through the tiered upstream-error cooldown.
 func tkSkipRelayedCanonicalIngressRejectPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool {
 	if statusCode != http.StatusForbidden {
 		return false
