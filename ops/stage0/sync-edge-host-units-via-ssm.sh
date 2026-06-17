@@ -27,7 +27,7 @@
 #
 # Usage:
 #   bash ops/stage0/sync-edge-host-units-via-ssm.sh <instance-id|mi-...> [comment]
-#   AWS_REGION=us-east-2 TK_QA_STALE_RETENTION_DAYS=1.5 \
+#   AWS_REGION=us-east-2 TK_QA_STALE_RETENTION_DAYS=1 \
 #     bash ops/stage0/sync-edge-host-units-via-ssm.sh mi-...
 
 set -euo pipefail
@@ -36,10 +36,10 @@ INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-ops-edge-host-units-sync}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
-# Edge QA retention in days (fractional OK). Default 1.5 = prod parity (the CFN
+# Edge QA retention in days (fractional OK). Default 1 = prod parity (the CFN
 # QaStaleRetentionDays default). edges are pure relays so QA there is low-value;
 # keep it short.
-QA_RETENTION_DAYS="${TK_QA_STALE_RETENTION_DAYS:-1.5}"
+QA_RETENTION_DAYS="${TK_QA_STALE_RETENTION_DAYS:-1}"
 
 if [ -z "${INSTANCE_ID}" ]; then
   echo "stage0_sync_edge_host_units_via_ssm: instance id is required" >&2

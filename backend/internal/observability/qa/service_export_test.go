@@ -59,6 +59,14 @@ func (m *memBlobStore) Put(_ context.Context, key string, body []byte, _ string)
 	m.objects[key] = cp
 	return "mem://" + key, nil
 }
+func (m *memBlobStore) PutReader(_ context.Context, key string, r io.Reader, _ string) (string, error) {
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	m.objects[key] = body
+	return "mem://" + key, nil
+}
 func (m *memBlobStore) Get(_ context.Context, key string) ([]byte, error) {
 	v, ok := m.objects[key]
 	if !ok {
@@ -129,6 +137,9 @@ type dlqOnlyBlobStore struct{}
 func (dlqOnlyBlobStore) Put(_ context.Context, _ string, _ []byte, _ string) (string, error) {
 	return "", errors.New("primary store unavailable")
 }
+func (dlqOnlyBlobStore) PutReader(_ context.Context, _ string, _ io.Reader, _ string) (string, error) {
+	return "", errors.New("primary store unavailable")
+}
 func (dlqOnlyBlobStore) Get(_ context.Context, _ string) ([]byte, error) { return nil, io.EOF }
 func (dlqOnlyBlobStore) Delete(_ context.Context, _ string) error        { return nil }
 func (dlqOnlyBlobStore) PresignURL(_ context.Context, _ string, _ time.Duration) (string, error) {
@@ -162,7 +173,7 @@ func TestUS075_PersistCapture_DLQDowngradesCaptureStatus(t *testing.T) {
 		client:        client,
 		store:         dlqOnlyBlobStore{},
 		cfg:           config.QACaptureConfig{Enabled: true},
-		retentionDays: 7,
+		retentionDays: 1,
 		dlqDir:        filepath.Join(t.TempDir(), "qa_dlq"),
 	}
 
@@ -576,6 +587,37 @@ func TestExportUserTrajectoryData_ScopedByAPIKey(t *testing.T) {
 	res, err := svc.ExportUserTrajectoryData(ctx, 7, ExportFilter{APIKeyID: &key1})
 	require.NoError(t, err)
 	require.Positive(t, res.RecordCount)
+}
+
+// Resilience: a single missing/pruned blob (the retention cleanup can delete a
+// blob mid-export) must NOT abort the whole export — the record is skipped and
+// the surviving records still produce a non-empty zip. Pre-fix this returned an
+// error and the user got nothing.
+func TestExportUserTrajectoryData_SkipsMissingBlob(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	simpleBlob := map[string]any{
+		"request":  map[string]any{"path": "/v1/messages", "body": map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}},
+		"response": map[string]any{"status_code": 200, "headers": map[string]any{}, "body": map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}},
+		"stream":   map[string]any{"chunks": []any{}},
+	}
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "gone", userID: 7, apiKeyID: 1, createdAt: now.Add(-2 * time.Hour)}, simpleBlob)
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "kept", userID: 7, apiKeyID: 1, createdAt: now.Add(-1 * time.Hour)}, simpleBlob)
+
+	// Simulate the "gone" record's blob being pruned out from under the export.
+	rec, err := client.QARecord.Query().Where(qarecord.RequestIDEQ("gone")).Only(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, rec.BlobURI)
+	delete(store.objects, strings.TrimPrefix(*rec.BlobURI, "mem://"))
+
+	key1 := int64(1)
+	res, err := svc.ExportUserTrajectoryData(ctx, 7, ExportFilter{APIKeyID: &key1, Format: "v2"})
+	require.NoError(t, err, "missing blob must be skipped, not abort the export")
+	require.Equal(t, 1, res.RecordCount, "only the surviving record is counted")
+	require.NotEmpty(t, res.StorageKey)
+	require.NotEmpty(t, store.objects[res.StorageKey], "zip is non-empty")
 }
 
 func TestUS077_ExportUserTrajectoryData_ProjectsSessionTurnAndTools(t *testing.T) {

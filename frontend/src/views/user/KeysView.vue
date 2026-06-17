@@ -1782,21 +1782,33 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   pendingCcsRow.value = null
 }
 
-// Export this key's captured conversation records (qa traj v2). One click:
-// build the export → download the zip. Empty capture → friendly toast, no file.
+// Export this key's captured conversation records (qa traj v2). The server
+// prepares the export asynchronously on a single off-request-path worker (a
+// large key must never block or starve the gateway), so we enqueue then poll the
+// job until it's ready, then download. Empty capture → friendly toast, no file.
 const exportKeyTraj = async (row: ApiKey) => {
   if (exportingKeyId.value !== null) return
   exportingKeyId.value = row.id
   try {
-    const result = await qaTrajAPI.exportKey(row.id)
-    if (!result.record_count) {
+    let job = await qaTrajAPI.exportKey(row.id)
+    const deadline = Date.now() + 10 * 60 * 1000
+    while (job.status === 'pending' || job.status === 'running') {
+      if (Date.now() > deadline) throw new Error('export timed out')
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      job = await qaTrajAPI.getJob(job.job_id)
+    }
+    if (job.status === 'failed') {
+      appStore.showInfo(job.error === 'no_records' ? t('keys.exportEmpty') : t('keys.exportFailed'))
+      return
+    }
+    if (!job.record_count || !job.download_url) {
       appStore.showInfo(t('keys.exportEmpty'))
       return
     }
     const stamp = new Date().toISOString().slice(0, 10)
     const safeName = (row.name || `key-${row.id}`).replace(/[^\w.-]+/g, '_')
-    await qaTrajAPI.download(result.download_url, `conversations-${safeName}-${stamp}.zip`)
-    appStore.showSuccess(t('keys.exportSuccess', { count: result.record_count }))
+    await qaTrajAPI.download(job.download_url, `conversations-${safeName}-${stamp}.zip`)
+    appStore.showSuccess(t('keys.exportSuccess', { count: job.record_count }))
   } catch (error) {
     appStore.showError(t('keys.exportFailed'))
   } finally {
