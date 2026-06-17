@@ -57,18 +57,18 @@ usermod -aG docker ec2-user
 SWAPFILE=/swapfile
 SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
 # Best-effort: swap is defense-in-depth, so a setup failure must NEVER abort the
-# essential bootstrap (every step here is `|| true`-guarded under set -e), and we
+# essential bootstrap (every step here is failure-guarded under set -e), and we
 # persist the fstab entry only after swap is confirmed active so a partial setup
-# can't leave a broken entry that trips `swapon -a` on the next boot.
+# can't leave a broken entry that trips a swapon at the next boot.
 if ! swapon --show=NAME --noheadings 2>/dev/null | grep -qx "${SWAPFILE}"; then
   if [ ! -e "${SWAPFILE}" ]; then
     fallocate -l "${SWAP_SIZE_MB}M" "${SWAPFILE}" 2>/dev/null \
       || dd if=/dev/zero of="${SWAPFILE}" bs=1M count="${SWAP_SIZE_MB}" status=none 2>/dev/null \
-      || true
+      || true  # preflight-allow: swallow — best-effort swap alloc; never abort bootstrap
   fi
-  chmod 600 "${SWAPFILE}" 2>/dev/null || true
-  mkswap "${SWAPFILE}" >/dev/null 2>&1 || true
-  swapon "${SWAPFILE}" 2>/dev/null || true
+  chmod 600 "${SWAPFILE}" 2>/dev/null || true                       # preflight-allow: swallow — best-effort swap; never abort bootstrap
+  mkswap "${SWAPFILE}" >/dev/null 2>&1 || true                      # preflight-allow: swallow — best-effort swap; never abort bootstrap
+  swapon "${SWAPFILE}" 2>/dev/null || true                         # preflight-allow: swallow — best-effort swap; never abort bootstrap
 fi
 if swapon --show=NAME --noheadings 2>/dev/null | grep -qx "${SWAPFILE}"; then
   grep -q "^${SWAPFILE} " /etc/fstab || echo "${SWAPFILE} none swap sw 0 0" >> /etc/fstab
@@ -80,7 +80,7 @@ cat > /etc/sysctl.d/90-tokenkey-swap.conf <<'SYSCTLEOF'
 vm.swappiness=10
 vm.vfs_cache_pressure=50
 SYSCTLEOF
-sysctl --system >/dev/null 2>&1 || true
+sysctl --system >/dev/null 2>&1 || true                            # preflight-allow: swallow — best-effort sysctl reload; never abort bootstrap
 
 # --- 2a. attach + mount persistent data volume --------------------------
 DATA_DEVICE='/dev/sdf'
