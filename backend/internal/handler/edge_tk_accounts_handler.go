@@ -412,8 +412,12 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		_ = eg.Wait()
 	}
 
-	// Passive 5h/7d usage windows: anthropic OAuth/setup-token only, read from
-	// persisted Extra samples (no upstream API). errgroup-bounded like window-cost.
+	// Passive 5h/7d usage windows: read from persisted Extra samples (no upstream
+	// API). anthropic OAuth/setup-token rebuild from passive_usage_* samples;
+	// openai OAuth (codex) rebuild from codex_*_used_percent samples. Both go
+	// through GetPassiveUsage, which dispatches by platform. Other platforms have
+	// no passive window source here, so they are skipped (the cell shows "-").
+	// errgroup-bounded like window-cost.
 	if h.usage != nil {
 		var mu sync.Mutex
 		eg, egctx := errgroup.WithContext(ctx)
@@ -421,7 +425,7 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		usage := make(map[int64]*service.UsageInfo)
 		for i := range accounts {
 			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() {
+			if !acc.IsAnthropicOAuthOrSetupToken() && !acc.IsOpenAIOAuth() {
 				continue
 			}
 			id := acc.ID
