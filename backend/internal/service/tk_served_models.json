@@ -145,7 +145,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-8b",
       "display": false,
-      "notes": "KNOWN GAP (#812-class): priced in overlay (added 2026-06-17 per customer request) but NO migration maps it onto account 60's credentials.model_mapping (highest model_mapping migration is tk_027; tk_028 is unrelated). Until tk_029 advertises it on account 60, the runtime pool is empty for qwen3-8b => 429/503. SEEDED ON PURPOSE so the served_on=>migration drift guard HARD-FAILS this row, surfacing the gap in CI."
+      "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812, added 2026-06-17 per customer request; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). This row was seeded in PR #819 while still gapped (priced but not yet mapped) to prove the served_on=>migration drift guard hard-fails the #812 shape; #818/tk_029 closed the gap, so A3 now passes."
     },
     "newapi/qwen3-14b": {
       "platform": "newapi",
@@ -157,7 +157,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-14b",
       "display": false,
-      "notes": "KNOWN GAP (#812-class): priced in overlay, NOT model_mapped on account 60. Same as qwen3-8b — needs tk_029. Drift guard HARD-FAILS until then."
+      "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
     },
     "newapi/qwen3-32b": {
       "platform": "newapi",
@@ -169,7 +169,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-32b",
       "display": false,
-      "notes": "KNOWN GAP (#812-class): priced in overlay, NOT model_mapped on account 60. Same as qwen3-8b — needs tk_029. Drift guard HARD-FAILS until then."
+      "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
     }
   }
 }
