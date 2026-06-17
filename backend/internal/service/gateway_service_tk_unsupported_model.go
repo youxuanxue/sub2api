@@ -88,3 +88,32 @@ func tkWrapSelectionFailure(requestedModel string, stats selectionFailureStats) 
 	}
 	return fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
 }
+
+// tkIsForwardableAnthropicModelName reports whether a (normalized) model name is
+// structurally inside the Anthropic namespace, i.e. safe to forward to
+// api.anthropic.com on a direct-Anthropic account.
+//
+// Why this exists (prod 2026-06-16, edge us3 account oh1-ls-b ID 4): a
+// passthrough (empty model_mapping) anthropic OAuth account forwards the client's
+// raw model name verbatim, but the upstream only serves claude-*. Cross-vendor
+// names (deepseek-/gpt-/gemini-/qwen- …) forwarded there always 404 AND are an
+// abuse-detection fingerprint anomaly — a real Claude Code client never asks
+// api.anthropic.com for "deepseek-v4-flash". The revoked account had sent
+// deepseek-v4-flash; the same-edge survivor account (oh1-ls-a) never sent a
+// cross-vendor name, so cross-vendor is the differentiated signal. A false
+// verdict here routes the request to the existing Path A local 400
+// (ErrUnsupportedModel) so the dirty name never leaves the gateway.
+//
+// Deliberately a namespace-prefix check, NOT a servable-catalog membership check:
+// any future claude-* model forwards with zero code edits (forward-compat), with
+// no stale-allowlist availability risk on a new-model launch day. Same-family
+// stale/typo names (claude-haiku-4-6) are intentionally allowed through — the
+// survivor sent claude-haiku-4-6 16× over 12 days and was NOT revoked, so the
+// upstream tolerates them; they are not worth the staleness cost to block.
+func tkIsForwardableAnthropicModelName(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return true // empty model name is out of this guard's scope (handled elsewhere)
+	}
+	return strings.HasPrefix(m, "claude-")
+}

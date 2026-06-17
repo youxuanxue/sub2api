@@ -93,3 +93,120 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 		}
 	})
 }
+
+// Tk cross-vendor dirty-model guard (prod 2026-06-16, edge us3 oh1-ls-b ID 4):
+// a passthrough anthropic OAuth account forwarded non-claude names
+// (deepseek-v4-flash) to api.anthropic.com → 404 + abuse fingerprint. The guard
+// converts those to a local Path A 400 (selection miss) while leaving same-family
+// names (claude-haiku-4-6, tolerated upstream) and all non-anthropic platforms
+// untouched.
+func TestTkIsForwardableAnthropicModelName(t *testing.T) {
+	forwardable := []string{
+		"claude-opus-4-8",
+		"claude-haiku-4-6",            // same-family stale/typo: intentionally allowed (upstream tolerates)
+		"claude-sonnet-4-5-20250929", // dated snapshot
+		"Claude-Opus-4-8",            // case-insensitive
+		" claude-opus-4-8 ",          // trimmed
+		"",                           // empty out of scope → allowed
+	}
+	for _, m := range forwardable {
+		if !tkIsForwardableAnthropicModelName(m) {
+			t.Errorf("tkIsForwardableAnthropicModelName(%q) = false, want true", m)
+		}
+	}
+
+	blocked := []string{
+		"deepseek-v4-flash", // the revoked account's cross-vendor leak
+		"gpt-4o",
+		"gemini-2.5-pro",
+		"qwen-max",
+		"opus", // bare family (aliased upstream at handler throat; here it is not claude-*)
+	}
+	for _, m := range blocked {
+		if tkIsForwardableAnthropicModelName(m) {
+			t.Errorf("tkIsForwardableAnthropicModelName(%q) = true, want false", m)
+		}
+	}
+}
+
+func TestIsModelSupportedByAccount_TkDirtyModelGuard(t *testing.T) {
+	svc := &GatewayService{}
+
+	// anthropic OAuth passthrough (empty model_mapping): cross-vendor blocked,
+	// real claude served, same-family stale name still forwards (Path B, tolerated).
+	anthropicOAuth := &Account{ID: 4, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+	if svc.isModelSupportedByAccount(anthropicOAuth, "deepseek-v4-flash") {
+		t.Error("anthropic OAuth passthrough should NOT support deepseek-v4-flash (cross-vendor leak)")
+	}
+	if !svc.isModelSupportedByAccount(anthropicOAuth, "claude-opus-4-8") {
+		t.Error("anthropic OAuth passthrough should support claude-opus-4-8")
+	}
+	if !svc.isModelSupportedByAccount(anthropicOAuth, "claude-haiku-4-6") {
+		t.Error("anthropic OAuth passthrough should still allow claude-haiku-4-6 (same-family, tolerated)")
+	}
+
+	// anthropic APIKey passthrough also forwards to api.anthropic.com → same guard.
+	anthropicAPIKey := &Account{ID: 5, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	if svc.isModelSupportedByAccount(anthropicAPIKey, "deepseek-v4-flash") {
+		t.Error("anthropic APIKey passthrough should NOT support deepseek-v4-flash")
+	}
+
+	// anthropic ServiceAccount (Vertex): upstream is NOT api.anthropic.com; guard
+	// must NOT apply — a claude name stays supported.
+	anthropicVertex := &Account{ID: 6, Platform: PlatformAnthropic, Type: AccountTypeServiceAccount}
+	if !svc.isModelSupportedByAccount(anthropicVertex, "claude-sonnet-4-5") {
+		t.Error("anthropic ServiceAccount (Vertex) should still support claude-sonnet-4-5")
+	}
+
+	// Non-anthropic platforms untouched: passthrough openai / newapi keep multi-vendor.
+	openai := &Account{ID: 7, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	if !svc.isModelSupportedByAccount(openai, "deepseek-v4-flash") {
+		t.Error("openai passthrough must still support arbitrary models (not anthropic-scoped)")
+	}
+	newapi := &Account{ID: 8, Platform: PlatformNewAPI, Type: AccountTypeAPIKey}
+	if !svc.isModelSupportedByAccount(newapi, "deepseek-v4-flash") {
+		t.Error("newapi (fifth platform, multi-vendor) must still support deepseek-v4-flash")
+	}
+}
+
+func TestIsModelSupportedByAccount_TkGuardWithExplicitMapping(t *testing.T) {
+	svc := &GatewayService{}
+	// An anthropic account WITH an explicit model_mapping is constrained by the
+	// mapping; the namespace guard (passthrough-only) does not run for it.
+	mapped := &Account{
+		ID:       9,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"claude-opus-4-8": "claude-opus-4-8"},
+		},
+	}
+	if !svc.isModelSupportedByAccount(mapped, "claude-opus-4-8") {
+		t.Error("mapped anthropic account should support its mapped claude model")
+	}
+	if svc.isModelSupportedByAccount(mapped, "deepseek-v4-flash") {
+		t.Error("mapped anthropic account should not support an unmapped cross-vendor model")
+	}
+
+	// Guard must NOT run for a mapped account: a non-claude REQUEST name that the
+	// account explicitly maps to a claude model is served — the forwarded model is
+	// the mapped claude name (no leak), so the passthrough-only guard does not block
+	// it. (Regression for the over-block where the guard short-circuited before the
+	// mapping was consulted.)
+	foreignToClaude := &Account{
+		ID:       10,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-4o": "claude-sonnet-4-5"},
+		},
+	}
+	if !svc.isModelSupportedByAccount(foreignToClaude, "gpt-4o") {
+		t.Error("anthropic account mapping gpt-4o->claude-sonnet-4-5 should support gpt-4o (forwarded model is claude, no leak)")
+	}
+	// A different non-claude name not in the mapping is still unsupported (mapping is
+	// the allowlist) — unchanged behavior.
+	if svc.isModelSupportedByAccount(foreignToClaude, "deepseek-v4-flash") {
+		t.Error("mapped account should not support a cross-vendor model absent from its mapping")
+	}
+}
