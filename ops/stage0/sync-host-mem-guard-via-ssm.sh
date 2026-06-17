@@ -104,11 +104,11 @@ jq -n \
       ("echo " + $dm + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
       "sudo chmod 0755 /usr/local/bin/tokenkey-disk-metrics.sh",
       "echo --- memory-pressure alert present in live script, expect 1 or more ---",
-      "grep -c '\''memory-pressure alert'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",
+      "grep -c '\''memory-pressure alert'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — host-side diagnostic count; 0 matches must not abort the remote script
       "echo --- tokenkey-disk-metrics.timer status ---",
       "sudo systemctl is-active tokenkey-disk-metrics.timer || echo TIMER_NOT_ACTIVE",
       "echo --- run disk-metrics once now to surface metric + arm alert ---",
-      "sudo /usr/local/bin/tokenkey-disk-metrics.sh || true",
+      "sudo /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — best-effort surface; the 5-min timer reruns it regardless
       "echo --- in-place sync trace ---",
       ("echo Live /swapfile + tokenkey-disk-metrics.sh now match deploy/aws/stage0/stage0-ec2-bootstrap.sh@" + $sha + " on $(hostname)")
     ]
