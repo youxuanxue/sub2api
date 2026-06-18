@@ -174,6 +174,27 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.TARGET_REGION }}
 
+      - name: Assert live-host state (prod daily audit)
+        # ADVISORY ONLY — prod only (edges are lightsail anthropic relays with no
+        # QA-export / deploy-sed env surface). Daily read-only audit of the live
+        # host's deploy_via_ssm-injected env, the gap no existing detector covered:
+        # a manual host edit or a deploy-sed that wrote wrong content used to be
+        # caught only by hand. No expected_tag here (audit doesn't know the
+        # intended tag — that assertion belongs in deploy-stage0 post-deploy).
+        if: steps.precheck.outputs.skip == 'false' && env.TARGET_PLATFORM != 'lightsail'
+        continue-on-error: true
+        env:
+          AWS_REGION: ${{ matrix.region }}
+        run: |
+          set -uo pipefail
+          IID=$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text 2>/dev/null || echo None)
+          if [ -n "$IID" ] && [ "$IID" != "None" ]; then
+            bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
+          else
+            echo "skip live-host audit: no InstanceId for $STACK_NAME"
+          fi
+
       - name: Run target diagnostics
         if: steps.precheck.outputs.skip == 'false'
         env:

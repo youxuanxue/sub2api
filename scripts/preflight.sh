@@ -1058,6 +1058,25 @@ else
     echo "  ok: edge-health alert decision/dedup fixtures pass"
 fi
 
+# live-host state drift verdict (ops/stage0/live_host_state_verdict.py): the logic
+# half of assert-live-host-state.sh (the read-only SSM probe wired into
+# deploy-stage0.yml post-deploy + ops-daily-diagnostics.yml). Fixtures pin the
+# drift cases that have bitten — a silent image-tag rollback and a missing
+# deploy_via_ssm-injected env key (the 2026-06 "3× repeat") — so a logic
+# regression fails preflight instead of going silent. Read-only, no AWS.
+echo ""
+echo "=== sub2api: live-host state verdict selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for live-host state verdict selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/live_host_state_verdict.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: live-host state verdict selftest"
+    echo "        — run: python3 ops/stage0/live_host_state_verdict.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: live-host state verdict drift fixtures pass"
+fi
+
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
 # The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
 # sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh
