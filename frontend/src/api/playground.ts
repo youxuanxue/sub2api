@@ -34,6 +34,17 @@ export const PLAYGROUND_MAX_TOKENS_CAP = 4096
 /** Max user+assistant turns kept in browser memory. */
 export const PLAYGROUND_MAX_TURNS = 50
 export const PLAYGROUND_FETCH_TIMEOUT_MS = 60_000
+/**
+ * Video-task FETCH timeout. Must be far larger than the chat/submit timeout: a
+ * Veo terminal SUCCESS response carries the generated clip as INLINE base64
+ * (response.videos[0].bytesBase64Encoded, 10–20 MB) which takes ~30s to stream
+ * back through the gateway. The old 30s ceiling aborted exactly on that body,
+ * and because the backend deletes the registry record on terminal status, the
+ * retry then 404'd → the card showed a false "failed — refunded" for a video
+ * that actually generated (and was billed). 180s gives the large body ample
+ * headroom; processing polls return in ms and are unaffected.
+ */
+export const PLAYGROUND_VIDEO_FETCH_TIMEOUT_MS = 180_000
 
 function stripTrailingSlashes(u: string): string {
   return u.replace(/\/+$/, '')
@@ -279,5 +290,8 @@ export async function gatewayVideoFetch(
   signal?: AbortSignal
 ): Promise<unknown> {
   const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/video/generations/${encodeURIComponent(taskId)}`
-  return gatewayRequestJSON(apiKey, url, { method: 'GET', timeoutMs: 30_000 }, signal)
+  // 180s, not 30s: the terminal SUCCESS body is a 10–20 MB inline base64 clip
+  // (see PLAYGROUND_VIDEO_FETCH_TIMEOUT_MS) — a short timeout aborts mid-download
+  // and the poll then mis-reports the (actually generated) video as failed.
+  return gatewayRequestJSON(apiKey, url, { method: 'GET', timeoutMs: PLAYGROUND_VIDEO_FETCH_TIMEOUT_MS }, signal)
 }

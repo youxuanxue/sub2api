@@ -57,10 +57,23 @@
           </button>
         </div>
 
-        <div v-if="modality === 'video'" class="mt-3 flex items-center gap-3">
+        <!-- Shared duration is a TARGET across the compared models; chips are the
+             UNION of the selected models' accepted durations and each panel snaps
+             to its own model's nearest valid value (Veo 4/6/8 vs Seedance 5/10
+             share none), so no panel is ever submitted an out-of-range duration. -->
+        <div v-if="modality === 'video' && durationOptions.length" class="mt-3 flex flex-wrap items-center gap-2">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.duration') }}</span>
-          <input v-model.number="duration" type="range" :min="VIDEO_DURATION_MIN" :max="VIDEO_DURATION_MAX" step="1" class="w-48 accent-primary-600" :disabled="running" />
-          <span class="rounded-md bg-primary-50 px-2 py-0.5 text-sm font-bold text-primary-700 tabular-nums dark:bg-primary-950/50 dark:text-primary-300">{{ duration }} s</span>
+          <button
+            v-for="d in durationOptions"
+            :key="d"
+            type="button"
+            class="rounded-lg border px-3 py-1.5 text-sm font-medium tabular-nums transition disabled:cursor-not-allowed disabled:opacity-50"
+            :class="duration === d ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
+            :disabled="running"
+            @click="duration = d"
+          >
+            {{ d }} s
+          </button>
         </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -128,14 +141,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
 import { extractImageItems, extractVideoTaskId, videoStateFromFetch, extractVideoUrl } from '@/constants/playgroundMedia.tk'
 import {
-  VIDEO_DURATION_MIN,
-  VIDEO_DURATION_MAX,
   VIDEO_DURATION_DEFAULT,
+  videoDurationDefault,
+  snapVideoDuration,
   resolveAvailableModels,
   type StudioModality,
   type MediaPriceMap,
@@ -179,6 +192,8 @@ interface BakePanel {
   label: string
   vendorLabel: string
   cost: number
+  /** Video only: this model's snapped duration (seconds) actually submitted. */
+  seconds?: number
   state: 'idle' | 'processing' | 'succeeded' | 'failed'
   src?: string
   taskId?: string
@@ -216,12 +231,33 @@ function selectedResolved() {
   return models.value.filter((r) => selectedModelIds.value.includes(r.model.modelId))
 }
 
+// Union of the selected video models' accepted durations (sorted, deduped) →
+// the shared chip options. Each panel later snaps this target to its own model.
+const durationOptions = computed<number[]>(() => {
+  if (modality.value !== 'video') return []
+  const set = new Set<number>()
+  for (const r of selectedResolved()) for (const d of r.model.videoDurations ?? []) set.add(d)
+  return [...set].sort((a, b) => a - b)
+})
+
+// Keep the shared target inside the union; default to its MAX (user directive).
+watch(durationOptions, (opts) => {
+  if (opts.length && !opts.includes(duration.value)) {
+    duration.value = videoDurationDefault(opts)
+  }
+})
+
+/** Per-panel duration: the shared target snapped to THIS model's accepted set. */
+function panelSeconds(r: { model: { videoDurations?: number[] } }): number {
+  return snapVideoDuration(duration.value, r.model.videoDurations)
+}
+
 const totalCost = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
       return sum + estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
     }
-    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
+    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier })
   }, 0)
 )
 
@@ -231,7 +267,7 @@ const totalHold = computed(() =>
     if (modality.value === 'image') {
       return sum + estimateImageHoldCost({ baseImagePrice: r.baseImagePrice || 0, n: 1, rateMultiplier: props.rateMultiplier })
     }
-    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
+    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier })
   }, 0)
 )
 const canAfford = computed(() => totalHold.value <= props.balance)
@@ -277,7 +313,8 @@ async function run(): Promise<void> {
     cost:
       modality.value === 'image'
         ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
-        : estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier }),
+        : estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier }),
+    seconds: modality.value === 'video' ? panelSeconds(r) : undefined,
     state: 'processing',
   }))
 
@@ -303,7 +340,7 @@ async function run(): Promise<void> {
       await Promise.all(
         panels.value.map(async (panel) => {
           try {
-            const raw = await gatewayVideoSubmit(props.apiKey, props.gatewayBase, { model: panel.servedId, prompt: text, duration: duration.value })
+            const raw = await gatewayVideoSubmit(props.apiKey, props.gatewayBase, { model: panel.servedId, prompt: text, duration: panel.seconds })
             const taskId = extractVideoTaskId(raw)
             if (!taskId) throw new Error('no_task')
             panel.taskId = taskId
@@ -315,7 +352,7 @@ async function run(): Promise<void> {
               prompt: text,
               model: panel.servedId,
               vendorLabel: panel.vendorLabel,
-              seconds: duration.value,
+              seconds: panel.seconds ?? duration.value,
               estCost: panel.cost,
               keyId: props.keyId as number,
               state,

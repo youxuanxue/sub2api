@@ -370,19 +370,23 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		_, _ = c.Writer.Write(out.RawResponse)
 	}
 
-	// On terminal status we drop the entry to bound storage; clients that
-	// need the URL must have already consumed the response body above.
-	if terminal, failed := videoTerminalOutcome(out.Status); terminal {
+	// Terminal handling. We delete the registry entry ONLY on terminal FAILURE
+	// (paired with the refund). Terminal SUCCESS is deliberately KEPT until its
+	// TTL: a Veo success body is a 10–20 MB inline base64 clip that takes ~30s to
+	// stream, and a client whose fetch is aborted mid-download (slow link, tab
+	// switch, an over-tight client timeout) must be able to RE-FETCH it. Deleting
+	// on success made that retry 404, which the Studio then rendered as a false
+	// "failed — refunded" card for a video that actually generated and was billed.
+	// Storage stays bounded by the record TTL either way.
+	if terminal, failed := videoTerminalOutcome(out.Status); terminal && failed {
 		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
-		if failed {
-			// The user paid at submit for a video that never materialized —
-			// reverse the charge. Idempotency lives in the refund itself
-			// (usage_billing_dedup keyed by the public task id), so a concurrent
-			// poll racing this Delete cannot double-refund. Clients that never
-			// poll a failed task are never refunded (registry record expires
-			// with its TTL); openai_video_refund.* logs are the audit trail.
-			h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
-		}
+		// The user paid at submit for a video that never materialized — reverse
+		// the charge. Idempotency lives in the refund itself (usage_billing_dedup
+		// keyed by the public task id), so a concurrent poll racing this Delete
+		// cannot double-refund. Clients that never poll a failed task are never
+		// refunded (registry record expires with its TTL); openai_video_refund.*
+		// logs are the audit trail.
+		h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
 	}
 }
 
