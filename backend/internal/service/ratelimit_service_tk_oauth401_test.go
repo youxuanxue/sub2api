@@ -151,3 +151,48 @@ func TestRateLimitService_OAuth401_ValidTokenDeferredDuringClaudeIncident(t *tes
 	require.Equal(t, 0, repo.setErrorCalls, "incident 期间 valid-token 401 不得永久禁用")
 	require.Equal(t, 1, repo.tempCalls, "incident 期间回退 temp_unschedulable 冷却")
 }
+
+// Claude API 故障期间：setup-token 账号的 401 也走统一豁免（顶层 anthropic gate 覆盖
+// 非-OAuth/缺-refresh 等所有子路径），不永久禁用、改回退冷却。
+func TestRateLimitService_OAuth401_SetupTokenDeferredDuringClaudeIncident(t *testing.T) {
+	setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: true, Status: "partial_outage", FetchedAt: time.Now()})
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       709,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeSetupToken,
+		Credentials: map[string]any{
+			"expires_at": time.Now().Add(300 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "incident 期间 setup-token 401 不得永久禁用")
+	require.Equal(t, 1, repo.tempCalls, "incident 期间回退 temp_unschedulable 冷却")
+}
+
+// 反向校准：incident gate 只对 anthropic 生效。Claude API 故障期间，一个 OpenAI OAuth
+// 账号的有效-token 401 仍照常永久禁用（Anthropic 状态与它无关，不得被误延后）。
+func TestRateLimitService_OAuth401_NonAnthropicNotDeferredDuringClaudeIncident(t *testing.T) {
+	setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: true, Status: "major_outage", FetchedAt: time.Now()})
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       710,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"refresh_token": "rt",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339), // solidly valid
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "non-anthropic valid-token 401 不受 Claude incident gate 影响，照常永久禁用")
+	require.Equal(t, 0, repo.tempCalls)
+}

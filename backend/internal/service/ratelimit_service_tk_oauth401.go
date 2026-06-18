@@ -62,16 +62,9 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 	if time.Until(*expiresAt) < s.tkOAuth401ValidTokenMargin() {
 		return false
 	}
-	// TK: token solidly valid 通常即 grant 吊销，但 Claude API 故障期间上游可能对全队有效
-	// token 误发 401——这里第一次即永久禁用会把全池一起打死。与 403/429 路径同口径，尊重
-	// IsClaudeAPIIncident()：故障期间不永久禁用，返回 false 让调用方走 temp_unschedulable
-	// 冷却（故障结束自愈；若届时 401 仍在，下一发请求再永久禁用）。
-	if IsClaudeAPIIncident() {
-		slog.Warn("oauth_401_valid_token_revoke_deferred_during_incident",
-			"account_id", account.ID, "platform", account.Platform)
-		return false
-	}
 	// token 仍 solidly valid 却被上游 401 → grant 吊销 → 第一次即禁用，人工重授权。
+	// （Claude API 故障期间对全队的统一豁免在 HandleUpstreamError 的 case 401 顶部、
+	// 进入本函数之前就拦截了，见 ratelimit_service.go oauth_401_disable_deferred_during_incident。）
 	msg := "OAuth 401 on a still-valid access token — grant revoked upstream, manual re-authorization required (re-login via account management)"
 	if strings.TrimSpace(upstreamMsg) != "" {
 		msg = msg + ": " + upstreamMsg
