@@ -83,19 +83,31 @@ func (s *Service) runAutoExportOnce(ctx context.Context, dayStart time.Time) {
 		return
 	}
 
-	var enqueued, failed int
+	// Archive one pair at a time (ArchiveAuto blocks until each completes). This
+	// can never overflow/drop like a fan-out of TrySubmits would, and keeps a
+	// single export running at a time. Honor the stop signal between pairs so a
+	// shutdown mid-sweep doesn't keep submitting to a stopping pool.
+	var done, failed int
 	for _, p := range pairs {
+		select {
+		case <-s.autoExportStop:
+			logger.L().Info("qa auto-export: stopped mid-sweep", zap.Int("done", done), zap.Int("failed", failed))
+			return
+		default:
+		}
 		if !enabled[p.UserID] {
 			continue
 		}
-		if _, err := s.EnqueueAutoExport(ctx, p.UserID, p.APIKeyID, dayStart); err != nil {
+		job, err := s.ArchiveAuto(ctx, p.UserID, p.APIKeyID, dayStart)
+		if err != nil || job.Status == ExportJobFailed {
 			failed++
-			logger.L().Warn("qa auto-export: enqueue failed",
-				zap.Int64("user_id", p.UserID), zap.Int64("api_key_id", p.APIKeyID), zap.Error(err))
+			logger.L().Warn("qa auto-export: archive failed",
+				zap.Int64("user_id", p.UserID), zap.Int64("api_key_id", p.APIKeyID),
+				zap.String("error", job.Error), zap.Error(err))
 			continue
 		}
-		enqueued++
+		done++
 	}
-	logger.L().Info("qa auto-export: daily archive enqueued",
-		zap.Time("day", dayStart), zap.Int("enqueued", enqueued), zap.Int("failed", failed))
+	logger.L().Info("qa auto-export: daily archive complete",
+		zap.Time("day", dayStart), zap.Int("done", done), zap.Int("failed", failed))
 }

@@ -151,9 +151,10 @@ func TestListExports_OwnerIsolationAndKeyScope(t *testing.T) {
 	require.Equal(t, "u8k1", all8[0].ID)
 }
 
-// The daily archive is idempotent: re-running the same (user, key, day) upserts
-// one row (deterministic job_id) rather than duplicating.
-func TestEnqueueAutoExport_IdempotentAndArchivesDay(t *testing.T) {
+// The daily archive runs synchronously (ArchiveAuto blocks to completion), is
+// idempotent (re-running the same (user, key, day) upserts one row), and stamps
+// the longer auto retention window on expires_at (7d, not the 24h URL TTL).
+func TestArchiveAuto_IdempotentAndArchivesDay(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()
 	day := time.Now().UTC().Truncate(24 * time.Hour)
@@ -161,17 +162,21 @@ func TestEnqueueAutoExport_IdempotentAndArchivesDay(t *testing.T) {
 		requestID: "auto-1", userID: 7, apiKeyID: 9, createdAt: day.Add(time.Hour),
 	}, trajBlobFixture())
 
-	job, err := svc.EnqueueAutoExport(ctx, 7, 9, day)
+	job, err := svc.ArchiveAuto(ctx, 7, 9, day)
 	require.NoError(t, err)
 	require.Equal(t, autoExportJobID(7, 9, day), job.ID)
+	// ArchiveAuto is synchronous — the returned snapshot is already terminal.
+	require.Equal(t, ExportJobDone, job.Status, "err=%s", job.Error)
+	require.Contains(t, job.StorageKey, "/9/auto/")
+	require.Contains(t, job.StorageKey, day.Format("2006-01-02"))
 
-	done := waitExport(t, svc, 7, job.ID)
-	require.Equal(t, ExportJobDone, done.Status, "err=%s", done.Error)
-	require.Contains(t, done.StorageKey, "/9/auto/")
-	require.Contains(t, done.StorageKey, day.Format("2006-01-02"))
+	// R-001: an auto archive is downloadable for the 7-day retention window, not
+	// the 24h presigned-URL TTL.
+	require.WithinDuration(t, time.Now().UTC().Add(autoExportArtifactTTL), job.ExpiresAt, 5*time.Minute)
+	require.Greater(t, job.ExpiresAt.Sub(time.Now().UTC()), presignedURLTTL, "auto TTL exceeds the 24h manual TTL")
 
 	// Re-run the same day → still exactly one row.
-	_, err = svc.EnqueueAutoExport(ctx, 7, 9, day)
+	_, err = svc.ArchiveAuto(ctx, 7, 9, day)
 	require.NoError(t, err)
 	n, err := client.QAExportJob.Query().Where(qaexportjob.JobIDEQ(job.ID)).Count(ctx)
 	require.NoError(t, err)

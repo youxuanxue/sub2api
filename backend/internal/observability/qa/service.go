@@ -558,9 +558,10 @@ func exportKeyExpired(key string, now time.Time) bool {
 	if nanos, err := strconv.ParseInt(stamp, 10, 64); err == nil {
 		return !now.Before(time.Unix(0, nanos).UTC().Add(presignedURLTTL))
 	}
-	// auto exports embed the archived day (YYYY-MM-DD) — expire one TTL after it.
+	// auto exports embed the archived day (YYYY-MM-DD) and are retained for the
+	// longer auto-archive TTL (matching their S3 lifecycle), not the 24h URL TTL.
 	if day, err := time.Parse("2006-01-02", stamp); err == nil {
-		return !now.Before(day.UTC().Add(presignedURLTTL))
+		return !now.Before(day.UTC().Add(autoExportArtifactTTL))
 	}
 	// Unparseable (legacy or unexpected) keys are not gated here; the store's
 	// own lifecycle (host cleanup / S3 expiration) remains the backstop.

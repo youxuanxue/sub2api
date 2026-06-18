@@ -42,6 +42,9 @@ const (
 	// exportJobMaxRuntime bounds one export so a pathological run can't hold the
 	// worker forever.
 	exportJobMaxRuntime = 30 * time.Minute
+	// autoExportArtifactTTL is how long a daily auto archive stays downloadable;
+	// matches the recommended S3 lifecycle expiration for the traj-exports prefix.
+	autoExportArtifactTTL = 7 * 24 * time.Hour
 	// exportListLimit caps the "my exports" panel listing per (user[, key]).
 	exportListLimit = 50
 )
@@ -117,10 +120,19 @@ func (s *Service) EnqueueExport(ctx context.Context, userID int64, filter Export
 	return snap, nil
 }
 
-// EnqueueAutoExport registers/refreshes the daily archive for one (user, key,
-// day). The job_id is deterministic so a same-day re-run upserts the same row
-// (idempotent) instead of duplicating. window covers [dayStart, dayEnd).
-func (s *Service) EnqueueAutoExport(ctx context.Context, userID, apiKeyID int64, dayStart time.Time) (ExportJob, error) {
+// ArchiveAuto registers/refreshes the daily archive for one (user, key, day)
+// and runs it to completion synchronously. The job_id is deterministic so a
+// same-day re-run upserts the same row (idempotent) instead of duplicating;
+// window covers [dayStart, dayEnd).
+//
+// Unlike the user-initiated EnqueueExport (which TrySubmits and returns busy so
+// the gateway never blocks), the daily cron calls this sequentially per pair and
+// Submit().Wait()s each one. Submitting one task at a time can never overflow the
+// worker's bounded queue, so no archive is ever dropped — and routing through the
+// SAME single worker keeps "at most one export materializes at a time" intact
+// (no auto/manual I/O overlap). The trade-off is the cron blocks per archive,
+// which is exactly what we want for an off-peak background sweep.
+func (s *Service) ArchiveAuto(ctx context.Context, userID, apiKeyID int64, dayStart time.Time) (ExportJob, error) {
 	s.ensureExportPool()
 	dayStart = dayStart.UTC().Truncate(24 * time.Hour)
 	dayEnd := dayStart.Add(24 * time.Hour)
@@ -136,7 +148,7 @@ func (s *Service) EnqueueAutoExport(ctx context.Context, userID, apiKeyID int64,
 
 	// Upsert the row to pending — a re-run of an already-archived day just
 	// rebuilds it (overwriting the same dated S3 object).
-	err := s.client.QAExportJob.Create().
+	if err := s.client.QAExportJob.Create().
 		SetJobID(jobID).
 		SetUserID(userID).
 		SetAPIKeyID(apiKeyID).
@@ -147,21 +159,23 @@ func (s *Service) EnqueueAutoExport(ctx context.Context, userID, apiKeyID int64,
 		SetWindowEnd(dayEnd).
 		OnConflictColumns(qaexportjob.FieldJobID).
 		UpdateNewValues().
-		Exec(ctx)
-	if err != nil {
+		Exec(ctx); err != nil {
 		return ExportJob{}, err
 	}
 
-	_, ok := s.exportPool.TrySubmit(func() { s.runExportJob(jobID, userID, filter) })
-	if !ok {
-		s.setExportJobFailed(jobID, exportErrBusy)
-		snap, _ := s.GetExportJob(ctx, userID, jobID)
-		return snap, ErrExportBusy
+	// Blocking submit + wait: backpressure instead of drop, single-worker serialized.
+	// Wait() only returns non-nil if the worker task panicked (runExportJob records
+	// its own terminal state); log that so a crashed archive isn't silent.
+	if werr := s.exportPool.Submit(func() { s.runExportJob(jobID, userID, filter) }).Wait(); werr != nil {
+		logger.L().Warn("qa auto-export: worker task error", zap.String("job_id", jobID), zap.Error(werr))
 	}
 	snap, _ := s.GetExportJob(ctx, userID, jobID)
 	return snap, nil
 }
 
+// runExportJob is the worker body shared by the manual (EnqueueExport) and auto
+// (ArchiveAuto) paths. It marks the job running, builds the zip off the request
+// path (bounded by exportJobMaxRuntime), and records the terminal state.
 func (s *Service) runExportJob(jobID string, userID int64, filter ExportFilter) {
 	// Background (not request) context so the export completes even after the
 	// client disconnects — bounded by exportJobMaxRuntime.
@@ -182,15 +196,28 @@ func (s *Service) runExportJob(jobID string, userID int64, filter ExportFilter) 
 		s.setExportJobFailed(jobID, exportJobErrorCode(err))
 		return
 	}
+	// expires_at follows the artifact's retention (auto archives live 7 days in
+	// S3; manual exports 24h), NOT the presigned-URL lifetime — the URL is
+	// re-signed fresh on every list, so the row's expiry is what gates how long
+	// the panel keeps offering the download.
 	if _, uerr := s.client.QAExportJob.Update().
 		Where(qaexportjob.JobIDEQ(jobID)).
 		SetStatus(string(ExportJobDone)).
 		SetStorageKey(res.StorageKey).
 		SetRecordCount(res.RecordCount).
-		SetExpiresAt(res.ExpiresAt).
+		SetExpiresAt(time.Now().UTC().Add(exportArtifactTTL(filter.Kind))).
 		Save(context.Background()); uerr != nil {
 		logger.L().Warn("traj export: mark done failed", zap.String("job_id", jobID), zap.Error(uerr))
 	}
+}
+
+// exportArtifactTTL is how long a finished export stays downloadable: auto daily
+// archives are retained 7 days (matching the S3 lifecycle), manual exports 24h.
+func exportArtifactTTL(kind string) time.Duration {
+	if strings.EqualFold(strings.TrimSpace(kind), exportKindAuto) {
+		return autoExportArtifactTTL
+	}
+	return presignedURLTTL
 }
 
 // GetExportJob returns a snapshot of the job if it exists and is owned by userID.
