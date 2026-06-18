@@ -163,6 +163,18 @@ jobs:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
         run: bash ops/stage0/check_exclusive_group_orphans_via_ssm.sh "$INSTANCE_ID" "deploy-stage0 orphan check env=prod"
 
+      - name: Assert live-host state (drift check)
+        # ADVISORY ONLY — never blocks the deploy. Reads (read-only) the running
+        # container image tag + the deploy_via_ssm-injected env (SERVER_FRONTEND_URL,
+        # QA_CAPTURE_EXPORT_STORAGE_*) and warns if the live host drifted from what
+        # this deploy intended (the running tag != the tag we just deployed, or a
+        # sed-injection that wrote the wrong content — the 2026-06 "3× repeat" was
+        # caught only by a human probing by hand; this makes it an automatic warning).
+        continue-on-error: true
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$INPUT_TAG" "deploy-stage0 live-host assert env=prod"
+
       - name: Sync Feishu alert config
         # Inject the shared Feishu webhook/secret into prod's
         # ops_email_notification_config and enable alerting (idempotent). The
