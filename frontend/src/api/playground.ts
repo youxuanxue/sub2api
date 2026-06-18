@@ -196,6 +196,29 @@ export async function gatewayImageGenerations(
   )
 }
 
+/**
+ * Re-mint a fresh short-lived presigned URL for an already-offloaded image, given
+ * its S3 key (data[].s3_key from a prior generation). The gateway-issued presigned
+ * URL is intentionally short-lived, so a Studio session reloaded from localStorage
+ * calls this on mount to refresh persisted images — no re-generation, no re-bill.
+ * Returns '' on any failure; the caller keeps the cached (possibly expired) URL.
+ */
+export async function gatewayImagePresign(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  key: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/images/presign`
+  const resp = (await gatewayRequestJSON(
+    apiKey,
+    url,
+    { method: 'POST', body: { key }, timeoutMs: 15_000 },
+    signal
+  )) as { url?: unknown }
+  return typeof resp?.url === 'string' ? resp.url : ''
+}
+
 /** A multimodal user-message content part (text or an image reference). */
 type ChatContentPart =
   | { type: 'text'; text: string }

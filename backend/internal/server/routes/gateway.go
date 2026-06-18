@@ -60,6 +60,9 @@ func RegisterGatewayRoutes(
 		gateway.POST("/embeddings", tkOpenAICompatEmbeddingsHandler(h))
 		gateway.POST("/images/generations", tkOpenAICompatImageGenerationsHandler(h))
 		gateway.POST("/images/edits", tkOpenAICompatImageEditsHandler(h))
+		// TK: re-mint a short-lived presigned URL for an already-offloaded image
+		// (the Studio reload path). Utility endpoint — no group-platform routing.
+		gateway.POST("/images/presign", h.OpenAIGateway.ImagesPresign)
 		registerTKOpenAICompatVideoRoutes(gateway, h)
 	}
 
@@ -91,6 +94,8 @@ func RegisterGatewayRoutes(
 	r.POST("/embeddings", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
 	r.POST("/images/generations", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
 	r.POST("/images/edits", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageEditsHandler(h))
+	// TK: presigned-URL re-mint for offloaded images (Studio reload), no-prefix alias.
+	r.POST("/images/presign", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.ImagesPresign)
 	registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)

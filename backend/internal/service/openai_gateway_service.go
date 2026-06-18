@@ -387,6 +387,7 @@ type OpenAIGatewayService struct {
 	balanceNotifyService  *BalanceNotifyService
 	settingService        *SettingService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	mediaStore            MediaStore // TK; wired via SetMediaStore — see openai_images_s3_tk.go. nil ⇒ inline base64 passthrough.
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once

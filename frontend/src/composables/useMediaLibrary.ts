@@ -22,6 +22,13 @@ export type VideoTaskState = 'processing' | 'succeeded' | 'failed'
 export interface ImageHistoryItem {
   id: string
   src: string
+  /**
+   * S3 key when the image was offloaded by the gateway. `src` is then a short-lived
+   * presigned URL; on reload the Studio re-mints a fresh one from this key (POST
+   * /v1/images/presign) so persisted thumbnails don't break. Absent for inline
+   * data: URI images (gemini-native), which never expire.
+   */
+  s3Key?: string
   prompt: string
   revisedPrompt?: string
   model: string

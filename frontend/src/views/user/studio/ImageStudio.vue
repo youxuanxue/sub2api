@@ -235,7 +235,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt } from '@/api/playground'
+import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt, gatewayImagePresign } from '@/api/playground'
 import { extractImageItems, extractChatImageItems, pickVisionChatModel } from '@/constants/playgroundMedia.tk'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import {
@@ -450,7 +450,34 @@ function reuseAndClose(img: ImageHistoryItem): void {
 function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape' && preview.value) closePreview()
 }
-onMounted(() => window.addEventListener('keydown', onKeydown))
+/**
+ * Re-mint fresh presigned URLs for persisted offloaded images. Studio history is
+ * localStorage-backed, but a presigned URL is intentionally short-lived, so on a
+ * reload the stored `src` for an offloaded image may have expired (broken <img>).
+ * Mirror VideoStudio's poll.refreshUrl: for every persisted image carrying an
+ * s3Key, re-presign from the key (no re-generation, no re-bill) and patch `src`.
+ * Best-effort — a failure keeps the cached URL, at worst a stale thumbnail.
+ */
+async function refreshOffloadedImageUrls(): Promise<void> {
+  if (!props.apiKey) return
+  const stale = library.images.value.filter((it) => it.s3Key)
+  if (!stale.length) return
+  await Promise.all(
+    stale.map(async (it) => {
+      try {
+        const url = await gatewayImagePresign(props.apiKey, props.gatewayBase, it.s3Key as string)
+        if (url) it.src = url // deep watch in useMediaLibrary persists the refresh
+      } catch {
+        /* keep the cached URL — history is a convenience, not correctness */
+      }
+    })
+  )
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  void refreshOffloadedImageUrls()
+})
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 // Batch export: browsers throttle a burst of synchronous downloads, so stagger
@@ -502,6 +529,7 @@ async function generate(): Promise<void> {
     const history: ImageHistoryItem[] = items.map((it, i) => ({
       id: `${ts}-${i}-${Math.round(perImage * 1e6)}`,
       src: it.src,
+      s3Key: it.s3Key,
       prompt: text,
       revisedPrompt: it.revisedPrompt,
       model: resolved.servedId,

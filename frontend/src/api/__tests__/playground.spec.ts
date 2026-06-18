@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   gatewayImageGenerations,
+  gatewayImagePresign,
   gatewayVideoSubmit,
   gatewayGeminiImageViaChat,
   gatewayImageToPrompt,
@@ -38,6 +39,40 @@ describe('gatewayImageGenerations payload', () => {
   it('sends size + n when provided (imagen/seedream honor no other params)', async () => {
     await gatewayImageGenerations('k', 'http://x', { model: 'm', prompt: 'hi', size: '1024x1024', n: 2 })
     expect(getBody()).toEqual({ model: 'm', prompt: 'hi', size: '1024x1024', n: 2 })
+  })
+})
+
+describe('gatewayImagePresign', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('POSTs the key and returns the re-minted url', async () => {
+    let sentUrl = ''
+    let sentBody: Record<string, unknown> = {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        sentUrl = url
+        sentBody = JSON.parse((init.body as string) || '{}')
+        return new Response(JSON.stringify({ url: 'https://s3.example/media/images/abc.png?sig=fresh' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+    )
+    const url = await gatewayImagePresign('k', 'http://x/', 'media/images/abc.png')
+    expect(sentUrl).toBe('http://x/v1/images/presign')
+    expect(sentBody).toEqual({ key: 'media/images/abc.png' })
+    expect(url).toBe('https://s3.example/media/images/abc.png?sig=fresh')
+  })
+
+  it('returns empty string when the response carries no url', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      )
+    )
+    expect(await gatewayImagePresign('k', 'http://x', 'media/images/abc.png')).toBe('')
   })
 })
 
