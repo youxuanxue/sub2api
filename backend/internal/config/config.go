@@ -1368,29 +1368,6 @@ type RateLimitConfig struct {
 	// AnthropicErrorWindowMinutes 控制阈值短窗口长度（默认 1 分钟）。零值或负值
 	// 回退到内置默认。
 	AnthropicErrorWindowMinutes int `mapstructure:"anthropic_error_window_minutes"`
-
-	// OAuth401AfterRefreshDisableThreshold 控制「token 被成功刷新过却仍持续 401」
-	// 升级为 error 永久停调度的阈值。token 版本闸门已过滤掉过期/并发/同 token 突发，
-	// 故默认 1：第一次 401 种 baseline、其后一次版本递增的 401（=一个完整 flap 周期）
-	// 即判定 grant 被吊销并升级。可线上调 2/3 换取更多缓冲。零值或负值回退到默认 1。
-	OAuth401AfterRefreshDisableThreshold int `mapstructure:"oauth_401_after_refresh_disable_threshold"`
-
-	// OAuth401AfterRefreshWindowMinutes 控制上面 baseline token 版本的存活窗口（默认
-	// 60 分钟）。跨窗口的 401 会重新种 baseline 而非升级，防止几小时前的良性瞬时 401
-	// 与今天一次新瞬时 401 凑成误升级。零值或负值回退到默认 60。
-	OAuth401AfterRefreshWindowMinutes int `mapstructure:"oauth_401_after_refresh_window_minutes"`
-
-	// OAuth401SameVersionDisableThreshold 控制「token 仍有效却在同一版本上持续 401」
-	// 升级为 error 永久停调度的阈值——补 OAuth401AfterRefreshDisableThreshold 的结构性
-	// 盲区。后者要求 token 版本递增（=其间发生过 refresh）才计数；但 grant 被上游吊销
-	// 而 access_token 仍在有效期内时，NeedsRefresh=false → 永不刷新 → 版本冻结 → 那个
-	// 闸门永不前进，账号在 active⇄临时不可调度 之间无限 flap、永不升级、永不告警。
-	// 本阈值用「同一版本跨多个冷却周期 401」（带去抖折叠并发突发）作第二触发：默认 1，
-	// 即第一次 401 种 baseline、跨一个冷却周期后的同版本 401 即判定吊销并升级。
-	// 注意权衡：调低告警更快但若 Anthropic 侧对有效 token 发生短暂全网 401 抖动，会更易
-	// 把整池账号一起误升级为永久失效（需人工重授权）；reset-on-success 兜底（任一成功清零）。
-	// 零值或负值回退到默认 1。
-	OAuth401SameVersionDisableThreshold int `mapstructure:"oauth_401_same_version_disable_threshold"`
 }
 
 // APIKeyAuthCacheConfig API Key 认证缓存配置
@@ -1891,7 +1868,6 @@ func setDefaults() {
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
-	viper.SetDefault("rate_limit.oauth_401_same_version_disable_threshold", 1)
 	viper.SetDefault("rate_limit.anthropic_error_threshold", 3)
 	viper.SetDefault("rate_limit.anthropic_error_window_minutes", 1)
 

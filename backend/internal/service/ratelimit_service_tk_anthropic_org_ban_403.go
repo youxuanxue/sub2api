@@ -52,7 +52,7 @@ var tkAnthropicOrgBan403Keywords = []string{
 // org is policy-blocked at request time), so the correct action is permanent
 // disable + alert to prompt manual account replacement, mirroring the 400
 // "organization has been disabled" handling and the 401 grant-revocation
-// escalation (tkTryEscalateRevokedOAuth401).
+// disable (tkDisableIfOAuth401OnValidToken).
 //
 // Returns false (→ falls through to the existing tiered cooldown unchanged) when
 // nothing matches, so any non-org-ban 403 behaves exactly as before. Fail-safe:
