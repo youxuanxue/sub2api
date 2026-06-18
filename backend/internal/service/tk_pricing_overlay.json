@@ -964,6 +964,15 @@
     "cache_read_input_token_cost": 2.9850746268656716e-07,
     "source": "Alibaba DashScope qwen3-32b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
+  "qwen3-235b-a22b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 2.9850746268656716e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "thinking_output_cost_per_token": 2.9850746268656716e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
+    "source": "Alibaba DashScope qwen3-235b-a22b (开源版 MoE, 235B total / 22B active, hybrid 非思考和思考模式) official China-mainland (Beijing) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (qwen3-235b-a22b 中国内地 row). Added 2026-06-18 per customer request to surface the flagship Qwen3 model on the Qwen group (account 60), which previously listed only the smaller Qwen3 models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M) — coincidentally identical per-token rates to qwen3-32b — switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for the open-source Qwen3 hybrid base alias, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
   "qwen2.5-coder-32b": {
     "litellm_provider": "dashscope",
     "mode": "chat",

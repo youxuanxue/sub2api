@@ -170,6 +170,18 @@
       "price_key": "qwen3-32b",
       "display": false,
       "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
+    },
+    "newapi/qwen3-235b-a22b": {
+      "platform": "newapi",
+      "model_id": "qwen3-235b-a22b",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3-235b-a22b",
+      "display": false,
+      "notes": "Qwen account 60. Flagship open-source Qwen3 MoE (235B total / 22B active). Mapped by tk_032 (identity whitelist merge). Priced in overlay (added 2026-06-18, same per-token rates as qwen3-32b). Added per customer request: the Qwen group previously listed only the smaller Qwen3 models."
     }
   }
 }
