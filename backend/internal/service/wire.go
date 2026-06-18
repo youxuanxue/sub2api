@@ -332,7 +332,6 @@ func ProvideRateLimitService(
 	timeoutCounterCache TimeoutCounterCache,
 	openAI403CounterCache OpenAI403CounterCache,
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
-	oauth401AfterRefreshCounterCache OAuth401AfterRefreshCounterCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
 ) *RateLimitService {
@@ -340,7 +339,6 @@ func ProvideRateLimitService(
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
 	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
-	svc.SetOAuth401AfterRefreshCounter(oauth401AfterRefreshCounterCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)
 	return svc
