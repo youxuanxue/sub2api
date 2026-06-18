@@ -650,6 +650,23 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return 0, false
 		}
 		return float64(n), true
+	case "pool_load_rate":
+		// 池级并发负载率（在途+排队/席位），"账号池容量触顶"前瞻信号。
+		// 值 = scope 内最饱和调度池的负载率%；newapi 自动按 channel_type 拆子池
+		// （细则见 ops_pool_load_rate_tk.go）。无 scope = 全网最饱和池。
+		if s == nil || s.opsService == nil {
+			return 0, false
+		}
+		pools, err := s.opsService.ComputePoolLoadRates(ctx)
+		if err != nil {
+			return 0, false
+		}
+		rate, found := maxPoolLoadRate(pools, platform, groupID)
+		if !found {
+			// scope 内无合格池（全无界/全单账号）：已评估，不触发。
+			return 0, true
+		}
+		return rate, true
 	}
 
 	overview, err := s.opsRepo.GetDashboardOverview(ctx, &OpsDashboardFilter{

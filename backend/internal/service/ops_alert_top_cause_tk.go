@@ -41,10 +41,25 @@ func opsTopCauseApplies(metricType string) bool {
 // the rule is not a rate metric, the query fails, or there is nothing to show.
 // It is best-effort: a failure here must never block firing the alert.
 func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) string {
-	if s == nil || s.opsRepo == nil || rule == nil {
+	if s == nil || rule == nil {
 		return ""
 	}
 	metricType := strings.TrimSpace(rule.MetricType)
+	// pool_load_rate 的主因来自实时池负载快照（哪几个调度池在饱和），而非
+	// ops_error_logs，所以单独取一支；详见 ops_pool_load_rate_tk.go。
+	if metricType == "pool_load_rate" {
+		if s.opsService == nil {
+			return ""
+		}
+		pools, err := s.opsService.ComputePoolLoadRates(ctx)
+		if err != nil {
+			return ""
+		}
+		return formatPoolLoadCause(pools, rule, platform, groupID)
+	}
+	if s.opsRepo == nil {
+		return ""
+	}
 	if !opsTopCauseApplies(metricType) {
 		return ""
 	}
