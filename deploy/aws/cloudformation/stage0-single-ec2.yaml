@@ -147,7 +147,7 @@ Parameters:
 
   QaStaleRetentionDays:
     Type: Number
-    Default: 1
+    Default: 2
     MinValue: 0
     MaxValue: 90
     Description: >
@@ -155,7 +155,10 @@ Parameters:
       /var/lib/tokenkey/app/qa_blobs and qa_dlq older than this many days
       (fractional days allowed, e.g. 1.5). Same surfaces as
       ops/prod/qa-export-and-purge.sh (plus age-filtered qa_records DELETE).
-      Set to 0 to disable the timer (script no-ops).
+      Set to 0 to disable the timer (script no-ops). Default is 2 (not 1) so the
+      daily 02:00 UTC QA auto-archive cron has a full prior day still on disk
+      when the 04:15 cleanup runs, even if a large archive overruns — see
+      docs/qa-export-s3-and-auto-archive.md. ~6 GB/day on the 50 GB data volume.
 
 Conditions:
   IsHourlySnapshots: !Equals [!Ref SnapshotSchedule, hourly]

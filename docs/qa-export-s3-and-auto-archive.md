@@ -70,16 +70,21 @@ same row/object (deterministic `job_id = auto:<user>:<key>:<date>`).
 
 The host script `deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh` deletes
 `qa_records` + `qa_blobs` older than `TOKENKEY_QA_STALE_RETENTION_DAYS`
-(**default 1**). The auto-archive at 02:00 reads *yesterday's* blobs from
-localfs — but with 1-day retention, yesterday's early-morning records are
-already >24h old and may be purged before the archive runs.
+(CFN param `QaStaleRetentionDays`, **default 2**). The auto-archive at 02:00
+reads *yesterday's* blobs from localfs; with <2-day retention, yesterday's
+early-morning records can age past the threshold and be purged out from under a
+long-running archive.
 
-When enabling auto-archive:
+Already satisfied by the Stage0 template — keep it that way:
 
-1. Set `QaStaleRetentionDays = 2` (boot env `/etc/tokenkey/qa-stale-retention.env`)
-   so a full prior day is always still on disk at 02:00.
-2. Schedule the cleanup timer to run **after** 02:00 UTC (e.g. 04:00) so the
-   archive captures the day before cleanup removes it.
+1. `QaStaleRetentionDays` defaults to **2** (CFN), so a full prior day is always
+   on disk when cleanup runs. The live value is in
+   `/etc/tokenkey/qa-stale-retention.env`; change it on a running host via SSM
+   (the cleanup reads it fresh each run — no restart). Do **not** drop below 2
+   while auto-archive is on.
+2. The cleanup timer already runs at **04:15 UTC** (`tokenkey-qa-stale-cleanup.timer`,
+   +30min jitter) — well after the 02:00 archive. No schedule change needed.
 
-Without S3 + retention≥2, leave `auto_export_enabled: false` — the manual
-("立即导出") path is fully functional on its own.
+Disk cost: QA blobs run ~6 GB/day on the 50 GB data volume, so retention 2
+≈ ~12 GB — comfortable. Without S3, leave `auto_export_enabled: false`; the
+manual ("立即导出") path is fully functional on its own.
