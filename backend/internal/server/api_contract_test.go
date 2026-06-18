@@ -209,7 +209,8 @@ func TestAPIContracts(t *testing.T) {
 							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
-					"run_mode": "standard"
+					"run_mode": "standard",
+					"traj_export_platforms": ["anthropic", "kiro", "gemini", "antigravity", "openai", "newapi", "grok"]
 				}
 			}`,
 		},

@@ -343,9 +343,9 @@
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
               </button>
-              <!-- Export Conversations Button (admin-granted per-user switch; anthropic keys only — the traj projector is Anthropic-shaped) -->
+              <!-- Export Conversations Button (admin-granted per-user switch; projectable platforms only — server-driven allowlist from /auth/me, no hardcoded platform here) -->
               <button
-                v-if="canExportTraj && row.group?.platform === 'anthropic'"
+                v-if="canExportTraj && trajExportPlatforms.includes(row.group?.platform ?? '')"
                 @click="openExportPanel(row)"
                 :title="t('keys.exportTooltip')"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
@@ -1130,6 +1130,12 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 // Admin-granted per-user switch: only then does each key row expose the
 // conversation-record export entry (backend also enforces 403).
 const canExportTraj = computed(() => authStore.user?.traj_export_enabled === true)
+
+// Server-driven allowlist of platforms whose conversation records the traj
+// projector can reconstruct (engine.TrajProjectablePlatforms via /auth/me).
+// The chip renders only for a key whose group platform is in this list — the UI
+// holds no hardcoded platform list of its own (single source = the backend).
+const trajExportPlatforms = computed(() => authStore.user?.traj_export_platforms ?? [])
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },

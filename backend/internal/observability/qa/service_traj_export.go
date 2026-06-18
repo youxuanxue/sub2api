@@ -112,12 +112,14 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 		recordCount++
 		// A record continues the current group if it shares a synth_session_id
 		// (synthetic pipelines key on that, and their bodies aren't prefix chains)
-		// OR its messages extend the previous request as a prefix (real agent
-		// conversations). Otherwise it opens a new conversation, so flush.
+		// OR it continues the previous record under the same wire shape — a
+		// growing message/contents/input prefix; a wire-shape change is a hard
+		// boundary (RequestContinues is shape-aware). Otherwise it opens a new
+		// conversation, so flush.
 		if len(group) > 0 {
 			prev := group[len(group)-1]
 			continues := sameSynthSession(prev.Record, record) ||
-				trajectory.RequestMessagesContinue(prev.Blob.Request.Body, src.Blob.Request.Body)
+				trajectory.RequestContinues(prev, src)
 			if !continues {
 				if err := flush(group); err != nil {
 					return err

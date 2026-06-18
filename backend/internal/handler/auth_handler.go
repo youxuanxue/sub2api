@@ -420,6 +420,12 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	type UserResponse struct {
 		userProfileResponse
 		RunMode string `json:"run_mode"`
+		// TrajExportPlatforms is the server-driven allowlist of platforms whose
+		// conversation records the traj projector can reconstruct. The frontend
+		// export chip renders only for a key whose group platform is in this list
+		// (single source: engine.TrajProjectablePlatforms via the service layer),
+		// so the UI carries no hardcoded platform list of its own.
+		TrajExportPlatforms []string `json:"traj_export_platforms"`
 	}
 
 	runMode := config.RunModeStandard
@@ -430,6 +436,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	response.Success(c, UserResponse{
 		userProfileResponse: userProfileResponseFromService(user, identities),
 		RunMode:             runMode,
+		TrajExportPlatforms: service.TrajProjectablePlatforms(),
 	})
 }
 

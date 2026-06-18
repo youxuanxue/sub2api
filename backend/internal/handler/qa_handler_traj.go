@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -55,12 +54,14 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 		SynthSessionID: strings.TrimSpace(req.SynthSessionID),
 		SynthRole:      strings.TrimSpace(req.SynthRole),
 		APIKeyID:       req.APIKeyID,
-		// The traj v2 projector only faithfully reconstructs Anthropic
-		// /v1/messages trajectories; openai/gemini blobs project to empty or
-		// garbage turns. Pin the export to anthropic so a non-anthropic key
-		// (UI already hides the entry) can't yield a misleading non-empty zip.
-		Platform: domain.PlatformAnthropic,
-		Format:   strings.TrimSpace(req.Format),
+		// No platform pin: the traj v2 projector now dispatches per record by
+		// wire shape (trajectory.WireShapeForRecord) and reconstructs anthropic /
+		// openai / gemini / antigravity / kiro / newapi faithfully, skipping
+		// non-conversation (Unknown-shape) records. A per-key export is already
+		// single-platform via APIKeyID, and the export chip is gated server-side
+		// to engine.TrajProjectablePlatforms() (see /auth/me traj_export_platforms),
+		// so a non-projectable key never reaches here with a misleading zip.
+		Format: strings.TrimSpace(req.Format),
 	}
 	// Per-key export ("导出该 Key 的对话记录") drops the trailing-24h default
 	// window and returns the key's full retained trajectory; the data set is

@@ -110,9 +110,12 @@ func mustInsertQARecord(t *testing.T, ctx context.Context, client *dbent.Client,
 		SetRequestID(b.requestID).
 		SetUserID(b.userID).
 		SetAPIKeyID(b.apiKeyID).
-		SetPlatform("anthropic").
+		SetPlatform(b.platformOrDefault()).
 		SetCreatedAt(b.createdAt).
 		SetRetentionUntil(b.createdAt.Add(7 * 24 * time.Hour))
+	if b.inboundEndpoint != "" {
+		create = create.SetInboundEndpoint(b.inboundEndpoint)
+	}
 	if b.synthSession != "" {
 		create = create.SetSynthSessionID(b.synthSession)
 	}
@@ -134,6 +137,18 @@ type qaRecordBuilder struct {
 	synthSession string
 	synthRole    string
 	dialogSynth  bool
+	// platform / inboundEndpoint default to anthropic / "" so existing callers
+	// are unaffected; multi-platform export tests set them to drive the
+	// projector's wire-shape dispatch (WireShapeForRecord).
+	platform        string
+	inboundEndpoint string
+}
+
+func (b qaRecordBuilder) platformOrDefault() string {
+	if b.platform != "" {
+		return b.platform
+	}
+	return "anthropic"
 }
 
 type dlqOnlyBlobStore struct{}
@@ -508,10 +523,13 @@ func mustInsertQARecordWithBlob(t *testing.T, ctx context.Context, client *dbent
 		SetRequestID(b.requestID).
 		SetUserID(b.userID).
 		SetAPIKeyID(b.apiKeyID).
-		SetPlatform("anthropic").
+		SetPlatform(b.platformOrDefault()).
 		SetCreatedAt(b.createdAt).
 		SetRetentionUntil(b.createdAt.Add(7 * 24 * time.Hour)).
 		SetBlobURI("mem://" + key)
+	if b.inboundEndpoint != "" {
+		create = create.SetInboundEndpoint(b.inboundEndpoint)
+	}
 	if b.synthSession != "" {
 		create = create.SetSynthSessionID(b.synthSession)
 	}
@@ -525,9 +543,10 @@ func mustInsertQARecordWithBlob(t *testing.T, ctx context.Context, client *dbent
 	require.NoError(t, err)
 }
 
-// The traj v2 projector is Anthropic-shaped, so the traj export pins
-// Platform="anthropic"; records from other platforms (openai/gemini) must be
-// excluded even when they share the same user and API key.
+// The ExportFilter.Platform predicate (qarecord.PlatformEQ) still narrows the
+// export to one platform when a caller sets it. The traj export handler no
+// longer pins it (the projector dispatches per record by wire shape), but the
+// predicate remains available and sentinel-anchored, so this guards it.
 func TestExportUserTrajectoryData_PlatformFilterExcludesNonAnthropic(t *testing.T) {
 	svc, client, _ := newQAExportTestService(t)
 	ctx := context.Background()
