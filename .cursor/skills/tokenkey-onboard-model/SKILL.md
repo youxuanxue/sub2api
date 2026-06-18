@@ -4,7 +4,7 @@ description: >-
   把"客户要在某账号上以价格 π served+priced 模型 X"从手工操作固化为分钟级确定性流水线：probe
   上游可服务性 → 写 manifest 条目(backend/internal/service/tk_served_models.json,单一意图源)→ 投影
   tk_NNN model_mapping 迁移 + tk_pricing_overlay.json fill-only 价(官方源,禁臆造)→
-  apply-live(scheduler_outbox/渠道热更)→ livefire 真请求 200 → 两档计费核对 + 话术。范围严格限
+  apply-live(scheduler_outbox 路由热更 + overlay sync-runtime 价热推,零发版)→ livefire 真请求 200 → 两档计费核对 + 话术。范围严格限
   TK 策展、经账号 credentials.model_mapping 服务的 newapi 长尾(account 60 Qwen ch17/group18、
   account 39 ds-官 DeepSeek ch43/group11),不含 litellm 全目录、四原生平台一类目录、grok(原生第七
   平台经平台路由非 mapping)。安全网=scripts/checks/catalog-serving-drift.py 漂移门禁(manifest↔
@@ -143,11 +143,16 @@ python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model qwen3-8b --fro
 overlay 是 fill-only：源带非零价时源胜、overlay 被忽略；**不能纠正错的非零源价**（deepseek-chat/reasoner
 镜像仍是 pre-V4 价 → 用 `price_source=mirror`，错价要修走渠道定价 DB 而非 overlay）。
 
-### 4) apply-live
+### 4) apply-live（零发版）
 
-- model_mapping 的运行期生效靠迁移内 `scheduler_outbox`（部署即生效）；overlay 价 compile-embedded，**随
-  发版生效**。
-- 紧急即时价（不等发版）：`apply-pricing-hotfix.py apply --channel-id N`（渠道定价凌驾一切，立即生效）。
+- **model_mapping**：运行期生效靠迁移内 `scheduler_outbox`（部署即生效）。
+- **overlay 价（热推，不等发版）**：overlay 不再是 compile-embedded-only —— 内嵌是**地板**，运行时活值经
+  settings key `tk_pricing_overlay_runtime` 叠加（runtime 胜）。PR 合并后跑
+  `python3 ops/pricing/manage-overlay-runtime.py sync-runtime`（先过 `pricing-overlay.py` 门禁 → SSM
+  UPSERT prod settings + `PUBLISH settings_updated` 即时跨副本重载；**prod-only**，edge 不跑计费）。模型
+  立即被定价 + 出现在公开 /pricing，**零镜像构建**。下次例行发版把 overlay 折进内嵌（地板追平），之后
+  `manage-overlay-runtime.py check` 应报「活值==内嵌」。
+- **紧急渠道价**（仅 channel-priced 模型，凌驾一切）：`apply-pricing-hotfix.py apply --channel-id N`，立即生效。
 
 ### 5) livefire 复测（真 200）
 

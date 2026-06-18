@@ -194,7 +194,10 @@ def cmd_sync_runtime(args) -> int:
         "echo '=== upsert tk_pricing_overlay_runtime ==='\n"
         f"$PSQL -v v=\"$VAL\" -c \"{upsert}\"\n"
         "echo '=== publish settings_updated (fan-out reload) ==='\n"
-        "$RC PUBLISH settings_updated refresh || true\n"
+        # Best-effort: the UPSERT above is the durable truth; PUBLISH only makes the
+        # reload immediate. Surface a failure (don't swallow it) so the operator knows
+        # replicas will lag to the poll interval instead of reloading now.
+        "$RC PUBLISH settings_updated refresh || echo 'WARN: redis PUBLISH failed; replicas reload within the pricing poll interval, not immediately'\n"
         "echo '=== settings_after ==='\n"
         f"$PSQL -c \"SELECT key, length(value) AS bytes FROM settings WHERE key='{SETTING_KEY}';\"\n"
     )
