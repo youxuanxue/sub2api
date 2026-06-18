@@ -121,8 +121,47 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-jq -n --arg tag "${TAG}" '{
-  commands: [
+# --- QA trajectory export → durable S3 (prod-only) ---------------------------
+# Same mechanism as the SERVER_FRONTEND_URL backfill below: additive, guarded
+# (`grep -q`), idempotent .env + compose-mapping patches on a LIVE host, re-applied
+# on every deploy. The 4 QA_CAPTURE_EXPORT_STORAGE_* vars (~588 B) are deliberately
+# NOT in the shared stage0 compose — that file is also embedded in the edge
+# Lightsail launch script, which sits ~46 B under Lightsail's 16 KB user-data cap,
+# so adding them there breaks edge provisioning. Edges are pure cc-relay mirrors
+# that never capture/export QA trajectories, so they have no use for this config.
+# Gate on the prod signal (EC2 `i-*`; every edge is a Lightsail `mi-*`) → edges get
+# an empty array, i.e. a byte-identical command list to before this change.
+# Credentials stay EMPTY on purpose: the prod instance role + the qa-exports bucket
+# policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
+# ever land in .env. Values are env-overridable but default to the prod bucket.
+# See docs/qa-export-s3-and-auto-archive.md.
+qa_export_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  qa_export_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
+    --arg region "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}" \
+    --arg bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}" \
+    --arg prefix "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}" '
+    [
+      ( "qa_d=" + ($driver|@sh) + "; qa_r=" + ($region|@sh) + "; qa_b=" + ($bucket|@sh) + "; qa_p=" + ($prefix|@sh)
+        + "; for kv in \"DRIVER=$qa_d\" \"REGION=$qa_r\" \"BUCKET=$qa_b\" \"PREFIX=$qa_p\"; do"
+        + " key=\"QA_CAPTURE_EXPORT_STORAGE_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in DRIVER REGION BUCKET PREFIX; do grep -q \"QA_CAPTURE_EXPORT_STORAGE_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-export-before-" + $tag + "\";"
+        + " for k in PREFIX BUCKET REGION DRIVER; do key=\"QA_CAPTURE_EXPORT_STORAGE_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - TZ=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q QA_CAPTURE_EXPORT_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-QA_CAPTURE_EXPORT_STORAGE-mappings;"
+        + " else echo '\''::warning::failed to insert compose QA_CAPTURE_EXPORT_STORAGE mappings'\''; fi;"
+        + " else echo compose-QA_CAPTURE_EXPORT_STORAGE-mappings-present; fi; fi" )
+    ]')"
+fi
+
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" '{
+  commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
     ("BACKUP=/var/lib/tokenkey/.env.before-" + $tag),
@@ -132,7 +171,8 @@ jq -n --arg tag "${TAG}" '{
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
-    ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi"),
+    ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
+  ] + $qa_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
@@ -147,8 +187,16 @@ jq -n --arg tag "${TAG}" '{
     "echo \"=== prune stale ghcr image tags (keep newest 3 + in-use) — runs on every deploy; the tokenkey.service ExecStartPost hook only fires on full restart, so deploys never pruned and tags piled to 50+/14G per node before this ===\"; PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh; [ -x \"$PRUNE\" ] || PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh; if [ -x \"$PRUNE\" ]; then sudo env TOKENKEY_GHCR_KEEP_TAGS=3 \"$PRUNE\" || echo '\''::warning::ghcr prune failed (non-fatal)'\''; else echo '\''no ghcr prune script on box; skipping'\''; fi; sudo docker image prune -f >/dev/null 2>&1 || true",
     "cd /var/lib/tokenkey && sudo docker compose ps",
     "sudo docker logs tokenkey --since 2m 2>&1 | tail -20"
-  ]
+  ])
 }' > "${params_file}"
+
+# Render-only seam: write the SSM command document and exit before any AWS call.
+# Lets the prod-vs-edge QA-export injection be asserted deterministically in tests
+# (see ops/stage0/test_deploy_via_ssm_qa_export.py) without touching live infra.
+if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then
+  echo "stage0_deploy_via_ssm: STAGE0_RENDER_ONLY set; wrote ${params_file} and exiting" >&2
+  exit 0
+fi
 
 eff_instance_id="${INSTANCE_ID}"
 if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then

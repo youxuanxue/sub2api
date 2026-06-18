@@ -9,6 +9,11 @@ Description: >
   TOKENKEY_PGDUMP_S3_URI is set in /var/lib/tokenkey/.env. Lifecycle expires
   copies after RetentionDays; no versioning (each key is a unique timestamp).
 
+  ALSO holds the QA trajectory export bucket (durable export ZIPs + presigned
+  downloads, qa_capture.export_storage) — same standalone-stack + direct-role-ARN
+  pattern, so enabling QA S3 export needs no prod-instance-stack update either.
+  See docs/qa-export-s3-and-auto-archive.md.
+
 Parameters:
   ProjectName:
     Type: String
@@ -22,6 +27,15 @@ Parameters:
     MinValue: 1
     MaxValue: 365
     Description: Days to keep each pg_dump copy before lifecycle expiry.
+  QaExportsRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: >
+      Days to keep each QA trajectory export ZIP (traj-exports/ prefix) before
+      lifecycle expiry. Separate from RetentionDays so QA-export and pg_dump
+      retention can be tuned independently.
   AppInstanceRoleArn:
     Type: String
     Description: >
@@ -101,6 +115,75 @@ Resources:
             Action: 's3:ListBucket'
             Resource: !GetAtt PgdumpBackupBucket.Arn
 
+  QaExportsBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete so finished export ZIPs are not lost by an accidental teardown.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-qa-exports-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-traj-exports
+            Status: Enabled
+            Prefix: traj-exports/
+            ExpirationInDays: !Ref QaExportsRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  QaExportsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref QaExportsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Enforce TLS for all access.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt QaExportsBucket.Arn
+              - !Sub '${QaExportsBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          # Same direct-role-ARN principal pattern as the pgdump grant above — a
+          # same-account resource-based grant is sufficient on its own, so the prod
+          # instance stack is never touched. The app writes export ZIPs (PutObject),
+          # signs presigned download URLs + reads them server-side (GetObject), and
+          # prunes terminal/expired exports (DeleteObject). This bucket is
+          # single-purpose (QA exports only), so object actions are granted
+          # bucket-wide rather than pinned to the env-overridable
+          # QA_CAPTURE_EXPORT_STORAGE_PREFIX (default traj-exports/).
+          - Sid: AllowAppInstanceRolePutGetDelete
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:DeleteObject'
+            Resource: !Sub '${QaExportsBucket.Arn}/*'
+          - Sid: AllowAppInstanceRoleListQaExports
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt QaExportsBucket.Arn
+
   # NOTE — the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
   # dump bucket so the decryption keys are not co-located with the ciphertext) needs an
   # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy — a
@@ -119,6 +202,16 @@ Outputs:
   PgdumpS3Uri:
     Description: Set this as TOKENKEY_PGDUMP_S3_URI in /var/lib/tokenkey/.env on the app host.
     Value: !Sub 's3://${PgdumpBackupBucket}/${Environment}/pgdump'
+  QaExportsBucketName:
+    Description: >
+      QA trajectory export bucket. Matches the QA_CAPTURE_EXPORT_STORAGE_BUCKET default
+      self-healed by ops/stage0/deploy_via_ssm.sh on the prod host.
+    Value: !Ref QaExportsBucket
+  QaExportsS3Uri:
+    Description: >
+      s3:// base for QA exports; objects land under QA_CAPTURE_EXPORT_STORAGE_PREFIX
+      (default traj-exports/), which the expire-traj-exports lifecycle rule reaps.
+    Value: !Sub 's3://${QaExportsBucket}'
   EnvSecretsSsmParam:
     Description: Set this as TOKENKEY_ENV_SECRETS_SSM in /var/lib/tokenkey/.env; SecureString holding the off-box .env secrets.
     Value: !Sub '/${ProjectName}/${Environment}/stage0/env-secrets-backup'

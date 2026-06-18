@@ -63,6 +63,8 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 		return false
 	}
 	// token 仍 solidly valid 却被上游 401 → grant 吊销 → 第一次即禁用，人工重授权。
+	// （Claude API 故障期间对全队的统一豁免在 HandleUpstreamError 的 case 401 顶部、
+	// 进入本函数之前就拦截了，见 ratelimit_service.go oauth_401_disable_deferred_during_incident。）
 	msg := "OAuth 401 on a still-valid access token — grant revoked upstream, manual re-authorization required (re-login via account management)"
 	if strings.TrimSpace(upstreamMsg) != "" {
 		msg = msg + ": " + upstreamMsg
@@ -75,4 +77,22 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 	)
 	s.handleAuthError(ctx, account, msg)
 	return true
+}
+
+// tkApplyOAuth401Cooldown 把一次 OAuth 401 落成 temp_unschedulable 冷却（替代永久禁用）+
+// 发调度阻塞通知。供两处复用，确保冷却时长/通知口径一致：
+//   - HandleUpstreamError case 401 的「普通 401 回退」分支；
+//   - 同处「Claude API 故障期间统一豁免」的顶层 gate。
+//
+// reasonMsg 写入 temp_unschedulable_reason。
+func (s *RateLimitService) tkApplyOAuth401Cooldown(ctx context.Context, account *Account, reasonMsg string) {
+	cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
+	if cooldownMinutes <= 0 {
+		cooldownMinutes = 10
+	}
+	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+	s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonMsg); err != nil {
+		slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+	}
 }

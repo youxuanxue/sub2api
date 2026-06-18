@@ -166,6 +166,15 @@ const metricDefinitions = computed(() => {
       recommendedOperator: '>',
       recommendedThreshold: 10
     },
+    {
+      type: 'pool_load_rate',
+      group: 'system',
+      label: t('admin.ops.alertRules.metrics.poolLoadRate'),
+      description: t('admin.ops.alertRules.metricDescriptions.poolLoadRate'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 90,
+      unit: '%'
+    },
 
     // Group-level metrics (requires group_id filter)
     {
