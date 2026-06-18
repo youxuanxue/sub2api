@@ -147,15 +147,22 @@ Parameters:
 
   QaStaleRetentionDays:
     Type: Number
-    Default: 1
+    Default: 2
     MinValue: 0
-    MaxValue: 90
+    MaxValue: 5
     Description: >
       Daily QA safety-net: remove qa_records rows and on-disk files under
       /var/lib/tokenkey/app/qa_blobs and qa_dlq older than this many days
       (fractional days allowed, e.g. 1.5). Same surfaces as
       ops/prod/qa-export-and-purge.sh (plus age-filtered qa_records DELETE).
-      Set to 0 to disable the timer (script no-ops).
+      Set to 0 to disable the timer (script no-ops). Default is 2 (not 1) so the
+      daily 02:00 UTC QA auto-archive cron has a full prior day still on disk
+      when the 04:15 cleanup runs, even if a large archive overruns — see
+      docs/qa-export-s3-and-auto-archive.md. MaxValue is 5 (not an arbitrary 90):
+      QA blobs share the ~50 GB data volume with Postgres and run ~6 GB/day, so
+      at the day-before-cleanup peak (retention+1 days) ~5 days is the disk-safe
+      ceiling. localfs retention is a short safety window — keep longer history
+      in S3 (export_storage), not by raising this.
 
 Conditions:
   IsHourlySnapshots: !Equals [!Ref SnapshotSchedule, hourly]
