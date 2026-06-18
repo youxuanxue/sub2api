@@ -6,8 +6,24 @@ import {
   extractVideoUrl,
   isGeminiNativeImageModel,
   modalityForModel,
+  pickVisionChatModel,
   videoStateFromFetch
 } from '@/constants/playgroundMedia.tk'
+
+describe('pickVisionChatModel', () => {
+  it('prefers the cheapest gemini chat model and excludes image/video ids', () => {
+    const ids = new Set(['gemini-3.1-flash-image', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-pro', 'gpt-4o'])
+    expect(pickVisionChatModel(ids)).toBe('gemini-2.5-flash-lite')
+  })
+  it('falls back through flash then pro', () => {
+    expect(pickVisionChatModel(['gemini-3-pro', 'gemini-2.0-flash'])).toBe('gemini-2.0-flash')
+    expect(pickVisionChatModel(['gemini-3-pro'])).toBe('gemini-3-pro')
+  })
+  it('returns empty when no gemini chat model is available', () => {
+    expect(pickVisionChatModel(['gpt-4o', 'imagen-4.0-generate-001', 'gemini-3.1-flash-image'])).toBe('')
+    expect(pickVisionChatModel([])).toBe('')
+  })
+})
 
 describe('modalityForModel', () => {
   it('classifies the served image families', () => {

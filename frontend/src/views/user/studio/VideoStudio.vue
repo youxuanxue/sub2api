@@ -177,7 +177,10 @@
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
             <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)">{{ t('studio.video.download') }}</button>
-            <a v-if="task.url" :href="task.url" target="_blank" rel="noopener" class="text-primary-600 dark:text-primary-300">{{ t('studio.video.open') }}</a>
+            <!-- Open-in-new-tab only for remote URLs: browsers block top-level
+                 navigation to data: URIs (veo returns base64 → about:blank). The
+                 inline <video> player + download cover the data: case. -->
+            <a v-if="task.url && !task.url.startsWith('data:')" :href="task.url" target="_blank" rel="noopener" class="text-primary-600 dark:text-primary-300">{{ t('studio.video.open') }}</a>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
