@@ -27,6 +27,7 @@ import (
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -737,17 +738,21 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 	// NOT (a AND b) 在 PG 三值逻辑下会把 a 或 b 为 NULL 的行（即绝大多数
 	// 健康账号：temp_unschedulable_until=NULL）也排除，导致后台 token
 	// 刷新工作器漏掉所有正常账号 → access_token 到期后请求开始 401。
+	// TK: 平台过滤改为参数化 `= ANY($1)`，绑定值来自单一真值源
+	// engine.OAuthRefreshPlatforms()（= AllSchedulingPlatforms() 去掉仅用 api key
+	// 的 newapi）。SQL 里不再留任何平台字面量，杜绝 R-001 那类「上游重写本方法时
+	// 把名单重置回上游四平台、静默漏掉 TK 第六/七平台 kiro/grok」的回归——掉平台
+	// 必须改 engine 真值源（TK 持有、sentinel 锚定），且后台刷新器注册集会被
+	// token_refresh_service_candidates_test.go 断言覆盖该名单。kiro/grok 的
+	// OAuth access_token 短寿命（grok 默认 1h）且网关端只读 credentials 不做按需
+	// 刷新，后台刷新是其唯一续期路径，漏掉即 ~1h 后 401 掉出池且无自愈。
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id
 		FROM accounts
 		WHERE deleted_at IS NULL
 			AND status = 'active'
 			AND type = 'oauth'
-			-- TK: kiro/grok 是 TK 专属第六/第七平台，OAuth access_token 短寿命
-			-- （grok 默认 1h）且网关端只读 credentials 不做按需刷新，后台刷新是其
-			-- 唯一续期路径。上游 ListOAuthRefreshCandidates 只认四平台（上游无 6/7），
-			-- 漏掉会让 kiro/grok 账号 ~1h 后 401 掉出池且无自愈。详见 grok/kiro sentinel。
-			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'kiro', 'grok')
+			AND platform = ANY($1)
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''
 			AND (
@@ -755,7 +760,7 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 				AND temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'
 			) IS NOT TRUE
 		ORDER BY priority ASC, id ASC
-	`)
+	`, pq.Array(engine.OAuthRefreshPlatforms()))
 	if err != nil {
 		return nil, err
 	}

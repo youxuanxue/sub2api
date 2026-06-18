@@ -13,6 +13,7 @@
     "scripts/sentinels/check-terminal-events.py",
     "scripts/sentinels/check-engine-facade.py",
     "scripts/sentinels/check-pricing-availability.py",
+    "scripts/sentinels/check-relay-invariants.py",
     "scripts/sentinels/check-registry-update-gate.py",
     "scripts/checks/buffered-content-type-leak.py"
   ]
