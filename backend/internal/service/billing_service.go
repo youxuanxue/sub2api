@@ -447,16 +447,18 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.098e-6,
 		SupportsCacheBreakdown: false,
 	}
+	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 一致），
+	// 不沿用上游的 ÷7.14。
 	s.fallbackPrices["kimi-k2-thinking"] = &ModelPricing{
-		InputPricePerToken:     0.56e-6, // ¥4/百万 ≈ $0.56
-		OutputPricePerToken:    2.24e-6, // ¥16/百万
-		CacheReadPricePerToken: 0.14e-6, // ¥1/百万
+		InputPricePerToken:     0.59701e-6, // ¥4/百万 ÷6.7
+		OutputPricePerToken:    2.38806e-6, // ¥16/百万 ÷6.7
+		CacheReadPricePerToken: 0.14925e-6, // ¥1/百万 ÷6.7
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-k2"] = &ModelPricing{
-		InputPricePerToken:     0.56e-6, // ¥4/百万
-		OutputPricePerToken:    2.24e-6, // ¥16/百万
-		CacheReadPricePerToken: 0.14e-6, // ¥1/百万
+		InputPricePerToken:     0.59701e-6, // ¥4/百万 ÷6.7
+		OutputPricePerToken:    2.38806e-6, // ¥16/百万 ÷6.7
+		CacheReadPricePerToken: 0.14925e-6, // ¥1/百万 ÷6.7
 		SupportsCacheBreakdown: false,
 	}
 
@@ -503,11 +505,12 @@ func (s *BillingService) initFallbackPricing() {
 
 	// ---- 火山方舟 豆包 Embedding（多模态向量化）----
 	// doubao-embedding-vision 图文向量化：上游 usage 回传 prompt_tokens_details.{text_tokens,image_tokens}，
-	// 按量付费官方价 文本 ¥0.7/MTok、图片 ¥1.8/MTok；汇率口径 ÷7.14（与本表其他国产模型一致，¥1≈$0.14）。
-	// embedding 无 output，OutputPricePerToken 置 0。
+	// 按量付费官方价 文本 ¥0.7/MTok、图片 ¥1.8/MTok。
+	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 其余
+	// VolcEngine Ark 条目一致），不沿用上游的 ÷7.14。embedding 无 output，置 0。
 	s.fallbackPrices["doubao-embedding-vision"] = &ModelPricing{
-		InputPricePerToken:      0.098e-6, // ¥0.7/MTok ≈ $0.098（文本输入）
-		ImageInputPricePerToken: 0.252e-6, // ¥1.8/MTok ≈ $0.252（图片输入）
+		InputPricePerToken:      0.10448e-6, // ¥0.7/MTok ÷6.7（文本输入）
+		ImageInputPricePerToken: 0.26866e-6, // ¥1.8/MTok ÷6.7（图片输入）
 		OutputPricePerToken:     0,
 		SupportsCacheBreakdown:  false,
 	}
