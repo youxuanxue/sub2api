@@ -32,3 +32,18 @@ func TestQAExportStorageEnvBinding(t *testing.T) {
 		t.Fatalf("export_storage env partially bound: %+v", es)
 	}
 }
+
+// Backward-compat anchor: with no QA_CAPTURE_EXPORT_STORAGE_* env, the driver
+// stays empty so NewService keeps the export ZIP on the localfs capture store
+// (the SetDefault must not silently flip any deployment to S3).
+func TestQAExportStorageDefaultsToEmptyDriver(t *testing.T) {
+	viper.Reset()
+	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if d := cfg.QACapture.ExportStorage.Driver; d != "" {
+		t.Fatalf("export_storage.driver default must stay empty (localfs fallback), got %q", d)
+	}
+}
