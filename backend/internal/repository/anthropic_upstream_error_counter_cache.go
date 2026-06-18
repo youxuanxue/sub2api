@@ -58,14 +58,53 @@ func (c *anthropicUpstreamErrorCounterCache) ResetAnthropicUpstreamErrorCount(ct
 	return c.rdb.Del(ctx, key).Err()
 }
 
-func (c *anthropicUpstreamErrorCounterCache) IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes int) (int64, error) {
+// anthropicBodyless403IncrScript atomically counts bodyless/unstructured 403
+// EPISODES (not racing requests) via a server-side-TIME debounce gate, then
+// returns the current count. Hash fields: count = episode total in the window;
+// at = server-time seconds of the last counted increment.
+//   - First touch (no `at`) → count=1, at=now, set TTL, return 1.
+//   - now-at >= debounce → a new episode: count+1, at=now, refresh TTL.
+//   - now-at <  debounce → same episode burst: no increment (only refresh TTL),
+//     so a concurrent burst of N in-flight requests counts ONCE.
+//
+// Mirrors oauth_401_after_refresh_counter_cache.go's debounce: redis.call('TIME')
+// is deterministic across gateway replicas and avoids client clock drift;
+// effects replication requires replicate_commands() first (no-op on Redis 5+).
+var anthropicBodyless403IncrScript = redis.NewScript(`
+	redis.replicate_commands()
+	local key = KEYS[1]
+	local ttl = tonumber(ARGV[1])
+	local debounce = tonumber(ARGV[2])
+	local now = tonumber(redis.call('TIME')[1])
+
+	local stored = redis.call('HGET', key, 'count')
+	if stored == false then
+		redis.call('HSET', key, 'count', 1, 'at', now)
+		redis.call('EXPIRE', key, ttl)
+		return 1
+	end
+
+	local count = tonumber(stored)
+	local at = tonumber(redis.call('HGET', key, 'at') or '0')
+	if (now - at) >= debounce then
+		count = count + 1
+		redis.call('HSET', key, 'count', count, 'at', now)
+	end
+	redis.call('EXPIRE', key, ttl)
+	return count
+`)
+
+func (c *anthropicUpstreamErrorCounterCache) IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error) {
 	key := fmt.Sprintf("%s%d", anthropicBodyless403CounterPrefix, accountID)
 	ttlSeconds := windowMinutes * 60
 	if ttlSeconds < 60 {
 		ttlSeconds = 60
 	}
+	if debounceSeconds < 0 {
+		debounceSeconds = 0
+	}
 
-	result, err := anthropicUpstreamErrorCounterIncrScript.Run(ctx, c.rdb, []string{key}, ttlSeconds).Int64()
+	result, err := anthropicBodyless403IncrScript.Run(ctx, c.rdb, []string{key}, ttlSeconds, debounceSeconds).Int64()
 	if err != nil {
 		return 0, fmt.Errorf("increment anthropic bodyless 403 count: %w", err)
 	}
