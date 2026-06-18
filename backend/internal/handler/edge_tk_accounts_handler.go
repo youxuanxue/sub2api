@@ -204,9 +204,10 @@ type edgeAccountDTO struct {
 // cell reads (utilization + reset per window); window_stats is supplied
 // frontend-side from today_stats, so it is not duplicated here.
 type edgeUsageWindows struct {
-	Source   string             `json:"source"`
-	FiveHour *edgeUsageProgress `json:"five_hour,omitempty"`
-	SevenDay *edgeUsageProgress `json:"seven_day,omitempty"`
+	Source         string             `json:"source"`
+	FiveHour       *edgeUsageProgress `json:"five_hour,omitempty"`
+	SevenDay       *edgeUsageProgress `json:"seven_day,omitempty"`
+	SevenDaySonnet *edgeUsageProgress `json:"seven_day_sonnet,omitempty"`
 }
 
 type edgeUsageProgress struct {
@@ -318,7 +319,10 @@ func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
 	if u.SevenDay != nil {
 		w.SevenDay = &edgeUsageProgress{Utilization: u.SevenDay.Utilization, ResetsAt: u.SevenDay.ResetsAt}
 	}
-	if w.FiveHour == nil && w.SevenDay == nil {
+	if u.SevenDaySonnet != nil {
+		w.SevenDaySonnet = &edgeUsageProgress{Utilization: u.SevenDaySonnet.Utilization, ResetsAt: u.SevenDaySonnet.ResetsAt}
+	}
+	if w.FiveHour == nil && w.SevenDay == nil && w.SevenDaySonnet == nil {
 		return nil
 	}
 	return w
