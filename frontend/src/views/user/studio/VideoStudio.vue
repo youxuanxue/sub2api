@@ -48,19 +48,23 @@
           @input="userEditedPrompt = true"
         />
         <div class="mt-3">
-          <div class="mb-2 flex items-center justify-between">
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.duration') }}</span>
-            <span class="rounded-md bg-primary-50 px-2 py-0.5 text-sm font-bold text-primary-700 tabular-nums dark:bg-primary-950/50 dark:text-primary-300">{{ duration }} s</span>
+          <div class="mb-1.5 text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.duration') }}</div>
+          <!-- Per-model DISCRETE durations (chips) — the model declares exactly the
+               seconds its upstream accepts, so we never offer (or quote) an
+               out-of-range value that would hard-fail on submit. -->
+          <div class="flex flex-wrap gap-2 text-sm" data-testid="studio-video-duration">
+            <button
+              v-for="d in durations"
+              :key="d"
+              type="button"
+              class="rounded-lg border px-3 py-1.5 font-medium tabular-nums transition disabled:cursor-not-allowed disabled:opacity-50"
+              :class="duration === d ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
+              :disabled="sending"
+              @click="duration = d"
+            >
+              {{ d }} s
+            </button>
           </div>
-          <input
-            v-model.number="duration"
-            type="range"
-            :min="VIDEO_DURATION_MIN"
-            :max="VIDEO_DURATION_MAX"
-            step="1"
-            class="w-full accent-primary-600"
-            :disabled="sending"
-          />
         </div>
         <div class="mt-3">
           <div class="mb-1.5 text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.aspect') }}</div>
@@ -251,9 +255,8 @@ import { gatewayVideoSubmit } from '@/api/playground'
 import { extractVideoTaskId, videoStateFromFetch, extractVideoUrl } from '@/constants/playgroundMedia.tk'
 import {
   VIDEO_ASPECT_PRESETS,
-  VIDEO_DURATION_MIN,
-  VIDEO_DURATION_MAX,
   VIDEO_DURATION_DEFAULT,
+  videoDurationDefault,
   SEED_MIN,
   SEED_MAX,
   resolveAvailableModels,
@@ -289,6 +292,8 @@ const selectedModelId = ref<string>('')
 const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
 const supports = (p: StudioParam): boolean => !!selected.value?.model.supportedParams.includes(p)
 
+// The selected model's accepted durations (chips); default lands on the MAX.
+const durations = computed<number[]>(() => selected.value?.model.videoDurations ?? [VIDEO_DURATION_DEFAULT])
 const duration = ref<number>(VIDEO_DURATION_DEFAULT)
 const aspectId = ref<string>('') // '' = auto (no aspect_ratio sent — proven zero-extra-field path)
 const prompt = ref('')
@@ -355,7 +360,19 @@ watch(
   },
   { immediate: true }
 )
-watch(selected, () => applySamplePrompt(), { immediate: true })
+watch(
+  selected,
+  () => {
+    applySamplePrompt()
+    // Keep `duration` valid for the selected model: default to the MAX accepted
+    // value, and snap any stale selection back into the model's allowed set so
+    // the estimate/quote is never for an out-of-range (guaranteed-fail) duration.
+    if (!durations.value.includes(duration.value)) {
+      duration.value = videoDurationDefault(selected.value?.model.videoDurations)
+    }
+  },
+  { immediate: true }
+)
 
 function formatElapsed(s: number): string {
   const sec = Math.max(0, Math.round(s || 0))

@@ -23,9 +23,10 @@
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
         "func (r *accountRepository) SumConcurrencyByPlatform",
-        "'antigravity', 'kiro', 'grok'"
+        "platform = ANY($1)",
+        "pq.Array(engine.OAuthRefreshPlatforms())"
       ],
-      "rationale": "Two load-bearing kiro anchors. (1) SumConcurrencyByPlatform: platform-wide schedulable Σ reader backing the kiro arm of the edge capacity endpoint (the kiro pool is not group-scoped like anthropic's \"default\"); losing it breaks ?platform=kiro capacity reads. (2) ListOAuthRefreshCandidates' platform IN(...) MUST include kiro — the background refresh ticker is the only kiro token-renewal path (gateway reads access_token raw) and an upstream merge that resets this list to upstream's four platforms silently drops kiro, so kiro accounts expire and 401 out of the pool with no auto-recovery. (account_repo.go is also a gateway-tk hotspot — dual-covered on purpose.)"
+      "rationale": "Two load-bearing kiro anchors. (1) SumConcurrencyByPlatform: platform-wide schedulable Σ reader backing the kiro arm of the edge capacity endpoint (the kiro pool is not group-scoped like anthropic's \"default\"); losing it breaks ?platform=kiro capacity reads. (2) ListOAuthRefreshCandidates' platform filter MUST stay parametrized from the single source of truth: `platform = ANY($1)` bound from `pq.Array(engine.OAuthRefreshPlatforms())`, with NO platform literal left in the SQL. The old `platform IN ('anthropic',...,'kiro','grok')` literal was the surface an upstream merge silently reset to its four platforms (R-001), dropping kiro so kiro accounts expire and 401 out of the pool with no auto-recovery (the background ticker is kiro's only token-renewal path). kiro membership is guaranteed upstream of the SQL: engine.OAuthRefreshPlatforms() derives from engine.AllSchedulingPlatforms() (anchored to contain domain.PlatformKiro by the kiro engine sentinel) minus the apikey-only newapi. (account_repo.go is also a gateway-tk hotspot — dual-covered on purpose.) If the parametrization anchor fails, an upstream merge reverted `= ANY($1)` back to a literal — restore the parametrized form, do NOT re-introduce a literal list."
     },
     {
       "path": "backend/internal/handler/edge_tk_capacity_handler_test.go",
