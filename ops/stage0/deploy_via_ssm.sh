@@ -141,7 +141,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     --arg tag "${TAG}" \
     --arg driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
     --arg region "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}" \
-    --arg bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports}" \
+    --arg bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}" \
     --arg prefix "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}" '
     [
       ( "qa_d=" + ($driver|@sh) + "; qa_r=" + ($region|@sh) + "; qa_b=" + ($bucket|@sh) + "; qa_p=" + ($prefix|@sh)

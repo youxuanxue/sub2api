@@ -30,13 +30,13 @@ qa_capture:
   export_storage:                        # NEW — export ZIPs go here
     driver: s3
     region: us-east-1
-    bucket: tokenkey-prod-qa-exports
+    bucket: tokenkey-prod-qa-exports-682751977094
     # access via the instance role (preferred) — leave keys empty
 ```
 
 Infra to provision first (do this in waking hours, then flip config):
 
-1. **Bucket** `tokenkey-prod-qa-exports` (us-east-1), Block Public Access ON.
+1. **Bucket** `tokenkey-prod-qa-exports-682751977094` (us-east-1), Block Public Access ON.
 2. **Lifecycle rule**: expire objects under prefix `traj-exports/` after **7
    days** (object age). This is the real expirer; the DB `expires_at` mirrors it
    for the UI.
@@ -90,7 +90,7 @@ Rollout (each step needs operator authorization; read-only diagnosis: skill
 `tokenkey-online-log-troubleshooting`):
 
 1. **Release** an image carrying the #836 fix (VERSION bump → tag → `release.yml`).
-2. **Provision infra**: bucket `tokenkey-prod-qa-exports` (us-east-1, Block Public
+2. **Provision infra**: bucket `tokenkey-prod-qa-exports-682751977094` (us-east-1, Block Public
    Access ON) + prefix-`traj-exports/` 7-day lifecycle + bucket policy granting the
    prod instance role (`tokenkey-prod-stage0-InstanceRole-*`)
    `s3:GetObject/PutObject/DeleteObject/ListBucket` — Principal = the resolved role
