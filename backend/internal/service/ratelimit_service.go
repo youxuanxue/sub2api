@@ -405,6 +405,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
+		// TK: Claude API 故障期间，上游可能对全队仍有效的 token 误发 401。此窗口内任何
+		// anthropic 账号都不得被一次 401 永久禁用（first-strike 会把全池一起打死）——统一
+		// 回退 temp_unschedulable 冷却，覆盖下面所有子路径（OAuth 有效-token / 缺 refresh_token
+		// / setup-token / apikey）。与 403/429 路径同口径（IsClaudeAPIIncident）；非 anthropic
+		// 账号不受影响（该探测器只反映 Anthropic 状态）。故障结束后仍 401 才按各自路径处置。
+		if account.Platform == PlatformAnthropic && IsClaudeAPIIncident() {
+			msg := "OAuth 401 deferred during Claude API incident (not permanently disabled)"
+			if upstreamMsg != "" {
+				msg = "OAuth 401 (incident-deferred): " + upstreamMsg
+			}
+			slog.Warn("oauth_401_disable_deferred_during_incident",
+				"account_id", account.ID, "platform", account.Platform)
+			s.tkApplyOAuth401Cooldown(ctx, account, msg)
+			shouldDisable = true
+			break
+		}
 		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
 		// Antigravity 除外：其 401 由 applyErrorPolicy 的 temp_unschedulable_rules 自行控制。
 		if account.Type == AccountTypeOAuth && account.Platform != PlatformAntigravity {
@@ -446,15 +462,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			if upstreamMsg != "" {
 				msg = "OAuth 401: " + upstreamMsg
 			}
-			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
-			if cooldownMinutes <= 0 {
-				cooldownMinutes = 10
-			}
-			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
-			s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
-				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
-			}
+			s.tkApplyOAuth401Cooldown(ctx, account, msg)
 			shouldDisable = true
 		} else {
 			// 非 OAuth / Antigravity OAuth：保持 SetError 行为
