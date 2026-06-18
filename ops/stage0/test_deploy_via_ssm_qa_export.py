@@ -78,7 +78,10 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         self.assertNotIn("SECRET", env_cmd)
 
         compose_cmd = next(c for c in qa if "docker-compose.yml" in c)
-        self.assertIn("/^      - TZ=/a\\", compose_cmd)          # anchored to the TZ line
+        # anchored to the tokenkey-unique SERVER_FRONTEND_URL line, NOT the per-service
+        # TZ line (every service has a TZ line → TZ anchor injected once per service).
+        self.assertIn("/^      - SERVER_FRONTEND_URL=/a\\", compose_cmd)
+        self.assertNotIn("/^      - TZ=/a\\", compose_cmd)
         self.assertIn("qa-export-before-1.8.99", compose_cmd)    # tagged backup ($CF.qa-export-before-<tag>)
         self.assertIn('grep -q "${key}=" "$CF"', compose_cmd)    # guarded insertion
 
@@ -121,17 +124,44 @@ class QAExportInjectionExecuteTest(unittest.TestCase):
         subprocess.run(["bash", "-e", "-c", script], check=True,
                        capture_output=True, text=True)
 
-    def test_injection_is_correct_and_idempotent(self) -> None:
+    @staticmethod
+    def _qa_mapping_count(lines: list[str]) -> int:
+        return sum(1 for ln in lines if "- QA_CAPTURE_EXPORT_STORAGE_" in ln)
+
+    @staticmethod
+    def _service_block(lines: list[str], name: str) -> list[str]:
+        # lines belonging to `name:` — from its 2-space header to the next service header.
+        out, inside = [], False
+        for ln in lines:
+            is_header = ln.startswith("  ") and not ln.startswith("    ") and ln.rstrip().endswith(":")
+            if is_header:
+                inside = ln.strip() == f"{name}:"
+                continue
+            if inside:
+                out.append(ln)
+        return out
+
+    def test_injection_targets_only_tokenkey_and_is_idempotent(self) -> None:
+        # EVERY service carries a `- TZ=` line, but only tokenkey has SERVER_FRONTEND_URL.
+        # The old TZ anchor injected the 4 mappings once PER service (the prod 1.8.11 bug);
+        # the SERVER_FRONTEND_URL anchor must inject them exactly once, in tokenkey only.
         host = pathlib.Path(tempfile.mkdtemp(prefix="qa-export-exec-"))
         (host / ".env").write_text("APP_ENV=prod\nAPI_DOMAIN=api.tokenkey.dev\n")
         (host / "docker-compose.yml").write_text(
             "services:\n"
+            "  caddy:\n"
+            "    environment:\n"
+            "      - TZ=${TZ:-UTC}\n"
             "  tokenkey:\n"
             "    environment:\n"
             "      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}\n"
             "      - TZ=${TZ:-UTC}\n"
-            "    ports:\n"
-            '      - "8080:8080"\n'
+            "  postgres:\n"
+            "    environment:\n"
+            "      - TZ=${TZ:-UTC}\n"
+            "  redis:\n"
+            "    environment:\n"
+            "      - TZ=${TZ:-UTC}\n"
         )
 
         self._run_prod_cmds_against(host)
@@ -143,25 +173,23 @@ class QAExportInjectionExecuteTest(unittest.TestCase):
         ):
             self.assertIn(f"QA_CAPTURE_EXPORT_STORAGE_{k}={v}\n", env_txt)
 
-        compose_txt = (host / "docker-compose.yml").read_text()
-        for k in ("DRIVER", "REGION", "BUCKET", "PREFIX"):
-            mapping = f"      - QA_CAPTURE_EXPORT_STORAGE_{k}=${{QA_CAPTURE_EXPORT_STORAGE_{k}:-}}\n"
-            self.assertIn(mapping, compose_txt)
-        # inserted after the TZ line, not before it
-        self.assertLess(compose_txt.index("- TZ="),
-                        compose_txt.index("QA_CAPTURE_EXPORT_STORAGE_DRIVER"))
+        lines = (host / "docker-compose.yml").read_text().splitlines()
+        # exactly 4 mappings total — ALL in the tokenkey block, none leaked to the
+        # other TZ-bearing services (the exact regression the anchor change fixes).
+        self.assertEqual(self._qa_mapping_count(lines), 4)
+        self.assertEqual(self._qa_mapping_count(self._service_block(lines, "tokenkey")), 4)
+        for svc in ("caddy", "postgres", "redis"):
+            self.assertEqual(self._qa_mapping_count(self._service_block(lines, svc)), 0,
+                             msg=f"QA mappings leaked into {svc}")
         self.assertTrue(list(host.glob("docker-compose.yml.qa-export-before-*")))
 
-        # second run is a no-op: exactly 4 .env lines + 4 compose mappings, no dupes.
-        # (count by line, not substring: a compose mapping mentions the prefix twice.)
+        # idempotent: a second deploy adds nothing (still 4 compose mappings + 4 .env lines).
         self._run_prod_cmds_against(host)
-
-        def _qa_lines(text: str, needle: str) -> int:
-            return sum(1 for ln in text.splitlines() if needle in ln)
-
-        self.assertEqual(_qa_lines((host / ".env").read_text(), "QA_CAPTURE_EXPORT_STORAGE_"), 4)
         self.assertEqual(
-            _qa_lines((host / "docker-compose.yml").read_text(), "- QA_CAPTURE_EXPORT_STORAGE_"), 4)
+            self._qa_mapping_count((host / "docker-compose.yml").read_text().splitlines()), 4)
+        self.assertEqual(
+            sum(1 for ln in (host / ".env").read_text().splitlines()
+                if "QA_CAPTURE_EXPORT_STORAGE_" in ln), 4)
 
 
 if __name__ == "__main__":
