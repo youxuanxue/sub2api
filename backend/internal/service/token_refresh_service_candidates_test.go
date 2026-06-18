@@ -65,7 +65,7 @@ func (r *tokenRefreshCandidateRepo) SetTempUnschedulable(_ context.Context, _ in
 
 func isOAuthRefreshPlatform(platform string) bool {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity:
+	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformKiro, PlatformGrok:
 		return true
 	default:
 		return false
@@ -128,6 +128,22 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 				Status:      StatusActive,
 				Credentials: map[string]any{"refresh_token": "refresh-token"},
 			},
+			// TK platforms 6/7: kiro + grok depend on background refresh (no
+			// on-demand path; grok tokens expire ~1h). They MUST be candidates.
+			{
+				ID:          6,
+				Platform:    PlatformKiro,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Credentials: map[string]any{"refresh_token": "refresh-token"},
+			},
+			{
+				ID:          7,
+				Platform:    PlatformGrok,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Credentials: map[string]any{"refresh_token": "refresh-token"},
+			},
 		},
 	}
 	svc := &TokenRefreshService{
@@ -140,7 +156,8 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 	svc.processRefresh()
 
 	require.Zero(t, repo.listActiveCalls, "TokenRefreshService should not use the broad active-account query")
-	require.Equal(t, []int64{1}, repo.updatedCredentialIDs)
+	require.Equal(t, []int64{1, 6, 7}, repo.updatedCredentialIDs,
+		"kiro/grok OAuth accounts must remain background-refresh candidates")
 }
 
 func TestTokenRefreshService_RefreshFailureDoesNotCallPrivacy(t *testing.T) {

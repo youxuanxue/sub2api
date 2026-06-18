@@ -743,7 +743,11 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 		WHERE deleted_at IS NULL
 			AND status = 'active'
 			AND type = 'oauth'
-			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity')
+			-- TK: kiro/grok 是 TK 专属第六/第七平台，OAuth access_token 短寿命
+			-- （grok 默认 1h）且网关端只读 credentials 不做按需刷新，后台刷新是其
+			-- 唯一续期路径。上游 ListOAuthRefreshCandidates 只认四平台（上游无 6/7），
+			-- 漏掉会让 kiro/grok 账号 ~1h 后 401 掉出池且无自愈。详见 grok/kiro sentinel。
+			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'kiro', 'grok')
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''
 			AND (
