@@ -9,8 +9,23 @@
 // Only newapi (channel-driven) and the long-tail direct providers below keep
 // static lists (the backend has no empirical source for those).
 
+// Qwen3 dense（非 MoE）instruct ids —— 经 newapi channel（如 dashscope /
+// 兼容聚合器）实际可服务的稠密档位。单独成组，便于同时喂给 newapi 与直连
+// qwen 两个 picker，且与 qwenModels 里已有的 MoE 档（qwen3-235b-a22b）/ qwq
+// 不重复。
+const qwen3DenseModels = [
+  'qwen3-8b', 'qwen3-14b', 'qwen3-32b'
+]
+
 // NewAPI（第五平台）—— 独立维护白名单，不与 openai 共享同一数组引用。
-// 当前内容与 openai 基本对齐，后续允许按 newapi 供应侧单独演进。
+// 当前内容与 openai 基本对齐，外加 newapi channel 侧实际可服务的 qwen3 稠密档
+// （qwen3-8b/14b/32b），后续允许按 newapi 供应侧单独演进。
+//
+// INTERIM（PR-B）：这份静态列表只是过渡形态。最终单一真值是后端 manifest
+// backend/internal/service/tk_served_models.json —— FE picker 应经一个
+// servable endpoint 从该 manifest 派生 newapi 候选模型（PR-C 的 follow-on，
+// 与 API-backed 平台经 useServableModels 自愈同构）。在那之前，新增 newapi
+// 可服务模型需手工补到这里。
 const newapiModels = [
   'gpt-3.5-turbo', 'gpt-3.5-turbo-0125', 'gpt-3.5-turbo-1106', 'gpt-3.5-turbo-16k',
   'gpt-4', 'gpt-4-turbo', 'gpt-4-turbo-preview',
@@ -27,7 +42,9 @@ const newapiModels = [
   'gpt-5.3-codex', 'gpt-5.3-codex-spark',
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
   // GPT Image 系列
-  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
+  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2',
+  // Qwen3 稠密档（经 newapi channel 可服务）
+  ...qwen3DenseModels
 ]
 
 // (claudeModels / geminiModels / antigravityModels removed — see the note above;
@@ -51,6 +68,7 @@ const qwenModels = [
   'qwen2.5-7b-instruct', 'qwen2.5-3b-instruct', 'qwen2.5-1.5b-instruct',
   'qwen2.5-coder-32b-instruct', 'qwen2.5-coder-14b-instruct', 'qwen2.5-coder-7b-instruct',
   'qwen3-235b-a22b',
+  ...qwen3DenseModels,
   'qwq-32b', 'qwq-32b-preview'
 ]
 
