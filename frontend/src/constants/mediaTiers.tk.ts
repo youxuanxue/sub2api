@@ -194,9 +194,15 @@ export const VIDEO_ASPECT_PRESETS: VideoAspectPreset[] = [
   { id: '1:1', label: '1:1' },
 ]
 
-/** Video duration bounds (handlers clamp to [1,60]; default 8s). */
-export const VIDEO_DURATION_MIN = 1
-export const VIDEO_DURATION_MAX = 60
+/**
+ * Fallback video duration default (seconds) used ONLY before a model is selected
+ * or for a video model that declares no `videoDurations`. Real durations are
+ * per-model and discrete (see MediaModel.videoDurations) — the global 1–60s
+ * slider was a footgun: it let users request (and get quoted for) durations the
+ * model's UPSTREAM always rejects, e.g. a 53s Veo clip @ $0.60/s = $31.80 that
+ * Vertex hard-fails (Veo accepts only 4/6/8s). The backend still clamps to
+ * [1,60] defensively, but the UI now never offers an out-of-range value.
+ */
 export const VIDEO_DURATION_DEFAULT = 8
 
 /** Image count bounds for the n stepper. */
@@ -266,6 +272,17 @@ export interface MediaModel {
    * tier). The Studio routes it through chat and skips the size-tier cost multiplier.
    */
   flatImageBilling?: boolean
+  /**
+   * Video modality only: the DISCRETE durations (seconds) this model's UPSTREAM
+   * accepts — same "declare exactly what the upstream takes" contract as
+   * `imageSizes`/`supportedParams`. The Studio renders these as chips and never
+   * lets the user pick (or get quoted for) an out-of-range value, so a request is
+   * priced ∩ servable, never a 400/FAILURE-on-submit footgun. Per the upstream
+   * task adaptors (new-api ResolveVeoDuration / doubao) durations are passed
+   * through unvalidated, so the upstream's own accepted set is the only guard.
+   * The default selected value is the MAX of this list (videoDurationDefault).
+   */
+  videoDurations?: number[]
 }
 
 /**
@@ -373,6 +390,8 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'video',
     // doubao adaptor reads Seed + first-frame image; it has NO NegativePrompt field.
     supportedParams: ['seed', 'firstFrameImage'],
+    // Seedance 1.0 Pro: discrete 5s / 10s (Volcengine Ark, high confidence).
+    videoDurations: [5, 10],
   },
   {
     modelId: 'doubao-seedance-2-0-fast-260128',
@@ -382,6 +401,10 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VOLC,
     modality: 'video',
     supportedParams: ['seed', 'firstFrameImage'],
+    // Seedance 2.0 Fast: sources conflict (4/8/12 vs 2–15); we take the cited
+    // fast-variant discrete set 4/8/12 — conservative (never offer a value the
+    // upstream rejects). TODO: verify against canonical Volcengine Ark docs.
+    videoDurations: [4, 8, 12],
   },
   {
     modelId: 'veo-3.1-fast-generate-001',
@@ -392,6 +415,9 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'video',
     // VeoParameters honors NegativePrompt + Seed; first-frame image supported.
     supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
+    // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence). With a
+    // first-frame/reference image upstream only returns 8s — not modeled here.
+    videoDurations: [4, 6, 8],
   },
   {
     modelId: 'veo-3.1-generate-001',
@@ -401,6 +427,8 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VERTEX,
     modality: 'video',
     supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
+    // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence).
+    videoDurations: [4, 6, 8],
   },
 ]
 
@@ -456,6 +484,30 @@ export function resolveAvailableModels(
 export function defaultModelId(models: readonly ResolvedModel[]): string | null {
   const safe = models.find((r) => !r.model.needsApikeyAccount)
   return safe ? safe.model.modelId : null
+}
+
+/**
+ * Default selected video duration for a model: the MAX of its accepted
+ * durations (user directive — land on the longest valid clip). Falls back to
+ * VIDEO_DURATION_DEFAULT when the model declares no `videoDurations`.
+ */
+export function videoDurationDefault(durations: readonly number[] | undefined): number {
+  return durations && durations.length ? Math.max(...durations) : VIDEO_DURATION_DEFAULT
+}
+
+/**
+ * Snap a target duration to the model's NEAREST accepted value (ties → the
+ * larger). Used by the Bake-Off, where one shared duration is compared across
+ * models with DISJOINT accepted sets (e.g. Veo 4/6/8 vs Seedance 5/10 share
+ * none): each panel runs a value its own upstream accepts, never a footgun.
+ */
+export function snapVideoDuration(target: number, durations: readonly number[] | undefined): number {
+  if (!durations || !durations.length) return target
+  return durations.reduce((best, d) => {
+    const dd = Math.abs(d - target)
+    const db = Math.abs(best - target)
+    return dd < db || (dd === db && d > best) ? d : best
+  })
 }
 
 /** Advanced param bounds. */

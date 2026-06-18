@@ -5,6 +5,8 @@ import {
   pickModalityKey,
   resolveAvailableModels,
   defaultModelId,
+  videoDurationDefault,
+  VIDEO_DURATION_DEFAULT,
   MEDIA_MODELS,
   IMAGEN_IMAGE_SIZES,
   SEEDREAM_IMAGE_SIZES,
@@ -217,6 +219,54 @@ describe('capability map honesty (verified against new-api adaptors)', () => {
     expect(s).toContain('seed')
     expect(s).toContain('firstFrameImage')
     expect(s).not.toContain('negativePrompt')
+  })
+})
+
+describe('video durations (per-model discrete, never a footgun)', () => {
+  // Regression guard for the "$31.80 for a 53s Veo clip" footgun: the duration
+  // axis used to be a global 1–60s slider, so users were quoted (and pre-charged)
+  // for durations the upstream always rejects. Each video model now declares its
+  // accepted discrete seconds; this locks that invariant.
+  const videoModels = MEDIA_MODELS.filter((m) => m.modality === 'video')
+  const byId = (id: string) => MEDIA_MODELS.find((m) => m.modelId === id)!
+
+  it('every video model declares a non-empty videoDurations; image models declare none', () => {
+    expect(videoModels.length).toBeGreaterThan(0)
+    for (const m of videoModels) {
+      expect(m.videoDurations && m.videoDurations.length).toBeTruthy()
+    }
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+      expect(m.videoDurations).toBeUndefined()
+    }
+  })
+
+  it('all declared durations are positive integers within a sane [1,15] ceiling (kills the >15s footgun)', () => {
+    for (const m of videoModels) {
+      for (const d of m.videoDurations!) {
+        expect(Number.isInteger(d)).toBe(true)
+        expect(d).toBeGreaterThanOrEqual(1)
+        expect(d).toBeLessThanOrEqual(15)
+      }
+    }
+  })
+
+  it('the default duration is the MAX accepted value (user directive) and is itself accepted', () => {
+    for (const m of videoModels) {
+      const def = videoDurationDefault(m.videoDurations)
+      expect(def).toBe(Math.max(...m.videoDurations!))
+      expect(m.videoDurations).toContain(def)
+    }
+  })
+
+  it('videoDurationDefault falls back to VIDEO_DURATION_DEFAULT when no durations are declared', () => {
+    expect(videoDurationDefault(undefined)).toBe(VIDEO_DURATION_DEFAULT)
+    expect(videoDurationDefault([])).toBe(VIDEO_DURATION_DEFAULT)
+  })
+
+  it('Veo 3.1 accepts exactly 4/6/8s (Vertex official); Seedance 1.0 exactly 5/10s', () => {
+    expect(byId('veo-3.1-generate-001').videoDurations).toEqual([4, 6, 8])
+    expect(byId('veo-3.1-fast-generate-001').videoDurations).toEqual([4, 6, 8])
+    expect(byId('seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])
   })
 })
 

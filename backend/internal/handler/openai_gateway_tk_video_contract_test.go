@@ -25,12 +25,14 @@ import (
 // with videoTerminalOutcome — the refund trigger depends on it.
 func TestVideoTerminalOutcome_NewAPITaskStatusContract(t *testing.T) {
 	terminal, failed := videoTerminalOutcome(string(newapimodel.TaskStatusFailure))
-	require.True(t, terminal, "FAILURE must be terminal (registry cleanup)")
-	require.True(t, failed, "FAILURE must trigger the submit-charge refund")
+	require.True(t, terminal, "FAILURE must be terminal (stops the client poll)")
+	require.True(t, failed, "FAILURE must trigger the registry cleanup + submit-charge refund")
 
 	terminal, failed = videoTerminalOutcome(string(newapimodel.TaskStatusSuccess))
-	require.True(t, terminal, "SUCCESS must be terminal (registry cleanup)")
-	require.False(t, failed, "SUCCESS must NOT trigger a refund")
+	require.True(t, terminal, "SUCCESS must be terminal (stops the client poll)")
+	// NOTE: only FAILURE deletes the registry entry now; SUCCESS is kept until
+	// TTL so an aborted large-body fetch can re-fetch (see VideoFetch).
+	require.False(t, failed, "SUCCESS must NOT trigger a refund or registry cleanup")
 
 	for _, nonTerminal := range []string{
 		string(newapimodel.TaskStatusNotStart),
