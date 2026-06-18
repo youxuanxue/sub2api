@@ -95,9 +95,14 @@
     <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
       <div class="mb-3 flex items-center justify-between">
         <span class="text-sm font-semibold text-gray-700 dark:text-dark-200">{{ t('studio.image.resultsTitle') }}</span>
-        <button v-if="library.images.value.length" type="button" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" @click="library.clearImages()">
-          {{ t('studio.clear') }}
-        </button>
+        <div v-if="library.images.value.length" class="flex items-center gap-3">
+          <button type="button" class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300" data-testid="studio-image-download-all" @click="downloadAll">
+            {{ t('studio.image.downloadAll') }}
+          </button>
+          <button type="button" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" @click="library.clearImages()">
+            {{ t('studio.clear') }}
+          </button>
+        </div>
       </div>
       <div v-if="!library.images.value.length" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
         {{ t('studio.image.emptyHint') }}
@@ -109,10 +114,15 @@
           class="group overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700"
         >
           <div class="relative">
-            <a :href="img.src" target="_blank" rel="noopener">
+            <!-- Click to enlarge IN-PAGE. A plain <a target="_blank"> to img.src
+                 breaks for gemini-native images: their src is a data: URI and
+                 browsers block top-level navigation to data: URLs (→ about:blank,
+                 the "click shows nothing" report). A lightbox previews every src
+                 (data: or http) without leaving the page. -->
+            <button type="button" class="block w-full cursor-zoom-in" :title="t('studio.image.enlargeHint')" data-testid="studio-image-thumb" @click="openPreview(img)">
               <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
-            </a>
-            <div class="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/40 p-1.5 opacity-0 transition group-hover:opacity-100">
+            </button>
+            <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/40 p-1.5 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
               <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="download(img)">{{ t('studio.image.download') }}</button>
               <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="reuse(img)">{{ t('studio.image.usePrompt') }}</button>
             </div>
@@ -166,11 +176,36 @@
         <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
       </div>
     </div>
+
+    <!-- Lightbox: full-resolution in-page preview (replaces the broken open-in-new-tab). -->
+    <Teleport to="body">
+      <div
+        v-if="preview"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
+        data-testid="studio-image-preview"
+        @click.self="closePreview"
+      >
+        <div class="flex items-center justify-end p-3">
+          <button type="button" class="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20" data-testid="studio-image-preview-close" @click="closePreview">
+            {{ t('studio.image.close') }} ✕
+          </button>
+        </div>
+        <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closePreview">
+          <img :src="preview.src" :alt="preview.prompt" class="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
+        </div>
+        <div class="flex flex-wrap items-center justify-center gap-3 p-4">
+          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="preview.prompt">{{ preview.prompt }}</span>
+          <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.cost) }}</span>
+          <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="download(preview)">{{ t('studio.image.download') }}</button>
+          <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gatewayImageGenerations, gatewayGeminiImageViaChat } from '@/api/playground'
 import { extractImageItems, extractChatImageItems } from '@/constants/playgroundMedia.tk'
@@ -318,6 +353,34 @@ function reuse(img: ImageHistoryItem): void {
 
 function download(img: ImageHistoryItem): void {
   downloadMedia(img.src, `tokenkey-${img.id}.png`)
+}
+
+// In-page lightbox: clicking a thumbnail opens the full image here instead of a
+// new tab (data: URIs can't be navigated to top-level — they 404 to about:blank).
+const preview = ref<ImageHistoryItem | null>(null)
+function openPreview(img: ImageHistoryItem): void {
+  preview.value = img
+}
+function closePreview(): void {
+  preview.value = null
+}
+function reuseAndClose(img: ImageHistoryItem): void {
+  reuse(img)
+  closePreview()
+}
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && preview.value) closePreview()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
+// Batch export: browsers throttle a burst of synchronous downloads, so stagger
+// each save. Order matches the on-screen grid (newest first).
+function downloadAll(): void {
+  const imgs = library.images.value
+  imgs.forEach((img, i) => {
+    window.setTimeout(() => download(img), i * 350)
+  })
 }
 
 async function generate(): Promise<void> {
