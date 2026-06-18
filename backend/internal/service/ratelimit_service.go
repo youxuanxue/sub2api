@@ -28,12 +28,9 @@ type RateLimitService struct {
 	timeoutCounterCache                TimeoutCounterCache
 	openAI403CounterCache              OpenAI403CounterCache
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
-	// TK: 「token 被成功刷新过却仍持续 401」计数器，用于把 OAuth 401 静默 flap
-	// 升级为 error 永久停调度。逻辑在 ratelimit_service_tk_oauth401.go。
-	oauth401AfterRefreshCounter OAuth401AfterRefreshCounterCache
-	settingService              *SettingService
-	tokenCacheInvalidator       TokenCacheInvalidator
-	runtimeBlocker              AccountRuntimeBlocker
+	settingService                     *SettingService
+	tokenCacheInvalidator              TokenCacheInvalidator
+	runtimeBlocker                     AccountRuntimeBlocker
 	// TK: 账号失效事件 → 飞书即时告警。挂钩在 notifyAccountSchedulingBlocked,
 	// 实现在 account_incident_notifier_tk.go / ratelimit_service_tk_incident.go。
 	incidentNotifier AccountIncidentNotifier
@@ -437,10 +434,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// tryRecoverFromRefreshRace 重读 DB 发现 currentRT == usedRT 也救不回来，账号被错误 disable。
 			// 这里仅依赖 InvalidateToken + SetTempUnschedulable 让账号在冷却期内不被调度，
 			// 冷却结束后由 token_provider 的 NeedsRefresh / token_refresh_service 走带分布式锁的正路刷新。
-			// TK: 「refresh 端点成功却仍 401」盲区——若同一窗口内换发的新 token 仍 401，
-			// 判定 grant 被上游实质吊销，升级为 error 永久停调度 + 告警（提示手工重授权），
-			// 不再无限 temp_unschedulable flap。详见 ratelimit_service_tk_oauth401.go。
-			if s.tkTryEscalateRevokedOAuth401(ctx, account, upstreamMsg) {
+			// TK: 401 发生在「仍然有效的 access_token」上 = grant 被上游吊销（一个没过期的
+			// token 不该被拒，除非 grant 没了）。第一次即 SetError 永久停调度 + 告警，提示人工
+			// 重授权，不再走冷却 flap。token 已过期/近过期则视为过期抢跑良性 401，落到下面的
+			// temp_unschedulable 冷却 + 后台刷新自愈。详见 ratelimit_service_tk_oauth401.go。
+			if s.tkDisableIfOAuth401OnValidToken(ctx, account, upstreamMsg) {
 				shouldDisable = true
 				break
 			}
@@ -1095,6 +1093,13 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 				"cooldown_seconds", int(tlsFingerprintFailureCooldown.Seconds()),
 				"action", "ops_should_re-capture_claude_cli_tls_profile",
 				"upstream_msg", upstreamMsg)
+			return true
+		}
+		// TK (handle403 gap, 空 body org-ban): #810 的结构化短语 breaker 抓不到以**空 body**
+		// 返回的 org 封禁（id=1 历史即如此），它会落回下面自动恢复的 3/3 阶梯永久 flap。
+		// 持续空 body 403 累计到阈值即永久禁用 + 告警。见
+		// ratelimit_service_tk_anthropic_bodyless_403.go。
+		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
 		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
@@ -2216,9 +2221,6 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	}
 	if status == "allowed" || status == "allowed_warning" {
 		s.ResetAnthropicUpstreamErrorCounter(ctx, account.ID)
-		// TK: 成功响应即清掉「refresh 后仍 401」的 baseline，避免一次良性瞬时 401
-		// 的 baseline 残留到下一次瞬时 401 凑成误升级。
-		s.ResetOAuth401AfterRefreshCounter(ctx, account.ID)
 	}
 }
 
@@ -2244,7 +2246,6 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
-	s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
@@ -2277,6 +2278,13 @@ func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Contex
 	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownEscalationSlot(ctx, accountID); err != nil {
 		slog.Warn("anthropic_cooldown_escalation_slot_reset_failed", "account_id", accountID, "error", err)
 	}
+	// TK: clear the persistent-bodyless-403 strike counter too, so a healed
+	// account does not carry stale bodyless-403 strikes toward a future
+	// permanent disable. Co-located here (rather than a parallel reset method)
+	// because this helper is already invoked from every recovery hotpath.
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID); err != nil {
+		slog.Warn("anthropic_bodyless_403_reset_failed", "account_id", accountID, "error", err)
+	}
 }
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
@@ -2308,7 +2316,6 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
 		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
-		s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}
@@ -2337,7 +2344,6 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 		slog.Warn("clear_model_rate_limits_on_temp_unsched_reset_failed", "account_id", accountID, "error", err)
 	}
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
-	s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }

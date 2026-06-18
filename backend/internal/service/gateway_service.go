@@ -5300,6 +5300,22 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			}
 		}
 
+		// TK (handle403 gap, 2026-06-16 edge us6 后续): account-fatal 403（Anthropic OAuth
+		// org-ban 短语 / 空 body 持续被拒）原地重试必然继续 403、纯属加重上游封禁，跳过原地
+		// 重试直奔下方 retry-exhausted/failover 副作用（HandleUpstreamError → handle403 →
+		// 永久禁用 + failover 到 sibling）。peek body 后必须还原 resp.Body 供下游 5367 读取
+		// （readUpstreamErrorBody 不还原）。见 gateway_service_tk_oauth_fatal_403_skip.go。
+		if resp.StatusCode == http.StatusForbidden && account.IsOAuth() {
+			peekedFatalBody, _ := s.readUpstreamErrorBody(resp)
+			_ = resp.Body.Close()
+			resp.Body = io.NopCloser(bytes.NewReader(peekedFatalBody))
+			if s.tkIsAccountFatal403(account, peekedFatalBody) {
+				logger.LegacyPrintf("service.gateway", "Account %d: account-fatal 403 (org-ban/bodyless), skipping in-place retry, failing over",
+					account.ID)
+				break
+			}
+		}
+
 		// 检查是否需要通用重试（排除400，因为400已经在上面特殊处理过了）
 		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
 			if attempt < maxRetryAttempts {

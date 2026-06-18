@@ -35,6 +35,9 @@ func (h *GatewayHandler) tkWriteUnsupportedModelIfApplicable(c *gin.Context, err
 			zap.Error(err),
 		)
 	}
+	// Own this to the client in ops regardless of the response envelope, so a
+	// client-fault model name never reads as TK capacity/internal.
+	markOpsClientRequestRejected(c)
 	h.handleStreamingAwareError(c, http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel), streamStarted)
 	return true
 }

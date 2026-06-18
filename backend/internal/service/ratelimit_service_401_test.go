@@ -146,6 +146,15 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	resetCalls    []int64
 	err           error
 
+	// Bodyless-403 terminal counter (separate namespace from the general
+	// error counter). bodyless403Counts scripts the returned count in order
+	// so a test can drive the threshold; an empty slice returns 1 each call.
+	bodyless403Counts       []int64
+	bodyless403IncrementIDs []int64
+	bodyless403WindowMin    []int
+	bodyless403DebounceSec  []int
+	bodyless403ResetCalls   []int64
+
 	tierCounts       []int64
 	tierIncrementIDs []int64
 	tierTTLMinutes   []int
@@ -187,6 +196,26 @@ func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamError
 
 func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicUpstreamErrorCount(_ context.Context, accountID int64) error {
 	s.resetCalls = append(s.resetCalls, accountID)
+	return nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicBodyless403Count(_ context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error) {
+	s.bodyless403IncrementIDs = append(s.bodyless403IncrementIDs, accountID)
+	s.bodyless403WindowMin = append(s.bodyless403WindowMin, windowMinutes)
+	s.bodyless403DebounceSec = append(s.bodyless403DebounceSec, debounceSeconds)
+	if s.err != nil {
+		return 0, s.err
+	}
+	if len(s.bodyless403Counts) == 0 {
+		return 1, nil
+	}
+	count := s.bodyless403Counts[0]
+	s.bodyless403Counts = s.bodyless403Counts[1:]
+	return count, nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicBodyless403Count(_ context.Context, accountID int64) error {
+	s.bodyless403ResetCalls = append(s.bodyless403ResetCalls, accountID)
 	return nil
 }
 

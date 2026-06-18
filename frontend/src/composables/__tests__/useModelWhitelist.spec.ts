@@ -36,9 +36,24 @@ describe('useModelWhitelist', () => {
     expect(newapiModels).toContain('gpt-5.3-codex-spark')
   })
 
+  it('newapi picker offers the qwen3 dense ids (PR-B: dropdown discoverability)', () => {
+    // The newapi modal hardcodes platform='newapi', so the dropdown reads this
+    // list — before PR-B it was GPT-only and these three dense ids could only
+    // be added via the custom-model input (the drop itself was phantom).
+    // INTERIM truth lives in tk_served_models.json (backend manifest); PR-C
+    // will derive this list from a servable endpoint.
+    const newapiModels = getModelsByPlatform('newapi')
+    expect(newapiModels).toContain('qwen3-8b')
+    expect(newapiModels).toContain('qwen3-14b')
+    expect(newapiModels).toContain('qwen3-32b')
+  })
+
   it('long-tail direct providers keep static lists', () => {
     expect(getModelsByPlatform('deepseek').length).toBeGreaterThan(0)
-    expect(getModelsByPlatform('qwen').length).toBeGreaterThan(0)
+    const qwen = getModelsByPlatform('qwen')
+    expect(qwen.length).toBeGreaterThan(0)
+    // dense ids are also offered on the direct qwen platform
+    expect(qwen).toContain('qwen3-32b')
   })
 
   it('unknown platform yields an empty list (custom input is the escape hatch)', () => {
