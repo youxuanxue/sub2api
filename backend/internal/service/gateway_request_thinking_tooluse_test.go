@@ -66,7 +66,7 @@ func TestFilterThinkingBlocksForRetry_PreservesThinkingInToolUseTurn(t *testing.
 		]
 	}`)
 
-	out := FilterThinkingBlocksForRetry(input)
+	out := FilterThinkingBlocksForRetry(input, "claude-opus-4-1")
 	req := parseReq(t, out)
 
 	// top-level thinking must remain enabled (a preserved thinking block requires it).
@@ -96,7 +96,7 @@ func TestFilterThinkingBlocksForRetry_PreservesRedactedThinkingInToolUseTurn(t *
 		]
 	}`)
 
-	out := FilterThinkingBlocksForRetry(input)
+	out := FilterThinkingBlocksForRetry(input, "claude-opus-4-1")
 	req := parseReq(t, out)
 
 	_, hasThinking := req["thinking"]
@@ -120,7 +120,7 @@ func TestFilterThinkingBlocksForRetry_StripsThinkingWhenNoToolUse(t *testing.T) 
 		]
 	}`)
 
-	out := FilterThinkingBlocksForRetry(input)
+	out := FilterThinkingBlocksForRetry(input, "claude-opus-4-1")
 	req := parseReq(t, out)
 
 	_, hasThinking := req["thinking"]
@@ -152,7 +152,7 @@ func TestFilterThinkingBlocksForRetry_MixedConversationPreservesOnlyToolTurns(t 
 		]
 	}`)
 
-	out := FilterThinkingBlocksForRetry(input)
+	out := FilterThinkingBlocksForRetry(input, "claude-opus-4-1")
 	req := parseReq(t, out)
 
 	// top-level thinking kept (a tool-coupled thinking block survives).
@@ -186,7 +186,7 @@ func TestFilterThinkingBlocksForRetry_KeepsClearThinkingStrategyWhenThinkingPres
 		]
 	}`)
 
-	out := FilterThinkingBlocksForRetry(input)
+	out := FilterThinkingBlocksForRetry(input, "claude-opus-4-1")
 	req := parseReq(t, out)
 
 	cm, ok := req["context_management"].(map[string]any)
