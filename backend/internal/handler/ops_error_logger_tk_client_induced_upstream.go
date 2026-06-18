@@ -60,11 +60,15 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 		}
 		// Positive client-facing signal: the gateway already translated this
 		// upstream 404 into a not_found_error for the caller (openai
-		// service.handleErrorResponse case 404; anthropic "Unsupported model"
-		// short-circuit). A 404 is structurally model/endpoint-not-found — the
-		// caller asked for something that does not exist — so own it to the client
-		// even when the upstream returned NO error body for the predicates below to
-		// re-confirm. Prod us3 2026-06-17 (upstream_error_rate=97% false P0): a
+		// service.handleErrorResponse case 404). A 404 is structurally
+		// model/endpoint-not-found — the caller asked for something that does not
+		// exist — so own it to the client even when the upstream returned NO error
+		// body for the predicates below to re-confirm. (The anthropic
+		// Unsupported-model path emits invalid_request_error, NOT not_found_error,
+		// and is already owned via the IsAnthropicModelNotFound404 body predicate
+		// below — it does not use this branch; this branch is the openai
+		// /v1/responses empty-body case where that predicate sees "".)
+		// Prod us3 2026-06-17 (upstream_error_rate=97% false P0): a
 		// client hammered gpt-5.5-pro on /v1/responses against a ChatGPT-OAuth
 		// (Codex) account that cannot serve it; the ChatGPT backend answered a bare
 		// 404 with an empty body, so combined=="" and — under the old
