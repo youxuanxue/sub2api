@@ -135,6 +135,14 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
 # ever land in .env. Values are env-overridable but default to the prod bucket.
 # See docs/qa-export-s3-and-auto-archive.md.
+#
+# Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
+# its TZ line: every service (caddy/tokenkey/postgres/redis) carries a `- TZ=` line,
+# so `/^      - TZ=/a\` matched all of them and injected the 4 mappings once PER
+# service (harmless on postgres/redis, which ignore the env, but wrong). The first
+# 1.8.11 prod deploy did exactly that; the host compose was de-duplicated out of band.
+# SERVER_FRONTEND_URL is unique to the tokenkey service and is guaranteed present by
+# the SERVER_FRONTEND_URL backfill below, which runs earlier in this command list.
 qa_export_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
   qa_export_cmds="$(jq -n \
@@ -153,7 +161,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
         + " for k in DRIVER REGION BUCKET PREFIX; do grep -q \"QA_CAPTURE_EXPORT_STORAGE_${k}=\" \"$CF\" || miss=1; done;"
         + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-export-before-" + $tag + "\";"
         + " for k in PREFIX BUCKET REGION DRIVER; do key=\"QA_CAPTURE_EXPORT_STORAGE_$k\";"
-        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - TZ=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
         + " if grep -q QA_CAPTURE_EXPORT_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-QA_CAPTURE_EXPORT_STORAGE-mappings;"
         + " else echo '\''::warning::failed to insert compose QA_CAPTURE_EXPORT_STORAGE mappings'\''; fi;"
         + " else echo compose-QA_CAPTURE_EXPORT_STORAGE-mappings-present; fi; fi" )

@@ -76,8 +76,11 @@ prod-only feature.
 **How it ships instead (deploy-sed, prod-only).** `ops/stage0/deploy_via_ssm.sh`
 self-heals the 4 vars onto the LIVE prod host on every deploy — the exact
 mechanism already used for `SERVER_FRONTEND_URL`: a guarded (`grep -q`), additive,
-idempotent `.env` backfill + a `/^      - TZ=/a\` insertion of the 4 compose
-mappings, with a tagged compose backup. It is gated to the prod EC2 node
+idempotent `.env` backfill + a `/^      - SERVER_FRONTEND_URL=/a\` insertion of the
+4 compose mappings (anchored to the tokenkey-unique SERVER_FRONTEND_URL line, not
+the per-service `TZ` line — every service carries a `TZ` line, so a `TZ` anchor
+injected the mappings once per service), with a tagged compose backup. It is gated
+to the prod EC2 node
 (`INSTANCE_ID == i-*`); every edge is a Lightsail `mi-*` and gets an empty
 injection (byte-identical command list). Values default to the prod bucket but are
 env-overridable. **Credentials stay empty on purpose** — the prod instance role +
