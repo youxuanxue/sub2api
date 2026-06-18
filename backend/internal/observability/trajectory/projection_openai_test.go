@@ -160,6 +160,54 @@ func TestBuildTrajSessionsV2_OpenAIChatStream(t *testing.T) {
 	}
 }
 
+// OpenAI Chat stream truncated mid-flight (no finish_reason, no [DONE]) →
+// call_meta.truncated=true, so a clipped capture is not taken as complete.
+func TestBuildTrajSessionsV2_OpenAIChatStreamTruncated(t *testing.T) {
+	base := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
+	b := &EvidenceBlob{}
+	b.Request.Body = mustBody(t, `{"model":"gpt-5","messages":[{"role":"user","content":"q"}]}`)
+	b.Response.Body = mustBody(t, `{}`)
+	b.Stream.Chunks = sseChunks([]string{
+		`{"choices":[{"index":0,"delta":{"role":"assistant","content":"partial"}}]}`,
+		// no finish_reason chunk, no [DONE]
+	})
+	sources := []SourceRecord{{
+		Record: &ent.QARecord{RequestID: "cstrunc", CreatedAt: base, Platform: "openai", InboundEndpoint: "/v1/chat/completions", TrajectoryID: strptr("traj-cstrunc")},
+		Blob:   b,
+	}}
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if sessions[0].Turns[1].CallMeta["truncated"] != true {
+		t.Errorf("expected truncated=true, got: %v", sessions[0].Turns[1].CallMeta["truncated"])
+	}
+}
+
+// OpenAI Responses stream truncated (no response.completed) → truncated=true.
+func TestBuildTrajSessionsV2_OpenAIResponsesStreamTruncated(t *testing.T) {
+	base := time.Date(2026, 6, 16, 13, 30, 0, 0, time.UTC)
+	b := &EvidenceBlob{}
+	b.Request.Body = mustBody(t, `{"model":"gpt-5-codex","input":[{"type":"message","role":"user","content":"q"}]}`)
+	b.Response.Body = mustBody(t, `{}`)
+	b.Stream.Chunks = sseChunks([]string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant"}}`,
+		`{"type":"response.output_text.delta","output_index":0,"delta":"partial"}`,
+		// no response.completed / failed
+	})
+	sources := []SourceRecord{{
+		Record: &ent.QARecord{RequestID: "rsptrunc", CreatedAt: base, Platform: "openai", InboundEndpoint: "/v1/responses", TrajectoryID: strptr("traj-rsptrunc")},
+		Blob:   b,
+	}}
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if sessions[0].Turns[1].CallMeta["truncated"] != true {
+		t.Errorf("expected truncated=true, got: %v", sessions[0].Turns[1].CallMeta["truncated"])
+	}
+}
+
 // OpenAI Responses (Codex): input[] items + output[] items reconstruct into
 // user / assistant(thinking+text+tool_use) / tool / assistant(text), instructions
 // → meta, usage from input/output_tokens.

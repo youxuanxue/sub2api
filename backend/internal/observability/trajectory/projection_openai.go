@@ -327,13 +327,10 @@ func buildOpenAIChatMeta(recs []SourceRecord, lastReq gjson.Result, assistantMod
 			}
 			return true
 		})
-		switch len(systems) {
-		case 1:
+		if len(systems) == 1 {
 			meta.System = systems[0]
-		default:
-			if len(systems) > 1 {
-				meta.System = systems
-			}
+		} else if len(systems) > 1 {
+			meta.System = systems
 		}
 		if tools := lastReq.Get("tools"); tools.IsArray() {
 			meta.ToolSchema = jsonValue(tools)

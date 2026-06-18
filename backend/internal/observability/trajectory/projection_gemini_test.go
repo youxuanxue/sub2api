@@ -127,6 +127,29 @@ func TestBuildTrajSessionsV2_GeminiStream(t *testing.T) {
 	}
 }
 
+// Gemini stream truncated (no finishReason on any chunk) → truncated=true.
+func TestBuildTrajSessionsV2_GeminiStreamTruncated(t *testing.T) {
+	base := time.Date(2026, 6, 16, 15, 30, 0, 0, time.UTC)
+	b := &EvidenceBlob{}
+	b.Request.Body = mustBody(t, `{"contents":[{"role":"user","parts":[{"text":"q"}]}]}`)
+	b.Response.Body = mustBody(t, `{}`)
+	b.Stream.Chunks = sseChunks([]string{
+		`{"candidates":[{"content":{"parts":[{"text":"partial"}]}}]}`,
+		// no finishReason
+	})
+	sources := []SourceRecord{{
+		Record: &ent.QARecord{RequestID: "gstrunc", CreatedAt: base, Platform: "gemini", InboundEndpoint: "/v1beta/models", TrajectoryID: strptr("traj-gstrunc")},
+		Blob:   b,
+	}}
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if sessions[0].Turns[1].CallMeta["truncated"] != true {
+		t.Errorf("expected truncated=true, got: %v", sessions[0].Turns[1].CallMeta["truncated"])
+	}
+}
+
 // H6: Gemini streamed WITHOUT alt=sse is a JSON array (not data:-framed). The
 // builder must still reconstruct rather than emit empty/garbage turns.
 func TestBuildTrajSessionsV2_GeminiNonSSEStream(t *testing.T) {
