@@ -189,6 +189,50 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "request", phase, "availability-gating 404 must be client-owned, out of upstream_error_rate")
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it re-fires the us7 false P0")
 	})
+
+	// TK (prod us3 P0 2026-06-17, upstream_error_rate=97% false page): a client
+	// hammered gpt-5.5-pro on /v1/responses (1604× in 5 min) against a
+	// ChatGPT-OAuth (Codex) account that cannot serve that model. The ChatGPT
+	// backend answered a bare 404 with an EMPTY error body, so the upstream
+	// message/body captured on the context is "". The gateway still passed it
+	// through to the caller as not_found_error (handleErrorResponse case 404), but
+	// the empty body meant the IsAnthropicModelNotFound404 / IsOpenAICompatModelNotFound404
+	// predicates saw "" and — under the old `combined=="" -> return false` — the
+	// 404 defaulted to phase=upstream / error_owner=provider, flooding
+	// upstream_error_rate. The client-facing not_found_error type is the
+	// drift-proof signal: a 404 the gateway owned as not-found is caller-fault even
+	// with no upstream body to re-confirm.
+	t.Run("openai /v1/responses 404 with EMPTY upstream body but client-facing not_found_error is client-induced", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		// Production shape: only the upstream STATUS is captured; no message, no body.
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			UpstreamStatusCode: http.StatusNotFound,
+		}})
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "not_found_error", "Upstream rejected the request", "", http.StatusNotFound)
+
+		require.Equal(t, "request", phase, "empty-body 404 owned as not_found_error must be client-owned, out of upstream_error_rate")
+		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it re-fires the us3 false P0")
+	})
+
+	// Guard the boundary: a 404 the gateway did NOT own as not-found (masked to a
+	// generic upstream_error via ShouldHandleErrorCode=false or a passthrough rule)
+	// with an empty upstream body stays provider — the empty-body default must only
+	// flip on the positive not_found_error signal, preserving the existing
+	// "generic 404 stays provider" contract for the masked path.
+	t.Run("openai 404 masked as upstream_error with empty body stays provider", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			UpstreamStatusCode: http.StatusNotFound,
+		}})
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream gateway error", "", http.StatusInternalServerError)
+
+		require.Equal(t, "upstream", phase, "a masked 404 (upstream_error) with no not-found signal stays provider-owned")
+		require.Equal(t, "provider", errorOwner)
+	})
 }
 
 func TestClassifyOpsGenuineUpstreamErrorsStayProvider(t *testing.T) {

@@ -34,7 +34,7 @@ import (
 // the account-level 4xx signals (organization disabled / credit balance exhausted /
 // identity verification required) are NOT — they stay provider-owned because they
 // genuinely report account health and SHOULD keep counting toward upstream_error_rate.
-func tkUpstreamClientInducedRejection(c *gin.Context) bool {
+func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool {
 	status := tkOpsUpstreamStatusCode(c)
 	// 413 request_too_large is always caller-fault: the body cleared TokenKey's
 	// local body-limit middleware (handler.request_body_limit) but exceeded the
@@ -53,7 +53,30 @@ func tkUpstreamClientInducedRejection(c *gin.Context) bool {
 	if status == 404 {
 		body, msg := tkOpsUpstreamErrorText(c)
 		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
-		if combined == "" || tkOpsIsAccountLevel4xx(combined) {
+		// Account-health 4xx phrases (org disabled / credit balance / identity)
+		// keep provider ownership even when wrapped in a 404 envelope.
+		if tkOpsIsAccountLevel4xx(combined) {
+			return false
+		}
+		// Positive client-facing signal: the gateway already translated this
+		// upstream 404 into a not_found_error for the caller (openai
+		// service.handleErrorResponse case 404; anthropic "Unsupported model"
+		// short-circuit). A 404 is structurally model/endpoint-not-found — the
+		// caller asked for something that does not exist — so own it to the client
+		// even when the upstream returned NO error body for the predicates below to
+		// re-confirm. Prod us3 2026-06-17 (upstream_error_rate=97% false P0): a
+		// client hammered gpt-5.5-pro on /v1/responses against a ChatGPT-OAuth
+		// (Codex) account that cannot serve it; the ChatGPT backend answered a bare
+		// 404 with an empty body, so combined=="" and — under the old
+		// `combined=="" -> return false` — every one of the 1604 requests defaulted
+		// to phase=upstream / error_owner=provider. The client-facing type is the
+		// drift-proof signal here: a masked 404 (ShouldHandleErrorCode=false ->
+		// "upstream_error", or a passthrough rule) is NOT not_found_error and stays
+		// provider, preserving the "generic 404 stays provider" contract.
+		if clientErrType == "not_found_error" {
+			return true
+		}
+		if combined == "" {
 			return false
 		}
 		// Reuse the SAME predicates the gateway uses so this metric classification
