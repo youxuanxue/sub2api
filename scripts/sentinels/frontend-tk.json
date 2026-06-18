@@ -836,9 +836,10 @@
       "must_contain": [
         "data-testid=\"studio-video-model\"",
         "data-testid=\"studio-video-generate\"",
-        "!task.url.startsWith('data:')"
+        "!task.url.startsWith('data:')",
+        "poll.refreshUrl"
       ],
-      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. The `!task.url.startsWith('data:')` guard on the result 'open' link is load-bearing: veo returns base64 (data:video/…), and browsers block top-level navigation to data: URLs, so an unguarded `<a target=_blank>` dead-ends at about:blank (the same class of bug fixed for images in #842). The inline <video> player + download cover the data: case; the open link is for remote URLs only. An upstream merge that reverts the guard silently reintroduces the about:blank dead-end."
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. The `!task.url.startsWith('data:')` guard on the result 'open' link is load-bearing: veo returns base64 (data:video/…), and browsers block top-level navigation to data: URLs, so an unguarded `<a target=_blank>` dead-ends at about:blank (the same class of bug fixed for images in #842). The inline <video> player + download cover the data: case; the open link is for remote URLs only. An upstream merge that reverts the guard silently reintroduces the about:blank dead-end. poll.refreshUrl anchors the onMounted re-fetch of already-succeeded tasks: media URLs are now short-lived presigned S3 links, so a reloaded session must re-mint them — dropping this call leaves a reopened Studio with dead (expired) video links."
     },
     {
       "path": "frontend/src/constants/mediaTiers.tk.ts",
