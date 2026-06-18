@@ -348,7 +348,7 @@ const holdEstimate = computed(() => {
 })
 const canAfford = computed(() => holdEstimate.value <= props.balance)
 const canGenerate = computed(
-  () => !sending.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
+  () => !sending.value && !reversing.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
 )
 const formula = computed(() => {
   if (!selected.value) return ''
@@ -419,6 +419,7 @@ async function reversePrompt(): Promise<void> {
     if (!text) throw new Error(t('studio.image.reverseEmpty'))
     prompt.value = text
     userEditedPrompt.value = true
+    emit('spent') // a vision call was billed — refresh the balance like generate() does
   } catch (e) {
     const msg = e instanceof Error ? e.message : t('studio.errors.generic')
     const code = classifyGatewayError(msg)
