@@ -51,6 +51,53 @@ func TestTkPlatformPoolExhaustedCheck_FiresOnEmptyPool(t *testing.T) {
 	require.Equal(t, []string{PlatformAnthropic}, notifier.pools)
 }
 
+// Transient drain (edge-us7 2026-06-18): the edge's only anthropic account hits a
+// single upstream 529, gets a ~30s tier-0 overload cooldown, and the pool momentarily
+// reads 0 schedulable — but it self-heals in seconds (prod→edge mirror relay fails
+// over to sibling edges meanwhile). A short cooldown (<= 60s) means tier-0 transient,
+// not a sustained outage, so it must NOT page P0 — it downgrades to a WARN.
+func TestTkPlatformPoolExhaustedCheck_TransientCooldownDoesNotPage(t *testing.T) {
+	repo := &poolExhaustedRepoStub{schedulable: nil}
+	notifier := &poolExhaustedNotifierStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAccountIncidentNotifier(notifier)
+	trigger := &Account{ID: 1, Name: "edge-ls-oh-4-d", Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	service.tkPlatformPoolExhaustedCheck(context.Background(), PlatformAnthropic, trigger, time.Now().Add(30*time.Second), "529")
+
+	require.Empty(t, notifier.pools, "transient ~30s tier-0 cooldown must not page P0 (self-heals)")
+}
+
+// Continuous 529/503 escalates via the 3/3 ladder into tier-1 (2m) / tier-2 (10m). A
+// long remaining cooldown (> 60s) means the account is in a sustained outage — that
+// MUST still page immediately, on a single-account edge as much as a multi-account
+// pool (the 2026-06-11 seven-stub collapse was 10m cooldowns).
+func TestTkPlatformPoolExhaustedCheck_SustainedCooldownPages(t *testing.T) {
+	repo := &poolExhaustedRepoStub{schedulable: nil}
+	notifier := &poolExhaustedNotifierStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAccountIncidentNotifier(notifier)
+	trigger := &Account{ID: 1, Name: "edge-ls-oh-4-d", Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	service.tkPlatformPoolExhaustedCheck(context.Background(), PlatformAnthropic, trigger, time.Now().Add(2*time.Minute), "529")
+
+	require.Equal(t, []string{PlatformAnthropic}, notifier.pools, "sustained (tier-1+) cooldown must page P0 even for a single account")
+}
+
+// Conservative fail-open: a zero/unknown cooldown time cannot be proven transient, so
+// keep the P0 — better a spurious page than a missed real collapse.
+func TestTkPlatformPoolExhaustedCheck_ZeroUntilFailsOpenToPage(t *testing.T) {
+	repo := &poolExhaustedRepoStub{schedulable: nil}
+	notifier := &poolExhaustedNotifierStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAccountIncidentNotifier(notifier)
+	trigger := &Account{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	service.tkPlatformPoolExhaustedCheck(context.Background(), PlatformAnthropic, trigger, time.Time{}, "529")
+
+	require.Equal(t, []string{PlatformAnthropic}, notifier.pools, "zero/unknown until must fail open to P0, not silently suppress")
+}
+
 func TestTkPlatformPoolExhaustedCheck_QuietWhenPoolHasCapacity(t *testing.T) {
 	repo := &poolExhaustedRepoStub{schedulable: []Account{{ID: 1, Platform: PlatformAnthropic}}}
 	notifier := &poolExhaustedNotifierStub{}
