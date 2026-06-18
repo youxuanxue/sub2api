@@ -127,19 +127,33 @@ watch_run() {
   return 1
 }
 
-# fetch_run_log — gh run view --log with retries: a transient gh/proxy failure
-# must not masquerade as a missing smoke marker (which would fail-stop the
-# whole rollout); the two outcomes get distinct result lines + exit codes.
-fetch_run_log() {
-  local run_id="$1" attempt log=""
-  for attempt in 1 2 3; do
+# verify_smoke_marker — confirm the canonical infra-smoke marker in the run log,
+# RETRYING when the log is reachable but the marker is absent. A run that
+# watch_run already confirmed completed/success can still expose a PARTIAL log
+# for a few seconds: `gh run view --log` returns the earlier steps before the
+# final "Edge smoke" step's lines flush to the log API, so a fetch-once-then-grep
+# races and false-negatives (observed on us3 during the v1.8.14 rollout,
+# 2026-06-18 — run was green and the marker was present moments later, yet the
+# immediate fetch missed it and fail-stopped the rollout). Combining fetch+grep
+# in one retry loop closes that window. Three outcomes, by exit code:
+#   0 — marker found
+#   1 — log fetched (non-empty) on at least one attempt but marker never appeared
+#       (a genuine smoke failure — fail-stop)
+#   2 — log never fetchable across all attempts (transient gh/proxy — infra error)
+# Distinguishing 1 from 2 keeps a network blip from masquerading as a real
+# regression, and vice versa.
+verify_smoke_marker() {
+  local run_id="$1" attempt log got_log=0
+  for attempt in 1 2 3 4 5 6; do
     if log="$(gh run view "$run_id" --log 2>/dev/null)" && [ -n "$log" ]; then
-      printf '%s' "$log"
-      return 0
+      got_log=1
+      if printf '%s' "$log" | grep -q 'tk_edge_post_deploy_smoke: OK phase=infra'; then
+        return 0
+      fi
     fi
     sleep 5
   done
-  return 1
+  [ "$got_log" -eq 1 ] && return 1 || return 2
 }
 
 COUNT=0
@@ -160,11 +174,12 @@ for EDGE in $EDGES; do
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (run failed)" >&2
     exit 1
   fi
-  if ! RUN_LOG="$(fetch_run_log "$RUN_ID")"; then
+  MARKER_RC=0
+  verify_smoke_marker "$RUN_ID" || MARKER_RC=$?
+  if [ "$MARKER_RC" -eq 2 ]; then
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (could not fetch run log)" >&2
     exit 2
-  fi
-  if ! printf '%s' "$RUN_LOG" | grep -q 'tk_edge_post_deploy_smoke: OK phase=infra'; then
+  elif [ "$MARKER_RC" -ne 0 ]; then
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (smoke marker missing)" >&2
     exit 1
   fi
