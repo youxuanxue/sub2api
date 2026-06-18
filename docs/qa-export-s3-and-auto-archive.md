@@ -53,6 +53,55 @@ storage under a 1-day/7-day TTL is ~$0.16–0.3/mo. The S3 key layout is
 `traj-exports/<user_id>/<api_key_id>/{manual/<unix_nanos>|auto/<YYYY-MM-DD>}.zip`
 — `user_id` first so the download ownership prefix check holds.
 
+### Enabling on prod — env binding fixed here; the compose-size rollout is blocked
+
+`qa_capture.export_storage.*` now has `viper.SetDefault`s (this change,
+`internal/config/config.go`), so `QA_CAPTURE_EXPORT_STORAGE_*` binds under
+`AutomaticEnv` (`.`→`_`), regression-guarded by `TestQAExportStorageEnvBinding`.
+#829 shipped the struct + S3 driver but omitted these defaults, so a prod env
+cutover silently no-ops (reads empty → export stays localfs → the per-key
+download stays a ~30 s in-memory gateway proxy read of the whole ZIP — the
+"download does nothing" symptom on a 20k-record key). **Enabling S3 needs a
+release of an image carrying this fix (NOT a same-image restart).**
+
+⚠ **The obvious "append the 4 env to the compose `environment:` block" is blocked
+today.** Stage0 prod and edge SHARE `deploy/aws/stage0/docker-compose.yml`: edge
+Lightsail embeds it gzip|base64 into `generated-launch-script.sh`
+(`render-bootstrap.sh`), and that script is already **14290 B against the 14336 B
+Lightsail user-data cap (~46 B headroom)**. The export_storage env grows it
+~588 B → over the cap (`test_render_bootstrap` fails). The env cannot simply be
+added to the shared compose.
+
+Unblock options (operator decision before rolling out S3):
+
+1. **Move the edge launch-script payloads (compose / Caddy / bootstrap
+   gzip|base64) to SSM Parameter Store**, leaving the launch script a thin SSM
+   reference. Root-fixes the chronic edge size pressure and lets stage0 compose
+   grow freely. Largest change, durable fix. *(Recommended.)*
+2. **Decouple edge vs prod compose** (prod-only override / separate edge compose)
+   so prod-only env never inflates the edge launch script.
+3. **Inject prod-only env via an override loaded only on the EC2 path**, kept out
+   of `render-bootstrap`'s embed.
+
+Once unblocked, the rollout (each step needs operator authorization; read-only
+diagnosis: skill `tokenkey-online-log-troubleshooting`):
+
+1. **Release** an image carrying this fix (VERSION bump → tag → `release.yml`).
+2. **Provision infra**: bucket `tokenkey-prod-qa-exports` (us-east-1, Block
+   Public Access ON) + prefix-`traj-exports/` 7-day lifecycle + bucket policy
+   granting the prod instance role (`tokenkey-prod-stage0-InstanceRole-*`)
+   `s3:GetObject/PutObject/DeleteObject/ListBucket` — Principal = the resolved
+   role ARN literally (account-root + wildcard ⇒ AccessDenied; ops memory). The
+   instance role has no S3 identity policy today (mirrors pgdump's bucket-policy
+   grant), so this is the only grant; no prod-instance CFN stack update.
+3. **Set** the 4 `QA_CAPTURE_EXPORT_STORAGE_*` on prod (per the chosen unblock
+   path) and `compose ... up -d --no-deps --force-recreate --timeout 30 tokenkey`.
+4. **Verify**: the per-key `download_url` is now an `https://…s3…X-Amz-Signature…`
+   presigned URL fetched directly from S3 (sub-second), not the
+   `/api/v1/users/me/qa/traj/exports/…` gateway proxy path. Capture blobs stay
+   localfs; only the export ZIP + its download move to S3. Rollback = drop the 4
+   env + recreate.
+
 ## Opt-in: daily auto-archive cron
 
 ```yaml

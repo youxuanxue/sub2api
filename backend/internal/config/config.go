@@ -1956,6 +1956,20 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.storage.secret_access_key", "")
 	viper.SetDefault("qa_capture.storage.prefix", "qa_blobs")
 	viper.SetDefault("qa_capture.storage.force_path_style", false)
+	// export_storage is the SEPARATE destination for finished export ZIPs
+	// (typically durable S3, so downloads are presigned-direct off the box rather
+	// than streamed through the gateway). These defaults are required so viper's
+	// AutomaticEnv binds the QA_CAPTURE_EXPORT_STORAGE_* env overrides — without a
+	// known key viper never reads the env, and an empty driver keeps the current
+	// behavior (export ZIPs fall back to the capture store / localfs).
+	viper.SetDefault("qa_capture.export_storage.driver", "")
+	viper.SetDefault("qa_capture.export_storage.endpoint", "")
+	viper.SetDefault("qa_capture.export_storage.region", "")
+	viper.SetDefault("qa_capture.export_storage.bucket", "")
+	viper.SetDefault("qa_capture.export_storage.access_key_id", "")
+	viper.SetDefault("qa_capture.export_storage.secret_access_key", "")
+	viper.SetDefault("qa_capture.export_storage.prefix", "")
+	viper.SetDefault("qa_capture.export_storage.force_path_style", false)
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
