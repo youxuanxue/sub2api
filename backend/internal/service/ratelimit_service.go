@@ -415,17 +415,9 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			if upstreamMsg != "" {
 				msg = "OAuth 401 (incident-deferred): " + upstreamMsg
 			}
-			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
-			if cooldownMinutes <= 0 {
-				cooldownMinutes = 10
-			}
-			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
 			slog.Warn("oauth_401_disable_deferred_during_incident",
 				"account_id", account.ID, "platform", account.Platform)
-			s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
-				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
-			}
+			s.tkApplyOAuth401Cooldown(ctx, account, msg)
 			shouldDisable = true
 			break
 		}
@@ -470,15 +462,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			if upstreamMsg != "" {
 				msg = "OAuth 401: " + upstreamMsg
 			}
-			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
-			if cooldownMinutes <= 0 {
-				cooldownMinutes = 10
-			}
-			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
-			s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
-				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
-			}
+			s.tkApplyOAuth401Cooldown(ctx, account, msg)
 			shouldDisable = true
 		} else {
 			// 非 OAuth / Antigravity OAuth：保持 SetError 行为

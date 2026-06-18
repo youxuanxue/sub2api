@@ -78,3 +78,21 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 	s.handleAuthError(ctx, account, msg)
 	return true
 }
+
+// tkApplyOAuth401Cooldown 把一次 OAuth 401 落成 temp_unschedulable 冷却（替代永久禁用）+
+// 发调度阻塞通知。供两处复用，确保冷却时长/通知口径一致：
+//   - HandleUpstreamError case 401 的「普通 401 回退」分支；
+//   - 同处「Claude API 故障期间统一豁免」的顶层 gate。
+//
+// reasonMsg 写入 temp_unschedulable_reason。
+func (s *RateLimitService) tkApplyOAuth401Cooldown(ctx context.Context, account *Account, reasonMsg string) {
+	cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
+	if cooldownMinutes <= 0 {
+		cooldownMinutes = 10
+	}
+	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+	s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonMsg); err != nil {
+		slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+	}
+}

@@ -350,6 +350,7 @@
         "func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(",
         "account.GetCredentialAsTime(\"expires_at\")",
         "func (s *RateLimitService) tkOAuth401ValidTokenMargin()",
+        "func (s *RateLimitService) tkApplyOAuth401Cooldown(",
         "s.cfg.TokenRefresh.RefreshBeforeExpiryHours",
         "oauth_401_valid_token_revoked",
         "oauth_401_expiry_unknown_fallback_cooldown",
