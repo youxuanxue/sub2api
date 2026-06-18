@@ -45,12 +45,22 @@ type Service struct {
 
 	// Trajectory export runs off the request path on its own single-worker pool
 	// (NOT the capture pool) so a heavy export can never contend with live
-	// capture or the gateway. exportJobs tracks status in memory; the artifact
-	// is durable in the blob store, so a restart just means the user re-clicks
-	// (the export is idempotent).
+	// capture or the gateway. Job status is persisted in qa_export_jobs (durable
+	// across restart/redeploy — the in-memory map was wiped on every deploy,
+	// orphaning the download; see #792 follow-up). The pool itself is in-process;
+	// a startup reconciler fails any job left running by the previous process.
 	exportPool   pond.Pool
-	exportJobs   map[string]*ExportJob
-	exportJobsMu sync.Mutex
+	exportPoolMu sync.Mutex
+	// exportStore is where the finished export ZIP lives. It defaults to `store`
+	// (capture localfs) but can be pointed at S3 via qa_capture.export_storage so
+	// the large archive leaves the Postgres-shared data volume; capture blobs
+	// still go to `store`.
+	exportStore BlobStore
+
+	// autoExportStop signals the daily auto-export loop to exit; closed by Stop().
+	// Only created when qa_capture.auto_export_enabled is set.
+	autoExportStop chan struct{}
+	autoExportOnce sync.Once
 }
 
 var (
@@ -84,9 +94,10 @@ const (
 // worker pool, DLQ directory, and capture-side body limits.
 func NewServiceForTest(client *ent.Client, store BlobStore) *Service {
 	return &Service{
-		client: client,
-		store:  store,
-		cfg:    config.QACaptureConfig{Enabled: true},
+		client:      client,
+		store:       store,
+		exportStore: store,
+		cfg:         config.QACaptureConfig{Enabled: true},
 	}
 }
 
@@ -98,6 +109,18 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Export ZIP store: separate destination (typically S3) so the large archive
+	// leaves the Postgres-shared data volume. Falls back to the capture store
+	// (localfs) when export_storage is unconfigured — preserving current behavior
+	// with no infra dependency.
+	exportStore := store
+	if strings.TrimSpace(cfg.QACapture.ExportStorage.Driver) != "" {
+		es, eerr := newBlobStore(config.QACaptureConfig{Storage: cfg.QACapture.ExportStorage})
+		if eerr != nil {
+			return nil, eerr
+		}
+		exportStore = es
+	}
 	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
 	if dataDir == "" {
 		dataDir = "/app/data"
@@ -106,6 +129,7 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		client:            client,
 		cfg:               cfg.QACapture,
 		store:             store,
+		exportStore:       exportStore,
 		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
 		retentionDays:     cfg.QACapture.RetentionDays,
@@ -115,13 +139,26 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 	// Single-worker export pool: at most one trajectory export materializes at a
 	// time, so bulk export can never fan out and starve the gateway.
 	svc.exportPool = pond.NewPool(1, pond.WithQueueSize(exportQueueSize))
-	svc.exportJobs = map[string]*ExportJob{}
+	// Fail any export left "running"/"pending" by a previous process — the
+	// in-process worker that owned it is gone, so it will never complete.
+	if rcErr := svc.ReconcileOrphanedExports(context.Background()); rcErr != nil {
+		logger.L().Warn("qa export: orphan reconcile failed", zap.Error(rcErr))
+	}
+	// Daily per-(user,key) archive to the export store. Ships dormant — only
+	// runs when explicitly enabled (and only meaningful once export_storage
+	// points at durable S3, since localfs purges the source blobs each day).
+	if cfg.QACapture.AutoExportEnabled {
+		svc.StartAutoExportLoop()
+	}
 	return svc, nil
 }
 
 func (s *Service) Stop() {
 	if s == nil {
 		return
+	}
+	if s.autoExportStop != nil {
+		s.autoExportOnce.Do(func() { close(s.autoExportStop) })
 	}
 	if s.pool != nil {
 		s.pool.StopAndWait()
@@ -516,14 +553,18 @@ func hasUnsafePathSegment(path string) bool {
 }
 
 func exportKeyExpired(key string, now time.Time) bool {
-	filename := filepath.Base(key)
-	stamp := strings.TrimSuffix(filename, ".zip")
-	nanos, err := strconv.ParseInt(stamp, 10, 64)
-	if err != nil {
-		return false
+	stamp := strings.TrimSuffix(filepath.Base(key), ".zip")
+	// manual exports embed unix-nanos in the filename.
+	if nanos, err := strconv.ParseInt(stamp, 10, 64); err == nil {
+		return !now.Before(time.Unix(0, nanos).UTC().Add(presignedURLTTL))
 	}
-	expiresAt := time.Unix(0, nanos).UTC().Add(presignedURLTTL)
-	return !now.Before(expiresAt)
+	// auto exports embed the archived day (YYYY-MM-DD) — expire one TTL after it.
+	if day, err := time.Parse("2006-01-02", stamp); err == nil {
+		return !now.Before(day.UTC().Add(presignedURLTTL))
+	}
+	// Unparseable (legacy or unexpected) keys are not gated here; the store's
+	// own lifecycle (host cleanup / S3 expiration) remains the backstop.
+	return false
 }
 
 func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time.Time) (int, error) {

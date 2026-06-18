@@ -36,6 +36,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
@@ -86,6 +87,7 @@ const (
 	TypePromoCode                     = "PromoCode"
 	TypePromoCodeUsage                = "PromoCodeUsage"
 	TypeProxy                         = "Proxy"
+	TypeQAExportJob                   = "QAExportJob"
 	TypeQARecord                      = "QARecord"
 	TypeRedeemCode                    = "RedeemCode"
 	TypeSecuritySecret                = "SecuritySecret"
@@ -31014,6 +31016,1235 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Proxy edge %s", name)
+}
+
+// QAExportJobMutation represents an operation that mutates the QAExportJob nodes in the graph.
+type QAExportJobMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int64
+	created_at      *time.Time
+	updated_at      *time.Time
+	job_id          *string
+	user_id         *int64
+	adduser_id      *int64
+	api_key_id      *int64
+	addapi_key_id   *int64
+	status          *string
+	export_kind     *string
+	format          *string
+	window_start    *time.Time
+	window_end      *time.Time
+	storage_key     *string
+	record_count    *int
+	addrecord_count *int
+	error           *string
+	expires_at      *time.Time
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*QAExportJob, error)
+	predicates      []predicate.QAExportJob
+}
+
+var _ ent.Mutation = (*QAExportJobMutation)(nil)
+
+// qaexportjobOption allows management of the mutation configuration using functional options.
+type qaexportjobOption func(*QAExportJobMutation)
+
+// newQAExportJobMutation creates new mutation for the QAExportJob entity.
+func newQAExportJobMutation(c config, op Op, opts ...qaexportjobOption) *QAExportJobMutation {
+	m := &QAExportJobMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeQAExportJob,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withQAExportJobID sets the ID field of the mutation.
+func withQAExportJobID(id int64) qaexportjobOption {
+	return func(m *QAExportJobMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *QAExportJob
+		)
+		m.oldValue = func(ctx context.Context) (*QAExportJob, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().QAExportJob.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withQAExportJob sets the old QAExportJob of the mutation.
+func withQAExportJob(node *QAExportJob) qaexportjobOption {
+	return func(m *QAExportJobMutation) {
+		m.oldValue = func(context.Context) (*QAExportJob, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m QAExportJobMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m QAExportJobMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *QAExportJobMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *QAExportJobMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().QAExportJob.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *QAExportJobMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *QAExportJobMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *QAExportJobMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *QAExportJobMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *QAExportJobMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *QAExportJobMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetJobID sets the "job_id" field.
+func (m *QAExportJobMutation) SetJobID(s string) {
+	m.job_id = &s
+}
+
+// JobID returns the value of the "job_id" field in the mutation.
+func (m *QAExportJobMutation) JobID() (r string, exists bool) {
+	v := m.job_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldJobID returns the old "job_id" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldJobID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldJobID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldJobID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldJobID: %w", err)
+	}
+	return oldValue.JobID, nil
+}
+
+// ResetJobID resets all changes to the "job_id" field.
+func (m *QAExportJobMutation) ResetJobID() {
+	m.job_id = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *QAExportJobMutation) SetUserID(i int64) {
+	m.user_id = &i
+	m.adduser_id = nil
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *QAExportJobMutation) UserID() (r int64, exists bool) {
+	v := m.user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// AddUserID adds i to the "user_id" field.
+func (m *QAExportJobMutation) AddUserID(i int64) {
+	if m.adduser_id != nil {
+		*m.adduser_id += i
+	} else {
+		m.adduser_id = &i
+	}
+}
+
+// AddedUserID returns the value that was added to the "user_id" field in this mutation.
+func (m *QAExportJobMutation) AddedUserID() (r int64, exists bool) {
+	v := m.adduser_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *QAExportJobMutation) ResetUserID() {
+	m.user_id = nil
+	m.adduser_id = nil
+}
+
+// SetAPIKeyID sets the "api_key_id" field.
+func (m *QAExportJobMutation) SetAPIKeyID(i int64) {
+	m.api_key_id = &i
+	m.addapi_key_id = nil
+}
+
+// APIKeyID returns the value of the "api_key_id" field in the mutation.
+func (m *QAExportJobMutation) APIKeyID() (r int64, exists bool) {
+	v := m.api_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIKeyID returns the old "api_key_id" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldAPIKeyID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIKeyID: %w", err)
+	}
+	return oldValue.APIKeyID, nil
+}
+
+// AddAPIKeyID adds i to the "api_key_id" field.
+func (m *QAExportJobMutation) AddAPIKeyID(i int64) {
+	if m.addapi_key_id != nil {
+		*m.addapi_key_id += i
+	} else {
+		m.addapi_key_id = &i
+	}
+}
+
+// AddedAPIKeyID returns the value that was added to the "api_key_id" field in this mutation.
+func (m *QAExportJobMutation) AddedAPIKeyID() (r int64, exists bool) {
+	v := m.addapi_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAPIKeyID clears the value of the "api_key_id" field.
+func (m *QAExportJobMutation) ClearAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+	m.clearedFields[qaexportjob.FieldAPIKeyID] = struct{}{}
+}
+
+// APIKeyIDCleared returns if the "api_key_id" field was cleared in this mutation.
+func (m *QAExportJobMutation) APIKeyIDCleared() bool {
+	_, ok := m.clearedFields[qaexportjob.FieldAPIKeyID]
+	return ok
+}
+
+// ResetAPIKeyID resets all changes to the "api_key_id" field.
+func (m *QAExportJobMutation) ResetAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+	delete(m.clearedFields, qaexportjob.FieldAPIKeyID)
+}
+
+// SetStatus sets the "status" field.
+func (m *QAExportJobMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *QAExportJobMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *QAExportJobMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetExportKind sets the "export_kind" field.
+func (m *QAExportJobMutation) SetExportKind(s string) {
+	m.export_kind = &s
+}
+
+// ExportKind returns the value of the "export_kind" field in the mutation.
+func (m *QAExportJobMutation) ExportKind() (r string, exists bool) {
+	v := m.export_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExportKind returns the old "export_kind" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldExportKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExportKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExportKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExportKind: %w", err)
+	}
+	return oldValue.ExportKind, nil
+}
+
+// ResetExportKind resets all changes to the "export_kind" field.
+func (m *QAExportJobMutation) ResetExportKind() {
+	m.export_kind = nil
+}
+
+// SetFormat sets the "format" field.
+func (m *QAExportJobMutation) SetFormat(s string) {
+	m.format = &s
+}
+
+// Format returns the value of the "format" field in the mutation.
+func (m *QAExportJobMutation) Format() (r string, exists bool) {
+	v := m.format
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFormat returns the old "format" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldFormat(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFormat is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFormat requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFormat: %w", err)
+	}
+	return oldValue.Format, nil
+}
+
+// ResetFormat resets all changes to the "format" field.
+func (m *QAExportJobMutation) ResetFormat() {
+	m.format = nil
+}
+
+// SetWindowStart sets the "window_start" field.
+func (m *QAExportJobMutation) SetWindowStart(t time.Time) {
+	m.window_start = &t
+}
+
+// WindowStart returns the value of the "window_start" field in the mutation.
+func (m *QAExportJobMutation) WindowStart() (r time.Time, exists bool) {
+	v := m.window_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWindowStart returns the old "window_start" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldWindowStart(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWindowStart is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWindowStart requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWindowStart: %w", err)
+	}
+	return oldValue.WindowStart, nil
+}
+
+// ClearWindowStart clears the value of the "window_start" field.
+func (m *QAExportJobMutation) ClearWindowStart() {
+	m.window_start = nil
+	m.clearedFields[qaexportjob.FieldWindowStart] = struct{}{}
+}
+
+// WindowStartCleared returns if the "window_start" field was cleared in this mutation.
+func (m *QAExportJobMutation) WindowStartCleared() bool {
+	_, ok := m.clearedFields[qaexportjob.FieldWindowStart]
+	return ok
+}
+
+// ResetWindowStart resets all changes to the "window_start" field.
+func (m *QAExportJobMutation) ResetWindowStart() {
+	m.window_start = nil
+	delete(m.clearedFields, qaexportjob.FieldWindowStart)
+}
+
+// SetWindowEnd sets the "window_end" field.
+func (m *QAExportJobMutation) SetWindowEnd(t time.Time) {
+	m.window_end = &t
+}
+
+// WindowEnd returns the value of the "window_end" field in the mutation.
+func (m *QAExportJobMutation) WindowEnd() (r time.Time, exists bool) {
+	v := m.window_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWindowEnd returns the old "window_end" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldWindowEnd(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWindowEnd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWindowEnd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWindowEnd: %w", err)
+	}
+	return oldValue.WindowEnd, nil
+}
+
+// ClearWindowEnd clears the value of the "window_end" field.
+func (m *QAExportJobMutation) ClearWindowEnd() {
+	m.window_end = nil
+	m.clearedFields[qaexportjob.FieldWindowEnd] = struct{}{}
+}
+
+// WindowEndCleared returns if the "window_end" field was cleared in this mutation.
+func (m *QAExportJobMutation) WindowEndCleared() bool {
+	_, ok := m.clearedFields[qaexportjob.FieldWindowEnd]
+	return ok
+}
+
+// ResetWindowEnd resets all changes to the "window_end" field.
+func (m *QAExportJobMutation) ResetWindowEnd() {
+	m.window_end = nil
+	delete(m.clearedFields, qaexportjob.FieldWindowEnd)
+}
+
+// SetStorageKey sets the "storage_key" field.
+func (m *QAExportJobMutation) SetStorageKey(s string) {
+	m.storage_key = &s
+}
+
+// StorageKey returns the value of the "storage_key" field in the mutation.
+func (m *QAExportJobMutation) StorageKey() (r string, exists bool) {
+	v := m.storage_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStorageKey returns the old "storage_key" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldStorageKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStorageKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStorageKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStorageKey: %w", err)
+	}
+	return oldValue.StorageKey, nil
+}
+
+// ResetStorageKey resets all changes to the "storage_key" field.
+func (m *QAExportJobMutation) ResetStorageKey() {
+	m.storage_key = nil
+}
+
+// SetRecordCount sets the "record_count" field.
+func (m *QAExportJobMutation) SetRecordCount(i int) {
+	m.record_count = &i
+	m.addrecord_count = nil
+}
+
+// RecordCount returns the value of the "record_count" field in the mutation.
+func (m *QAExportJobMutation) RecordCount() (r int, exists bool) {
+	v := m.record_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecordCount returns the old "record_count" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldRecordCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecordCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecordCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecordCount: %w", err)
+	}
+	return oldValue.RecordCount, nil
+}
+
+// AddRecordCount adds i to the "record_count" field.
+func (m *QAExportJobMutation) AddRecordCount(i int) {
+	if m.addrecord_count != nil {
+		*m.addrecord_count += i
+	} else {
+		m.addrecord_count = &i
+	}
+}
+
+// AddedRecordCount returns the value that was added to the "record_count" field in this mutation.
+func (m *QAExportJobMutation) AddedRecordCount() (r int, exists bool) {
+	v := m.addrecord_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecordCount resets all changes to the "record_count" field.
+func (m *QAExportJobMutation) ResetRecordCount() {
+	m.record_count = nil
+	m.addrecord_count = nil
+}
+
+// SetError sets the "error" field.
+func (m *QAExportJobMutation) SetError(s string) {
+	m.error = &s
+}
+
+// Error returns the value of the "error" field in the mutation.
+func (m *QAExportJobMutation) Error() (r string, exists bool) {
+	v := m.error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldError returns the old "error" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldError(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldError: %w", err)
+	}
+	return oldValue.Error, nil
+}
+
+// ClearError clears the value of the "error" field.
+func (m *QAExportJobMutation) ClearError() {
+	m.error = nil
+	m.clearedFields[qaexportjob.FieldError] = struct{}{}
+}
+
+// ErrorCleared returns if the "error" field was cleared in this mutation.
+func (m *QAExportJobMutation) ErrorCleared() bool {
+	_, ok := m.clearedFields[qaexportjob.FieldError]
+	return ok
+}
+
+// ResetError resets all changes to the "error" field.
+func (m *QAExportJobMutation) ResetError() {
+	m.error = nil
+	delete(m.clearedFields, qaexportjob.FieldError)
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *QAExportJobMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *QAExportJobMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the QAExportJob entity.
+// If the QAExportJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAExportJobMutation) OldExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ClearExpiresAt clears the value of the "expires_at" field.
+func (m *QAExportJobMutation) ClearExpiresAt() {
+	m.expires_at = nil
+	m.clearedFields[qaexportjob.FieldExpiresAt] = struct{}{}
+}
+
+// ExpiresAtCleared returns if the "expires_at" field was cleared in this mutation.
+func (m *QAExportJobMutation) ExpiresAtCleared() bool {
+	_, ok := m.clearedFields[qaexportjob.FieldExpiresAt]
+	return ok
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *QAExportJobMutation) ResetExpiresAt() {
+	m.expires_at = nil
+	delete(m.clearedFields, qaexportjob.FieldExpiresAt)
+}
+
+// Where appends a list predicates to the QAExportJobMutation builder.
+func (m *QAExportJobMutation) Where(ps ...predicate.QAExportJob) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the QAExportJobMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *QAExportJobMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.QAExportJob, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *QAExportJobMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *QAExportJobMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (QAExportJob).
+func (m *QAExportJobMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *QAExportJobMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.created_at != nil {
+		fields = append(fields, qaexportjob.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, qaexportjob.FieldUpdatedAt)
+	}
+	if m.job_id != nil {
+		fields = append(fields, qaexportjob.FieldJobID)
+	}
+	if m.user_id != nil {
+		fields = append(fields, qaexportjob.FieldUserID)
+	}
+	if m.api_key_id != nil {
+		fields = append(fields, qaexportjob.FieldAPIKeyID)
+	}
+	if m.status != nil {
+		fields = append(fields, qaexportjob.FieldStatus)
+	}
+	if m.export_kind != nil {
+		fields = append(fields, qaexportjob.FieldExportKind)
+	}
+	if m.format != nil {
+		fields = append(fields, qaexportjob.FieldFormat)
+	}
+	if m.window_start != nil {
+		fields = append(fields, qaexportjob.FieldWindowStart)
+	}
+	if m.window_end != nil {
+		fields = append(fields, qaexportjob.FieldWindowEnd)
+	}
+	if m.storage_key != nil {
+		fields = append(fields, qaexportjob.FieldStorageKey)
+	}
+	if m.record_count != nil {
+		fields = append(fields, qaexportjob.FieldRecordCount)
+	}
+	if m.error != nil {
+		fields = append(fields, qaexportjob.FieldError)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, qaexportjob.FieldExpiresAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *QAExportJobMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case qaexportjob.FieldCreatedAt:
+		return m.CreatedAt()
+	case qaexportjob.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case qaexportjob.FieldJobID:
+		return m.JobID()
+	case qaexportjob.FieldUserID:
+		return m.UserID()
+	case qaexportjob.FieldAPIKeyID:
+		return m.APIKeyID()
+	case qaexportjob.FieldStatus:
+		return m.Status()
+	case qaexportjob.FieldExportKind:
+		return m.ExportKind()
+	case qaexportjob.FieldFormat:
+		return m.Format()
+	case qaexportjob.FieldWindowStart:
+		return m.WindowStart()
+	case qaexportjob.FieldWindowEnd:
+		return m.WindowEnd()
+	case qaexportjob.FieldStorageKey:
+		return m.StorageKey()
+	case qaexportjob.FieldRecordCount:
+		return m.RecordCount()
+	case qaexportjob.FieldError:
+		return m.Error()
+	case qaexportjob.FieldExpiresAt:
+		return m.ExpiresAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *QAExportJobMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case qaexportjob.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case qaexportjob.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case qaexportjob.FieldJobID:
+		return m.OldJobID(ctx)
+	case qaexportjob.FieldUserID:
+		return m.OldUserID(ctx)
+	case qaexportjob.FieldAPIKeyID:
+		return m.OldAPIKeyID(ctx)
+	case qaexportjob.FieldStatus:
+		return m.OldStatus(ctx)
+	case qaexportjob.FieldExportKind:
+		return m.OldExportKind(ctx)
+	case qaexportjob.FieldFormat:
+		return m.OldFormat(ctx)
+	case qaexportjob.FieldWindowStart:
+		return m.OldWindowStart(ctx)
+	case qaexportjob.FieldWindowEnd:
+		return m.OldWindowEnd(ctx)
+	case qaexportjob.FieldStorageKey:
+		return m.OldStorageKey(ctx)
+	case qaexportjob.FieldRecordCount:
+		return m.OldRecordCount(ctx)
+	case qaexportjob.FieldError:
+		return m.OldError(ctx)
+	case qaexportjob.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown QAExportJob field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *QAExportJobMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case qaexportjob.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case qaexportjob.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case qaexportjob.FieldJobID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetJobID(v)
+		return nil
+	case qaexportjob.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case qaexportjob.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIKeyID(v)
+		return nil
+	case qaexportjob.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case qaexportjob.FieldExportKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExportKind(v)
+		return nil
+	case qaexportjob.FieldFormat:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFormat(v)
+		return nil
+	case qaexportjob.FieldWindowStart:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWindowStart(v)
+		return nil
+	case qaexportjob.FieldWindowEnd:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWindowEnd(v)
+		return nil
+	case qaexportjob.FieldStorageKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStorageKey(v)
+		return nil
+	case qaexportjob.FieldRecordCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecordCount(v)
+		return nil
+	case qaexportjob.FieldError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetError(v)
+		return nil
+	case qaexportjob.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown QAExportJob field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *QAExportJobMutation) AddedFields() []string {
+	var fields []string
+	if m.adduser_id != nil {
+		fields = append(fields, qaexportjob.FieldUserID)
+	}
+	if m.addapi_key_id != nil {
+		fields = append(fields, qaexportjob.FieldAPIKeyID)
+	}
+	if m.addrecord_count != nil {
+		fields = append(fields, qaexportjob.FieldRecordCount)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *QAExportJobMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case qaexportjob.FieldUserID:
+		return m.AddedUserID()
+	case qaexportjob.FieldAPIKeyID:
+		return m.AddedAPIKeyID()
+	case qaexportjob.FieldRecordCount:
+		return m.AddedRecordCount()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *QAExportJobMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case qaexportjob.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUserID(v)
+		return nil
+	case qaexportjob.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAPIKeyID(v)
+		return nil
+	case qaexportjob.FieldRecordCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecordCount(v)
+		return nil
+	}
+	return fmt.Errorf("unknown QAExportJob numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *QAExportJobMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(qaexportjob.FieldAPIKeyID) {
+		fields = append(fields, qaexportjob.FieldAPIKeyID)
+	}
+	if m.FieldCleared(qaexportjob.FieldWindowStart) {
+		fields = append(fields, qaexportjob.FieldWindowStart)
+	}
+	if m.FieldCleared(qaexportjob.FieldWindowEnd) {
+		fields = append(fields, qaexportjob.FieldWindowEnd)
+	}
+	if m.FieldCleared(qaexportjob.FieldError) {
+		fields = append(fields, qaexportjob.FieldError)
+	}
+	if m.FieldCleared(qaexportjob.FieldExpiresAt) {
+		fields = append(fields, qaexportjob.FieldExpiresAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *QAExportJobMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *QAExportJobMutation) ClearField(name string) error {
+	switch name {
+	case qaexportjob.FieldAPIKeyID:
+		m.ClearAPIKeyID()
+		return nil
+	case qaexportjob.FieldWindowStart:
+		m.ClearWindowStart()
+		return nil
+	case qaexportjob.FieldWindowEnd:
+		m.ClearWindowEnd()
+		return nil
+	case qaexportjob.FieldError:
+		m.ClearError()
+		return nil
+	case qaexportjob.FieldExpiresAt:
+		m.ClearExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown QAExportJob nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *QAExportJobMutation) ResetField(name string) error {
+	switch name {
+	case qaexportjob.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case qaexportjob.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case qaexportjob.FieldJobID:
+		m.ResetJobID()
+		return nil
+	case qaexportjob.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case qaexportjob.FieldAPIKeyID:
+		m.ResetAPIKeyID()
+		return nil
+	case qaexportjob.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case qaexportjob.FieldExportKind:
+		m.ResetExportKind()
+		return nil
+	case qaexportjob.FieldFormat:
+		m.ResetFormat()
+		return nil
+	case qaexportjob.FieldWindowStart:
+		m.ResetWindowStart()
+		return nil
+	case qaexportjob.FieldWindowEnd:
+		m.ResetWindowEnd()
+		return nil
+	case qaexportjob.FieldStorageKey:
+		m.ResetStorageKey()
+		return nil
+	case qaexportjob.FieldRecordCount:
+		m.ResetRecordCount()
+		return nil
+	case qaexportjob.FieldError:
+		m.ResetError()
+		return nil
+	case qaexportjob.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown QAExportJob field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *QAExportJobMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *QAExportJobMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *QAExportJobMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *QAExportJobMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *QAExportJobMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *QAExportJobMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *QAExportJobMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown QAExportJob unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *QAExportJobMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown QAExportJob edge %s", name)
 }
 
 // QARecordMutation represents an operation that mutates the QARecord nodes in the graph.

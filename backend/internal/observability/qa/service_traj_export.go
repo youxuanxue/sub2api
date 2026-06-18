@@ -150,12 +150,12 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 		return nil, err
 	}
 
-	key := fmt.Sprintf("traj-exports/%d/%d.zip", userID, time.Now().UnixNano())
+	key := exportStorageKey(userID, filter)
 	signedAt := time.Now().UTC()
-	if _, err := s.store.PutReader(ctx, key, tmp, "application/zip"); err != nil {
+	if _, err := s.exportStore.PutReader(ctx, key, tmp, "application/zip"); err != nil {
 		return nil, err
 	}
-	url, err := s.store.PresignURL(ctx, key, presignedURLTTL)
+	url, err := s.exportStore.PresignURL(ctx, key, presignedURLTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +304,8 @@ func (t *exportThrottle) wait(ctx context.Context) {
 
 func (s *Service) DownloadUserTrajectoryExport(ctx context.Context, userID int64, key string) ([]byte, error) {
 	key = strings.TrimSpace(key)
+	// user_id-first prefix is the ownership boundary: a key that doesn't begin
+	// with this user's namespace is refused before any store access.
 	prefix := fmt.Sprintf("traj-exports/%d/", userID)
 	if key == "" || !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, ".zip") {
 		return nil, fs.ErrPermission
@@ -311,14 +313,38 @@ func (s *Service) DownloadUserTrajectoryExport(ctx context.Context, userID int64
 	if strings.Contains(key, "\\") || strings.HasPrefix(key, "/") || hasUnsafePathSegment(key) {
 		return nil, fs.ErrPermission
 	}
+	// TTL gate from the key's own timestamp (manual: trailing nanos; auto: the
+	// dated filename) — see exportKeyExpired. This is the localfs proxy path;
+	// S3 users download via the presigned URL directly. The host cleanup / S3
+	// lifecycle is the real expirer; this is the belt-and-suspenders 404.
 	if exportKeyExpired(key, time.Now().UTC()) {
 		return nil, fs.ErrNotExist
 	}
-	body, err := s.store.Get(ctx, key)
+	body, err := s.exportStore.Get(ctx, key)
 	if err != nil && os.IsNotExist(err) {
 		return nil, fs.ErrNotExist
 	}
 	return body, err
+}
+
+// exportStorageKey lays out the blob-store key for one export. user_id is always
+// the first segment so DownloadUserTrajectoryExport's ownership prefix check
+// holds. Auto (daily cron) keys embed the date and are therefore idempotent
+// across same-day re-runs; manual keys use unix-nanos for per-click uniqueness.
+//
+//	traj-exports/<user>/<key|all>/auto/<YYYY-MM-DD>.zip
+//	traj-exports/<user>/<key|all>/manual/<unix_nanos>.zip
+func exportStorageKey(userID int64, f ExportFilter) string {
+	keySeg := "all"
+	if f.APIKeyID != nil {
+		keySeg = strconv.FormatInt(*f.APIKeyID, 10)
+	}
+	base := fmt.Sprintf("traj-exports/%d/%s", userID, keySeg)
+	if strings.EqualFold(strings.TrimSpace(f.Kind), exportKindAuto) {
+		day := f.Since.UTC().Format("2006-01-02")
+		return fmt.Sprintf("%s/auto/%s.zip", base, day)
+	}
+	return fmt.Sprintf("%s/manual/%d.zip", base, time.Now().UnixNano())
 }
 
 // UserTrajExportEnabled reports whether the admin has granted this user the

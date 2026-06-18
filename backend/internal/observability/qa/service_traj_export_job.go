@@ -3,9 +3,12 @@ package qa
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/alitto/pond/v2"
 	"github.com/google/uuid"
@@ -27,30 +30,39 @@ const (
 	ExportJobFailed  ExportJobStatus = "failed"
 )
 
+// export kinds — see exportStorageKey for how each maps to the blob-store key.
+const (
+	exportKindManual = "manual"
+	exportKindAuto   = "auto"
+)
+
 const (
 	// exportQueueSize bounds pending exports behind the single worker.
 	exportQueueSize = 8
 	// exportJobMaxRuntime bounds one export so a pathological run can't hold the
 	// worker forever.
 	exportJobMaxRuntime = 30 * time.Minute
-	// exportJobTTL is how long a finished job stays queryable (matches the
-	// presigned download URL lifetime).
-	exportJobTTL = presignedURLTTL
+	// exportListLimit caps the "my exports" panel listing per (user[, key]).
+	exportListLimit = 50
 )
 
 // Machine-readable error codes the frontend maps to localized toasts, so we
 // don't leak internal error text to the UI.
 const (
-	exportErrNoRecords = "no_records"
-	exportErrBusy      = "busy"
-	exportErrFailed    = "export_failed"
+	exportErrNoRecords   = "no_records"
+	exportErrBusy        = "busy"
+	exportErrFailed      = "export_failed"
+	exportErrInterrupted = "interrupted"
 )
 
-// ExportJob is the in-memory status record for one async export. The zip itself
-// lives in the blob store (durable); this only tracks progress.
+// ExportJob is the DTO returned to the handler/UI. The durable record of truth
+// is the qa_export_jobs row; this is a snapshot mapped from it (the prior
+// in-memory map was wiped on every redeploy, orphaning the download).
 type ExportJob struct {
 	ID          string          `json:"job_id"`
 	UserID      int64           `json:"-"`
+	APIKeyID    *int64          `json:"api_key_id,omitempty"`
+	Kind        string          `json:"kind,omitempty"`
 	Status      ExportJobStatus `json:"status"`
 	DownloadURL string          `json:"download_url,omitempty"`
 	StorageKey  string          `json:"-"`
@@ -61,56 +73,107 @@ type ExportJob struct {
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
-func (j *ExportJob) snapshot() ExportJob { return *j }
-
-// ensureExportInit lazily provisions the export pool/map for Services built via
-// NewServiceForTest (which skips the production constructor).
-func (s *Service) ensureExportInit() {
-	s.exportJobsMu.Lock()
-	defer s.exportJobsMu.Unlock()
-	if s.exportJobs == nil {
-		s.exportJobs = map[string]*ExportJob{}
-	}
+// ensureExportPool lazily provisions the single-worker export pool for Services
+// built via NewServiceForTest (which skip the production constructor).
+func (s *Service) ensureExportPool() {
+	s.exportPoolMu.Lock()
+	defer s.exportPoolMu.Unlock()
 	if s.exportPool == nil {
 		s.exportPool = pond.NewPool(1, pond.WithQueueSize(exportQueueSize))
 	}
 }
 
-// EnqueueExport registers a background export job and submits it to the single
-// export worker, returning immediately with a job snapshot. The heavy work (blob
-// reads, zip build) runs off the request path so it can never block or starve
-// the gateway. Returns ErrExportBusy (with a terminal Failed snapshot) when the
-// worker queue is full.
-func (s *Service) EnqueueExport(userID int64, filter ExportFilter) (ExportJob, error) {
-	s.ensureExportInit()
-	now := time.Now().UTC()
-	job := &ExportJob{
-		ID:        uuid.New().String(),
-		UserID:    userID,
-		Status:    ExportJobPending,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	s.exportJobsMu.Lock()
-	s.pruneExportJobsLocked(now)
-	s.exportJobs[job.ID] = job
-	s.exportJobsMu.Unlock()
+// EnqueueExport registers a user-initiated ("立即导出") export job, persists it,
+// and submits it to the single export worker, returning immediately with a job
+// snapshot. The heavy work (blob reads, zip build) runs off the request path so
+// it can never block or starve the gateway — the synchronous in-memory build is
+// what hung prod on 2026-06-17. Returns ErrExportBusy when the worker queue is
+// full.
+func (s *Service) EnqueueExport(ctx context.Context, userID int64, filter ExportFilter) (ExportJob, error) {
+	s.ensureExportPool()
+	filter.Kind = exportKindManual
+	jobID := uuid.New().String()
 
-	_, ok := s.exportPool.TrySubmit(func() { s.runExportJob(job.ID, userID, filter) })
+	create := s.client.QAExportJob.Create().
+		SetJobID(jobID).
+		SetUserID(userID).
+		SetStatus(string(ExportJobPending)).
+		SetExportKind(exportKindManual).
+		SetFormat(exportFormatOrDefault(filter.Format))
+	if filter.APIKeyID != nil {
+		create = create.SetAPIKeyID(*filter.APIKeyID)
+	}
+	if _, err := create.Save(ctx); err != nil {
+		return ExportJob{}, err
+	}
+
+	_, ok := s.exportPool.TrySubmit(func() { s.runExportJob(jobID, userID, filter) })
 	if !ok {
-		s.setExportJobFailed(job.ID, exportErrBusy)
-		snap, _ := s.GetExportJob(userID, job.ID)
+		s.setExportJobFailed(jobID, exportErrBusy)
+		snap, _ := s.GetExportJob(ctx, userID, jobID)
 		return snap, ErrExportBusy
 	}
-	return job.snapshot(), nil
+	snap, _ := s.GetExportJob(ctx, userID, jobID)
+	return snap, nil
+}
+
+// EnqueueAutoExport registers/refreshes the daily archive for one (user, key,
+// day). The job_id is deterministic so a same-day re-run upserts the same row
+// (idempotent) instead of duplicating. window covers [dayStart, dayEnd).
+func (s *Service) EnqueueAutoExport(ctx context.Context, userID, apiKeyID int64, dayStart time.Time) (ExportJob, error) {
+	s.ensureExportPool()
+	dayStart = dayStart.UTC().Truncate(24 * time.Hour)
+	dayEnd := dayStart.Add(24 * time.Hour)
+	jobID := autoExportJobID(userID, apiKeyID, dayStart)
+	filter := ExportFilter{
+		APIKeyID: &apiKeyID,
+		Platform: "anthropic",
+		Format:   "v2",
+		Kind:     exportKindAuto,
+		Since:    dayStart,
+		Until:    dayEnd,
+	}
+
+	// Upsert the row to pending — a re-run of an already-archived day just
+	// rebuilds it (overwriting the same dated S3 object).
+	err := s.client.QAExportJob.Create().
+		SetJobID(jobID).
+		SetUserID(userID).
+		SetAPIKeyID(apiKeyID).
+		SetStatus(string(ExportJobPending)).
+		SetExportKind(exportKindAuto).
+		SetFormat("v2").
+		SetWindowStart(dayStart).
+		SetWindowEnd(dayEnd).
+		OnConflictColumns(qaexportjob.FieldJobID).
+		UpdateNewValues().
+		Exec(ctx)
+	if err != nil {
+		return ExportJob{}, err
+	}
+
+	_, ok := s.exportPool.TrySubmit(func() { s.runExportJob(jobID, userID, filter) })
+	if !ok {
+		s.setExportJobFailed(jobID, exportErrBusy)
+		snap, _ := s.GetExportJob(ctx, userID, jobID)
+		return snap, ErrExportBusy
+	}
+	snap, _ := s.GetExportJob(ctx, userID, jobID)
+	return snap, nil
 }
 
 func (s *Service) runExportJob(jobID string, userID int64, filter ExportFilter) {
-	s.updateExportJob(jobID, func(j *ExportJob) { j.Status = ExportJobRunning })
 	// Background (not request) context so the export completes even after the
 	// client disconnects — bounded by exportJobMaxRuntime.
 	ctx, cancel := context.WithTimeout(context.Background(), exportJobMaxRuntime)
 	defer cancel()
+
+	if _, err := s.client.QAExportJob.Update().
+		Where(qaexportjob.JobIDEQ(jobID)).
+		SetStatus(string(ExportJobRunning)).
+		Save(ctx); err != nil {
+		logger.L().Warn("traj export: mark running failed", zap.String("job_id", jobID), zap.Error(err))
+	}
 
 	res, err := s.ExportUserTrajectoryData(ctx, userID, filter)
 	if err != nil {
@@ -119,49 +182,108 @@ func (s *Service) runExportJob(jobID string, userID int64, filter ExportFilter) 
 		s.setExportJobFailed(jobID, exportJobErrorCode(err))
 		return
 	}
-	s.updateExportJob(jobID, func(j *ExportJob) {
-		j.Status = ExportJobDone
-		j.DownloadURL = res.DownloadURL
-		j.StorageKey = res.StorageKey
-		j.ExpiresAt = res.ExpiresAt
-		j.RecordCount = res.RecordCount
-	})
+	if _, uerr := s.client.QAExportJob.Update().
+		Where(qaexportjob.JobIDEQ(jobID)).
+		SetStatus(string(ExportJobDone)).
+		SetStorageKey(res.StorageKey).
+		SetRecordCount(res.RecordCount).
+		SetExpiresAt(res.ExpiresAt).
+		Save(context.Background()); uerr != nil {
+		logger.L().Warn("traj export: mark done failed", zap.String("job_id", jobID), zap.Error(uerr))
+	}
 }
 
 // GetExportJob returns a snapshot of the job if it exists and is owned by userID.
-func (s *Service) GetExportJob(userID int64, id string) (ExportJob, bool) {
-	s.exportJobsMu.Lock()
-	defer s.exportJobsMu.Unlock()
-	j, ok := s.exportJobs[strings.TrimSpace(id)]
-	if !ok || j.UserID != userID {
+func (s *Service) GetExportJob(ctx context.Context, userID int64, id string) (ExportJob, bool) {
+	m, err := s.client.QAExportJob.Query().
+		Where(qaexportjob.JobIDEQ(strings.TrimSpace(id)), qaexportjob.UserIDEQ(userID)).
+		Only(ctx)
+	if err != nil {
 		return ExportJob{}, false
 	}
-	return j.snapshot(), true
+	return s.exportJobFromEnt(ctx, m), true
 }
 
-func (s *Service) updateExportJob(id string, fn func(*ExportJob)) {
-	s.exportJobsMu.Lock()
-	defer s.exportJobsMu.Unlock()
-	if j, ok := s.exportJobs[id]; ok {
-		fn(j)
-		j.UpdatedAt = time.Now().UTC()
+// ListExports returns the user's export jobs (optionally scoped to one api key),
+// newest first, for the "my exports" panel. Done & unexpired jobs carry a fresh
+// download URL; expired/failed ones carry none.
+func (s *Service) ListExports(ctx context.Context, userID int64, apiKeyID *int64) ([]ExportJob, error) {
+	q := s.client.QAExportJob.Query().Where(qaexportjob.UserIDEQ(userID))
+	if apiKeyID != nil {
+		q = q.Where(qaexportjob.APIKeyIDEQ(*apiKeyID))
+	}
+	rows, err := q.Order(ent.Desc(qaexportjob.FieldCreatedAt)).Limit(exportListLimit).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ExportJob, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, s.exportJobFromEnt(ctx, m))
+	}
+	return out, nil
+}
+
+// ReconcileOrphanedExports fails any job left pending/running by a previous
+// process. The in-process worker that owned it is gone after a restart/redeploy,
+// so without this the row (and the UI poll) would hang forever.
+func (s *Service) ReconcileOrphanedExports(ctx context.Context) error {
+	if s == nil || s.client == nil {
+		return nil
+	}
+	n, err := s.client.QAExportJob.Update().
+		Where(qaexportjob.StatusIn(string(ExportJobPending), string(ExportJobRunning))).
+		SetStatus(string(ExportJobFailed)).
+		SetError(exportErrInterrupted).
+		Save(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		logger.L().Info("qa export: failed orphaned jobs on startup", zap.Int("count", n))
+	}
+	return nil
+}
+
+func (s *Service) setExportJobFailed(jobID, code string) {
+	if _, err := s.client.QAExportJob.Update().
+		Where(qaexportjob.JobIDEQ(jobID)).
+		SetStatus(string(ExportJobFailed)).
+		SetError(code).
+		Save(context.Background()); err != nil {
+		logger.L().Warn("traj export: mark failed failed", zap.String("job_id", jobID), zap.Error(err))
 	}
 }
 
-func (s *Service) setExportJobFailed(id, code string) {
-	s.updateExportJob(id, func(j *ExportJob) {
-		j.Status = ExportJobFailed
-		j.Error = code
-	})
-}
-
-// pruneExportJobsLocked drops jobs past their TTL. Caller holds exportJobsMu.
-func (s *Service) pruneExportJobsLocked(now time.Time) {
-	for id, j := range s.exportJobs {
-		if now.Sub(j.CreatedAt) > exportJobTTL {
-			delete(s.exportJobs, id)
+// exportJobFromEnt maps a persisted row to the DTO, recomputing a fresh download
+// URL for done & unexpired jobs (presigned URLs are ephemeral, so we never store
+// them — only the storage_key).
+func (s *Service) exportJobFromEnt(ctx context.Context, m *ent.QAExportJob) ExportJob {
+	ej := ExportJob{
+		ID:          m.JobID,
+		UserID:      m.UserID,
+		APIKeyID:    m.APIKeyID,
+		Kind:        m.ExportKind,
+		Status:      ExportJobStatus(m.Status),
+		StorageKey:  m.StorageKey,
+		RecordCount: m.RecordCount,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}
+	if m.Error != nil {
+		ej.Error = *m.Error
+	}
+	if m.ExpiresAt != nil {
+		ej.ExpiresAt = *m.ExpiresAt
+	}
+	if ej.Status == ExportJobDone && m.StorageKey != "" {
+		expired := m.ExpiresAt != nil && time.Now().UTC().After(*m.ExpiresAt)
+		if !expired && s.exportStore != nil {
+			if url, err := s.exportStore.PresignURL(ctx, m.StorageKey, presignedURLTTL); err == nil {
+				ej.DownloadURL = url
+			}
 		}
 	}
+	return ej
 }
 
 // exportJobErrorCode maps an internal export error to a machine-readable code
@@ -174,4 +296,15 @@ func exportJobErrorCode(err error) string {
 		return exportErrNoRecords
 	}
 	return exportErrFailed
+}
+
+func exportFormatOrDefault(f string) string {
+	if strings.TrimSpace(f) == "" {
+		return "v2"
+	}
+	return f
+}
+
+func autoExportJobID(userID, apiKeyID int64, dayStart time.Time) string {
+	return "auto:" + strconv.FormatInt(userID, 10) + ":" + strconv.FormatInt(apiKeyID, 10) + ":" + dayStart.UTC().Format("2006-01-02")
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
@@ -108,6 +109,8 @@ type Client struct {
 	PromoCodeUsage *PromoCodeUsageClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
+	// QAExportJob is the client for interacting with the QAExportJob builders.
+	QAExportJob *QAExportJobClient
 	// QARecord is the client for interacting with the QARecord builders.
 	QARecord *QARecordClient
 	// RedeemCode is the client for interacting with the RedeemCode builders.
@@ -172,6 +175,7 @@ func (c *Client) init() {
 	c.PromoCode = NewPromoCodeClient(c.config)
 	c.PromoCodeUsage = NewPromoCodeUsageClient(c.config)
 	c.Proxy = NewProxyClient(c.config)
+	c.QAExportJob = NewQAExportJobClient(c.config)
 	c.QARecord = NewQARecordClient(c.config)
 	c.RedeemCode = NewRedeemCodeClient(c.config)
 	c.SecuritySecret = NewSecuritySecretClient(c.config)
@@ -302,6 +306,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
+		QAExportJob:                   NewQAExportJobClient(cfg),
 		QARecord:                      NewQARecordClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
 		SecuritySecret:                NewSecuritySecretClient(cfg),
@@ -359,6 +364,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
+		QAExportJob:                   NewQAExportJobClient(cfg),
 		QARecord:                      NewQARecordClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
 		SecuritySecret:                NewSecuritySecretClient(cfg),
@@ -409,8 +415,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAvailability,
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QARecord,
-		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QAExportJob,
+		c.QARecord, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
@@ -429,8 +435,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
 		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAvailability,
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QARecord,
-		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QAExportJob,
+		c.QARecord, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
@@ -488,6 +494,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.PromoCodeUsage.mutate(ctx, m)
 	case *ProxyMutation:
 		return c.Proxy.mutate(ctx, m)
+	case *QAExportJobMutation:
+		return c.QAExportJob.mutate(ctx, m)
 	case *QARecordMutation:
 		return c.QARecord.mutate(ctx, m)
 	case *RedeemCodeMutation:
@@ -4181,6 +4189,139 @@ func (c *ProxyClient) mutate(ctx context.Context, m *ProxyMutation) (Value, erro
 	}
 }
 
+// QAExportJobClient is a client for the QAExportJob schema.
+type QAExportJobClient struct {
+	config
+}
+
+// NewQAExportJobClient returns a client for the QAExportJob from the given config.
+func NewQAExportJobClient(c config) *QAExportJobClient {
+	return &QAExportJobClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `qaexportjob.Hooks(f(g(h())))`.
+func (c *QAExportJobClient) Use(hooks ...Hook) {
+	c.hooks.QAExportJob = append(c.hooks.QAExportJob, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `qaexportjob.Intercept(f(g(h())))`.
+func (c *QAExportJobClient) Intercept(interceptors ...Interceptor) {
+	c.inters.QAExportJob = append(c.inters.QAExportJob, interceptors...)
+}
+
+// Create returns a builder for creating a QAExportJob entity.
+func (c *QAExportJobClient) Create() *QAExportJobCreate {
+	mutation := newQAExportJobMutation(c.config, OpCreate)
+	return &QAExportJobCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of QAExportJob entities.
+func (c *QAExportJobClient) CreateBulk(builders ...*QAExportJobCreate) *QAExportJobCreateBulk {
+	return &QAExportJobCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *QAExportJobClient) MapCreateBulk(slice any, setFunc func(*QAExportJobCreate, int)) *QAExportJobCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &QAExportJobCreateBulk{err: fmt.Errorf("calling to QAExportJobClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*QAExportJobCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &QAExportJobCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for QAExportJob.
+func (c *QAExportJobClient) Update() *QAExportJobUpdate {
+	mutation := newQAExportJobMutation(c.config, OpUpdate)
+	return &QAExportJobUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *QAExportJobClient) UpdateOne(_m *QAExportJob) *QAExportJobUpdateOne {
+	mutation := newQAExportJobMutation(c.config, OpUpdateOne, withQAExportJob(_m))
+	return &QAExportJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *QAExportJobClient) UpdateOneID(id int64) *QAExportJobUpdateOne {
+	mutation := newQAExportJobMutation(c.config, OpUpdateOne, withQAExportJobID(id))
+	return &QAExportJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for QAExportJob.
+func (c *QAExportJobClient) Delete() *QAExportJobDelete {
+	mutation := newQAExportJobMutation(c.config, OpDelete)
+	return &QAExportJobDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *QAExportJobClient) DeleteOne(_m *QAExportJob) *QAExportJobDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *QAExportJobClient) DeleteOneID(id int64) *QAExportJobDeleteOne {
+	builder := c.Delete().Where(qaexportjob.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &QAExportJobDeleteOne{builder}
+}
+
+// Query returns a query builder for QAExportJob.
+func (c *QAExportJobClient) Query() *QAExportJobQuery {
+	return &QAExportJobQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeQAExportJob},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a QAExportJob entity by its id.
+func (c *QAExportJobClient) Get(ctx context.Context, id int64) (*QAExportJob, error) {
+	return c.Query().Where(qaexportjob.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *QAExportJobClient) GetX(ctx context.Context, id int64) *QAExportJob {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *QAExportJobClient) Hooks() []Hook {
+	return c.hooks.QAExportJob
+}
+
+// Interceptors returns the client interceptors.
+func (c *QAExportJobClient) Interceptors() []Interceptor {
+	return c.inters.QAExportJob
+}
+
+func (c *QAExportJobClient) mutate(ctx context.Context, m *QAExportJobMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&QAExportJobCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&QAExportJobUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&QAExportJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&QAExportJobDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown QAExportJob mutation op: %q", m.Op())
+	}
+}
+
 // QARecordClient is a client for the QARecord schema.
 type QARecordClient struct {
 	config
@@ -6639,10 +6780,10 @@ type (
 		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QARecord, RedeemCode, SecuritySecret,
-		Setting, SubscriptionPlan, TLSFingerprintProfile, Tier, UsageCleanupTask,
-		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserSubscription []ent.Hook
+		PromoCode, PromoCodeUsage, Proxy, QAExportJob, QARecord, RedeemCode,
+		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile, Tier,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -6650,10 +6791,10 @@ type (
 		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QARecord, RedeemCode, SecuritySecret,
-		Setting, SubscriptionPlan, TLSFingerprintProfile, Tier, UsageCleanupTask,
-		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserSubscription []ent.Interceptor
+		PromoCode, PromoCodeUsage, Proxy, QAExportJob, QARecord, RedeemCode,
+		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile, Tier,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

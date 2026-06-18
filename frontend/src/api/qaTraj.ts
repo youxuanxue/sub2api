@@ -20,9 +20,15 @@ export type TrajExportStatus = 'pending' | 'running' | 'done' | 'failed'
 export interface TrajExportJob {
   job_id: string
   status: TrajExportStatus
+  /** 'manual' = user-triggered "export now"; 'auto' = server-scheduled snapshot. */
+  kind?: 'manual' | 'auto'
+  /** The API key this export belongs to. */
+  api_key_id?: number
   download_url?: string
   expires_at?: string
   record_count: number
+  /** Enqueue time (ISO-8601). Newest-first ordering key for the export panel. */
+  created_at?: string
   error?: string
 }
 
@@ -44,6 +50,19 @@ async function getJob(jobId: string): Promise<TrajExportJob> {
     `/users/me/qa/traj/export/jobs/${encodeURIComponent(jobId)}`
   )
   return data
+}
+
+/**
+ * List this user's recent export jobs, newest first. Scoped to one API key when
+ * `apiKeyId` is provided. Each job is downloadable while within its 24h TTL
+ * (i.e. `download_url` present and not yet `expires_at`).
+ */
+async function listExports(apiKeyId?: number): Promise<TrajExportJob[]> {
+  const { data } = await apiClient.get<{ exports: TrajExportJob[] }>(
+    '/users/me/qa/traj/export/jobs',
+    apiKeyId != null ? { params: { api_key_id: apiKeyId } } : undefined
+  )
+  return data.exports ?? []
 }
 
 function triggerBlobDownload(blob: Blob, filename: string): void {
@@ -82,5 +101,6 @@ async function download(downloadUrl: string, filename: string): Promise<void> {
 export const qaTrajAPI = {
   exportKey,
   getJob,
+  listExports,
   download
 }

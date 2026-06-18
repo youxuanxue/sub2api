@@ -990,6 +990,26 @@ export default {
     exportSuccess: '已导出 {count} 条对话记录',
     exportEmpty: '该 Key 暂无可导出的对话记录',
     exportFailed: '导出失败，请重试',
+    exportPanel: {
+      title: '导出对话',
+      exportNow: '立即导出',
+      exporting: '导出中…',
+      lastExport: '上次导出：{time}',
+      noExports: '暂无导出记录',
+      download: '下载',
+      expired: '已过期',
+      recordCount: '{count} 条',
+      kindManual: '立即',
+      kindAuto: '自动',
+      status: '状态',
+      statusValue: {
+        pending: '排队中',
+        running: '处理中',
+        done: '已就绪',
+        failed: '失败'
+      },
+      close: '关闭'
+    },
     enable: '启用',
     disable: '禁用',
     nameLabel: '名称',
