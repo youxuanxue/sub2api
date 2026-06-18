@@ -235,6 +235,7 @@
         "NewAnthropicUpstreamErrorCounterCache",
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
+        "anthropicBodyless403IncrScript",
         "IncrementAnthropicBodyless403Count",
         "ResetAnthropicBodyless403Count",
         "IncrementAnthropicCooldownTier(",

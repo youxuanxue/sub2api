@@ -25,7 +25,15 @@ type AnthropicUpstreamErrorCounterCache interface {
 	// so without this terminal counter it flaps forever on the auto-recovering
 	// 3/3 ladder. Reset mirrors the error counter so a healed account does not
 	// carry stale bodyless strikes.
-	IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes int) (int64, error)
+	//
+	// debounceSeconds collapses a concurrent burst of bodyless 403s (many
+	// in-flight requests to the same account in one failure episode) into a
+	// SINGLE increment via a server-side-TIME gate, so the threshold counts
+	// distinct cooldown EPISODES, not racing requests. Without it a transient
+	// burst could cross the permanent-disable threshold in seconds and kill a
+	// healthy account — the same burst-vs-episode hazard the #623 escalation
+	// slot and the oauth401 same_at debounce already guard against.
+	IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error)
 	ResetAnthropicBodyless403Count(ctx context.Context, accountID int64) error
 
 	// Tier counter tracks how many cooldowns this account has triggered in the

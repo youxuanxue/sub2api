@@ -33,14 +33,19 @@ import (
 //   - **fail-open**：计数器未注入 / 出错 / 未达阈值 → 返回 false，落回既有阶梯，行为不变。
 
 const (
-	// anthropic403BodylessDisableThresholdDefault：一个窗口内累计多少次空 body 403 即判
-	// 持续拒绝并永久禁用。永久禁用不可自愈（需 ops），故偏保守——10 次足以在繁忙 edge 上
-	// ~一两个冷却周期内坐实持续 flap，又远高于单个请求的偶发瞬时 403。
-	anthropic403BodylessDisableThresholdDefault int64 = 10
-	// anthropic403BodylessWindowMinutesDefault：累计窗口。30min 覆盖 3/3 阶梯封顶 10min
-	// 冷却的 ~两到三个 re-admit 周期，使「冷却→回池→仍空 body 403」的持续 flap 能累积到
-	// 阈值，而跨窗口的零星瞬时 403 会随窗口过期清零。
-	anthropic403BodylessWindowMinutesDefault int = 30
+	// anthropic403BodylessDisableThresholdDefault：达多少个**独立冷却 EPISODE**(经
+	// debounce 折叠并发突发后)的空 body 403 即判持续拒绝并永久禁用。永久禁用不可自愈
+	// (需 ops),故按 EPISODE 计而非按请求计——5 个独立 episode(冷却→回池→仍空 body 403)
+	// 是不可能由单次瞬时基础设施抖动产生的(那只是 1 个 episode),又能在持续 flap 时于
+	// ~半小时内坐实。
+	anthropic403BodylessDisableThresholdDefault int64 = 5
+	// anthropic403BodylessWindowMinutesDefault：episode 累计窗口。60min 覆盖 3/3 阶梯
+	// 升到封顶 10min 冷却后的 ~5 个 re-admit episode,跨窗口的零星 episode 随窗口过期清零。
+	anthropic403BodylessWindowMinutesDefault int = 60
+	// anthropic403BodylessDebounceSecondsDefault：把一个失败 episode 内的并发突发(同时
+	// 在途的多个请求各打一次空 body 403)折叠成 1 次计数的去抖窗口。取 15s——小于 3/3
+	// 阶梯最短 30s 冷却(故相邻 episode 必被分开计),又远大于亚秒级并发突发(故突发折叠)。
+	anthropic403BodylessDebounceSecondsDefault int = 15
 )
 
 // tkIsUnstructuredAnthropicErrorBody 报告上游错误 body 是否为「非结构化」——空 body、
@@ -82,7 +87,7 @@ func (s *RateLimitService) tkTryEscalatePersistentBodyless403(ctx context.Contex
 	}
 
 	count, err := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicBodyless403Count(
-		ctx, account.ID, anthropic403BodylessWindowMinutesDefault)
+		ctx, account.ID, anthropic403BodylessWindowMinutesDefault, anthropic403BodylessDebounceSecondsDefault)
 	if err != nil {
 		slog.Warn("anthropic_bodyless_403_counter_increment_failed", "account_id", account.ID, "error", err)
 		return false // fail-open

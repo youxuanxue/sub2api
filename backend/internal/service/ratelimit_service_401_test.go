@@ -152,6 +152,7 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	bodyless403Counts       []int64
 	bodyless403IncrementIDs []int64
 	bodyless403WindowMin    []int
+	bodyless403DebounceSec  []int
 	bodyless403ResetCalls   []int64
 
 	tierCounts       []int64
@@ -198,9 +199,10 @@ func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicUpstreamErrorCoun
 	return nil
 }
 
-func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicBodyless403Count(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
+func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicBodyless403Count(_ context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error) {
 	s.bodyless403IncrementIDs = append(s.bodyless403IncrementIDs, accountID)
 	s.bodyless403WindowMin = append(s.bodyless403WindowMin, windowMinutes)
+	s.bodyless403DebounceSec = append(s.bodyless403DebounceSec, debounceSeconds)
 	if s.err != nil {
 		return 0, s.err
 	}
