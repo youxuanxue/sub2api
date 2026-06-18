@@ -2781,6 +2781,14 @@
         "h.chatCompletionsErrorResponse(c, tkStatus, tkType, tkMsg)"
       ],
       "rationale": "Anthropic-platform /v1/chat/completions first-attempt select-failure must route through tkSelectFailureStatusMessage (unservable model -> 400 invalid_request_error) BEFORE the empty-pool 429 fast-fail, parity with the /v1/responses companion. An upstream merge reverting this to a bare tkNoAvailableAccounts(c) call would silently reintroduce the 429 retry-storm misclassification for an unservable model name."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "account_scheduling_loadbalance_no_candidates",
+        "filtered_model_rate_limited"
+      ],
+      "rationale": "The Layer-2 load-balance candidate loop in SelectAccountWithLoadAwareness must emit the per-gate exclusion breakdown (account_scheduling_loadbalance_no_candidates WARN carrying filtered_excluded/unschedulable/platform/model_unsupported/model_rate_limited/quota/window_cost/rpm counts) when the candidate set is empty, mirroring the Layer-1 routing breakdown. Without it an empty load-balance pool surfaces only as a bare ErrNoAvailableAccounts with no way to tell which gate emptied it (the 2026-06-18 prod opus-4-8 empty-pool incident could not be root-caused for exactly this reason). This is a TK-only insertion inside the most upstream-churned scheduling function and has no unit test guarding it, so it is a prime target for a silent auto-merge drop on the next upstream merge; this sentinel turns that into a CI failure instead of a re-opened observability blind spot."
     }
   ]
 }
