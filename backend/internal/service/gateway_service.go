@@ -2262,42 +2262,76 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		"total_accounts", len(accounts),
 	)
 	candidates := make([]*Account, 0, len(accounts))
+	// TK: per-filter exclusion counters for the load-balance candidate loop.
+	// Layer 1 (model routing) already logs this breakdown; the Layer 2 path did
+	// not, so an empty load-balance pool surfaced only as a bare
+	// "no available accounts" with no way to tell WHICH gate emptied it. These
+	// counters feed the account_scheduling_loadbalance_no_candidates WARN below.
+	var filteredExcluded, filteredUnsched, filteredPlatform, filteredModelMapping,
+		filteredModelScope, filteredQuota, filteredWindowCost, filteredRPM int
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
+			filteredExcluded++
 			continue
 		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
 		if !s.isAccountSchedulableForSelection(acc) {
+			filteredUnsched++
 			continue
 		}
 		if !s.isAccountAllowedForPlatform(acc, platform, useMixed) {
+			filteredPlatform++
 			continue
 		}
 		if requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel) {
+			filteredModelMapping++
 			continue
 		}
 		if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
+			filteredModelScope++
 			continue
 		}
 		// 配额检查
 		if !s.isAccountSchedulableForQuota(acc) {
+			filteredQuota++
 			continue
 		}
 		// 窗口费用检查（非粘性会话路径）
 		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
+			filteredWindowCost++
 			continue
 		}
 		// RPM 检查（非粘性会话路径）
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
+			filteredRPM++
 			continue
 		}
 		candidates = append(candidates, acc)
 	}
 
 	if len(candidates) == 0 {
+		// TK: emit the per-gate breakdown so an empty load-balance pool is
+		// diagnosable (which filter removed how many accounts) instead of an
+		// opaque "no available accounts". Fires only on the empty-pool error
+		// path, so it is low-volume. Mirrors the Layer 1 routing breakdown.
+		slog.Warn("account_scheduling_loadbalance_no_candidates",
+			"group_id", derefGroupID(groupID),
+			"platform", platform,
+			"model", requestedModel,
+			"session", shortSessionHash(sessionHash),
+			"total_accounts", len(accounts),
+			"filtered_excluded", filteredExcluded,
+			"filtered_unschedulable", filteredUnsched,
+			"filtered_platform", filteredPlatform,
+			"filtered_model_unsupported", filteredModelMapping,
+			"filtered_model_rate_limited", filteredModelScope,
+			"filtered_quota", filteredQuota,
+			"filtered_window_cost", filteredWindowCost,
+			"filtered_rpm", filteredRPM,
+		)
 		return nil, ErrNoAvailableAccounts
 	}
 
