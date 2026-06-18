@@ -1319,7 +1319,7 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	// it as upstream/provider, so it stays OUT of upstream_error_rate and the
 	// provider-health P0 capacity alert. See tkUpstreamClientInducedRejection
 	// (prod P0 2026-06-05; mirrors the #602 amplifier boundary).
-	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)
+	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
 	// TK (issue #625): a client/caller disconnect mid-flight surfaces as an upstream
 	// transport error with NO upstream HTTP status (context canceled). It is
 	// caller-fault, not provider health — own it to the client so one canceling

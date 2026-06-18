@@ -2013,7 +2013,7 @@
     {
       "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream.go",
       "must_contain": [
-        "func tkUpstreamClientInducedRejection(c *gin.Context) bool",
+        "func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool",
         "func tkOpsIsAccountLevel4xx(lower string) bool",
         "if status == 413 {",
         "if status != 400 && status != 422 {",
@@ -2027,7 +2027,7 @@
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
         "routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))",
-        "clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)",
+        "clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)",
         "clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)",
         "if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {",
         "if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {"
@@ -2085,9 +2085,10 @@
       "must_contain": [
         "if status == 404 {",
         "service.IsAnthropicModelNotFound404([]byte(body), msg)",
-        "if body == \"\" && strings.TrimSpace(events[i].Detail) != \"\" {"
+        "if body == \"\" && strings.TrimSpace(events[i].Detail) != \"\" {",
+        "if clientErrType == \"not_found_error\" {"
       ],
-      "rationale": "Path B metric truth (prod P0 2026-06-06, edge us5 upstream_error_rate=100%): an upstream 404 model-not-found is caller-fault, so tkUpstreamClientInducedRejection classifies it client-owned (phase=request) and it drops out of upstream_excl behind upstream_error_rate. It reuses the SAME service.IsAnthropicModelNotFound404 predicate as the gateway response path (B-2) so the metric classification can never drift from the client-facing 400 decision. The captured upstream status stays 404 even though the client gets a 400, so this MUST live in the classifier. An upstream merge that reverts the 404 branch to provider-owned re-fires the P0 on bad-model traffic; this sentinel pins the branch. THIRD anchor (us7 P0 2026-06-13, upstream_error_rate=48.57% false page): the 'never drift' guarantee held only while both layers saw the SAME bytes — but the Anthropic forward path records the upstream body in OpsUpstreamErrorEvent.Detail, not UpstreamResponseBody, so tkOpsUpstreamErrorText fed the predicate the human Message alone. Anthropic's availability-gating 404 ('Claude Fable 5 is not available. Please use Opus 4.8', envelope error.type=not_found_error) carries no error.type in the Message, so the predicate missed it and the 404 leaked to provider-owned while the gateway RESPONSE path (full body in hand) already returned a client 400. The Detail fallback restores input parity (Detail = same truncated body, gateway.log_upstream_error_body default true). Dropping it re-opens the message-only drift and re-fires the false P0 on any availability-gated model; this anchor pins the fallback read."
+      "rationale": "Path B metric truth (prod P0 2026-06-06, edge us5 upstream_error_rate=100%): an upstream 404 model-not-found is caller-fault, so tkUpstreamClientInducedRejection classifies it client-owned (phase=request) and it drops out of upstream_excl behind upstream_error_rate. It reuses the SAME service.IsAnthropicModelNotFound404 predicate as the gateway response path (B-2) so the metric classification can never drift from the client-facing 400 decision. The captured upstream status stays 404 even though the client gets a 400, so this MUST live in the classifier. An upstream merge that reverts the 404 branch to provider-owned re-fires the P0 on bad-model traffic; this sentinel pins the branch. THIRD anchor (us7 P0 2026-06-13, upstream_error_rate=48.57% false page): the 'never drift' guarantee held only while both layers saw the SAME bytes — but the Anthropic forward path records the upstream body in OpsUpstreamErrorEvent.Detail, not UpstreamResponseBody, so tkOpsUpstreamErrorText fed the predicate the human Message alone. Anthropic's availability-gating 404 ('Claude Fable 5 is not available. Please use Opus 4.8', envelope error.type=not_found_error) carries no error.type in the Message, so the predicate missed it and the 404 leaked to provider-owned while the gateway RESPONSE path (full body in hand) already returned a client 400. The Detail fallback restores input parity (Detail = same truncated body, gateway.log_upstream_error_body default true). Dropping it re-opens the message-only drift and re-fires the false P0 on any availability-gated model; this anchor pins the fallback read. FOURTH anchor (prod us3 P0 2026-06-17, upstream_error_rate=97% false page): a client hammered gpt-5.5-pro on /v1/responses (1604x in ~5min) routed via the openai-us3 mirror to a ChatGPT-OAuth account in a transient ~8min model-404 blip; the ChatGPT backend returned a bare 404 with an EMPTY body, so both predicates saw '' and the old `combined=='' -> return false` defaulted the 404 to provider. The gateway-translated client-facing error type (not_found_error) is the drift-proof signal — a 404 the gateway already owned as not-found is caller-fault even with no upstream body to re-confirm; a masked 404 (errType=upstream_error) stays provider. Dropping the clientErrType=='not_found_error' branch re-fires the empty-body 404 false P0; this anchor pins it."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_client_canceled.go",
