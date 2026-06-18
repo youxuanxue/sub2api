@@ -92,11 +92,20 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(_qa_cmds(commands), [])
 
-    def test_prod_minus_qa_equals_edge_command_count(self) -> None:
-        # The only difference between prod and edge is the 2 injected commands.
+    def test_prod_minus_edge_is_only_the_prod_only_injections(self) -> None:
+        # The only difference between prod and edge is the prod-only injected
+        # commands: 2 QA-export + 2 media-storage (both gated to the EC2 i-* node;
+        # edges are Lightsail mi-* and get an empty injection array). Computed from
+        # the actual injected-command counts so adding another prod-only block
+        # updates here in one place.
         _, prod = _render(_PROD_IID)
         _, edge = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
-        self.assertEqual(len(prod) - len(edge), 2)
+        injected = sum(
+            1 for c in prod
+            if "QA_CAPTURE_EXPORT_STORAGE" in c or "MEDIA_STORAGE_" in c
+        )
+        self.assertEqual(injected, 4)
+        self.assertEqual(len(prod) - len(edge), injected)
 
     def test_values_are_env_overridable(self) -> None:
         proc, commands = _render(_PROD_IID, env_extra={

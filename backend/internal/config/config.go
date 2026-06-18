@@ -94,6 +94,7 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
+	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 }
 
 type LogConfig struct {
@@ -177,6 +178,26 @@ type QACaptureConfig struct {
 }
 
 type QACaptureStorageConfig struct {
+	Driver          string `mapstructure:"driver"`
+	Endpoint        string `mapstructure:"endpoint"`
+	Region          string `mapstructure:"region"`
+	Bucket          string `mapstructure:"bucket"`
+	AccessKeyID     string `mapstructure:"access_key_id"`
+	SecretAccessKey string `mapstructure:"secret_access_key"`
+	Prefix          string `mapstructure:"prefix"`
+	ForcePathStyle  bool   `mapstructure:"force_path_style"`
+}
+
+// MediaStorageConfig configures the S3(-compatible) bucket the gateway offloads
+// GENERATED MEDIA to (video now; image in a follow-up). When set, the video
+// fetch path uploads the upstream's inline-base64 clip and returns a short-lived
+// presigned URL instead of streaming a 10-20 MB body through the gateway.
+//
+// Credentials: leave AccessKeyID/SecretAccessKey EMPTY on prod to use the
+// default AWS credential chain (the EC2 instance role) — no long-lived key. Set
+// them only for non-AWS / local S3-compatible stores. Driver empty ⇒ the offload
+// is disabled and media passes through as inline base64 (current behavior).
+type MediaStorageConfig struct {
 	Driver          string `mapstructure:"driver"`
 	Endpoint        string `mapstructure:"endpoint"`
 	Region          string `mapstructure:"region"`
@@ -1970,6 +1991,17 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.export_storage.secret_access_key", "")
 	viper.SetDefault("qa_capture.export_storage.prefix", "")
 	viper.SetDefault("qa_capture.export_storage.force_path_style", false)
+
+	// media_storage.* has no struct default, so pin viper keys here to enable
+	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).
+	viper.SetDefault("media_storage.driver", "")
+	viper.SetDefault("media_storage.endpoint", "")
+	viper.SetDefault("media_storage.region", "")
+	viper.SetDefault("media_storage.bucket", "")
+	viper.SetDefault("media_storage.access_key_id", "")
+	viper.SetDefault("media_storage.secret_access_key", "")
+	viper.SetDefault("media_storage.prefix", "")
+	viper.SetDefault("media_storage.force_path_style", false)
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久

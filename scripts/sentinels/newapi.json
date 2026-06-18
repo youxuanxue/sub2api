@@ -105,9 +105,10 @@
       "must_contain": [
         "VideoTaskCache",
         "VideoTaskRecord",
-        "BillingRequestID"
+        "BillingRequestID",
+        "MediaS3Key"
       ],
-      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears. BillingRequestID is the refund anchor stamped at submit (matches usage_logs.request_id); dropping the field silently disables every terminal-failure refund."
+      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears. BillingRequestID is the refund anchor stamped at submit (matches usage_logs.request_id); dropping the field silently disables every terminal-failure refund. MediaS3Key persists the offloaded clip's S3 key so VideoFetch re-presigns a fresh short-lived URL without re-pulling upstream; dropping it breaks reloaded-session playback for S3-offloaded videos."
     },
     {
       "path": "backend/internal/repository/video_task_cache.go",
