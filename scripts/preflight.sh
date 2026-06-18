@@ -1077,6 +1077,37 @@ else
     echo "  ok: live-host state verdict drift fixtures pass"
 fi
 
+# live-host detector ↔ deploy_via_ssm injection sync: the detector asserts the
+# CONTAINER env that deploy_via_ssm.sh sed-injects is present on the host. If a
+# key is added/removed in deploy_via_ssm.sh without updating the detector's
+# DEFAULT_REQUIRED_ENV (or vice versa), the detector would silently check stale
+# keys — the exact "靠自觉 drift" this whole PR exists to kill. The detector is
+# the single source of truth (--print-required); assert each key it requires
+# actually appears in the injector script.
+echo ""
+echo "=== sub2api: live-host detector ↔ deploy_via_ssm env sync ==="
+_lh_injector="ops/stage0/deploy_via_ssm.sh"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for live-host detector sync check)"
+    errors=$((errors + 1))
+elif [ ! -f "${_lh_injector}" ]; then
+    echo "  FAIL: ${_lh_injector} missing (live-host detector sync check)"
+    errors=$((errors + 1))
+else
+    _lh_missing=""
+    while IFS= read -r _lh_key; do
+        [ -z "${_lh_key}" ] && continue
+        grep -q "${_lh_key}" "${_lh_injector}" || _lh_missing="${_lh_missing} ${_lh_key}"
+    done < <(python3 ./ops/stage0/live_host_state_verdict.py --print-required)
+    if [ -n "${_lh_missing}" ]; then
+        echo "  FAIL: detector requires env not injected by deploy_via_ssm.sh:${_lh_missing}"
+        echo "        — reconcile DEFAULT_REQUIRED_ENV (live_host_state_verdict.py) with the injection list in ${_lh_injector}"
+        errors=$((errors + 1))
+    else
+        echo "  ok: every detector-required env key is injected by deploy_via_ssm.sh"
+    fi
+fi
+
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
 # The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
 # sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh

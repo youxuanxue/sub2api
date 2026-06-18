@@ -183,10 +183,19 @@ def main():
     ap.add_argument("--require-env", default=None,
                     help="comma-separated env keys (default: deploy_via_ssm injection set)")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--print-required", action="store_true",
+                    help="print the default required-env keys (one per line) — the "
+                         "single source of truth a preflight check greps against "
+                         "deploy_via_ssm.sh so the two can't silently drift")
     args = ap.parse_args()
 
     if args.selftest:
         return _selftest()
+
+    if args.print_required:
+        for key in DEFAULT_REQUIRED_ENV:
+            print(key)
+        return 0
 
     required_env = None
     if args.require_env is not None:

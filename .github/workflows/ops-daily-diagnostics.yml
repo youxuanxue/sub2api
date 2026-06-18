@@ -181,7 +181,7 @@ jobs:
         # a manual host edit or a deploy-sed that wrote wrong content used to be
         # caught only by hand. No expected_tag here (audit doesn't know the
         # intended tag — that assertion belongs in deploy-stage0 post-deploy).
-        if: steps.precheck.outputs.skip == 'false' && env.TARGET_PLATFORM != 'lightsail'
+        if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
         continue-on-error: true
         env:
           AWS_REGION: ${{ matrix.region }}

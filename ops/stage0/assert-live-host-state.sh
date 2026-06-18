@@ -67,12 +67,17 @@ PROBE
 
 REMOTE_B64="$(printf '%s' "${REMOTE_PROBE}" | base64 | tr -d '\n')"
 
-cmd_id="$(aws ssm send-command "${ssm_region_args[@]}" \
+# Guard send-command: an SSM transport failure must NOT make this advisory check
+# exit non-zero (the contract above) — surface it as a ::warning:: and stop.
+if ! cmd_id="$(aws ssm send-command "${ssm_region_args[@]}" \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "${COMMENT}" \
   --parameters "commands=[\"echo ${REMOTE_B64} | base64 -d | bash\"]" \
-  --query 'Command.CommandId' --output text)"
+  --query 'Command.CommandId' --output text 2>/dev/null)" || [[ -z "${cmd_id}" ]]; then
+  echo "::warning::live-host assert could not start SSM command on ${INSTANCE_ID}; skipping verdict"
+  exit 0
+fi
 
 # Poll for completion (the CLI waiter can be flaky on very short commands).
 deadline=$(( $(date +%s) + SSM_TIMEOUT_SECONDS ))
