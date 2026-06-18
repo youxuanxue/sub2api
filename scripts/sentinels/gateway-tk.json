@@ -2714,6 +2714,39 @@
         "account.Platform != PlatformAnthropic"
       ],
       "rationale": "Anthropic model-not-found negative cache implementation (PR #817). gocache.New(ttl, cleanup) MUST stay the backing store (NOT a hand-rolled sync.Map): the go-cache janitor sweep bounds memory under an adversarial flood of distinct client-controlled bad model names — a sync.Map only evicts lazily on re-read and would leak entries for names never requested again (review R-001). The Anthropic-only guard (account.Platform != PlatformAnthropic) keeps the cache scoped to where a 404 not_found_error means the name is globally unknown (other platforms' 404 semantics differ). The cache is keyed by the POST-mapping model name so an account that remaps a typo to a valid model is never short-circuited (verified against prod data: claude-haiku-4-6 succeeds via prod model_mapping but 404s on passthrough edges)."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_request_rejected.go",
+      "must_contain": [
+        "opsClientRequestRejectedKey = \"ops_client_request_rejected\"",
+        "func markOpsClientRequestRejected(c *gin.Context)",
+        "func hasOpsClientRequestRejected(c *gin.Context) bool"
+      ],
+      "rationale": "Local pre-forward client-request-rejection marker (unservable model NAME -> 400 invalid_request_error). The flag makes ops attribution depend on what the gateway KNOWS (this is a client fault) rather than on response-envelope parsing — necessary because the two OpenAI-compat error writers emit different envelopes (chatCompletionsErrorResponse uses {error:{type}}, responsesErrorResponse uses the OpenAI Responses {error:{code}} with no top-level type), so without the flag a /responses 400 is flattened to api_error->phase=internal->owner=platform and a client fault reads as a TK gateway error. Mirrors the upstream variant tkUpstreamClientInducedRejection. An upstream merge deleting this helper would silently revert the /responses client-owned attribution fix."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "clientRequestRejected := hasOpsClientRequestRejected(c)",
+        "if clientRequestRejected && !upstreamError && !routingCapacityLimited {"
+      ],
+      "rationale": "Injection point in classifyOpsErrorLog that owns a LOCAL pre-forward client request rejection (unservable model 400) to the client (phase=request -> owner=client) regardless of the response envelope. Sits alongside the existing clientInducedUpstream / clientCanceledUpstream hooks; an upstream merge that rewrites the phase-override ladder must keep this line or the /responses unservable-model 400 silently regresses to owner=platform and re-pollutes the gateway error rate."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)",
+        "h.responsesErrorResponse(c, tkStatus, tkType, tkMsg)"
+      ],
+      "rationale": "Anthropic-platform /v1/responses first-attempt select-failure must route through tkSelectFailureStatusMessage (unservable model -> 400 invalid_request_error) BEFORE the empty-pool 429 fast-fail, so a model NAME nobody serves is a client 400 (no SDK retry storm) not a 429 retry signal. Mirrors OpenAIGateway and the native /v1/messages path. An upstream merge reverting this back to a bare tkNoAvailableAccounts(c) call would silently reintroduce the 429 misclassification (the exact bug this fix removes)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)",
+        "h.chatCompletionsErrorResponse(c, tkStatus, tkType, tkMsg)"
+      ],
+      "rationale": "Anthropic-platform /v1/chat/completions first-attempt select-failure must route through tkSelectFailureStatusMessage (unservable model -> 400 invalid_request_error) BEFORE the empty-pool 429 fast-fail, parity with the /v1/responses companion. An upstream merge reverting this to a bare tkNoAvailableAccounts(c) call would silently reintroduce the 429 retry-storm misclassification for an unservable model name."
     }
   ]
 }
