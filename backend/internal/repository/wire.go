@@ -157,6 +157,7 @@ var ProviderSet = wire.NewSet(
 	NewGeminiCliCodeAssistClient,
 	NewGeminiDriveClient,
 	NewVideoTaskCache,
+	NewMediaStore,
 
 	ProvideEnt,
 	ProvideSQLDB,

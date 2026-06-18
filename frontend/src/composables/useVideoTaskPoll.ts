@@ -41,6 +41,13 @@ interface Poller {
 export interface VideoTaskPoller {
   /** Begin or resume polling a task (no-op unless state==='processing'). */
   resume: (task: VideoTaskItem) => void
+  /**
+   * One-shot URL refresh for an ALREADY-succeeded task. The media URL is now a
+   * short-lived presigned S3 link (re-minted by the backend from the stored key,
+   * no upstream re-pull), so a reloaded session must re-fetch to get a fresh one.
+   * Best-effort: on any error the cached URL is left intact.
+   */
+  refreshUrl: (task: VideoTaskItem) => Promise<void>
   stop: (id: string) => void
   stopAll: () => void
 }
@@ -143,7 +150,25 @@ export function useVideoTaskPoll(opts: VideoTaskPollOptions): VideoTaskPoller {
     schedule(task)
   }
 
+  async function refreshUrl(task: VideoTaskItem): Promise<void> {
+    const key = opts.resolveKey(task.keyId)
+    if (!key) return
+    try {
+      const raw = await gatewayVideoFetch(key, opts.gatewayBase(), task.id)
+      const state = videoStateFromFetch(raw)
+      if (state === 'succeeded') {
+        const url = extractVideoUrl(raw)
+        if (url) opts.patch(task.id, { url })
+      }
+      // Non-succeeded (e.g. record expired past TTL) → keep the cached URL; the
+      // self-contained data: URL fallback still plays, and we never downgrade a
+      // succeeded card to failed off a best-effort refresh.
+    } catch {
+      /* best-effort: leave the cached URL intact */
+    }
+  }
+
   onUnmounted(stopAll)
 
-  return { resume, stop, stopAll }
+  return { resume, refreshUrl, stop, stopAll }
 }

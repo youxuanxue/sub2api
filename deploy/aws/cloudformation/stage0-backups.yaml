@@ -14,6 +14,12 @@ Description: >
   pattern, so enabling QA S3 export needs no prod-instance-stack update either.
   See docs/qa-export-s3-and-auto-archive.md.
 
+  ALSO holds the GENERATED-MEDIA bucket (media_storage): the gateway offloads
+  generated video (image later) here and returns a short-lived presigned URL
+  instead of streaming a 10-20 MB inline-base64 body. Same direct-role-ARN
+  pattern; presigned links are signed by the instance role (no long-lived key)
+  and the media/ prefix expires after MediaRetentionDays (default 1).
+
 Parameters:
   ProjectName:
     Type: String
@@ -36,6 +42,16 @@ Parameters:
       Days to keep each QA trajectory export ZIP (traj-exports/ prefix) before
       lifecycle expiry. Separate from RetentionDays so QA-export and pg_dump
       retention can be tuned independently.
+  MediaRetentionDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 365
+    Description: >
+      Days to keep each generated-media object (media/ prefix) before lifecycle
+      expiry. Generated clips are throwaway previews, so 1 day (the lifecycle
+      floor) is the default — presigned links are short-lived and re-minted on
+      demand from the stored S3 key.
   AppInstanceRoleArn:
     Type: String
     Description: >
@@ -184,6 +200,66 @@ Resources:
             Action: 's3:ListBucket'
             Resource: !GetAtt QaExportsBucket.Arn
 
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete for consistency with the sibling buckets; media is
+    # throwaway (1-day lifecycle) so this only ever leaves a near-empty bucket.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-media-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-generated-media
+            Status: Enabled
+            Prefix: media/
+            ExpirationInDays: !Ref MediaRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Enforce TLS for all access.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt MediaBucket.Arn
+              - !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          # Same direct-role-ARN principal pattern as above — same-account
+          # resource-based grant, so the prod instance stack is never touched. The
+          # app writes generated clips (PutObject) and signs/serves presigned GET
+          # URLs (GetObject). NO DeleteObject: the media/ lifecycle rule reaps
+          # objects, so the role never needs delete (least privilege).
+          - Sid: AllowAppInstanceRolePutGetMedia
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub '${MediaBucket.Arn}/media/*'
+
   # NOTE — the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
   # dump bucket so the decryption keys are not co-located with the ciphertext) needs an
   # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy — a
@@ -215,3 +291,12 @@ Outputs:
   EnvSecretsSsmParam:
     Description: Set this as TOKENKEY_ENV_SECRETS_SSM in /var/lib/tokenkey/.env; SecureString holding the off-box .env secrets.
     Value: !Sub '/${ProjectName}/${Environment}/stage0/env-secrets-backup'
+  MediaBucketName:
+    Description: >
+      Generated-media bucket. Set MEDIA_STORAGE_DRIVER=s3 + MEDIA_STORAGE_BUCKET=<this>
+      + MEDIA_STORAGE_REGION=<region> in the app env to enable video S3 offload
+      (credentials come from the instance role — leave MEDIA_STORAGE_ACCESS_KEY_ID unset).
+    Value: !Ref MediaBucket
+  MediaS3Uri:
+    Description: s3:// base for generated media; objects land under media/ (reaped by expire-generated-media).
+    Value: !Sub 's3://${MediaBucket}'

@@ -450,10 +450,13 @@ async function generate(): Promise<void> {
   }
 }
 
-// Reattach polling for any in-flight task persisted across a reload.
+// Reattach polling for any in-flight task persisted across a reload; and refresh
+// the (short-lived presigned) URL of already-succeeded tasks so a reopened
+// session can still play/download them.
 onMounted(() => {
   for (const task of library.videoTasks.value) {
     if (task.state === 'processing') poll.resume(task)
+    else if (task.state === 'succeeded') void poll.refreshUrl(task)
   }
 })
 </script>

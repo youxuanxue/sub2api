@@ -342,6 +342,14 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
+	// Fast path: the clip was already offloaded to S3 — re-presign and return a
+	// small success JSON WITHOUT touching the upstream task (which may have
+	// expired). This is what makes a reloaded Studio session get a fresh
+	// short-lived URL for free; see openai_gateway_tk_video_s3.go.
+	if h.tkVideoFastPathFromS3(c, rec) {
+		return
+	}
+
 	in := bridge.VideoFetchInput{
 		UpstreamTaskID: rec.UpstreamTaskID,
 		ChannelType:    rec.ChannelType,
@@ -357,17 +365,26 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
-	// Pass the upstream JSON through untouched so volcengine / doubao SDK
-	// clients see exactly the body shape new-api would have returned for the
-	// same channel type. We deliberately do NOT wrap in {code,success,data}
-	// at this layer — the upstream already does so for the OpenAI-Video API
-	// shape that `/v1/videos/:task_id` clients rely on.
+	// Offload a terminal-success inline-base64 clip to S3 and rewrite the body to
+	// carry a presigned URL instead — so the gateway returns a small JSON, not a
+	// 10–20 MB base64 body (the root cause of the false-failure timeout). No-op
+	// passthrough when offload is disabled or the upstream already returns a URL.
+	body := out.RawResponse
+	if transformed, ok := h.tkMaybeOffloadVideoToS3(c.Request.Context(), rec, out); ok {
+		body = transformed
+	}
+
+	// Pass the (possibly transformed) upstream JSON through so volcengine / doubao
+	// SDK clients see the body shape new-api would have returned for the same
+	// channel type. We deliberately do NOT wrap in {code,success,data} at this
+	// layer — the upstream already does so for the OpenAI-Video API shape that
+	// `/v1/videos/:task_id` clients rely on.
 	c.Header("Content-Type", "application/json")
 	c.Status(http.StatusOK)
-	if len(out.RawResponse) == 0 {
+	if len(body) == 0 {
 		_, _ = c.Writer.WriteString("{}")
 	} else {
-		_, _ = c.Writer.Write(out.RawResponse)
+		_, _ = c.Writer.Write(body)
 	}
 
 	// Terminal handling. We delete the registry entry ONLY on terminal FAILURE

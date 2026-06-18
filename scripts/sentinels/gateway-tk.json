@@ -1722,6 +1722,24 @@
       "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch). RefundVideoUsageOnFailure anchors the terminal-failed refund trigger (user paid at submit for a video that never materialized); videoSubmitHasVideoInput anchors the video-INPUT reject guard (upstream bills input+output duration for video-in, so the per-output-second price would under-charge 1.6-2.4x — lifting the guard requires re-pricing in the same PR)."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_tk_video.go",
+      "must_contain": [
+        "tkVideoFastPathFromS3",
+        "tkMaybeOffloadVideoToS3"
+      ],
+      "rationale": "Generated-video S3 offload INJECTION points in VideoFetch. tkVideoFastPathFromS3 (re-presign from the stored S3 key, skip upstream) and tkMaybeOffloadVideoToS3 (decode the terminal-success inline base64, upload, rewrite the body to a presigned URL) are the two hooks that stop the gateway streaming a 10-20 MB inline-base64 clip — the root cause of the false-failure timeout (PR #847 was the band-aid; this is the fix). Both are compile-clean if dropped, so an upstream merge could silently revert VideoFetch to the inline-base64 passthrough; this anchor catches that."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_s3.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) SetMediaStore",
+        "func (h *OpenAIGatewayHandler) tkMaybeOffloadVideoToS3",
+        "func rewriteVideoBodyWithURL",
+        "\"video_url\""
+      ],
+      "rationale": "TK companion implementing the generated-video S3 offload (see the injection sentinel above). rewriteVideoBodyWithURL strips every inline-base64 path extractVideoUrl checks and sets top-level video_url to the presigned link — the exact cross-layer contract the frontend extractVideoUrl URL branch reads. SetMediaStore is the post-construction wiring seam (nil => inline base64 passthrough). Deleting this file reverts media delivery to the 10-20 MB synchronous base64 transfer."
+    },
+    {
       "path": "backend/internal/service/openai_privacy_service.go",
       "must_contain": [
         "classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String())",

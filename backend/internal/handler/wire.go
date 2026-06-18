@@ -161,6 +161,7 @@ func ProvideOpenAIGatewayHandler(
 	opsService *service.OpsService,
 	cfg *config.Config,
 	videoTaskCache service.VideoTaskCache,
+	mediaStore service.MediaStore,
 ) *OpenAIGatewayHandler {
 	h := NewOpenAIGatewayHandler(
 		gatewayService,
@@ -174,6 +175,7 @@ func ProvideOpenAIGatewayHandler(
 		cfg,
 	)
 	h.SetVideoTaskCache(videoTaskCache)
+	h.SetMediaStore(mediaStore)
 	return h
 }
 

@@ -168,7 +168,41 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" '{
+# --- Generated-media → S3 offload (prod-only) --------------------------------
+# Same proven mechanism as the QA-export block above (additive, grep-guarded,
+# idempotent .env + compose-mapping patches on a LIVE host). Activates the video
+# S3 offload: MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on
+# purpose — the prod instance role + the media bucket policy (Principal = prod
+# InstanceRole ARN) grant s3:PutObject/GetObject, so no static keys land in .env.
+# Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`) get [] and never offload media
+# (they passthrough base64 — same byte-identical command list as before). Safe to
+# enable before the CFN media bucket exists: the store degrades to base64
+# passthrough on any S3 error. The media/ key prefix matches the bucket lifecycle.
+media_storage_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  media_storage_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg driver "${MEDIA_STORAGE_DRIVER:-s3}" \
+    --arg region "${MEDIA_STORAGE_REGION:-us-east-1}" \
+    --arg bucket "${MEDIA_STORAGE_BUCKET:-tokenkey-prod-media-682751977094}" '
+    [
+      ( "ms_d=" + ($driver|@sh) + "; ms_r=" + ($region|@sh) + "; ms_b=" + ($bucket|@sh)
+        + "; for kv in \"DRIVER=$ms_d\" \"REGION=$ms_r\" \"BUCKET=$ms_b\"; do"
+        + " key=\"MEDIA_STORAGE_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in DRIVER REGION BUCKET; do grep -q \"MEDIA_STORAGE_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.media-storage-before-" + $tag + "\";"
+        + " for k in BUCKET REGION DRIVER; do key=\"MEDIA_STORAGE_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q MEDIA_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-MEDIA_STORAGE-mappings;"
+        + " else echo '\''::warning::failed to insert compose MEDIA_STORAGE mappings'\''; fi;"
+        + " else echo compose-MEDIA_STORAGE-mappings-present; fi; fi" )
+    ]')"
+fi
+
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_cmds "${media_storage_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
@@ -180,7 +214,7 @@ jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" '{
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
     ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
-  ] + $qa_cmds + [
+  ] + $qa_cmds + $media_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
