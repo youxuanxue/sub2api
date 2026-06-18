@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
+import {
+  gatewayImageGenerations,
+  gatewayVideoSubmit,
+  gatewayGeminiImageViaChat,
+  gatewayImageToPrompt,
+} from '@/api/playground'
 
 // Capture the JSON body each builder sends so we can assert the wire shape:
 // only set fields are sent; video advanced params nest under metadata; never video_url.
@@ -69,5 +74,60 @@ describe('gatewayVideoSubmit payload', () => {
     expect(b.metadata).toEqual({ seed: 42, negative_prompt: 'shaky' })
     // never forward video input — backend rejects it as unpriced
     expect(JSON.stringify(b)).not.toContain('video_url')
+  })
+})
+
+describe('gatewayGeminiImageViaChat payload (image-to-image)', () => {
+  let getBody: () => Record<string, unknown>
+  beforeEach(() => {
+    getBody = mockFetchCapturing()
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('sends plain string content when no input image (text-to-image)', async () => {
+    await gatewayGeminiImageViaChat('k', 'http://x', { model: 'gemini-3.1-flash-image', prompt: 'a cat' })
+    const msgs = getBody().messages as Array<{ role: string; content: unknown }>
+    expect(msgs[0]).toEqual({ role: 'user', content: 'a cat' })
+  })
+
+  it('sends multimodal [text, image_url] content when an input image is staged', async () => {
+    await gatewayGeminiImageViaChat('k', 'http://x', {
+      model: 'gemini-3.1-flash-image',
+      prompt: 'make it blue',
+      inputImage: 'data:image/png;base64,AAAA',
+    })
+    const msgs = getBody().messages as Array<{ role: string; content: unknown }>
+    expect(msgs[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'make it blue' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+      ],
+    })
+  })
+})
+
+describe('gatewayImageToPrompt', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('sends the image as multimodal content and returns the assistant text', async () => {
+    let body: Record<string, unknown> = {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        body = JSON.parse((init.body as string) || '{}')
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: '  a red square on white  ' } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      })
+    )
+    const text = await gatewayImageToPrompt('k', 'http://x', {
+      model: 'gemini-2.5-flash-lite',
+      image: 'data:image/png;base64,BBBB',
+    })
+    expect(text).toBe('a red square on white')
+    const msgs = body.messages as Array<{ content: Array<{ type: string }> }>
+    expect(msgs[0].content.map((p) => p.type)).toEqual(['text', 'image_url'])
   })
 })

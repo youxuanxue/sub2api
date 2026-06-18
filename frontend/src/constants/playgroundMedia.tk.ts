@@ -47,6 +47,30 @@ export function modalityForModel(modelId: string): PlaygroundModality {
   return 'chat'
 }
 
+/**
+ * Pick a vision-capable gemini CHAT model from the group's available ids, for
+ * reverse-prompt (图→prompt). Gemini chat models are natively multimodal (they
+ * read input images — livefire-verified). Prefer the cheapest (flash-lite >
+ * flash > the rest); exclude image/video-generation ids. Returns '' if none.
+ */
+export function pickVisionChatModel(availableIds: Iterable<string>): string {
+  const gemini: string[] = []
+  for (const raw of availableIds) {
+    const id = (raw || '').trim()
+    if (!id) continue
+    if (id.toLowerCase().startsWith('gemini') && modalityForModel(id) === 'chat') gemini.push(id)
+  }
+  if (!gemini.length) return ''
+  const rank = (id: string): number => {
+    const l = id.toLowerCase()
+    if (l.includes('flash-lite')) return 0
+    if (l.includes('flash')) return 1
+    if (l.includes('pro')) return 2
+    return 3
+  }
+  return gemini.sort((a, b) => rank(a) - rank(b))[0]
+}
+
 /** One generated image, normalized from data[].url / data[].b64_json. */
 export interface PlaygroundImageItem {
   /** http(s) URL or data: URI, ready for an <img> src */

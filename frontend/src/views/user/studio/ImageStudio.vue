@@ -48,6 +48,32 @@
           :disabled="sending"
           @input="userEditedPrompt = true"
         />
+        <!-- Image-to-image (图生图): only gemini-native models consume an input
+             image (chat path). Upload one or "use as input" a library image, then
+             describe the change above. The same image can be reverse-prompted. -->
+        <div v-if="supportsImageInput" class="mt-3 space-y-2 rounded-lg border border-dashed border-gray-200 p-3 dark:border-dark-700">
+          <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.inputImageLabel') }}</div>
+          <ImageUpload
+            :model-value="inputImage"
+            mode="image"
+            size="md"
+            :upload-label="t('studio.image.inputUpload')"
+            :remove-label="t('studio.image.inputRemove')"
+            :hint="t('studio.image.inputHint')"
+            :max-size="INPUT_IMAGE_MAX_BYTES"
+            @update:model-value="inputImage = $event"
+          />
+          <button
+            v-if="inputImage && visionModelId"
+            type="button"
+            class="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
+            :disabled="reversing || sending"
+            data-testid="studio-image-reverse-prompt"
+            @click="reversePrompt"
+          >
+            {{ reversing ? t('studio.image.reversing') : t('studio.image.reversePrompt') }}
+          </button>
+        </div>
         <div class="mt-3">
           <!-- Aspect picker is shown only when the selected model has supported ratios
                (Imagen ratio codes / Seedream pixel sizes). Gemini-native image has no
@@ -125,6 +151,7 @@
             <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/40 p-1.5 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
               <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="download(img)">{{ t('studio.image.download') }}</button>
               <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="reuse(img)">{{ t('studio.image.usePrompt') }}</button>
+              <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" data-testid="studio-image-use-as-input" @click="useAsInput(img)">{{ t('studio.image.useAsInput') }}</button>
             </div>
           </div>
           <figcaption class="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-gray-500 dark:text-dark-400">
@@ -198,6 +225,7 @@
           <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.cost) }}</span>
           <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="download(preview)">{{ t('studio.image.download') }}</button>
           <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
+          <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="useAsInputAndClose(preview)">{{ t('studio.image.useAsInput') }}</button>
         </div>
       </div>
     </Teleport>
@@ -207,8 +235,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations, gatewayGeminiImageViaChat } from '@/api/playground'
-import { extractImageItems, extractChatImageItems } from '@/constants/playgroundMedia.tk'
+import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt } from '@/api/playground'
+import { extractImageItems, extractChatImageItems, pickVisionChatModel } from '@/constants/playgroundMedia.tk'
+import ImageUpload from '@/components/common/ImageUpload.vue'
 import {
   IMAGE_N_MIN,
   IMAGE_N_MAX,
@@ -276,6 +305,18 @@ const sending = ref(false)
 const errorMessage = ref('')
 const errorCode = ref<StudioErrorCode | ''>('')
 
+// Image-to-image (图生图) + reverse-prompt (图→prompt). Both ride the gemini-native
+// chat path, so the input-image slot is offered only for those models (imagen /
+// seedream take no input image on /v1/images/generations). The input image is a
+// data: URI (fresh upload) or a library image's src (reuse).
+const INPUT_IMAGE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — well within gemini inline-image limits
+const inputImage = ref('')
+const reversing = ref(false)
+const supportsImageInput = computed(() => isFlatImage.value)
+// A vision-capable gemini chat model from the group, used to describe an image
+// back into a prompt. Independent of the selected image model.
+const visionModelId = computed(() => pickVisionChatModel(props.availableIds))
+
 const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageCost({
@@ -307,7 +348,7 @@ const holdEstimate = computed(() => {
 })
 const canAfford = computed(() => holdEstimate.value <= props.balance)
 const canGenerate = computed(
-  () => !sending.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
+  () => !sending.value && !reversing.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
 )
 const formula = computed(() => {
   if (!selected.value) return ''
@@ -349,6 +390,44 @@ watch(
 function reuse(img: ImageHistoryItem): void {
   prompt.value = img.prompt
   userEditedPrompt.value = true
+}
+
+// Drop a staged input image when switching to a model that can't consume it,
+// so an imagen/seedream request never carries a silently-ignored image.
+watch(supportsImageInput, (ok) => {
+  if (!ok) inputImage.value = ''
+})
+
+// Reuse a generated image as the image-to-image input (its src is a data:/http URI).
+function useAsInput(img: ImageHistoryItem): void {
+  inputImage.value = img.src
+}
+function useAsInputAndClose(img: ImageHistoryItem): void {
+  useAsInput(img)
+  closePreview()
+}
+
+// Reverse-prompt: describe the staged input image back into the prompt box.
+async function reversePrompt(): Promise<void> {
+  const model = visionModelId.value
+  if (!inputImage.value || !model || !props.apiKey || reversing.value) return
+  errorMessage.value = ''
+  errorCode.value = ''
+  reversing.value = true
+  try {
+    const text = await gatewayImageToPrompt(props.apiKey, props.gatewayBase, { model, image: inputImage.value })
+    if (!text) throw new Error(t('studio.image.reverseEmpty'))
+    prompt.value = text
+    userEditedPrompt.value = true
+    emit('spent') // a vision call was billed — refresh the balance like generate() does
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : t('studio.errors.generic')
+    const code = classifyGatewayError(msg)
+    errorCode.value = code
+    errorMessage.value = code === 'generic' ? msg : t(studioErrorI18nKey(code))
+  } finally {
+    reversing.value = false
+  }
 }
 
 function download(img: ImageHistoryItem): void {
@@ -399,7 +478,8 @@ async function generate(): Promise<void> {
       const raw = await gatewayGeminiImageViaChat(props.apiKey, props.gatewayBase, {
         model: resolved.servedId,
         prompt: text,
-        aspectRatio: sentSize.value // ratio code → extra_body.google.image_config.aspect_ratio
+        aspectRatio: sentSize.value, // ratio code → extra_body.google.image_config.aspect_ratio
+        inputImage: inputImage.value || undefined // image-to-image when an input image is staged
       })
       items = extractChatImageItems(raw)
     } else {

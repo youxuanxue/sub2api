@@ -196,6 +196,29 @@ export async function gatewayImageGenerations(
   )
 }
 
+/** A multimodal user-message content part (text or an image reference). */
+type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+/**
+ * Build a user message: a plain string when there's no input image, else a
+ * multimodal content array [text, image_url]. Livefire-verified that the gateway
+ * forwards the image_url part to the gemini-native upstream (POST /v1/chat/completions).
+ */
+function userMessage(text: string, inputImage?: string): { role: 'user'; content: string | ChatContentPart[] } {
+  if (inputImage) {
+    return {
+      role: 'user',
+      content: [
+        { type: 'text', text },
+        { type: 'image_url', image_url: { url: inputImage } }
+      ]
+    }
+  }
+  return { role: 'user', content: text }
+}
+
 export interface GeminiImageViaChatRequest {
   model: string
   prompt: string
@@ -204,6 +227,14 @@ export interface GeminiImageViaChatRequest {
    * Degrades gracefully (model's default ratio) if an upstream strips it.
    */
   aspectRatio?: string
+  /**
+   * Optional INPUT image for image-to-image (图生图): a data: URI or http(s) URL.
+   * When set, the user message becomes a multimodal content array carrying the
+   * image alongside the refinement text — livefire-verified that the gateway
+   * forwards the image_url part to the gemini-native upstream and returns an
+   * edited image. Omit for plain text-to-image.
+   */
+  inputImage?: string
 }
 
 /**
@@ -224,7 +255,7 @@ export async function gatewayGeminiImageViaChat(
   const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
   const payload: Record<string, unknown> = {
     model: body.model,
-    messages: [{ role: 'user', content: body.prompt }],
+    messages: [userMessage(body.prompt, body.inputImage)],
     stream: false
   }
   if (body.aspectRatio) {
@@ -236,6 +267,61 @@ export async function gatewayGeminiImageViaChat(
     { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS },
     signal
   )
+}
+
+export interface ImageToPromptRequest {
+  /** A vision-capable chat model id (e.g. a gemini-*-flash served by the group). */
+  model: string
+  /** The image to describe: data: URI or http(s) URL. */
+  image: string
+  /** Optional instruction; a sensible default is used when omitted. */
+  instruction?: string
+}
+
+/**
+ * Reverse-prompt (逆向提示词): describe an image as a reusable generation prompt.
+ * Sends the image to a vision-capable chat model and returns the assistant's
+ * text. Same multimodal /v1/chat/completions path livefire-verified to forward
+ * the input image; chat (not image) timeout since it returns text only.
+ */
+export async function gatewayImageToPrompt(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  body: ImageToPromptRequest,
+  signal?: AbortSignal
+): Promise<string> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
+  const instruction =
+    body.instruction ||
+    'Describe this image as a concise, vivid text-to-image generation prompt. Output only the prompt, no preamble.'
+  const raw = await gatewayRequestJSON(
+    apiKey,
+    url,
+    {
+      method: 'POST',
+      body: { model: body.model, messages: [userMessage(instruction, body.image)], stream: false },
+      timeoutMs: PLAYGROUND_FETCH_TIMEOUT_MS
+    },
+    signal
+  )
+  return extractChatText(raw)
+}
+
+/** Pull the assistant message text out of a chat completion (string or parts). */
+function extractChatText(resp: unknown): string {
+  const root = resp && typeof resp === 'object' ? (resp as Record<string, unknown>) : null
+  const choices = root?.choices
+  if (!Array.isArray(choices) || !choices.length) return ''
+  const message = (choices[0] as Record<string, unknown>)?.message as Record<string, unknown> | undefined
+  const content = message?.content
+  if (typeof content === 'string') return content.trim()
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => (p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : ''))
+      .join('')
+      .trim()
+  }
+  return ''
 }
 
 export interface VideoGenerationRequest {

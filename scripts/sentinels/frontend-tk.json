@@ -832,6 +832,15 @@
       "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (mediaTiers.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
     },
     {
+      "path": "frontend/src/views/user/studio/VideoStudio.vue",
+      "must_contain": [
+        "data-testid=\"studio-video-model\"",
+        "data-testid=\"studio-video-generate\"",
+        "!task.url.startsWith('data:')"
+      ],
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. The `!task.url.startsWith('data:')` guard on the result 'open' link is load-bearing: veo returns base64 (data:video/…), and browsers block top-level navigation to data: URLs, so an unguarded `<a target=_blank>` dead-ends at about:blank (the same class of bug fixed for images in #842). The inline <video> player + download cover the data: case; the open link is for remote URLs only. An upstream merge that reverts the guard silently reintroduces the about:blank dead-end."
+    },
+    {
       "path": "frontend/src/constants/mediaTiers.tk.ts",
       "must_contain": [
         "export const MEDIA_MODELS",
