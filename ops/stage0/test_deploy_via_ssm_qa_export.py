@@ -68,7 +68,7 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         # default prod values, supplied via @sh-quoted shell vars
         self.assertIn("qa_d='s3'", env_cmd)
         self.assertIn("qa_r='us-east-1'", env_cmd)
-        self.assertIn("qa_b='tokenkey-prod-qa-exports'", env_cmd)
+        self.assertIn("qa_b='tokenkey-prod-qa-exports-682751977094'", env_cmd)
         self.assertIn("qa_p='traj-exports'", env_cmd)
         # guarded + additive (must not clobber an existing value)
         self.assertIn('grep -q "^${key}=" /var/lib/tokenkey/.env', env_cmd)
@@ -139,7 +139,7 @@ class QAExportInjectionExecuteTest(unittest.TestCase):
         env_txt = (host / ".env").read_text()
         for k, v in (
             ("DRIVER", "s3"), ("REGION", "us-east-1"),
-            ("BUCKET", "tokenkey-prod-qa-exports"), ("PREFIX", "traj-exports"),
+            ("BUCKET", "tokenkey-prod-qa-exports-682751977094"), ("PREFIX", "traj-exports"),
         ):
             self.assertIn(f"QA_CAPTURE_EXPORT_STORAGE_{k}={v}\n", env_txt)
 
