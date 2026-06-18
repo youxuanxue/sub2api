@@ -225,7 +225,7 @@
           <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.cost) }}</span>
           <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="download(preview)">{{ t('studio.image.download') }}</button>
           <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
-          <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="useAsInput(preview); closePreview()">{{ t('studio.image.useAsInput') }}</button>
+          <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="useAsInputAndClose(preview)">{{ t('studio.image.useAsInput') }}</button>
         </div>
       </div>
     </Teleport>
@@ -401,6 +401,10 @@ watch(supportsImageInput, (ok) => {
 // Reuse a generated image as the image-to-image input (its src is a data:/http URI).
 function useAsInput(img: ImageHistoryItem): void {
   inputImage.value = img.src
+}
+function useAsInputAndClose(img: ImageHistoryItem): void {
+  useAsInput(img)
+  closePreview()
 }
 
 // Reverse-prompt: describe the staged input image back into the prompt box.
