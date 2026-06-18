@@ -128,6 +128,17 @@ type PricingService struct {
 	// 停止信号
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	// TK: runtime hot-pushable overlay deps (set post-construction via
+	// SetOverlayRuntimeDeps; all nil-safe). overlayRuntimeGetter reads the
+	// SettingKeyTKPricingOverlayRuntime blob; overlayCacheInvalidator busts the
+	// public-catalog mtime cache after a swap. overlayMu guards overlayRuntimeHash
+	// (the last-applied blob hash, for idempotent reloads) independently of s.mu.
+	// See pricing_service_tk_overlay_runtime.go.
+	overlayMu               sync.Mutex
+	overlayRuntimeHash      string
+	overlayRuntimeGetter    func(ctx context.Context) (string, bool)
+	overlayCacheInvalidator func()
 }
 
 // NewPricingService 创建价格服务
@@ -258,6 +269,13 @@ func (s *PricingService) checkAndUpdatePricing() error {
 
 // syncWithRemote 与远程同步（基于哈希校验）
 func (s *PricingService) syncWithRemote() error {
+	// TK: poll the runtime overlay blob too (settings hot-push fallback path when
+	// the pub/sub fan-out is unavailable). Hash-gated + best-effort: a no-op when
+	// unchanged, never blocks the remote price sync below.
+	if _, err := s.reloadTKOverlayRuntime(context.Background()); err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] runtime overlay poll reload failed: %v", err)
+	}
+
 	// 如果配置了哈希URL，从远程获取哈希进行比对
 	if s.cfg.Pricing.HashURL != "" {
 		remoteHash, err := s.fetchRemoteHash()

@@ -49,79 +49,131 @@ import (
 //go:embed tk_pricing_overlay.json
 var tkPricingOverlayRaw []byte
 
+// tkOverlayEffective is the live overlay map = embedded ∪ runtime-settings
+// (runtime wins on key conflict), rebuilt by rebuildTKOverlayUnion. The embedded
+// JSON is the FLOOR (offline self-consistent); the runtime settings blob
+// (SettingKeyTKPricingOverlayRuntime) is the hot override that lets a model be
+// priced without a release. Guarded by tkOverlayMu so the hot swap is safe under
+// concurrent loadTKPricingOverlay reads. See pricing_service_tk_overlay_runtime.go.
 var (
-	tkPricingOverlayOnce sync.Once
-	tkPricingOverlay     map[string]*LiteLLMModelPricing
+	tkOverlayMu        sync.RWMutex
+	tkOverlayEffective map[string]*LiteLLMModelPricing
 )
 
-// loadTKPricingOverlay parses the embedded overlay once. It deliberately does NOT
-// call parsePricingData (that would recurse, since applyTKPricingOverlay is invoked
-// from inside parsePricingData) — it parses the small fixed file directly. Keys starting
-// with "_" (e.g. "_meta") are provenance, not pricing, and are skipped.
+// parseTKOverlayBytes parses an overlay JSON object (the embedded file OR the
+// runtime settings blob — identical shape) into the pricing map. It deliberately
+// does NOT call parsePricingData (that would recurse, since applyTKPricingOverlay
+// is invoked from inside parsePricingData) — it parses the small fixed file
+// directly. Keys starting with "_" (e.g. "_meta") are provenance, not pricing,
+// and are skipped. Returns an error only when the top-level JSON is unparseable
+// (a single malformed entry is skipped, not fatal).
+func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	out := make(map[string]*LiteLLMModelPricing, len(raw))
+	for name, rawEntry := range raw {
+		if strings.HasPrefix(name, "_") {
+			continue
+		}
+		var e LiteLLMRawEntry
+		if err := json.Unmarshal(rawEntry, &e); err != nil {
+			continue
+		}
+		p := &LiteLLMModelPricing{
+			LiteLLMProvider:       e.LiteLLMProvider,
+			Mode:                  e.Mode,
+			SupportsPromptCaching: e.SupportsPromptCaching,
+		}
+		if e.OutputCostPerImage != nil {
+			p.OutputCostPerImage = *e.OutputCostPerImage
+		}
+		if e.OutputCostPerImageToken != nil {
+			p.OutputCostPerImageToken = *e.OutputCostPerImageToken
+		}
+		if e.OutputCostPerSecond != nil {
+			p.OutputCostPerSecond = *e.OutputCostPerSecond
+		}
+		if e.InputCostPerToken != nil {
+			p.InputCostPerToken = *e.InputCostPerToken
+		}
+		if e.OutputCostPerToken != nil {
+			p.OutputCostPerToken = *e.OutputCostPerToken
+		}
+		if e.ThinkingOutputCostPerToken != nil {
+			p.ThinkingOutputCostPerToken = *e.ThinkingOutputCostPerToken
+		}
+		if e.CacheCreationInputTokenCost != nil {
+			p.CacheCreationInputTokenCost = *e.CacheCreationInputTokenCost
+		}
+		if e.CacheCreationInputTokenCostAbove1hr != nil {
+			p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr
+		}
+		if e.CacheReadInputTokenCost != nil {
+			p.CacheReadInputTokenCost = *e.CacheReadInputTokenCost
+		}
+		// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
+		// "intervals" field (it is TK-overlay-only), so parse the raw entry a
+		// second time into a TK-local shape. An entry's flat input/output cost
+		// stays as the out-of-range fallback (BasePricing); the intervals drive
+		// whole-request tier billing via ResolvedPricing.Intervals.
+		var ext struct {
+			Intervals []tkOverlayRawInterval `json:"intervals"`
+		}
+		if err := json.Unmarshal(rawEntry, &ext); err == nil && len(ext.Intervals) > 0 {
+			p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
+		}
+		out[name] = p
+	}
+	return out, nil
+}
+
+// rebuildTKOverlayUnion recomputes the effective overlay = embedded ∪ runtime
+// (runtime wins on key conflict) and atomically swaps it under tkOverlayMu.
+//
+// Safety invariants (never serve $0):
+//   - The embedded JSON is parsed fresh each call as the FLOOR. If the embedded
+//     itself fails to parse (should be impossible — it is gated by
+//     pricing-overlay.py), the previous effective map is KEPT, not blanked.
+//   - A nil / empty / UNPARSEABLE runtimeBytes yields embedded-only; a corrupt
+//     runtime blob can never drop the effective map below the embedded floor.
+func rebuildTKOverlayUnion(runtimeBytes []byte) {
+	base, err := parseTKOverlayBytes(tkPricingOverlayRaw)
+	if err != nil {
+		// Embedded must always parse; if it somehow does not, keep whatever the
+		// effective map already held rather than blanking prices.
+		logger.LegacyPrintf("service.pricing", "[Pricing] embedded TK overlay parse failed (keeping current effective map): %v", err)
+		return
+	}
+	if len(runtimeBytes) > 0 {
+		if rt, err := parseTKOverlayBytes(runtimeBytes); err != nil {
+			logger.LegacyPrintf("service.pricing", "[Pricing] runtime TK overlay parse failed (using embedded floor only): %v", err)
+		} else {
+			for k, v := range rt {
+				base[k] = v // runtime wins on conflict
+			}
+		}
+	}
+	tkOverlayMu.Lock()
+	tkOverlayEffective = base
+	tkOverlayMu.Unlock()
+}
+
+// loadTKPricingOverlay returns the live effective overlay (embedded ∪ runtime).
+// First call before any explicit rebuild lazily builds the embedded-only floor,
+// so a process that never loads a runtime blob behaves exactly as before.
 func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
-	tkPricingOverlayOnce.Do(func() {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(tkPricingOverlayRaw, &raw); err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] TK pricing overlay parse failed: %v", err)
-			return
-		}
-		out := make(map[string]*LiteLLMModelPricing, len(raw))
-		for name, rawEntry := range raw {
-			if strings.HasPrefix(name, "_") {
-				continue
-			}
-			var e LiteLLMRawEntry
-			if err := json.Unmarshal(rawEntry, &e); err != nil {
-				continue
-			}
-			p := &LiteLLMModelPricing{
-				LiteLLMProvider:       e.LiteLLMProvider,
-				Mode:                  e.Mode,
-				SupportsPromptCaching: e.SupportsPromptCaching,
-			}
-			if e.OutputCostPerImage != nil {
-				p.OutputCostPerImage = *e.OutputCostPerImage
-			}
-			if e.OutputCostPerImageToken != nil {
-				p.OutputCostPerImageToken = *e.OutputCostPerImageToken
-			}
-			if e.OutputCostPerSecond != nil {
-				p.OutputCostPerSecond = *e.OutputCostPerSecond
-			}
-			if e.InputCostPerToken != nil {
-				p.InputCostPerToken = *e.InputCostPerToken
-			}
-			if e.OutputCostPerToken != nil {
-				p.OutputCostPerToken = *e.OutputCostPerToken
-			}
-			if e.ThinkingOutputCostPerToken != nil {
-				p.ThinkingOutputCostPerToken = *e.ThinkingOutputCostPerToken
-			}
-			if e.CacheCreationInputTokenCost != nil {
-				p.CacheCreationInputTokenCost = *e.CacheCreationInputTokenCost
-			}
-			if e.CacheCreationInputTokenCostAbove1hr != nil {
-				p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr
-			}
-			if e.CacheReadInputTokenCost != nil {
-				p.CacheReadInputTokenCost = *e.CacheReadInputTokenCost
-			}
-			// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
-			// "intervals" field (it is TK-overlay-only), so parse the raw entry a
-			// second time into a TK-local shape. An entry's flat input/output cost
-			// stays as the out-of-range fallback (BasePricing); the intervals drive
-			// whole-request tier billing via ResolvedPricing.Intervals.
-			var ext struct {
-				Intervals []tkOverlayRawInterval `json:"intervals"`
-			}
-			if err := json.Unmarshal(rawEntry, &ext); err == nil && len(ext.Intervals) > 0 {
-				p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
-			}
-			out[name] = p
-		}
-		tkPricingOverlay = out
-	})
-	return tkPricingOverlay
+	tkOverlayMu.RLock()
+	m := tkOverlayEffective
+	tkOverlayMu.RUnlock()
+	if m != nil {
+		return m
+	}
+	rebuildTKOverlayUnion(nil)
+	tkOverlayMu.RLock()
+	defer tkOverlayMu.RUnlock()
+	return tkOverlayEffective
 }
 
 // applyTKPricingOverlay fills in TK-owned pricing for models the loaded source

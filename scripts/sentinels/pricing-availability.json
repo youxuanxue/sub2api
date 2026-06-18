@@ -109,7 +109,8 @@
       "path": "backend/internal/service/pricing_catalog_tk.go",
       "must_contain": [
         "func applyCatalogOverlayPricing",
-        "applyCatalogOverlayPricing(resp)"
+        "applyCatalogOverlayPricing(resp)",
+        "func (s *PricingCatalogService) InvalidateCache"
       ],
       "rationale": "Display-side TK pricing-overlay merge. BuildPublicCatalog reads the trimmed litellm price file (model_pricing.json) and, unlike the billing path (GetModelPricing → applyTKPricingOverlay), did NOT apply the overlay — so every model priced ONLY in tk_pricing_overlay.json (the entire VolcEngine fifth-platform batch: doubao-*/glm-4-7-251222, plus deepseek-v4-pro) showed empty/missing prices in the public /pricing catalog AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID), even though billing was correct. applyCatalogOverlayPricing fill-merges the overlay's token-priced models into the catalog so display matches billing, with absent-or-zero semantics: a real non-zero file price wins, an all-zero placeholder row gets its displayed price replaced (same predicate family as billing's tkIsEffectivelyUnpriced). Channel pricing stays a strictly higher tier upstream; the merge is gated behind a non-degraded catalog (len(resp.Data)>0) to preserve the AC-005 degraded→empty contract. An upstream merge refactoring BuildPublicCatalog could silently drop the applyCatalogOverlayPricing(resp) call, regressing every overlay-only model back to an empty price row."
     },
@@ -158,6 +159,26 @@
         "\"display\""
       ],
       "rationale": "The served-models MANIFEST itself — the single declarative source of intent consumed by scripts/checks/catalog-serving-drift.py (now), the tokenkey-onboard-model skill (now), and a future newapi reconciler (//go:embed of this file, co-located with tk_pricing_overlay.json so the same Go package can embed both). Pinning the schema keys (entries / price_source / served_on / display) stops an upstream merge or refactor from silently truncating the manifest to an empty/legacy shape that would make the drift guard vacuously pass while the intent->migration->price agreement it encodes is lost. Co-located with the overlay so the same preflight parses both and the same package will embed both."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay.go",
+      "must_contain": [
+        "func parseTKOverlayBytes",
+        "func rebuildTKOverlayUnion",
+        "tkOverlayMu",
+        "tkOverlayEffective"
+      ],
+      "rationale": "The overlay loader was converted from a sync.Once compile-only singleton into a re-runnable, RWMutex-guarded union (embedded ∪ runtime-settings, runtime wins) so a model can be priced WITHOUT a release (the runtime hot-push path). parseTKOverlayBytes is the shared pure parser for both the embedded floor and the runtime settings blob; rebuildTKOverlayUnion atomically swaps the effective map and is the ONLY place that can blank it (it never does — a corrupt runtime blob keeps the embedded floor, the never-serve-$0 invariant). An upstream merge or refactor that reverts this back to a sync.Once singleton (or drops the mutex) would silently re-freeze pricing to compile-time and reintroduce the per-model release dependency this whole change removes. Pinning these symbols makes that revert fail CI instead of going unnoticed."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay_runtime.go",
+      "must_contain": [
+        "func (s *PricingService) reloadTKOverlayRuntime",
+        "func (s *PricingService) SubscribeOverlayRuntime",
+        "func (s *PricingService) SetOverlayRuntimeDeps",
+        "SettingKeyTKPricingOverlayRuntime"
+      ],
+      "rationale": "Runtime hot-push wiring for the TK pricing overlay: reloadTKOverlayRuntime validates the SettingKeyTKPricingOverlayRuntime blob before swapping (corrupt → keep current, never $0), rebuilds the merged billing price map, and busts the public-catalog mtime cache; SubscribeOverlayRuntime gives immediate cross-replica reload on the settings_updated pub/sub; SetOverlayRuntimeDeps is the nil-safe post-construction injection wired by ProvideTKPricingOverlayRuntime. ops/pricing/manage-overlay-runtime.py sync-runtime UPSERTs that settings key on prod + PUBLISHes the channel. If an upstream merge drops these, the gateway silently falls back to the embedded floor and every hot-push becomes a no-op (a model would appear priced in git/ops but never go live without a release) — the exact regression this change exists to prevent. Pinning makes the drop fail CI."
     }
   ]
 }

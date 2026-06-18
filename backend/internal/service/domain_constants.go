@@ -538,6 +538,16 @@ const (
 	// SettingKeyClaudeCodeHTTPMimicryManifest JSON manifest for OAuth mimicry
 	// anthropic-beta lists (sonnet_opus + haiku). Empty → compile-time defaults.
 	SettingKeyClaudeCodeHTTPMimicryManifest = "claude_code_http_mimicry_manifest"
+	// SettingKeyTKPricingOverlayRuntime is the runtime hot-pushable copy of
+	// tk_pricing_overlay.json (the same JSON object shape). Empty/absent → the
+	// compile-embedded overlay is used as-is (the floor). When present, its
+	// entries union OVER the embedded overlay (runtime wins on key conflict), so
+	// a new model can be priced + surfaced in /pricing WITHOUT a release. git
+	// (the embedded JSON) stays the single source of truth; ops `sync-runtime`
+	// UPSERTs this key on prod, the next release folds it into the embed (the
+	// floor catches up). Mirrors the claude_code_http_mimicry_manifest blob
+	// pattern. See pricing_service_tk_overlay_runtime.go.
+	SettingKeyTKPricingOverlayRuntime = "tk_pricing_overlay_runtime"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，
 	// 用于避免 Cloudflare 对浏览器型 UA 的质询拦截。

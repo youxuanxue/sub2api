@@ -605,6 +605,24 @@ else
     echo "  ok: pricing-hotfix runbook selftest"
 fi
 
+# ---- sub2api: overlay-runtime hot-push tool selftest ------------------------
+# ops/pricing/manage-overlay-runtime.py hot-pushes tk_pricing_overlay.json to the
+# prod runtime (settings) so a model can be priced + surfaced without a release.
+# Its selftest covers the pure drift logic (pending/shadow/orphan) offline — run
+# it so a refactor of the drift rules fails preflight, not the operator.
+echo ""
+echo "=== sub2api: overlay-runtime hot-push tool selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for overlay-runtime selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/pricing/manage-overlay-runtime.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: overlay-runtime hot-push tool selftest"
+    echo "        — run: python3 ops/pricing/manage-overlay-runtime.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: overlay-runtime hot-push tool selftest"
+fi
+
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
 # Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
