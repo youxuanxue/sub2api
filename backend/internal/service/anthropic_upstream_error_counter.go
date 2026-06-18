@@ -14,6 +14,20 @@ type AnthropicUpstreamErrorCounterCache interface {
 	IncrementAnthropicUpstreamErrorCount(ctx context.Context, accountID int64, windowMinutes int) (int64, error)
 	ResetAnthropicUpstreamErrorCount(ctx context.Context, accountID int64) error
 
+	// Bodyless-403 counter is a SEPARATE windowed per-account counter, keyed on
+	// a distinct Redis namespace, that ONLY a repeated empty/unstructured-body
+	// Anthropic 403 advances (see tkTryEscalatePersistentBodyless403). It is
+	// deliberately NOT the general anthropic_upstream_error counter (which mixes
+	// 403/429/5xx) because crossing its threshold drives a PERMANENT disable —
+	// mixing other status codes in would risk disabling an account that is only
+	// rate-limited/overloaded. An org ban that arrives with an empty body cannot
+	// match the structured-body phrase breaker (tkTryDisableAnthropicOrgBan403),
+	// so without this terminal counter it flaps forever on the auto-recovering
+	// 3/3 ladder. Reset mirrors the error counter so a healed account does not
+	// carry stale bodyless strikes.
+	IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes int) (int64, error)
+	ResetAnthropicBodyless403Count(ctx context.Context, accountID int64) error
+
 	// Tier counter tracks how many cooldowns this account has triggered in the
 	// recent past, so handleAnthropicUpstreamError can pick an exponentially
 	// longer cooldown for persistent failure (30s → 2min → 10min) instead of

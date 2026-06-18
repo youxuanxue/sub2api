@@ -211,6 +211,8 @@
         "type AnthropicUpstreamErrorCounterCache interface",
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
+        "IncrementAnthropicBodyless403Count",
+        "ResetAnthropicBodyless403Count",
         "IncrementAnthropicCooldownTier(",
         "ResetAnthropicCooldownTier",
         "IncrementAnthropicCooldownTierEscalations",
@@ -220,7 +222,7 @@
         "SetAnthropicCooldownEscalationSlotTTL",
         "ResetAnthropicCooldownEscalationSlot"
       ],
-      "rationale": "Interface seam for (a) per-account Anthropic upstream-error short-window counting, (b) per-account cooldown-tier escalation (30s → 2min → 10min), and (c) global tier>=1 escalation aggregation for ops alerts. If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity. The global escalation pair (Increment/Get) + exported key constant `AnthropicCooldownTierEscalationsKey` are the contract ops_alert_evaluator's `anthropic_cooldown_tier_escalation_count` metric reads from; dropping any one silently disables the alert. The escalation-slot trio (Acquire/SetTTL/Reset, issue #623) is the per-episode guard that stops a single fast 5xx burst — e.g. an edge rolling-upgrade swap window — from climbing 30s→2min→10min within seconds; dropping it silently reintroduces that self-noise amplifier."
+      "rationale": "Interface seam for (a) per-account Anthropic upstream-error short-window counting, (b) per-account cooldown-tier escalation (30s → 2min → 10min), and (c) global tier>=1 escalation aggregation for ops alerts. If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity. The global escalation pair (Increment/Get) + exported key constant `AnthropicCooldownTierEscalationsKey` are the contract ops_alert_evaluator's `anthropic_cooldown_tier_escalation_count` metric reads from; dropping any one silently disables the alert. The escalation-slot trio (Acquire/SetTTL/Reset, issue #623) is the per-episode guard that stops a single fast 5xx burst — e.g. an edge rolling-upgrade swap window — from climbing 30s→2min→10min within seconds; dropping it silently reintroduces that self-noise amplifier. The bodyless-403 pair (Increment/Reset) is a SEPARATE counter (distinct Redis key) driving tkTryEscalatePersistentBodyless403's PERMANENT disable for an empty/unstructured 403 org ban that escapes #810's structured-body phrase breaker; dropping it silently reopens the 7h auto-recovering flap (2026-06-16 edge us6)."
     },
     {
       "path": "backend/internal/repository/anthropic_upstream_error_counter_cache.go",
@@ -228,10 +230,13 @@
         "anthropic_upstream_error_count:account:",
         "anthropic_cooldown_tier:account:",
         "anthropic_cooldown_escalation_slot:account:",
+        "anthropic_bodyless_403_count:account:",
         "service.AnthropicCooldownTierEscalationsKey",
         "NewAnthropicUpstreamErrorCounterCache",
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
+        "IncrementAnthropicBodyless403Count",
+        "ResetAnthropicBodyless403Count",
         "IncrementAnthropicCooldownTier(",
         "ResetAnthropicCooldownTier",
         "IncrementAnthropicCooldownTierEscalations",
@@ -2653,17 +2658,65 @@
         "var tkAnthropicOrgBan403Keywords = []string{",
         "\"authentication is currently not allowed for this organization\"",
         "\"organization has been disabled\"",
+        "func tkMatchAnthropicOrgBan403Body(",
         "func (s *RateLimitService) tkTryDisableAnthropicOrgBan403(",
         "s.handleAuthError(ctx, account, msg)"
       ],
-      "rationale": "Anthropic 403 org-ban permanent-disable (2026-06-16 edge us6 account edge-ls-oh-3-d incident). A 403 permission_error 'OAuth authentication is currently not allowed for this organization' is an irrecoverable org-level ban (token refresh keeps succeeding — grant alive, org policy-blocked at request time), but handle403 previously routed it into handleAnthropicUpstreamError's generic 3/3 ladder whose 10-min cooldown AUTO-RECOVERS, so a banned account flapped forever (cool 10m -> re-enter pool -> 403 -> re-cool). The keyword list + the tkTryDisableAnthropicOrgBan403 function + its handleAuthError (SetError, no auto-recovery) call are the whole fix: if an upstream merge or refactor deletes any of them, the org-ban 403 silently falls back to the eternal-flap ladder and the regression is invisible until an operator notices the wasted failover + attribution noise. Pairs with the ratelimit_service.go injection-point sentinel."
+      "rationale": "Anthropic 403 org-ban permanent-disable (2026-06-16 edge us6 account edge-ls-oh-3-d incident). A 403 permission_error 'OAuth authentication is currently not allowed for this organization' is an irrecoverable org-level ban (token refresh keeps succeeding — grant alive, org policy-blocked at request time), but handle403 previously routed it into handleAnthropicUpstreamError's generic 3/3 ladder whose 10-min cooldown AUTO-RECOVERS, so a banned account flapped forever (cool 10m -> re-enter pool -> 403 -> re-cool). The keyword list + the tkTryDisableAnthropicOrgBan403 function + its handleAuthError (SetError, no auto-recovery) call are the whole fix: if an upstream merge or refactor deletes any of them, the org-ban 403 silently falls back to the eternal-flap ladder and the regression is invisible until an operator notices the wasted failover + attribution noise. The extracted pure predicate tkMatchAnthropicOrgBan403Body is the single source of truth shared with the in-place-retry skip (gateway_service_tk_oauth_fatal_403_skip.go) so the breaker and the retry-skip never drift on what counts as an org ban. Pairs with the ratelimit_service.go injection-point sentinel."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {"
+        "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {",
+        "if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {",
+        "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)"
       ],
-      "rationale": "Injection point that wires the Anthropic 403 org-ban permanent-disable (ratelimit_service_tk_anthropic_org_ban_403.go) into handle403, BEFORE the TLS-fingerprint cooldown and the handleAnthropicUpstreamError 3/3 ladder. handle403 is an upstream-shaped file whose 403 branch attracts upstream merges; without this anchor, a merge that rewrites the anthropic 403 branch could drop the one-line call and silently restore the eternal-flap behaviour (the companion file would still compile, so the gateway-tk.json file sentinel alone would not catch a dead call site). Pairs with the ratelimit_service_tk_anthropic_org_ban_403.go function/keyword sentinel."
+      "rationale": "Injection points that wire the Anthropic 403 terminal disables into handle403, BEFORE the TLS-fingerprint cooldown and the handleAnthropicUpstreamError 3/3 ladder. (1) tkTryDisableAnthropicOrgBan403 — structured-body org-ban phrase (#810). (2) tkTryEscalatePersistentBodyless403 — empty/unstructured 403 org ban that escapes the phrase breaker (2026-06-16 edge us6 id=1 emitted empty-body 403s); without it the bodyless ban falls into the auto-recovering 3/3 ladder and flaps forever. (3) The ResetAnthropicBodyless403Count call inside ResetAnthropicUpstreamErrorCounter clears bodyless strikes on every recovery hotpath so a healed account does not carry stale strikes toward a future permanent disable. handle403 / the reset helper are upstream-shaped seams; a merge that rewrites the anthropic 403 branch or the reset fan-out could drop a one-line call and silently regress (the companion files still compile). Pairs with the ratelimit_service_tk_anthropic_org_ban_403.go and ratelimit_service_tk_anthropic_bodyless_403.go file sentinels."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_bodyless_403.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkTryEscalatePersistentBodyless403(",
+        "func tkIsUnstructuredAnthropicErrorBody(",
+        "IsClaudeAPIIncident()",
+        "IncrementAnthropicBodyless403Count(",
+        "anthropic_persistent_bodyless_403_disable",
+        "s.handleAuthError(ctx, account, msg)"
+      ],
+      "rationale": "Persistent bodyless/unstructured Anthropic 403 terminal disable (handle403 gap after #810, 2026-06-16 edge us6). #810 only catches a STRUCTURED-body org-ban phrase; the same org ban also arrives with an EMPTY body (id=1 historically emitted bodyless 403s — see failover_loop.go), which cannot match the phrase and falls into the auto-recovering 3/3 ladder, flapping forever. This file accumulates ONLY empty/unstructured 403s on a SEPARATE counter (IncrementAnthropicBodyless403Count) and, at threshold, permanently disables (handleAuthError → SetError, stops scheduling AND background refresh). tkIsUnstructuredAnthropicErrorBody is the structured-body gate (a model-level 403 carries a structured body → never counts → no false disable, per #810's precision bar). The IsClaudeAPIIncident() guard prevents mass-disabling the pool during a provider-wide outage. The slog marker anthropic_persistent_bodyless_403_disable is the ops observability anchor. Deleting any of these silently reopens the bodyless-ban eternal-flap."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_oauth_fatal_403_skip.go",
+      "must_contain": [
+        "func (s *GatewayService) tkIsAccountFatal403(",
+        "tkMatchAnthropicOrgBan403Body(\"\", body)",
+        "tkIsUnstructuredAnthropicErrorBody(body)"
+      ],
+      "rationale": "account-fatal 403 in-place-retry skip (Gap B, handle403 gap follow-up). shouldRetryUpstreamError retries OAuth accounts specifically on 403, so a single client request hammers a banned account up to 5x/10s before failover — pure upstream aggravation for a deterministic org ban. tkIsAccountFatal403 reuses the SHARED org-ban predicate (tkMatchAnthropicOrgBan403Body) + the bodyless predicate (tkIsUnstructuredAnthropicErrorBody) so the retry-skip decides 'account-fatal' from the same source of truth as the breaker. Scoped to Anthropic OAuth so other platforms' 403 retry semantics are unchanged. Dropping this skip silently restores the 5x in-place retry on a known-dead account."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "if resp.StatusCode == http.StatusForbidden && account.IsOAuth() {",
+        "if s.tkIsAccountFatal403(account, peekedFatalBody) {"
+      ],
+      "rationale": "Injection point that wires the account-fatal-403 in-place-retry skip (gateway_service_tk_oauth_fatal_403_skip.go) into the same-account retry loop, BEFORE the generic shouldRetryUpstreamError retry decision. Peeks the 403 body once (and restores resp.Body, since readUpstreamErrorBody does not) and breaks straight to the retry-exhausted/failover side-effects (which fire HandleUpstreamError → handle403 → permanent disable). gateway_service.go is a large upstream-shaped file whose retry loop attracts merges; without this anchor a merge that rewrites the retry block could drop the skip and silently restore 5 wasted upstream 403s per request on a banned account. Pairs with the gateway_service_tk_oauth_fatal_403_skip.go file sentinel."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_banned_shortcircuit.go",
+      "must_contain": [
+        "func tkIsForbiddenAccountError(",
+        "strings.Contains(msg, \"403\")",
+        "strings.Contains(msg, \"forbidden\")"
+      ],
+      "rationale": "admin usage short-circuit predicate (Gap C, handle403 gap follow-up). GetUsage(active) makes a LIVE call to api.anthropic.com/api/oauth/usage gated only by account.Type==OAuth, NOT status — so viewing/polling a banned (status=error, forbidden) account re-hits the already-banned org (2026-06-16 edge us6 08:42 admin-GET-403). GetUsage now short-circuits to passive+stored-error when account.Status==StatusError && tkIsForbiddenAccountError(account.ErrorMessage). The predicate mirrors enrichUsageWithAccountError's guard so ONLY forbidden/ban errors are gated — recoverable token errors (invalid_client / token refresh failed / missing_project_id / unauthenticated) still probe live, preserving auto-recovery. Dropping the predicate or the GetUsage gate re-opens the admin-read upstream touch on banned accounts."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {"
+      ],
+      "rationale": "Injection point that wires the banned-account usage short-circuit (account_usage_service_tk_banned_shortcircuit.go) into GetUsage's Anthropic OAuth branch, BEFORE the singleflight/fetchOAuthUsageRaw live upstream call. account_usage_service.go is an upstream-shaped file; without this anchor a merge that rewrites GetUsage could drop the gate and silently restore the live usage fetch on a banned (status=error, forbidden) account, re-touching the banned org on every admin card view / poll. Pairs with the account_usage_service_tk_banned_shortcircuit.go predicate sentinel."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
