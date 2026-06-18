@@ -1,24 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  tokenkey (sub2api fork) Stage 0: off-box pg_dump backup bucket for the PG
-  ledger. Standalone stack so the live prod instance stack is NOT modified —
-  the bucket policy grants the existing app InstanceRole s3:PutObject via an
-  account-root principal narrowed by an aws:PrincipalArn condition (same-account
-  S3 either/or authorization), so no update-stack on tokenkey-prod-stage0.
-  tokenkey-pgdump.sh (hourly) copies each fresh dump here when
-  TOKENKEY_PGDUMP_S3_URI is set in /var/lib/tokenkey/.env. Lifecycle expires
-  copies after RetentionDays; no versioning (each key is a unique timestamp).
-
-  ALSO holds the QA trajectory export bucket (durable export ZIPs + presigned
-  downloads, qa_capture.export_storage) — same standalone-stack + direct-role-ARN
-  pattern, so enabling QA S3 export needs no prod-instance-stack update either.
-  See docs/qa-export-s3-and-auto-archive.md.
-
-  ALSO holds the GENERATED-MEDIA bucket (media_storage): the gateway offloads
-  generated video (image later) here and returns a short-lived presigned URL
-  instead of streaming a 10-20 MB inline-base64 body. Same direct-role-ARN
-  pattern; presigned links are signed by the instance role (no long-lived key)
-  and the media/ prefix expires after MediaRetentionDays (default 1).
+  tokenkey (sub2api fork) Stage 0 standalone S3 stack — does NOT modify the live
+  prod instance stack: each bucket policy grants the existing app InstanceRole
+  directly (same-account resource-based grant), so no update-stack on
+  tokenkey-prod-stage0. Holds three buckets, all direct-role-ARN pattern:
+  (1) pg_dump ledger backups (tokenkey-pgdump.sh hourly; RetentionDays);
+  (2) QA trajectory exports (qa_capture.export_storage; QaExportsRetentionDays;
+  see docs/qa-export-s3-and-auto-archive.md);
+  (3) generated-media offload (media_storage): the gateway uploads generated
+  video here and returns a short-lived instance-role-signed presigned URL instead
+  of streaming a 10-20 MB inline-base64 body; media/ prefix, MediaRetentionDays
+  (default 1). No versioning (keys are unique).
 
 Parameters:
   ProjectName:
