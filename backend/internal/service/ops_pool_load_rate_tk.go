@@ -78,6 +78,9 @@ func (s *OpsService) ComputePoolLoadRates(ctx context.Context) ([]PoolLoad, erro
 		if acc.ID <= 0 {
 			continue
 		}
+		// MaxConcurrency 这里只喂给 GetAccountsLoadBatch 算它内部的 per-account
+		// LoadRate（本指标不读那个字段，只读 CurrentConcurrency/WaitingCount 实测值）。
+		// 本指标真正的分母席位走 accountConcurrencyCap（能判别无界），与此处无关。
 		batch = append(batch, AccountWithConcurrency{ID: acc.ID, MaxConcurrency: acc.EffectiveLoadFactor()})
 	}
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, batch)
