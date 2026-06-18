@@ -38,6 +38,11 @@
       "rationale": "Registration of GrokTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or grok refresh never runs even though the refresher type still exists."
     },
     {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": ["'antigravity', 'kiro', 'grok'"],
+      "rationale": "ListOAuthRefreshCandidates' platform IN(...) list MUST include grok. The background refresh ticker is the only grok token-renewal path (the gateway reads access_token raw, no on-demand refresh) and grok OAuth access tokens default to ~1h. An upstream merge that resets this list to upstream's four platforms silently drops grok, and within ~1h every grok account 401s out of the pool with no auto-recovery. Upstream has no platform 6/7, so this list is a recurring TK-divergence conflict point."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": ["if account.IsGrok()", "tkIsGrokEntitlement403"],
       "rationale": "The grok arm of GetAccessToken (returns the grok OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrok() branch makes grok unable to fetch a token; losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."

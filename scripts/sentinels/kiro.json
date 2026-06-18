@@ -22,9 +22,10 @@
     {
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
-        "func (r *accountRepository) SumConcurrencyByPlatform"
+        "func (r *accountRepository) SumConcurrencyByPlatform",
+        "'antigravity', 'kiro', 'grok'"
       ],
-      "rationale": "Platform-wide schedulable Σ reader that backs the kiro arm of the edge capacity endpoint (the kiro pool is not group-scoped like anthropic's \"default\"). Losing it breaks ?platform=kiro capacity reads, so prod's kiro mirror stub can no longer mirror the edge kiro pool. (account_repo.go is also a gateway-tk hotspot — dual-covered on purpose.)"
+      "rationale": "Two load-bearing kiro anchors. (1) SumConcurrencyByPlatform: platform-wide schedulable Σ reader backing the kiro arm of the edge capacity endpoint (the kiro pool is not group-scoped like anthropic's \"default\"); losing it breaks ?platform=kiro capacity reads. (2) ListOAuthRefreshCandidates' platform IN(...) MUST include kiro — the background refresh ticker is the only kiro token-renewal path (gateway reads access_token raw) and an upstream merge that resets this list to upstream's four platforms silently drops kiro, so kiro accounts expire and 401 out of the pool with no auto-recovery. (account_repo.go is also a gateway-tk hotspot — dual-covered on purpose.)"
     },
     {
       "path": "backend/internal/handler/edge_tk_capacity_handler_test.go",

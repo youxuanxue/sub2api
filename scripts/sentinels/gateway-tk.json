@@ -471,7 +471,7 @@
         "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
         "getHeaderRaw(req.Header, key) != \"\"",
         "signatureRetryAttempted := false",
-        "FilterThinkingBlocksForRetry(input.Body)",
+        "FilterThinkingBlocksForRetry(input.Body,",
         "Passthrough:        true,",
         "Wei-Shaw/sub2api#2506",
         "!strings.Contains(strings.ToLower(modelID), \"haiku\")",
@@ -828,8 +828,8 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "s.applySigPreemptIfArmed(ctx, c, account, body)",
-        "s.applySigPreemptIfArmed(ctx, c, account, input.Body)",
+        "s.applySigPreemptIfArmed(ctx, c, account, body,",
+        "s.applySigPreemptIfArmed(ctx, c, account, input.Body,",
         "s.armSigPreemptOnError(ctx, c, account)",
         "tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache"
       ],
