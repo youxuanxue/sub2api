@@ -1327,6 +1327,12 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	// See tkUpstreamClientCanceled (quad P0 2026-06-06; deadline-exceeded stays
 	// provider-owned).
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
+	// TK: a LOCAL pre-forward client request rejection (unservable model NAME →
+	// 400 invalid_request_error, no account selected, no upstream call). Own it to
+	// the client (request phase) regardless of the response envelope, so the
+	// /responses {error:{code}} shape is not mislabeled api_error→internal→platform.
+	// See markOpsClientRequestRejected (ops_error_logger_tk_client_request_rejected.go).
+	clientRequestRejected := hasOpsClientRequestRejected(c)
 	if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {
 		phase = "upstream"
 	}
@@ -1335,6 +1341,9 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	}
 	if clientBusinessLimited && !upstreamError && !routingCapacityLimited {
 		phase = "auth"
+	}
+	if clientRequestRejected && !upstreamError && !routingCapacityLimited {
+		phase = "request"
 	}
 	if routingCapacityLimited {
 		phase = "routing"
