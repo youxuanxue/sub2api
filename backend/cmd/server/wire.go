@@ -134,6 +134,11 @@ func provideCleanup(
 	// the constructor used by handler ProviderSet. See R-001 of
 	// docs/approved/pricing-availability-source-of-truth.md.
 	_ service.TKGatewayPricingAvailabilityReady,
+	// TokenKey: forces wire to evaluate ProvideTKPricingOverlayRuntime so the
+	// runtime hot-pushable pricing overlay (settings-blob getter + catalog cache
+	// invalidator + pub/sub subscribe) is wired onto PricingService at startup.
+	// Without this edge wire would dead-code the post-construction setter.
+	_ service.TKPricingOverlayRuntimeReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayAnthropicSigPreempt so
 	// GatewayService.SetAnthropicSigPreemptCache is called at startup. Without
 	// this dependency edge wire would dead-code the post-construction setter

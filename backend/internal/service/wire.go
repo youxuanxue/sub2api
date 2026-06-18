@@ -707,6 +707,12 @@ var ProviderSet = wire.NewSet(
 	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
 	ProvidePricingAvailabilityService,
 	ProvideTKGatewayPricingAvailability,
+	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
+	// getter + catalog-cache invalidator onto PricingService, does the initial
+	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
+	// new model be priced + surfaced in /pricing without a release. Consumed by
+	// provideCleanup so wire forces evaluation.
+	ProvideTKPricingOverlayRuntime,
 	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
 	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
 	NewModelListFilter,
@@ -790,6 +796,48 @@ func ProvideTKGatewayPricingAvailability(
 		gw.SetPricingAvailabilityService(avail)
 	}
 	return TKGatewayPricingAvailabilityReady{}
+}
+
+// TKPricingOverlayRuntimeReady is a wire sentinel: holding it proves the runtime
+// hot-pushable TK pricing overlay has been wired onto PricingService
+// (SetOverlayRuntimeDeps + initial reload + pub/sub subscribe). provideCleanup
+// (cmd/server/wire.go) consumes this type as an unused parameter to force wire to
+// evaluate the side-effect.
+type TKPricingOverlayRuntimeReady struct{}
+
+// ProvideTKPricingOverlayRuntime wires the runtime overlay (settings-blob getter
+// + public-catalog cache invalidator) onto PricingService post-construction, does
+// the initial load so an already-present runtime blob is honored at boot, and
+// subscribes to the settings pub/sub so a hot-push reloads immediately across
+// replicas. Mirrors ProvideTKGatewayPricingAvailability in shape — keep upstream
+// NewPricingService signature stable, attach setter-only deps in TK companion glue.
+//
+// All setters are nil-safe: with a nil settingService/catalog/pubsub the service
+// serves the embedded overlay floor exactly as before.
+func ProvideTKPricingOverlayRuntime(
+	ps *PricingService,
+	settingService *SettingService,
+	catalog *PricingCatalogService,
+	pubsub SettingPubSub,
+) TKPricingOverlayRuntimeReady {
+	if ps != nil {
+		var invalidator func()
+		if catalog != nil {
+			invalidator = catalog.InvalidateCache
+		}
+		var getter func(ctx context.Context) (string, bool)
+		if settingService != nil {
+			getter = func(ctx context.Context) (string, bool) {
+				return settingService.GetRawSettingValue(ctx, SettingKeyTKPricingOverlayRuntime)
+			}
+		}
+		ps.SetOverlayRuntimeDeps(getter, invalidator)
+		if _, err := ps.reloadTKOverlayRuntime(context.Background()); err != nil {
+			logger.LegacyPrintf("service.pricing", "[Pricing] runtime overlay initial load failed: %v", err)
+		}
+		ps.SubscribeOverlayRuntime(context.Background(), pubsub)
+	}
+	return TKPricingOverlayRuntimeReady{}
 }
 
 // ProvideBalanceNotifyService creates BalanceNotifyService

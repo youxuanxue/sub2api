@@ -93,6 +93,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil,                                   // pricingMissingNotifier
 		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
 		service.TKGatewayPricingAvailabilityReady{}, // TK: forces SetPricingAvailabilityService wiring
+		service.TKPricingOverlayRuntimeReady{},      // TK: forces runtime overlay (settings hot-push) wiring
 		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
 		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring

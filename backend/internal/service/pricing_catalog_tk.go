@@ -166,6 +166,21 @@ func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
 	s.mu.Unlock()
 }
 
+// InvalidateCache drops the cached catalog so the next BuildPublicCatalog
+// re-parses + re-applies the overlay. The cache keys on the source file's mtime
+// (model_pricing.json), so a TK pricing-overlay HOT change — which does not touch
+// that file — would otherwise serve stale prices forever. The runtime overlay
+// reload (pricing_service_tk_overlay_runtime.go) calls this after a swap. Nil-safe.
+func (s *PricingCatalogService) InvalidateCache() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.cached = nil
+	s.cachedMt = time.Time{}
+	s.mu.Unlock()
+}
+
 // BuildPublicCatalog returns the catalog DTO. Callers must not mutate the
 // returned response — it may be shared across requests via the internal cache.
 //
