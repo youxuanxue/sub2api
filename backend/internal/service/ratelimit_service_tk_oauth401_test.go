@@ -136,3 +136,18 @@ func TestRateLimitService_OAuth401_MissingRefreshTokenImmediateDisable(t *testin
 	require.Equal(t, 0, repo.tempCalls)
 	require.Contains(t, repo.lastErrorMsg, "refresh_token missing")
 }
+
+// Claude API 故障期间：有效-token 401 不永久禁用（防上游对全队有效 token 误发 401 时批量
+// 禁全池），改回退 temp_unschedulable 冷却；故障结束后仍 401 才禁。与 403/429 路径同口径。
+func TestRateLimitService_OAuth401_ValidTokenDeferredDuringClaudeIncident(t *testing.T) {
+	setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: true, Status: "major_outage", FetchedAt: time.Now()})
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := newOAuth401AnthropicAccount(708, time.Now().Add(2*time.Hour)) // solidly valid
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "incident 期间 valid-token 401 不得永久禁用")
+	require.Equal(t, 1, repo.tempCalls, "incident 期间回退 temp_unschedulable 冷却")
+}
