@@ -458,6 +458,30 @@ else
     echo "  ok: all grok sentinels intact"
 fi
 
+# ---- sub2api: relay-invariant test registry ---------------------------------
+# Source of truth: scripts/sentinels/relay-invariants.json. Unlike the per-
+# platform sentinels above (which anchor PRODUCTION symbols against deletion),
+# this registry anchors the CHARACTERIZATION TESTS that encode deliberate,
+# TK-correct relay behaviors — G4 5h-window cooldown scoping, kiro/grok refresh
+# candidates, SSE stream-error 502 (not 403), org-ban/bodyless/oauth401/usage-
+# policy/TLS-fingerprint/request-owned-429 cooldown polarity, thinking model-
+# reference routing. PR #835 showed the failure class: an upstream rewrite
+# silently deletes a TK behavior OR overrides a deliberate TK choice with no
+# conflict, no compile error, and a green CI — because the only proof of the
+# choice was a test deleted in the same merge. Pinning each test's `func TestX(`
+# definition turns "merge deleted/gutted the test" into a red check.
+echo ""
+echo "=== sub2api: relay-invariant test registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read relay-invariants.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-relay-invariants.py --quiet; then
+    # check-relay-invariants.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all relay-invariant tests intact"
+fi
+
 # ---- sub2api: antigravity fingerprint sentinel registry ---------------------
 # Source of truth: scripts/sentinels/antigravity.json. Guards the TokenKey
 # divergences in the Antigravity (cloudcode-pa) client fingerprint that an

@@ -77,7 +77,10 @@ func (s *GatewayService) applySigPreemptIfArmed(ctx context.Context, c *gin.Cont
 	if !armed {
 		return body
 	}
-	filtered := FilterThinkingBlocksForRetry(body, mappedModel)
+	// Native Anthropic relay path: key the thinking filter on the mapped
+	// upstream model (see thinking_ref_model_tk.go for why the compat path
+	// deliberately uses the original client model instead).
+	filtered := FilterThinkingBlocksForRetry(body, thinkingRefModelForAnthropicRelay(mappedModel))
 	if bytes.Equal(filtered, body) {
 		// Armed but nothing to strip — stay silent to avoid log explosion.
 		return body

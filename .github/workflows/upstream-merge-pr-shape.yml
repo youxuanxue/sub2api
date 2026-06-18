@@ -19,6 +19,15 @@ name: Upstream Merge PR Shape
 #      docs/approved/newapi-as-fifth-platform.md: an upstream merge
 #      silently drops a TK companion file or a `case PlatformNewAPI`
 #      branch and the regression is only noticed weeks later.
+#      (Checks 4b/4d/4c/4e mirror this for kiro / grok / antigravity /
+#      relay-invariant tests respectively — same script as preflight.)
+#   4e. Every relay-invariant characterization test listed in
+#      `scripts/sentinels/relay-invariants.json` is still present after the
+#      merge. These encode deliberate TK relay behaviors (G4 cooldown scoping,
+#      kiro/grok refresh candidates, SSE stream-error 502, cooldown polarity,
+#      thinking model-reference routing) whose only durable proof is the test —
+#      PR #835's silent-deletion/override class. Deleting/gutting a pinned test
+#      fails the check; retiring a behavior means updating the registry in-PR.
 #   5. Every outward TokenKey brand surface listed in
 #      `scripts/sentinels/brand.json` is still intact after the merge,
 #      so upstream churn cannot silently revert default title / README /
@@ -246,6 +255,35 @@ jobs:
             echo "::error::Upstream merge regressed at least one grok sentinel."
             echo "::error::Per CLAUDE.md §5.x, restore the dropped file/symbol in this"
             echo "::error::merge PR. Do NOT 'fix' by deleting the sentinel entry."
+            exit 1
+          fi
+
+      - name: Check 4e — relay-invariant tests still intact after merge
+        run: |
+          # Single source of truth: scripts/sentinels/relay-invariants.json. Same
+          # script scripts/preflight.sh runs locally as the "relay-invariant test
+          # registry" check, so a green local preflight implies a green check here.
+          # Unlike the per-platform sentinels (which anchor production symbols),
+          # this pins the CHARACTERIZATION TESTS that encode deliberate TK relay
+          # behaviors: G4 5h-window cooldown scoping, kiro/grok refresh candidates,
+          # SSE stream-error 502 (not 403), org-ban / bodyless / oauth401 /
+          # usage-policy / TLS-fingerprint / request-owned-429 cooldown polarity,
+          # and thinking model-reference routing. This is the exact failure class
+          # PR #835 surfaced — an upstream rewrite silently deletes a TK behavior
+          # or overrides a deliberate TK choice with a green CI because the only
+          # proof was a test gutted in the same merge. Fix the merge to restore the
+          # behavior + its test; if a behavior was intentionally retired, update
+          # the registry in this PR (the human-review checkpoint), do NOT delete
+          # the entry to silence the check.
+          if [ ! -f ./scripts/sentinels/check-relay-invariants.py ]; then
+            echo "::error::scripts/sentinels/check-relay-invariants.py missing."
+            echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-relay-invariants.py; then
+            echo "::error::Upstream merge deleted/gutted at least one relay-invariant test."
+            echo "::error::Restore the behavior and its characterization test in this"
+            echo "::error::merge PR. Do NOT 'fix' by deleting the registry entry."
             exit 1
           fi
 
