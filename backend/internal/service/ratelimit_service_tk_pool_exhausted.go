@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -18,22 +19,19 @@ const (
 	tkPoolExhaustedCheckTimeout = 5 * time.Second
 )
 
-// tkPoolExhaustedPlatforms 是启用"平台池全不可调度"即时 P0 检查的平台集合。
-// anthropic 是镜像池形态、最受 failover 扇出连锁影响(prod 2026-06-11);
-// openai(gpt)/gemini(google) 同为有专属账号池的平台——号池被打满同样让该平台
-// 流量从那一刻起全部快速失败(429,见线上 2026-06-17 反馈"gpt 号池满了"),
-// 纳入同一即时 P0 通道。其他平台(newapi/kiro/grok/antigravity)如需纳入,
-// 加进本集合即可。
-var tkPoolExhaustedPlatforms = map[string]struct{}{
-	PlatformAnthropic: {},
-	PlatformOpenAI:    {},
-	PlatformGemini:    {},
-}
-
-// tkPoolExhaustedEnabled 报告某平台是否启用池级全不可调度即时 P0 检查。
+// tkPoolExhaustedEnabled 报告某平台是否启用"平台池全不可调度"即时 P0 检查。
+//
+// 从硬编码白名单(anthropic/openai/gemini)改为派生:任何非空平台都纳入。平台名
+// 直接来自被封账号自身(notifyAccountSchedulingBlocked),不该枚举——新平台
+// (kiro/grok/antigravity/newapi…)一上线就自动有空池火警,零代码改动。触发仍受
+// 「该平台 ListSchedulableByPlatform 真为 0」+ 每平台 10min 去重双重收口,健康
+// 多账号平台永不误报。
+//
+// 注意 newapi 是「一个平台、多互不可替代上游」:这条平台级火警只在 newapi 所有
+// channel 全空时才响(粗粒度兜底);单 channel 的容量饱和由 pool_load_rate 指标按
+// channel_type 分别覆盖(前瞻),单 channel 彻底死号由单账号永久失效 P0 覆盖。
 func tkPoolExhaustedEnabled(platform string) bool {
-	_, ok := tkPoolExhaustedPlatforms[platform]
-	return ok
+	return strings.TrimSpace(platform) != ""
 }
 
 func (s *RateLimitService) tkCheckPlatformPoolExhausted(account *Account, until time.Time, reason string) {

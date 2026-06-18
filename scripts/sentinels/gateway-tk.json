@@ -2616,14 +2616,22 @@
     {
       "path": "backend/internal/service/ratelimit_service_tk_pool_exhausted.go",
       "must_contain": [
-        "var tkPoolExhaustedPlatforms = map[string]struct{}{",
-        "PlatformOpenAI",
-        "PlatformGemini",
         "func tkPoolExhaustedEnabled(platform string) bool {",
+        "return strings.TrimSpace(platform) != \"\"",
         "if !tkPoolExhaustedEnabled(account.Platform) {",
         "s.incidentNotifier.NotifyPlatformPoolExhausted(platform, trigger, until, reason)"
       ],
-      "rationale": "Platform-pool-exhausted P0 enablement set (2026-06-17 'gpt 号池满了' incident). The immediate P0 card was anthropic-only until this; tkPoolExhaustedPlatforms now also holds PlatformOpenAI + PlatformGemini so an emptied gpt/google pool's fast-fail-to-429 transition pages ops at once. PlatformOpenAI/PlatformGemini appear nowhere else in this file, so the sentinel mechanically protects pool coverage: an upstream merge or 'simplify' refactor that drops either key (reverting to anthropic-only and re-blinding gpt/google) makes the substring vanish and fails the gate. The tkPoolExhaustedEnabled predicate + the guard call site + the NotifyPlatformPoolExhausted dispatch are anchored too so the membership check can't be bypassed by removing the guard. Pairs with the existing ratelimit_service.go (tkCheckPlatformPoolExhausted hook) and account_incident_notifier_tk_pool.go (card) sentinels."
+      "rationale": "Platform-pool-exhausted P0 enablement (anthropic-only -> gpt/google 2026-06-17 'gpt 号池满了' -> derived-for-all-platforms 2026-06). The enablement set is no longer a hardcoded allowlist: tkPoolExhaustedEnabled returns true for ANY non-empty platform, so newapi/kiro/grok/antigravity get the empty-pool P0 automatically. The sentinel anchors the derive-all predicate body (`return strings.TrimSpace(platform) != \"\"`) so an upstream merge or 'simplify' that narrows it back to an allowlist (re-blinding some platform) makes the substring vanish and fails the gate. The guard call site + the NotifyPlatformPoolExhausted dispatch are anchored too so coverage can't be bypassed by removing the guard. Pairs with the ratelimit_service.go (tkCheckPlatformPoolExhausted hook), account_incident_notifier_tk_pool.go (card), and ops_pool_load_rate_tk.go (leading saturation signal) sentinels."
+    },
+    {
+      "path": "backend/internal/service/ops_pool_load_rate_tk.go",
+      "must_contain": [
+        "func (s *OpsService) ComputePoolLoadRates(ctx context.Context) ([]PoolLoad, error) {",
+        "key := fmt.Sprintf(\"%s|%d|%d\", platform, gid, acc.ChannelType)",
+        "if p.accounts < poolLoadMinAccounts {",
+        "LoadRatePct: float64(p.inFlight+p.waiting) / float64(p.seats) * 100,"
+      ],
+      "rationale": "pool_load_rate is the leading pool-level capacity-saturation P0 signal (2026-06). Its correctness rests on three invariants that a future 'simplify'/upstream merge must NOT silently drop: (1) the pool key includes acc.ChannelType, so the fifth platform newapi is split by upstream (deepseek/qwen/volcengine non-substitutable) instead of averaged into one lying number; (2) the >= poolLoadMinAccounts floor keeps single-account-ceiling noise out of the pool-level signal (explicit operator requirement '非单个账号触顶噪音'); (3) the (in-flight+queued)/Σseats formula is the normalized ratio (immune to over/under-provisioning) that beats absolute QPS thresholds. Removing any anchor regresses the metric to either a misleading blended average or single-account noise. Seeded default-on rule lives in migrations/tk_031_seed_pool_load_rate_alert.sql; the evaluator case + card breakdown are in ops_alert_evaluator_service.go / ops_alert_top_cause_tk.go."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_org_ban_403.go",
