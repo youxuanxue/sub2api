@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,7 +76,7 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 	// request path so it can never block or starve the gateway — the synchronous,
 	// in-memory build is what hung prod on 2026-06-17. The client polls
 	// GET .../traj/export/jobs/:job_id and downloads when status == done.
-	job, err := h.service.EnqueueExport(subject.UserID, filter)
+	job, err := h.service.EnqueueExport(c.Request.Context(), subject.UserID, filter)
 	if err != nil {
 		if errors.Is(err, qa.ErrExportBusy) {
 			response.Error(c, http.StatusTooManyRequests, "An export is already being prepared, please try again shortly")
@@ -84,7 +85,7 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, ExportJobResponse{JobID: job.ID, Status: string(job.Status)})
+	response.Success(c, h.trajExportJobResponse(c, job))
 }
 
 // GetSelfTrajectoryExportJob handles GET
@@ -102,23 +103,68 @@ func (h *QAHandler) GetSelfTrajectoryExportJob(c *gin.Context) {
 	}
 
 	jobID := strings.Trim(c.Param("job_id"), "/")
-	job, found := h.service.GetExportJob(subject.UserID, jobID)
+	job, found := h.service.GetExportJob(c.Request.Context(), subject.UserID, jobID)
 	if !found {
 		response.NotFound(c, "Export job not found or expired")
 		return
 	}
+	response.Success(c, h.trajExportJobResponse(c, job))
+}
 
+// ListSelfTrajectoryExports handles GET /api/v1/users/me/qa/traj/exports —
+// the "my exports" panel feed. Optional ?api_key_id= scopes to one key. Returns
+// the user's recent export jobs newest-first; done & unexpired ones carry a
+// download URL so the panel can offer re-download without re-running the export.
+func (h *QAHandler) ListSelfTrajectoryExports(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if !h.service.Enabled() {
+		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+		return
+	}
+
+	var apiKeyID *int64
+	if raw := strings.TrimSpace(c.Query("api_key_id")); raw != "" {
+		id, perr := strconv.ParseInt(raw, 10, 64)
+		if perr != nil {
+			response.BadRequest(c, "Invalid api_key_id")
+			return
+		}
+		apiKeyID = &id
+	}
+
+	jobs, err := h.service.ListExports(c.Request.Context(), subject.UserID, apiKeyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	out := make([]ExportJobResponse, 0, len(jobs))
+	for i := range jobs {
+		out = append(out, h.trajExportJobResponse(c, jobs[i]))
+	}
+	response.Success(c, ListExportJobsResponse{Exports: out})
+}
+
+// trajExportJobResponse maps a service ExportJob to the wire shape, converting a
+// localfs file:// download URL into the proxied HTTP path the client can fetch.
+func (h *QAHandler) trajExportJobResponse(c *gin.Context, job qa.ExportJob) ExportJobResponse {
 	resp := ExportJobResponse{
 		JobID:       job.ID,
 		Status:      string(job.Status),
+		Kind:        job.Kind,
+		APIKeyID:    job.APIKeyID,
 		RecordCount: job.RecordCount,
 		Error:       job.Error,
+		CreatedAt:   job.CreatedAt,
 	}
-	if job.Status == qa.ExportJobDone {
+	if job.Status == qa.ExportJobDone && job.DownloadURL != "" {
 		resp.DownloadURL = h.clientTrajDownloadURL(c, job.DownloadURL, job.StorageKey)
 		resp.ExpiresAt = job.ExpiresAt
 	}
-	response.Success(c, resp)
+	return resp
 }
 
 func (h *QAHandler) DownloadSelfTrajectoryExport(c *gin.Context) {
@@ -164,10 +210,18 @@ func (h *QAHandler) DownloadSelfTrajectoryExport(c *gin.Context) {
 type ExportJobResponse struct {
 	JobID       string    `json:"job_id"`
 	Status      string    `json:"status"`
+	Kind        string    `json:"kind,omitempty"` // manual | auto
+	APIKeyID    *int64    `json:"api_key_id,omitempty"`
 	DownloadURL string    `json:"download_url,omitempty"`
 	ExpiresAt   time.Time `json:"expires_at,omitempty"`
 	RecordCount int       `json:"record_count"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
 	Error       string    `json:"error,omitempty"`
+}
+
+// ListExportJobsResponse is the "my exports" panel feed.
+type ListExportJobsResponse struct {
+	Exports []ExportJobResponse `json:"exports"`
 }
 
 func (h *QAHandler) clientTrajDownloadURL(c *gin.Context, downloadURL, storageKey string) string {

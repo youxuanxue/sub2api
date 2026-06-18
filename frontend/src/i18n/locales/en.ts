@@ -993,6 +993,26 @@ export default {
     exportSuccess: 'Exported {count} conversation records',
     exportEmpty: 'No conversation records captured for this key yet',
     exportFailed: 'Export failed, please try again',
+    exportPanel: {
+      title: 'Export Conversations',
+      exportNow: 'Export now',
+      exporting: 'Exporting…',
+      lastExport: 'Last export: {time}',
+      noExports: 'No exports yet',
+      download: 'Download',
+      expired: 'Expired',
+      recordCount: '{count} records',
+      kindManual: 'Manual',
+      kindAuto: 'Auto',
+      status: 'Status',
+      statusValue: {
+        pending: 'Pending',
+        running: 'Running',
+        done: 'Ready',
+        failed: 'Failed'
+      },
+      close: 'Close'
+    },
     enable: 'Enable',
     disable: 'Disable',
     nameLabel: 'Name',

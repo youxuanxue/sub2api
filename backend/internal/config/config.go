@@ -165,6 +165,15 @@ type QACaptureConfig struct {
 	WorkerCount       int                    `mapstructure:"worker_count"`
 	QueueSize         int                    `mapstructure:"queue_size"`
 	Storage           QACaptureStorageConfig `mapstructure:"storage"`
+	// ExportStorage, when its driver is set, is a SEPARATE destination for the
+	// finished export ZIP (typically S3) so the large archive leaves the
+	// Postgres-shared data volume. Unset ⇒ exports reuse Storage (localfs). The
+	// daily auto-export cron + on-demand export both write here; capture blobs
+	// always use Storage.
+	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
+	// AutoExportEnabled turns on the daily per-(user,key) archive cron. Off by
+	// default; only meaningful once ExportStorage points at durable S3.
+	AutoExportEnabled bool `mapstructure:"auto_export_enabled"`
 }
 
 type QACaptureStorageConfig struct {

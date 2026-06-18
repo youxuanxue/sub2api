@@ -11,6 +11,31 @@
       "rationale": "Single source of truth for TK sidebar geometry. AppSidebar.vue / AppLayout.vue import these so upstream-shaped layout files stay close to upstream; if either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
     },
     {
+      "path": "frontend/src/composables/useTkExportPanel.ts",
+      "must_contain": [
+        "export function useTkExportPanel",
+        "qaTrajAPI.listExports",
+        "exportNow"
+      ],
+      "rationale": "TK-only composable owning the per-API-key conversation Export Panel flow (#792 follow-up): lists the key's persisted export jobs (qaTrajAPI.listExports -> GET /users/me/qa/traj/export/jobs), runs an on-demand export with poll-to-terminal (exportNow), and triggers the download. Keeps the upstream-shaped KeysView.vue thin (template + wiring) per CLAUDE.md section 5. Guards against silent upstream-merge deletion that would orphan the panel."
+    },
+    {
+      "path": "frontend/src/components/keys/ExportPanel.vue",
+      "must_contain": [
+        "useTkExportPanel",
+        "keys.exportPanel.title"
+      ],
+      "rationale": "TK-only Export Panel modal (BaseDialog) opened from the API-key card's export action. Lists exports still inside their download TTL (so a redeploy/refresh no longer orphans the download - the bug this feature fixes), shows the last export time, and offers an immediate export. Thin template over useTkExportPanel; the two anchors pin the composable wiring + the i18n title so an upstream merge can't silently drop the modal."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "openExportPanel",
+        "ExportPanel"
+      ],
+      "rationale": "The injection point that mounts the Export Panel from the API-key card. KeysView.vue is a large upstream-shaped file; the export button calls openExportPanel(row) and the <ExportPanel> render sits beside <UseKeyModal>. An upstream merge that rewrites the key card or actions could silently drop the open handler or the render while compiling green, hiding the export feature - these anchors turn that backward-drift into a merge-gate failure (mirrors the useTkAccountTier / AccountTierModal pattern)."
+    },
+    {
       "path": "frontend/src/components/layout/AppSidebar.vue",
       "must_contain": [
         "TK_SIDEBAR_WIDTH_CLASS"

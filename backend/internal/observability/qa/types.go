@@ -88,4 +88,9 @@ type ExportFilter struct {
 	// ExportRow JSONL; "v2" = richer session/turns (traj v2, .examples-aligned,
 	// one TrajSessionV2 object per line, carries thinking/signature/usage).
 	Format string
+	// Kind tags the storage-key layout: "" / "manual" → a user-initiated export
+	// (traj-exports/<user>/<key>/manual/<nanos>.zip); "auto" → the daily cron
+	// archive (traj-exports/<user>/<key>/auto/<YYYY-MM-DD>.zip, idempotent per
+	// day, dated from Since). It does NOT affect which records are selected.
+	Kind string
 }

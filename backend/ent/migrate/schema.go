@@ -1199,6 +1199,47 @@ var (
 			},
 		},
 	}
+	// QaExportJobsColumns holds the columns for the "qa_export_jobs" table.
+	QaExportJobsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "job_id", Type: field.TypeString, Unique: true},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "api_key_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "status", Type: field.TypeString, Default: "pending"},
+		{Name: "export_kind", Type: field.TypeString, Default: "manual"},
+		{Name: "format", Type: field.TypeString, Default: "v2"},
+		{Name: "window_start", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "window_end", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "storage_key", Type: field.TypeString, Default: ""},
+		{Name: "record_count", Type: field.TypeInt, Default: 0},
+		{Name: "error", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// QaExportJobsTable holds the schema information for the "qa_export_jobs" table.
+	QaExportJobsTable = &schema.Table{
+		Name:       "qa_export_jobs",
+		Columns:    QaExportJobsColumns,
+		PrimaryKey: []*schema.Column{QaExportJobsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "qaexportjob_user_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaExportJobsColumns[4], QaExportJobsColumns[1]},
+			},
+			{
+				Name:    "qaexportjob_user_id_api_key_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaExportJobsColumns[4], QaExportJobsColumns[5], QaExportJobsColumns[1]},
+			},
+			{
+				Name:    "qaexportjob_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaExportJobsColumns[14]},
+			},
+		},
+	}
 	// QaRecordsColumns holds the columns for the "qa_records" table.
 	QaRecordsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1950,6 +1991,7 @@ var (
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
+		QaExportJobsTable,
 		QaRecordsTable,
 		RedeemCodesTable,
 		SecuritySecretsTable,
@@ -2056,6 +2098,9 @@ func init() {
 	ProxiesTable.ForeignKeys[0].RefTable = ProxiesTable
 	ProxiesTable.Annotation = &entsql.Annotation{
 		Table: "proxies",
+	}
+	QaExportJobsTable.Annotation = &entsql.Annotation{
+		Table: "qa_export_jobs",
 	}
 	QaRecordsTable.Annotation = &entsql.Annotation{
 		Table: "qa_records",

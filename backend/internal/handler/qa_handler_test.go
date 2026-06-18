@@ -93,6 +93,10 @@ func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine
 
 	db, err := sql.Open("sqlite", "file:qa_handler_test?mode=memory&cache=shared")
 	require.NoError(t, err)
+	// Serialize access: the async export worker writes job rows concurrently
+	// with the test polling them; a single connection avoids in-memory sqlite
+	// "database is locked" flakes.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	_, err = db.Exec("PRAGMA foreign_keys = ON")
 	require.NoError(t, err)

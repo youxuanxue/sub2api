@@ -28,6 +28,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/schema"
@@ -1432,6 +1433,45 @@ func init() {
 	proxyDescExpiryWarnDays := proxyFields[10].Descriptor()
 	// proxy.DefaultExpiryWarnDays holds the default value on creation for the expiry_warn_days field.
 	proxy.DefaultExpiryWarnDays = proxyDescExpiryWarnDays.Default.(int)
+	qaexportjobMixin := schema.QAExportJob{}.Mixin()
+	qaexportjobMixinFields0 := qaexportjobMixin[0].Fields()
+	_ = qaexportjobMixinFields0
+	qaexportjobFields := schema.QAExportJob{}.Fields()
+	_ = qaexportjobFields
+	// qaexportjobDescCreatedAt is the schema descriptor for created_at field.
+	qaexportjobDescCreatedAt := qaexportjobMixinFields0[0].Descriptor()
+	// qaexportjob.DefaultCreatedAt holds the default value on creation for the created_at field.
+	qaexportjob.DefaultCreatedAt = qaexportjobDescCreatedAt.Default.(func() time.Time)
+	// qaexportjobDescUpdatedAt is the schema descriptor for updated_at field.
+	qaexportjobDescUpdatedAt := qaexportjobMixinFields0[1].Descriptor()
+	// qaexportjob.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	qaexportjob.DefaultUpdatedAt = qaexportjobDescUpdatedAt.Default.(func() time.Time)
+	// qaexportjob.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	qaexportjob.UpdateDefaultUpdatedAt = qaexportjobDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// qaexportjobDescJobID is the schema descriptor for job_id field.
+	qaexportjobDescJobID := qaexportjobFields[0].Descriptor()
+	// qaexportjob.JobIDValidator is a validator for the "job_id" field. It is called by the builders before save.
+	qaexportjob.JobIDValidator = qaexportjobDescJobID.Validators[0].(func(string) error)
+	// qaexportjobDescStatus is the schema descriptor for status field.
+	qaexportjobDescStatus := qaexportjobFields[3].Descriptor()
+	// qaexportjob.DefaultStatus holds the default value on creation for the status field.
+	qaexportjob.DefaultStatus = qaexportjobDescStatus.Default.(string)
+	// qaexportjobDescExportKind is the schema descriptor for export_kind field.
+	qaexportjobDescExportKind := qaexportjobFields[4].Descriptor()
+	// qaexportjob.DefaultExportKind holds the default value on creation for the export_kind field.
+	qaexportjob.DefaultExportKind = qaexportjobDescExportKind.Default.(string)
+	// qaexportjobDescFormat is the schema descriptor for format field.
+	qaexportjobDescFormat := qaexportjobFields[5].Descriptor()
+	// qaexportjob.DefaultFormat holds the default value on creation for the format field.
+	qaexportjob.DefaultFormat = qaexportjobDescFormat.Default.(string)
+	// qaexportjobDescStorageKey is the schema descriptor for storage_key field.
+	qaexportjobDescStorageKey := qaexportjobFields[8].Descriptor()
+	// qaexportjob.DefaultStorageKey holds the default value on creation for the storage_key field.
+	qaexportjob.DefaultStorageKey = qaexportjobDescStorageKey.Default.(string)
+	// qaexportjobDescRecordCount is the schema descriptor for record_count field.
+	qaexportjobDescRecordCount := qaexportjobFields[9].Descriptor()
+	// qaexportjob.DefaultRecordCount holds the default value on creation for the record_count field.
+	qaexportjob.DefaultRecordCount = qaexportjobDescRecordCount.Default.(int)
 	qarecordFields := schema.QARecord{}.Fields()
 	_ = qarecordFields
 	// qarecordDescRequestID is the schema descriptor for request_id field.

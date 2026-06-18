@@ -75,6 +75,9 @@ type PromoCodeUsage func(*sql.Selector)
 // Proxy is the predicate function for proxy builders.
 type Proxy func(*sql.Selector)
 
+// QAExportJob is the predicate function for qaexportjob builders.
+type QAExportJob func(*sql.Selector)
+
 // QARecord is the predicate function for qarecord builders.
 type QARecord func(*sql.Selector)
 

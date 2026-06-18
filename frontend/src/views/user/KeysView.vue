@@ -346,13 +346,12 @@
               <!-- Export Conversations Button (admin-granted per-user switch; anthropic keys only — the traj projector is Anthropic-shaped) -->
               <button
                 v-if="canExportTraj && row.group?.platform === 'anthropic'"
-                @click="exportKeyTraj(row)"
-                :disabled="exportingKeyId !== null"
+                @click="openExportPanel(row)"
                 :title="t('keys.exportTooltip')"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
               >
-                <Icon :name="exportingKeyId === row.id ? 'refresh' : 'download'" size="sm" :class="{ 'animate-spin': exportingKeyId === row.id }" />
-                <span class="text-xs">{{ exportingKeyId === row.id ? t('keys.exporting') : t('keys.export') }}</span>
+                <Icon name="download" size="sm" />
+                <span class="text-xs">{{ t('keys.export') }}</span>
               </button>
               <!-- Edit Button -->
               <button
@@ -947,6 +946,14 @@
       @close="closeUseKeyModal"
     />
 
+    <!-- Export Conversations Panel (per-key recent exports + export-now) -->
+    <ExportPanel
+      :show="showExportPanel"
+      :api-key-id="exportPanelKey?.id ?? null"
+      :api-key-name="exportPanelKey?.name"
+      @close="closeExportPanel"
+    />
+
     <!-- CCS Client Selection Dialog for Antigravity -->
     <BaseDialog
       :show="showCcsClientSelect"
@@ -1071,7 +1078,7 @@
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
-import { keysAPI, authAPI, usageAPI, userGroupsAPI, qaTrajAPI } from '@/api'
+import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1084,6 +1091,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
+	import ExportPanel from '@/components/keys/ExportPanel.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -1171,7 +1179,8 @@ const showCcsClientSelect = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
-const exportingKeyId = ref<number | null>(null)
+const showExportPanel = ref(false)
+const exportPanelKey = ref<ApiKey | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -1782,38 +1791,19 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   pendingCcsRow.value = null
 }
 
-// Export this key's captured conversation records (qa traj v2). The server
-// prepares the export asynchronously on a single off-request-path worker (a
-// large key must never block or starve the gateway), so we enqueue then poll the
-// job until it's ready, then download. Empty capture → friendly toast, no file.
-const exportKeyTraj = async (row: ApiKey) => {
-  if (exportingKeyId.value !== null) return
-  exportingKeyId.value = row.id
-  try {
-    let job = await qaTrajAPI.exportKey(row.id)
-    const deadline = Date.now() + 10 * 60 * 1000
-    while (job.status === 'pending' || job.status === 'running') {
-      if (Date.now() > deadline) throw new Error('export timed out')
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-      job = await qaTrajAPI.getJob(job.job_id)
-    }
-    if (job.status === 'failed') {
-      appStore.showInfo(job.error === 'no_records' ? t('keys.exportEmpty') : t('keys.exportFailed'))
-      return
-    }
-    if (!job.record_count || !job.download_url) {
-      appStore.showInfo(t('keys.exportEmpty'))
-      return
-    }
-    const stamp = new Date().toISOString().slice(0, 10)
-    const safeName = (row.name || `key-${row.id}`).replace(/[^\w.-]+/g, '_')
-    await qaTrajAPI.download(job.download_url, `conversations-${safeName}-${stamp}.zip`)
-    appStore.showSuccess(t('keys.exportSuccess', { count: job.record_count }))
-  } catch (error) {
-    appStore.showError(t('keys.exportFailed'))
-  } finally {
-    exportingKeyId.value = null
-  }
+// Export this key's captured conversation records (qa traj v2). The card button
+// now opens the Export Panel modal, which lists the key's recent exports
+// (downloadable within their 24h TTL) and owns the enqueue + poll + download
+// flow (composables/useTkExportPanel.ts) — the panel keeps progress state, not
+// this view.
+const openExportPanel = (row: ApiKey) => {
+  exportPanelKey.value = row
+  showExportPanel.value = true
+}
+
+const closeExportPanel = () => {
+  showExportPanel.value = false
+  exportPanelKey.value = null
 }
 
 const closeCcsClientSelect = () => {
