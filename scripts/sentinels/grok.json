@@ -136,6 +136,11 @@
       "path": "backend/internal/service/grok_test.go",
       "must_contain": ["TestTkIsGrokEntitlement403", "TestGrokTokenRefresher_CanRefreshNeedsRefresh"],
       "rationale": "Load-bearing QA evidence for the Heavy-403 entitlement classifier (the pool-kill-amplifier guard) and the refresher gating/expiry-window logic. Losing it removes the regression guard around grok's two most failure-prone pure-logic surfaces."
+    },
+    {
+      "path": "backend/internal/handler/admin/group_handler.go",
+      "must_contain": ["antigravity newapi kiro grok"],
+      "rationale": "grok must be an accepted group Platform value on the create/update admin DTOs (CreateGroupRequest/UpdateGroupRequest `oneof`). TK has appended a platform to this exact binding three times (newapi, kiro #481, grok #791); an upstream merge that reverts the oneof to the upstream/earlier platform set silently strips grok (and kiro/newapi), leaving platform=grok accounts with no schedulable group. Pinning the extended enum tail makes such a revert fail the merge sentinel check."
     }
   ]
 }

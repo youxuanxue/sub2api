@@ -1637,8 +1637,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			return true
 		}
 		// TK: 账号级 429 附上触发的上游用量窗口（5h/7d），进飞书摘要细分。
-		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429", tkAnthropicWindowLabel(result))
-		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
+		// clamp 只作用于调度冷却 reset；session window gauge 仍用原始上游窗口。
+		clampedReset := s.tkClampAnthropicWindowReset(ctx, account.ID, result.resetAt)
+		s.notifyAccountSchedulingBlocked(account, clampedReset, "429", tkAnthropicWindowLabel(result))
+		if err := s.accountRepo.SetRateLimited(ctx, account.ID, clampedReset); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 			return false
 		}
@@ -1647,7 +1649,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		// （与模型级冷却路径共用 tkUpdateAnthropic5hSessionWindow，保证两条路径写入一致）
 		s.tkUpdateAnthropic5hSessionWindow(ctx, account.ID, result)
 
-		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", result.resetAt, "reset_in", time.Until(result.resetAt).Truncate(time.Second))
+		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", clampedReset, "original_reset_at", result.resetAt, "reset_in", time.Until(clampedReset).Truncate(time.Second))
 		return true
 	}
 
@@ -1710,21 +1712,25 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 
 	resetAt := time.Unix(ts, 0)
 
+	// TK: clamp scheduling cooldown only (anthropic-only path — reached via the
+	// anthropic-ratelimit-unified-reset header). 5h window gauge keeps original.
+	clampedReset := s.tkClampAnthropicWindowReset(ctx, account.ID, resetAt)
+
 	// 标记限流状态
-	s.notifyAccountSchedulingBlocked(account, resetAt, "429")
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
+	s.notifyAccountSchedulingBlocked(account, clampedReset, "429")
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, clampedReset); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 		return false
 	}
 
-	// 根据重置时间反推5h窗口
+	// 根据重置时间反推5h窗口（用原始上游 reset，clamp 只作用于调度冷却）
 	windowEnd := resetAt
 	windowStart := resetAt.Add(-5 * time.Hour)
 	if err := s.accountRepo.UpdateSessionWindow(ctx, account.ID, &windowStart, &windowEnd, "rejected"); err != nil {
 		slog.Warn("rate_limit_update_session_window_failed", "account_id", account.ID, "error", err)
 	}
 
-	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", clampedReset, "original_reset_at", resetAt)
 	return true
 }
 
@@ -1930,17 +1936,23 @@ func (s *RateLimitService) persistAnthropicExhaustedWindowLimit(ctx context.Cont
 		return true
 	}
 
-	s.notifyAccountSchedulingBlocked(account, limit.resetAt, limit.reason)
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, limit.resetAt); err != nil {
+	// TK: clamp the SCHEDULING cooldown only. Anthropic's unified 7d window is
+	// rolling, so the upstream reset (a conservative weekly boundary, days out) far
+	// outlives the account's actual recovery; clamping lets traffic re-probe it.
+	// The 5h session-window gauge below keeps the ORIGINAL upstream window.
+	clampedReset := s.tkClampAnthropicWindowReset(ctx, account.ID, limit.resetAt)
+	s.notifyAccountSchedulingBlocked(account, clampedReset, limit.reason)
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, clampedReset); err != nil {
 		slog.Warn("anthropic_window_rate_limit_set_failed",
 			"account_id", account.ID,
 			"window", limit.window,
-			"reset_at", limit.resetAt,
+			"reset_at", clampedReset,
 			"error", err)
 		return true
 	}
 	// TK: record the 5h session window for operator usage gauge (same invariant
 	// as the account-level path in handle429 via tkUpdateAnthropic5hSessionWindow).
+	// Uses the ORIGINAL upstream window, not the clamped scheduling reset.
 	if limit.window == "5h" {
 		windowEnd := limit.resetAt
 		windowStart := windowEnd.Add(-5 * time.Hour)
@@ -1951,8 +1963,9 @@ func (s *RateLimitService) persistAnthropicExhaustedWindowLimit(ctx context.Cont
 	slog.Info("anthropic_window_rate_limited",
 		"account_id", account.ID,
 		"window", limit.window,
-		"reset_at", limit.resetAt,
-		"reset_in", time.Until(limit.resetAt).Truncate(time.Second))
+		"reset_at", clampedReset,
+		"original_reset_at", limit.resetAt,
+		"reset_in", time.Until(clampedReset).Truncate(time.Second))
 	return true
 }
 
