@@ -23,7 +23,7 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 		// startTime is mid-day 30 days ago (the GetBatchUserUsageStats default).
 		start := today.Add(-30 * day).Add(9 * time.Hour)
 		end := today.Add(15 * time.Hour) // some point during today
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.True(t, w.hasRollup)
 		// First full day is the day after the partial start day.
@@ -42,7 +42,7 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 	t.Run("day-aligned window has no partial head", func(t *testing.T) {
 		start := today.Add(-7 * day) // exactly midnight 7 days ago
 		end := today                 // exactly start of today
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.True(t, w.hasRollup)
 		require.Equal(t, start, w.rollupStartDay)
@@ -55,7 +55,7 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 	t.Run("today-only window is fully raw", func(t *testing.T) {
 		start := today
 		end := today.Add(10 * time.Hour)
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.False(t, w.hasRollup)
 		require.Len(t, w.rawSpans, 1)
@@ -67,7 +67,7 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 	t.Run("sub-day window inside today is fully raw", func(t *testing.T) {
 		start := today.Add(2 * time.Hour)
 		end := today.Add(5 * time.Hour)
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.False(t, w.hasRollup)
 		require.Len(t, w.rawSpans, 1)
@@ -77,7 +77,7 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 	t.Run("purely historical window (ends before today) uses rollup, no today tail", func(t *testing.T) {
 		start := today.Add(-10 * day)
 		end := today.Add(-3 * day) // day-aligned, all completed
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.True(t, w.hasRollup)
 		require.Equal(t, start, w.rollupStartDay)
@@ -89,7 +89,7 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 	t.Run("historical window with partial tail day reads tail from raw", func(t *testing.T) {
 		start := today.Add(-10 * day)
 		end := today.Add(-3 * day).Add(6 * time.Hour) // partial last day
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.True(t, w.hasRollup)
 		require.Equal(t, start, w.rollupStartDay)
@@ -104,10 +104,48 @@ func TestPlanUsageRollupWindow(t *testing.T) {
 		// start yesterday 23:00, end today 01:00 -> no FULL completed day fits.
 		start := today.Add(-1 * time.Hour)
 		end := today.Add(1 * time.Hour)
-		w := planUsageRollupWindow(start, end)
+		w := planUsageRollupWindow(start, end, time.Time{}, true)
 
 		require.False(t, w.hasRollup)
 		require.Len(t, w.rawSpans, 1)
+		assertWindowCoverage(t, start, end, w)
+	})
+
+	// Cold-start coverage: right after the tk_034 migration the rollup is empty or
+	// only holds recent days (the shared aggregation watermark won't backfill old
+	// days), so completed days the rollup does not cover MUST be read from raw or
+	// the page undercounts history. These two cases lock that in.
+	t.Run("empty rollup table serves the whole window from raw", func(t *testing.T) {
+		start := today.Add(-30 * day).Add(9 * time.Hour)
+		end := today.Add(15 * time.Hour)
+		w := planUsageRollupWindow(start, end, time.Time{}, false) // hasRollupData=false
+
+		require.False(t, w.hasRollup)
+		require.Len(t, w.rawSpans, 1)
+		require.Equal(t, start, w.rawSpans[0][0])
+		require.Equal(t, end, w.rawSpans[0][1])
+		assertWindowCoverage(t, start, end, w)
+	})
+
+	t.Run("partial coverage clamps rollup to the floor; pre-floor days go to raw", func(t *testing.T) {
+		// 30d window, but the rollup only has data from 2 days ago onward.
+		start := today.Add(-30 * day).Add(9 * time.Hour)
+		end := today.Add(15 * time.Hour)
+		floor := today.Add(-2 * day) // earliest covered day (server-TZ midnight)
+		w := planUsageRollupWindow(start, end, floor, true)
+
+		require.True(t, w.hasRollup)
+		// Rollup span is clamped up to the floor, NOT the natural ceilDay(start).
+		require.Equal(t, floor, w.rollupStartDay)
+		require.Equal(t, today, w.rollupEndDay)
+		// Raw head now covers everything below the floor ([start, floor)), and the
+		// raw tail covers today — together with the rollup span they partition the
+		// window with no gap, so the pre-floor history is read (from raw) not lost.
+		require.Len(t, w.rawSpans, 2)
+		require.Equal(t, start, w.rawSpans[0][0])
+		require.Equal(t, floor, w.rawSpans[0][1])
+		require.Equal(t, today, w.rawSpans[1][0])
+		require.Equal(t, end, w.rawSpans[1][1])
 		assertWindowCoverage(t, start, end, w)
 	})
 }

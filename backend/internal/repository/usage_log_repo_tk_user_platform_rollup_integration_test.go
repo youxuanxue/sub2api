@@ -201,6 +201,63 @@ func (s *UsageLogRepoSuite) TestRollupParity_EqualsLegacyRawScan() {
 	s.InDelta(refCost, batch[user.ID].TotalActualCost, 1e-9, "rollup batch total must equal raw window sum")
 }
 
+// TestRollupParity_ColdStartPartialCoverage locks the post-tk_034 cold-start case:
+// the rollup is populated for only the most recent days (the shared aggregation
+// watermark has already advanced, so the incremental feeder never backfills older
+// days into the new table). The 30-day read MUST still equal a full raw scan,
+// because completed days the rollup does not cover fall back to raw usage_logs.
+// Without the coverage floor this test would undercount days 3..10.
+func (s *UsageLogRepoSuite) TestRollupParity_ColdStartPartialCoverage() {
+	today := timezone.Today()
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-coldstart@test.com"})
+	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-rollup-coldstart", Name: "k"})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-coldstart-acc", Platform: service.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-coldstart-grp", Platform: service.PlatformAnthropic})
+
+	// Raw rows across 10 completed days.
+	for d := 1; d <= 10; d++ {
+		ts := today.Add(time.Duration(-d) * 24 * time.Hour).Add(time.Duration(d) * time.Hour)
+		s.rollupParityCreateLog(user, key, acc, grp.ID, d, d*2, 0, 0, float64(d)*0.13, ts)
+	}
+
+	// Cold start: populate the rollup for ONLY the last 2 completed days (as
+	// recomputeRecentDays with the default RecomputeDays=2 would on boot). Days
+	// 3..10 are deliberately left out of the rollup.
+	aggRepo := newDashboardAggregationRepositoryWithSQL(s.tx)
+	s.Require().NoError(aggRepo.AggregateRange(s.ctx, today.Add(-2*24*time.Hour), today))
+
+	start := today.Add(-30 * 24 * time.Hour)
+	// Reference: full raw scan over the whole window.
+	var refCost float64
+	var refReqs int64
+	var refTokens int64
+	rows, err := s.repo.sql.QueryContext(s.ctx, `
+		SELECT COALESCE(SUM(actual_cost),0), COUNT(*),
+		       COALESCE(SUM(input_tokens+output_tokens+cache_creation_tokens+cache_read_tokens),0)
+		FROM usage_logs WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
+	`, user.ID, start, today)
+	s.Require().NoError(err)
+	s.Require().True(rows.Next())
+	s.Require().NoError(rows.Scan(&refCost, &refReqs, &refTokens))
+	s.Require().NoError(rows.Close())
+
+	resp, err := s.repo.GetUserSpendingRanking(s.ctx, start, today, 12)
+	s.Require().NoError(err)
+	var got UserSpendingRankingItem
+	for _, it := range resp.Ranking {
+		if it.UserID == user.ID {
+			got = it
+		}
+	}
+	s.InDelta(refCost, got.ActualCost, 1e-9, "cold-start ranking must equal full raw scan (uncovered days fall back to raw)")
+	s.Equal(refReqs, got.Requests, "cold-start ranking requests must equal full raw count")
+	s.Equal(refTokens, got.Tokens, "cold-start ranking tokens must equal full raw sum")
+
+	batch, err := s.repo.GetBatchUserUsageStats(s.ctx, []int64{user.ID}, start, today)
+	s.Require().NoError(err)
+	s.InDelta(refCost, batch[user.ID].TotalActualCost, 1e-9, "cold-start batch total must equal full raw scan")
+}
+
 // TestRollupParity_EmptyEffectivePlatform locks the edge case where a completed
 // day's effective platform is empty (account.platform = ” and group.platform =
 // ”, a storable-but-near-impossible state since accounts.platform is NOT NULL

@@ -2976,10 +2976,11 @@
       "must_contain": [
         "func (r *usageLogRepository) getBatchUserUsageStatsRollup(",
         "func (r *usageLogRepository) getUserSpendingRankingRollup(",
-        "func planUsageRollupWindow(start, end time.Time) usageRollupWindow",
+        "func planUsageRollupWindow(",
+        "func (r *usageLogRepository) userPlatformRollupFloorDay(",
         "FROM usage_dashboard_user_platform_daily"
       ],
-      "rationale": "TK read half of the rollup perf fix: GetBatchUserUsageStats and GetUserSpendingRanking are served from usage_dashboard_user_platform_daily for completed days plus raw usage_logs for the partial/today slices. planUsageRollupWindow is the exact-semantics window decomposition (full completed server-TZ days from the rollup, partial head/tail + today from raw) that keeps output byte-identical to the legacy raw-scan queries. Pins both read entry points, the decomposition function, and the rollup table read so a merge cannot silently revert the pages to the slow full-window scan."
+      "rationale": "TK read half of the rollup perf fix: GetBatchUserUsageStats and GetUserSpendingRanking are served from usage_dashboard_user_platform_daily for completed days plus raw usage_logs for the partial/today slices. planUsageRollupWindow is the exact-semantics window decomposition (full completed server-TZ days from the rollup, partial head/tail + today from raw) that keeps output byte-identical to the legacy raw-scan queries. userPlatformRollupFloorDay is the coverage floor that routes completed days the rollup does not yet cover (post-migration cold start, where the shared aggregation watermark won't backfill old days) back to raw usage_logs, so the page never silently undercounts history. Pins both read entry points, the decomposition function (loose prefix — signature evolves), the coverage-floor helper, and the rollup table read so a merge cannot silently revert the pages to the slow full-window scan or drop the cold-start fallback."
     },
     {
       "path": "backend/internal/repository/usage_log_repo.go",

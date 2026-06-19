@@ -58,8 +58,28 @@ type usageRollupWindow struct {
 // planUsageRollupWindow computes the decomposition above. `now` and the
 // server-TZ day boundaries are taken from the timezone package so the day grain
 // matches usage_dashboard_user_platform_daily.bucket_date exactly.
-func planUsageRollupWindow(start, end time.Time) usageRollupWindow {
+func planUsageRollupWindow(start, end, rollupFloorDay time.Time, hasRollupData bool) usageRollupWindow {
 	today := timezone.Today()
+
+	// Coverage floor. The rollup only holds data from rollupFloorDay onward.
+	// Critically, right after the tk_034 migration the table is empty / recent-only
+	// while the SHARED dashboard-aggregation watermark has already advanced past
+	// historical days (it has driven the system-wide rollups for months), so the
+	// incremental feeder never goes back to backfill those days for the new table.
+	// If the read path trusted the rollup for every completed day in the window,
+	// the admin Users page + spending ranking would silently UNDERCOUNT history for
+	// up to the full window length after deploy, until the rolling window refills.
+	// So: completed days BEFORE the floor (or the entire window while the table is
+	// still empty) are read from raw usage_logs instead — exact, just slower, and
+	// it self-heals as the feeder rolls forward. This also keeps reads correct if
+	// the aggregation service is ever down or lagging.
+	if !hasRollupData {
+		w := usageRollupWindow{}
+		if end.After(start) {
+			w.rawSpans = append(w.rawSpans, [2]time.Time{start, end})
+		}
+		return w
+	}
 
 	// Last instant the rollup may cover: completed days only, never today, never
 	// past the window end.
@@ -69,6 +89,10 @@ func planUsageRollupWindow(start, end time.Time) usageRollupWindow {
 	}
 
 	rollupStart := ceilDayServerTZ(start)
+	// Clamp the rollup span up to the floor; days below it fall into the raw head.
+	if rollupFloorDay.After(rollupStart) {
+		rollupStart = rollupFloorDay
+	}
 	rollupEnd := timezone.StartOfDay(cap) // floor to server-TZ midnight
 
 	w := usageRollupWindow{}
@@ -101,6 +125,42 @@ func ceilDayServerTZ(t time.Time) time.Time {
 		return floor
 	}
 	return floor.Add(24 * time.Hour)
+}
+
+// userPlatformRollupFloorDay returns the earliest server-TZ day the rollup table
+// has any data for, as a server-TZ midnight. Returns hasData=false when the table
+// is empty. Callers pass this into planUsageRollupWindow so completed days the
+// rollup does not yet cover are read from raw usage_logs (see the cold-start note
+// there). The date is fetched as text and parsed in the server location to avoid
+// any timestamp/timezone drift between the DATE column and the day-boundary math.
+func (r *usageLogRepository) userPlatformRollupFloorDay(ctx context.Context) (time.Time, bool, error) {
+	rows, err := r.sql.QueryContext(ctx,
+		`SELECT to_char(MIN(bucket_date), 'YYYY-MM-DD') FROM usage_dashboard_user_platform_daily`)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	var s sql.NullString
+	for rows.Next() {
+		if err := rows.Scan(&s); err != nil {
+			_ = rows.Close()
+			return time.Time{}, false, err
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return time.Time{}, false, err
+	}
+	if err := rows.Err(); err != nil {
+		return time.Time{}, false, err
+	}
+	if !s.Valid || s.String == "" {
+		return time.Time{}, false, nil
+	}
+	loc := timezone.Today().Location()
+	day, err := time.ParseInLocation("2006-01-02", s.String, loc)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return day, true, nil
 }
 
 // getBatchUserUsageStatsRollup answers GetBatchUserUsageStats from the rollup for
@@ -152,7 +212,11 @@ func (r *usageLogRepository) getBatchUserUsageStatsRollup(ctx context.Context, u
 		a.today += todayCost
 	}
 
-	win := planUsageRollupWindow(startTime, endTime)
+	floorDay, hasRollupData, err := r.userPlatformRollupFloorDay(ctx)
+	if err != nil {
+		return nil, err
+	}
+	win := planUsageRollupWindow(startTime, endTime, floorDay, hasRollupData)
 
 	// Rollup portion: completed days only. By construction these days are < today,
 	// so they never carry today_cost; only billed rows are summed (actual_cost is
@@ -270,7 +334,11 @@ func (r *usageLogRepository) getUserSpendingRankingRollup(ctx context.Context, s
 		a.tokens += toks
 	}
 
-	win := planUsageRollupWindow(startTime, endTime)
+	floorDay, hasRollupData, err := r.userPlatformRollupFloorDay(ctx)
+	if err != nil {
+		return nil, err
+	}
+	win := planUsageRollupWindow(startTime, endTime, floorDay, hasRollupData)
 
 	if win.hasRollup {
 		const q = `
