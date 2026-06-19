@@ -19,6 +19,13 @@ import { useIntervalFn } from '@vueuse/core'
 import { adminAPI } from '@/api/admin'
 import { unknownToErrorMessage } from '@/utils/authError'
 import type { EdgeAccountsResult } from '@/api/admin/edgeAccounts'
+import {
+  EDGE_STATUS_ALL,
+  EDGE_GROUP_ALL,
+  matchesStatusFilter,
+  matchesGroupFilter,
+  collectGroupNames
+} from '@/utils/edgeAccounts.tk'
 
 // Selectable auto-refresh cadences (seconds), matching the admin accounts page. The
 // backend fronts the fan-out with a stale-while-revalidate cache + ETag, so even a
@@ -89,10 +96,49 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
   const error = ref<string | null>(null)
   const lastFetchedAt = ref<Date | null>(null)
 
+  // Client-side account filters applied on top of the (platform-scoped) aggregate
+  // the backend already returned — no extra fetch, the data carries every status
+  // and group. Platform stays server-side (it changes which aggregate is cached/
+  // fetched); status + group narrow the prod-side view in the browser.
+  const statusFilter = ref(EDGE_STATUS_ALL)
+  const groupFilter = ref(EDGE_GROUP_ALL)
+  const accountFilterActive = computed(
+    () => statusFilter.value !== EDGE_STATUS_ALL || groupFilter.value !== EDGE_GROUP_ALL
+  )
+
+  // edges with each reachable edge's accounts narrowed by the active status/group
+  // filter. Fast path: with no account filter active, return the raw `edges` ref
+  // unchanged so the mergeEdges reference-stability (no re-render on auto-refresh)
+  // is fully preserved. Unreachable edges are kept verbatim (no accounts to
+  // filter); reachable edges whose accounts all filter out are dropped only when a
+  // filter is active, so an unfiltered view still shows reachable-but-empty edges.
+  const displayEdges = computed<EdgeAccountsResult[]>(() => {
+    if (!accountFilterActive.value) return edges.value
+    const out: EdgeAccountsResult[] = []
+    for (const e of edges.value) {
+      if (!e.ok) {
+        out.push(e)
+        continue
+      }
+      const accounts = e.accounts.filter(
+        (a) => matchesStatusFilter(a, statusFilter.value) && matchesGroupFilter(a, groupFilter.value)
+      )
+      if (accounts.length === 0) continue
+      out.push({ ...e, accounts })
+    }
+    return out
+  })
+
+  // Group-name options for the 分组 dropdown, derived from the live aggregate
+  // (reachable edges' accounts) so it never offers a stale/absent group.
+  const groupOptions = computed(() => collectGroupNames(edges.value))
+
   const okEdges = computed(() => edges.value.filter((e) => e.ok))
   const failedEdges = computed(() => edges.value.filter((e) => !e.ok))
+  // Account-level count reflects what is shown (post-filter); edge reachability
+  // counts above stay on the raw aggregate.
   const totalAccounts = computed(() =>
-    edges.value.reduce((n, e) => n + e.accounts.length, 0)
+    displayEdges.value.reduce((n, e) => (e.ok ? n + e.accounts.length : n), 0)
   )
 
   // Fleet-wide live-vs-capacity totals across all currently-schedulable accounts
@@ -100,9 +146,9 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
   // and the summed *configured* cap, so the header reads "current/capacity" — the
   // same shape AccountCapacityCell shows per account, just aggregated. Paused /
   // disabled / temp-unschedulable accounts are excluded (is_schedulable === false)
-  // so the totals reflect only schedulable capacity. The active platform filter is
-  // already applied upstream (the backend scopes `edges` to it), so this needs no
-  // extra filtering.
+  // so the totals reflect only schedulable capacity. The platform filter is applied
+  // upstream (the backend scopes `edges` to it) and the status/group filters are
+  // applied here (displayEdges), so the totals always match the visible rows.
   //
   // Live gauges (current_concurrency / current_rpm / active_sessions) and their
   // caps only ever populate for the same accounts (e.g. RPM/sessions are
@@ -124,7 +170,7 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     let curRpm = 0
     let sessions = 0
     let curSessions = 0
-    for (const e of edges.value) {
+    for (const e of displayEdges.value) {
       if (!e.ok) continue
       for (const a of e.accounts) {
         if (!a.is_schedulable) continue
@@ -227,6 +273,15 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     if (autoRefreshEnabled.value) autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
   }
 
+  // Status / group filters are purely client-side over the already-fetched
+  // aggregate: just set the ref and let displayEdges recompute — no refetch.
+  function setStatusFilter(s: string) {
+    statusFilter.value = s
+  }
+  function setGroupFilter(g: string) {
+    groupFilter.value = g
+  }
+
   // 1s countdown tick (mirrors AccountsView.vue): skip when disabled, tab hidden, or
   // a fetch is already in flight; when the countdown hits 0, refresh and reset it.
   const { pause, resume } = useIntervalFn(
@@ -275,6 +330,7 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
   return {
     platform,
     edges,
+    displayEdges,
     loading,
     error,
     lastFetchedAt,
@@ -284,6 +340,13 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     totals,
     fetch,
     setPlatform,
+    // client-side account filters
+    statusFilter,
+    groupFilter,
+    groupOptions,
+    accountFilterActive,
+    setStatusFilter,
+    setGroupFilter,
     // auto-refresh controls
     autoRefreshEnabled,
     autoRefreshIntervalSeconds,

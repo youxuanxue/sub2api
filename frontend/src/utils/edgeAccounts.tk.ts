@@ -80,6 +80,122 @@ export function toAccountLike(s: EdgeAccountSummary): Account {
   }
 }
 
+// --- Client-side status / group filters -------------------------------------
+//
+// The Edge Accounts page filters the already-fetched aggregate on the prod side
+// (no per-edge re-query): the backend fan-out returns every status/group, and
+// these predicates narrow the view in the browser. Status semantics MIRROR the
+// admin accounts page's server-side filter (backend/internal/repository/
+// account_repo.go applyStatusFilter): the 'active' bucket splits the
+// status='active' rows into active / rate_limited / temp_unschedulable /
+// unschedulable derived states; 'inactive' / 'error' match the raw status column.
+// Keeping the exact same partition means the two pages read consistently.
+
+/** Status filter sentinel for "all statuses" — matches the admin page's '' value. */
+export const EDGE_STATUS_ALL = ''
+/** Group filter sentinels — mirror the admin page ('' = all, 'ungrouped' = no group). */
+export const EDGE_GROUP_ALL = ''
+export const EDGE_GROUP_UNGROUPED = 'ungrouped'
+
+function isFuture(ts?: string | null): boolean {
+  return !!ts && new Date(ts).getTime() > Date.now()
+}
+
+/**
+ * Whether an account matches the selected status filter. Replicates the
+ * server-side predicates so the prod-side client filter and the admin accounts
+ * page agree on what each bucket means. Unknown / '' status → always matches.
+ */
+export function matchesStatusFilter(s: EdgeAccountSummary, status: string): boolean {
+  if (!status || status === EDGE_STATUS_ALL) return true
+  const active = s.status === 'active'
+  const rateLimited = isFuture(s.rate_limit_reset_at)
+  const tempUnsched = isFuture(s.temp_unschedulable_until)
+  switch (status) {
+    case 'active':
+      // status=active AND schedulable AND not rate-limited AND not temp-unsched.
+      return active && s.schedulable && !rateLimited && !tempUnsched
+    case 'rate_limited':
+      // status=active, rate-limit window still open, not temp-unsched.
+      return active && rateLimited && !tempUnsched
+    case 'temp_unschedulable':
+      return active && tempUnsched
+    case 'unschedulable':
+      // status=active but operator-paused (schedulable=false), no live cooldown.
+      return active && !s.schedulable && !rateLimited && !tempUnsched
+    default:
+      // 'inactive' / 'error' — literal status column match.
+      return s.status === status
+  }
+}
+
+/**
+ * Whether an account matches the selected group filter. '' = all, 'ungrouped' =
+ * account belongs to no group, otherwise an exact group-name match (the edge DTO
+ * carries `groups` as names, so we filter by name).
+ */
+export function matchesGroupFilter(s: EdgeAccountSummary, group: string): boolean {
+  if (!group || group === EDGE_GROUP_ALL) return true
+  if (group === EDGE_GROUP_UNGROUPED) return !s.groups || s.groups.length === 0
+  return !!s.groups && s.groups.includes(group)
+}
+
+/**
+ * Sorted, de-duplicated set of group names present across the reachable edges'
+ * accounts — the option source for the 分组 dropdown. Derived from the live data
+ * (not the prod group catalog) so the dropdown only ever offers groups that
+ * actually appear, with no name/id mismatch against the edge-local groups.
+ */
+export function collectGroupNames(edges: EdgeAccountsResult[]): string[] {
+  const names = new Set<string>()
+  for (const e of edges) {
+    if (!e.ok) continue
+    for (const a of e.accounts) {
+      for (const g of a.groups ?? []) names.add(g)
+    }
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * Per-account presentational view-model: the three adapter outputs the row cells
+ * consume, computed once and memoized by the account object's identity. The
+ * composable's incremental merge (mergeEdges) preserves an account object's
+ * reference whenever its edge payload is byte-identical across a refresh, so this
+ * WeakMap returns the SAME vm object — keeping AccountCapacityCell /
+ * AccountUsageCell / AccountStatusIndicator props reference-stable so they skip
+ * re-rendering on unrelated reactivity ticks (auto-refresh, hover, filter change).
+ * Previously the template called toAccountLike/toWindowStats/toUsageInfo inline,
+ * minting fresh objects on every render and forcing those cells to re-render.
+ *
+ * Deliberate trade-off: with stable props, AccountStatusIndicator's time-based
+ * displays (rate-limit / overload countdowns) no longer re-tick every second —
+ * they refresh when the account's edge payload changes (the ~30s auto-refresh
+ * poll), which is exactly the per-second full-table re-render this removes. On a
+ * read-only overview that is the right call; the live per-second view is the
+ * per-edge /admin/accounts page reached via 管理账号. Do NOT "fix" a frozen
+ * countdown by dropping this memo — that reintroduces the perf regression.
+ */
+export interface EdgeAccountVm {
+  accountLike: Account
+  windowStats: WindowStats | null
+  usageInfo: AccountUsageInfo | null
+}
+
+const vmCache = new WeakMap<EdgeAccountSummary, EdgeAccountVm>()
+
+export function accountVm(s: EdgeAccountSummary): EdgeAccountVm {
+  const cached = vmCache.get(s)
+  if (cached) return cached
+  const vm: EdgeAccountVm = {
+    accountLike: toAccountLike(s),
+    windowStats: toWindowStats(s),
+    usageInfo: toUsageInfo(s)
+  }
+  vmCache.set(s, vm)
+  return vm
+}
+
 /** Extracts the today-stats as the WindowStats shape AccountTodayStatsCell wants. */
 export function toWindowStats(s: EdgeAccountSummary): WindowStats | null {
   if (!s.today_stats) return null

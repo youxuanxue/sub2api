@@ -27,6 +27,37 @@
                 <option v-for="p in PLATFORM_OPTIONS" :key="p" :value="p">{{ p }}</option>
               </select>
             </label>
+            <!-- Status + group filters narrow the already-fetched aggregate on the
+                 prod side (client-only, no per-edge re-query). Status buckets mirror
+                 the admin accounts page exactly (reuses its i18n + predicates). -->
+            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span>{{ t('admin.edgeAccounts.statusFilter') }}</span>
+              <select
+                class="input input-sm w-36"
+                :value="statusFilter"
+                @change="setStatusFilter(($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ t('admin.edgeAccounts.allStatus') }}</option>
+                <option value="active">{{ t('admin.accounts.status.active') }}</option>
+                <option value="inactive">{{ t('admin.accounts.status.inactive') }}</option>
+                <option value="error">{{ t('admin.accounts.status.error') }}</option>
+                <option value="rate_limited">{{ t('admin.accounts.status.rateLimited') }}</option>
+                <option value="temp_unschedulable">{{ t('admin.accounts.status.tempUnschedulable') }}</option>
+                <option value="unschedulable">{{ t('admin.accounts.status.unschedulable') }}</option>
+              </select>
+            </label>
+            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span>{{ t('admin.edgeAccounts.groupFilter') }}</span>
+              <select
+                class="input input-sm w-36"
+                :value="groupFilter"
+                @change="setGroupFilter(($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ t('admin.edgeAccounts.allGroups') }}</option>
+                <option value="ungrouped">{{ t('admin.edgeAccounts.ungroupedGroup') }}</option>
+                <option v-for="g in groupOptions" :key="g" :value="g">{{ g }}</option>
+              </select>
+            </label>
             <span v-if="lastFetchedAt" class="text-xs text-gray-400 dark:text-gray-500">
               {{ t('admin.edgeAccounts.lastFetched') }}: {{ formatDateTime(lastFetchedAt) }}
             </span>
@@ -136,7 +167,7 @@
         {{ error }}
       </div>
 
-      <!-- Empty -->
+      <!-- Empty: no edges discovered at all -->
       <div
         v-else-if="!edges.length"
         class="rounded-lg border border-gray-100 bg-white px-4 py-10 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400"
@@ -144,10 +175,18 @@
         {{ t('admin.edgeAccounts.noEdges') }}
       </div>
 
+      <!-- Edges exist but the active status/group filter matched nothing -->
+      <div
+        v-else-if="!displayEdges.length"
+        class="rounded-lg border border-gray-100 bg-white px-4 py-10 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400"
+      >
+        {{ t('admin.edgeAccounts.noMatch') }}
+      </div>
+
       <!-- Per-edge sections -->
       <div v-else class="space-y-5">
         <section
-          v-for="edge in edges"
+          v-for="edge in displayEdges"
           :key="edge.edge_id"
           class="overflow-hidden rounded-lg border border-gray-100 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800"
         >
@@ -244,17 +283,17 @@
                     <span v-if="acct.channel_type" class="text-gray-400 dark:text-gray-500"> · ch{{ acct.channel_type }}</span>
                   </td>
                   <td class="px-4 py-2 align-top">
-                    <AccountCapacityCell :account="toAccountLike(acct)" :today-stats="toWindowStats(acct)" />
+                    <AccountCapacityCell :account="accountVm(acct).accountLike" :today-stats="accountVm(acct).windowStats" />
                   </td>
                   <td class="px-4 py-2 align-top">
                     <AccountUsageCell
-                      :account="toAccountLike(acct)"
-                      :today-stats="toWindowStats(acct)"
-                      :usage-override="toUsageInfo(acct)"
+                      :account="accountVm(acct).accountLike"
+                      :today-stats="accountVm(acct).windowStats"
+                      :usage-override="accountVm(acct).usageInfo"
                     />
                   </td>
                   <td class="px-4 py-2 align-top">
-                    <AccountStatusIndicator :account="toAccountLike(acct)" />
+                    <AccountStatusIndicator :account="accountVm(acct).accountLike" />
                   </td>
                   <td class="px-4 py-2 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
                   <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
@@ -292,7 +331,7 @@ import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo, isTempUnschedActive } from '@/utils/edgeAccounts.tk'
+import { schedulableCount, accountVm, isTempUnschedActive } from '@/utils/edgeAccounts.tk'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
@@ -335,6 +374,7 @@ const PLATFORM_OPTIONS = GATEWAY_PLATFORMS
 const {
   platform,
   edges,
+  displayEdges,
   loading,
   error,
   lastFetchedAt,
@@ -344,6 +384,11 @@ const {
   totals,
   fetch,
   setPlatform,
+  statusFilter,
+  groupFilter,
+  groupOptions,
+  setStatusFilter,
+  setGroupFilter,
   autoRefreshEnabled,
   autoRefreshIntervalSeconds,
   autoRefreshIntervals,
