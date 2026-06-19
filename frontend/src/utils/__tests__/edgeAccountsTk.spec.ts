@@ -158,7 +158,8 @@ describe('collectGroupNames', () => {
       // Unreachable edge contributes nothing (no accounts payload to trust).
       { edge_id: 'dead', base_url: 'https://api-dead.tokenkey.dev', ok: false, stub_schedulable: true, accounts: [] }
     ]
-    expect(collectGroupNames(edges)).toEqual(['GPT 专线', 'antigravity', 'default'].sort((a, b) => a.localeCompare(b)))
+    // Concrete expected order (localeCompare): de-duped 'default', sorted, edge 'dead' excluded.
+    expect(collectGroupNames(edges)).toEqual(['antigravity', 'default', 'GPT 专线'])
   })
 })
 

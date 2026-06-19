@@ -167,6 +167,14 @@ export function collectGroupNames(edges: EdgeAccountsResult[]): string[] {
  * re-rendering on unrelated reactivity ticks (auto-refresh, hover, filter change).
  * Previously the template called toAccountLike/toWindowStats/toUsageInfo inline,
  * minting fresh objects on every render and forcing those cells to re-render.
+ *
+ * Deliberate trade-off: with stable props, AccountStatusIndicator's time-based
+ * displays (rate-limit / overload countdowns) no longer re-tick every second —
+ * they refresh when the account's edge payload changes (the ~30s auto-refresh
+ * poll), which is exactly the per-second full-table re-render this removes. On a
+ * read-only overview that is the right call; the live per-second view is the
+ * per-edge /admin/accounts page reached via 管理账号. Do NOT "fix" a frozen
+ * countdown by dropping this memo — that reintroduces the perf regression.
  */
 export interface EdgeAccountVm {
   accountLike: Account
