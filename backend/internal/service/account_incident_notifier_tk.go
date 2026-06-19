@@ -177,7 +177,12 @@ type TKAccountIncidentNotifier struct {
 	digest            map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
 	active            map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
 	recoverySentAt    map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
-	poolExhaustSentAt map[string]time.Time                   // 平台池全不可调度 P0 去重: platform -> 上次发送
+	poolExhaustSentAt map[string]time.Time                   // 平台池全不可调度 P0「待恢复」台账: platform -> 告警时刻(兼作 10min 去重)
+
+	// poolSchedulableCounter 由 RateLimitService 注入(见 ProvideTKAccountIncidentNotifier),
+	// 返回某平台当前可调度账号数。池恢复轮询据此把空池火警闭环成「池已恢复」绿卡。
+	// 为 nil 时(如单测直接构造 notifier)恢复轮询自动降级为 no-op,不影响既有空池火警。
+	poolSchedulableCounter func(ctx context.Context, platform string) (int, error)
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -203,12 +208,13 @@ func newTKAccountIncidentNotifier(cfgProvider opsFeishuConfigProvider, siteID st
 	return n
 }
 
-// Start 启动后台聚合 flush ticker。必须配对 Stop()。
+// Start 启动后台聚合 flush ticker + 池恢复轮询。必须配对 Stop()。
 func (n *TKAccountIncidentNotifier) Start() {
 	if n == nil {
 		return
 	}
 	go n.digestLoop()
+	go n.poolRecoveryLoop()
 }
 
 // Stop 优雅停 ticker,供 wire cleanup 调用。幂等。

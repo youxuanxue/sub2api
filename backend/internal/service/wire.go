@@ -959,6 +959,11 @@ func ProvideTKAccountIncidentNotifier(
 		provider = ops
 	}
 	n := newTKAccountIncidentNotifier(provider, site)
+	// 注入可调度账号计数,让 notifier 的池恢复轮询能把空池火警闭环成「池已恢复」绿卡。
+	// 必须在 Start() 前设好(虽然轮询每拍重读,设早一拍更稳)。rl 为 nil 时轮询自动 no-op。
+	if rl != nil {
+		n.SetPoolSchedulableCounter(rl.countSchedulableByPlatform)
+	}
 	n.Start()
 	if rl != nil {
 		rl.SetAccountIncidentNotifier(n)
