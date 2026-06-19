@@ -2989,6 +2989,60 @@
         "return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)"
       ],
       "rationale": "The two upstream-shaped admin aggregation methods (GetBatchUserUsageStats / GetUserSpendingRanking) now delegate to the rollup-backed readers instead of scanning the full 30-day usage_logs window. These one-line delegations are exactly the kind of edit an upstream merge could overwrite by restoring the old inline CTE/FILTER query, silently re-introducing the 845K-buffer / 2.7s regression. Pins both delegation calls."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_resolver.go",
+      "must_contain": [
+        "func NewUniversalRoutingResolver(",
+        "func (r *UniversalRoutingResolver) Resolve(",
+        "var ErrUniversalNoEntitledGroup",
+        "func pickUniversalBackingGroup("
+      ],
+      "rationale": "Universal Key (全能 Key) per-request resolver: maps a routing_mode=universal key to a concrete backing group from the owner's live entitlement span (GetAvailableGroups, short-TTL cached), filtered by endpoint-shape candidate platforms, with deterministic pick (subscription-held -> sort_order -> id). docs/approved/universal-key-routing.md. Dropping this file disables universal-key routing entirely (every universal key would fall through with a nil group). Pins the constructor, Resolve entrypoint, the no-entitled-group sentinel error, and the deterministic picker."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_endpoint_map.go",
+      "must_contain": [
+        "func UniversalShapeForRequest(",
+        "func universalCandidatePlatforms(",
+        "return OpenAICompatPlatforms()",
+        "engine.CapabilityForEndpoint(bridgeEndpoint)",
+        "func universalModelPlatformHint("
+      ],
+      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. count_tokens must stay anthropic/antigravity-only; the model->platform hint biases grok/openai/newapi within the openai-compat shape. An upstream refactor hardcoding platform slices here would silently break grok routing and trip the drift guard."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "func MaybeResolveUniversal(",
+        "apiKey.Group = backing",
+        "apiKey.GroupID = &backing.ID",
+        "c.Request.Body = io.NopCloser(bytes.NewReader(raw))"
+      ],
+      "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Removing the body-restore line corrupts every universal-key request body; removing the swap disables the feature."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth.go",
+      "must_contain": [
+        "universalResolver := apiKeyService.UniversalResolver()",
+        "if MaybeResolveUniversal(c, apiKey, universalResolver) {"
+      ],
+      "rationale": "THE load-bearing seam: MaybeResolveUniversal MUST run inside apiKeyAuthWithSubscription BEFORE the group-availability/allowed checks AND before the subscription-vs-balance decision (isSubscriptionType := apiKey.Group != nil && ...). A universal key has group_id=NULL; resolving + swapping the backing group earlier lets the existing subscription/group/balance validation run against the resolved group — otherwise subscription customers are silently billed in balance mode and bypass their plan limits (the correctness rule of the design). An upstream merge reordering or dropping this call re-opens that revenue defect."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_google.go",
+      "must_contain": [
+        "universalResolver := apiKeyService.UniversalResolver()",
+        "if MaybeResolveUniversal(c, apiKey, universalResolver) {"
+      ],
+      "rationale": "Same universal-key seam for the Gemini /v1beta auth path (APIKeyAuthWithSubscriptionGoogle): resolve + swap the backing group before validateAPIKeyGroupAvailable and the subscription/balance branch, so /v1beta universal-key requests resolve to a gemini/antigravity backing group and bill correctly. Pins the resolver construction + the pre-validation call."
+    },
+    {
+      "path": "backend/internal/server/middleware/middleware.go",
+      "must_contain": [
+        "if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {"
+      ],
+      "rationale": "RequireGroupAssignment must let universal keys through: resolvable endpoints already swapped a backing group (GroupID != nil); metadata endpoints (/v1/models GET etc.) intentionally leave GroupID nil but the key IS authorized (its span is resolved per request). Without the IsUniversal() clause, universal keys 403 on metadata endpoints. An upstream merge restoring the original two-condition guard would regress this."
     }
   ]
 }

@@ -40,6 +40,8 @@ func skipsBillingEnforcement(method, path string) bool {
 //
 // /v1/usage 端点只需鉴权，不需要计费执行（允许过期/配额耗尽的 Key 查询自身用量）。
 func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
+	// 全能 Key 解析器：用 APIKeyService 持有的共享单实例(单一跨度缓存,且随授权变更失效)。
+	universalResolver := apiKeyService.UniversalResolver()
 	return func(c *gin.Context) {
 		// ── 1. 提取 API Key ──────────────────────────────────────────
 
@@ -133,6 +135,15 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+
+		// 全能 Key（routing_mode=universal）：在分组/订阅/余额校验之前，把请求按入口端点 +
+		// 模型解析到一个后端组并就地替换为“绑定该组的普通 key”。这样下面所有现成的分组可用性 /
+		// 权限 / 订阅 / 余额判定、以及后续调度、计费、转发，都正确作用在该后端组上，零改动。
+		// 解析失败时已写出协议正确的错误并 Abort。见 universal_routing_tk.go。
+		if MaybeResolveUniversal(c, apiKey, universalResolver) {
+			return
+		}
+
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}

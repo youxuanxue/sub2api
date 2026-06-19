@@ -151,7 +151,10 @@ func GoogleErrorWriter(c *gin.Context, status int, message string) {
 func RequireGroupAssignment(settingService *service.SettingService, writeError GatewayErrorWriter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey.GroupID != nil {
+		if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {
+			// 全能 Key（universal）授权由请求级解析按权限跨度裁决：可解析端点已在认证内
+			// 替换为后端组（GroupID != nil 自然放行）；元数据端点未替换（GroupID == nil）也放行，
+			// 由 handler 回落默认。两种情况都不应被“未分组拦截”挡住。
 			c.Next()
 			return
 		}
