@@ -934,6 +934,16 @@
         "export async function getBatchPassiveUsage("
       ],
       "rationale": "Frontend client for POST /admin/accounts/usage/batch, mirroring getBatchTodayStats. Load-bearing for the accounts-list fan-out fix; if an upstream merge drops it, the composable's batch call fails to compile/resolve. Pins the exported client function."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "formData.universal = !formData.universal",
+        "v-if=\"!formData.universal\"",
+        "row.routing_mode === 'universal'",
+        "keys.universalBadge"
+      ],
+      "rationale": "Universal Key (全能 Key) create/edit surface (docs/approved/universal-key-routing.md): the default-ON toggle that, when on, hides the group picker (v-if=\"!formData.universal\") and submits routing_mode='universal' with no group_id; and the key-table badge that shows row.routing_mode==='universal' instead of the change-group affordance. KeysView.vue is a large upstream-shaped file; an upstream merge that rewrites the create form or key card could silently drop the toggle or the badge while compiling green, regressing every new key back to mandatory single-group binding. These anchors turn that backward-drift into a merge-gate failure."
     }
   ]
 }

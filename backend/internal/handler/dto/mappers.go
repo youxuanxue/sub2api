@@ -80,12 +80,17 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 	if k == nil {
 		return nil
 	}
+	routingMode := k.RoutingMode
+	if routingMode == "" {
+		routingMode = service.RoutingModeDirect // 空(老行/未设)统一呈现为 direct
+	}
 	out := &APIKey{
 		ID:            k.ID,
 		UserID:        k.UserID,
 		Key:           k.Key,
 		Name:          k.Name,
 		GroupID:       k.GroupID,
+		RoutingMode:   routingMode,
 		Status:        k.Status,
 		IPWhitelist:   k.IPWhitelist,
 		IPBlacklist:   k.IPBlacklist,

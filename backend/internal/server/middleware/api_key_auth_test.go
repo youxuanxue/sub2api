@@ -1185,12 +1185,13 @@ func (r *stubApiKeyRepo) GetRateLimitData(ctx context.Context, id int64) (*servi
 }
 
 type stubUserSubscriptionRepo struct {
-	getActive      func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error)
-	updateStatus   func(ctx context.Context, subscriptionID int64, status string) error
-	activateWindow func(ctx context.Context, id int64, start time.Time) error
-	resetDaily     func(ctx context.Context, id int64, start time.Time) error
-	resetWeekly    func(ctx context.Context, id int64, start time.Time) error
-	resetMonthly   func(ctx context.Context, id int64, start time.Time) error
+	getActive          func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error)
+	listActiveByUserID func(ctx context.Context, userID int64) ([]service.UserSubscription, error)
+	updateStatus       func(ctx context.Context, subscriptionID int64, status string) error
+	activateWindow     func(ctx context.Context, id int64, start time.Time) error
+	resetDaily         func(ctx context.Context, id int64, start time.Time) error
+	resetWeekly        func(ctx context.Context, id int64, start time.Time) error
+	resetMonthly       func(ctx context.Context, id int64, start time.Time) error
 }
 
 type fakeSettingRepo struct {
@@ -1260,7 +1261,12 @@ func (r *stubUserSubscriptionRepo) ListByUserID(ctx context.Context, userID int6
 }
 
 func (r *stubUserSubscriptionRepo) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
-	return nil, errors.New("not implemented")
+	if r.listActiveByUserID != nil {
+		return r.listActiveByUserID(ctx, userID)
+	}
+	// Default: no active subscriptions (lets GetAvailableGroups succeed for
+	// standard-group spans without forcing every test to stub this).
+	return nil, nil
 }
 
 func (r *stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {

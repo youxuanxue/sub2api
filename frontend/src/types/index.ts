@@ -578,12 +578,16 @@ export interface ModelsListConfig {
   models: string[]
 }
 
+// 全能 Key 路由模式：direct 绑定固定分组 | universal 按请求模型实时跨平台解析
+export type KeyRoutingMode = 'direct' | 'universal'
+
 export interface ApiKey {
   id: number
   user_id: number
   key: string
   name: string
   group_id: number | null
+  routing_mode?: KeyRoutingMode
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -611,6 +615,7 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
+  routing_mode?: KeyRoutingMode // 不传:无分组→universal、有分组→direct（后端推断）
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -624,6 +629,7 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
+  routing_mode?: KeyRoutingMode
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
