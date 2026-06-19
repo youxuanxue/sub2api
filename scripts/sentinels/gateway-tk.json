@@ -2874,6 +2874,15 @@
         "thinkingRefModelForAnthropicCompat(originalModel)"
       ],
       "rationale": "Wiring of the compat-path thinking-reference helper in the Gemini messages-compat signature-retry. This is the ODD-ONE-OUT call site (keys on originalModel, not mappedModel); anchoring the wrapped call ensures an upstream merge cannot silently swap it to mappedModel (which would classify the gemini backend as non-strict and skip the required thinking-block strip, 400-ing the request)."
+    },
+    {
+      "path": "backend/internal/service/admin_service.go",
+      "must_contain": [
+        "func (s *adminServiceImpl) grantExclusiveGroupMembership(ctx context.Context, groupID int64, userIDs []int64) error {",
+        "TK(exclusive-membership rate-path): keep this hook on upstream merge",
+        "TK(exclusive-membership rpm-path): keep this hook on upstream merge"
+      ],
+      "rationale": "Groups-page 专属倍率/RPM 'add user' must also grant user_allowed_groups membership for exclusive (non-subscription) standard groups, mirroring upstream's own AdminUpdateAPIKeyGroupID / ReplaceUserGroup pattern (see PR #863). Membership (user_allowed_groups, gated by User.CanBindGroup) and per-user rate (user_group_rate) are SEPARATE stores; the upstream-owned BatchSetGroupRateMultipliers / BatchSetGroupRPMOverrides only wrote the rate row, so a user added via the groups page showed up unchecked on the users page and could not bind the exclusive group. The two grant hooks are small and compile-clean if dropped, and the regression test lives in an upstream-owned file (admin_service_group_rate_test.go) so a merge could revert hook+test together silently. This TK-owned, merge-survivable sentinel pins the helper definition plus both per-path call-site markers, so an upstream merge that rewrites either method FAILS the check instead of silently reintroducing the bug."
     }
   ]
 }
