@@ -55,6 +55,13 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 	publicTaskID string,
 	body []byte,
 ) (*bridge.TaskSubmitOutcome, error) {
+	// grok (seventh platform) serves video through the native xAI OAuth video API
+	// (POST api.x.ai/v1/videos/generations), NOT the new-api task-adaptor bridge —
+	// it is channel_type=0 native OAuth with no TaskAdaptor. Branch before the
+	// bridge-eligibility / channel_type gates below, which are the newapi path.
+	if account != nil && account.IsGrok() {
+		return s.grokNativeVideoSubmit(ctx, c, account, publicTaskID, body)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointVideoSubmit) {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("channel_type")}
 	}
@@ -99,6 +106,12 @@ func (s *OpenAIGatewayService) ForwardAsVideoFetchDispatched(
 	c *gin.Context,
 	in bridge.VideoFetchInput,
 ) (*bridge.VideoFetchOutcome, error) {
+	// grok (seventh platform) poll: native xAI OAuth video poll, channel_type=0,
+	// re-resolves a fresh Bearer via in.AccountID. Branch before the bridge's
+	// channel_type>0 gate (the newapi task-adaptor path).
+	if in.Platform == PlatformGrok {
+		return s.grokNativeVideoFetch(ctx, in)
+	}
 	if in.ChannelType <= 0 || strings.TrimSpace(in.UpstreamTaskID) == "" {
 		return nil, errors.New("video fetch requires channel_type and upstream_task_id")
 	}

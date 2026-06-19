@@ -171,9 +171,12 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	account := selection.Account
-	if !engine.IsVideoSupportedChannelType(account.ChannelType) {
-		// channel_type=0 (incomplete account) and channel_type with no task
-		// adaptor (e.g. plain OpenAI account asked to do video) collapse into
+	// Platform-aware video gate: the newapi/openai path requires a channel_type
+	// whose value maps to a new-api TaskAdaptor; grok (channel_type=0 native
+	// OAuth) qualifies via its native arm. See engine.IsVideoSupportedForAccount.
+	if !engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType) {
+		// channel_type=0 non-grok (incomplete account) and channel_type with no
+		// task adaptor (e.g. plain OpenAI account asked to do video) collapse into
 		// the same user-facing error: this group is not configured for video.
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not support video generation")
 		return
@@ -355,6 +358,10 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		ChannelType:    rec.ChannelType,
 		BaseURL:        rec.BaseURL,
 		APIKey:         rec.APIKey,
+		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
+		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
+		Platform:  rec.Platform,
+		AccountID: rec.AccountID,
 	}
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {

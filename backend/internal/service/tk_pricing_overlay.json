@@ -16,6 +16,13 @@
     "output_cost_per_image": 0.07,
     "source": "xAI official API list (x.ai/api), captured 2026-06; grok-imagine-image-quality $0.05/img@1K, $0.07/img@2K — priced at the 2K worst case (conservative, never under-bills; the OpenAI /v1/images path passes no size param). Replaced the retired grok-imagine-image-pro 2026-05-15. Verify in console.x.ai."
   },
+  "grok-imagine-video": {
+    "litellm_provider": "xai",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.08,
+    "source": "xAI official video pricing (docs.x.ai/developers/models/grok-imagine-video, captured 2026-06-19): output $0.05/s base (480p text-to-video), 720p output $0.07/s, +$0.01/s when image is used as input. TK bills a single flat per-OUTPUT-second rate (no resolution/input granularity), set to the MAX reachable tier 720p+image-input = $0.07+$0.01 = $0.08/s so cheaper combos over- not under-charge (same MAX-tier convention as veo/doubao). Cross-checked live 2026-06-19 against api.x.ai/v1/videos via a grok OAuth Heavy account: a 5s text-to-video reported usage.cost_in_usd_ticks=2500000000 = $0.25 ($0.05/s), confirming 1 tick = 1e-10 USD (grok-imagine-image 2e8 ticks = its known $0.02). video_url (continuation) input is rejected at submit (unpriced under per-output-second); only first-frame image_url input is allowed. failure_billing=success_only: xAI bills generated output seconds, and TokenKey's terminal-failure refund reverses the submit-time charge.",
+    "failure_billing": "success_only"
+  },
   "grok-code-fast-1": {
     "litellm_provider": "xai",
     "mode": "chat",
