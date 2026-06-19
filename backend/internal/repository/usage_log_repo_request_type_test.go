@@ -531,6 +531,12 @@ func TestUsageLogRepositoryGetUserSpendingRanking(t *testing.T) {
 		AddRow(int64(3), 4.25, int64(5), int64(300)).
 		AddRow(int64(1), 12.5, int64(8), int64(800)).
 		AddRow(int64(2), 12.5, int64(9), int64(900))
+	// Coverage floor (userPlatformRollupFloorDay): the rollup covers from the
+	// window start or earlier, so the whole historical window is served from the
+	// rollup with no raw fallback (matches the assertions below).
+	mock.ExpectQuery("to_char\\(MIN\\(bucket_date\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow("2025-01-01"))
+
 	mock.ExpectQuery("FROM usage_dashboard_user_platform_daily").
 		WithArgs(start, end).
 		WillReturnRows(rollupRows)
