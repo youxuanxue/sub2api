@@ -19,13 +19,15 @@ func settingServiceWithMaxCooldown(val string) *SettingService {
 	return NewSettingService(&tkThrottleSettingRepo{vals: vals}, &config.Config{})
 }
 
+// DEFAULT-ON (flipped for parity with the Anthropic clamp): unset/blank/malformed/
+// negative fall back to 3600; only an explicit "0" disables it.
 func TestOpenAIMaxRateLimitCooldownSeconds(t *testing.T) {
 	ctx := context.Background()
-	require.Equal(t, 0, settingServiceWithMaxCooldown("").OpenAIMaxRateLimitCooldownSeconds(ctx), "default disabled")
-	require.Equal(t, 0, settingServiceWithMaxCooldown("0").OpenAIMaxRateLimitCooldownSeconds(ctx))
-	require.Equal(t, 0, settingServiceWithMaxCooldown("-1").OpenAIMaxRateLimitCooldownSeconds(ctx))
-	require.Equal(t, 0, settingServiceWithMaxCooldown("nope").OpenAIMaxRateLimitCooldownSeconds(ctx))
-	require.Equal(t, 3600, settingServiceWithMaxCooldown("3600").OpenAIMaxRateLimitCooldownSeconds(ctx))
+	require.Equal(t, 3600, settingServiceWithMaxCooldown("").OpenAIMaxRateLimitCooldownSeconds(ctx), "unset => default ON 3600")
+	require.Equal(t, 3600, settingServiceWithMaxCooldown("-1").OpenAIMaxRateLimitCooldownSeconds(ctx), "negative => default, never silently disable")
+	require.Equal(t, 3600, settingServiceWithMaxCooldown("nope").OpenAIMaxRateLimitCooldownSeconds(ctx), "malformed => default, never silently disable")
+	require.Equal(t, 0, settingServiceWithMaxCooldown("0").OpenAIMaxRateLimitCooldownSeconds(ctx), "explicit 0 => disabled")
+	require.Equal(t, 1800, settingServiceWithMaxCooldown("1800").OpenAIMaxRateLimitCooldownSeconds(ctx), "explicit positive override")
 }
 
 // upstream Wei-Shaw/sub2api#1981: opt-in clamp of long upstream resets.
@@ -33,16 +35,16 @@ func TestTkClampOpenAIRateLimitReset(t *testing.T) {
 	ctx := context.Background()
 	sevenDays := time.Now().Add(7 * 24 * time.Hour)
 
-	t.Run("disabled returns reset verbatim", func(t *testing.T) {
-		svc := &RateLimitService{settingService: settingServiceWithMaxCooldown("")}
+	t.Run("explicit 0 disables, returns reset verbatim", func(t *testing.T) {
+		svc := &RateLimitService{settingService: settingServiceWithMaxCooldown("0")}
 		got := svc.tkClampOpenAIRateLimitReset(ctx, 1, sevenDays)
-		require.WithinDuration(t, sevenDays, got, time.Second, "default OFF must not change the upstream reset")
+		require.WithinDuration(t, sevenDays, got, time.Second, "explicit 0 must trust the upstream reset verbatim")
 	})
 
-	t.Run("enabled clamps a far-future reset to the ceiling", func(t *testing.T) {
-		svc := &RateLimitService{settingService: settingServiceWithMaxCooldown("3600")}
+	t.Run("default-on clamps a far-future reset to now+1h", func(t *testing.T) {
+		svc := &RateLimitService{settingService: settingServiceWithMaxCooldown("")}
 		got := svc.tkClampOpenAIRateLimitReset(ctx, 1, sevenDays)
-		require.WithinDuration(t, time.Now().Add(time.Hour), got, 2*time.Second, "7d reset must be clamped to now+1h")
+		require.WithinDuration(t, time.Now().Add(time.Hour), got, 2*time.Second, "default-on must clamp a 7d reset to now+1h")
 	})
 
 	t.Run("enabled leaves a near reset untouched", func(t *testing.T) {
