@@ -179,6 +179,22 @@ const (
 	// is still limited it simply 429s again and is re-cooled. See
 	// ratelimit_service_tk_openai_reset_clamp.go (upstream Wei-Shaw/sub2api#1981).
 	SettingKeyOpenAIMaxRateLimitCooldownSeconds = "tk_openai_max_rate_limit_cooldown_seconds"
+
+	// SettingKeyAnthropicMaxRateLimitCooldownSeconds caps how long an Anthropic
+	// account may stay rate-limited from a single upstream unified-window (5h/7d)
+	// 429 reset. Unlike its OpenAI twin this is DEFAULT-ON: when unset / blank /
+	// non-numeric / negative it falls back to defaultAnthropicMaxRateLimitCooldownSeconds
+	// (3600s). An explicit "0" disables it (trust the upstream reset verbatim).
+	//
+	// Rationale (prod 2026-06, edge-us6 account oh-3-a): Anthropic's unified 7d
+	// window is rolling — utilization that was >=1.0 at the moment of the 429
+	// decays below the limit hours later as old usage ages out, but the upstream
+	// reset header points at the conservative weekly boundary (days away). Trusting
+	// it verbatim benches a recovered account for days; on a thin/SPOF edge that is
+	// a full anthropic outage. Clamping lets natural traffic re-probe the account
+	// after the ceiling (a still-exhausted window simply 429s again and re-cools).
+	// See ratelimit_service_tk_anthropic_reset_clamp.go.
+	SettingKeyAnthropicMaxRateLimitCooldownSeconds = "tk_anthropic_max_rate_limit_cooldown_seconds"
 )
 
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。
