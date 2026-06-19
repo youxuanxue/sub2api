@@ -202,7 +202,44 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_cmds "${media_storage_cmds}" '{
+# --- Image/video generation concurrency cap (prod-only) ----------------------
+# Same proven mechanism as the QA-export / media blocks above (additive,
+# grep-guarded, idempotent .env + compose-mapping patches on a LIVE host). The
+# image/video generation concurrency limiter ships DISABLED in code (a no-op),
+# leaving /v1/images/generations + /v1/video/generations exposed to a
+# "max_body_size (256MB) x unbounded concurrency" cliff. This turns it ON in prod
+# with a generous per-replica cap and reject overflow, so a burst fast-fails with
+# 429 instead of buffering unbounded large bodies (prod has no swap — see the host
+# mem-guard). The cliff is auth-gated (apiKeyAuth + group binding), so this is a
+# pre-emptive bound, not a fix for an open exploit; it pairs with media offload
+# going live, when sustained large-body generation traffic becomes likely. All
+# three knobs are env-overridable. Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`)
+# never serve generation and get [] (byte-identical command list as before).
+image_concurrency_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  image_concurrency_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg enabled "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-true}" \
+    --arg maxconc "${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}" \
+    --arg overflow "${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}" '
+    [
+      ( "ic_e=" + ($enabled|@sh) + "; ic_m=" + ($maxconc|@sh) + "; ic_o=" + ($overflow|@sh)
+        + "; for kv in \"ENABLED=$ic_e\" \"MAX_CONCURRENT_REQUESTS=$ic_m\" \"OVERFLOW_MODE=$ic_o\"; do"
+        + " key=\"GATEWAY_IMAGE_CONCURRENCY_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in ENABLED MAX_CONCURRENT_REQUESTS OVERFLOW_MODE; do grep -q \"GATEWAY_IMAGE_CONCURRENCY_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.image-concurrency-before-" + $tag + "\";"
+        + " for k in OVERFLOW_MODE MAX_CONCURRENT_REQUESTS ENABLED; do key=\"GATEWAY_IMAGE_CONCURRENCY_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q GATEWAY_IMAGE_CONCURRENCY_ENABLED \"$CF\"; then echo ensured-compose-GATEWAY_IMAGE_CONCURRENCY-mappings;"
+        + " else echo '\''::warning::failed to insert compose GATEWAY_IMAGE_CONCURRENCY mappings'\''; fi;"
+        + " else echo compose-GATEWAY_IMAGE_CONCURRENCY-mappings-present; fi; fi" )
+    ]')"
+fi
+
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
@@ -214,7 +251,7 @@ jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_c
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
     ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
-  ] + $qa_cmds + $media_cmds + [
+  ] + $qa_cmds + $media_cmds + $ic_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
