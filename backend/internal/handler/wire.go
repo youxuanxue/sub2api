@@ -176,6 +176,10 @@ func ProvideOpenAIGatewayHandler(
 	)
 	h.SetVideoTaskCache(videoTaskCache)
 	h.SetMediaStore(mediaStore)
+	// The image offload runs at the service-layer write points (ForwardImages), so
+	// the OpenAI gateway service needs the same store the handler holds for video —
+	// see service/openai_images_s3_tk.go. nil ⇒ inline base64 passthrough.
+	gatewayService.SetMediaStore(mediaStore)
 	return h
 }
 

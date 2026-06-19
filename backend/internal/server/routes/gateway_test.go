@@ -105,6 +105,26 @@ func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
 	}
 }
 
+// TestGatewayRoutesImagePresignPathsAreRegistered protects the image S3-offload
+// re-mint endpoint (Studio reload path). A regression dropping these routes would
+// silently break persisted-image refresh — reopened Studio sessions would show
+// broken thumbnails once the original presigned URL expired.
+func TestGatewayRoutesImagePresignPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+
+	for _, path := range []string{
+		"/v1/images/presign",
+		"/images/presign",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"key":"media/images/x.png"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit image presign handler", path)
+	}
+}
+
 // TestGatewayRoutesVideoGenerationPathsAreRegistered protects the four async
 // video task routes added for the fifth platform `newapi` (volcengine /
 // doubaovideo). The async task registry is required for the actual handler

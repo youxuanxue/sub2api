@@ -84,6 +84,15 @@ describe('extractImageItems', () => {
     expect(items).toEqual([{ src: 'data:image/png;base64,aGVsbG8=', revisedPrompt: undefined }])
   })
 
+  it('captures s3_key when the gateway offloaded the image (reload re-presign)', () => {
+    const items = extractImageItems({
+      data: [{ url: 'https://s3.example/media/images/abc.png', s3_key: 'media/images/abc.png' }]
+    })
+    expect(items).toEqual([
+      { src: 'https://s3.example/media/images/abc.png', revisedPrompt: undefined, s3Key: 'media/images/abc.png' }
+    ])
+  })
+
   it('returns empty for malformed payloads', () => {
     expect(extractImageItems(null)).toEqual([])
     expect(extractImageItems({ data: 'oops' })).toEqual([])

@@ -76,6 +76,13 @@ export interface PlaygroundImageItem {
   /** http(s) URL or data: URI, ready for an <img> src */
   src: string
   revisedPrompt?: string
+  /**
+   * S3 key when the gateway offloaded this image (data[].s3_key). The `src` is a
+   * short-lived presigned URL; the key lets a reloaded Studio session re-mint a
+   * fresh URL via POST /v1/images/presign without re-generating. Absent for
+   * inline data: URI images (gemini-native chat path) — those never expire.
+   */
+  s3Key?: string
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -110,11 +117,14 @@ export function extractImageItems(resp: unknown): PlaygroundImageItem[] {
     const rec = asRecord(entry)
     if (!rec) continue
     const revised = typeof rec.revised_prompt === 'string' ? rec.revised_prompt : undefined
+    // s3_key is the gateway's offload marker (see backend openai_images_s3_tk.go):
+    // the url is then a short-lived presigned link the Studio re-mints on reload.
+    const s3Key = typeof rec.s3_key === 'string' && rec.s3_key ? rec.s3_key : undefined
     // http(s) only — the src lands in <a :href>/<img :src>, so a hostile
     // upstream payload must not smuggle javascript:/data: schemes (the video
     // path applies the same guard in extractVideoUrl).
     if (typeof rec.url === 'string' && /^https?:\/\//i.test(rec.url)) {
-      items.push({ src: rec.url, revisedPrompt: revised })
+      items.push({ src: rec.url, revisedPrompt: revised, s3Key })
     } else if (typeof rec.b64_json === 'string' && withinInlineB64Cap(rec.b64_json)) {
       items.push({ src: `data:image/png;base64,${rec.b64_json}`, revisedPrompt: revised })
     }

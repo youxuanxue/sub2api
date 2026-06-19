@@ -994,6 +994,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	// so without this explicit override the client sees a JSON body labeled as
 	// SSE. Same root cause as upstream Wei-Shaw/sub2api#1311.
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// TK: offload inline-base64 images to S3 and serve a presigned URL — runs
+	// automatically (honours explicit response_format=b64_json) — see openai_images_s3_tk.go.
+	responseBody = s.tkMaybeOffloadImagesToS3(c.Request.Context(), responseBody, responseFormat)
 	c.Data(resp.StatusCode, "application/json; charset=utf-8", responseBody)
 	return usage, len(results), openAIResponsesImageResultSizes(results), nil
 }

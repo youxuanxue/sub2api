@@ -692,7 +692,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: imageOutputSizes,
 		}, nil
 	} else {
-		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
+		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c, parsed.ResponseFormat)
 		if err != nil {
 			return nil, err
 		}
@@ -853,7 +853,7 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, error) {
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context, responseFormat string) (OpenAIUsage, int, []string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
@@ -865,10 +865,20 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 			contentType = upstreamType
 		}
 	}
+	// Extract billing facts from the ORIGINAL body before any rewrite — count is by
+	// data-array length and sizes come from metadata fields, both preserved by the
+	// offload, but reading them here keeps billing independent of the transform.
+	usage, _ := extractOpenAIUsageFromJSONBytes(body)
+	imageCount := extractOpenAIImageCountFromJSONBytes(body)
+	imageSizes := collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
+
+	// TK: offload inline-base64 images to S3 and serve a presigned URL instead of
+	// streaming a multi-MB body through the gateway. Runs automatically (no client
+	// opt-in); honours an explicit response_format=b64_json — see openai_images_s3_tk.go.
+	body = s.tkMaybeOffloadImagesToS3(c.Request.Context(), body, responseFormat)
 	c.Data(resp.StatusCode, contentType, body)
 
-	usage, _ := extractOpenAIUsageFromJSONBytes(body)
-	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), nil
+	return usage, imageCount, imageSizes, nil
 }
 
 func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
