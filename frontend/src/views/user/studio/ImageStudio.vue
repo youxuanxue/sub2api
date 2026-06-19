@@ -99,7 +99,7 @@
             </div>
           </template>
           <p class="mt-1.5 text-[11px] text-gray-400 dark:text-dark-500">
-            <template v-if="isFlatImage">{{ t('studio.image.billedFlat') }}</template>
+            <template v-if="pricesFlat">{{ t('studio.image.billedFlat') }}</template>
             <template v-else>{{ t('studio.image.billedAs', { tier: classifiedTier, mult: sizeMultiplier }) }}</template>
           </p>
         </div>
@@ -293,6 +293,12 @@ const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value
 // output_cost_per_image (no 1K/2K/4K size tier, one image per request). Skip the
 // size-tier multiplier and the count stepper for these models.
 const isFlatImage = computed(() => !!selected.value?.model.flatImageBilling)
+// Flat-PRICED: no 1K/2K/4K size-tier multiplier (imagen bills Google's flat
+// official price; gemini-native is flat too). DECOUPLED from isFlatImage — which
+// additionally implies chat routing / n=1 / image-input — so imagen keeps n>1,
+// no image-input, /v1/images routing, but escapes the size multiplier. Mirrors
+// backend tkIsFlatPerImageModel.
+const pricesFlat = computed(() => isFlatImage.value || !!selected.value?.model.flatPricePerImage)
 const effectiveN = computed(() => (isFlatImage.value ? 1 : n.value))
 // Show the literal pixel size as a subtext when it differs from the ratio label
 // (Seedream); for Imagen the value IS the ratio, so no redundant subtext.
@@ -323,7 +329,7 @@ const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageCost({
     baseImagePrice: selected.value.baseImagePrice || 0,
-    size: isFlatImage.value ? '1K' : sentSize.value, // flat ⇒ ×1, no size tier
+    size: pricesFlat.value ? '1K' : sentSize.value, // flat ⇒ ×1, no size tier
     n: effectiveN.value,
     rateMultiplier: props.rateMultiplier,
   })
@@ -334,11 +340,11 @@ const estimate = computed(() => {
 // IS the flat estimate.
 const holdEstimate = computed(() => {
   if (!selected.value) return 0
-  if (isFlatImage.value) {
+  if (pricesFlat.value) {
     return estimateImageCost({
       baseImagePrice: selected.value.baseImagePrice || 0,
       size: '1K',
-      n: 1,
+      n: effectiveN.value, // gemini → 1 (n-locked); imagen → real n (multi-image, flat per image)
       rateMultiplier: props.rateMultiplier,
     })
   }
@@ -355,7 +361,7 @@ const canGenerate = computed(
 const formula = computed(() => {
   if (!selected.value) return ''
   const base = formatUsd(selected.value.baseImagePrice || 0)
-  if (isFlatImage.value) {
+  if (pricesFlat.value) {
     return t('studio.image.formulaFlat', { base, n: effectiveN.value })
   }
   return t('studio.image.formula', { base, tier: classifiedTier.value, mult: sizeMultiplier.value, n: n.value })
@@ -523,7 +529,7 @@ async function generate(): Promise<void> {
     if (!items.length) throw new Error(t('studio.image.noResult'))
     const perImage = estimateImageCost({
       baseImagePrice: resolved.baseImagePrice || 0,
-      size: isFlatImage.value ? '1K' : sentSize.value,
+      size: pricesFlat.value ? '1K' : sentSize.value,
       n: 1,
       rateMultiplier: props.rateMultiplier,
     })

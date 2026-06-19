@@ -1321,6 +1321,17 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 		basePrice = 0.134
 	}
 
+	// TK: Imagen bills at its FLAT official per-image price. Google prices Imagen
+	// as a single $/image per quality variant with NO 1K/2K/4K generation tier, so
+	// the size-tier multiplier below (real only for genuine pixel-size tiers such
+	// as Seedream) must not apply. Imagen requests carry ratio codes (no size) and
+	// default to "2K", which silently marked them up ×1.5 — this exemption removes
+	// that. Routes through the same function as the pre-flight HOLD, so settle and
+	// hold stay consistent. See tkIsFlatPerImageModel (billing_service_tk_flat_image.go).
+	if tkIsFlatPerImageModel(model) {
+		return basePrice
+	}
+
 	// 2K 尺寸 1.5 倍，4K 尺寸翻倍
 	if imageSize == "2K" {
 		return basePrice * 1.5
