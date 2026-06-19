@@ -1370,9 +1370,10 @@
       "path": "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
       "must_contain": [
         "func (s *RateLimitService) tkClampOpenAIRateLimitReset",
-        "SettingKeyOpenAIMaxRateLimitCooldownSeconds"
+        "SettingKeyOpenAIMaxRateLimitCooldownSeconds",
+        "defaultOpenAIMaxRateLimitCooldownSeconds = 3600"
       ],
-      "rationale": "TK#1981: opt-in (default OFF) clamp of long OpenAI 429 reset windows. Guards the capability against silent upstream-merge deletion."
+      "rationale": "TK#1981: default-ON (ceiling 1h, flipped for parity with the Anthropic clamp) clamp of long OpenAI/NewAPI window-exhaustion 429 reset windows. Guards the capability — and its default-on ceiling — against silent upstream-merge deletion or a default flip back to OFF."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_reset_clamp.go",

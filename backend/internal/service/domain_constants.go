@@ -170,14 +170,16 @@ const (
 	SettingKeyOpenAIImplicitThrottleCooldownSeconds = "tk_openai_implicit_throttle_cooldown_seconds"
 
 	// SettingKeyOpenAIMaxRateLimitCooldownSeconds caps how long an OpenAI-compat
-	// account may stay rate-limited from a single upstream 429 reset. Default ""
-	// / "0" = disabled (trust the upstream reset verbatim — current behavior).
-	// When set to a positive integer N, an upstream reset farther out than N
-	// seconds (e.g. a 7-day window-exhaustion reset) is clamped to now+N so the
-	// account re-enters the pool after N seconds and is re-probed by natural
-	// request traffic instead of sitting idle until the full upstream reset. If it
-	// is still limited it simply 429s again and is re-cooled. See
-	// ratelimit_service_tk_openai_reset_clamp.go (upstream Wei-Shaw/sub2api#1981).
+	// (OpenAI + NewAPI) account may stay rate-limited from a single upstream
+	// window-exhaustion 429 reset. DEFAULT-ON (ceiling 3600s), in lockstep with
+	// SettingKeyAnthropicMaxRateLimitCooldownSeconds: unset / blank / non-numeric
+	// / negative → 3600; an explicit "0" disables it (trust the upstream reset
+	// verbatim). An upstream reset farther out than the ceiling (e.g. a 7-day
+	// window-exhaustion reset) is clamped to now+ceiling so the account re-enters
+	// the pool and is re-probed by natural request traffic instead of sitting idle
+	// until the full upstream reset; if still limited it simply 429s again and is
+	// re-cooled. See ratelimit_service_tk_openai_reset_clamp.go (upstream
+	// Wei-Shaw/sub2api#1981; default flipped ON for parity with the Anthropic clamp).
 	SettingKeyOpenAIMaxRateLimitCooldownSeconds = "tk_openai_max_rate_limit_cooldown_seconds"
 
 	// SettingKeyAnthropicMaxRateLimitCooldownSeconds caps how long an Anthropic
