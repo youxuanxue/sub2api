@@ -2366,6 +2366,18 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 			return fmt.Errorf("rate_multiplier must be > 0 (user_id=%d)", e.UserID)
 		}
 	}
+	// 专属分组：先确保 entries 中的用户拥有 allowed_groups 成员资格，再写入专属倍率。
+	// 否则「在分组页通过专属倍率添加用户」只写了 user_group_rate 行、未授予访问权，用户页的
+	// 专属分组复选框仍未勾选（必须重新指定），用户实际也无法绑定该专属分组（CanBindGroup）。
+	// 先授权后写倍率：任一步失败都不会留下「有倍率无访问」的不一致态。
+	userIDs := make([]int64, 0, len(entries))
+	for _, e := range entries {
+		userIDs = append(userIDs, e.UserID)
+	}
+	// TK(exclusive-membership rate-path): keep this hook on upstream merge — pinned by scripts/sentinels/gateway-tk.json
+	if err := s.grantExclusiveGroupMembership(ctx, groupID, userIDs); err != nil {
+		return err
+	}
 	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
 }
 
@@ -2392,12 +2404,92 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupI
 			return infraerrors.BadRequest("INVALID_RPM_OVERRIDE", fmt.Sprintf("rpm_override must be >= 0 (user_id=%d)", e.UserID))
 		}
 	}
+	// 专属分组：为被设置 rpm_override（非清空）的用户补齐 allowed_groups 成员资格，
+	// 与专属倍率保持同一语义——在分组页给某用户设专属配置即视为加入该专属分组。
+	// nil（清空）条目不授权。
+	userIDs := make([]int64, 0, len(entries))
+	for _, e := range entries {
+		if e.RPMOverride != nil {
+			userIDs = append(userIDs, e.UserID)
+		}
+	}
+	// TK(exclusive-membership rpm-path): keep this hook on upstream merge — pinned by scripts/sentinels/gateway-tk.json
+	if err := s.grantExclusiveGroupMembership(ctx, groupID, userIDs); err != nil {
+		return err
+	}
 	if err := s.userGroupRateRepo.SyncGroupRPMOverrides(ctx, groupID, entries); err != nil {
 		return err
 	}
 	// RPM override 已嵌入 auth cache snapshot (v7)，变更后必须失效相关缓存。
 	if s.authCacheInvalidator != nil {
 		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+	}
+	return nil
+}
+
+// grantExclusiveGroupMembership 为指定用户增量授予某专属标准分组的 allowed_groups 成员资格。
+//
+// 背景：分组页的「专属倍率 / RPM 覆盖」弹窗只写 user_group_rate 表，而专属分组的访问权由
+// user_allowed_groups 边（user.AllowedGroups）控制。两者各自独立存储，导致「在分组页通过专属
+// 倍率添加用户」后，用户页的专属分组复选框仍未勾选、用户实际也无法绑定该专属分组。本方法把
+// 「在分组页设置专属配置」与「成为该专属分组成员」对齐，复用 AdminUpdateAPIKeyGroupID /
+// ReplaceUserGroup 既有的授权语义（s.userRepo.AddGroupToAllowedGroups 幂等、冲突忽略）。
+//
+// 仅追加、从不撤销：使用默认倍率的成员在 user_group_rate 中没有行、不会出现在弹窗列表里，
+// 若按列表反向同步成员资格会误删这些成员。成员资格的移除仍由用户页（唯一权威入口）负责。
+// 仅对专属且非订阅型的标准分组生效：公开分组人人可用、订阅型分组走订阅授权。
+// groupRepo / userRepo 为 nil（部分单测仅装配 userGroupRateRepo）时安全降级为 no-op。
+func (s *adminServiceImpl) grantExclusiveGroupMembership(ctx context.Context, groupID int64, userIDs []int64) error {
+	if len(userIDs) == 0 || s.groupRepo == nil || s.userRepo == nil {
+		return nil
+	}
+	group, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if !group.IsExclusive || group.IsSubscriptionType() {
+		return nil
+	}
+
+	// 去重，避免对同一用户重复 upsert。
+	seen := make(map[int64]struct{}, len(userIDs))
+	uniqueIDs := make([]int64, 0, len(userIDs))
+	for _, uid := range userIDs {
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
+		uniqueIDs = append(uniqueIDs, uid)
+	}
+
+	// 事务保证多用户授权的原子性（与 ReplaceUserGroup 一致；entClient 为 nil 时降级为无事务）。
+	opCtx := ctx
+	var tx *dbent.Tx
+	if s.entClient != nil {
+		var txErr error
+		tx, txErr = s.entClient.Tx(ctx)
+		if txErr != nil {
+			return fmt.Errorf("begin transaction: %w", txErr)
+		}
+		defer func() { _ = tx.Rollback() }()
+		opCtx = dbent.NewTxContext(ctx, tx)
+	}
+	for _, uid := range uniqueIDs {
+		if err := s.userRepo.AddGroupToAllowedGroups(opCtx, uid, groupID); err != nil {
+			return fmt.Errorf("add group %d to user %d allowed groups: %w", groupID, uid, err)
+		}
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit transaction: %w", err)
+		}
+	}
+
+	// allowed_groups 参与 API Key 鉴权（CanBindGroup），提交后失效受影响用户的鉴权缓存。
+	if s.authCacheInvalidator != nil {
+		for _, uid := range uniqueIDs {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, uid)
+		}
 	}
 	return nil
 }
