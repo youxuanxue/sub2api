@@ -267,13 +267,28 @@ func buildGrokVideoSubmitResponse(publicTaskID, model string) []byte {
 // videoTerminalOutcome vocabulary. xAI uses queued/processing/done/failed/
 // expired; the handler keys terminal-success retention on "success"/"succeeded"
 // and terminal-failure refund on "failure"/"failed".
+//
+// "expired" is deliberately NOT mapped to a terminal status — it falls through
+// as a non-terminal passthrough, exactly like the bridge/new-api path (whose
+// videoTerminalOutcome only recognizes failure/failed + success/succeeded and
+// never treats "expired" as terminal). The reason is money-safety on the
+// submit-time billing model: the user is charged once at submit, a "done" poll
+// is billed-and-KEPT, and "expired" can be the RESULT-TTL state observed AFTER
+// a successful "done" (the clip URL aged out). If "expired" triggered the
+// terminal-failure refund, a user who already received and was billed for a
+// "done" clip would get refunded on a later poll — a refund-after-success leak.
+// Leaving it non-terminal means a genuinely-never-completed task simply stops
+// at the record TTL (no auto-refund, same as every other video channel); the
+// rare true-expiry refund is a support action, which is the correct trade for
+// not leaking money. "canceled" stays terminal-failure: a cancel cannot follow
+// a "done", so its refund is always for an unconsumed task.
 func normalizeGrokVideoStatus(xaiStatus string) string {
 	switch strings.ToLower(strings.TrimSpace(xaiStatus)) {
 	case "done", "success", "succeeded", "completed":
 		return "success"
-	case "failed", "failure", "expired", "canceled", "cancelled":
+	case "failed", "failure", "canceled", "cancelled":
 		return "failure"
 	default:
-		return xaiStatus // queued / processing → non-terminal
+		return xaiStatus // queued / processing / expired → non-terminal (see above)
 	}
 }

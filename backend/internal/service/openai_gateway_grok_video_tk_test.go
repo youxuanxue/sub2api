@@ -25,10 +25,12 @@ func TestNormalizeGrokVideoStatus(t *testing.T) {
 		// terminal failure
 		{"failed", "failure"},
 		{"failure", "failure"},
-		{"expired", "failure"},
 		{"canceled", "failure"},
 		{"cancelled", "failure"},
-		// non-terminal: passthrough verbatim so the poller keeps polling
+		// non-terminal: passthrough verbatim so the poller keeps polling.
+		// "expired" is intentionally HERE (not failure): refunding on expired
+		// would leak money when it follows a billed-and-kept "done" (result TTL).
+		{"expired", "expired"},
 		{"queued", "queued"},
 		{"processing", "processing"},
 		{"", ""},
