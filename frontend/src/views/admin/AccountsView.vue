@@ -221,17 +221,17 @@
               <PlatformTypeBadge :platform="row.platform" :type="row.type" :plan-type="row.credentials?.plan_type" :privacy-mode="row.extra?.privacy_mode" :subscription-expires-at="row.credentials?.subscription_expires_at" />
               <ChannelTypeBadge :platform="row.platform" :channel-type="row.channel_type" />
               <span
-                v-if="getOpenAICompactLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getOpenAICompactClass(row)]"
-                :title="getOpenAICompactTitle(row)"
+                v-if="platformTypeBadgesById[row.id].openaiCompactLabel"
+                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', platformTypeBadgesById[row.id].openaiCompactClass]"
+                :title="platformTypeBadgesById[row.id].openaiCompactTitle"
               >
-                {{ getOpenAICompactLabel(row) }}
+                {{ platformTypeBadgesById[row.id].openaiCompactLabel }}
               </span>
               <span
-                v-if="getAntigravityTierLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getAntigravityTierClass(row)]"
+                v-if="platformTypeBadgesById[row.id].antigravityTierLabel"
+                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', platformTypeBadgesById[row.id].antigravityTierClass]"
               >
-                {{ getAntigravityTierLabel(row) }}
+                {{ platformTypeBadgesById[row.id].antigravityTierLabel }}
               </span>
             </div>
           </template>
@@ -1118,6 +1118,37 @@ function getAntigravityTierClass(row: any): string {
     default: return ''
   }
 }
+
+// Memoized platform_type badge derivation keyed by account id. The cell reads
+// platformTypeBadgesById[row.id] instead of calling 5 helpers (each re-walking
+// row.extra) per row on every reactivity tick. Recomputes only when the account
+// list changes; reuses the upstream helpers so each field is byte-identical to
+// the per-call path.
+const platformTypeBadgesById = computed<Record<number, {
+  openaiCompactLabel: string | null
+  openaiCompactClass: string
+  openaiCompactTitle: string
+  antigravityTierLabel: string | null
+  antigravityTierClass: string
+}>>(() => {
+  const byId: Record<number, {
+    openaiCompactLabel: string | null
+    openaiCompactClass: string
+    openaiCompactTitle: string
+    antigravityTierLabel: string | null
+    antigravityTierClass: string
+  }> = {}
+  for (const row of accounts.value) {
+    byId[row.id] = {
+      openaiCompactLabel: getOpenAICompactLabel(row),
+      openaiCompactClass: getOpenAICompactClass(row),
+      openaiCompactTitle: getOpenAICompactTitle(row),
+      antigravityTierLabel: getAntigravityTierLabel(row),
+      antigravityTierClass: getAntigravityTierClass(row),
+    }
+  }
+  return byId
+})
 
 // All available columns
 //
