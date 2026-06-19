@@ -81,8 +81,13 @@ export default defineConfig(({ mode }) => {
               return 'vendor-vue'
             }
 
+            // xlsx 仅 UsageView 导出时动态引入，单独成块，避免被绝大多数后台页面急切下载/解析（~430KB）
+            if (id.includes('/xlsx/')) {
+              return 'vendor-xlsx'
+            }
+
             // UI 工具库（较大，单独分离）
-            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
+            if (id.includes('/@vueuse/')) {
               return 'vendor-ui'
             }
 
