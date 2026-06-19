@@ -3370,9 +3370,13 @@ export default {
       allPlatforms: 'All platforms',
       statusFilter: 'Status',
       allStatus: 'All statuses',
+      statusFilterHint:
+        'Normal = both the prod stub and the edge account are healthy; every other status is an OR — shown if EITHER the prod stub or the edge account is in that state.',
       groupFilter: 'Group',
       allGroups: 'All groups',
       ungroupedGroup: 'Ungrouped',
+      groupFilterHint:
+        "Filters by the prod-side stub account's group (how prod organizes this edge), not the edge's own internal account groups.",
       noMatch: 'No accounts match the current filters.',
       manageAccounts: 'Manage accounts',
       manageFailed: 'Failed to open this edge for management',
@@ -3396,6 +3400,12 @@ export default {
       stubPaused: 'Scheduling off',
       stubPausedHint:
         'The prod-side stub for this edge is paused (关调度) — prod no longer routes traffic here, though the edge itself stays reachable.',
+      stubRateLimited: 'Stub rate-limited',
+      stubRateLimitedHint:
+        "The prod-side stub for this edge is in a rate-limit cooldown — prod's relay to this edge is throttled even if the edge's own accounts are healthy. This is also why the edge still appears under the rate-limited filter.",
+      stubTempUnsched: 'Stub temp-unschedulable',
+      stubTempUnschedHint:
+        'The prod-side stub for this edge is in a temp-unschedulable cooldown. This is also why the edge still appears under the temp-unschedulable filter.',
       cooldownRecovered: 'Recovered',
       accountIdHint: "Account ID on this edge (edge-local database primary key), used to pinpoint it when troubleshooting",
       columns: {

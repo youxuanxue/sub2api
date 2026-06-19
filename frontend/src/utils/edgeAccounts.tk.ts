@@ -83,13 +83,26 @@ export function toAccountLike(s: EdgeAccountSummary): Account {
 // --- Client-side status / group filters -------------------------------------
 //
 // The Edge Accounts page filters the already-fetched aggregate on the prod side
-// (no per-edge re-query): the backend fan-out returns every status/group, and
-// these predicates narrow the view in the browser. Status semantics MIRROR the
-// admin accounts page's server-side filter (backend/internal/repository/
-// account_repo.go applyStatusFilter): the 'active' bucket splits the
-// status='active' rows into active / rate_limited / temp_unschedulable /
-// unschedulable derived states; 'inactive' / 'error' match the raw status column.
-// Keeping the exact same partition means the two pages read consistently.
+// (no per-edge re-query): the backend fan-out returns every status/group plus the
+// PROD mirror stub's own status/group snapshot, and these predicates narrow the
+// view in the browser.
+//
+// Filter source = the PROD stub, NOT the edge-local accounts (per the page's
+// contract):
+//   - 分组: the dropdown options + filter key on the prod stub's groups
+//     (`EdgeAccountsResult.stub_groups`) — how prod organizes the fleet — so it is
+//     edge-level (one stub per edge), not per-account.
+//   - 状态: combine the prod stub's status with each edge account's own status.
+//     正常 (active) requires BOTH to be healthy; every other (abnormal) bucket is
+//     an OR — surface the row if EITHER the prod stub or the edge account is in
+//     that state.
+//
+// The per-account status partition itself MIRRORS the admin accounts page's
+// server-side filter (backend/internal/repository/account_repo.go applyStatusFilter):
+// 'active' splits the status='active' rows into active / rate_limited /
+// temp_unschedulable / unschedulable derived states; 'inactive' / 'error' match the
+// raw status column. The same predicate is reused for the stub and the account so
+// both buckets identically.
 
 /** Status filter sentinel for "all statuses" — matches the admin page's '' value. */
 export const EDGE_STATUS_ALL = ''
@@ -97,16 +110,28 @@ export const EDGE_STATUS_ALL = ''
 export const EDGE_GROUP_ALL = ''
 export const EDGE_GROUP_UNGROUPED = 'ungrouped'
 
+/**
+ * Minimal status-bearing shape both an edge account (EdgeAccountSummary) and a prod
+ * mirror stub satisfy, so matchesStatusFilter buckets them identically.
+ */
+export interface EdgeStatusBearing {
+  status: string
+  schedulable: boolean
+  rate_limit_reset_at?: string | null
+  temp_unschedulable_until?: string | null
+}
+
 function isFuture(ts?: string | null): boolean {
   return !!ts && new Date(ts).getTime() > Date.now()
 }
 
 /**
- * Whether an account matches the selected status filter. Replicates the
- * server-side predicates so the prod-side client filter and the admin accounts
- * page agree on what each bucket means. Unknown / '' status → always matches.
+ * Whether a status-bearing record (edge account OR prod stub) matches the selected
+ * status filter. Replicates the server-side predicates so the prod-side client
+ * filter and the admin accounts page agree on what each bucket means. Unknown / ''
+ * status → always matches.
  */
-export function matchesStatusFilter(s: EdgeAccountSummary, status: string): boolean {
+export function matchesStatusFilter(s: EdgeStatusBearing, status: string): boolean {
   if (!status || status === EDGE_STATUS_ALL) return true
   const active = s.status === 'active'
   const rateLimited = isFuture(s.rate_limit_reset_at)
@@ -130,31 +155,140 @@ export function matchesStatusFilter(s: EdgeAccountSummary, status: string): bool
 }
 
 /**
- * Whether an account matches the selected group filter. '' = all, 'ungrouped' =
- * account belongs to no group, otherwise an exact group-name match (the edge DTO
- * carries `groups` as names, so we filter by name).
+ * The prod mirror stub's status descriptor for an edge. The overview's 状态 filter
+ * combines THIS (prod's relay handle for the edge) with each edge account's status.
+ * status is hard-coded 'active': mirror stubs are discovered status='active' only
+ * (ListByPlatform pins it, discovery skips StatusDisabled), so the column is a
+ * provable constant and is NOT plumbed over the wire — only the genuinely-variable
+ * schedulable/cooldown fields are. schedulable=false here is the 关调度 (prod stopped
+ * routing) case the "调度已关闭" badge shows.
  */
-export function matchesGroupFilter(s: EdgeAccountSummary, group: string): boolean {
-  if (!group || group === EDGE_GROUP_ALL) return true
-  if (group === EDGE_GROUP_UNGROUPED) return !s.groups || s.groups.length === 0
-  return !!s.groups && s.groups.includes(group)
+export function edgeStubStatusBearing(e: EdgeAccountsResult): EdgeStatusBearing {
+  return {
+    status: 'active',
+    schedulable: e.stub_schedulable,
+    rate_limit_reset_at: e.stub_rate_limit_reset_at ?? null,
+    temp_unschedulable_until: e.stub_temp_unschedulable_until ?? null
+  }
 }
 
 /**
- * Sorted, de-duplicated set of group names present across the reachable edges'
- * accounts — the option source for the 分组 dropdown. Derived from the live data
- * (not the prod group catalog) so the dropdown only ever offers groups that
- * actually appear, with no name/id mismatch against the edge-local groups.
+ * Whether the prod stub's rate-limit / temp-unschedulable cooldown is STILL live.
+ * These drive the edge-header badges so a stub-driven 状态 filter match (which keeps
+ * an edge's otherwise-healthy rows via the OR) has a visible cause, the same way the
+ * "调度已关闭" badge surfaces stub_schedulable=false. A populated reset/until in the
+ * past does not count (the cooldown lapsed) — mirrors isTempUnschedActive.
  */
-export function collectGroupNames(edges: EdgeAccountsResult[]): string[] {
+export function isStubRateLimited(e: EdgeAccountsResult): boolean {
+  return isFuture(e.stub_rate_limit_reset_at)
+}
+
+export function isStubTempUnschedActive(e: EdgeAccountsResult): boolean {
+  return isFuture(e.stub_temp_unschedulable_until)
+}
+
+/**
+ * Combined status match for one edge account ROW: combine the prod stub's status
+ * with the account's own. 正常 (active) requires BOTH the prod stub AND the edge
+ * account to be healthy; every other (abnormal) bucket is an OR — surface the row
+ * if EITHER side is in that state. '' (all) always matches.
+ */
+export function matchesCombinedStatusFilter(
+  account: EdgeAccountSummary,
+  edge: EdgeAccountsResult,
+  status: string
+): boolean {
+  if (!status || status === EDGE_STATUS_ALL) return true
+  const stub = edgeStubStatusBearing(edge)
+  if (status === 'active') {
+    return matchesStatusFilter(stub, 'active') && matchesStatusFilter(account, 'active')
+  }
+  return matchesStatusFilter(stub, status) || matchesStatusFilter(account, status)
+}
+
+/**
+ * Status match for an UNREACHABLE edge (no account rows to combine): fall back to
+ * the prod stub's own status. 正常 can't be confirmed when the edge's accounts are
+ * unknown, so it is never shown under the 正常 filter; an abnormal filter shows the
+ * edge iff the stub itself is in that state. '' (all) always matches.
+ */
+export function matchesStubOnlyStatusFilter(edge: EdgeAccountsResult, status: string): boolean {
+  if (!status || status === EDGE_STATUS_ALL) return true
+  if (status === 'active') return false
+  return matchesStatusFilter(edgeStubStatusBearing(edge), status)
+}
+
+/**
+ * Whether an edge's PROD mirror stub matches the selected 分组 filter. The page
+ * filters by the prod stub's group (how prod organizes the fleet), NOT the
+ * edge-local accounts' groups: '' = all, 'ungrouped' = the stub belongs to no
+ * group, otherwise an exact stub-group-name match. Edge-level (one stub per edge).
+ */
+export function matchesStubGroupFilter(edge: EdgeAccountsResult, group: string): boolean {
+  if (!group || group === EDGE_GROUP_ALL) return true
+  const groups = edge.stub_groups
+  if (group === EDGE_GROUP_UNGROUPED) return !groups || groups.length === 0
+  return !!groups && groups.includes(group)
+}
+
+/**
+ * Sorted, de-duplicated set of PROD mirror stub group names across edges — the
+ * option source for the 分组 dropdown. Sourced from the prod stubs (the page filters
+ * by stub group) and from ALL edges including unreachable ones: a stub's group is
+ * known from the prod DB regardless of whether its edge is reachable.
+ */
+export function collectStubGroupNames(edges: EdgeAccountsResult[]): string[] {
   const names = new Set<string>()
   for (const e of edges) {
-    if (!e.ok) continue
-    for (const a of e.accounts) {
-      for (const g of a.groups ?? []) names.add(g)
-    }
+    for (const g of e.stub_groups ?? []) names.add(g)
   }
   return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * The post-filter edge list for the overview, given the active 状态 + 分组 filters.
+ * Pure (no Vue reactivity) so it is unit-testable and the composable's displayEdges
+ * computed is a thin wrapper. Encodes the Edge Accounts filter contract:
+ *   - 分组 filters edge-level by the PROD stub's group;
+ *   - 状态 combines the prod stub's status with each edge account's status (正常 =
+ *     both healthy; any other bucket = stub OR account);
+ *   - an UNREACHABLE edge keeps no account rows and is matched on the stub alone.
+ *
+ * Fast path: with NO filter active, return the input `edges` array unchanged (same
+ * reference) so the composable's incremental-merge reference stability (no re-render
+ * on auto-refresh) is preserved. A reachable edge whose accounts all filter out and
+ * whose stub alone does not match is dropped; an unfiltered view still shows
+ * reachable-but-empty edges.
+ */
+export function filterDisplayEdges(
+  edges: EdgeAccountsResult[],
+  statusFilter: string,
+  groupFilter: string
+): EdgeAccountsResult[] {
+  const statusInactive = !statusFilter || statusFilter === EDGE_STATUS_ALL
+  const groupInactive = !groupFilter || groupFilter === EDGE_GROUP_ALL
+  if (statusInactive && groupInactive) return edges
+  const out: EdgeAccountsResult[] = []
+  for (const e of edges) {
+    if (!matchesStubGroupFilter(e, groupFilter)) continue
+    if (!e.ok) {
+      if (matchesStubOnlyStatusFilter(e, statusFilter)) out.push(e)
+      continue
+    }
+    const accounts = e.accounts.filter((a) => matchesCombinedStatusFilter(a, e, statusFilter))
+    if (accounts.length === 0) {
+      // No matching account rows. A reachable edge with zero local accounts (fresh
+      // edge / all accounts deleted) is still surfaced when the prod STUB alone
+      // matches — mirroring the unreachable branch, so the "stub OR account" rule
+      // holds symmetrically (e.g. a rate-limited stub on an account-less edge). When
+      // accounts exist but the stub matches an abnormal bucket they all match via the
+      // OR, so this fallback only ever fires on a genuinely empty edge.
+      if (matchesStubOnlyStatusFilter(e, statusFilter)) out.push({ ...e, accounts })
+      continue
+    }
+    out.push({ ...e, accounts })
+  }
+  return out
 }
 
 /**

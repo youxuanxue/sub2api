@@ -90,6 +90,15 @@ export interface EdgeTodayStats {
  * prod's "route traffic to this edge / don't" switch. When false the stub was
  * 关调度 (taken out of prod rotation) while the edge itself stays reachable, so the
  * overview flags it; see backend service.EdgeAccountsResult.StubSchedulable.
+ *
+ * `stub_rate_limit_reset_at` / `stub_temp_unschedulable_until` / `stub_groups`
+ * carry the PROD mirror stub's own cooldown + group snapshot. The Edge Accounts
+ * page filters by the prod stub (prod's handle for the edge), NOT the edge-local
+ * accounts: the 分组 dropdown + filter key on `stub_groups`, and the 状态 filter
+ * combines the stub's schedulable/cooldown state with each edge account's status
+ * (正常 = stub正常 AND account正常; any other bucket = stub OR account). The stub's
+ * status column is always 'active' (active-only discovery) so it is not carried —
+ * the frontend hard-codes it. Surfaced regardless of reachability (data is prod-side).
  */
 export interface EdgeAccountsResult {
   edge_id: string
@@ -97,6 +106,9 @@ export interface EdgeAccountsResult {
   ok: boolean
   error?: string
   stub_schedulable: boolean
+  stub_rate_limit_reset_at?: string
+  stub_temp_unschedulable_until?: string
+  stub_groups?: string[]
   accounts: EdgeAccountSummary[]
 }
 

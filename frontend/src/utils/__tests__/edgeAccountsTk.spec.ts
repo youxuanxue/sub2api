@@ -3,8 +3,14 @@ import {
   isTempUnschedActive,
   toUsageInfo,
   matchesStatusFilter,
-  matchesGroupFilter,
-  collectGroupNames,
+  edgeStubStatusBearing,
+  matchesCombinedStatusFilter,
+  matchesStubOnlyStatusFilter,
+  matchesStubGroupFilter,
+  collectStubGroupNames,
+  filterDisplayEdges,
+  isStubRateLimited,
+  isStubTempUnschedActive,
   accountVm
 } from '@/utils/edgeAccounts.tk'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
@@ -22,6 +28,20 @@ function acct(over: Partial<EdgeAccountSummary>): EdgeAccountSummary {
     priority: 0,
     rate_multiplier: 1,
     created_at: '2026-06-09T00:00:00Z',
+    ...over
+  }
+}
+
+// One edge slice with a healthy, schedulable, ungrouped prod stub by default; the
+// stub_* overrides drive the group + combined-status filter cases.
+function edge(over: Partial<EdgeAccountsResult>): EdgeAccountsResult {
+  return {
+    edge_id: 'us1',
+    base_url: 'https://api-us1.tokenkey.dev',
+    ok: true,
+    stub_schedulable: true,
+    stub_groups: [],
+    accounts: [],
     ...over
   }
 }
@@ -121,45 +141,182 @@ describe('matchesStatusFilter', () => {
   })
 })
 
-describe('matchesGroupFilter', () => {
-  it('matches everything when the filter is empty (all)', () => {
-    expect(matchesGroupFilter(acct({ groups: ['default'] }), '')).toBe(true)
+describe('matchesStubGroupFilter (分组 keyed on the PROD stub, edge-level)', () => {
+  it('matches every edge when the filter is empty (all)', () => {
+    expect(matchesStubGroupFilter(edge({ stub_groups: ['default'] }), '')).toBe(true)
+    expect(matchesStubGroupFilter(edge({ stub_groups: [] }), '')).toBe(true)
   })
 
-  it('ungrouped matches only accounts with no groups', () => {
-    expect(matchesGroupFilter(acct({ groups: [] }), 'ungrouped')).toBe(true)
-    expect(matchesGroupFilter(acct({ groups: undefined }), 'ungrouped')).toBe(true)
-    expect(matchesGroupFilter(acct({ groups: ['default'] }), 'ungrouped')).toBe(false)
+  it('ungrouped matches only edges whose stub belongs to no group', () => {
+    expect(matchesStubGroupFilter(edge({ stub_groups: [] }), 'ungrouped')).toBe(true)
+    expect(matchesStubGroupFilter(edge({ stub_groups: undefined }), 'ungrouped')).toBe(true)
+    expect(matchesStubGroupFilter(edge({ stub_groups: ['default'] }), 'ungrouped')).toBe(false)
   })
 
-  it('a concrete group matches by name membership', () => {
-    expect(matchesGroupFilter(acct({ groups: ['GPT 专线', 'default'] }), 'GPT 专线')).toBe(true)
-    expect(matchesGroupFilter(acct({ groups: ['default'] }), 'antigravity')).toBe(false)
+  it('a concrete group matches by the stub-group-name membership', () => {
+    expect(matchesStubGroupFilter(edge({ stub_groups: ['GPT 专线', 'default'] }), 'GPT 专线')).toBe(true)
+    expect(matchesStubGroupFilter(edge({ stub_groups: ['default'] }), 'antigravity')).toBe(false)
+  })
+
+  it('ignores the edge-local account groups entirely (only the stub counts)', () => {
+    // Account is in 'antigravity' but the stub is ungrouped → 'antigravity' filter
+    // must NOT match: the page filters by the prod stub, not the edge accounts.
+    const e = edge({ stub_groups: [], accounts: [acct({ groups: ['antigravity'] })] })
+    expect(matchesStubGroupFilter(e, 'antigravity')).toBe(false)
+    expect(matchesStubGroupFilter(e, 'ungrouped')).toBe(true)
   })
 })
 
-describe('collectGroupNames', () => {
-  it('returns a sorted, de-duplicated set across reachable edges only', () => {
+describe('collectStubGroupNames', () => {
+  it('returns a sorted, de-duplicated set of stub groups across ALL edges (incl. unreachable)', () => {
     const edges: EdgeAccountsResult[] = [
-      {
-        edge_id: 'us3',
-        base_url: 'https://api-us3.tokenkey.dev',
-        ok: true,
-        stub_schedulable: true,
-        accounts: [acct({ groups: ['default', 'GPT 专线'] }), acct({ id: 2, groups: ['antigravity'] })]
-      },
-      {
-        edge_id: 'uk1',
-        base_url: 'https://api-uk1.tokenkey.dev',
-        ok: true,
-        stub_schedulable: true,
-        accounts: [acct({ id: 3, groups: ['default'] })]
-      },
-      // Unreachable edge contributes nothing (no accounts payload to trust).
-      { edge_id: 'dead', base_url: 'https://api-dead.tokenkey.dev', ok: false, stub_schedulable: true, accounts: [] }
+      edge({ edge_id: 'us3', stub_groups: ['default', 'GPT 专线'] }),
+      edge({ edge_id: 'uk1', stub_groups: ['default'] }),
+      // Unreachable edge STILL contributes its stub group (known from the prod DB).
+      edge({ edge_id: 'dead', ok: false, stub_groups: ['antigravity'] })
     ]
-    // Concrete expected order (localeCompare): de-duped 'default', sorted, edge 'dead' excluded.
-    expect(collectGroupNames(edges)).toEqual(['antigravity', 'default', 'GPT 专线'])
+    // localeCompare order: de-duped 'default', 'dead' edge's 'antigravity' included.
+    expect(collectStubGroupNames(edges)).toEqual(['antigravity', 'default', 'GPT 专线'])
+  })
+})
+
+describe('edgeStubStatusBearing', () => {
+  it('hard-codes status to active (stub is active-only) and maps the variable fields', () => {
+    const future = new Date(Date.now() + 60 * 1000).toISOString()
+    expect(edgeStubStatusBearing(edge({ stub_schedulable: false }))).toEqual({
+      status: 'active',
+      schedulable: false,
+      rate_limit_reset_at: null,
+      temp_unschedulable_until: null
+    })
+    expect(
+      edgeStubStatusBearing(edge({ stub_rate_limit_reset_at: future, stub_temp_unschedulable_until: future }))
+    ).toEqual({ status: 'active', schedulable: true, rate_limit_reset_at: future, temp_unschedulable_until: future })
+  })
+})
+
+describe('isStubRateLimited / isStubTempUnschedActive (edge-header badges)', () => {
+  const future = new Date(Date.now() + 60 * 1000).toISOString()
+  const past = new Date(Date.now() - 60 * 1000).toISOString()
+
+  it('true only while the stub cooldown is still in the future', () => {
+    expect(isStubRateLimited(edge({ stub_rate_limit_reset_at: future }))).toBe(true)
+    expect(isStubRateLimited(edge({ stub_rate_limit_reset_at: past }))).toBe(false)
+    expect(isStubRateLimited(edge({ stub_rate_limit_reset_at: undefined }))).toBe(false)
+    expect(isStubTempUnschedActive(edge({ stub_temp_unschedulable_until: future }))).toBe(true)
+    expect(isStubTempUnschedActive(edge({ stub_temp_unschedulable_until: past }))).toBe(false)
+    expect(isStubTempUnschedActive(edge({ stub_temp_unschedulable_until: undefined }))).toBe(false)
+  })
+})
+
+describe('matchesCombinedStatusFilter (正常 = AND, others = OR)', () => {
+  const future = new Date(Date.now() + 60 * 1000).toISOString()
+
+  it('matches every row when the filter is empty (all)', () => {
+    expect(matchesCombinedStatusFilter(acct({ status: 'error' }), edge({ stub_schedulable: false }), '')).toBe(true)
+  })
+
+  it('active requires BOTH the prod stub AND the edge account to be healthy', () => {
+    // both healthy → match
+    expect(matchesCombinedStatusFilter(acct({}), edge({}), 'active')).toBe(true)
+    // stub 关调度 (schedulable=false) → NOT 正常 even though the account is healthy
+    expect(matchesCombinedStatusFilter(acct({}), edge({ stub_schedulable: false }), 'active')).toBe(false)
+    // stub rate-limited → NOT 正常 even though the account is healthy
+    expect(matchesCombinedStatusFilter(acct({}), edge({ stub_rate_limit_reset_at: future }), 'active')).toBe(false)
+    // account paused → NOT 正常 even though the stub is healthy
+    expect(matchesCombinedStatusFilter(acct({ schedulable: false }), edge({}), 'active')).toBe(false)
+  })
+
+  it('an abnormal bucket matches if EITHER the stub OR the account is in that state', () => {
+    // stub rate-limited, account healthy → rate_limited matches (via the stub)
+    expect(matchesCombinedStatusFilter(acct({}), edge({ stub_rate_limit_reset_at: future }), 'rate_limited')).toBe(true)
+    // account rate-limited, stub healthy → rate_limited matches (via the account)
+    expect(matchesCombinedStatusFilter(acct({ rate_limit_reset_at: future }), edge({}), 'rate_limited')).toBe(true)
+    // neither rate-limited → no match
+    expect(matchesCombinedStatusFilter(acct({}), edge({}), 'rate_limited')).toBe(false)
+    // stub 关调度 → 'unschedulable' matches via the stub (the 调度已关闭 edge case)
+    expect(matchesCombinedStatusFilter(acct({}), edge({ stub_schedulable: false }), 'unschedulable')).toBe(true)
+    // account inactive → 'inactive' matches via the account (stub is always active)
+    expect(matchesCombinedStatusFilter(acct({ status: 'inactive' }), edge({}), 'inactive')).toBe(true)
+  })
+})
+
+describe('matchesStubOnlyStatusFilter (unreachable edges, stub alone)', () => {
+  const future = new Date(Date.now() + 60 * 1000).toISOString()
+
+  it('matches when the filter is empty (all)', () => {
+    expect(matchesStubOnlyStatusFilter(edge({ ok: false, stub_schedulable: false }), '')).toBe(true)
+  })
+
+  it('never shows an unreachable edge under the 正常 filter', () => {
+    expect(matchesStubOnlyStatusFilter(edge({ ok: false }), 'active')).toBe(false)
+  })
+
+  it('shows an unreachable edge under an abnormal filter iff the stub is in that state', () => {
+    expect(matchesStubOnlyStatusFilter(edge({ ok: false, stub_rate_limit_reset_at: future }), 'rate_limited')).toBe(true)
+    expect(matchesStubOnlyStatusFilter(edge({ ok: false, stub_schedulable: false }), 'unschedulable')).toBe(true)
+    expect(matchesStubOnlyStatusFilter(edge({ ok: false }), 'rate_limited')).toBe(false)
+  })
+})
+
+describe('filterDisplayEdges (orchestration)', () => {
+  const future = new Date(Date.now() + 60 * 1000).toISOString()
+
+  it('returns the SAME array reference when no filter is active (merge stability)', () => {
+    const edges = [edge({ accounts: [acct({})] })]
+    expect(filterDisplayEdges(edges, '', '')).toBe(edges)
+  })
+
+  it('drops a reachable edge whose stub group does not match', () => {
+    const edges = [
+      edge({ edge_id: 'us1', stub_groups: ['default'], accounts: [acct({})] }),
+      edge({ edge_id: 'us2', stub_groups: ['antigravity'], accounts: [acct({ id: 2 })] })
+    ]
+    const out = filterDisplayEdges(edges, '', 'default')
+    expect(out.map((e) => e.edge_id)).toEqual(['us1'])
+  })
+
+  it('keeps all accounts of an edge whose stub is rate-limited under the rate_limited filter', () => {
+    // Stub rate-limited, both accounts healthy → OR via stub keeps both rows.
+    const edges = [edge({ stub_rate_limit_reset_at: future, accounts: [acct({ id: 1 }), acct({ id: 2 })] })]
+    const out = filterDisplayEdges(edges, 'rate_limited', '')
+    expect(out).toHaveLength(1)
+    expect(out[0].accounts.map((a) => a.id)).toEqual([1, 2])
+  })
+
+  it('only keeps 正常 rows when both the stub and the account are healthy', () => {
+    const edges = [
+      edge({ edge_id: 'ok', accounts: [acct({ id: 1 }), acct({ id: 2, schedulable: false })] }),
+      // Same accounts but the stub is 关调度 → none of its rows are 正常.
+      edge({ edge_id: 'paused', stub_schedulable: false, accounts: [acct({ id: 3 })] })
+    ]
+    const out = filterDisplayEdges(edges, 'active', '')
+    expect(out.map((e) => e.edge_id)).toEqual(['ok'])
+    expect(out[0].accounts.map((a) => a.id)).toEqual([1]) // id:2 (paused account) dropped
+  })
+
+  it('matches an unreachable edge on the stub alone, gated by the group filter', () => {
+    const edges = [
+      edge({ edge_id: 'dead-rl', ok: false, stub_groups: ['default'], stub_rate_limit_reset_at: future }),
+      edge({ edge_id: 'dead-other', ok: false, stub_groups: ['antigravity'], stub_rate_limit_reset_at: future })
+    ]
+    // rate_limited + group=default → only the matching-group unreachable edge shows.
+    expect(filterDisplayEdges(edges, 'rate_limited', 'default').map((e) => e.edge_id)).toEqual(['dead-rl'])
+    // active filter hides every unreachable edge regardless of group.
+    expect(filterDisplayEdges(edges, 'active', '')).toHaveLength(0)
+  })
+
+  it('surfaces a REACHABLE-but-empty edge on the stub alone (symmetry with unreachable)', () => {
+    // Reachable edge, zero local accounts, stub rate-limited → must still show under
+    // the rate_limited filter (kept with an empty accounts array), exactly like its
+    // unreachable counterpart — honoring the "stub OR account" rule symmetrically.
+    const edges = [edge({ edge_id: 'fresh', ok: true, accounts: [], stub_rate_limit_reset_at: future })]
+    const rl = filterDisplayEdges(edges, 'rate_limited', '')
+    expect(rl.map((e) => e.edge_id)).toEqual(['fresh'])
+    expect(rl[0].accounts).toEqual([])
+    // But not under the 正常 filter (no healthy rows to confirm), nor when the stub is healthy.
+    expect(filterDisplayEdges(edges, 'active', '')).toHaveLength(0)
+    expect(filterDisplayEdges([edge({ ok: true, accounts: [] })], 'rate_limited', '')).toHaveLength(0)
   })
 })
 

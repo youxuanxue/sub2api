@@ -79,12 +79,31 @@ type edgeAccountsStore interface {
 // routing here. It is false only when the stub is reachable-but-paused; a fully
 // disabled stub is dropped from the aggregate entirely (see discoverEdgeTargets).
 type EdgeAccountsResult struct {
-	EdgeID          string            `json:"edge_id"`
-	BaseURL         string            `json:"base_url"`
-	OK              bool              `json:"ok"`
-	Error           string            `json:"error,omitempty"`
-	StubSchedulable bool              `json:"stub_schedulable"`
-	Accounts        []json.RawMessage `json:"accounts"`
+	EdgeID          string `json:"edge_id"`
+	BaseURL         string `json:"base_url"`
+	OK              bool   `json:"ok"`
+	Error           string `json:"error,omitempty"`
+	StubSchedulable bool   `json:"stub_schedulable"`
+
+	// Prod-stub status/group snapshot (TK). The read-only overview filters edges by
+	// the PROD mirror stub's own group + status — NOT the edge-local accounts' — so
+	// the operator filters the fleet the way prod organizes it (the stub is prod's
+	// handle for an edge) and judges health end-to-end (prod's relay to the edge AND
+	// the edge account). The frontend:
+	//   - 分组 dropdown + filter key on StubGroups;
+	//   - 状态 filter combines the stub's schedulable/cooldown state with each edge
+	//     account's own status (正常 = stub正常 AND account正常; any other bucket =
+	//     stub OR account).
+	// Only the GENUINELY-VARIABLE stub fields are surfaced: the stub's status column
+	// is provably constant "active" here (ListByPlatform pins status='active' and
+	// discovery additionally skips StatusDisabled), so it is not plumbed — the
+	// frontend hard-codes 'active' for the stub when reusing the shared status
+	// predicate. These ride alongside StubSchedulable (the existing "调度已关闭" badge).
+	StubRateLimitResetAt       *time.Time `json:"stub_rate_limit_reset_at,omitempty"`
+	StubTempUnschedulableUntil *time.Time `json:"stub_temp_unschedulable_until,omitempty"`
+	StubGroups                 []string   `json:"stub_groups"`
+
+	Accounts []json.RawMessage `json:"accounts"`
 }
 
 // EdgeAccountsAggregate is the full cross-edge payload returned to the admin UI.
@@ -138,6 +157,14 @@ type edgeTarget struct {
 	baseURL     string
 	apiKey      string
 	schedulable bool
+
+	// Prod-stub group + variable cooldown snapshot (TK), forwarded into
+	// EdgeAccountsResult so the overview can filter edges by the prod stub's group +
+	// combined status. The stub's status column is always "active" (active-only
+	// discovery), so it is not carried — see EdgeAccountsResult's comment.
+	rateLimitResetAt       *time.Time
+	tempUnschedulableUntil *time.Time
+	groups                 []string
 }
 
 // Aggregate returns the cross-edge account inventory for the given platform,
@@ -302,14 +329,54 @@ func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 			continue
 		}
 		seen[baseURL] = struct{}{}
+		// Keep-first per base_url: the edge's schedulable/cooldown/group snapshot is
+		// keyed to this single canonical stub. The documented topology is one
+		// cc-<edge> mirror stub per edge, so two active same-base_url stubs in
+		// different prod groups is a misconfiguration — not a multi-group edge — and
+		// only the first stub's groups drive the 分组 filter (matching the pre-existing
+		// keep-first scheduling semantics).
 		targets = append(targets, edgeTarget{
-			edgeID:      edgeIDFromBaseURL(baseURL),
-			baseURL:     baseURL,
-			apiKey:      apiKey,
-			schedulable: acct.Schedulable,
+			edgeID:                 edgeIDFromBaseURL(baseURL),
+			baseURL:                baseURL,
+			apiKey:                 apiKey,
+			schedulable:            acct.Schedulable,
+			rateLimitResetAt:       acct.RateLimitResetAt,
+			tempUnschedulableUntil: acct.TempUnschedulableUntil,
+			groups:                 stubGroupNames(acct),
 		})
 	}
 	return targets
+}
+
+// stubGroupNames extracts a prod mirror stub's group names (trimmed, blank-skipped,
+// deduped, sorted) for the overview's 分组 filter. The Edge Accounts page groups
+// edges by the PROD stub's group — prod's handle for the edge — not by the
+// edge-local accounts' own groups, so the operator filters the fleet the way prod
+// organizes it. Always returns a non-nil slice so the JSON is `[]` (not null) and
+// the ETag stays stable for an ungrouped stub. Sorting keeps the order (hence the
+// ETag) deterministic across fan-outs regardless of DB row order.
+func stubGroupNames(a *Account) []string {
+	if a == nil || len(a.Groups) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(a.Groups))
+	names := make([]string, 0, len(a.Groups))
+	for _, g := range a.Groups {
+		if g == nil {
+			continue
+		}
+		n := strings.TrimSpace(g.Name)
+		if n == "" {
+			continue
+		}
+		if _, dup := seen[n]; dup {
+			continue
+		}
+		seen[n] = struct{}{}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // isAnthropicMirrorStub mirrors AnthropicConfigReconciler.isMirrorStub: an
@@ -349,7 +416,22 @@ func edgeIDFromBaseURL(baseURL string) string {
 // x-api-key auth and an 8s timeout. Any failure → {ok:false, error}, never a
 // panic and never a failed aggregate.
 func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTarget, platform string) EdgeAccountsResult {
-	res := EdgeAccountsResult{EdgeID: t.edgeID, BaseURL: t.baseURL, StubSchedulable: t.schedulable, Accounts: []json.RawMessage{}}
+	// Stub group/cooldown ride from the target (prod DB) regardless of edge
+	// reachability — an unreachable edge still carries its prod stub's group + state
+	// so the overview can filter it. stubGroupNames guarantees a non-nil slice.
+	stubGroups := t.groups
+	if stubGroups == nil {
+		stubGroups = []string{}
+	}
+	res := EdgeAccountsResult{
+		EdgeID:                     t.edgeID,
+		BaseURL:                    t.baseURL,
+		StubSchedulable:            t.schedulable,
+		StubRateLimitResetAt:       t.rateLimitResetAt,
+		StubTempUnschedulableUntil: t.tempUnschedulableUntil,
+		StubGroups:                 stubGroups,
+		Accounts:                   []json.RawMessage{},
+	}
 	if a.http == nil {
 		res.Error = "no http client"
 		return res

@@ -15,11 +15,16 @@
             <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('admin.edgeAccounts.title') }}</h1>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.edgeAccounts.description') }}</p>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <!-- Compact single-row filter bar: narrowed selects (uniform w-32 instead of
+               w-36, px-3 instead of the .input default px-4) + tighter gaps keep 平台/
+               状态/分组/最近拉取/自动刷新/刷新 on one line instead of wrapping 刷新 to a second
+               row. w-32 still fits the longest option of each fixed-vocabulary select
+               (platform 'antigravity', status '临时不可调度', group '未分配分组'). -->
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+            <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
               <span>{{ t('admin.edgeAccounts.platformFilter') }}</span>
               <select
-                class="input input-sm w-36"
+                class="input w-32 px-3"
                 :value="platform"
                 @change="setPlatform(($event.target as HTMLSelectElement).value)"
               >
@@ -28,12 +33,17 @@
               </select>
             </label>
             <!-- Status + group filters narrow the already-fetched aggregate on the
-                 prod side (client-only, no per-edge re-query). Status buckets mirror
-                 the admin accounts page exactly (reuses its i18n + predicates). -->
-            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                 prod side (client-only, no per-edge re-query). 分组 keys on the PROD
+                 stub's group; 状态 combines the prod stub's status with each edge
+                 account's status (see useTkEdgeAccounts / edgeAccounts.tk.ts). The
+                 hint titles spell the semantics out for the operator. -->
+            <label
+              class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+              :title="t('admin.edgeAccounts.statusFilterHint')"
+            >
               <span>{{ t('admin.edgeAccounts.statusFilter') }}</span>
               <select
-                class="input input-sm w-36"
+                class="input w-32 px-3"
                 :value="statusFilter"
                 @change="setStatusFilter(($event.target as HTMLSelectElement).value)"
               >
@@ -46,10 +56,13 @@
                 <option value="unschedulable">{{ t('admin.accounts.status.unschedulable') }}</option>
               </select>
             </label>
-            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <label
+              class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+              :title="t('admin.edgeAccounts.groupFilterHint')"
+            >
               <span>{{ t('admin.edgeAccounts.groupFilter') }}</span>
               <select
-                class="input input-sm w-36"
+                class="input w-32 px-3"
                 :value="groupFilter"
                 @change="setGroupFilter(($event.target as HTMLSelectElement).value)"
               >
@@ -205,6 +218,25 @@
               >
                 {{ t('admin.edgeAccounts.stubPaused') }}
               </span>
+              <!-- The prod stub's own cooldown (rate-limit / temp-unschedulable) is
+                   live: prod's relay to this edge is throttled even though the edge
+                   itself may be reachable. Surfaced so a stub-driven 状态 filter match —
+                   which keeps the edge's otherwise-healthy rows via the stub-OR-account
+                   rule — has a visible cause, the same way the 调度已关闭 badge does. -->
+              <span
+                v-if="isStubRateLimited(edge)"
+                class="inline-flex flex-shrink-0 items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                :title="t('admin.edgeAccounts.stubRateLimitedHint')"
+              >
+                {{ t('admin.edgeAccounts.stubRateLimited') }}
+              </span>
+              <span
+                v-if="isStubTempUnschedActive(edge)"
+                class="inline-flex flex-shrink-0 items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                :title="t('admin.edgeAccounts.stubTempUnschedHint')"
+              >
+                {{ t('admin.edgeAccounts.stubTempUnsched') }}
+              </span>
               <span class="truncate text-xs text-gray-400 dark:text-gray-500">{{ edge.base_url }}</span>
             </div>
             <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
@@ -331,7 +363,13 @@ import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { schedulableCount, accountVm, isTempUnschedActive } from '@/utils/edgeAccounts.tk'
+import {
+  schedulableCount,
+  accountVm,
+  isTempUnschedActive,
+  isStubRateLimited,
+  isStubTempUnschedActive
+} from '@/utils/edgeAccounts.tk'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
