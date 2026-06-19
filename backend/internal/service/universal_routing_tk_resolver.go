@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -221,14 +220,4 @@ func lessUniversalBacking(a, b Group) bool {
 		return a.SortOrder < b.SortOrder
 	}
 	return a.ID < b.ID
-}
-
-// UniversalNoEntitledGroupError 把内部哨兵错误包装成带 HTTP 语义（403）的业务错误，
-// 供需要结构化错误码的调用方使用。middleware 直接按协议写形状，无需用它。
-func UniversalNoEntitledGroupError(model string) error {
-	msg := "no platform in your plan can serve this request"
-	if model != "" {
-		msg = "no platform in your plan can serve model " + strconv.Quote(model)
-	}
-	return infraerrors.Forbidden("UNIVERSAL_NO_ENTITLED_GROUP", msg)
 }

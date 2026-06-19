@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,9 +21,13 @@ import (
 
 type stubSpanLister struct {
 	groups []service.Group
+	err    error
 }
 
 func (s *stubSpanLister) GetAvailableGroups(_ context.Context, _ int64) ([]service.Group, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	return s.groups, nil
 }
 
@@ -234,6 +239,25 @@ func TestMaybeResolveUniversal_SwapsToSubscriptionGroupForBilling(t *testing.T) 
 	}
 	if apiKey.Group == nil || !apiKey.Group.IsSubscriptionType() {
 		t.Fatalf("swapped group must be subscription-type so downstream bills under the plan; got %+v", apiKey.Group)
+	}
+}
+
+// R-002 regression: a span-load/internal failure must surface as 500 (retryable),
+// NOT a 403 "no platform in your plan" (which would mislabel a server error as an
+// entitlement problem).
+func TestMaybeResolveUniversal_InternalErrorIs500Not403(t *testing.T) {
+	c, w := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{err: errors.New("database unavailable")})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); !handled {
+		t.Fatalf("internal error should be handled (aborted)")
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("span-load failure should be 500, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "universal_no_entitled_group") {
+		t.Fatalf("internal error must not be mislabeled as no-entitled-group: %s", w.Body.String())
 	}
 }
 

@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -60,7 +61,13 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 
 	backing, err := resolver.Resolve(c.Request.Context(), apiKey, shape, model, forcedPlatform)
 	if err != nil {
-		writeUniversalRoutingError(c, shape, model)
+		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
+		// 后者不该被伪装成“该模型不在你的套餐内”。
+		if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
+			writeUniversalRoutingError(c, shape, model)
+		} else {
+			writeUniversalRoutingInternalError(c, shape)
+		}
 		c.Abort()
 		return true
 	}
@@ -152,6 +159,27 @@ func writeUniversalRoutingError(c *gin.Context, shape service.UniversalShape, mo
 				"message": msg,
 				"type":    "invalid_request_error",
 				"code":    "universal_no_entitled_group",
+			},
+		})
+	}
+}
+
+// writeUniversalRoutingInternalError 按入口协议形状写出 500：跨度加载/内部失败,而非授权问题。
+// 区别于 writeUniversalRoutingError(403),避免把可重试的服务端错误伪装成“不在你的套餐内”。
+func writeUniversalRoutingInternalError(c *gin.Context, shape service.UniversalShape) {
+	const status = http.StatusInternalServerError
+	const msg = "Failed to resolve a backing platform for this request. Please retry."
+	switch shape {
+	case service.ShapeGemini:
+		GoogleErrorWriter(c, status, msg)
+	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+		AnthropicErrorWriter(c, status, msg)
+	default:
+		c.JSON(status, gin.H{
+			"error": gin.H{
+				"message": msg,
+				"type":    "api_error",
+				"code":    "universal_routing_internal_error",
 			},
 		})
 	}
