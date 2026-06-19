@@ -2883,6 +2883,25 @@
         "TK(exclusive-membership rpm-path): keep this hook on upstream merge"
       ],
       "rationale": "Groups-page 专属倍率/RPM 'add user' must also grant user_allowed_groups membership for exclusive (non-subscription) standard groups, mirroring upstream's own AdminUpdateAPIKeyGroupID / ReplaceUserGroup pattern (see PR #863). Membership (user_allowed_groups, gated by User.CanBindGroup) and per-user rate (user_group_rate) are SEPARATE stores; the upstream-owned BatchSetGroupRateMultipliers / BatchSetGroupRPMOverrides only wrote the rate row, so a user added via the groups page showed up unchecked on the users page and could not bind the exclusive group. The two grant hooks are small and compile-clean if dropped, and the regression test lives in an upstream-owned file (admin_service_group_rate_test.go) so a merge could revert hook+test together silently. This TK-owned, merge-survivable sentinel pins the helper definition plus both per-path call-site markers, so an upstream merge that rewrites either method FAILS the check instead of silently reintroducing the bug."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_thin_pool_guard.go",
+      "must_contain": [
+        "var ErrThinPoolAllExcluded = errors.New(\"thin pool all excluded\")",
+        "func (s *SettingService) IsThinPoolTransientRetryEnabled(ctx context.Context) bool {",
+        "func (s *GatewayService) tkThinPoolAllExcluded(ctx context.Context, totalAccounts, filteredExcluded, otherFiltersSum int) bool {",
+        "return filteredExcluded > 0 && otherFiltersSum == 0"
+      ],
+      "rationale": "Thin-pool failover-exclusion guard (P1, prod opus 2026-06-19). On a single-account pool a transient upstream stream error (Anthropic mid-stream overloaded/rate_limit wrapped as a 502 UpstreamFailoverError, RetryableOnSameAccount=false) excludes the lone account, empties the Layer-2 candidate pool, and surfaces a synthetic 429 'No available accounts' even though the account is healthy — measured at ~82% of prod opus errors over a 4h window vs 0 real 529 / 1 real 429. This TK-owned companion holds the ErrThinPoolAllExcluded sentinel, the default-on kill-switch reader (IsThinPoolTransientRetryEnabled), the configurable pool-size ceiling (ThinPoolMaxAccounts), and the exclusion-only predicate (tkThinPoolAllExcluded fires ONLY when total<=ceiling, filtered_excluded>0, and every other per-gate counter ==0 — so a real cooldown/quota/RPM emptiness is respected, not bypassed). If an upstream merge or refactor drops this file or weakens the otherFiltersSum==0 condition, the guard silently regresses to fast-fail-429 and re-opens the self-inflicted empty pool."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "account_scheduling_thin_pool_all_excluded",
+        "if s.tkThinPoolAllExcluded(ctx, len(accounts), filteredExcluded, otherFilters) {",
+        "return nil, ErrThinPoolAllExcluded"
+      ],
+      "rationale": "Injection point of the thin-pool guard inside the Layer-2 load-balance empty-pool branch of SelectAccountWithLoadAwareness (right after the #845 account_scheduling_loadbalance_no_candidates WARN). It sums every non-exclusion per-gate counter into otherFilters and, on a thin exclusion-only empty pool, returns ErrThinPoolAllExcluded instead of ErrNoAvailableAccounts so the handler's HandleSelectionExhausted retries the lone account (short backoff, bounded by MaxSwitches) rather than fast-failing with a client 429. Single-block insertion into an upstream-shaped file; an upstream merge resolving this branch could silently drop it. Pins the predicate call + sentinel return + WARN marker."
     }
   ]
 }

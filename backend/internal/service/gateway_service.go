@@ -2332,6 +2332,25 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			"filtered_window_cost", filteredWindowCost,
 			"filtered_rpm", filteredRPM,
 		)
+		// TK thin-pool guard: when a thin pool emptied SOLELY because this
+		// request's failover excluded its account(s) — nothing removed by
+		// cooldown/unschedulable, quota, RPM, window, model, or platform — return
+		// a distinct sentinel so the handler retries the lone account after a
+		// short backoff instead of fast-failing with a synthetic "No available
+		// accounts" 429. See gateway_service_tk_thin_pool_guard.go.
+		otherFilters := filteredUnsched + filteredPlatform + filteredModelMapping +
+			filteredModelScope + filteredQuota + filteredWindowCost + filteredRPM
+		if s.tkThinPoolAllExcluded(ctx, len(accounts), filteredExcluded, otherFilters) {
+			slog.Warn("account_scheduling_thin_pool_all_excluded",
+				"group_id", derefGroupID(groupID),
+				"platform", platform,
+				"model", requestedModel,
+				"session", shortSessionHash(sessionHash),
+				"total_accounts", len(accounts),
+				"filtered_excluded", filteredExcluded,
+			)
+			return nil, ErrThinPoolAllExcluded
+		}
 		return nil, ErrNoAvailableAccounts
 	}
 
