@@ -1352,6 +1352,7 @@
       "must_contain": [
         "tkIsAnthropicClientInducedBadRequest(responseBody)",
         "s.tkClampOpenAIRateLimitReset(ctx, account.ID",
+        "s.tkClampAnthropicWindowReset(ctx, account.ID",
         "tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody)",
         "anthropic_downstream_no_available_accounts_skip_penalty"
       ],
@@ -1372,6 +1373,15 @@
         "SettingKeyOpenAIMaxRateLimitCooldownSeconds"
       ],
       "rationale": "TK#1981: opt-in (default OFF) clamp of long OpenAI 429 reset windows. Guards the capability against silent upstream-merge deletion."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_reset_clamp.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkClampAnthropicWindowReset",
+        "SettingKeyAnthropicMaxRateLimitCooldownSeconds",
+        "defaultAnthropicMaxRateLimitCooldownSeconds = 3600"
+      ],
+      "rationale": "TK (sibling of #1981, default-ON ceiling 1h): clamp of long Anthropic unified 5h/7d 429 reset windows. Anthropic's 7d window is rolling, so the upstream reset (a conservative weekly boundary) far outlives the account's actual recovery; without the clamp a recovered account is benched for days (prod 2026-06 edge-us6 oh-3-a). Guards the capability — and its default-on ceiling — against silent upstream-merge deletion or a default flip back to OFF."
     },
     {
       "path": "backend/internal/service/openai_gateway_tk_failover_encrypted_reasoning.go",
