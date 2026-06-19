@@ -24,6 +24,14 @@ type OpsTopErrorCause struct {
 	Count          int64
 }
 
+// OpsRoutingRejectionCause is one platform bucket of routing-phase capacity
+// rejections, used to name the empty pool(s) on a
+// routing_capacity_rejection_count P0 card.
+type OpsRoutingRejectionCause struct {
+	Platform string
+	Count    int64
+}
+
 // opsTopCauseMetricTypes are the rule metric types for which a top-cause
 // breakdown is meaningful (rate metrics over ops_error_logs). Other rule types
 // (system gauges, group-availability counts) get no breakdown — keeping the
@@ -59,6 +67,22 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 	}
 	if s.opsRepo == nil {
 		return ""
+	}
+	// routing_capacity_rejection_count's cause is WHICH platform pool(s) ran out
+	// of capacity — derived from the routing-phase rows themselves, not the
+	// (model, owner, upstream_status) breakdown the error-rate metrics use.
+	if metricType == "routing_capacity_rejection_count" {
+		causes, err := s.opsRepo.TopRoutingCapacityRejectionCauses(ctx, &OpsDashboardFilter{
+			StartTime: start,
+			EndTime:   end,
+			Platform:  platform,
+			GroupID:   groupID,
+			QueryMode: OpsQueryModeRaw,
+		}, 2)
+		if err != nil || len(causes) == 0 {
+			return ""
+		}
+		return formatRoutingRejectionCause(causes)
 	}
 	if !opsTopCauseApplies(metricType) {
 		return ""
@@ -106,6 +130,27 @@ func formatOpsTopCause(causes []*OpsTopErrorCause) string {
 			seg += fmt.Sprintf("（%s）", owner)
 		}
 		parts = append(parts, seg)
+		if len(parts) >= 2 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// formatRoutingRejectionCause renders the top routing-rejection platforms as a
+// compact one-line cause, e.g. "anthropic ×40 · openai ×15". The on-call reads
+// it as "these pools are out of capacity — add accounts / check that edge".
+func formatRoutingRejectionCause(causes []*OpsRoutingRejectionCause) string {
+	parts := make([]string, 0, 2)
+	for _, c := range causes {
+		if c == nil || c.Count <= 0 {
+			continue
+		}
+		platform := strings.TrimSpace(c.Platform)
+		if platform == "" {
+			platform = "(unknown)"
+		}
+		parts = append(parts, fmt.Sprintf("%s ×%d", platform, c.Count))
 		if len(parts) >= 2 {
 			break
 		}

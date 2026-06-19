@@ -26,6 +26,17 @@ type OpsRepository interface {
 	GetRealtimeTrafficSummary(ctx context.Context, filter *OpsDashboardFilter) (*OpsRealtimeTrafficSummary, error)
 
 	GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error)
+	// TK (empty-pool-429 alert blind spot): count of routing/scheduling-phase
+	// capacity rejections (error_phase='routing' — empty-pool fast-fail 429 +
+	// relayed mirror-edge downstream-capacity) over the filter window/scope.
+	// Drives the routing_capacity_rejection_count P0 alert; see
+	// CountRoutingCapacityRejections impl + tk_035 seed.
+	CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error)
+	// TopRoutingCapacityRejectionCauses returns the top-N platforms by
+	// routing-phase rejection count over the filter window/scope, so a fired
+	// routing_capacity_rejection_count P0 card can name WHICH pool is empty
+	// (self-diagnosing, like the pool_load_rate / error-rate cards).
+	TopRoutingCapacityRejectionCauses(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionCause, error)
 	GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error)
 	GetLatencyHistogram(ctx context.Context, filter *OpsDashboardFilter) (*OpsLatencyHistogramResponse, error)
 	GetErrorTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsErrorTrendResponse, error)

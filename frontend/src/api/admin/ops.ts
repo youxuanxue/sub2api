@@ -687,6 +687,7 @@ export type MetricType =
   | 'memory_usage_percent'
   | 'concurrency_queue_depth'
   | 'pool_load_rate'
+  | 'routing_capacity_rejection_count'
   | 'group_available_accounts'
   | 'group_available_ratio'
   | 'group_rate_limit_ratio'

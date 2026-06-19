@@ -75,4 +75,44 @@ func TestOpsTopCauseApplies(t *testing.T) {
 	require.False(t, opsTopCauseApplies("success_rate"))
 	require.False(t, opsTopCauseApplies("group_available_accounts"))
 	require.False(t, opsTopCauseApplies(""))
+	// routing_capacity_rejection_count has its OWN cause path (by platform, not
+	// the model/owner breakdown), so it must NOT be in opsTopCauseApplies.
+	require.False(t, opsTopCauseApplies("routing_capacity_rejection_count"))
+}
+
+// TestFormatRoutingRejectionCause pins the empty-pool P0 card's 主因 line: which
+// platform pool(s) ran out of capacity, so the on-call knows where to add
+// accounts / which edge to check without drilling the dashboard.
+func TestFormatRoutingRejectionCause(t *testing.T) {
+	t.Run("two platforms joined", func(t *testing.T) {
+		require.Equal(t, "anthropic ×40 · openai ×15", formatRoutingRejectionCause([]*OpsRoutingRejectionCause{
+			{Platform: "anthropic", Count: 40},
+			{Platform: "openai", Count: 15},
+		}))
+	})
+
+	t.Run("capped at two even if more passed", func(t *testing.T) {
+		require.Equal(t, "anthropic ×40 · openai ×15", formatRoutingRejectionCause([]*OpsRoutingRejectionCause{
+			{Platform: "anthropic", Count: 40},
+			{Platform: "openai", Count: 15},
+			{Platform: "gemini", Count: 3},
+		}))
+	})
+
+	t.Run("blank platform defaults safely", func(t *testing.T) {
+		require.Equal(t, "(unknown) ×5", formatRoutingRejectionCause([]*OpsRoutingRejectionCause{
+			{Platform: "", Count: 5},
+		}))
+	})
+
+	t.Run("non-positive counts skipped", func(t *testing.T) {
+		require.Equal(t, "anthropic ×40", formatRoutingRejectionCause([]*OpsRoutingRejectionCause{
+			{Platform: "openai", Count: 0},
+			{Platform: "anthropic", Count: 40},
+		}))
+	})
+
+	t.Run("empty input is empty string", func(t *testing.T) {
+		require.Equal(t, "", formatRoutingRejectionCause(nil))
+	})
 }
