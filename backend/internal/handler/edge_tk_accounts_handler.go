@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -12,7 +11,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/errgroup"
 )
 
 // edgeAccountsMaxPageSize bounds the single-page listing. Edges host a handful
@@ -86,6 +84,17 @@ type edgeUsageReader interface {
 	// passive samples (Extra), with NO upstream Anthropic API call — the same
 	// "被动采样" source the per-edge admin page shows.
 	GetPassiveUsage(ctx context.Context, accountID int64) (*service.UsageInfo, error)
+	// GetAccountWindowCostsBatch computes current-window StandardCost for the
+	// Anthropic OAuth/SetupToken accounts in one bucketed batch query (by
+	// GetCurrentWindowStartTime), replacing the per-account GetAccountWindowStats
+	// fan-out. Same semantics/filter as the prod admin list
+	// (handler/admin/account_handler.go) — failure-open, missing accounts omitted.
+	GetAccountWindowCostsBatch(ctx context.Context, accounts []service.Account) map[int64]float64
+	// GetPassiveUsageBatch builds the passive 5h/7d usage windows for many accounts
+	// in one pass, prefetching window stats per window-start bucket so the per-row
+	// addWindowStats aggregation no longer fans out. Byte-identical to looping
+	// GetPassiveUsage; accounts it cannot serve passively are omitted.
+	GetPassiveUsageBatch(ctx context.Context, accountIDs []int64) map[int64]*service.UsageInfo
 }
 
 // EdgeAccountsHandler serves the TokenKey read-only "edge accounts" endpoint
@@ -392,28 +401,11 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		}
 	}
 	if len(windowCostIDs) > 0 && h.usage != nil {
-		g.windowCost = make(map[int64]float64)
-		var mu sync.Mutex
-		eg, egctx := errgroup.WithContext(ctx)
-		eg.SetLimit(10)
-		for i := range accounts {
-			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
-				continue
-			}
-			accCopy := acc
-			eg.Go(func() error {
-				startTime := accCopy.GetCurrentWindowStartTime()
-				stats, err := h.usage.GetAccountWindowStats(egctx, accCopy.ID, startTime)
-				if err == nil && stats != nil {
-					mu.Lock()
-					g.windowCost[accCopy.ID] = stats.StandardCost
-					mu.Unlock()
-				}
-				return nil // partial failure tolerated
-			})
-		}
-		_ = eg.Wait()
+		// Bucket by window-start and run one batch aggregation per distinct start
+		// (same as the prod admin list) instead of one GetAccountWindowStats per
+		// OAuth account — edges hold the real OAuth pool, so this is where the N+1
+		// actually bites. Failure-open; missing accounts simply omitted.
+		g.windowCost = h.usage.GetAccountWindowCostsBatch(ctx, accounts)
 	}
 
 	// Passive 5h/7d usage windows: read from persisted Extra samples (no upstream
@@ -421,30 +413,18 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 	// openai OAuth (codex) rebuild from codex_*_used_percent samples. Both go
 	// through GetPassiveUsage, which dispatches by platform. Other platforms have
 	// no passive window source here, so they are skipped (the cell shows "-").
-	// errgroup-bounded like window-cost.
+	// One batch call prefetches the window stats per window-start bucket, so the
+	// passive path no longer fans out an aggregation per OAuth account.
 	if h.usage != nil {
-		var mu sync.Mutex
-		eg, egctx := errgroup.WithContext(ctx)
-		eg.SetLimit(10)
-		usage := make(map[int64]*service.UsageInfo)
+		ids := make([]int64, 0, len(accounts))
 		for i := range accounts {
 			acc := &accounts[i]
 			if !acc.IsAnthropicOAuthOrSetupToken() && !acc.IsOpenAIOAuth() {
 				continue
 			}
-			id := acc.ID
-			eg.Go(func() error {
-				info, err := h.usage.GetPassiveUsage(egctx, id)
-				if err == nil && info != nil {
-					mu.Lock()
-					usage[id] = info
-					mu.Unlock()
-				}
-				return nil // partial failure tolerated
-			})
+			ids = append(ids, acc.ID)
 		}
-		_ = eg.Wait()
-		if len(usage) > 0 {
+		if usage := h.usage.GetPassiveUsageBatch(ctx, ids); len(usage) > 0 {
 			g.usageWindows = usage
 		}
 	}
