@@ -13,7 +13,7 @@ import (
 //   - auth_method must be one of {"social", "idc"}
 //   - when auth_method=="idc", client_id and client_secret are required
 //   - credentials.tos_acknowledged must be true (string "true" or bool true) —
-//     this is the first of two ToS gates (the second is IsKiroEnabled at forward time).
+//     the ToS acknowledgement gate for creating a Kiro account.
 //
 // Non-kiro platforms pass through unchanged.
 func tkValidateKiroAccountCreate(platform string, credentials map[string]any) string {

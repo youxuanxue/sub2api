@@ -131,14 +131,13 @@
       "must_contain": [
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
-        "IsKiroEnabled",
         "kiroproto.EstimateInputTokens",
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
         "classifyKiroForwardError"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream and enforces the second ToS/enable gate (IsKiroEnabled). It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The `callErr != nil && !enc.started` guard + classifyKiroForwardError are equally load-bearing: message_start is emitted lazily (see kiro_sse_encoder ensureBlock/writeToolUse), so an upstream failure before any content arrives surfaces a typed error instead of the old empty-but-200 SSE stream (the 'pre-content 400 returns a clean 200 lie' bug). An upstream merge that drops the estimate/BillingTier wiring (regresses kiro to free billing), reintroduces an eager enc.writeMessageStart() before the upstream call, or drops the classifier, regresses one of these."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The `callErr != nil && !enc.started` guard + classifyKiroForwardError are equally load-bearing: message_start is emitted lazily (see kiro_sse_encoder ensureBlock/writeToolUse), so an upstream failure before any content arrives surfaces a typed error instead of the old empty-but-200 SSE stream (the 'pre-content 400 returns a clean 200 lie' bug). An upstream merge that drops the estimate/BillingTier wiring (regresses kiro to free billing), reintroduces an eager enc.writeMessageStart() before the upstream call, or drops the classifier, regresses one of these."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
@@ -165,15 +164,7 @@
         "func tkValidateKiroAccountCreate",
         "tos_acknowledged"
       ],
-      "rationale": "First of the two ToS gates: account creation is rejected unless credentials.tos_acknowledged is true. Losing this lets kiro accounts be created without explicit ToS acknowledgement (compliance regression)."
-    },
-    {
-      "path": "backend/internal/service/setting_service_tk_kiro.go",
-      "must_contain": [
-        "func (s *SettingService) IsKiroEnabled",
-        "SettingKeyKiroEnabled"
-      ],
-      "rationale": "The default-off kiro enable flag read by the Forward gate. Losing it would either hard-disable kiro or (if defaulted wrong) enable outbound forwarding without the operator opt-in."
+      "rationale": "ToS gate: account creation is rejected unless credentials.tos_acknowledged is true. Losing this lets kiro accounts be created without explicit ToS acknowledgement (compliance regression)."
     },
     {
       "path": "backend/internal/service/kiro_token_refresher.go",

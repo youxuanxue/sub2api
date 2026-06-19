@@ -5951,13 +5951,6 @@ export default {
         payment: 'Payment',
       },
       features: {
-        kiro: {
-          title: 'Kiro (Sixth Platform)',
-          description: 'Gateway forwarding for AWS Kiro / CodeWhisperer subscriptions (platform=kiro). Off by default; this is the second ToS gate (the first is the per-account ToS acknowledgement required at account creation).',
-          enabled: 'Enable Kiro Forwarding',
-          enabledHint: 'When off, every Kiro request is rejected at the gateway with "kiro platform is disabled" — no traffic egresses.',
-          tosWarning: 'Enabling forwards traffic to AWS Kiro / CodeWhisperer. Ensure your usage complies with the Kiro Terms of Service before turning this on.',
-        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Periodically probe configured channels and surface availability / latency to users. Turning it off stops the scheduler and returns an empty list on the user page.',

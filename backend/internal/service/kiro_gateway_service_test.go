@@ -64,43 +64,6 @@ func TestAccount_ToKiroProtoAccount_RegionDefault(t *testing.T) {
 	require.Equal(t, "us-east-1", pa.Region)
 }
 
-// ---- IsKiroEnabled ----
-
-type kiroSettingRepoStub struct {
-	value string
-	err   error
-}
-
-func (s *kiroSettingRepoStub) Get(context.Context, string) (*Setting, error) {
-	panic("unexpected Get")
-}
-func (s *kiroSettingRepoStub) GetValue(_ context.Context, _ string) (string, error) {
-	return s.value, s.err
-}
-func (s *kiroSettingRepoStub) Set(context.Context, string, string) error { panic("unexpected Set") }
-func (s *kiroSettingRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
-	panic("unexpected GetMultiple")
-}
-func (s *kiroSettingRepoStub) SetMultiple(context.Context, map[string]string) error {
-	panic("unexpected SetMultiple")
-}
-func (s *kiroSettingRepoStub) GetAll(context.Context) (map[string]string, error) {
-	panic("unexpected GetAll")
-}
-func (s *kiroSettingRepoStub) Delete(context.Context, string) error { panic("unexpected Delete") }
-
-func newKiroSettingService(value string, err error) *SettingService {
-	return NewSettingService(&kiroSettingRepoStub{value: value, err: err}, nil)
-}
-
-func TestSettingService_IsKiroEnabled(t *testing.T) {
-	ctx := context.Background()
-	require.True(t, newKiroSettingService("true", nil).IsKiroEnabled(ctx))
-	require.False(t, newKiroSettingService("false", nil).IsKiroEnabled(ctx))
-	require.False(t, newKiroSettingService("", nil).IsKiroEnabled(ctx))                // unset
-	require.False(t, newKiroSettingService("", ErrSettingNotFound).IsKiroEnabled(ctx)) // default closed
-}
-
 // ---- Forward (fake HTTPDoer + canned EventStream) ----
 
 // buildKiroEventStreamMessage hand-assembles a single AWS Event Stream binary
@@ -180,7 +143,7 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 		[]byte(`{"content":"hello world","inputTokens":12,"outputTokens":5}`))
 	upstream := &kiroFakeUpstream{body: frame}
 
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4",
@@ -221,7 +184,7 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 		[]byte(`{"content":"hi there","inputTokens":8,"outputTokens":3}`))
 	upstream := &kiroFakeUpstream{body: frame}
 
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4",
@@ -284,7 +247,7 @@ func TestKiroGatewayService_Forward_Streaming_InvalidModel_NoEmpty200(t *testing
 		status: http.StatusBadRequest,
 		body:   `{"reason":"INVALID_MODEL_ID","message":"model not found"}`,
 	}
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-haiku-4.5",
@@ -320,7 +283,7 @@ func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 		status: http.StatusBadRequest,
 		body:   `{"reason":"INVALID_MODEL_ID"}`,
 	}
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":    "claude-haiku-4.5",
@@ -365,20 +328,4 @@ func TestClassifyKiroForwardError(t *testing.T) {
 
 	// nil passes through.
 	require.NoError(t, classifyKiroForwardError(nil, "m"))
-}
-
-func TestKiroGatewayService_Forward_DisabledErrors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-
-	upstream := &kiroFakeUpstream{body: nil}
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("false", nil))
-
-	parsed := &ParsedRequest{Body: NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4"}`)), Model: "claude-sonnet-4"}
-	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
-	require.Error(t, err)
-	require.Nil(t, result)
-	require.Contains(t, err.Error(), "kiro platform is disabled")
-	require.False(t, upstream.gotRequest, "upstream must not be called when disabled")
 }

@@ -124,7 +124,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EmailVerifyEnabled:                     settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       settings.PromoCodeEnabled,
-		KiroEnabled:                            settings.KiroEnabled,
 		AnthropicCanonicalIngressStrictEnabled: settings.AnthropicCanonicalIngressStrictEnabled,
 		AnthropicCanonicalHaikuMimicryEnabled:  settings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   settings.PasswordResetEnabled,
@@ -401,7 +400,6 @@ type UpdateSettingsRequest struct {
 	EmailVerifyEnabled                     bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist       []string                     `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                       bool                         `json:"promo_code_enabled"`
-	KiroEnabled                            bool                         `json:"kiro_enabled"`                               // TK: Kiro 第六平台转发门禁（默认 false / ToS）
 	AnthropicCanonicalIngressStrictEnabled *bool                        `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical 入口 UA strict 拒绝（#1#2，默认 false）；指针 = 缺字段时保留当前值，防旧前端整单保存把 canary 防线静默关回 false
 	AnthropicCanonicalHaikuMimicryEnabled  *bool                        `json:"anthropic_canonical_haiku_mimicry_enabled"`  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3，默认 false）；指针 = 缺字段时保留当前值（同上，独立开关）
 	PasswordResetEnabled                   bool                         `json:"password_reset_enabled"`
@@ -1522,7 +1520,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:               req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
-		KiroEnabled:                      req.KiroEnabled,
 		AnthropicCanonicalIngressStrictEnabled: func() bool {
 			if req.AnthropicCanonicalIngressStrictEnabled != nil {
 				return *req.AnthropicCanonicalIngressStrictEnabled
@@ -2026,7 +2023,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       updatedSettings.PromoCodeEnabled,
-		KiroEnabled:                            updatedSettings.KiroEnabled,
 		AnthropicCanonicalIngressStrictEnabled: updatedSettings.AnthropicCanonicalIngressStrictEnabled,
 		AnthropicCanonicalHaikuMimicryEnabled:  updatedSettings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   updatedSettings.PasswordResetEnabled,
@@ -2289,9 +2285,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.PromoCodeEnabled != after.PromoCodeEnabled {
 		changed = append(changed, "promo_code_enabled")
-	}
-	if before.KiroEnabled != after.KiroEnabled {
-		changed = append(changed, "kiro_enabled")
 	}
 	if before.AnthropicCanonicalIngressStrictEnabled != after.AnthropicCanonicalIngressStrictEnabled {
 		changed = append(changed, "anthropic_canonical_ingress_strict_enabled")
