@@ -200,3 +200,53 @@ func (s *UsageLogRepoSuite) TestRollupParity_EqualsLegacyRawScan() {
 	s.Require().NoError(err)
 	s.InDelta(refCost, batch[user.ID].TotalActualCost, 1e-9, "rollup batch total must equal raw window sum")
 }
+
+// TestRollupParity_EmptyEffectivePlatform locks the edge case where a completed
+// day's effective platform is empty (account.platform = ” and group.platform =
+// ”, a storable-but-near-impossible state since accounts.platform is NOT NULL
+// without a non-empty CHECK). The legacy queries folded such rows into the user
+// TOTAL (ranking groups only by user_id; batch sums every row into the total but
+// only emits non-empty platforms in ByPlatform). The rollup must preserve that:
+// the feeder coalesces empty platform to ” instead of dropping the row, and the
+// reads fold ” into the total without emitting an empty ByPlatform entry.
+func (s *UsageLogRepoSuite) TestRollupParity_EmptyEffectivePlatform() {
+	today := timezone.Today()
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-empty@test.com"})
+	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-rollup-empty", Name: "k"})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-empty-acc", Platform: service.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-empty-grp", Platform: service.PlatformAnthropic})
+
+	// Force both platforms empty so COALESCE(NULLIF(g.platform,''), a.platform) = ''.
+	_, err := s.repo.sql.ExecContext(s.ctx, "UPDATE accounts SET platform = '' WHERE id = $1", acc.ID)
+	s.Require().NoError(err)
+	_, err = s.repo.sql.ExecContext(s.ctx, "UPDATE groups SET platform = '' WHERE id = $1", grp.ID)
+	s.Require().NoError(err)
+
+	// One billed row on a completed day -> served from the rollup, not raw.
+	s.rollupParityCreateLog(user, key, acc, grp.ID, 7, 11, 0, 0, 0.55, today.Add(-3*24*time.Hour).Add(8*time.Hour))
+
+	aggRepo := newDashboardAggregationRepositoryWithSQL(s.tx)
+	start := today.Add(-30 * 24 * time.Hour)
+	s.Require().NoError(aggRepo.AggregateRange(s.ctx, start, today))
+
+	// Ranking: the empty-platform row must contribute to the user total.
+	resp, err := s.repo.GetUserSpendingRanking(s.ctx, start, today, 12)
+	s.Require().NoError(err)
+	var got UserSpendingRankingItem
+	for _, it := range resp.Ranking {
+		if it.UserID == user.ID {
+			got = it
+		}
+	}
+	s.InDelta(0.55, got.ActualCost, 1e-9, "empty-platform row must count in ranking total")
+	s.Equal(int64(1), got.Requests)
+	s.Equal(int64(18), got.Tokens) // 7+11
+
+	// Batch: total includes the empty-platform row, ByPlatform omits the '' entry.
+	batch, err := s.repo.GetBatchUserUsageStats(s.ctx, []int64{user.ID}, start, today)
+	s.Require().NoError(err)
+	s.InDelta(0.55, batch[user.ID].TotalActualCost, 1e-9, "empty-platform row must count in batch total")
+	for _, p := range batch[user.ID].ByPlatform {
+		s.NotEqual("", p.Platform, "ByPlatform must not contain an empty-platform entry")
+	}
+}

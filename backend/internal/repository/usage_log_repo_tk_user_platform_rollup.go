@@ -115,25 +115,38 @@ func (r *usageLogRepository) getBatchUserUsageStatsRollup(ctx context.Context, u
 	}
 
 	today := timezone.Today()
-	// Accumulate per (user, platform) so we can emit ByPlatform deterministically.
-	type key struct {
-		user     int64
-		platform string
-	}
+	// Two accumulators mirror the legacy single-query semantics exactly: the
+	// per-user total includes EVERY row (even one whose effective platform is
+	// empty), while the per-(user, platform) breakdown excludes empty-platform
+	// rows. (Empty platform is near-impossible — accounts.platform is NOT NULL —
+	// but the legacy query still folded such rows into the user total, so we do
+	// too.)
 	type acc struct {
 		total float64
 		today float64
 	}
-	agg := make(map[key]*acc)
+	type key struct {
+		user     int64
+		platform string
+	}
+	userTotal := make(map[int64]*acc)
+	byPlat := make(map[key]*acc)
 	add := func(user int64, platform string, total, todayCost float64) {
+		ut, ok := userTotal[user]
+		if !ok {
+			ut = &acc{}
+			userTotal[user] = ut
+		}
+		ut.total += total
+		ut.today += todayCost
 		if platform == "" {
 			return
 		}
 		k := key{user: user, platform: platform}
-		a, ok := agg[k]
+		a, ok := byPlat[k]
 		if !ok {
 			a = &acc{}
-			agg[k] = a
+			byPlat[k] = a
 		}
 		a.total += total
 		a.today += todayCost
@@ -206,9 +219,10 @@ func (r *usageLogRepository) getBatchUserUsageStatsRollup(ctx context.Context, u
 				_ = rows.Close()
 				return nil, err
 			}
-			if platform.Valid {
-				add(uid, platform.String, total, todayCost)
-			}
+			// platform.String is "" when NULL, which add() folds into the user
+			// total without emitting a ByPlatform entry — matching the legacy query
+			// that summed every row into the total regardless of platform.
+			add(uid, platform.String, total, todayCost)
 		}
 		if err := rows.Close(); err != nil {
 			return nil, err
@@ -218,18 +232,20 @@ func (r *usageLogRepository) getBatchUserUsageStatsRollup(ctx context.Context, u
 		}
 	}
 
-	for k, a := range agg {
-		stats, ok := result[k.user]
-		if !ok {
-			continue
+	for uid, a := range userTotal {
+		if stats, ok := result[uid]; ok {
+			stats.TotalActualCost += a.total
+			stats.TodayActualCost += a.today
 		}
-		stats.TotalActualCost += a.total
-		stats.TodayActualCost += a.today
-		stats.ByPlatform = append(stats.ByPlatform, usagestats.PlatformUsage{
-			Platform:        k.platform,
-			TotalActualCost: a.total,
-			TodayActualCost: a.today,
-		})
+	}
+	for k, a := range byPlat {
+		if stats, ok := result[k.user]; ok {
+			stats.ByPlatform = append(stats.ByPlatform, usagestats.PlatformUsage{
+				Platform:        k.platform,
+				TotalActualCost: a.total,
+				TodayActualCost: a.today,
+			})
+		}
 	}
 	return result, nil
 }

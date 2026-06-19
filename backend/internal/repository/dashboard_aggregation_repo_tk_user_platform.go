@@ -38,7 +38,13 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 			SELECT
 				(ul.created_at AT TIME ZONE $3)::date AS bucket_date,
 				ul.user_id AS user_id,
-				` + usageDashboardUserPlatformDailyExpr + ` AS platform,
+				-- A NULL/empty effective platform (no group platform and no/blank
+				-- account platform) is coalesced to '' rather than dropped: the
+				-- ranking read sums across ALL platforms and the batch read folds
+				-- '' into the user total (just not into the per-platform breakdown),
+				-- so completed-day totals match the legacy "count every row"
+				-- semantics. platform is part of the PK, so it cannot be NULL.
+				COALESCE(` + usageDashboardUserPlatformDailyExpr + `, '') AS platform,
 				ul.input_tokens AS input_tokens,
 				ul.output_tokens AS output_tokens,
 				ul.cache_creation_tokens AS cache_creation_tokens,
@@ -61,7 +67,6 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 				COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
 				COALESCE(SUM(actual_cost), 0) AS actual_cost
 			FROM per_row
-			WHERE platform IS NOT NULL AND platform <> ''
 			GROUP BY bucket_date, user_id, platform
 		)
 		INSERT INTO usage_dashboard_user_platform_daily (
