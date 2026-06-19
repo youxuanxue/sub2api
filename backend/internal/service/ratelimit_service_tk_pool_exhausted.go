@@ -44,6 +44,20 @@ func tkPoolExhaustedEnabled(platform string) bool {
 	return strings.TrimSpace(platform) != ""
 }
 
+// countSchedulableByPlatform 返回某平台当前可调度账号数,供 notifier 的池恢复轮询用。
+// 与 tkPlatformPoolExhaustedCheck 共用 ListSchedulableByPlatform 这一个真值源——空池
+// 火警和「池已恢复」绿卡看的是同一把尺子,不会出现一端判空、另一端判有的口径漂移。
+func (s *RateLimitService) countSchedulableByPlatform(ctx context.Context, platform string) (int, error) {
+	if s == nil || s.accountRepo == nil {
+		return 0, nil
+	}
+	accounts, err := s.accountRepo.ListSchedulableByPlatform(ctx, platform)
+	if err != nil {
+		return 0, err
+	}
+	return len(accounts), nil
+}
+
 func (s *RateLimitService) tkCheckPlatformPoolExhausted(account *Account, until time.Time, reason string) {
 	if s == nil || account == nil || s.incidentNotifier == nil || s.accountRepo == nil {
 		return
