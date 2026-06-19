@@ -795,8 +795,21 @@ function togglePlatform(platform: GroupPlatform) {
   }
 }
 
+// Memoized platform → groups partition. Built once per allGroups change so the
+// dialog's per-platform v-for (and per-group conflict rendering) reads O(1)
+// instead of re-filtering the whole allGroups array on every keystroke/render.
+const groupsByPlatform = computed(() => {
+  const map = new Map<GroupPlatform, AdminGroup[]>()
+  for (const g of allGroups.value) {
+    const bucket = map.get(g.platform)
+    if (bucket) bucket.push(g)
+    else map.set(g.platform, [g])
+  }
+  return map
+})
+
 function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
-  return allGroups.value.filter(g => g.platform === platform)
+  return groupsByPlatform.value.get(platform) ?? []
 }
 
 // ── Group helpers ──

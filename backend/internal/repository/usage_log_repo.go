@@ -2381,78 +2381,13 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 		limit = 12
 	}
 
-	query := `
-		WITH user_spend AS (
-			SELECT
-				u.user_id,
-				COALESCE(us.email, '') as email,
-				COALESCE(SUM(u.actual_cost), 0) as actual_cost,
-				COUNT(*) as requests,
-				COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
-			FROM usage_logs u
-			LEFT JOIN users us ON u.user_id = us.id
-			WHERE u.created_at >= $1 AND u.created_at < $2
-			GROUP BY u.user_id, us.email
-		),
-		ranked AS (
-			SELECT
-				user_id,
-				email,
-				actual_cost,
-				requests,
-				tokens,
-				COALESCE(SUM(actual_cost) OVER (), 0) as total_actual_cost,
-				COALESCE(SUM(requests) OVER (), 0) as total_requests,
-				COALESCE(SUM(tokens) OVER (), 0) as total_tokens
-			FROM user_spend
-			ORDER BY actual_cost DESC, tokens DESC, user_id ASC
-			LIMIT $3
-		)
-		SELECT
-			user_id,
-			email,
-			actual_cost,
-			requests,
-			tokens,
-			total_actual_cost,
-			total_requests,
-			total_tokens
-		FROM ranked
-		ORDER BY actual_cost DESC, tokens DESC, user_id ASC
-	`
-
-	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = closeErr
-			result = nil
-		}
-	}()
-
-	ranking := make([]UserSpendingRankingItem, 0)
-	totalActualCost := 0.0
-	totalRequests := int64(0)
-	totalTokens := int64(0)
-	for rows.Next() {
-		var row UserSpendingRankingItem
-		if err = rows.Scan(&row.UserID, &row.Email, &row.ActualCost, &row.Requests, &row.Tokens, &totalActualCost, &totalRequests, &totalTokens); err != nil {
-			return nil, err
-		}
-		ranking = append(ranking, row)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return &UserSpendingRankingResponse{
-		Ranking:         ranking,
-		TotalActualCost: totalActualCost,
-		TotalRequests:   totalRequests,
-		TotalTokens:     totalTokens,
-	}, nil
+	// TK: served from the per-(user, platform, day) rollup for completed days plus
+	// raw usage_logs for the partial/today slices (see
+	// usage_log_repo_tk_user_platform_rollup.go). The legacy CTE scanned the full
+	// created_at window of usage_logs (845K buffers / 1.65s on prod); the rollup
+	// reads ~hundreds of rows. Window totals, top-N ordering, and per-user email
+	// are reconstructed in Go to match the legacy output byte-for-byte.
+	return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)
 }
 
 // UserDashboardStats 用户仪表盘统计
@@ -2892,10 +2827,9 @@ func normalizePositiveInt64IDs(ids []int64) []int64 {
 // GetBatchUserUsageStats gets today and total actual_cost for multiple users within a time range.
 // If startTime is zero, defaults to 30 days ago.
 func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*BatchUserUsageStats, error) {
-	result := make(map[int64]*BatchUserUsageStats)
 	normalizedUserIDs := normalizePositiveInt64IDs(userIDs)
 	if len(normalizedUserIDs) == 0 {
-		return result, nil
+		return make(map[int64]*BatchUserUsageStats), nil
 	}
 
 	// 默认最近 30 天
@@ -2906,62 +2840,14 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 		endTime = time.Now()
 	}
 
-	for _, id := range normalizedUserIDs {
-		result[id] = &BatchUserUsageStats{UserID: id}
-	}
-
-	// GROUP BY (user_id, effective_platform) 一次查询同时得到总值与按平台拆分。
-	// 应用层把同一 user_id 的多行累加为总值，并把非空 platform 行收集到 ByPlatform。
-	query := `
-		SELECT
-			ul.user_id,
-			` + usageLogEffectivePlatformExpr + ` as platform,
-			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $2 AND ul.created_at < $3), 0) as total_cost,
-			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $4), 0) as today_cost
-		FROM usage_logs ul
-		LEFT JOIN groups g ON g.id = ul.group_id
-		LEFT JOIN accounts a ON a.id = ul.account_id
-		WHERE ul.user_id = ANY($1)
-		  AND ul.created_at >= LEAST($2, $4)
-		  AND ` + usageLogSuccessFilterUL + `
-		GROUP BY ul.user_id, ` + usageLogEffectivePlatformExpr + `
-	`
-	today := timezone.Today()
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(normalizedUserIDs), startTime, endTime, today)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var userID int64
-		var platform sql.NullString
-		var total float64
-		var todayTotal float64
-		if err := rows.Scan(&userID, &platform, &total, &todayTotal); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		stats, ok := result[userID]
-		if !ok {
-			continue
-		}
-		stats.TotalActualCost += total
-		stats.TodayActualCost += todayTotal
-		if platform.Valid && platform.String != "" {
-			stats.ByPlatform = append(stats.ByPlatform, PlatformUsage{
-				Platform:        platform.String,
-				TotalActualCost: total,
-				TodayActualCost: todayTotal,
-			})
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	// TK: read completed days from the per-(user, platform, day) rollup and the
+	// partial/today slices from raw usage_logs (see
+	// usage_log_repo_tk_user_platform_rollup.go). The legacy single-query
+	// implementation scanned the full 30-day window of usage_logs (~1.25M rows /
+	// 845K buffers / 2.7s on prod) — a wide-window aggregation no index can serve.
+	// Output is byte-identical to the legacy path; the rollup reader pre-seeds an
+	// entry for every requested user so users with no usage still appear.
+	return r.getBatchUserUsageStatsRollup(ctx, normalizedUserIDs, startTime, endTime)
 }
 
 // BatchAPIKeyUsageStats represents usage stats for a single API key

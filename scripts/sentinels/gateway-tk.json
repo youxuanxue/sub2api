@@ -1533,9 +1533,9 @@
         "edgeAccountsSupportedPlatforms",
         "func edgeAccountsListFilter(",
         "func (h *EdgeAccountsHandler) collectRuntimeGauges(",
-        "h.usage.GetPassiveUsage("
+        "h.usage.GetPassiveUsageBatch("
       ],
-      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts (with live capacity/today gauges + passive 5h/7d usage windows) so prod's admin Edge Accounts overview can mirror the per-edge /admin/accounts page. The GetPassiveUsage call reads persisted Extra samples (source=passive, NO upstream API) for the 5h/7d windows — dropping it removes the usage bars. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Extra/Proxy member, so credential leakage is structurally impossible rather than merely redacted (raw-bytes assertion in the test); the one operator-text field it does carry is Notes, the non-credential 备注 the admin accounts page shows. Three load-bearing properties: (1) it lists via adminService.ListAccounts with an EMPTY status filter — NOT the repository ListByPlatform which pins status=active and would silently hide disabled/errored accounts, making the overview show fewer rows than the edge's own admin page (the bug fixed alongside the gauge work); (2) collectRuntimeGauges batch-reads current_concurrency/window_cost/active_sessions/current_rpm + today_stats from this edge's local Redis/DB, mirroring admin AccountHandler.List — dropping it regresses the overview to static-only fields; (3) the 'all' platform sentinel (edgeAccountsListFilter maps it to an EMPTY ListAccounts platform filter) returns every platform's accounts in one read — the overview's default — and edgeAccountsSupportedPlatforms allows all six platforms (anthropic/openai/gemini/antigravity/newapi/kiro); a silent merge that re-pins this to anthropic-only would regress the cross-platform overview. Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
+      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts (with live capacity/today gauges + passive 5h/7d usage windows) so prod's admin Edge Accounts overview can mirror the per-edge /admin/accounts page. The GetPassiveUsageBatch call reads persisted Extra samples (source=passive, NO upstream API) for the 5h/7d windows in one batch (prefetching window stats per window-start bucket; byte-identical to the old per-account GetPassiveUsage loop) — dropping it removes the usage bars. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Extra/Proxy member, so credential leakage is structurally impossible rather than merely redacted (raw-bytes assertion in the test); the one operator-text field it does carry is Notes, the non-credential 备注 the admin accounts page shows. Three load-bearing properties: (1) it lists via adminService.ListAccounts with an EMPTY status filter — NOT the repository ListByPlatform which pins status=active and would silently hide disabled/errored accounts, making the overview show fewer rows than the edge's own admin page (the bug fixed alongside the gauge work); (2) collectRuntimeGauges batch-reads current_concurrency/window_cost/active_sessions/current_rpm + today_stats from this edge's local Redis/DB, mirroring admin AccountHandler.List — dropping it regresses the overview to static-only fields; (3) the 'all' platform sentinel (edgeAccountsListFilter maps it to an EMPTY ListAccounts platform filter) returns every platform's accounts in one read — the overview's default — and edgeAccountsSupportedPlatforms allows all six platforms (anthropic/openai/gemini/antigravity/newapi/kiro); a silent merge that re-pins this to anthropic-only would regress the cross-platform overview. Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
     },
     {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
@@ -2905,6 +2905,90 @@
         "return nil, ErrThinPoolAllExcluded"
       ],
       "rationale": "Injection point of the thin-pool guard inside the Layer-2 load-balance empty-pool branch of SelectAccountWithLoadAwareness (right after the #845 account_scheduling_loadbalance_no_candidates WARN). It sums every non-exclusion per-gate counter into otherFilters and, on a thin exclusion-only empty pool, returns ErrThinPoolAllExcluded instead of ErrNoAvailableAccounts so the handler's HandleSelectionExhausted retries the lone account (short backoff, bounded by MaxSwitches) rather than fast-failing with a client 429. Single-block insertion into an upstream-shaped file; an upstream merge resolving this branch could silently drop it. Pins the predicate call + sentinel return + WARN marker."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "registerTKAccountUsageBatchRoutes(accounts, h)"
+      ],
+      "rationale": "Injection point that wires TokenKey's batch passive-usage endpoint (POST /admin/accounts/usage/batch) into the upstream-shaped accounts route group. The endpoint collapses the per-row GET /:id/usage fan-out on the admin accounts list into one request. An upstream merge that re-resolves registerAccountRoutes could silently drop this single-line call, un-registering the route and forcing the frontend back to N parallel XHRs. Pins the registerTK* call."
+    },
+    {
+      "path": "backend/internal/server/routes/admin_tk_account_usage_batch_routes.go",
+      "must_contain": [
+        "func registerTKAccountUsageBatchRoutes(",
+        "accounts.POST(\"/usage/batch\", h.Admin.Account.GetBatchPassiveUsage)"
+      ],
+      "rationale": "TK companion that registers the batch passive-usage route. Load-bearing for the admin accounts list performance fix (per-row /usage fan-out -> one batch call). If this file or its POST registration is deleted by an upstream refactor, the route 404s and the list silently regresses to N XHRs. Pins the helper + the POST path."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_passive_usage_batch.go",
+      "must_contain": [
+        "func (h *AccountHandler) GetBatchPassiveUsage(",
+        "h.accountUsageService.GetPassiveUsageBatch("
+      ],
+      "rationale": "TK companion handler for POST /admin/accounts/usage/batch. Returns per-account passive usage (same shape as GET /:id/usage?source=passive) for the whole visible page in one call. Pins the handler + its service delegation so a deletion is caught at merge time rather than silently dropping the batch endpoint."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_passive_batch.go",
+      "must_contain": [
+        "func (s *AccountUsageService) GetPassiveUsageBatch(",
+        "func (s *AccountUsageService) prefetchWindowStatsForPassive(",
+        "GetAccountWindowStatsBatch("
+      ],
+      "rationale": "Batch passive-usage service method: GetByIDs (one query) + bucketed GetAccountWindowStatsBatch prefetch (one ANY($1) per distinct window start, seeded into windowStatsCache) + per-account GetPassiveUsage reuse for byte-identical output. This is the engine of the per-row /usage fan-out fix. Pins the public method, the prefetch helper, and the batch SQL call so an upstream merge cannot silently revert it to per-account queries."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_window_cost_batch.go",
+      "must_contain": [
+        "func (s *AccountUsageService) GetAccountWindowCostsBatch(",
+        "GetAccountWindowStatsBatch("
+      ],
+      "rationale": "Batch window-cost computation for the admin accounts list, replacing the per-account GetAccountWindowStats N+1 in account_handler.go. Buckets accounts by GetCurrentWindowStartTime().Unix() and issues one batch query per distinct window start (failure-open single-query fallback). Pins the public method + the batch SQL call so the N+1 cannot reappear via merge."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler.go",
+      "must_contain": [
+        "h.accountUsageService.GetAccountWindowCostsBatch(c.Request.Context(), accounts)"
+      ],
+      "rationale": "Injection point in the upstream-shaped List handler where the per-account window-cost errgroup loop was replaced by a single batched call. An upstream merge could restore the old inline GetAccountWindowStats loop (an N+1 that grows with account count); anchoring the batched call makes that revert fail the merge gate."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_user_platform.go",
+      "must_contain": [
+        "func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(",
+        "INSERT INTO usage_dashboard_user_platform_daily",
+        "COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform"
+      ],
+      "rationale": "TK feeder that populates the per-(user, platform, day) rollup table (tk_034) backing the admin Users page + dashboard spending-ranking widget. This is the write half of the perf fix that replaced the full 30-day usage_logs scan (845K buffers / 2.7s on prod) with pre-aggregated reads. The effective-platform projection reuses the live queries' usageLogEffectivePlatformExpr (same package) so the rollup partitions by exactly the platform the page shows; this sentinel pins the upsert, the target table, and that the platform projection reuses the shared expression so an upstream merge / refactor cannot silently drop the feeder or drift the platform grain."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo.go",
+      "must_contain": [
+        "if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {",
+        "if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {",
+        "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {"
+      ],
+      "rationale": "Thin injection of the per-(user, platform, day) rollup feeder into the upstream-shaped aggregation repo: the upsert call lives in both aggregateRangeInTx and recomputeRangeInTx, the range delete in recomputeRangeInTx (so a zeroed day does not linger after a usage_logs rollback), and the retention prune in CleanupAggregates. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving the rollup unpopulated and the admin pages reading stale/empty history. Pins all three call sites."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_user_platform_rollup.go",
+      "must_contain": [
+        "func (r *usageLogRepository) getBatchUserUsageStatsRollup(",
+        "func (r *usageLogRepository) getUserSpendingRankingRollup(",
+        "func planUsageRollupWindow(",
+        "func (r *usageLogRepository) userPlatformRollupFloorDay(",
+        "FROM usage_dashboard_user_platform_daily"
+      ],
+      "rationale": "TK read half of the rollup perf fix: GetBatchUserUsageStats and GetUserSpendingRanking are served from usage_dashboard_user_platform_daily for completed days plus raw usage_logs for the partial/today slices. planUsageRollupWindow is the exact-semantics window decomposition (full completed server-TZ days from the rollup, partial head/tail + today from raw) that keeps output byte-identical to the legacy raw-scan queries. userPlatformRollupFloorDay is the coverage floor that routes completed days the rollup does not yet cover (post-migration cold start, where the shared aggregation watermark won't backfill old days) back to raw usage_logs, so the page never silently undercounts history. Pins both read entry points, the decomposition function (loose prefix — signature evolves), the coverage-floor helper, and the rollup table read so a merge cannot silently revert the pages to the slow full-window scan or drop the cold-start fallback."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo.go",
+      "must_contain": [
+        "return r.getBatchUserUsageStatsRollup(ctx, normalizedUserIDs, startTime, endTime)",
+        "return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)"
+      ],
+      "rationale": "The two upstream-shaped admin aggregation methods (GetBatchUserUsageStats / GetUserSpendingRanking) now delegate to the rollup-backed readers instead of scanning the full 30-day usage_logs window. These one-line delegations are exactly the kind of edit an upstream merge could overwrite by restoring the old inline CTE/FILTER query, silently re-introducing the 845K-buffer / 2.7s regression. Pins both delegation calls."
     }
   ]
 }

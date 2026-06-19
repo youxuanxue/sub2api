@@ -221,17 +221,17 @@
               <PlatformTypeBadge :platform="row.platform" :type="row.type" :plan-type="row.credentials?.plan_type" :privacy-mode="row.extra?.privacy_mode" :subscription-expires-at="row.credentials?.subscription_expires_at" />
               <ChannelTypeBadge :platform="row.platform" :channel-type="row.channel_type" />
               <span
-                v-if="getOpenAICompactLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getOpenAICompactClass(row)]"
-                :title="getOpenAICompactTitle(row)"
+                v-if="platformTypeBadgesById[row.id].openaiCompactLabel"
+                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', platformTypeBadgesById[row.id].openaiCompactClass]"
+                :title="platformTypeBadgesById[row.id].openaiCompactTitle"
               >
-                {{ getOpenAICompactLabel(row) }}
+                {{ platformTypeBadgesById[row.id].openaiCompactLabel }}
               </span>
               <span
-                v-if="getAntigravityTierLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getAntigravityTierClass(row)]"
+                v-if="platformTypeBadgesById[row.id].antigravityTierLabel"
+                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', platformTypeBadgesById[row.id].antigravityTierClass]"
               >
-                {{ getAntigravityTierLabel(row) }}
+                {{ platformTypeBadgesById[row.id].antigravityTierLabel }}
               </span>
             </div>
           </template>
@@ -270,6 +270,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              :usage-override="accountUsageOverrideFor(row)"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -402,6 +403,7 @@ import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useTkAccountTier } from '@/composables/useTkAccountTier'
+import { useTkAccountUsageBatch } from '@/composables/useTkAccountUsageBatch'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -576,6 +578,11 @@ const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
 
+// TK: batch passive-usage for the list, replacing the per-row /usage fan-out for
+// Anthropic OAuth/SetupToken rows. The cell renders usageOverrideFor(row) and
+// never self-fetches when an override is present (see useTkAccountUsageBatch).
+const { usageOverrideFor: accountUsageOverrideFor, refreshUsageBatch } = useTkAccountUsageBatch()
+
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
   tokens: 0,
@@ -739,6 +746,9 @@ const toggleColumn = (key: string) => {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
+    if (key === 'usage') {
+      refreshUsageBatch(accounts.value)
+    }
   }
 }
 
@@ -819,6 +829,7 @@ const load = async () => {
     delete requestParams.lite
   }
   await refreshTodayStatsBatch()
+  refreshUsageBatch(accounts.value)
 }
 
 const reload = async () => {
@@ -827,6 +838,7 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+  refreshUsageBatch(accounts.value)
 }
 
 const debouncedReload = () => {
@@ -869,6 +881,7 @@ watch(loading, (isLoading, wasLoading) => {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
+    refreshUsageBatch(accounts.value)
   }
 })
 
@@ -985,6 +998,7 @@ const refreshAccountsIncrementally = async () => {
     }
 
     await refreshTodayStatsBatch()
+    refreshUsageBatch(accounts.value)
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -994,7 +1008,9 @@ const refreshAccountsIncrementally = async () => {
 
 const handleManualRefresh = async () => {
   await load()
-  // Force usage cells to refetch /usage on explicit user refresh.
+  // load() already refreshed the batch passive-usage for Anthropic rows
+  // (override path). Bump the token so the residual self-fetch platforms
+  // (gemini/antigravity/openai cells) also refresh on explicit user refresh.
   usageManualRefreshToken.value += 1
 }
 
@@ -1102,6 +1118,37 @@ function getAntigravityTierClass(row: any): string {
     default: return ''
   }
 }
+
+// Memoized platform_type badge derivation keyed by account id. The cell reads
+// platformTypeBadgesById[row.id] instead of calling 5 helpers (each re-walking
+// row.extra) per row on every reactivity tick. Recomputes only when the account
+// list changes; reuses the upstream helpers so each field is byte-identical to
+// the per-call path.
+const platformTypeBadgesById = computed<Record<number, {
+  openaiCompactLabel: string | null
+  openaiCompactClass: string
+  openaiCompactTitle: string
+  antigravityTierLabel: string | null
+  antigravityTierClass: string
+}>>(() => {
+  const byId: Record<number, {
+    openaiCompactLabel: string | null
+    openaiCompactClass: string
+    openaiCompactTitle: string
+    antigravityTierLabel: string | null
+    antigravityTierClass: string
+  }> = {}
+  for (const row of accounts.value) {
+    byId[row.id] = {
+      openaiCompactLabel: getOpenAICompactLabel(row),
+      openaiCompactClass: getOpenAICompactClass(row),
+      openaiCompactTitle: getOpenAICompactTitle(row),
+      antigravityTierLabel: getAntigravityTierLabel(row),
+      antigravityTierClass: getAntigravityTierClass(row),
+    }
+  }
+  return byId
+})
 
 // All available columns
 //

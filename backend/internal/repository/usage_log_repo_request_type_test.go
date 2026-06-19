@@ -11,6 +11,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -509,32 +510,57 @@ func TestUsageLogRepositoryGetStatsWithFiltersAlwaysReturnsAccountCost(t *testin
 }
 
 func TestUsageLogRepositoryGetUserSpendingRanking(t *testing.T) {
+	// Pin UTC so the day-aligned window below has no partial-boundary raw
+	// remainder regardless of the host's local timezone (the rollup window
+	// decomposition floors/ceils to the server timezone).
+	require.NoError(t, timezone.Init("UTC"))
+
 	db, mock := newSQLMock(t)
 	repo := &usageLogRepository{sql: db}
 
+	// A historical, day-aligned window entirely before today: the rollup-backed
+	// path (usage_log_repo_tk_user_platform_rollup.go) serves it wholly from
+	// usage_dashboard_user_platform_daily (no raw remainder), then enriches each
+	// row with the user email and assembles window totals + top-N ordering in Go.
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{"user_id", "email", "actual_cost", "requests", "tokens", "total_actual_cost", "total_requests", "total_tokens"}).
-		AddRow(int64(2), "beta@example.com", 12.5, int64(9), int64(900), 40.0, int64(30), int64(2600)).
-		AddRow(int64(1), "alpha@example.com", 12.5, int64(8), int64(800), 40.0, int64(30), int64(2600)).
-		AddRow(int64(3), "gamma@example.com", 4.25, int64(5), int64(300), 40.0, int64(30), int64(2600))
+	// Rollup aggregate per user, deliberately out of rank order to prove the Go
+	// sort (cost DESC, tokens DESC, user_id ASC).
+	rollupRows := sqlmock.NewRows([]string{"user_id", "actual_cost", "total_requests", "tokens"}).
+		AddRow(int64(3), 4.25, int64(5), int64(300)).
+		AddRow(int64(1), 12.5, int64(8), int64(800)).
+		AddRow(int64(2), 12.5, int64(9), int64(900))
+	// Coverage floor (userPlatformRollupFloorDay): the rollup covers from the
+	// window start or earlier, so the whole historical window is served from the
+	// rollup with no raw fallback (matches the assertions below).
+	mock.ExpectQuery("to_char\\(MIN\\(bucket_date\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow("2025-01-01"))
 
-	mock.ExpectQuery("WITH user_spend AS \\(").
-		WithArgs(start, end, 12).
-		WillReturnRows(rows)
+	mock.ExpectQuery("FROM usage_dashboard_user_platform_daily").
+		WithArgs(start, end).
+		WillReturnRows(rollupRows)
+
+	// Email enrichment for the users seen in the window.
+	emailRows := sqlmock.NewRows([]string{"id", "email"}).
+		AddRow(int64(1), "alpha@example.com").
+		AddRow(int64(2), "beta@example.com").
+		AddRow(int64(3), "gamma@example.com")
+	mock.ExpectQuery("SELECT id, COALESCE\\(email").
+		WillReturnRows(emailRows)
 
 	got, err := repo.GetUserSpendingRanking(context.Background(), start, end, 12)
 	require.NoError(t, err)
 	require.Equal(t, &usagestats.UserSpendingRankingResponse{
 		Ranking: []usagestats.UserSpendingRankingItem{
+			// cost tie (12.5) broken by tokens DESC: user 2 (900) before user 1 (800).
 			{UserID: 2, Email: "beta@example.com", ActualCost: 12.5, Requests: 9, Tokens: 900},
 			{UserID: 1, Email: "alpha@example.com", ActualCost: 12.5, Requests: 8, Tokens: 800},
 			{UserID: 3, Email: "gamma@example.com", ActualCost: 4.25, Requests: 5, Tokens: 300},
 		},
-		TotalActualCost: 40.0,
-		TotalRequests:   30,
-		TotalTokens:     2600,
+		TotalActualCost: 29.25,
+		TotalRequests:   22,
+		TotalTokens:     2000,
 	}, got)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
