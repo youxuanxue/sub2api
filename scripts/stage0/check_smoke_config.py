@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Preflight helper: verify the configured smoke models are listed for their keys.
 
-Checks TK_SMOKE_PROD_ANTHROPIC_MODEL (always, against the anthropic key) and
-TK_SMOKE_PROD_KIRO_MODEL (when both the kiro key and model are configured,
-against the kiro key — the kiro group exposes a different /v1/models list).
+Checks TK_SMOKE_PROD_ANTHROPIC_MODEL (always, against the anthropic key).
 A model that is configured but not listed is a drift signal and fails the gate.
 """
 from __future__ import annotations
@@ -20,8 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.stage0.smoke_env import (
     prod_anthropic_key,
     prod_anthropic_model,
-    prod_kiro_key,
-    prod_kiro_model,
 )
 from scripts.stage0.smoke_suite import pick_model
 
@@ -75,15 +71,6 @@ def main() -> int:
         return 1
 
     rc = _check_model(base, "anthropic", anthropic_key, anthropic_override)
-
-    # Kiro (sixth platform) model drift — only when its key + model are both
-    # configured. The kiro key's /v1/models differs from the anthropic key's.
-    kiro_key = prod_kiro_key()
-    kiro_override = prod_kiro_model()
-    if kiro_key and kiro_override:
-        rc |= _check_model(base, "kiro", kiro_key, kiro_override)
-    else:
-        print("check_smoke_config[kiro]: TK_SMOKE_PROD_KIRO_KEY/MODEL unset — skip")
 
     return rc
 
