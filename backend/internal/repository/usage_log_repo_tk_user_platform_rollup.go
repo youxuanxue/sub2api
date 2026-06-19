@@ -100,7 +100,10 @@ func planUsageRollupWindow(start, end, rollupFloorDay time.Time, hasRollupData b
 		w.hasRollup = true
 		w.rollupStartDay = rollupStart
 		w.rollupEndDay = rollupEnd
-		// Raw head: the partial leading day before the first full rollup day.
+		// Raw head: everything before the rollup span start. Normally just the
+		// partial leading day, but when rollupStart was clamped UP to the coverage
+		// floor (cold start), this span covers ALL the completed days below the
+		// floor too — do not assume it is sub-24h.
 		if rollupStart.After(start) {
 			w.rawSpans = append(w.rawSpans, [2]time.Time{start, rollupStart})
 		}
