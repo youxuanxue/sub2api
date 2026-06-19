@@ -69,8 +69,8 @@
     },
     {
       "path": "backend/internal/service/tk_pricing_overlay.json",
-      "must_contain": ["grok-imagine-image"],
-      "rationale": "Grok image pricing rows. Image models with no usable static price are REJECTED with a pre-spend 400 by TkImageModelUnpriced — so losing these rows makes grok image generation fail outright (not just bill $0)."
+      "must_contain": ["grok-imagine-image", "grok-imagine-video"],
+      "rationale": "Grok image AND video pricing rows. Image models with no usable static price are REJECTED with a pre-spend 400 by TkImageModelUnpriced, and video models likewise by TkVideoModelUnpriced — so losing these rows makes grok image/video generation fail outright (not just bill $0). grok-imagine-video is priced per output second at the MAX reachable tier ($0.08/s, 720p+input) per the overlay's never-under-charge convention."
     },
     {
       "path": "backend/migrations/tk_028_allow_grok_model_availability_platform.sql",
@@ -151,6 +151,36 @@
       "path": "backend/internal/service/account_tk_grok_capability_test.go",
       "must_contain": ["TestGrokAccount_PassesOpenAICompatCapabilityGate"],
       "rationale": "Load-bearing QA evidence for the grok OpenAI-compat capability gate (see the account.go anchor above). Guards against silent re-introduction of the 'grok excluded from every OpenAI-compat selection' bug."
+    },
+    {
+      "path": "backend/internal/engine/capability_tk_grok_video.go",
+      "must_contain": ["func IsVideoSupportedForAccount", "domain.PlatformGrok"],
+      "rationale": "The platform-aware video eligibility predicate. Video on TK is otherwise channel_type-derived (IsVideoSupportedChannelType, false for channel_type<=0); grok is native xAI OAuth at channel_type=0 with NO new-api task adaptor, so it would be rejected by the channel_type gate. IsVideoSupportedForAccount adds the grok exception WITHOUT touching the channel_type predicate (deliberately separate so the two never drift). Losing this re-blocks grok video at the handler gate with a 400 'channel_type has no video task adaptor'."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_video_tk.go",
+      "must_contain": ["func (s *OpenAIGatewayService) grokNativeVideoSubmit", "func (s *OpenAIGatewayService) grokNativeVideoFetch", "/videos/generations"],
+      "rationale": "The grok-native video arm: submit (POST api.x.ai/v1/videos/generations -> request_id) + poll (GET api.x.ai/v1/videos/{id}) over the grok OAuth Bearer, returning the same bridge.TaskSubmitOutcome/VideoFetchOutcome shapes the handler consumes so the vt_ public id, VideoTaskCache record, balance hold, per-second billing, terminal refund, S3 offload and ownership-404 are all reused. Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": ["account.IsGrok()", "grokNativeVideoSubmit", "in.Platform == PlatformGrok", "grokNativeVideoFetch"],
+      "rationale": "The two dispatch seams that route grok to the native video arm BEFORE the new-api bridge gates: submit branches on account.IsGrok() before ShouldDispatchToNewAPIBridge/channel_type, fetch branches on in.Platform==PlatformGrok before the channel_type>0 gate. Losing either sends grok video down the bridge path, which hard-fails (no xAI task adaptor / channel_type=0)."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video.go",
+      "must_contain": ["engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType)", "Platform:", "AccountID:"],
+      "rationale": "The video submit handler gate uses the platform-aware IsVideoSupportedForAccount (not the channel_type-only predicate) so grok passes, and the VideoFetchInput it builds carries Platform + AccountID so the poll path can branch to grokNativeVideoFetch and re-resolve a fresh (rotated) grok OAuth Bearer by account id. Reverting the gate to IsVideoSupportedChannelType re-blocks grok; dropping Platform/AccountID strands the grok poll (it would fall through to the bridge fetch and fail)."
+    },
+    {
+      "path": "backend/internal/engine/capability_tk_grok_video_test.go",
+      "must_contain": ["TestIsVideoSupportedForAccount"],
+      "rationale": "Load-bearing QA evidence for the platform-aware video gate (see capability_tk_grok_video.go above): pins grok eligible at channel_type=0 while non-grok still defers to the channel_type-derived predicate. Guards against a revert silently re-blocking grok video."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_video_tk_test.go",
+      "must_contain": ["TestNormalizeGrokVideoStatus", "TestBuildGrokVideoSubmitResponse"],
+      "rationale": "Load-bearing QA evidence for the grok-native video arm: the xAI status-enum -> videoTerminalOutcome mapping (drift would skip terminal-success retention or terminal-failure refund) and the submit acknowledgement shape (must carry TK's public task id, not the upstream request_id)."
     }
   ]
 }

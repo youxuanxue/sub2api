@@ -59,6 +59,14 @@ type VideoFetchInput struct {
 	ChannelType    int
 	BaseURL        string
 	APIKey         string
+	// Platform + AccountID support the grok-native video poll path (platform=grok,
+	// channel_type=0), which does NOT go through the new-api task adaptor. The
+	// bridge fetch ignores both; the TK service layer branches on Platform=="grok"
+	// to a native poll and re-resolves a fresh OAuth Bearer via AccountID (the
+	// pinned APIKey may be a rotated/stale grok token by poll time). Empty/zero
+	// for the bridge (channel_type>0) path — fully backward compatible.
+	Platform  string
+	AccountID int64
 }
 
 // VideoFetchOutcome holds the upstream raw response and the parsed status
