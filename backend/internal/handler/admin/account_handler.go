@@ -325,31 +325,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	// 始终获取窗口费用（PostgreSQL 聚合查询）
+	// TK: 原实现为每个 Anthropic OAuth/SetupToken 账号单发一条聚合 SQL（errgroup cap 10），
+	// 账号多时形成 N+1。改走 GetAccountWindowCostsBatch：按窗口起点分桶，每个不同起点只跑
+	// 一条 ANY($1) 批量查询（仓储不支持批量或失败时内部回退单查，失败开放，语义不变）。
 	if len(windowCostAccountIDs) > 0 {
-		windowCosts = make(map[int64]float64)
-		var mu sync.Mutex
-		g, gctx := errgroup.WithContext(c.Request.Context())
-		g.SetLimit(10) // 限制并发数
-
-		for i := range accounts {
-			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
-				continue
-			}
-			accCopy := acc // 闭包捕获
-			g.Go(func() error {
-				// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-				startTime := accCopy.GetCurrentWindowStartTime()
-				stats, err := h.accountUsageService.GetAccountWindowStats(gctx, accCopy.ID, startTime)
-				if err == nil && stats != nil {
-					mu.Lock()
-					windowCosts[accCopy.ID] = stats.StandardCost // 使用标准费用
-					mu.Unlock()
-				}
-				return nil // 不返回错误，允许部分失败
-			})
-		}
-		_ = g.Wait()
+		windowCosts = h.accountUsageService.GetAccountWindowCostsBatch(c.Request.Context(), accounts)
 	}
 
 	// Build response with concurrency info

@@ -169,6 +169,33 @@ func (f fakeUsageReader) GetPassiveUsage(_ context.Context, _ int64) (*service.U
 	return f.passive, nil
 }
 
+func (f fakeUsageReader) GetAccountWindowCostsBatch(_ context.Context, accounts []service.Account) map[int64]float64 {
+	// Mirror the real service filter so the handler's batch path yields the same
+	// per-account StandardCost the old per-account GetAccountWindowStats did.
+	costs := make(map[int64]float64)
+	for i := range accounts {
+		acc := &accounts[i]
+		if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
+			continue
+		}
+		costs[acc.ID] = f.wcost
+	}
+	return costs
+}
+
+func (f fakeUsageReader) GetPassiveUsageBatch(_ context.Context, accountIDs []int64) map[int64]*service.UsageInfo {
+	// The handler pre-filters ids to the passive-capable platforms; return the
+	// configured passive sample for each (nil sample => empty, cell shows "-").
+	usage := make(map[int64]*service.UsageInfo)
+	if f.passive == nil {
+		return usage
+	}
+	for _, id := range accountIDs {
+		usage[id] = f.passive
+	}
+	return usage
+}
+
 func richOAuthAccount() service.Account {
 	return service.Account{
 		ID:       7,

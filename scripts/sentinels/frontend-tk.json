@@ -909,6 +909,31 @@
         "createApiError("
       ],
       "rationale": "PR #803: the upstream-shaped axios response interceptor must reject with createApiError(...) (a real Error), NOT a plain object. This is the load-bearing injection point — an upstream merge that restores the original `Promise.reject({ status, code, message })` plain-object shape would compile fine and silently reintroduce the app-wide [object Object] rendering bug at every `e instanceof Error ? e.message : String(e)` call site. Anchoring the createApiError( call makes that revert fail the merge gate instead of shipping silently."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountUsageBatch.ts",
+      "must_contain": [
+        "export function useTkAccountUsageBatch(",
+        "getBatchPassiveUsage(",
+        "isBatchPassiveCapable"
+      ],
+      "rationale": "TK composable that batches Anthropic OAuth/SetupToken passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard + the platform scoping (only anthropic oauth/setup-token). If deleted, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, and the scoping predicate."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "useTkAccountUsageBatch",
+        ":usage-override=\"accountUsageOverrideFor(row)\"",
+        "refreshUsageBatch(accounts.value)"
+      ],
+      "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshUsageBatch calls after each list load. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches) or the refresh calls (overrides never populate). Pins the import, the cell binding, and the refresh call."
+    },
+    {
+      "path": "frontend/src/api/admin/accounts.ts",
+      "must_contain": [
+        "export async function getBatchPassiveUsage("
+      ],
+      "rationale": "Frontend client for POST /admin/accounts/usage/batch, mirroring getBatchTodayStats. Load-bearing for the accounts-list fan-out fix; if an upstream merge drops it, the composable's batch call fails to compile/resolve. Pins the exported client function."
     }
   ]
 }
