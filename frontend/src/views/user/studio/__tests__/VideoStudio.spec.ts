@@ -91,4 +91,15 @@ describe('VideoStudio succeeded-task presentation', () => {
       'https://s3.example/fresh.mp4'
     )
   })
+
+  it('exposes a copy-link affordance in the lightbox ready state (restores the link #860 removed)', async () => {
+    // The "看不到 S3 链接" regression: #860 dropped the open-in-new-tab anchor, so an
+    // expired card dead-ended. Once the URL is re-minted (ready), the user must be
+    // able to grab the link itself — not only Download.
+    seedSucceeded('https://s3.example/stale.mp4')
+    const w = mountStudio()
+    await w.find('[data-testid="studio-video-play"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="studio-video-copy-link"]').exists()).toBe(true)
+  })
 })

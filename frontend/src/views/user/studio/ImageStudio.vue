@@ -1,5 +1,5 @@
 <template>
-  <div class="grid grid-cols-1 gap-5 lg:grid-cols-[340px_1fr_250px]">
+  <div class="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
     <!-- LEFT: orchestration -->
     <div class="space-y-4">
       <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
@@ -115,6 +115,50 @@
         <!-- No Advanced panel for image: imagen / seedream adaptors honor no
              tunable params beyond size + count (verified against new-api). -->
       </div>
+
+      <!-- Cost + primary CTA. Moved out of a dedicated right column into the
+           orchestration stack so the action lives where composing ends — one
+           vertical sweep (model → prompt → aspect → count → cost → Generate)
+           instead of an eye-jump across the results gallery to a far-right button. -->
+      <div v-if="models.length" class="space-y-4">
+        <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
+          <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisGeneration') }}</div>
+          <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
+          <div class="mt-3 space-y-1 border-t border-primary-200/60 pt-3 text-sm dark:border-primary-900/40">
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ formatUsd(estimate) }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums text-gray-700 dark:text-dark-200">{{ formatUsd(balance) }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.afterGeneration') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ formatUsd(balance - estimate) }}</span></div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="w-full rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="!canGenerate"
+          data-testid="studio-image-generate"
+          @click="generate"
+        >
+          <template v-if="sending">{{ t('studio.image.generating') }}</template>
+          <template v-else-if="!canAfford">{{ t('studio.image.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
+          <template v-else>{{ t('studio.image.generate', { cost: formatUsd(estimate) }) }}</template>
+        </button>
+        <router-link
+          v-if="!canAfford"
+          to="/purchase"
+          class="block text-center text-xs font-medium text-primary-600 underline dark:text-primary-400"
+        >
+          {{ t('studio.topUp') }}
+        </router-link>
+
+        <div
+          v-if="errorMessage"
+          class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100"
+          data-testid="studio-image-error"
+        >
+          {{ errorMessage }}
+          <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
+        </div>
+      </div>
     </div>
 
     <!-- CENTER: results -->
@@ -133,7 +177,7 @@
       <div v-if="!library.images.value.length" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
         {{ t('studio.image.emptyHint') }}
       </div>
-      <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
         <figure
           v-for="img in library.images.value"
           :key="img.id"
@@ -159,48 +203,6 @@
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(img.cost) }}</span>
           </figcaption>
         </figure>
-      </div>
-    </div>
-
-    <!-- RIGHT: cost panel + button (the spine). Hidden when the group serves no
-         image model — no point showing a $0 panel and a dead Generate button. -->
-    <div v-if="models.length" class="space-y-4">
-      <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
-        <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisGeneration') }}</div>
-        <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
-        <div class="mt-3 space-y-1 border-t border-primary-200/60 pt-3 text-sm dark:border-primary-900/40">
-          <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ formatUsd(estimate) }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums text-gray-700 dark:text-dark-200">{{ formatUsd(balance) }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.afterGeneration') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ formatUsd(balance - estimate) }}</span></div>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        class="w-full rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="!canGenerate"
-        data-testid="studio-image-generate"
-        @click="generate"
-      >
-        <template v-if="sending">{{ t('studio.image.generating') }}</template>
-        <template v-else-if="!canAfford">{{ t('studio.image.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
-        <template v-else>{{ t('studio.image.generate', { cost: formatUsd(estimate) }) }}</template>
-      </button>
-      <router-link
-        v-if="!canAfford"
-        to="/purchase"
-        class="block text-center text-xs font-medium text-primary-600 underline dark:text-primary-400"
-      >
-        {{ t('studio.topUp') }}
-      </router-link>
-
-      <div
-        v-if="errorMessage"
-        class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100"
-        data-testid="studio-image-error"
-      >
-        {{ errorMessage }}
-        <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
       </div>
     </div>
 

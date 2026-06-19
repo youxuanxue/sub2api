@@ -1,5 +1,5 @@
 <template>
-  <div class="grid grid-cols-1 gap-5 lg:grid-cols-[340px_1fr_250px]">
+  <div class="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
     <!-- LEFT: orchestration -->
     <div class="space-y-4">
       <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
@@ -116,6 +116,52 @@
           </div>
         </template>
       </div>
+
+      <!-- Cost + primary CTA. Moved out of a dedicated right column into the
+           orchestration stack so the action lives where composing ends — one
+           vertical sweep (model → prompt → params → cost → Generate) instead of
+           an eye-jump across the results gallery to a far-right button. -->
+      <div v-if="models.length" class="space-y-4">
+        <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
+          <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisVideo') }}</div>
+          <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
+          <div class="mt-3 space-y-1 border-t border-primary-200/60 pt-3 text-sm dark:border-primary-900/40">
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ formatUsd(estimate) }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ formatUsd(balance) }} → {{ formatUsd(balance - estimate) }}</span></div>
+          </div>
+          <div class="mt-3 flex items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-2 text-[12px] font-medium text-green-700 ring-1 ring-green-200 dark:bg-green-950/30 dark:text-green-300 dark:ring-green-900/50">
+            ✓ {{ t('studio.video.refundLine') }}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="w-full rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="!canGenerate"
+          data-testid="studio-video-generate"
+          @click="generate"
+        >
+          <template v-if="sending">{{ t('studio.video.submitting') }}</template>
+          <template v-else-if="!canAfford">{{ t('studio.video.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
+          <template v-else>{{ t('studio.video.generate', { cost: formatUsd(estimate) }) }}</template>
+        </button>
+        <router-link
+          v-if="!canAfford"
+          to="/purchase"
+          class="block text-center text-xs font-medium text-primary-600 underline dark:text-primary-400"
+        >
+          {{ t('studio.topUp') }}
+        </router-link>
+
+        <div
+          v-if="errorMessage"
+          class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100"
+          data-testid="studio-video-error"
+        >
+          {{ errorMessage }}
+          <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
+        </div>
+      </div>
     </div>
 
     <!-- CENTER: task stack -->
@@ -211,6 +257,9 @@
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
+          <!-- Generated clips are throwaway previews (auto-removed after ~1 day),
+               so nudge the user to grab it now rather than discover it expired. -->
+          <p v-if="task.url" class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.video.retentionHint') }}</p>
         </div>
 
         <!-- failed: refund -->
@@ -222,50 +271,6 @@
           </details>
           <button type="button" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
         </div>
-      </div>
-    </div>
-
-    <!-- RIGHT: cost panel + button. Hidden when the group serves no video model —
-         no point showing a $0 panel and a dead Generate button. -->
-    <div v-if="models.length" class="space-y-4">
-      <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
-        <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisVideo') }}</div>
-        <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
-        <div class="mt-3 space-y-1 border-t border-primary-200/60 pt-3 text-sm dark:border-primary-900/40">
-          <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ formatUsd(estimate) }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ formatUsd(balance) }} → {{ formatUsd(balance - estimate) }}</span></div>
-        </div>
-        <div class="mt-3 flex items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-2 text-[12px] font-medium text-green-700 ring-1 ring-green-200 dark:bg-green-950/30 dark:text-green-300 dark:ring-green-900/50">
-          ✓ {{ t('studio.video.refundLine') }}
-        </div>
-      </div>
-
-      <button
-        type="button"
-        class="w-full rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="!canGenerate"
-        data-testid="studio-video-generate"
-        @click="generate"
-      >
-        <template v-if="sending">{{ t('studio.video.submitting') }}</template>
-        <template v-else-if="!canAfford">{{ t('studio.video.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
-        <template v-else>{{ t('studio.video.generate', { cost: formatUsd(estimate) }) }}</template>
-      </button>
-      <router-link
-        v-if="!canAfford"
-        to="/purchase"
-        class="block text-center text-xs font-medium text-primary-600 underline dark:text-primary-400"
-      >
-        {{ t('studio.topUp') }}
-      </router-link>
-
-      <div
-        v-if="errorMessage"
-        class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100"
-        data-testid="studio-video-error"
-      >
-        {{ errorMessage }}
-        <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
       </div>
     </div>
 
@@ -311,6 +316,11 @@
           <span class="max-w-[60vw] truncate text-xs text-white/80" :title="preview.prompt">{{ preview.prompt }}</span>
           <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.estCost) }}</span>
           <button v-if="previewState === 'ready' && previewUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(previewUrl, `tokenkey-${preview.id}.mp4`)">{{ t('studio.video.download') }}</button>
+          <!-- Restore a way to grab the link itself (the #860 rework dropped the
+               open-in-new-tab anchor → the "看不到 S3 链接" report). The URL is
+               re-minted fresh on open, so this copies a currently-valid presigned
+               link, never a stale one. -->
+          <button v-if="previewState === 'ready' && previewUrl" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" data-testid="studio-video-copy-link" @click="copyPreviewLink">{{ copied ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
           <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
         </div>
       </div>
@@ -483,6 +493,9 @@ async function enableNotify(): Promise<void> {
 const preview = ref<VideoTaskItem | null>(null)
 const previewUrl = ref('')
 const previewState = ref<'loading' | 'ready' | 'expired'>('loading')
+// Transient "copied" confirmation for the copy-link button (no toast/banner).
+const copied = ref(false)
+let copiedTimer: ReturnType<typeof setTimeout> | undefined
 
 async function openPreview(task: VideoTaskItem): Promise<void> {
   if (!task.url) return
@@ -517,9 +530,25 @@ function retryPreview(): void {
   if (preview.value) void openPreview(preview.value)
 }
 
+// Copy the freshly re-minted presigned URL to the clipboard. Best-effort: an
+// insecure context or a denied permission is a no-op (Download remains the
+// fallback), so the copy affordance never throws into the UI.
+async function copyPreviewLink(): Promise<void> {
+  if (!previewUrl.value) return
+  try {
+    await navigator.clipboard?.writeText(previewUrl.value)
+    copied.value = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied.value = false), 1500)
+  } catch {
+    /* clipboard unavailable / blocked — silent, Download still works */
+  }
+}
+
 function closePreview(): void {
   preview.value = null
   previewUrl.value = ''
+  copied.value = false
 }
 
 function reuseAndClose(task: VideoTaskItem | null): void {
@@ -596,7 +625,10 @@ onMounted(() => {
     if (task.state === 'processing') poll.resume(task)
   }
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (copiedTimer) clearTimeout(copiedTimer)
+})
 </script>
 
 <style scoped>
