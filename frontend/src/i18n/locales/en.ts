@@ -234,9 +234,12 @@ export default {
       close: 'Close',
       loadingPreview: 'Loading…',
       expiredTitle: 'Preview expired',
-      expiredHint: 'The temporary link for this video has expired — just generate it again.',
+      expiredHint: 'Generated videos are kept for about a day, then auto-removed. If it was just generated, try again — otherwise regenerate.',
       stalled: 'Cannot fetch progress (the API key may have been deleted). Please generate again.',
-      retry: 'Try again'
+      retry: 'Try again',
+      copyLink: 'Copy link',
+      copied: 'Copied',
+      retentionHint: 'Kept ~1 day · download soon'
     },
     chat: {
       model: 'Model',

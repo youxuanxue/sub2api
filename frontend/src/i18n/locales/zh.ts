@@ -232,9 +232,12 @@ export default {
       close: '关闭',
       loadingPreview: '加载中…',
       expiredTitle: '预览已过期',
-      expiredHint: '这个视频的临时链接已失效，重新生成即可。',
+      expiredHint: '生成的视频仅临时保存约 1 天，超时会自动清理。若是刚生成的请点重试，否则请重新生成。',
       stalled: '无法继续获取进度（密钥可能已删除）。请重新生成。',
-      retry: '重试'
+      retry: '重试',
+      copyLink: '复制链接',
+      copied: '已复制',
+      retentionHint: '保留约 1 天 · 请及时下载'
     },
     chat: {
       model: '模型',
