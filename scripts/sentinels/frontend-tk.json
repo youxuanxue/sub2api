@@ -856,10 +856,12 @@
       "must_contain": [
         "data-testid=\"studio-video-model\"",
         "data-testid=\"studio-video-generate\"",
+        "data-testid=\"studio-video-play\"",
+        "data-testid=\"studio-video-preview\"",
         "!task.url.startsWith('data:')",
         "poll.refreshUrl"
       ],
-      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. The `!task.url.startsWith('data:')` guard on the result 'open' link is load-bearing: veo returns base64 (data:video/…), and browsers block top-level navigation to data: URLs, so an unguarded `<a target=_blank>` dead-ends at about:blank (the same class of bug fixed for images in #842). The inline <video> player + download cover the data: case; the open link is for remote URLs only. An upstream merge that reverts the guard silently reintroduces the about:blank dead-end. poll.refreshUrl anchors the onMounted re-fetch of already-succeeded tasks: media URLs are now short-lived presigned S3 links, so a reloaded session must re-mint them — dropping this call leaves a reopened Studio with dead (expired) video links."
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays both presigned-http and data: veo clips in-page, structurally avoiding both the black poster-less 0:00 box and the about:blank dead-end browsers impose on top-level data: navigation (the #842 class). An upstream merge that drops the poster/lightbox reintroduces one of those two regressions. The `!task.url.startsWith('data:')` guard is still load-bearing — it now gates URL re-minting in openPreview: a short-lived presigned http link is re-fetched (poll.refreshUrl) before playback while a self-contained data: URI is played directly, so dropping it either re-streams a 10-20 MB inline-base64 body on every open or hands the player an expired link. poll.refreshUrl anchors the lazy on-open re-mint of already-succeeded tasks' short-lived presigned S3 URLs (24h record TTL); dropping it leaves a reopened Studio with dead (expired) video links."
     },
     {
       "path": "frontend/src/constants/mediaTiers.tk.ts",

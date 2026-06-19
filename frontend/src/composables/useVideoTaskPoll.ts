@@ -120,7 +120,10 @@ export function useVideoTaskPoll(opts: VideoTaskPollOptions): VideoTaskPoller {
       p.errors = 0
       const state = videoStateFromFetch(raw)
       const url = state === 'succeeded' ? extractVideoUrl(raw) : ''
-      opts.patch(task.id, { state, url })
+      // Clear any stale `errorMessage` (e.g. a prior 'key_unavailable' stall): a
+      // successful fetch means the loop is making progress again, so the card must
+      // not keep showing the "stalled" warning.
+      opts.patch(task.id, { state, url, errorMessage: undefined })
       if (state === 'processing') {
         schedule(task)
       } else {
@@ -146,6 +149,10 @@ export function useVideoTaskPoll(opts: VideoTaskPollOptions): VideoTaskPoller {
   function resume(task: VideoTaskItem): void {
     if (task.state !== 'processing') return
     if (pollers.has(task.id)) return
+    // A task persisted across a reload may carry a stale `errorMessage` (e.g.
+    // 'key_unavailable' from a prior session whose key is now back). Clear it so
+    // the "stalled" surface reflects THIS attempt, not the last one.
+    if (task.errorMessage) opts.patch(task.id, { errorMessage: undefined })
     pollers.set(task.id, { timer: null, abort: null, errors: 0 })
     schedule(task)
   }
