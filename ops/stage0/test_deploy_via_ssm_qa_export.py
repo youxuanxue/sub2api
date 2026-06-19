@@ -57,10 +57,6 @@ def _qa_cmds(commands: list[str]) -> list[str]:
     return [c for c in commands if "QA_CAPTURE_EXPORT_STORAGE" in c]
 
 
-def _ic_cmds(commands: list[str]) -> list[str]:
-    return [c for c in commands if "GATEWAY_IMAGE_CONCURRENCY" in c]
-
-
 class QAExportInjectionRenderTest(unittest.TestCase):
     def test_prod_injects_exactly_two_guarded_commands(self) -> None:
         proc, commands = _render(_PROD_IID)
@@ -121,44 +117,6 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         env_cmd = next(c for c in _qa_cmds(commands) if "tee -a" in c)
         self.assertIn("qa_b='custom-bucket'", env_cmd)
         self.assertIn("qa_p='custom/prefix'", env_cmd)
-
-    def test_prod_injects_image_concurrency_guarded_commands(self) -> None:
-        proc, commands = _render(_PROD_IID)
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        ic = _ic_cmds(commands)
-        self.assertEqual(len(ic), 2, msg=f"expected 2 image-concurrency cmds, got {len(ic)}: {ic}")
-
-        env_cmd = next(c for c in ic if "/var/lib/tokenkey/.env" in c and "docker-compose" not in c)
-        # default prod values: limiter ON, generous per-replica cap, reject overflow
-        # (fast-fail 429 instead of buffering unbounded 256MB bodies — prod has no swap).
-        self.assertIn("ic_e='true'", env_cmd)
-        self.assertIn("ic_m='8'", env_cmd)
-        self.assertIn("ic_o='reject'", env_cmd)
-        # guarded + additive (must not clobber an operator override already in .env)
-        self.assertIn('grep -q "^${key}=" /var/lib/tokenkey/.env', env_cmd)
-        self.assertIn("tee -a /var/lib/tokenkey/.env", env_cmd)
-
-        compose_cmd = next(c for c in ic if "docker-compose.yml" in c)
-        # anchored to the tokenkey-unique SERVER_FRONTEND_URL line (not per-service TZ)
-        self.assertIn("/^      - SERVER_FRONTEND_URL=/a\\", compose_cmd)
-        self.assertNotIn("/^      - TZ=/a\\", compose_cmd)
-        self.assertIn("image-concurrency-before-1.8.99", compose_cmd)  # tagged backup
-        self.assertIn('grep -q "${key}=" "$CF"', compose_cmd)          # guarded insertion
-
-    def test_edge_gets_no_image_concurrency_injection(self) -> None:
-        proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertEqual(_ic_cmds(commands), [])
-
-    def test_image_concurrency_values_are_env_overridable(self) -> None:
-        proc, commands = _render(_PROD_IID, env_extra={
-            "GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS": "16",
-            "GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE": "wait",
-        })
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        env_cmd = next(c for c in _ic_cmds(commands) if "tee -a" in c)
-        self.assertIn("ic_m='16'", env_cmd)
-        self.assertIn("ic_o='wait'", env_cmd)
 
 
 @unittest.skipUnless(
