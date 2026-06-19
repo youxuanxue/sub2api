@@ -1692,7 +1692,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyRegistrationEmailSuffixWhitelist] = string(registrationEmailSuffixWhitelistJSON)
 	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
-	updates[SettingKeyKiroEnabled] = strconv.FormatBool(settings.KiroEnabled)
 	updates[SettingKeyAnthropicCanonicalIngressStrictEnabled] = strconv.FormatBool(settings.AnthropicCanonicalIngressStrictEnabled)
 	updates[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] = strconv.FormatBool(settings.AnthropicCanonicalHaikuMimicryEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
@@ -3004,7 +3003,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		EmailVerifyEnabled:                     emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false",                      // 默认启用
-		KiroEnabled:                            settings[SettingKeyKiroEnabled] == "true",                            // TK: Kiro 第六平台门禁，默认关闭（ToS）
 		AnthropicCanonicalIngressStrictEnabled: settings[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true", // TK: canonical 入口 UA strict 拒绝（#1#2），默认关闭（零回归）
 		AnthropicCanonicalHaikuMimicryEnabled:  settings[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true",  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3），默认关闭（零回归）
 		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",

@@ -6108,13 +6108,6 @@ export default {
         payment: '支付设置',
       },
       features: {
-        kiro: {
-          title: 'Kiro（第六平台）',
-          description: 'AWS Kiro / CodeWhisperer 订阅的网关转发开关（platform=kiro）。默认关闭；这是第二道 ToS 门禁（第一道是创建账号时的逐账号 ToS 确认）。',
-          enabled: '启用 Kiro 转发',
-          enabledHint: '关闭时，所有 Kiro 请求会在网关被拒绝并返回 “kiro platform is disabled”，不会有任何流量出站。',
-          tosWarning: '启用后将向 AWS Kiro / CodeWhisperer 转发流量。开启前请确认你的使用符合 Kiro 服务条款（ToS）。',
-        },
         channelMonitor: {
           title: '渠道监控',
           description: '定期对配置的渠道发起健康检查，向用户展示可用性与延迟。关闭后调度器停止扫描，用户端列表为空。',

@@ -30,19 +30,16 @@ import (
 type KiroGatewayService struct {
 	httpUpstream        HTTPUpstream
 	tlsFPProfileService *TLSFingerprintProfileService
-	settingService      *SettingService
 }
 
 // NewKiroGatewayService constructs a KiroGatewayService.
 func NewKiroGatewayService(
 	httpUpstream HTTPUpstream,
 	tlsFPProfileService *TLSFingerprintProfileService,
-	settingService *SettingService,
 ) *KiroGatewayService {
 	return &KiroGatewayService{
 		httpUpstream:        httpUpstream,
 		tlsFPProfileService: tlsFPProfileService,
-		settingService:      settingService,
 	}
 }
 
@@ -70,10 +67,6 @@ func (s *KiroGatewayService) Forward(
 	parsed *ParsedRequest,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	// ToS / enable gate (second of two; the first is tkValidateKiroAccountCreate).
-	if s.settingService == nil || !s.settingService.IsKiroEnabled(ctx) {
-		return nil, fmt.Errorf("kiro platform is disabled")
-	}
 	if parsed == nil {
 		return nil, fmt.Errorf("kiro forward: empty request")
 	}

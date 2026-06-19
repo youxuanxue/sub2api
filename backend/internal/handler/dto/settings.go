@@ -31,7 +31,6 @@ type SystemSettings struct {
 	EmailVerifyEnabled                     bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist       []string                 `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                       bool                     `json:"promo_code_enabled"`
-	KiroEnabled                            bool                     `json:"kiro_enabled"`                               // TK: Kiro 第六平台转发门禁（默认 false / ToS）
 	AnthropicCanonicalIngressStrictEnabled bool                     `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical 入口 UA strict 拒绝（拒非 CC，#1#2，默认 false / 零回归）
 	AnthropicCanonicalHaikuMimicryEnabled  bool                     `json:"anthropic_canonical_haiku_mimicry_enabled"`  // TK: canonical 非 CC haiku 出口 mimicry 补全（放行+兜底，#3，默认 false / 零回归）
 	PasswordResetEnabled                   bool                     `json:"password_reset_enabled"`
