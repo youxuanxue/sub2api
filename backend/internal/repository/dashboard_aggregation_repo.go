@@ -96,6 +96,12 @@ func (r *dashboardAggregationRepository) aggregateRangeInTx(ctx context.Context,
 	if err := r.upsertDailyAggregates(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
+	// TK: per-(user, platform, day) rollup feeding the admin Users page +
+	// dashboard spending-ranking widget. Aggregates the same day window from raw
+	// usage_logs (see dashboard_aggregation_repo_tk_user_platform.go).
+	if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -152,6 +158,11 @@ func (r *dashboardAggregationRepository) recomputeRangeInTx(ctx context.Context,
 	if _, err := r.sql.ExecContext(ctx, "DELETE FROM usage_dashboard_daily_users WHERE bucket_date >= $1::date AND bucket_date < $2::date", dayStart, dayEnd); err != nil {
 		return err
 	}
+	// TK: clear the per-(user, platform, day) rollup for the window so a row that
+	// dropped to zero after a usage_logs rollback does not linger before rebuild.
+	if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
 
 	if err := r.insertHourlyActiveUsers(ctx, hourStart, hourEnd); err != nil {
 		return err
@@ -163,6 +174,10 @@ func (r *dashboardAggregationRepository) recomputeRangeInTx(ctx context.Context,
 		return err
 	}
 	if err := r.upsertDailyAggregates(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
+	// TK: rebuild the per-(user, platform, day) rollup for the window.
+	if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
 	return nil
@@ -204,6 +219,10 @@ func (r *dashboardAggregationRepository) CleanupAggregates(ctx context.Context, 
 		return err
 	}
 	if _, err := r.sql.ExecContext(ctx, "DELETE FROM usage_dashboard_daily_users WHERE bucket_date < $1::date", dailyCutoffUTC); err != nil {
+		return err
+	}
+	// TK: prune the per-(user, platform, day) rollup with the same daily cutoff.
+	if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {
 		return err
 	}
 	return nil
