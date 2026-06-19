@@ -141,6 +141,16 @@
       "path": "backend/internal/handler/admin/group_handler.go",
       "must_contain": ["antigravity newapi kiro grok"],
       "rationale": "grok must be an accepted group Platform value on the create/update admin DTOs (CreateGroupRequest/UpdateGroupRequest `oneof`). TK has appended a platform to this exact binding three times (newapi, kiro #481, grok #791); an upstream merge that reverts the oneof to the upstream/earlier platform set silently strips grok (and kiro/newapi), leaving platform=grok accounts with no schedulable group. Pinning the extended enum tail makes such a revert fail the merge sentinel check."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": ["IsOpenAICompatPlatform(a.Platform)"],
+      "rationale": "grok must be INSIDE the OpenAI-compat image-capability gate. accountSupportsOpenAICapabilities (openai_account_scheduler.go) runs Account.SupportsOpenAIImageCapability on EVERY OpenAI-compat candidate selection; for a non-openai account that predicate IS the gate. It previously hardcoded `!a.IsOpenAI() && a.Platform != PlatformNewAPI`, silently excluding every grok account so all grok chat/image requests fast-failed with 'no available accounts' (excluded_account_count=0) — the marquee first-real-use scheduling bug (grok last_used=never until then; survived restart because it is a deterministic logic gate). Switching it to IsOpenAICompatPlatform(a.Platform) (the openai/newapi/grok single-source predicate) fixed it. No compile error and no other test pinned this line, so an upstream merge that reverts it to the hardcoded openai||newapi list would silently re-break grok scheduling — this anchor catches that revert."
+    },
+    {
+      "path": "backend/internal/service/account_tk_grok_capability_test.go",
+      "must_contain": ["TestGrokAccount_PassesOpenAICompatCapabilityGate"],
+      "rationale": "Load-bearing QA evidence for the grok OpenAI-compat capability gate (see the account.go anchor above). Guards against silent re-introduction of the 'grok excluded from every OpenAI-compat selection' bug."
     }
   ]
 }

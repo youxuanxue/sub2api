@@ -1275,8 +1275,11 @@ func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
 }
 
 func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
-	// newapi 走 OpenAI 协议与同一套 image 能力；与 IsOpenAICompatPoolMember 一致
-	if !a.IsOpenAI() && a.Platform != PlatformNewAPI {
+	// openai / newapi / grok 走同一套 OpenAI 协议与 image 能力；用 compat-pool 平台
+	// 谓词作单一真值源（含 grok 第七平台），避免硬编码 openai||newapi 列表漏掉新平台。
+	// 历史 bug：只判 IsOpenAI()||newapi 时 grok 账号被 accountSupportsOpenAICapabilities
+	// 在每个 chat completions 选号上排除，导致 grok 全程 "no available accounts"。
+	if !IsOpenAICompatPlatform(a.Platform) {
 		return false
 	}
 	switch capability {
