@@ -120,12 +120,12 @@
 
     <!-- CENTER: task stack -->
     <div class="space-y-3">
-      <div
-        v-if="lastEvent"
-        class="flex items-center justify-between gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-800 dark:border-primary-900/50 dark:bg-primary-950/40 dark:text-primary-200"
-      >
-        <span>{{ lastEvent }}</span>
-        <button type="button" class="text-xs text-primary-600 dark:text-primary-300" @click="lastEvent = ''">✕</button>
+      <!-- Results header + bulk clear (matches the image surface). Shown only when
+           there is history; the per-card status badge is the source of truth for
+           each task's state — there is no global completion banner to go stale. -->
+      <div v-if="library.videoTasks.value.length" class="flex items-center justify-between px-1">
+        <span class="text-sm font-semibold text-gray-700 dark:text-dark-200">{{ t('studio.video.resultsTitle') }}</span>
+        <button type="button" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" data-testid="studio-video-clear-all" @click="clearAll">{{ t('studio.clear') }}</button>
       </div>
 
       <div v-if="!library.videoTasks.value.length" class="rounded-xl border border-gray-200 bg-white py-16 text-center text-sm text-gray-500 shadow-sm dark:border-dark-700 dark:bg-dark-900 dark:text-dark-400">
@@ -157,34 +157,57 @@
         <!-- processing: timeline -->
         <div v-if="task.state === 'processing'" class="space-y-2">
           <div class="space-y-1 text-sm">
-            <div class="flex items-center gap-2 text-gray-700 dark:text-dark-200"><span class="text-primary-600">⬤</span> {{ t('studio.video.stepSubmitted') }} <span class="text-green-600">✓</span></div>
-            <div class="flex items-center gap-2 text-gray-700 dark:text-dark-200"><span class="text-primary-600">◔</span> {{ t('studio.video.stepGenerating') }} <span class="ml-auto font-mono text-gray-400 tabular-nums dark:text-dark-500">{{ formatElapsed(task.elapsedS) }}</span></div>
-            <div class="flex items-center gap-2 text-gray-400 dark:text-dark-500"><span>○</span> {{ t('studio.video.stepReady') }}</div>
+            <div class="flex items-center gap-2 text-gray-700 dark:text-dark-200"><span aria-hidden="true" class="text-primary-600">⬤</span> {{ t('studio.video.stepSubmitted') }} <span aria-hidden="true" class="text-green-600">✓</span></div>
+            <div class="flex items-center gap-2 text-gray-700 dark:text-dark-200"><span aria-hidden="true" class="text-primary-600">◔</span> {{ t('studio.video.stepGenerating') }} <span class="ml-auto font-mono text-gray-400 tabular-nums dark:text-dark-500">{{ formatElapsed(task.elapsedS) }}</span></div>
+            <div class="flex items-center gap-2 text-gray-400 dark:text-dark-500"><span aria-hidden="true">○</span> {{ t('studio.video.stepReady') }}</div>
           </div>
-          <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-dark-800">
-            <div class="h-full animate-pulse rounded-full bg-gradient-to-r from-primary-400 to-primary-600" style="width: 62%"></div>
+          <!-- Honest INDETERMINATE progress: the upstream render time is non-
+               deterministic, so we animate "working" rather than assert a
+               fabricated percentage the upstream can't keep. -->
+          <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-dark-800" role="progressbar" :aria-label="t('studio.video.stepGenerating')">
+            <div class="tk-indeterminate h-full w-2/5 rounded-full bg-gradient-to-r from-primary-400 to-primary-600"></div>
           </div>
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="text-gray-500 dark:text-dark-400">{{ t('studio.video.reserved', { cost: formatUsd(task.estCost) }) }}</span>
-            <button type="button" class="font-medium text-primary-600 dark:text-primary-300" @click="enableNotify">{{ t('studio.video.notifyMe') }}</button>
+          <div class="flex items-center justify-between gap-2 text-[11px]">
+            <span class="text-gray-500 dark:text-dark-400">{{ t('studio.video.reserved', { cost: formatUsd(task.estCost) }) }} · {{ t('studio.video.usuallyTakes') }}</span>
+            <button v-if="notifyState !== 'granted'" type="button" class="shrink-0 font-medium text-primary-600 dark:text-primary-300" @click="enableNotify">{{ notifyState === 'denied' ? t('studio.video.notifyDenied') : t('studio.video.notifyMe') }}</button>
+            <span v-else class="shrink-0 font-medium text-green-600 dark:text-green-400">✓ {{ t('studio.video.notifyEnabled') }}</span>
           </div>
-          <p class="text-[11px] text-gray-400 dark:text-dark-500">{{ t('studio.video.usuallyTakes') }} · {{ task.prompt }}</p>
+          <p class="truncate text-[11px] text-gray-400 dark:text-dark-500" :title="task.prompt">{{ task.prompt }}</p>
+          <!-- Surfaced when the poll loop can no longer make progress (e.g. the API
+               key was deleted mid-flight) so a dead task doesn't spin forever. -->
+          <p v-if="task.errorMessage" class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{{ t('studio.video.stalled') }}</p>
         </div>
 
-        <!-- succeeded: player -->
+        <!-- succeeded: poster tile → in-page lightbox playback. We deliberately do
+             NOT render an always-on <video> (it shows a black, poster-less 0:00 box
+             before play, and a reaped presigned URL would silently break it). The
+             clip plays on demand in the lightbox, where the URL is re-minted fresh —
+             mirroring the image surface's click-to-enlarge pattern. -->
         <div v-else-if="task.state === 'succeeded'" class="space-y-2">
-          <video v-if="task.url" :src="task.url" controls class="max-h-[360px] w-full rounded-lg bg-black"></video>
-          <p v-else class="text-xs text-amber-700 dark:text-amber-300">{{ t('studio.video.noUrlHint') }}</p>
+          <button
+            v-if="task.url"
+            type="button"
+            class="group relative block w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
+            :style="{ aspectRatio: posterAspect(task) }"
+            :title="t('studio.video.playHint')"
+            :aria-label="t('studio.video.play')"
+            data-testid="studio-video-play"
+            @click="openPreview(task)"
+          >
+            <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span class="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 shadow-lg transition group-hover:scale-110 group-hover:bg-white">
+                <span aria-hidden="true" class="ml-1 text-2xl text-gray-900">▶</span>
+              </span>
+            </span>
+            <span class="pointer-events-none absolute bottom-2 left-2 rounded bg-black/55 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-white/90">{{ task.seconds }}s{{ task.aspectRatio ? ' · ' + task.aspectRatio : '' }}</span>
+          </button>
+          <p v-else class="rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{{ t('studio.video.noUrlHint') }}</p>
           <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
             <span class="truncate" :title="task.prompt">{{ task.prompt }}</span>
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
-            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)">{{ t('studio.video.download') }}</button>
-            <!-- Open-in-new-tab only for remote URLs: browsers block top-level
-                 navigation to data: URIs (veo returns base64 → about:blank). The
-                 inline <video> player + download cover the data: case. -->
-            <a v-if="task.url && !task.url.startsWith('data:')" :href="task.url" target="_blank" rel="noopener" class="text-primary-600 dark:text-primary-300">{{ t('studio.video.open') }}</a>
+            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
@@ -245,11 +268,58 @@
         <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
       </div>
     </div>
+
+    <!-- Lightbox: in-page playback (replaces the always-on black inline player and
+         the open-in-new-tab dead-end that 404'd for data: veo clips). The presigned
+         URL is re-minted fresh on open; a reaped object degrades to an "expired"
+         message instead of a silent black box. -->
+    <Teleport to="body">
+      <div
+        v-if="preview"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
+        data-testid="studio-video-preview"
+        @click.self="closePreview"
+      >
+        <div class="flex items-center justify-end p-3">
+          <button type="button" class="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20" data-testid="studio-video-preview-close" :aria-label="t('studio.video.close')" @click="closePreview">
+            {{ t('studio.video.close') }} ✕
+          </button>
+        </div>
+        <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closePreview">
+          <video
+            v-if="previewState === 'ready' && previewUrl"
+            :src="previewUrl"
+            controls
+            autoplay
+            playsinline
+            class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
+            @error="onPreviewError"
+          ></video>
+          <div v-else-if="previewState === 'loading'" class="text-sm text-white/80">{{ t('studio.video.loadingPreview') }}</div>
+          <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
+            <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
+            <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
+            <div class="mt-3 flex items-center justify-center gap-2">
+              <!-- A media error can be transient (one-off network blip), so offer a
+                   re-mint+retry before pushing the user to (re-)pay to regenerate. -->
+              <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="retryPreview">{{ t('studio.video.retry') }}</button>
+              <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center justify-center gap-3 p-4">
+          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="preview.prompt">{{ preview.prompt }}</span>
+          <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.estCost) }}</span>
+          <button v-if="previewState === 'ready' && previewUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(previewUrl, `tokenkey-${preview.id}.mp4`)">{{ t('studio.video.download') }}</button>
+          <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gatewayVideoSubmit } from '@/api/playground'
 import { extractVideoTaskId, videoStateFromFetch, extractVideoUrl } from '@/constants/playgroundMedia.tk'
@@ -301,7 +371,11 @@ const userEditedPrompt = ref(false)
 const sending = ref(false)
 const errorMessage = ref('')
 const errorCode = ref<StudioErrorCode | ''>('')
-const lastEvent = ref('')
+
+// Notification-permission state (NOT a per-task event), so a deliberate "notify me"
+// click can confirm itself on the card without a global banner that goes stale
+// across resubmits — the bug the old `lastEvent` toast had.
+const notifyState = ref<'idle' | 'granted' | 'denied'>('idle')
 
 // Advanced (optional; only sent when set).
 const showAdvanced = ref(false)
@@ -332,17 +406,10 @@ const poll = useVideoTaskPoll({
   patch: library.patchVideoTask,
   onTerminal: (task, state) => {
     emit('spent')
-    if (state === 'succeeded') {
-      if (task.url) {
-        lastEvent.value = t('studio.video.doneToast')
-        maybeNotify(t('studio.video.notifyTitle'), task.prompt)
-      } else {
-        // Succeeded upstream but no playable URL could be extracted — surface the
-        // same hint the card shows instead of a false "ready" notification.
-        lastEvent.value = t('studio.video.noUrlHint')
-      }
-    } else {
-      lastEvent.value = t('studio.video.failedToast', { cost: formatUsd(task.estCost) })
+    // The per-card status badge IS the in-page completion signal (no banner to go
+    // stale). For a user who walked away, fire a best-effort browser notification.
+    if (state === 'succeeded' && task.url) {
+      maybeNotify(t('studio.video.notifyTitle'), task.prompt)
     }
   },
 })
@@ -381,6 +448,13 @@ function formatElapsed(s: number): string {
   return `${m}:${ss}`
 }
 
+// CSS aspect-ratio for the poster tile from the task's stored ratio ("16:9" →
+// "16 / 9"); default to 16:9 when the request used auto (no ratio recorded).
+function posterAspect(task: VideoTaskItem): string {
+  const a = (task.aspectRatio || '').replace(':', ' / ').trim()
+  return /^\d+\s*\/\s*\d+$/.test(a) ? a : '16 / 9'
+}
+
 function reuse(task: VideoTaskItem): void {
   prompt.value = task.prompt
   userEditedPrompt.value = true
@@ -391,12 +465,70 @@ function removeTask(id: string): void {
   // task leaves a phantom poller (setTimeout + AbortController) running until the
   // component unmounts — it would keep patching a task that no longer exists.
   poll.stop(id)
+  if (preview.value?.id === id) closePreview()
   library.removeVideoTask(id)
 }
 
+function clearAll(): void {
+  closePreview()
+  poll.stopAll() // drop any in-flight pollers so cleared tasks leave no phantoms
+  library.clearVideoTasks()
+}
+
 async function enableNotify(): Promise<void> {
-  const ok = await requestVideoNotifyPermission()
-  lastEvent.value = ok ? t('studio.video.notifyEnabled') : t('studio.video.notifyDenied')
+  notifyState.value = (await requestVideoNotifyPermission()) ? 'granted' : 'denied'
+}
+
+// ---- In-page video lightbox ---------------------------------------------------
+const preview = ref<VideoTaskItem | null>(null)
+const previewUrl = ref('')
+const previewState = ref<'loading' | 'ready' | 'expired'>('loading')
+
+async function openPreview(task: VideoTaskItem): Promise<void> {
+  if (!task.url) return
+  preview.value = task
+  previewUrl.value = ''
+  previewState.value = 'loading'
+  let url = task.url
+  // A presigned http(s) link is short-lived (~1h) and re-minted server-side from
+  // the stored S3 key while the task record lives (24h TTL), so re-fetch a fresh
+  // one before playing. A `data:` URI is self-contained and never expires — skip
+  // the round-trip (and avoid re-streaming a 10-20 MB inline-base64 body).
+  if (!task.url.startsWith('data:')) {
+    await poll.refreshUrl(task)
+    if (preview.value?.id !== task.id) return // closed / switched while refreshing
+    url = library.videoTasks.value.find((t) => t.id === task.id)?.url || url
+  }
+  if (preview.value?.id !== task.id) return
+  previewUrl.value = url
+  previewState.value = url ? 'ready' : 'expired'
+}
+
+// The <video> failed to load the (re-minted) URL — most likely the S3 object was
+// reaped past its retention. Degrade to a translated "expired" message + a retry /
+// reuse-the-prompt path, instead of leaving a silent black box.
+function onPreviewError(): void {
+  previewState.value = 'expired'
+}
+
+// Re-mint the URL and re-attempt playback — recovers from a transient media error
+// without forcing the user to close, re-click, or pay to regenerate.
+function retryPreview(): void {
+  if (preview.value) void openPreview(preview.value)
+}
+
+function closePreview(): void {
+  preview.value = null
+  previewUrl.value = ''
+}
+
+function reuseAndClose(task: VideoTaskItem | null): void {
+  if (task) reuse(task)
+  closePreview()
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && preview.value) closePreview()
 }
 
 async function generate(): Promise<void> {
@@ -450,13 +582,39 @@ async function generate(): Promise<void> {
   }
 }
 
-// Reattach polling for any in-flight task persisted across a reload; and refresh
-// the (short-lived presigned) URL of already-succeeded tasks so a reopened
-// session can still play/download them.
 onMounted(() => {
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    notifyState.value =
+      Notification.permission === 'granted' ? 'granted' : Notification.permission === 'denied' ? 'denied' : 'idle'
+  }
+  window.addEventListener('keydown', onKeydown)
+  // Reattach polling for any in-flight task persisted across a reload. Already-
+  // succeeded tasks re-mint their (short-lived presigned) URL lazily when opened
+  // (openPreview → poll.refreshUrl), so we no longer fan out a fetch per card on
+  // mount — the freshest possible link is fetched exactly when it is about to play.
   for (const task of library.videoTasks.value) {
     if (task.state === 'processing') poll.resume(task)
-    else if (task.state === 'succeeded') void poll.refreshUrl(task)
   }
 })
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
+
+<style scoped>
+/* Indeterminate progress sweep — communicates "working" without a fake percentage. */
+@keyframes tk-video-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}
+.tk-indeterminate {
+  animation: tk-video-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tk-indeterminate {
+    animation: none;
+  }
+}
+</style>

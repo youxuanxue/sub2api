@@ -46,8 +46,12 @@ test('video generation — real Vertex veo, async timeline → in-page playback'
   await gen.click()
   await page.screenshot({ path: 'e2e/artifacts/02-video-processing.png', fullPage: true })
 
-  // The async task plays in-page when the upstream render completes.
-  await expect(page.locator('video').first()).toBeVisible({ timeout: 280_000 })
+  // When the upstream render completes the card shows a poster tile (no always-on
+  // black <video>); clicking it plays the clip in-page in the lightbox.
+  const play = page.getByTestId('studio-video-play').first()
+  await expect(play).toBeVisible({ timeout: 280_000 })
+  await play.click()
+  await expect(page.getByTestId('studio-video-preview').locator('video')).toBeVisible({ timeout: 20_000 })
   await page.screenshot({ path: 'e2e/artifacts/03-video-ready.png', fullPage: true })
 })
 
