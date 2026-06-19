@@ -37,25 +37,6 @@ func TestIsThinPoolTransientRetryEnabled(t *testing.T) {
 	})
 }
 
-func TestThinPoolMaxAccounts(t *testing.T) {
-	t.Run("默认1", func(t *testing.T) {
-		svc := newThinPoolSettingService(nil)
-		require.Equal(t, 1, svc.ThinPoolMaxAccounts(context.Background()))
-	})
-	t.Run("覆写为3", func(t *testing.T) {
-		svc := newThinPoolSettingService(map[string]string{SettingKeyThinPoolMaxAccounts: "3"})
-		require.Equal(t, 3, svc.ThinPoolMaxAccounts(context.Background()))
-	})
-	t.Run("非法值回退默认", func(t *testing.T) {
-		svc := newThinPoolSettingService(map[string]string{SettingKeyThinPoolMaxAccounts: "abc"})
-		require.Equal(t, 1, svc.ThinPoolMaxAccounts(context.Background()))
-	})
-	t.Run("小于1回退默认", func(t *testing.T) {
-		svc := newThinPoolSettingService(map[string]string{SettingKeyThinPoolMaxAccounts: "0"})
-		require.Equal(t, 1, svc.ThinPoolMaxAccounts(context.Background()))
-	})
-}
-
 func TestTkThinPoolAllExcluded(t *testing.T) {
 	ctx := context.Background()
 
@@ -79,10 +60,6 @@ func TestTkThinPoolAllExcluded(t *testing.T) {
 	t.Run("总数0_不命中", func(t *testing.T) {
 		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
 		require.False(t, gs.tkThinPoolAllExcluded(ctx, 0, 0, 0))
-	})
-	t.Run("阈值覆写为2_双账号仅排除_命中", func(t *testing.T) {
-		gs := &GatewayService{settingService: newThinPoolSettingService(map[string]string{SettingKeyThinPoolMaxAccounts: "2"})}
-		require.True(t, gs.tkThinPoolAllExcluded(ctx, 2, 1, 0))
 	})
 	t.Run("kill_switch关闭_不命中", func(t *testing.T) {
 		gs := &GatewayService{settingService: newThinPoolSettingService(map[string]string{SettingKeyThinPoolTransientRetryEnabled: "false"})}

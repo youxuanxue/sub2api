@@ -50,13 +50,13 @@ var ErrThinPoolAllExcluded = errors.New("thin pool all excluded")
 // restore the upstream fast-fail-429 behavior as a kill switch.
 const SettingKeyThinPoolTransientRetryEnabled = "tk_thin_pool_transient_retry_enabled"
 
-// SettingKeyThinPoolMaxAccounts overrides defaultThinPoolMaxAccounts (the pool
-// size at/under which the guard applies).
-const SettingKeyThinPoolMaxAccounts = "tk_thin_pool_max_accounts"
-
 // defaultThinPoolMaxAccounts is the schedulable-pool-size ceiling at/under which
 // the guard applies. 1 = only single-account (SPOF) pools — the dominant and
-// safest case (one account cannot starve siblings by being retried).
+// safest case (one account cannot starve siblings by being retried). A pool of
+// 2+ is not SPOF: if one account is excluded and the other is also unavailable,
+// that other removal shows up in the non-exclusion counters and the
+// exclusion-only condition already declines. So there is no configurable
+// threshold here — single-account is the whole point.
 const defaultThinPoolMaxAccounts = 1
 
 // IsThinPoolTransientRetryEnabled reports whether the thin-pool guard is active.
@@ -82,24 +82,6 @@ func (s *SettingService) IsThinPoolTransientRetryEnabled(ctx context.Context) bo
 	return enabled
 }
 
-// ThinPoolMaxAccounts returns the configured pool-size ceiling for the guard
-// (default defaultThinPoolMaxAccounts). Invalid/absent values fall back to the
-// default; values < 1 are clamped to the default.
-func (s *SettingService) ThinPoolMaxAccounts(ctx context.Context) int {
-	if s == nil || s.settingRepo == nil {
-		return defaultThinPoolMaxAccounts
-	}
-	raw, err := s.settingRepo.GetValue(ctx, SettingKeyThinPoolMaxAccounts)
-	if err != nil {
-		return defaultThinPoolMaxAccounts
-	}
-	n, perr := strconv.Atoi(strings.TrimSpace(raw))
-	if perr != nil || n < 1 {
-		return defaultThinPoolMaxAccounts
-	}
-	return n
-}
-
 // tkThinPoolAllExcluded reports whether an empty load-balance candidate pool was
 // caused ONLY by failover exclusion on a thin pool, so the lone account should
 // be retried (after backoff) rather than fast-failing with a client 429.
@@ -117,7 +99,7 @@ func (s *GatewayService) tkThinPoolAllExcluded(ctx context.Context, totalAccount
 	if !s.settingService.IsThinPoolTransientRetryEnabled(ctx) {
 		return false
 	}
-	if totalAccounts <= 0 || totalAccounts > s.settingService.ThinPoolMaxAccounts(ctx) {
+	if totalAccounts <= 0 || totalAccounts > defaultThinPoolMaxAccounts {
 		return false
 	}
 	return filteredExcluded > 0 && otherFiltersSum == 0

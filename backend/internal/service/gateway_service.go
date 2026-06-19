@@ -2338,8 +2338,13 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		// a distinct sentinel so the handler retries the lone account after a
 		// short backoff instead of fast-failing with a synthetic "No available
 		// accounts" 429. See gateway_service_tk_thin_pool_guard.go.
-		otherFilters := filteredUnsched + filteredPlatform + filteredModelMapping +
-			filteredModelScope + filteredQuota + filteredWindowCost + filteredRPM
+		// In this empty-candidates branch every account hit exactly one gate
+		// (each loop iteration either incremented one filtered_* counter or
+		// appended to candidates), so the non-exclusion filters always sum to
+		// len(accounts)-filteredExcluded. Deriving it — instead of hand-summing
+		// the individual counters — stays correct if a new gate is ever added to
+		// the candidate loop above.
+		otherFilters := len(accounts) - filteredExcluded
 		if s.tkThinPoolAllExcluded(ctx, len(accounts), filteredExcluded, otherFilters) {
 			slog.Warn("account_scheduling_thin_pool_all_excluded",
 				"group_id", derefGroupID(groupID),
