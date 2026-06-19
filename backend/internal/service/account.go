@@ -751,7 +751,24 @@ func (a *Account) GetBaseURL() string {
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
-		return "https://api.anthropic.com"
+		// A blank base_url falls back to the Anthropic endpoint ONLY for accounts
+		// that actually speak it: the anthropic platform (and legacy rows with an
+		// empty platform string, which predate multi-platform support and were
+		// all anthropic). For any OTHER platform (newapi / openai / gemini / grok /
+		// kiro) silently returning the Anthropic host sends the request to the
+		// wrong upstream — e.g. a VolcEngine Ark account (platform=newapi,
+		// channel_type=45) with a blank base_url would POST to api.anthropic.com
+		// and return a baffling Anthropic 404/401. Return empty instead so the
+		// platform-specific resolver (newapi_bridge_usage Ark/OpenAI fallback) or a
+		// clean upstream failure applies. Create-time validation already requires
+		// base_url for newapi; this is the safety net for the update path and any
+		// legacy rows. Anthropic-context callers (gateway_service forward /
+		// count_tokens, upstream_models sync) already re-default empty to
+		// api.anthropic.com at their own call sites, so this is non-regressive.
+		if a.Platform == PlatformAnthropic || a.Platform == "" {
+			return "https://api.anthropic.com"
+		}
+		return ""
 	}
 	if a.Platform == PlatformAntigravity {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"

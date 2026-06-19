@@ -1618,9 +1618,10 @@
       "must_contain": [
         "ensureAntigravityDefaultPassthroughs(result, []string{",
         "\"gemini-3-flash-agent\",",
-        "\"gemini-pro-agent\","
+        "\"gemini-pro-agent\",",
+        "a.Platform == PlatformAnthropic || a.Platform == \"\""
       ],
-      "rationale": "Antigravity 自定义-映射账号的 safety-net 透传列表（GetModelMapping 内）。这是 antigravity gemini-only 服务面的「五面」之一：公共目录 / UseKeyModal 宣告可服务的 wire id，若自定义 model_mapping 账号未显式声明，必须由此列表补 identity 透传，否则静默 404（xj-review R / memory antigravity_claude_exclude_per_account_not_global_default）。2026-06-15（PR #774）起该列表已移除上游 deprecated 的 gemini-3.1-pro-high（identity 透传 → 400），等价档走 gemini-pro-agent。上游 merge 若删除 ensureAntigravityDefaultPassthroughs 调用或丢失 gemini-pro-agent / gemini-3-flash-agent 成员，自定义账号会静默拒绝可服务模型——本 sentinel 守护该调用与收敛后的成员。"
+      "rationale": "Two load-bearing TK behaviors in account.go. (1) Antigravity 自定义-映射账号的 safety-net 透传列表（GetModelMapping 内）：antigravity gemini-only 服务面的「五面」之一，公共目录 / UseKeyModal 宣告可服务的 wire id，若自定义 model_mapping 账号未显式声明，必须由此列表补 identity 透传，否则静默 404（xj-review R / memory antigravity_claude_exclude_per_account_not_global_default）。2026-06-15（PR #774）起该列表已移除上游 deprecated 的 gemini-3.1-pro-high（identity 透传 → 400），等价档走 gemini-pro-agent。上游 merge 若删除 ensureAntigravityDefaultPassthroughs 调用或丢失 gemini-pro-agent / gemini-3-flash-agent 成员，自定义账号会静默拒绝可服务模型。 (2) GetBaseURL 的平台感知空-base_url 兜底（`a.Platform == PlatformAnthropic || a.Platform == \"\"`）：空 base_url 仅对 anthropic（及 legacy 空 platform）账号回退 api.anthropic.com；其它平台（newapi/openai/gemini/grok/kiro）返回空，避免把 VolcEngine Ark 等 newapi 请求静默发往 Anthropic 主机（baffling 404）。上游 merge 若把 GetBaseURL 还原成无条件 `return \"https://api.anthropic.com\"`，本 anchor 会丢失——sentinel 即在此处拦截回退。"
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
