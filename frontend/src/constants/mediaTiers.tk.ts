@@ -273,6 +273,15 @@ export interface MediaModel {
    */
   flatImageBilling?: boolean
   /**
+   * True ⇒ this model bills a FLAT official per-image price with NO 1K/2K/4K
+   * size-tier multiplier (mirrors backend tkIsFlatPerImageModel: imagen is billed
+   * at Google's flat official price; the 2K→×1.5 / 4K→×2 multiplier is dropped for
+   * imagen). DECOUPLED from `flatImageBilling`, which additionally implies the
+   * chat-routing / n=1 / image-input behaviors imagen must NOT inherit. The
+   * computed `pricesFlat` ORs the two, so gemini-native need not also set this.
+   */
+  flatPricePerImage?: boolean
+  /**
    * Video modality only: the DISCRETE durations (seconds) this model's UPSTREAM
    * accepts — same "declare exactly what the upstream takes" contract as
    * `imageSizes`/`supportedParams`. The Studio renders these as chips and never
@@ -305,6 +314,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     imageSizes: IMAGEN_IMAGE_SIZES,
+    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
   },
   {
     modelId: 'seedream-4-0-250828',
@@ -326,6 +336,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     imageSizes: IMAGEN_IMAGE_SIZES,
+    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
   },
   {
     modelId: 'imagen-4.0-ultra-generate-001',
@@ -336,6 +347,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     imageSizes: IMAGEN_IMAGE_SIZES,
+    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
   },
   // ── gemini-native image (Nano Banana family) — served via /v1/chat/completions
   //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.

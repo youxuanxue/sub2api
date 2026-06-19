@@ -31,7 +31,10 @@ describe('classifyImageBillingTier (mirror of backend ClassifyImageBillingTier)'
 })
 
 describe('estimateImageCost (mirror of CalculateImageCost)', () => {
-  it('Standard imagen 2K ×1.5 × 1 = $0.06 (design acceptance case)', () => {
+  it('tiered model 2K ×1.5 × 1 = base×1.5 (the size-tier multiplier path — seedream)', () => {
+    // Imagen now bills FLAT (no size tier); the ×1.5 path is exercised by seedream,
+    // whose pixel options classify to 2K. estimateImageCost itself is model-agnostic —
+    // imagen flatness is applied at the component (ImageStudio forces size:'1K').
     expect(estimateImageCost({ baseImagePrice: 0.04, size: '2K', n: 1 })).toBeCloseTo(0.06, 10)
   })
 
@@ -74,8 +77,10 @@ describe('estimateImageCost (mirror of CalculateImageCost)', () => {
 })
 
 describe('estimateImageHoldCost (mirror of backend pre-flight HOLD: 4K tier-max)', () => {
-  it('reserves the 4K tier (base ×2) regardless of requested size', () => {
-    // imagen-4 fast base $0.02 → hold $0.04 (4K = ×2), n=1.
+  it('reserves the 4K tier (base ×2) regardless of requested size (tiered models)', () => {
+    // The 4K-max hold is the TIERED path (seedream). Imagen now holds FLAT
+    // (ImageStudio pricesFlat → size:'1K' × effectiveN), so this util is the
+    // seedream reservation: base $0.02 → hold $0.04 (4K = ×2), n=1.
     expect(estimateImageHoldCost({ baseImagePrice: 0.02, n: 1 })).toBeCloseTo(0.04, 10)
   })
 

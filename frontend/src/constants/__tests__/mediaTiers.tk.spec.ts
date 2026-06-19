@@ -313,7 +313,7 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
   })
 
-  it('gemini image models are flatImageBilling AND carry the 10-ratio picker; imagen/seedream are tiered', () => {
+  it('gemini is flatImageBilling; imagen is flat-priced (no size tier); only seedream stays tiered', () => {
     const gemini = MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)
     expect(gemini.length).toBeGreaterThan(0)
     for (const m of gemini) {
@@ -321,9 +321,17 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
       // now drives aspect_ratio only, billing stays flat per image.
       expect(m.imageSizes).toBe(GEMINI_IMAGE_SIZES)
     }
-    for (const m of MEDIA_MODELS.filter(
-      (m) => m.imageSizes === IMAGEN_IMAGE_SIZES || m.imageSizes === SEEDREAM_IMAGE_SIZES
-    )) {
+    // Imagen bills Google's flat official $/image → flatPricePerImage, but NOT
+    // flatImageBilling (it keeps /v1/images routing, multi-image n, no image-input).
+    // Mirrors backend tkIsFlatPerImageModel.
+    for (const m of MEDIA_MODELS.filter((m) => m.imageSizes === IMAGEN_IMAGE_SIZES)) {
+      expect(m.flatPricePerImage).toBe(true)
+      expect(m.flatImageBilling).toBeFalsy()
+    }
+    // Seedream sends real pixel sizes → keeps the 1K/2K/4K size-tier multiplier:
+    // neither flat flag set.
+    for (const m of MEDIA_MODELS.filter((m) => m.imageSizes === SEEDREAM_IMAGE_SIZES)) {
+      expect(m.flatPricePerImage).toBeFalsy()
       expect(m.flatImageBilling).toBeFalsy()
     }
   })
