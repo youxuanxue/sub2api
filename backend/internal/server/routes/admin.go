@@ -358,6 +358,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// TK: per-account "Apply Tier" action (local deployment only). Kept in a
 		// *_tk_* companion so this file stays close to upstream shape.
 		registerTKAccountTierRoutes(accounts, h)
+
+		// TK: batch passive-usage endpoint that collapses the per-row /usage
+		// fan-out on the accounts list into a single request (companion file).
+		registerTKAccountUsageBatchRoutes(accounts, h)
 	}
 }
 

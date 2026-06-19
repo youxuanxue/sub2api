@@ -2905,6 +2905,53 @@
         "return nil, ErrThinPoolAllExcluded"
       ],
       "rationale": "Injection point of the thin-pool guard inside the Layer-2 load-balance empty-pool branch of SelectAccountWithLoadAwareness (right after the #845 account_scheduling_loadbalance_no_candidates WARN). It sums every non-exclusion per-gate counter into otherFilters and, on a thin exclusion-only empty pool, returns ErrThinPoolAllExcluded instead of ErrNoAvailableAccounts so the handler's HandleSelectionExhausted retries the lone account (short backoff, bounded by MaxSwitches) rather than fast-failing with a client 429. Single-block insertion into an upstream-shaped file; an upstream merge resolving this branch could silently drop it. Pins the predicate call + sentinel return + WARN marker."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "registerTKAccountUsageBatchRoutes(accounts, h)"
+      ],
+      "rationale": "Injection point that wires TokenKey's batch passive-usage endpoint (POST /admin/accounts/usage/batch) into the upstream-shaped accounts route group. The endpoint collapses the per-row GET /:id/usage fan-out on the admin accounts list into one request. An upstream merge that re-resolves registerAccountRoutes could silently drop this single-line call, un-registering the route and forcing the frontend back to N parallel XHRs. Pins the registerTK* call."
+    },
+    {
+      "path": "backend/internal/server/routes/admin_tk_account_usage_batch_routes.go",
+      "must_contain": [
+        "func registerTKAccountUsageBatchRoutes(",
+        "accounts.POST(\"/usage/batch\", h.Admin.Account.GetBatchPassiveUsage)"
+      ],
+      "rationale": "TK companion that registers the batch passive-usage route. Load-bearing for the admin accounts list performance fix (per-row /usage fan-out -> one batch call). If this file or its POST registration is deleted by an upstream refactor, the route 404s and the list silently regresses to N XHRs. Pins the helper + the POST path."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_passive_usage_batch.go",
+      "must_contain": [
+        "func (h *AccountHandler) GetBatchPassiveUsage(",
+        "h.accountUsageService.GetPassiveUsageBatch("
+      ],
+      "rationale": "TK companion handler for POST /admin/accounts/usage/batch. Returns per-account passive usage (same shape as GET /:id/usage?source=passive) for the whole visible page in one call. Pins the handler + its service delegation so a deletion is caught at merge time rather than silently dropping the batch endpoint."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_passive_batch.go",
+      "must_contain": [
+        "func (s *AccountUsageService) GetPassiveUsageBatch(",
+        "func (s *AccountUsageService) prefetchWindowStatsForPassive(",
+        "GetAccountWindowStatsBatch("
+      ],
+      "rationale": "Batch passive-usage service method: GetByIDs (one query) + bucketed GetAccountWindowStatsBatch prefetch (one ANY($1) per distinct window start, seeded into windowStatsCache) + per-account GetPassiveUsage reuse for byte-identical output. This is the engine of the per-row /usage fan-out fix. Pins the public method, the prefetch helper, and the batch SQL call so an upstream merge cannot silently revert it to per-account queries."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_window_cost_batch.go",
+      "must_contain": [
+        "func (s *AccountUsageService) GetAccountWindowCostsBatch(",
+        "GetAccountWindowStatsBatch("
+      ],
+      "rationale": "Batch window-cost computation for the admin accounts list, replacing the per-account GetAccountWindowStats N+1 in account_handler.go. Buckets accounts by GetCurrentWindowStartTime().Unix() and issues one batch query per distinct window start (failure-open single-query fallback). Pins the public method + the batch SQL call so the N+1 cannot reappear via merge."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler.go",
+      "must_contain": [
+        "h.accountUsageService.GetAccountWindowCostsBatch(c.Request.Context(), accounts)"
+      ],
+      "rationale": "Injection point in the upstream-shaped List handler where the per-account window-cost errgroup loop was replaced by a single batched call. An upstream merge could restore the old inline GetAccountWindowStats loop (an N+1 that grows with account count); anchoring the batched call makes that revert fail the merge gate."
     }
   ]
 }
