@@ -497,13 +497,11 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 | secret | `TK_SMOKE_PROD_ANTHROPIC_KEY` | 主 Anthropic 烟测 key（`full` suite） |
 | secret | `TK_SMOKE_PROD_GEMINI_KEY` | Gemini schema 探针 |
 | secret | `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` | OpenAI OAuth 探针 |
-| secret | `TK_SMOKE_PROD_KIRO_KEY` | Kiro（第六平台）`/v1/messages` relay 探针；绑定 kiro group 的 TokenKey API key |
 | var | `TK_SMOKE_PROD_ANTHROPIC_MODEL` | 首选 Anthropic chat/messages 模型（默认 `claude-sonnet-4-6`） |
 | var | `TK_SMOKE_PROD_GEMINI_MODEL` | 可选，默认 `gemini-3.1-pro-preview` |
 | var | `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL` | 可选，默认 `gpt-5.4` |
-| var | `TK_SMOKE_PROD_KIRO_MODEL` | kiro group 暴露的模型名（默认 `claude-sonnet-4-6`） |
 
-> 四把 prod smoke key（anthropic / gemini / openai-oauth / **kiro**）都是 `deploy-stage0.yml` 的**硬前置**：缺任意一把，发版在镜像切换前就 `::error::` 失败，不会留下"红 smoke = 其实只是没配 key"的歧义。
+> 三把 prod smoke key（anthropic / gemini / openai-oauth）都是 `deploy-stage0.yml` 的**硬前置**：缺任意一把，发版在镜像切换前就 `::error::` 失败，不会留下"红 smoke = 其实只是没配 key"的歧义。
 
 **`edge-<edge_id>` Environment**（如 `edge-uk1`）
 

@@ -62,8 +62,7 @@ required_secrets_for_env() {
       printf '%s\n' \
         TK_SMOKE_PROD_ANTHROPIC_KEY \
         TK_SMOKE_PROD_GEMINI_KEY \
-        TK_SMOKE_PROD_OPENAI_OAUTH_KEY \
-        TK_SMOKE_PROD_KIRO_KEY
+        TK_SMOKE_PROD_OPENAI_OAUTH_KEY
       ;;
     edge-*)
       printf '%s\n' TK_SMOKE_EDGE_CANARY_KEY

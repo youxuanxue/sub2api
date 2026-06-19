@@ -8,12 +8,11 @@ import sys
 from typing import Final
 
 # Keep in sync with required_secrets_for_env() in ops/stage0/load_smoke_github_env.sh
-# (all four prod smoke keys are hard prerequisites of deploy-stage0.yml).
+# (all three prod smoke keys are hard prerequisites of deploy-stage0.yml).
 PROD_SECRETS: Final[tuple[str, ...]] = (
     "TK_SMOKE_PROD_ANTHROPIC_KEY",
     "TK_SMOKE_PROD_GEMINI_KEY",
     "TK_SMOKE_PROD_OPENAI_OAUTH_KEY",
-    "TK_SMOKE_PROD_KIRO_KEY",
 )
 EDGE_SECRETS: Final[tuple[str, ...]] = ("TK_SMOKE_EDGE_CANARY_KEY",)
 
