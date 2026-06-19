@@ -672,7 +672,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs := NewFailoverState(3, false)
 		// LastFailoverErr 为 nil
 
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		require.Equal(t, FailoverExhausted, action)
 	})
 
@@ -680,7 +680,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs := NewFailoverState(3, false)
 		fs.LastFailoverErr = newTestFailoverErr(500, false, false)
 
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		require.Equal(t, FailoverExhausted, action)
 	})
 
@@ -691,7 +691,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs.SwitchCount = 1
 
 		start := time.Now()
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		elapsed := time.Since(start)
 
 		require.Equal(t, FailoverContinue, action)
@@ -706,7 +706,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs.SwitchCount = 3 // > MaxSwitches(2)
 
 		start := time.Now()
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		elapsed := time.Since(start)
 
 		require.Equal(t, FailoverExhausted, action)
@@ -721,7 +721,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		cancel()
 
 		start := time.Now()
-		action := fs.HandleSelectionExhausted(ctx)
+		action := fs.HandleSelectionExhausted(ctx, false)
 		elapsed := time.Since(start)
 
 		require.Equal(t, FailoverCanceled, action)
@@ -733,8 +733,49 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs.LastFailoverErr = newTestFailoverErr(503, false, false)
 		fs.SwitchCount = 2 // == MaxSwitches，条件是 <=，仍可重试
 
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		require.Equal(t, FailoverContinue, action)
+	})
+
+	// TK thin-pool guard:薄池仅因 failover 排除排空时（service.ErrThinPoolAllExcluded），
+	// 即使 LastFailoverErr 不是 503（典型为流内 502 或为 nil），也应退避重试该唯一账号。
+	t.Run("thinPool排除_无503_仍退避重试并清除失败列表", func(t *testing.T) {
+		fs := NewFailoverState(3, false)
+		fs.LastFailoverErr = newTestFailoverErr(502, false, false) // 流内 SSE 包成 502
+		fs.FailedAccountIDs[100] = struct{}{}
+		fs.SwitchCount = 1
+
+		start := time.Now()
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		elapsed := time.Since(start)
+
+		require.Equal(t, FailoverContinue, action)
+		require.Empty(t, fs.FailedAccountIDs, "薄池重试应清除排除列表，让唯一账号可再次被选中")
+		require.GreaterOrEqual(t, elapsed, 1500*time.Millisecond, "应退避约 2s")
+	})
+
+	t.Run("thinPool排除_LastFailoverErr为nil_仍退避重试", func(t *testing.T) {
+		fs := NewFailoverState(3, false)
+		// LastFailoverErr 为 nil（首轮就排空的极端情形）
+		fs.FailedAccountIDs[100] = struct{}{}
+		fs.SwitchCount = 0
+
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		require.Equal(t, FailoverContinue, action)
+		require.Empty(t, fs.FailedAccountIDs)
+	})
+
+	t.Run("thinPool排除_SwitchCount超过MaxSwitches_仍受上限约束返回Exhausted", func(t *testing.T) {
+		fs := NewFailoverState(2, false)
+		fs.LastFailoverErr = newTestFailoverErr(502, false, false)
+		fs.SwitchCount = 3 // > MaxSwitches(2)
+
+		start := time.Now()
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		elapsed := time.Since(start)
+
+		require.Equal(t, FailoverExhausted, action, "薄池重试也必须受 MaxSwitches 约束，防止死循环")
+		require.Less(t, elapsed, 100*time.Millisecond, "耗尽时不应等待")
 	})
 }
 

@@ -164,18 +164,22 @@ func (s *FailoverState) HandleFailoverError(
 }
 
 // HandleSelectionExhausted 处理选号失败（所有候选账号都在排除列表中）时的退避重试决策。
-// 针对 Antigravity 单账号分组的 503 (MODEL_CAPACITY_EXHAUSTED) 场景：
-// 清除排除列表、等待退避后重新选号。
+// 清除排除列表、等待退避后重新选号。两种触发场景：
+//   - Antigravity 单账号分组的 503 (MODEL_CAPACITY_EXHAUSTED)（LastFailoverErr 为 503）。
+//   - thinPoolExcluded：选号返回 service.ErrThinPoolAllExcluded —— 薄池（单账号）仅因
+//     本请求 failover 排除了一个健康账号（上游瞬时抖动，无冷却）而排空。此时退避重试该
+//     唯一账号，而不是把空池暴露成合成的 429。两者都受 MaxSwitches 约束
+//     （HandleFailoverError 每轮递增 SwitchCount），耗尽后调用方 surface LastFailoverErr。
 //
 // 返回 FailoverContinue 时，调用方应设置 SingleAccountRetry context 并 continue。
 // 返回 FailoverExhausted 时，调用方应返回错误响应。
 // 返回 FailoverCanceled 时，调用方应直接 return。
-func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAction {
-	if s.LastFailoverErr != nil &&
-		s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable &&
-		s.SwitchCount <= s.MaxSwitches {
-
+func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolExcluded bool) FailoverAction {
+	retryable := thinPoolExcluded ||
+		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable)
+	if retryable && s.SwitchCount <= s.MaxSwitches {
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_backoff",
+			zap.Bool("thin_pool_excluded", thinPoolExcluded),
 			zap.Duration("backoff_delay", singleAccountBackoffDelay),
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
@@ -184,6 +188,7 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 			return FailoverCanceled
 		}
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_retry",
+			zap.Bool("thin_pool_excluded", thinPoolExcluded),
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
 		)
