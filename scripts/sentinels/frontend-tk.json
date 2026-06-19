@@ -503,10 +503,12 @@
         "export function toUsageInfo",
         "export function accountVm",
         "export function matchesStatusFilter",
-        "export function matchesGroupFilter",
-        "export function collectGroupNames"
+        "export function matchesCombinedStatusFilter",
+        "export function matchesStubGroupFilter",
+        "export function collectStubGroupNames",
+        "export function filterDisplayEdges"
       ],
-      "rationale": "TK-only pure helpers for the Edge Accounts overview. toAccountLike / toUsageInfo adapt the credential-free edge DTO into the admin Account / AccountUsageInfo shapes so the page can REUSE AccountCapacityCell + AccountUsageCell verbatim (capacity + 5h/7d windows stay pixel-aligned with the per-edge /admin/accounts page); accountVm memoizes those adapters per account object so the cells get reference-stable props and skip re-render. matchesStatusFilter / matchesGroupFilter are the prod-side client filter predicates: status buckets MIRROR the admin accounts page's server-side filter (backend/internal/repository/account_repo.go applyStatusFilter — active/rate_limited/temp_unschedulable/unschedulable split of status=active, plus literal inactive/error) so the two pages read consistently; collectGroupNames sources the 分组 dropdown from the live aggregate. Dropping any adapter regresses the cell reuse to a sparse static table; dropping a predicate regresses or skews the prod-side group/status filtering."
+      "rationale": "TK-only pure helpers for the Edge Accounts overview. toAccountLike / toUsageInfo adapt the credential-free edge DTO into the admin Account / AccountUsageInfo shapes so the page can REUSE AccountCapacityCell + AccountUsageCell verbatim (capacity + 5h/7d windows stay pixel-aligned with the per-edge /admin/accounts page); accountVm memoizes those adapters per account object so the cells get reference-stable props and skip re-render. The filter predicates encode the page's contract that filtering is keyed on the PROD mirror stub, NOT the edge-local accounts: matchesStatusFilter buckets a status-bearing record exactly like the admin accounts page's server-side filter (backend/internal/repository/account_repo.go applyStatusFilter — active/rate_limited/temp_unschedulable/unschedulable split of status=active, plus literal inactive/error); matchesCombinedStatusFilter combines the prod stub's status with each edge account's (正常 = stub正常 AND account正常; any other bucket = stub OR account); matchesStubGroupFilter filters edges by the prod stub's group and collectStubGroupNames sources the 分组 dropdown from those stub groups; filterDisplayEdges orchestrates both filters (group edge-level on the stub, status combined per account, unreachable edges matched on the stub alone) and is the single tested entry the composable's displayEdges wraps. Dropping any adapter regresses the cell reuse to a sparse static table; dropping/skewing a predicate reverts the filter source back to the edge-local accounts or breaks the AND/OR combined-status semantics."
     },
     {
       "path": "frontend/src/views/admin/EdgeAccountsView.vue",

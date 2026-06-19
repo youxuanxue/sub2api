@@ -22,9 +22,8 @@ import type { EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 import {
   EDGE_STATUS_ALL,
   EDGE_GROUP_ALL,
-  matchesStatusFilter,
-  matchesGroupFilter,
-  collectGroupNames
+  filterDisplayEdges,
+  collectStubGroupNames
 } from '@/utils/edgeAccounts.tk'
 
 // Selectable auto-refresh cadences (seconds), matching the admin accounts page. The
@@ -102,36 +101,21 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
   // fetched); status + group narrow the prod-side view in the browser.
   const statusFilter = ref(EDGE_STATUS_ALL)
   const groupFilter = ref(EDGE_GROUP_ALL)
-  const accountFilterActive = computed(
-    () => statusFilter.value !== EDGE_STATUS_ALL || groupFilter.value !== EDGE_GROUP_ALL
+
+  // Post-filter edge list. The 分组 filter is edge-level on the PROD stub's groups
+  // and the 状态 filter combines the prod stub's status with each edge account's
+  // status — all encoded in the pure filterDisplayEdges (unit-tested in
+  // edgeAccounts.tk.ts). Fast path: with no filter active it returns the raw
+  // `edges` ref unchanged so the mergeEdges reference-stability (no re-render on
+  // auto-refresh) is fully preserved.
+  const displayEdges = computed<EdgeAccountsResult[]>(() =>
+    filterDisplayEdges(edges.value, statusFilter.value, groupFilter.value)
   )
 
-  // edges with each reachable edge's accounts narrowed by the active status/group
-  // filter. Fast path: with no account filter active, return the raw `edges` ref
-  // unchanged so the mergeEdges reference-stability (no re-render on auto-refresh)
-  // is fully preserved. Unreachable edges are kept verbatim (no accounts to
-  // filter); reachable edges whose accounts all filter out are dropped only when a
-  // filter is active, so an unfiltered view still shows reachable-but-empty edges.
-  const displayEdges = computed<EdgeAccountsResult[]>(() => {
-    if (!accountFilterActive.value) return edges.value
-    const out: EdgeAccountsResult[] = []
-    for (const e of edges.value) {
-      if (!e.ok) {
-        out.push(e)
-        continue
-      }
-      const accounts = e.accounts.filter(
-        (a) => matchesStatusFilter(a, statusFilter.value) && matchesGroupFilter(a, groupFilter.value)
-      )
-      if (accounts.length === 0) continue
-      out.push({ ...e, accounts })
-    }
-    return out
-  })
-
-  // Group-name options for the 分组 dropdown, derived from the live aggregate
-  // (reachable edges' accounts) so it never offers a stale/absent group.
-  const groupOptions = computed(() => collectGroupNames(edges.value))
+  // Group-name options for the 分组 dropdown, derived from the PROD stubs' groups
+  // (the page filters by stub group) across every edge — known from prod regardless
+  // of edge reachability.
+  const groupOptions = computed(() => collectStubGroupNames(edges.value))
 
   const okEdges = computed(() => edges.value.filter((e) => e.ok))
   const failedEdges = computed(() => edges.value.filter((e) => !e.ok))
@@ -344,7 +328,6 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     statusFilter,
     groupFilter,
     groupOptions,
-    accountFilterActive,
     setStatusFilter,
     setGroupFilter,
     // auto-refresh controls

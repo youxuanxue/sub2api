@@ -243,6 +243,64 @@ func TestEdgeAccountsAggregator_PausedStubsSinkBelowEdgeID(t *testing.T) {
 	require.False(t, out.Edges[2].StubSchedulable)
 }
 
+// TestEdgeAccountsAggregator_SurfacesStubGroupAndCooldown proves the prod mirror
+// stub's group + variable cooldown snapshot rides into EdgeAccountsResult so the
+// overview can filter edges by the PROD stub (not the edge-local accounts). Group
+// names are trimmed, deduped, and sorted (ETag stability); the rate-limit cooldown
+// is forwarded verbatim. An unreachable edge still carries its stub group (the data
+// comes from the prod DB, not the edge).
+func TestEdgeAccountsAggregator_SurfacesStubGroupAndCooldown(t *testing.T) {
+	rl := mirrorStub(1, "https://api-us1.tokenkey.dev", "key-us1")
+	// Duplicate + blank + unsorted group names exercise the normalization.
+	rl.Groups = []*Group{{ID: 1, Name: "default"}, {ID: 2, Name: "default"}, {ID: 3, Name: "GPT 专线"}, {ID: 4, Name: "  "}}
+	reset := time.Unix(1_700_009_999, 0)
+	rl.RateLimitResetAt = &reset
+
+	// An unreachable edge whose stub belongs to a group: the group/status must still
+	// surface even though the fan-out to the edge fails.
+	dead := mirrorStub(2, "https://api-fra1.tokenkey.dev", "key-fra1")
+	dead.Groups = []*Group{{ID: 5, Name: "eu"}}
+
+	store := &edgeAccountsStoreStub{accounts: []Account{rl, dead}}
+	doer := &fakeEdgeDoer{
+		bodyByHost: map[string]string{"api-us1.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`},
+		errByHost:  map[string]error{"api-fra1.tokenkey.dev": errors.New("connection timeout")},
+	}
+
+	agg := NewEdgeAccountsAggregator(store, doer)
+	out, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+	require.Len(t, out.Edges, 2)
+
+	// Sorted by edge_id → fra1 (unreachable) first, us1 second.
+	fra1, us1 := out.Edges[0], out.Edges[1]
+	require.Equal(t, "fra1", fra1.EdgeID)
+	require.Equal(t, "us1", us1.EdgeID)
+
+	// us1: reachable, group names trimmed/deduped/sorted (byte order: 'G' < 'd'),
+	// rate-limit cooldown carried, no temp-unsched cooldown.
+	require.True(t, us1.OK)
+	require.Equal(t, []string{"GPT 专线", "default"}, us1.StubGroups)
+	require.NotNil(t, us1.StubRateLimitResetAt)
+	require.True(t, us1.StubRateLimitResetAt.Equal(reset))
+	require.Nil(t, us1.StubTempUnschedulableUntil)
+
+	// fra1: unreachable, but its stub group still surfaces for filtering.
+	require.False(t, fra1.OK)
+	require.Equal(t, []string{"eu"}, fra1.StubGroups)
+}
+
+// TestStubGroupNames covers the normalization in isolation: nil-safe, blank-skip,
+// dedupe, sort, and the non-nil empty slice for an ungrouped stub.
+func TestStubGroupNames(t *testing.T) {
+	require.Equal(t, []string{}, stubGroupNames(nil))
+	require.Equal(t, []string{}, stubGroupNames(&Account{}))
+	got := stubGroupNames(&Account{Groups: []*Group{
+		{ID: 1, Name: "b"}, nil, {ID: 2, Name: " a "}, {ID: 3, Name: "b"}, {ID: 4, Name: ""},
+	}})
+	require.Equal(t, []string{"a", "b"}, got)
+}
+
 func TestEdgeAccountsAggregator_Non2xxIsError(t *testing.T) {
 	store := &edgeAccountsStoreStub{accounts: []Account{
 		mirrorStub(1, "https://api-us1.tokenkey.dev", "key-us1"),
