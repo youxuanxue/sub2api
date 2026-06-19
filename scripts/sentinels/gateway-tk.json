@@ -2911,9 +2911,9 @@
       "must_contain": [
         "func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(",
         "INSERT INTO usage_dashboard_user_platform_daily",
-        "const usageDashboardUserPlatformDailyExpr = \"COALESCE(NULLIF(g.platform,''), a.platform)\""
+        "COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform"
       ],
-      "rationale": "TK feeder that populates the per-(user, platform, day) rollup table (tk_034) backing the admin Users page + dashboard spending-ranking widget. This is the write half of the perf fix that replaced the full 30-day usage_logs scan (845K buffers / 2.7s on prod) with pre-aggregated reads. The effective-platform projection MUST stay identical to usageLogEffectivePlatformExpr or the rollup partitions by a different platform than the page shows; this sentinel pins the upsert, the target table, and the platform expression so an upstream merge / refactor cannot silently drop the feeder or drift the platform grain."
+      "rationale": "TK feeder that populates the per-(user, platform, day) rollup table (tk_034) backing the admin Users page + dashboard spending-ranking widget. This is the write half of the perf fix that replaced the full 30-day usage_logs scan (845K buffers / 2.7s on prod) with pre-aggregated reads. The effective-platform projection reuses the live queries' usageLogEffectivePlatformExpr (same package) so the rollup partitions by exactly the platform the page shows; this sentinel pins the upsert, the target table, and that the platform projection reuses the shared expression so an upstream merge / refactor cannot silently drop the feeder or drift the platform grain."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo.go",

@@ -15,22 +15,16 @@ import (
 // this table and today's partial day from raw usage_logs, so "today" numbers
 // stay exact while history is served from the rollup.
 //
-// The effective-platform expression MUST stay identical to the live queries'
-// usageLogEffectivePlatformExpr -- COALESCE(NULLIF(g.platform,''), a.platform)
-// -- or the rollup would partition by a different platform than the page shows.
-
-// usageDashboardUserPlatformDailyExpr is the effective-platform projection used
-// when building the rollup. It mirrors usageLogEffectivePlatformExpr but is
-// pinned here so a change to one is a visible diff against the other.
-const usageDashboardUserPlatformDailyExpr = "COALESCE(NULLIF(g.platform,''), a.platform)"
+// The effective-platform projection is the SAME usageLogEffectivePlatformExpr
+// the live queries use (same package), so the rollup partitions by exactly the
+// platform the page shows -- no second copy to keep in sync.
 
 // upsertUserPlatformDailyAggregates rebuilds the per-(user, platform, day) rows
 // for the given local-day window directly from raw usage_logs. requests and all
 // token/cost sums include every row (actual_cost = 0 included) because the
 // ranking consumer counts them unconditionally; the billed-only consumer filters
-// at read time. Rows with a NULL effective platform (no group, no account) are
-// skipped: they cannot contribute to a per-platform breakdown and never carry
-// cost in practice.
+// at read time. A NULL/empty effective platform is coalesced to the empty string
+// (not dropped) so its cost still reaches the user total via the reads.
 func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx context.Context, dayStart, dayEnd time.Time) error {
 	tzName := timezone.Name()
 	query := `
@@ -44,7 +38,7 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 				-- '' into the user total (just not into the per-platform breakdown),
 				-- so completed-day totals match the legacy "count every row"
 				-- semantics. platform is part of the PK, so it cannot be NULL.
-				COALESCE(` + usageDashboardUserPlatformDailyExpr + `, '') AS platform,
+				COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform,
 				ul.input_tokens AS input_tokens,
 				ul.output_tokens AS output_tokens,
 				ul.cache_creation_tokens AS cache_creation_tokens,
