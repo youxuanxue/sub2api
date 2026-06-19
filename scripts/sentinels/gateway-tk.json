@@ -2905,6 +2905,42 @@
         "return nil, ErrThinPoolAllExcluded"
       ],
       "rationale": "Injection point of the thin-pool guard inside the Layer-2 load-balance empty-pool branch of SelectAccountWithLoadAwareness (right after the #845 account_scheduling_loadbalance_no_candidates WARN). It sums every non-exclusion per-gate counter into otherFilters and, on a thin exclusion-only empty pool, returns ErrThinPoolAllExcluded instead of ErrNoAvailableAccounts so the handler's HandleSelectionExhausted retries the lone account (short backoff, bounded by MaxSwitches) rather than fast-failing with a client 429. Single-block insertion into an upstream-shaped file; an upstream merge resolving this branch could silently drop it. Pins the predicate call + sentinel return + WARN marker."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_user_platform.go",
+      "must_contain": [
+        "func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(",
+        "INSERT INTO usage_dashboard_user_platform_daily",
+        "const usageDashboardUserPlatformDailyExpr = \"COALESCE(NULLIF(g.platform,''), a.platform)\""
+      ],
+      "rationale": "TK feeder that populates the per-(user, platform, day) rollup table (tk_034) backing the admin Users page + dashboard spending-ranking widget. This is the write half of the perf fix that replaced the full 30-day usage_logs scan (845K buffers / 2.7s on prod) with pre-aggregated reads. The effective-platform projection MUST stay identical to usageLogEffectivePlatformExpr or the rollup partitions by a different platform than the page shows; this sentinel pins the upsert, the target table, and the platform expression so an upstream merge / refactor cannot silently drop the feeder or drift the platform grain."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo.go",
+      "must_contain": [
+        "if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {",
+        "if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {",
+        "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {"
+      ],
+      "rationale": "Thin injection of the per-(user, platform, day) rollup feeder into the upstream-shaped aggregation repo: the upsert call lives in both aggregateRangeInTx and recomputeRangeInTx, the range delete in recomputeRangeInTx (so a zeroed day does not linger after a usage_logs rollback), and the retention prune in CleanupAggregates. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving the rollup unpopulated and the admin pages reading stale/empty history. Pins all three call sites."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_user_platform_rollup.go",
+      "must_contain": [
+        "func (r *usageLogRepository) getBatchUserUsageStatsRollup(",
+        "func (r *usageLogRepository) getUserSpendingRankingRollup(",
+        "func planUsageRollupWindow(start, end time.Time) usageRollupWindow",
+        "FROM usage_dashboard_user_platform_daily"
+      ],
+      "rationale": "TK read half of the rollup perf fix: GetBatchUserUsageStats and GetUserSpendingRanking are served from usage_dashboard_user_platform_daily for completed days plus raw usage_logs for the partial/today slices. planUsageRollupWindow is the exact-semantics window decomposition (full completed server-TZ days from the rollup, partial head/tail + today from raw) that keeps output byte-identical to the legacy raw-scan queries. Pins both read entry points, the decomposition function, and the rollup table read so a merge cannot silently revert the pages to the slow full-window scan."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo.go",
+      "must_contain": [
+        "return r.getBatchUserUsageStatsRollup(ctx, normalizedUserIDs, startTime, endTime)",
+        "return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)"
+      ],
+      "rationale": "The two upstream-shaped admin aggregation methods (GetBatchUserUsageStats / GetUserSpendingRanking) now delegate to the rollup-backed readers instead of scanning the full 30-day usage_logs window. These one-line delegations are exactly the kind of edit an upstream merge could overwrite by restoring the old inline CTE/FILTER query, silently re-introducing the 845K-buffer / 2.7s regression. Pins both delegation calls."
     }
   ]
 }
