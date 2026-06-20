@@ -219,7 +219,7 @@ fi
 b_msg()  { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"ping"}]}' "$1"; }
 b_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
 b_resp() { printf '{"model":"%s","instructions":"You are helpful.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say OK"}]}],"stream":false}' "$1"; }
-b_gem()  { printf '{"contents":[{"parts":[{"text":"Reply with OK"}]}]}'; }
+b_gem()  { printf '{"contents":[{"role":"user","parts":[{"text":"Reply with OK"}]}]}'; }
 b_img()  { printf '{"model":"%s","prompt":"a small red circle on white","n":1,"size":"1024x1024"}' "$1"; }
 b_emb()  { printf '{"model":"%s","input":"hello"}' "$1"; }
 b_ct()   { printf '{"model":"%s","messages":[{"role":"user","content":"ping"}]}' "$1"; }
