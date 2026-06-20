@@ -22,7 +22,11 @@ import "context"
 func tkServableCandidateIDs(ctx context.Context, platform string, availability MePricingAvailability) []string {
 	var ids []string
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI:
+	case PlatformAnthropic, PlatformOpenAI, PlatformGrok:
+		// Grok has no canonical DefaultModels list — without this case it fell
+		// to the default arm below and leaked claude.DefaultModels into the grok
+		// group's admin model-whitelist selector. Its empirical allowlist (the
+		// priced overlay set) is the only correct source.
 		ids = supportedCatalogModelIDsForPlatform(platform)
 	case PlatformGemini:
 		// Probed gemini set when populated; canonical fallback when unprobed

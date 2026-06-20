@@ -623,12 +623,14 @@ func addFallbackModel(
 // platformDefaultModelIDs returns the model-ID list an unrestricted native
 // account contributes to the Group Catalog.
 //
-// Anthropic / OpenAI use the empirically-servable allowlist
+// Anthropic / OpenAI / Grok use the empirically-servable allowlist
 // (supportedCatalogModelIDsForPlatform) — the SAME source the public /pricing
 // catalog filters by — so both surfaces advertise exactly the models that
 // passed a live prod probe (operator directive: "实测通过的才行"). This
 // supersedes the earlier canonical-list fallback, which advertised
-// upstream-rejected models (e.g. gpt-5.2, gpt-4o) that 400/502 at runtime.
+// upstream-rejected models (e.g. gpt-5.2, gpt-4o) that 400/502 at runtime. Grok
+// has no canonical DefaultModels list at all — its served set IS its priced
+// overlay set, so the allowlist is the only correct source.
 //
 // Gemini uses its canonical list (defaultModelsListCandidateIDs): it was not
 // probed, and an empty credentials.model_mapping genuinely means "all gemini
@@ -646,6 +648,13 @@ func platformDefaultModelIDs(platform string) []string {
 		return supportedCatalogModelIDsForPlatform(platform)
 	case PlatformGemini:
 		return defaultModelsListCandidateIDs(platform)
+	case PlatformGrok:
+		// Grok (seventh platform) is native OAuth-relay: accounts are
+		// unrestricted and carry no channel, so the menu must fall back to the
+		// curated grok served set (the priced overlay models) — the SAME source
+		// the public /pricing catalog filters by. Without this case grok hit the
+		// default (nil) arm and a grok group's "分组目录" was empty (2026-06-20).
+		return supportedCatalogModelIDsForPlatform(platform)
 	default:
 		return nil
 	}

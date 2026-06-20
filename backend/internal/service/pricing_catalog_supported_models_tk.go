@@ -137,6 +137,35 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:end antigravity
 }
 
+// supportedGrokCatalogModels — xAI / Grok (seventh platform) wire ids that
+// TokenKey serves AND prices. Grok is a native OAuth-relay platform: its
+// accounts are unrestricted (empty credentials.model_mapping) and carry no
+// channel, so before this set both the channel stage and the whitelist stage
+// of the per-user menu produced nothing and a grok group showed an EMPTY
+// "分组目录" (incident 2026-06-20). The set is the SAME grok IDs the public
+// /pricing catalog surfaces — exactly the four priced entries in
+// tk_pricing_overlay.json (litellm_provider="xai"): the grok-imagine media
+// family (image/video) plus grok-code-fast-1 chat.
+//
+// Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
+// anthropic/openai/gemini and does not cover grok yet). The grok-4.x CHAT
+// models (grok-4 / grok-4.3 — the SuperGrok Heavy OAuth default) are
+// DELIBERATELY EXCLUDED: tk_pricing_overlay.json intentionally leaves them
+// unpriced (their 2026 list price is unconfirmed; they bill $0 and raise
+// served_zero_cost P0s) per the overlay's "a wrong price has no probe"
+// discipline — advertising an unpriced model at "—" would invite exactly that
+// free-usage leak. Add them here only once a verified price lands in the
+// overlay. While EMPTY the catalog/menu gates fall through to passthrough
+// (no regression), matching the gemini/antigravity arms.
+var supportedGrokCatalogModels = map[string]struct{}{
+	// servable-allowlist:begin grok
+	"grok-code-fast-1":           {},
+	"grok-imagine-image":         {},
+	"grok-imagine-image-quality": {},
+	"grok-imagine-video":         {},
+	// servable-allowlist:end grok
+}
+
 // isPublicCatalogModelSupported reports whether a catalog row is kept in the
 // public /pricing response. Anthropic and OpenAI rows are gated by the
 // empirical allowlists above; every other vendor passes through unchanged
@@ -168,6 +197,16 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 			return true
 		}
 		_, ok := supportedAntigravityCatalogModels[modelID]
+		return ok
+	case PlatformGrok:
+		// Reached only because inferPlatformFromVendor maps the "xai" vendor to
+		// grok. Empty set => passthrough (no regression). Populated with the
+		// priced grok overlay set so public /pricing and the per-user menu gate
+		// on the same source.
+		if len(supportedGrokCatalogModels) == 0 {
+			return true
+		}
+		_, ok := supportedGrokCatalogModels[modelID]
 		return ok
 	default:
 		return true
@@ -233,6 +272,14 @@ func supportedCatalogModelIDsForPlatform(platform string) []string {
 			return nil
 		}
 		src = supportedAntigravityCatalogModels
+	case PlatformGrok:
+		// Grok is a native OAuth platform with no canonical DefaultModels list;
+		// its served set IS its priced overlay set. Empty => nil so the caller
+		// keeps its no-canonical fallback.
+		if len(supportedGrokCatalogModels) == 0 {
+			return nil
+		}
+		src = supportedGrokCatalogModels
 	default:
 		return nil
 	}
