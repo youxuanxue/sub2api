@@ -87,9 +87,18 @@ export function mergeEdges(current: EdgeAccountsResult[], next: EdgeAccountsResu
 // 'all' is the sentinel the backend maps to an empty platform filter (every
 // platform). The page defaults to it so the overview is complete; the filter
 // narrows to a single platform.
-export function useTkEdgeAccounts(initialPlatform = 'all') {
+//
+// options.byStub switches to the per-stub view (view=by-stub): instead of the
+// per-edge fleet overview, the backend returns one result PER prod mirror stub,
+// each scoped to exactly that stub key's group (precise correspondence). The
+// inline /accounts panel uses this; the standalone /edge-accounts overview does
+// not (it stays per-edge). In by-stub mode the platform filter does not apply
+// (every platform's stubs are returned), so setPlatform is inert.
+export function useTkEdgeAccounts(initialPlatform = 'all', options: { byStub?: boolean } = {}) {
   const { t } = useI18n()
+  const byStub = options.byStub === true
   const platform = ref(initialPlatform)
+  const listParams = () => (byStub ? { view: 'by-stub' as const } : { platform: platform.value })
   const edges = ref<EdgeAccountsResult[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -204,7 +213,7 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     loading.value = true
     error.value = null
     try {
-      const res = await adminAPI.edgeAccounts.listWithEtag({ platform: platform.value })
+      const res = await adminAPI.edgeAccounts.listWithEtag(listParams())
       if (!res.notModified && res.data) {
         edges.value = res.data.edges ?? []
       }
@@ -231,10 +240,7 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     if (fetching.value || loading.value) return
     fetching.value = true
     try {
-      const res = await adminAPI.edgeAccounts.listWithEtag(
-        { platform: platform.value },
-        { etag: etag.value }
-      )
+      const res = await adminAPI.edgeAccounts.listWithEtag(listParams(), { etag: etag.value })
       if (res.etag) etag.value = res.etag
       if (!res.notModified && res.data) {
         edges.value = mergeEdges(edges.value, res.data.edges ?? [])

@@ -4,6 +4,8 @@ import {
   edgePanelHasAnomaly,
   compositeEdgeAccountKey,
   edgePanelCounts,
+  edgePanelAbnormalCount,
+  sortEdgeAccountsAbnormalFirst,
   isStubPanelExpanded
 } from '@/utils/accountsEdgePanels.tk'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
@@ -100,26 +102,49 @@ describe('edgePanelCounts', () => {
   })
 })
 
-describe('isStubPanelExpanded (expand priority)', () => {
+describe('isStubPanelExpanded (v2: default-full-expand)', () => {
   const healthy = edge({ accounts: [acct({})] })
   const anomalous = edge({ ok: false })
 
-  it('an explicit override ALWAYS wins (even over search + anomaly)', () => {
-    // user collapsed → stays collapsed despite searching and an anomaly
+  it('an explicit override ALWAYS wins', () => {
+    // user collapsed → stays collapsed even for an anomalous edge
     expect(isStubPanelExpanded(false, true, anomalous)).toBe(false)
-    // user expanded → stays expanded despite a healthy edge and no search
+    expect(isStubPanelExpanded(false, false, healthy)).toBe(false)
+    // user expanded → stays expanded
     expect(isStubPanelExpanded(true, false, healthy)).toBe(true)
   })
-  it('searching auto-expands when there is no override', () => {
-    expect(isStubPanelExpanded(undefined, true, healthy)).toBe(true)
-  })
-  it('without override or search, follows the edge anomaly state', () => {
+  it('DEFAULT is expanded for every discovered state (一目了然), not anomaly-only', () => {
+    expect(isStubPanelExpanded(undefined, false, healthy)).toBe(true)
     expect(isStubPanelExpanded(undefined, false, anomalous)).toBe(true)
-    expect(isStubPanelExpanded(undefined, false, healthy)).toBe(false)
   })
-  it('an undiscovered edge (null) stays collapsed unless overridden / searching', () => {
-    expect(isStubPanelExpanded(undefined, false, null)).toBe(false)
-    expect(isStubPanelExpanded(undefined, true, null)).toBe(true)
-    expect(isStubPanelExpanded(true, false, null)).toBe(true)
+  it('an undiscovered (null) panel also defaults to expanded', () => {
+    expect(isStubPanelExpanded(undefined, false, null)).toBe(true)
+    // a collapse override still wins over the default
+    expect(isStubPanelExpanded(false, false, null)).toBe(false)
+  })
+})
+
+describe('edgePanelAbnormalCount', () => {
+  it('counts only attention-worthy accounts', () => {
+    const e = edge({
+      accounts: [acct({}), acct({ id: 2, status: 'error' }), acct({ id: 3, rate_limit_reset_at: future() })]
+    })
+    expect(edgePanelAbnormalCount(e)).toBe(2)
+  })
+})
+
+describe('sortEdgeAccountsAbnormalFirst', () => {
+  it('floats abnormal accounts to the top, stable within bands by priority then id', () => {
+    const input = [
+      acct({ id: 1, priority: 5 }),
+      acct({ id: 2, status: 'error', priority: 9 }),
+      acct({ id: 3, priority: 1 }),
+      acct({ id: 4, rate_limit_reset_at: future(), priority: 2 })
+    ]
+    const out = sortEdgeAccountsAbnormalFirst(input)
+    // abnormal (2, 4) first ordered by priority (4@2 before 2@9); then healthy (3@1, 1@5)
+    expect(out.map((a) => a.id)).toEqual([4, 2, 3, 1])
+    // input not mutated
+    expect(input.map((a) => a.id)).toEqual([1, 2, 3, 4])
   })
 })

@@ -73,18 +73,42 @@ export function edgePanelCounts(edge: EdgeAccountsResult): { total: number; sche
  * kept pure so the composable's expandedKeys computed is a thin wrapper and this
  * decision is unit-tested directly.
  *
+ * v2 core flip: the DEFAULT is expanded (一目了然 — the operator sees every stub's
+ * accounts on arrival, no manual expand, no切页). #885's anomaly-only default left
+ * healthy stubs as invisible flat rows that read as "the feature didn't ship". The
+ * `edge` arg is no longer consulted for the expand decision — anomaly now drives
+ * HIGHLIGHT + ordering (edgePanelHasAnomaly / compareStubPanels), not visibility.
+ *
  * Priority (an explicit user choice ALWAYS wins, so the operator stays in control):
  *   1. `override` set (the user toggled / expand-all / collapse-all, persisted) → its value
- *   2. `searching` (prod search box non-empty) → expanded (the match auto-opens)
- *   3. otherwise default to the edge's anomaly state (only problems expand); an
- *      undiscovered edge (null) stays collapsed unless overridden/searching.
+ *   2. otherwise expanded (default-full-expand). searching is subsumed: the default
+ *      is already open, and an explicit collapse override still wins over a search.
  */
 export function isStubPanelExpanded(
   override: boolean | undefined,
-  searching: boolean,
-  edge: EdgeAccountsResult | null
+  _searching: boolean,
+  _edge: EdgeAccountsResult | null
 ): boolean {
   if (override !== undefined) return override
-  if (searching) return true
-  return edge ? edgePanelHasAnomaly(edge) : false
+  return true
+}
+
+/** Count of attention-worthy edge accounts in a panel (for the collapsed summary). */
+export function edgePanelAbnormalCount(edge: EdgeAccountsResult): number {
+  return edge.accounts.reduce((n, a) => (edgeAccountIsAbnormal(a) ? n + 1 : n), 0)
+}
+
+/**
+ * Edge accounts sorted abnormal-first (仅异常高亮 的排序版: 高亮让坏的跳出来, 置顶让坏的
+ * 够得到), keeping a stable order within each band by priority then id so the list does
+ * not churn across refreshes. Returns a new array; never mutates the input.
+ */
+export function sortEdgeAccountsAbnormalFirst(accounts: EdgeAccountSummary[]): EdgeAccountSummary[] {
+  return accounts.slice().sort((a, b) => {
+    const aBad = edgeAccountIsAbnormal(a)
+    const bBad = edgeAccountIsAbnormal(b)
+    if (aBad !== bBad) return aBad ? -1 : 1
+    if (a.priority !== b.priority) return a.priority - b.priority
+    return a.id - b.id
+  })
 }
