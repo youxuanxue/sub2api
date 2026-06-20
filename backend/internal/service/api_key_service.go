@@ -253,6 +253,16 @@ func (s *APIKeyService) UniversalResolver() *UniversalRoutingResolver {
 	return s.universalResolver
 }
 
+// SetUniversalAvailableModelsProvider 后期绑定全能 Key 解析器的「组可服务模型集」真值源
+// (GatewayService.GetAvailableModels)。构造期 GatewayService 尚不存在,故经 wire 就绪钩子
+// 在两者构造后注入(见 wire.go ProvideTKUniversalModelsProvider)。nil-safe。
+func (s *APIKeyService) SetUniversalAvailableModelsProvider(p availableModelsProvider) {
+	if s == nil || s.universalResolver == nil {
+		return
+	}
+	s.universalResolver.SetAvailableModelsProvider(p)
+}
+
 // SetRateLimitCacheInvalidator sets the optional rate limit cache invalidator.
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {

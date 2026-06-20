@@ -70,9 +70,26 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
     `/v1/images/edits` → `[openai]`。
   - `/v1beta/models/*` POST → `[gemini, antigravity]`;GET 元数据(含 `/v1/models`)→ 跳过。
 - 解析器 `universal_routing_tk_resolver.go`:取(短 TTL 缓存的)权限跨度 `GetAvailableGroups` →
-  跨度 ∩ 候选平台(active)→ 用 **模型平台提示**(grok→grok、gpt→openai、seedream→newapi,
-  best-effort 偏好非硬过滤)偏向 → **确定性挑选(持订阅优先 → `group.sort_order` → id)**。
-  空 → 按入口协议形状写 403"该模型不在你的套餐内"。
+  跨度 ∩ 候选平台(active)→ **「组已服务模型集」真值过滤(见下)** → **确定性挑选(持订阅优先
+  → `group.sort_order` → id)**。空 → 按入口协议形状写 403"该模型不在你的套餐内"。
+
+  **模型/模态服务真值过滤(`universal_routing_tk_serving.go`)**:旧版仅用前缀 hint(best-effort
+  偏好)选平台,对「某组账号到底服不服务这个模型」零可见 —— newapi 多 vendor 平台(deepseek/
+  Qwen/volcengine/google-vertex/grok/…)里盲选必投错组 → 下游 `no available accounts`。现改为
+  按组的服务集来源**非对称**判别(真值源 = `GatewayService.GetAvailableModels`,与 `/v1/models`
+  同源):
+  - 组有显式 `model_mapping`(含全部 newapi vendor 组)→ 精确成员判定 `M ∈ served`(deepseek/
+    qwen/imagen/veo/seedance 落到声明该模型的组,排除别的 vendor 组);
+  - 组无显式映射(native 空映射:anthropic/openai/gemini/antigravity 单一 vendor 平台的「空=透传」)
+    → 前缀 hint == 组平台(单 vendor 无歧义,且匹配未进白名单的新模型);
+  - 组无显式映射且平台为 newapi(多 vendor)→ **不匹配**(空映射是配置缺失,见非对称不变量)。
+  收敛后非空则用收敛集,否则**退回平台级**(安全兜底:provider 取数失败/无组声明该模型时不比
+  现状更严,由下游诚实拒绝;provider 经 wire 就绪钩子 `ProvideTKUniversalModelsProvider` 后期绑定,
+  未接线时整体退回旧行为)。
+
+  **非对称 model_mapping 不变量**:newapi(多 vendor)账号必须声明非空 `model_mapping`;原生单
+  vendor 平台保留「空=透传」。三道闸:写时挡(`AccountService` → `ErrNewapiModelMappingRequired`)、
+  路由时拒(上述 newapi-空映射不匹配)、ops 实时审计(`ops/newapi/audit-model-mapping.py`,prod-only)。
 - 替换:`apiKey.Group/GroupID` = 后端组。**不设 `ForcePlatform`** —— 替换组本身就让下游按该组
   平台派生(保留 anthropic+antigravity 混合调度等普通组语义);仅 **读取** 已有 ForcePlatform
   (如 `/antigravity` 路由)把候选限制在该平台内,从不覆盖显式 force。

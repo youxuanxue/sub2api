@@ -152,6 +152,13 @@ func provideCleanup(
 	// GatewayHandler.SetModelListFilter is called at startup. See R-003 /
 	// Goal 2 of docs/approved/pricing-availability-source-of-truth.md.
 	_ handler.TKGatewayHandlerModelListReady,
+	// TokenKey: forces wire to evaluate ProvideTKUniversalModelsProvider so the
+	// universal-key resolver's "group served-model set" truth source
+	// (GatewayService.GetAvailableModels) is wired onto APIKeyService at startup.
+	// Without this edge wire dead-codes the post-construction setter and the
+	// resolver silently falls back to platform-level routing. See
+	// docs/approved/universal-key-routing.md.
+	_ service.TKUniversalModelsProviderReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
