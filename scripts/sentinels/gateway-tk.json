@@ -3102,6 +3102,34 @@
         "service.EdgeAccountOpClearRateLimit"
       ],
       "rationale": "Prod admin thin-proxy handler mapping POST|DELETE|GET /admin/edge-accounts/:edge/accounts/:id/<op> onto the aggregator's ForwardAccountOp (admin-JWT gated, inherited from /admin). Relays the edge's credential-free response verbatim; unknown edge -> 404, unreachable -> 502. Guards the prod proxy entry against silent deletion that would break inline edge-account management."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_window_sched.go",
+      "must_contain": [
+        "func CheckOpenAIWindowSchedulability(",
+        "func (s *OpenAIGatewayService) isAccountSchedulableForOpenAIWindow(",
+        "func leastUtilizedOpenAIAccount(",
+        "openAIWindowStickyThresholdDefault = 0.85"
+      ],
+      "rationale": "OpenAI/GPT-line window-aware soft scheduler — the twin of the anthropic window-cost tri-state filter (gateway_service.go isAccountSchedulableForWindowCost / account.go CheckWindowCostSchedulability). Steers new load-balance traffic away from a codex account approaching its 5h/7d usage window BEFORE it 429s, cutting avoidable failover hops (prod: 139 absorbed 429s on one gpt-5.5 account, all recovered via failover at the cost of a wasted hop each). Tri-state Schedulable/StickyOnly/NotSchedulable on the already-captured codex_5h/7d_used_percent (resolveOpenAIQuotaUtilization, fail-open on no-signal/stale/reset). The whole hop-reduction behaviour lives here; an upstream merge or refactor deleting this companion silently reverts the GPT line to window-blind load-balancing. Anchors the tri-state predicate, the scheduler method, the never-empty-pool fallback, and the default sticky threshold."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false)",
+        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true)",
+        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+      ],
+      "rationale": "Advanced-scheduler wiring of the OpenAI window guard (see openai_account_scheduler_tk_window_sched.go): selectByLoadBalance applies it with isSticky=false (drops near-limit accounts from fresh selection) and selectBySessionHash with isSticky=true (keeps a StickyOnly account for its own session, preserving prompt-cache). The never-empty-pool fallback re-admits the coolest dropped account so the guard can never empty a thin pool into a worse no-available-accounts 429 — necessary because codex used% IS the upstream's own limit, unlike the anthropic $-budget twin. Dropping these one-line hooks silently disables the guard on the advanced path; anchors them so merge drift fails preflight + the upstream-merge PR shape check."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "s.isAccountSchedulableForOpenAIWindow(ctx, acc, false)",
+        "s.isAccountSchedulableForOpenAIWindow(ctx, account, true)",
+        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+      ],
+      "rationale": "Legacy + priority/LRU wiring of the OpenAI window guard across the remaining candidate-filter selection paths: selectAccountWithLoadAwareness Layer-2 (isSticky=false) + Layer-1 sticky (isSticky=true, marks clearSticky so the hit falls through without deleting the binding), selectBestAccount (isSticky=false; used by count_tokens failover + gemini-compat) and tryStickySessionHit (isSticky=true). selectAccountWithLoadAwareness is the DEFAULT prod path (advanced scheduler defaults off), so this is the load-bearing wiring for the reported incident; never-empty-pool fallback present here too. Anchors the hooks so an upstream merge cannot silently drop the guard call and revert the GPT line to window-blind selection."
     }
   ]
 }

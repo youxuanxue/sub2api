@@ -1826,6 +1826,13 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		}
 		return nil
 	}
+	// TK window guard (isSticky=true): keep serving the sticky session up to
+	// NotSchedulable; only once the bound account is essentially at its codex
+	// window cap do we skip the hit and fall through to load-balance. The binding
+	// is left intact (NOT deleted) so the session resumes after the window resets.
+	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+		return nil
+	}
 	if s.isOpenAIAccountRuntimeBlocked(account) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
@@ -1866,6 +1873,9 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 	selectedCompactTier := -1
 	compactBlocked := false
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
+	// retained for the never-empty-pool fallback below.
+	var windowDropped []*Account
 
 	for i := range accounts {
 		acc := &accounts[i]
@@ -1901,6 +1911,14 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			}
 		}
 
+		// TK window guard (isSticky=false, fresh load-balance): steer new traffic
+		// away from a codex account approaching its 5h/7d window before it 429s.
+		// Applied LAST so windowDropped holds only otherwise-valid candidates.
+		if !s.isAccountSchedulableForOpenAIWindow(ctx, fresh, false) {
+			windowDropped = append(windowDropped, fresh)
+			continue
+		}
+
 		// 选择优先级最高且最久未使用的账号
 		// Select highest priority and least recently used
 		if selected == nil {
@@ -1922,6 +1940,13 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			selected = fresh
 			selectedCompactTier = compactTier
 		}
+	}
+
+	// never-empty-pool: the window guard must not turn a non-empty pool into an
+	// empty-pool 429. If every otherwise-valid candidate was dropped purely by the
+	// window guard, re-admit the one with the most headroom.
+	if selected == nil && len(windowDropped) > 0 {
+		selected = leastUtilizedOpenAIAccount(windowDropped, time.Now())
 	}
 
 	return selected, compactBlocked
@@ -2051,6 +2076,15 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if !clearSticky && !account.IsOpenAICompatPoolMember(groupPlatform) {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
+				// TK window guard (isSticky=true): if the bound account is at its
+				// codex window cap (NotSchedulable), mark it sticky-clear so the hit
+				// is skipped and the request falls through to Layer 2 load-balance.
+				// The binding is NOT deleted here (the delete branches above already
+				// ran for genuine clear-sticky reasons), so the session resumes on
+				// this account after its window resets.
+				if !clearSticky && !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+					clearSticky = true
+				}
 				if !clearSticky && isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
 					account = s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, groupPlatform, requireCompact)
 					if account == nil {
@@ -2094,6 +2128,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	// ============ Layer 2: Load-aware selection ============
 	baseCandidateCount := 0
 	candidates := make([]*Account, 0, len(accounts))
+	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
+	// retained for the never-empty-pool fallback below.
+	var windowDropped []*Account
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
@@ -2120,8 +2157,25 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
 			continue
 		}
+		// TK window guard (isSticky=false, fresh load-balance): steer new traffic
+		// away from a codex account approaching its 5h/7d window before it 429s.
+		// Applied LAST so windowDropped holds only otherwise-valid candidates.
+		if !s.isAccountSchedulableForOpenAIWindow(ctx, acc, false) {
+			windowDropped = append(windowDropped, acc)
+			continue
+		}
 		baseCandidateCount++
 		candidates = append(candidates, acc)
+	}
+
+	// never-empty-pool: the window guard must not turn a non-empty schedulable
+	// pool into an empty-pool 429. If every otherwise-valid candidate was dropped
+	// purely by the window guard, re-admit the one with the most headroom.
+	if len(candidates) == 0 && len(windowDropped) > 0 {
+		if acc := leastUtilizedOpenAIAccount(windowDropped, time.Now()); acc != nil {
+			baseCandidateCount++
+			candidates = append(candidates, acc)
+		}
 	}
 
 	if len(candidates) == 0 {
