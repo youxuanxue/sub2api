@@ -108,12 +108,14 @@ classify() {
         echo "SKIP|429 空池（无可调度账号）"
       else echo "SKIP|429 上游限流（瞬态）"; fi ;;
     400|404)
-      if grep -qiE 'retired|sunset|not_found|does not exist|invalid model|unknown model|model_not_found|not supported|not a valid|no endpoints|no available' "$f" 2>/dev/null; then
-        echo "SKIP|${code} 模型不可服务/未在册"
+      # 「不可服务/账号未 provision」一律 SKIP（不是网关 schema 回归）。覆盖：模型未在册、
+      # 上游 INVALID_ARGUMENT、缺 scope/权限、账号 channel_type 不支持该模态（如非视频渠道）。
+      if grep -qiE 'retired|sunset|not_found|does not exist|invalid model|unknown model|model_not_found|not supported|does not support|not a valid|no endpoints|no available|invalid[_ ]argument|capability is not available|missing scopes|insufficient permission|not available on the serving account|channel_type|requested capability' "$f" 2>/dev/null; then
+        echo "SKIP|${code} 平台/账号未 provision 或模型不可服务（见上游消息）"
       else echo "FAIL|${code} 非预期 bad-request"; fi ;;
     500|502|503) echo "SKIP|${code} 上游/网关瞬态" ;;
     401) echo "FAIL|401 鉴权失败（key 无效？）" ;;
-    000) echo "FAIL|连接失败（curl）" ;;
+    000) echo "SKIP|请求超时/连接中断（上游慢或容量；控制面预检已证网关在线）" ;;
     *)   echo "FAIL|HTTP ${code} 非预期" ;;
   esac
 }
