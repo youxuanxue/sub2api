@@ -261,6 +261,64 @@ func TestMaybeResolveUniversal_InternalErrorIs500Not403(t *testing.T) {
 	}
 }
 
+// Regression for the "prod 视频全局宕" incident (fix/video-channel-type-selection):
+// a universal key POSTing /v1/video/generations must peek the JSON body's model so the
+// resolver converges onto the video-capable backing group. Before the fix the video
+// shape returned model="" unconditionally, so the resolver fell back to the
+// deterministic sort_order/id pick and could land on a NON-video newapi group
+// (e.g. deepseek ch43 / Qwen ch17), whose selected account then failed the handler's
+// engine.IsVideoSupportedForAccount gate → "channel_type does not support video
+// generation" for every video request. Here group 30 (vertex) serves "veo-3.1...",
+// group 31 (deepseek) does not; the resolver must pick 30 even though 30 sorts after 31.
+func TestMaybeResolveUniversal_VideoSubmitPeeksModelAndRoutesToVideoGroup(t *testing.T) {
+	const videoModel = "veo-3.1-generate-001"
+	vertexGroup := activeGroup(30, service.PlatformNewAPI) // serves video, sorts AFTER 31 by id
+	deepseekGroup := activeGroup(31, service.PlatformNewAPI)
+
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{deepseekGroup, vertexGroup}})
+	// Wire the served-model truth source: only the vertex group declares the video model.
+	resolver.SetAvailableModelsProvider(func(_ context.Context, groupID *int64, _ string) []string {
+		if groupID != nil && *groupID == vertexGroup.ID {
+			return []string{videoModel}
+		}
+		return []string{"deepseek-chat"}
+	})
+
+	// No gin router here, so c.FullPath() is empty; MaybeResolveUniversal falls back
+	// to c.Request.URL.Path, which UniversalShapeForRequest matches to ShapeOpenAIVideo.
+	c, _ := newTestCtx(http.MethodPost, "/v1/video/generations", `{"model":"`+videoModel+`","prompt":"a cat"}`)
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("video submit resolve should succeed (continue auth)")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != vertexGroup.ID {
+		t.Fatalf("video submit must route to the video-serving group %d, got %v", vertexGroup.ID, apiKey.GroupID)
+	}
+	// Body must still be readable by the downstream VideoSubmit handler.
+	rest, _ := io.ReadAll(c.Request.Body)
+	if !strings.Contains(string(rest), `"model":"`+videoModel+`"`) {
+		t.Fatalf("video submit body not restored after peek: %q", string(rest))
+	}
+}
+
+// The GET poll path carries no body and no model — it must NOT attempt to read a
+// body (poll uses the VideoTaskCache's submit-time pinned upstream route, not a
+// fresh selection), and any openai-compat group satisfies the route-layer platform
+// gate. Asserts poll resolves model-lessly without erroring.
+func TestMaybeResolveUniversal_VideoPollNoBodyResolves(t *testing.T) {
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(30, service.PlatformNewAPI)}})
+	c, _ := newTestCtx(http.MethodGet, "/v1/video/generations/vt_abc", "")
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("video poll resolve should succeed model-lessly")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != 30 {
+		t.Fatalf("video poll should route to the only eligible newapi group, got %v", apiKey.GroupID)
+	}
+}
+
 func TestMaybeResolveUniversal_SkipEndpointNoSwap(t *testing.T) {
 	c, _ := newTestCtx(http.MethodGet, "/v1/models", "")
 	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(20, service.PlatformOpenAI)}})
