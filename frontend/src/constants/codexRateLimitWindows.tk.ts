@@ -42,7 +42,7 @@ export interface NormalizedCodexLimitWindow {
 }
 
 export interface NormalizedCodexAdditionalLimit {
-  /** Human label, e.g. "GPT-5.3-Codex-Spark". */
+  /** Raw upstream label, e.g. "GPT-5.3-Codex-Spark". May be empty. */
   name: string
   /** Upstream metered_feature key (used for a stable v-for key). */
   meteredFeature: string
@@ -124,9 +124,10 @@ function toNormalizedLimit(
   const weeklyWindow = toDisplayWindow(weekly)
   if (!fiveHourWindow && !weeklyWindow) return null
 
-  const name = (item.limit_name || item.metered_feature || '').trim()
+  // Raw upstream label only — presentation (incl. any "unnamed limit" fallback
+  // and i18n) belongs to the view, not this pure-data helper.
   return {
-    name: name || 'Additional limit',
+    name: (item.limit_name || item.metered_feature || '').trim(),
     meteredFeature: item.metered_feature || '',
     limitReached: rateLimit?.limit_reached ?? false,
     fiveHour: fiveHourWindow,

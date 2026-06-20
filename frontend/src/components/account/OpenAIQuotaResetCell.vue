@@ -93,11 +93,12 @@
         {{ t('admin.accounts.openaiQuotaReset.additionalLimitsTitle') }}
       </div>
       <div
-        v-for="limit in additionalLimits"
-        :key="`${limit.name}-${limit.meteredFeature}`"
+        v-for="(limit, index) in additionalLimits"
+        :key="`${limit.name}-${limit.meteredFeature}-${index}`"
         class="space-y-0.5"
       >
         <div
+          v-if="limit.name"
           class="truncate text-[10px] font-medium text-gray-600 dark:text-gray-300"
           :title="limit.name"
         >

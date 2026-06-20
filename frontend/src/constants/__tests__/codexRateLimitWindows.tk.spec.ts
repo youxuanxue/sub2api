@@ -152,4 +152,32 @@ describe('normalizeCodexAdditionalLimits', () => {
     expect(result[0].fiveHour?.usedPercent).toBe(10)
     expect(result[0].weekly).toBeNull()
   })
+
+  it('returns a raw (possibly empty) name; the presentation fallback is the view’s job', () => {
+    const usage: OpenAIQuotaUsage = {
+      fetched_at: 0,
+      additional_rate_limits: [
+        {
+          limit_name: '',
+          metered_feature: '',
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: {
+              used_percent: 7,
+              limit_window_seconds: 5 * 60 * 60,
+              reset_after_seconds: 0,
+              reset_at: 0
+            },
+            secondary_window: null
+          }
+        }
+      ]
+    }
+
+    const [limit] = normalizeCodexAdditionalLimits(usage)
+    // No hardcoded English label leaks out of the pure helper.
+    expect(limit.name).toBe('')
+    expect(limit.fiveHour?.usedPercent).toBe(7)
+  })
 })
