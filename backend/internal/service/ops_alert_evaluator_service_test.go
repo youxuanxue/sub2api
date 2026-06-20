@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -417,10 +418,12 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 			{Platform: "anthropic", Count: 40},
 			{Platform: "openai", Count: 15},
 		}}}
-		require.Equal(t, "anthropic ×40 · openai ×15", svc.computeTopCause(ctx, rule, start, end, "", nil))
+		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Equal(t, "anthropic ×40 · openai ×15", cause)
+		require.Empty(t, users)
 	})
 
-	t.Run("combines pool cause + user cause", func(t *testing.T) {
+	t.Run("pool cause + user breakdown are returned separately (two card lines)", func(t *testing.T) {
 		t.Parallel()
 		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
 			routingCauses: []*OpsRoutingRejectionCause{{Platform: "anthropic", Count: 40}},
@@ -429,8 +432,9 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 				{UserID: 17, APIKeyName: "", Count: 5},
 			},
 		}}
-		require.Equal(t, `anthropic ×40 ｜ 用户 #42 "eval-harness" ×30 · #17 ×5`,
-			svc.computeTopCause(ctx, rule, start, end, "", nil))
+		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Equal(t, "anthropic ×40", cause)
+		require.Equal(t, `#42 "eval-harness" ×30 · #17 ×5`, users)
 	})
 
 	t.Run("user segment survives a pool-query error (best-effort)", func(t *testing.T) {
@@ -439,18 +443,89 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 			routingCausesErr: context.DeadlineExceeded,
 			routingUsers:     []*OpsRoutingRejectionUser{{UserID: 1, APIKeyName: "k", Count: 9}},
 		}}
-		require.Equal(t, `用户 #1 "k" ×9`, svc.computeTopCause(ctx, rule, start, end, "", nil))
+		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Empty(t, cause)
+		require.Equal(t, `#1 "k" ×9`, users)
 	})
 
 	t.Run("no rows => no 主因 line", func(t *testing.T) {
 		t.Parallel()
 		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{}}
-		require.Equal(t, "", svc.computeTopCause(ctx, rule, start, end, "", nil))
+		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Empty(t, cause)
+		require.Empty(t, users)
 	})
 
 	t.Run("query error => no 主因 line (best-effort, never blocks firing)", func(t *testing.T) {
 		t.Parallel()
 		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingCausesErr: context.DeadlineExceeded}}
-		require.Equal(t, "", svc.computeTopCause(ctx, rule, start, end, "", nil))
+		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Empty(t, cause)
+		require.Empty(t, users)
 	})
+}
+
+// TestIsEdgeNode pins the node-identity predicate that drives edge-only alert
+// suppression. It MUST match the card-title node label derived by
+// deriveOpsNodeIdentity from the same frontend URL, so a card that would read
+// "· us6" is exactly what gets suppressed.
+func TestIsEdgeNode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		frontendURL string
+		want        bool
+	}{
+		{"edge us6", "https://api-us6.tokenkey.dev", true},
+		{"edge uk1", "https://api-uk1.tokenkey.dev", true},
+		{"prod", "https://api.tokenkey.dev", false},
+		{"unset frontend url", "", false},
+		{"non-edge custom host", "https://gateway.example.com", false},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			svc := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: c.frontendURL}}}
+			require.Equal(t, c.want, svc.isEdgeNode())
+		})
+	}
+	t.Run("nil cfg is safe (treated as non-edge)", func(t *testing.T) {
+		t.Parallel()
+		require.False(t, (&OpsAlertEvaluatorService{}).isEdgeNode())
+	})
+}
+
+// TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
+// edge. Only the routing-capacity-rejection P0 (client-invisible on an edge,
+// covered by account-incident / pool-exhausted P0s) qualifies; capacity/error
+// signals that ARE meaningful on an edge must still page.
+func TestIsEdgeSuppressedAlertRule(t *testing.T) {
+	t.Parallel()
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "  routing_capacity_rejection_count  "}))
+	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "pool_load_rate"}))
+	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "upstream_error_rate"}))
+	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "group_available_accounts"}))
+	require.False(t, isEdgeSuppressedAlertRule(nil))
+}
+
+// TestMaybeSendAlertNotificationsEdgeSuppression verifies the composed gate: on an
+// edge node the routing-rejection rule short-circuits before any email/feishu
+// attempt and reports nothing sent. The prod counterpart (same rule) does NOT
+// short-circuit on the edge predicate — it proceeds into the notify paths (which
+// then no-op here only because no notifier config is wired), proving the gate is
+// edge-scoped, not a blanket drop.
+func TestMaybeSendAlertNotificationsEdgeSuppression(t *testing.T) {
+	t.Parallel()
+	rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+
+	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
+	require.True(t, edge.isEdgeNode() && isEdgeSuppressedAlertRule(rule), "precondition: edge + suppressed rule")
+	res := edge.maybeSendAlertNotifications(context.Background(), nil, rule, &OpsAlertEvent{})
+	require.False(t, res.EmailSent)
+	require.False(t, res.FeishuSent)
+
+	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
+	require.False(t, prod.isEdgeNode(), "prod must NOT be edge-suppressed for this rule")
 }
