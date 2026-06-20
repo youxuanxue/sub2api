@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { watch, nextTick } from 'vue'
 import { useTableLoader } from '@/composables/useTableLoader'
 
 // Mock @vueuse/core 的 useDebounceFn
@@ -246,6 +247,47 @@ describe('useTableLoader', () => {
 
       // 不应抛出
       await load()
+    })
+  })
+
+  // --- shallowRef 语义（perf:消除列表深代理）---
+  describe('shallowRef 列表语义', () => {
+    it('整体替换数组（load / setItems）会触发响应', async () => {
+      const fetchFn = createMockFetchFn([{ id: 1 }], 1, 1)
+      const { items, load, setItems } = useTableLoader<{ id: number }, any>({ fetchFn })
+
+      const seen: number[] = []
+      watch(items, (v) => seen.push(v.length))
+
+      await load()
+      await nextTick()
+      expect(items.value).toHaveLength(1)
+      expect(seen).toContain(1) // load 的整体替换触发了 watcher
+
+      setItems([{ id: 2 }, { id: 3 }])
+      await nextTick()
+      expect(items.value).toHaveLength(2)
+      expect(seen).toContain(2) // setItems 的整体替换也触发
+    })
+
+    it('in-place 改行不触发，refreshItems() 逃生口才触发（shallow 契约）', async () => {
+      const fetchFn = createMockFetchFn([{ id: 1, name: 'a' }], 1, 1)
+      const { items, load, refreshItems } = useTableLoader<{ id: number; name: string }, any>({ fetchFn })
+      await load()
+
+      let fires = 0
+      watch(items, () => { fires++ })
+
+      // 直接改嵌套字段:shallowRef 不追踪 → watcher 不触发
+      items.value[0].name = 'b'
+      await nextTick()
+      expect(items.value[0].name).toBe('b')
+      expect(fires).toBe(0)
+
+      // 逃生口:显式触发后 watcher 才响应
+      refreshItems()
+      await nextTick()
+      expect(fires).toBe(1)
     })
   })
 })
