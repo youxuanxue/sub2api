@@ -110,6 +110,14 @@ export interface EdgeAccountsResult {
   stub_rate_limit_reset_at?: string
   stub_temp_unschedulable_until?: string
   stub_groups?: string[]
+  // Per-stub identity (only set by the by-stub view the inline /accounts panel uses;
+  // the per-edge overview leaves them undefined). The panel keys each result by
+  // stub_account_id (NOT edge_id — multiple stubs share one edge host) and labels the
+  // precise correspondence with stub_platform + edge_group ("调度自 <edge_group> 组").
+  // edge_group is "" for a universal/single-pool key → whole-platform footnote.
+  stub_account_id?: number
+  stub_platform?: string
+  edge_group?: string
   accounts: EdgeAccountSummary[]
 }
 
@@ -124,6 +132,10 @@ export interface EdgeAccountsAggregate {
 
 export interface EdgeAccountsListParams {
   platform?: string
+  // view='by-stub' → the inline /accounts panel's per-stub inventory (each prod
+  // mirror stub fanned out with its own key → precise per-key correspondence).
+  // Omitted → the per-edge fleet overview (the standalone /edge-accounts page).
+  view?: 'by-stub'
 }
 
 export async function list(params: EdgeAccountsListParams = {}): Promise<EdgeAccountsAggregate> {

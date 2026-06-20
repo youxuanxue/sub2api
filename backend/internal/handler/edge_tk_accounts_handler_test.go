@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -24,11 +25,13 @@ type edgeAccountsListerStub struct {
 	err          error
 	lastPlatform string
 	lastStatus   string
+	lastGroupID  int64
 }
 
-func (s *edgeAccountsListerStub) ListAccounts(_ context.Context, _, _ int, platform, _, status, _ string, _ int64, _, _, _ string) ([]service.Account, int64, error) {
+func (s *edgeAccountsListerStub) ListAccounts(_ context.Context, _, _ int, platform, _, status, _ string, groupID int64, _, _, _ string) ([]service.Account, int64, error) {
 	s.lastPlatform = platform
 	s.lastStatus = status
+	s.lastGroupID = groupID
 	return s.accounts, int64(len(s.accounts)), s.err
 }
 
@@ -128,6 +131,58 @@ func TestEdgeAccountsHandler_NeverLeaksCredentials(t *testing.T) {
 	} {
 		require.NotContainsf(t, body, forbidden,
 			"response leaked credential-related token %q: %s", forbidden, body)
+	}
+}
+
+// TestEdgeAccountsHandler_GroupScopeCaller verifies the v2 precise-correspondence
+// filter: group_scope=caller narrows the read to the authenticated caller key's
+// group (direct key), the whole pool for a universal key, and is a no-op (full
+// inventory, groupID 0) when the param is absent — so the standalone overview is
+// unchanged.
+func TestEdgeAccountsHandler_GroupScopeCaller(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(99)
+	directKey := &service.APIKey{
+		ID:          7,
+		GroupID:     &groupID,
+		RoutingMode: service.RoutingModeDirect,
+		Group:       &service.Group{ID: 99, Name: "default"},
+	}
+	universalKey := &service.APIKey{ID: 8, RoutingMode: service.RoutingModeUniversal}
+
+	cases := []struct {
+		name        string
+		query       string
+		key         *service.APIKey
+		wantGroupID int64
+		wantGroup   string
+	}{
+		{"direct key + group_scope=caller → filter by its group", "?group_scope=caller", directKey, 99, "default"},
+		{"universal key → no group filter (whole pool)", "?group_scope=caller", universalKey, 0, ""},
+		{"no group_scope → full inventory (standalone unchanged)", "", directKey, 0, ""},
+		{"group_scope=caller but no caller key in ctx → full inventory", "?group_scope=caller", nil, 0, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &edgeAccountsListerStub{accounts: []service.Account{richAccount()}}
+			h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/edge/accounts"+tc.query, nil)
+			if tc.key != nil {
+				c.Set(middleware.EdgeCallerAPIKeyCtxKey, tc.key)
+			}
+			h.ListAccounts(c)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, tc.wantGroupID, stub.lastGroupID)
+
+			var env struct {
+				Data edgeAccountsResponse `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+			require.Equal(t, tc.wantGroup, env.Data.Group)
+		})
 	}
 }
 

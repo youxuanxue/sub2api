@@ -24,6 +24,13 @@
           :title="t('admin.edgeAccounts.stubTempUnschedHint')"
         >{{ t('admin.edgeAccounts.stubTempUnsched') }}</span>
         <span v-if="edge" class="truncate text-xs text-gray-400 dark:text-gray-500">{{ edge.base_url }}</span>
+        <span
+          v-if="panelScope"
+          class="flex-shrink-0 text-xs font-medium text-primary-600/80 dark:text-primary-300/80"
+          :title="t('admin.accounts.edgePanel.scopeHint')"
+        >{{ panelScope.kind === 'group'
+            ? t('admin.accounts.edgePanel.scopeGroup', { group: panelScope.name, count: panelScope.count })
+            : t('admin.accounts.edgePanel.scopePool', { platform: panelScope.name, count: panelScope.count }) }}</span>
       </div>
       <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
         <span v-if="edge && edge.ok">
@@ -53,11 +60,15 @@
     <div v-else-if="!edge" class="px-4 py-5 text-center text-sm text-gray-400 dark:text-gray-500">
       {{ error || t('admin.accounts.edgePanel.notDiscovered') }}
     </div>
-    <!-- Unreachable edge -->
-    <div v-else-if="!edge.ok" class="px-4 py-5 text-center text-sm text-red-600 dark:text-red-400">
-      {{ edge.error || t('admin.edgeAccounts.loadFailed') }}
+    <!-- Unreachable edge: inline error + retry (not a broken empty expand) -->
+    <div v-else-if="!edge.ok" class="flex flex-wrap items-center justify-center gap-3 px-4 py-5 text-center text-sm">
+      <span class="text-red-600 dark:text-red-400">{{ edge.error || t('admin.edgeAccounts.loadFailed') }}</span>
+      <button type="button" class="btn btn-secondary btn-sm inline-flex items-center gap-1" :disabled="loading" @click="emit('retry')">
+        <Icon name="sync" size="sm" :class="loading ? 'animate-spin' : ''" />
+        {{ t('admin.accounts.edgePanel.retry') }}
+      </button>
     </div>
-    <!-- Accounts -->
+    <!-- Accounts (abnormal-first) -->
     <div v-else-if="edge.accounts.length" class="overflow-x-auto">
       <table class="min-w-full divide-y divide-primary-100 text-sm dark:divide-dark-700">
         <thead class="bg-primary-50/60 text-xs uppercase tracking-wide text-gray-500 dark:bg-dark-900 dark:text-gray-400">
@@ -75,7 +86,7 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-primary-50 dark:divide-dark-700/50">
-          <tr v-for="acct in edge.accounts" :key="acct.id" class="hover:bg-primary-50/50 dark:hover:bg-dark-700/40">
+          <tr v-for="acct in sortedAccounts" :key="acct.id" class="hover:bg-primary-50/50 dark:hover:bg-dark-700/40">
             <td class="px-4 py-2 align-top">
               <div class="font-medium text-gray-900 dark:text-white">{{ acct.name }}</div>
               <div class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.edgeAccounts.accountIdHint')">ID: {{ acct.id }}</div>
@@ -143,8 +154,20 @@
         </tbody>
       </table>
     </div>
-    <!-- Reachable but empty -->
-    <div v-else class="px-4 py-5 text-center text-sm text-gray-400 dark:text-gray-500">{{ t('admin.edgeAccounts.edgeEmpty') }}</div>
+    <!-- Reachable but empty (this stub key's group has no accounts on the edge):
+         actionable, not a blank — jump to the edge to configure it. -->
+    <div v-else class="flex flex-wrap items-center justify-center gap-3 px-4 py-5 text-center text-sm text-gray-400 dark:text-gray-500">
+      <span>{{ t('admin.accounts.edgePanel.groupEmpty') }}</span>
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+        :disabled="managing"
+        @click="openEdgeManage"
+      >
+        <Icon name="link" size="sm" :class="managing ? 'animate-pulse' : ''" />
+        {{ t('admin.accounts.edgePanel.manageWholeEdge') }}
+      </button>
+    </div>
 
     <EdgeAccountActionMenuTk
       :show="!!menuAccount"
@@ -180,6 +203,7 @@ import {
   isStubRateLimited,
   isStubTempUnschedActive
 } from '@/utils/edgeAccounts.tk'
+import { sortEdgeAccountsAbnormalFirst } from '@/utils/accountsEdgePanels.tk'
 
 const props = defineProps<{
   /** The prod cc-<edge> mirror-stub row this panel expands under. */
@@ -195,6 +219,9 @@ const emit = defineEmits<{
   // A whitelisted op mutated an edge account → carry the updated DTO up so the
   // composable can surgically patch the edge data, and pin this panel open.
   mutated: [account: EdgeAccountSummary]
+  // Operator asked to re-fetch after an unreachable edge → parent refreshes the
+  // by-stub aggregate (no per-panel fetch; the composable owns the data lifecycle).
+  retry: []
 }>()
 
 const { t } = useI18n()
@@ -203,6 +230,25 @@ const appStore = useAppStore()
 const edgeId = computed(() => props.stub.edge_id ?? '')
 const stubRateLimited = computed(() => (props.edge ? isStubRateLimited(props.edge) : false))
 const stubTempUnsched = computed(() => (props.edge ? isStubTempUnschedActive(props.edge) : false))
+
+// 异常置顶: abnormal edge accounts float to the top of this panel so the operator
+// reaches what needs attention first, regardless of how long the list is.
+const sortedAccounts = computed(() =>
+  props.edge ? sortEdgeAccountsAbnormalFirst(props.edge.accounts) : []
+)
+
+// Precise-correspondence footnote (§5.7 读得懂): name the edge-side group this stub
+// key actually schedules ("调度自 <group> 组 · 共 N 个"), or the whole-platform pool
+// for a universal / single-pool key. null when the edge is unreachable / empty (the
+// dedicated states cover those).
+const panelScope = computed(() => {
+  const e = props.edge
+  if (!e || !e.ok) return null
+  const count = e.accounts.length
+  if (e.edge_group) return { kind: 'group' as const, name: e.edge_group, count }
+  if (e.stub_platform) return { kind: 'pool' as const, name: e.stub_platform, count }
+  return null
+})
 
 // Per-account busy flag (one op at a time per row).
 const busyId = ref<number | null>(null)

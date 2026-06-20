@@ -406,3 +406,71 @@ func TestEdgeIDFromBaseURL(t *testing.T) {
 	// already normalized (no trailing slash) — fallback path for non-matching host
 	require.Equal(t, "example.com", edgeIDFromBaseURL("https://example.com"))
 }
+
+// TestIsEdgeMirrorStub covers the v2-widened predicate: ANY platform's api-key
+// account whose base_url matches the edge pattern is a mirror stub (the panel must
+// expand openai/grok/kiro/… stubs, not just anthropic).
+func TestIsEdgeMirrorStub(t *testing.T) {
+	mk := func(platform, typ, baseURL string) *Account {
+		return &Account{Platform: platform, Type: typ, Credentials: map[string]any{"base_url": baseURL}}
+	}
+	cases := []struct {
+		name string
+		acc  *Account
+		want bool
+	}{
+		{"anthropic apikey + edge base_url", mk(PlatformAnthropic, AccountTypeAPIKey, "https://api-us4.tokenkey.dev"), true},
+		{"openai apikey + edge base_url (v2 widened)", mk(PlatformOpenAI, AccountTypeAPIKey, "https://api-us3.tokenkey.dev"), true},
+		{"grok apikey + edge base_url (v2 widened)", mk(PlatformGrok, AccountTypeAPIKey, "https://api-us4.tokenkey.dev"), true},
+		{"kiro apikey + edge base_url (v2 widened)", mk(PlatformKiro, AccountTypeAPIKey, "https://api-uk2.tokenkey.dev"), true},
+		{"oauth type is never a mirror stub", mk(PlatformAnthropic, AccountTypeOAuth, "https://api-us4.tokenkey.dev"), false},
+		{"non-edge base_url", mk(PlatformAnthropic, AccountTypeAPIKey, "https://api.anthropic.com"), false},
+		{"empty base_url", mk(PlatformAnthropic, AccountTypeAPIKey, ""), false},
+		{"nil account", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isEdgeMirrorStub(tc.acc, edgeIDPattern))
+		})
+	}
+}
+
+// TestDiscoverStubTargets covers the per-stub discovery: NO dedup by edge host
+// (cc-us4 / openai-us4 / grok-us4 share one edge but are three distinct targets),
+// all-platform, carrying stub id + platform + the caller-group-scope flag; disabled
+// and credential-incomplete stubs are skipped.
+func TestDiscoverStubTargets(t *testing.T) {
+	mk := func(id int64, platform, baseURL, apiKey string) Account {
+		return Account{
+			ID: id, Platform: platform, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+			Credentials: map[string]any{"base_url": baseURL, "api_key": apiKey},
+		}
+	}
+	disabled := mk(5, PlatformAnthropic, "https://api-uk9.tokenkey.dev", "k5")
+	disabled.Status = StatusDisabled
+	noKey := mk(6, PlatformOpenAI, "https://api-uk8.tokenkey.dev", "")
+
+	accounts := []Account{
+		mk(1, PlatformAnthropic, "https://api-us4.tokenkey.dev", "k1"),
+		mk(2, PlatformOpenAI, "https://api-us4.tokenkey.dev", "k2"), // SAME edge host — NOT deduped
+		mk(3, PlatformGrok, "https://api-us4.tokenkey.dev", "k3"),
+		disabled, // skipped (disabled)
+		noKey,    // skipped (no api_key)
+		// non-edge base_url → not a stub
+		{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive,
+			Credentials: map[string]any{"base_url": "https://generativelanguage.googleapis.com"}},
+	}
+
+	targets := discoverStubTargets(accounts, edgeIDPattern)
+	require.Len(t, targets, 3) // three distinct stubs on one edge, NOT deduped
+
+	byID := map[int64]edgeTarget{}
+	for _, tg := range targets {
+		byID[tg.stubAccountID] = tg
+		require.True(t, tg.groupScopeCaller, "per-stub targets must request caller-group scope")
+		require.Equal(t, "us4", tg.edgeID)
+	}
+	require.Equal(t, PlatformAnthropic, byID[1].platform)
+	require.Equal(t, PlatformOpenAI, byID[2].platform)
+	require.Equal(t, PlatformGrok, byID[3].platform)
+}

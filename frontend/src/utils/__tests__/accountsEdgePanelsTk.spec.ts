@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   edgeAccountIsAbnormal,
   edgePanelHasAnomaly,
-  compositeEdgeAccountKey,
   edgePanelCounts,
+  edgePanelAbnormalCount,
+  sortEdgeAccountsAbnormalFirst,
   isStubPanelExpanded
 } from '@/utils/accountsEdgePanels.tk'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
@@ -83,14 +84,6 @@ describe('edgePanelHasAnomaly', () => {
   })
 })
 
-describe('compositeEdgeAccountKey', () => {
-  it('namespaces an edge-local id so it never collides with a prod stub id', () => {
-    expect(compositeEdgeAccountKey('us4', 51)).toBe('edge:us4:51')
-    // Same numeric id on different edges → distinct keys.
-    expect(compositeEdgeAccountKey('uk2', 51)).not.toBe(compositeEdgeAccountKey('us4', 51))
-  })
-})
-
 describe('edgePanelCounts', () => {
   it('counts total and effectively-schedulable accounts', () => {
     const e = edge({
@@ -100,26 +93,37 @@ describe('edgePanelCounts', () => {
   })
 })
 
-describe('isStubPanelExpanded (expand priority)', () => {
-  const healthy = edge({ accounts: [acct({})] })
-  const anomalous = edge({ ok: false })
+describe('isStubPanelExpanded (v2: default-full-expand)', () => {
+  it('an explicit override ALWAYS wins', () => {
+    expect(isStubPanelExpanded(false)).toBe(false) // user collapsed → stays collapsed
+    expect(isStubPanelExpanded(true)).toBe(true) // user expanded → stays expanded
+  })
+  it('DEFAULT (no override) is expanded (一目了然)', () => {
+    expect(isStubPanelExpanded(undefined)).toBe(true)
+  })
+})
 
-  it('an explicit override ALWAYS wins (even over search + anomaly)', () => {
-    // user collapsed → stays collapsed despite searching and an anomaly
-    expect(isStubPanelExpanded(false, true, anomalous)).toBe(false)
-    // user expanded → stays expanded despite a healthy edge and no search
-    expect(isStubPanelExpanded(true, false, healthy)).toBe(true)
+describe('edgePanelAbnormalCount', () => {
+  it('counts only attention-worthy accounts', () => {
+    const e = edge({
+      accounts: [acct({}), acct({ id: 2, status: 'error' }), acct({ id: 3, rate_limit_reset_at: future() })]
+    })
+    expect(edgePanelAbnormalCount(e)).toBe(2)
   })
-  it('searching auto-expands when there is no override', () => {
-    expect(isStubPanelExpanded(undefined, true, healthy)).toBe(true)
-  })
-  it('without override or search, follows the edge anomaly state', () => {
-    expect(isStubPanelExpanded(undefined, false, anomalous)).toBe(true)
-    expect(isStubPanelExpanded(undefined, false, healthy)).toBe(false)
-  })
-  it('an undiscovered edge (null) stays collapsed unless overridden / searching', () => {
-    expect(isStubPanelExpanded(undefined, false, null)).toBe(false)
-    expect(isStubPanelExpanded(undefined, true, null)).toBe(true)
-    expect(isStubPanelExpanded(true, false, null)).toBe(true)
+})
+
+describe('sortEdgeAccountsAbnormalFirst', () => {
+  it('floats abnormal accounts to the top, stable within bands by priority then id', () => {
+    const input = [
+      acct({ id: 1, priority: 5 }),
+      acct({ id: 2, status: 'error', priority: 9 }),
+      acct({ id: 3, priority: 1 }),
+      acct({ id: 4, rate_limit_reset_at: future(), priority: 2 })
+    ]
+    const out = sortEdgeAccountsAbnormalFirst(input)
+    // abnormal (2, 4) first ordered by priority (4@2 before 2@9); then healthy (3@1, 1@5)
+    expect(out.map((a) => a.id)).toEqual([4, 2, 3, 1])
+    // input not mutated
+    expect(input.map((a) => a.id)).toEqual([1, 2, 3, 4])
   })
 })

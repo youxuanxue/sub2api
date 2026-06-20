@@ -49,11 +49,31 @@ const (
 	// the operator's request. After the first (cold) load, every load/refresh —
 	// manual button, periodic auto-refresh, a second admin — returns instantly.
 	edgeAccountsSoftTTL = 15 * time.Second
+
+	// byStubCacheKey is the reserved "platform" the per-stub aggregate (the inline
+	// /accounts panel) caches under, reusing the same stale-while-revalidate cache as
+	// the per-edge overview. It can never collide with a real platform: platforms are
+	// lowercase identifiers, this carries underscores/sentinel form.
+	byStubCacheKey = "__by_stub__"
 )
 
 // edgeIDPattern extracts the edge id from an internal edge base_url:
 // https://api-<edge_id>.tokenkey.dev → <edge_id> (e.g. api-us1 → us1).
 var edgeIDPattern = regexp.MustCompile(`^https?://api-([a-z0-9]+)\.tokenkey\.dev/?$`)
+
+// edgeStubPlatforms are the platforms that can host a prod→edge mirror stub. The
+// per-stub fan-out loads candidates across all of them (ListByPlatform is platform-
+// scoped, so we union rather than change the interface — rule 6). gemini (direct to
+// Vertex/AI Studio) and newapi (channel bridge to an external upstream) never relay
+// through an edge, so they are intentionally absent. A NEW edge-stub platform MUST be
+// added here or its stubs won't expand in the inline panel.
+var edgeStubPlatforms = []string{
+	PlatformAnthropic,
+	PlatformOpenAI,
+	PlatformAntigravity,
+	PlatformGrok,
+	PlatformKiro,
+}
 
 // edgeAccountsStore is the narrow account dependency: list anthropic accounts so
 // the mirror stubs can be discovered. *accountRepository satisfies it via the
@@ -102,6 +122,21 @@ type EdgeAccountsResult struct {
 	StubRateLimitResetAt       *time.Time `json:"stub_rate_limit_reset_at,omitempty"`
 	StubTempUnschedulableUntil *time.Time `json:"stub_temp_unschedulable_until,omitempty"`
 	StubGroups                 []string   `json:"stub_groups"`
+
+	// Per-stub identity (v2 inline panel). The per-edge overview leaves these zero
+	// (it keys by edge_id); the per-stub aggregate (AggregateByStub) sets them so the
+	// prod /accounts panel can key each panel by its prod stub row and label the
+	// precise correspondence:
+	//   - StubAccountID: the prod mirror-stub account id this result belongs to (the
+	//     panel looks up by this, NOT edge_id — multiple stubs share one edge host).
+	//   - StubPlatform: the stub's platform (anthropic/openai/antigravity/grok/kiro),
+	//     for the panel's "<platform> 全池" footnote on universal/single-pool stubs.
+	//   - EdgeGroup: the edge-side group name the stub's api-key is bound to (the edge
+	//     reports it; see edge ListAccounts). Drives the "调度自 <group> 组" footnote;
+	//     "" for a universal key (single-pool platform → whole-platform footnote).
+	StubAccountID int64  `json:"stub_account_id,omitempty"`
+	StubPlatform  string `json:"stub_platform,omitempty"`
+	EdgeGroup     string `json:"edge_group,omitempty"`
 
 	Accounts []json.RawMessage `json:"accounts"`
 }
@@ -157,6 +192,17 @@ type edgeTarget struct {
 	baseURL     string
 	apiKey      string
 	schedulable bool
+
+	// Per-stub fields (set only by discoverStubTargets for the inline panel; the
+	// deduped per-edge discoverEdgeTargets leaves them zero). stubAccountID ties the
+	// fetched result back to its prod row; platform is the stub's own platform so the
+	// per-stub fan-out queries each edge with the right platform scope.
+	// groupScopeCaller makes fetchEdgeAccounts request group_scope=caller so the edge
+	// narrows to exactly this key's group (precise correspondence); the per-edge
+	// overview leaves it false → full inventory, standalone page unchanged.
+	stubAccountID    int64
+	platform         string
+	groupScopeCaller bool
 
 	// Prod-stub group + variable cooldown snapshot (TK), forwarded into
 	// EdgeAccountsResult so the overview can filter edges by the prod stub's group +
@@ -249,6 +295,12 @@ func (a *EdgeAccountsAggregator) nowUnix() int64 {
 // anthropic accounts (mirror stubs are anthropic api-key accounts); the platform
 // argument is forwarded to each edge's /accounts query. Caller owns caching.
 func (a *EdgeAccountsAggregator) fanout(ctx context.Context, platform string) (*EdgeAccountsAggregate, error) {
+	// The reserved by-stub key routes to the per-stub fan-out (the inline /accounts
+	// panel); every other platform is the per-edge overview path below.
+	if platform == byStubCacheKey {
+		return a.fanoutByStub(ctx)
+	}
+
 	out := &EdgeAccountsAggregate{Platform: platform, Edges: []EdgeAccountsResult{}, TS: a.nowUnix()}
 	if a == nil || a.accounts == nil {
 		return out, nil
@@ -268,19 +320,8 @@ func (a *EdgeAccountsAggregator) fanout(ctx context.Context, platform string) (*
 		return out, nil
 	}
 
-	results := make([]EdgeAccountsResult, len(targets))
-	sem := make(chan struct{}, edgeAccountsFanoutCap)
-	var wg sync.WaitGroup
-	for i := range targets {
-		wg.Add(1)
-		go func(idx int, t edgeTarget) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			results[idx] = a.fetchEdgeAccounts(ctx, t, platform)
-		}(i, targets[i])
-	}
-	wg.Wait()
+	// Per-edge: every target queried with the one requested platform.
+	results := a.fanoutTargets(ctx, targets, func(edgeTarget) string { return platform })
 
 	// Scheduling-off edges (the prod stub is active-but-关调度, so prod has stopped
 	// routing there) sink to the bottom of the overview: the operator's live,
@@ -297,6 +338,127 @@ func (a *EdgeAccountsAggregator) fanout(ctx context.Context, platform string) (*
 	return out, nil
 }
 
+// fanoutTargets concurrently reads each target's edge accounts and returns the
+// results in target order. platformFor picks the per-target platform query: the
+// per-edge overview passes one fixed platform for all targets; the per-stub
+// fan-out passes each stub's own platform. Shared so both paths use the same
+// concurrency cap + failure isolation (a dead edge becomes {ok:false}, never a
+// failed aggregate).
+func (a *EdgeAccountsAggregator) fanoutTargets(ctx context.Context, targets []edgeTarget, platformFor func(edgeTarget) string) []EdgeAccountsResult {
+	results := make([]EdgeAccountsResult, len(targets))
+	sem := make(chan struct{}, edgeAccountsFanoutCap)
+	var wg sync.WaitGroup
+	for i := range targets {
+		wg.Add(1)
+		go func(idx int, t edgeTarget) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			results[idx] = a.fetchEdgeAccounts(ctx, t, platformFor(t))
+		}(i, targets[i])
+	}
+	wg.Wait()
+	return results
+}
+
+// AggregateByStub is the per-stub inventory the inline /accounts panel consumes:
+// every prod mirror-stub account (any platform) fans out with ITS OWN api-key, so
+// the edge returns exactly that key's group-scoped accounts (precise correspondence,
+// see edge ListAccounts group filter). Unlike the per-edge overview it does NOT dedup
+// by edge host — cc-us4, openai-us4, grok-us4 are three distinct stubs sharing one
+// edge, each expanding its own slice. Cached under byStubCacheKey via the same SWR
+// machinery as Aggregate.
+func (a *EdgeAccountsAggregator) AggregateByStub(ctx context.Context) (*EdgeAccountsAggregate, error) {
+	return a.Aggregate(ctx, byStubCacheKey)
+}
+
+// fanoutByStub is the per-stub discovery + fan-out (see AggregateByStub). Reached
+// from fanout when platform == byStubCacheKey.
+func (a *EdgeAccountsAggregator) fanoutByStub(ctx context.Context) (*EdgeAccountsAggregate, error) {
+	out := &EdgeAccountsAggregate{Platform: byStubCacheKey, Edges: []EdgeAccountsResult{}, TS: a.nowUnix()}
+	if a == nil || a.accounts == nil {
+		return out, nil
+	}
+
+	stubs, err := a.loadEdgeStubCandidates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	_, re, err := baseline.LoadStubPoolBaseline()
+	if err != nil {
+		return nil, err
+	}
+
+	targets := discoverStubTargets(stubs, re)
+	if len(targets) == 0 {
+		return out, nil
+	}
+
+	// Per-stub: each target queried with the stub's own platform (the edge's caller-
+	// key group filter narrows further to exactly that key's accounts).
+	results := a.fanoutTargets(ctx, targets, func(t edgeTarget) string { return t.platform })
+
+	// Deterministic order for a stable ETag; the panel looks each result up by
+	// StubAccountID, so this ordering does not drive on-screen placement.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].StubAccountID < results[j].StubAccountID
+	})
+	out.Edges = results
+	return out, nil
+}
+
+// loadEdgeStubCandidates unions the active accounts of every edge-stub platform
+// (edgeStubPlatforms) so discoverStubTargets sees all-platform mirror stubs, not
+// just anthropic. Each ListByPlatform is platform-scoped (and active-only), so the
+// unions are disjoint — no dedup needed.
+func (a *EdgeAccountsAggregator) loadEdgeStubCandidates(ctx context.Context) ([]Account, error) {
+	var all []Account
+	for _, p := range edgeStubPlatforms {
+		accs, err := a.accounts.ListByPlatform(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, accs...)
+	}
+	return all, nil
+}
+
+// discoverStubTargets turns every all-platform mirror stub into its OWN target
+// (NO dedup by edge host — that is the per-stub vs per-edge difference). Carries the
+// stub's account id + platform so the fan-out can query the right platform and the
+// panel can key each result back to its prod row. Disabled stubs and those missing
+// base_url/api_key are skipped, matching discoverEdgeTargets.
+func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
+	targets := make([]edgeTarget, 0, len(accounts))
+	for i := range accounts {
+		acct := &accounts[i]
+		if !isEdgeMirrorStub(acct, re) {
+			continue
+		}
+		if acct.Status == StatusDisabled {
+			continue
+		}
+		baseURL := normalizeEdgeBaseURL(acct.GetCredential("base_url"))
+		apiKey := strings.TrimSpace(acct.GetCredential("api_key"))
+		if baseURL == "" || apiKey == "" {
+			continue
+		}
+		targets = append(targets, edgeTarget{
+			edgeID:                 edgeIDFromBaseURL(baseURL),
+			baseURL:                baseURL,
+			apiKey:                 apiKey,
+			schedulable:            acct.Schedulable,
+			rateLimitResetAt:       acct.RateLimitResetAt,
+			tempUnschedulableUntil: acct.TempUnschedulableUntil,
+			groups:                 stubGroupNames(acct),
+			stubAccountID:          acct.ID,
+			platform:               acct.Platform,
+			groupScopeCaller:       true,
+		})
+	}
+	return targets
+}
+
 // discoverEdgeTargets filters the anthropic accounts down to mirror stubs and
 // dedups by normalized base_url (multiple stubs may point at one edge — keep the
 // first, log the dupe). Stubs missing base_url/api_key are skipped.
@@ -305,7 +467,7 @@ func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 	targets := make([]edgeTarget, 0, len(accounts))
 	for i := range accounts {
 		acct := &accounts[i]
-		if !isAnthropicMirrorStub(acct, re) {
+		if !isEdgeMirrorStub(acct, re) {
 			continue
 		}
 		// Skip operator-disabled stubs: a disabled mirror stub means the edge was
@@ -379,15 +541,23 @@ func stubGroupNames(a *Account) []string {
 	return names
 }
 
-// isAnthropicMirrorStub mirrors AnthropicConfigReconciler.isMirrorStub: an
-// anthropic api-key account whose base_url matches the internal-edge pattern.
-// Duplicated here (rather than coupling to the reconciler's unexported method)
-// because the predicate is tiny and stable; both read the same baseline regex.
-func isAnthropicMirrorStub(a *Account, re *regexp.Regexp) bool {
+// isEdgeMirrorStub reports whether the account is a prod→edge mirror stub of ANY
+// platform: an api-key account whose credentials.base_url matches the internal
+// edge pattern (api-<edge>.tokenkey.dev). v2 widened this from anthropic-only —
+// the cross-platform panel must expand openai/antigravity/grok/kiro stubs too —
+// and the base_url pattern is precise enough that no platform restriction is
+// needed: any apikey account with that base_url IS an edge mirror stub by
+// construction.
+//
+// Named isEdgeMirrorStub (not isMirrorStub) to avoid colliding with the
+// same-package AnthropicConfigReconciler.isMirrorStub METHOD, which is a
+// separate anthropic-only predicate for surface-C capacity rollup and is
+// deliberately left untouched.
+func isEdgeMirrorStub(a *Account, re *regexp.Regexp) bool {
 	if a == nil || re == nil {
 		return false
 	}
-	if a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
+	if a.Type != AccountTypeAPIKey {
 		return false
 	}
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
@@ -412,18 +582,18 @@ func edgeIDFromBaseURL(baseURL string) string {
 	return trimmed
 }
 
-// MirrorStubEdgeID returns the edge id a prod anthropic mirror stub points at
-// (credentials.base_url https://api-us1.tokenkey.dev → "us1"), or "" if acc is
+// MirrorStubEdgeID returns the edge id a prod mirror stub (any platform) points
+// at (credentials.base_url https://api-us1.tokenkey.dev → "us1"), or "" if acc is
 // not a mirror stub.
 //
 // It is the exported, single-account form the prod admin accounts LIST uses to
 // tag each row with its edge (so the frontend knows which rows are edge mirrors
 // and which edge to expand). It reuses the SAME predicate + derivation the
-// cross-edge aggregator already uses (isAnthropicMirrorStub + edgeIDFromBaseURL
-// over the package edgeIDPattern), so the accounts list and the edge overview
-// agree on which rows are edge mirrors — no second regex, no baseline reload.
+// cross-edge aggregator already uses (isEdgeMirrorStub + edgeIDFromBaseURL over
+// the package edgeIDPattern), so the accounts list and the edge overview agree on
+// which rows are edge mirrors — no second regex, no baseline reload.
 func MirrorStubEdgeID(acc *Account) string {
-	if !isAnthropicMirrorStub(acc, edgeIDPattern) {
+	if !isEdgeMirrorStub(acc, edgeIDPattern) {
 		return ""
 	}
 	return edgeIDFromBaseURL(strings.TrimSpace(acc.GetCredential("base_url")))
@@ -447,13 +617,21 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 		StubRateLimitResetAt:       t.rateLimitResetAt,
 		StubTempUnschedulableUntil: t.tempUnschedulableUntil,
 		StubGroups:                 stubGroups,
-		Accounts:                   []json.RawMessage{},
+		// Per-stub identity (zero for the per-edge overview path). The panel keys by
+		// StubAccountID and labels the precise correspondence with StubPlatform.
+		StubAccountID: t.stubAccountID,
+		StubPlatform:  t.platform,
+		Accounts:      []json.RawMessage{},
 	}
 	if a.http == nil {
 		res.Error = "no http client"
 		return res
 	}
 	endpoint := t.baseURL + "/api/v1/edge/accounts?platform=" + platform
+	if t.groupScopeCaller {
+		// Per-stub: ask the edge to narrow to this key's group (precise correspondence).
+		endpoint += "&group_scope=caller"
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, edgeAccountsHTTPTO)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
@@ -481,6 +659,11 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 	var env struct {
 		Data struct {
 			Accounts []json.RawMessage `json:"accounts"`
+			// Group is the edge-side group name the caller key (this stub's api-key) is
+			// bound to — the edge reports the group it filtered by so the panel footnote
+			// can name the precise correspondence ("调度自 <group> 组"). "" for a
+			// universal key (single-pool platform → whole-platform footnote).
+			Group string `json:"group"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
@@ -488,6 +671,7 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 		return res
 	}
 	res.OK = true
+	res.EdgeGroup = strings.TrimSpace(env.Data.Group)
 	if env.Data.Accounts != nil {
 		res.Accounts = env.Data.Accounts
 	}

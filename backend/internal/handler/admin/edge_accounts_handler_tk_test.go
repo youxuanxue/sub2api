@@ -29,6 +29,13 @@ func (s aggregatorStub) Aggregate(_ context.Context, _ string) (*service.EdgeAcc
 	return &service.EdgeAccountsAggregate{}, nil
 }
 
+func (s aggregatorStub) AggregateByStub(_ context.Context) (*service.EdgeAccountsAggregate, error) {
+	if s.agg != nil {
+		return s.agg, nil
+	}
+	return &service.EdgeAccountsAggregate{}, nil
+}
+
 func (s aggregatorStub) MintAdminSession(_ context.Context, _ string) (*service.EdgeAdminSession, error) {
 	return s.session, s.err
 }

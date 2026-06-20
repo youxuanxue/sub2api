@@ -201,6 +201,7 @@
               :loading="edgePanelsLoading"
               :error="edgePanelsError"
               @mutated="(acc) => { if (row.edge_id) { applyEdgeAccountUpdate(row.edge_id, acc); setEdgeExpanded(row.id, true) } }"
+              @retry="refreshEdges"
             />
           </template>
           <template #header-select>
@@ -219,21 +220,49 @@
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
           </template>
           <template #cell-name="{ row, value }">
-            <div class="flex flex-col">
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-              <span class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.accounts.accountIdHint')">ID: {{ row.id }}</span>
-              <span
-                v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
-                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
-                :title="String(row.extra?.email_address || row.extra?.email || row.credentials?.email)"
+            <div class="flex items-start gap-1.5">
+              <!-- TK: per-row chevron for edge mirror-stub rows (any platform). The
+                   panel default-expands; this lets the operator fold/unfold ONE stub. -->
+              <button
+                v-if="isEdgeExpandable(row)"
+                type="button"
+                class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+                :title="edgeExpandedKeys.has(row.id) ? t('admin.accounts.edgePanel.collapseOne') : t('admin.accounts.edgePanel.expandOne')"
+                @click.stop="toggleEdgePanel(row)"
               >
-                {{ row.extra?.email_address || row.extra?.email || row.credentials?.email }}
-              </span>
-              <span
-                v-if="row.notes"
-                class="mt-0.5 max-w-[10rem] whitespace-pre-wrap break-words text-xs text-gray-400 dark:text-gray-500"
-                :title="row.notes"
-              >{{ row.notes }}</span>
+                <Icon :name="edgeExpandedKeys.has(row.id) ? 'chevronDown' : 'chevronRight'" size="sm" />
+              </button>
+              <div class="flex min-w-0 flex-col">
+                <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+                <span class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.accounts.accountIdHint')">ID: {{ row.id }}</span>
+                <span
+                  v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
+                  class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
+                  :title="String(row.extra?.email_address || row.extra?.email || row.credentials?.email)"
+                >
+                  {{ row.extra?.email_address || row.extra?.email || row.credentials?.email }}
+                </span>
+                <span
+                  v-if="row.notes"
+                  class="mt-0.5 max-w-[10rem] whitespace-pre-wrap break-words text-xs text-gray-400 dark:text-gray-500"
+                  :title="row.notes"
+                >{{ row.notes }}</span>
+                <!-- TK: collapsed-state summary so a folded stub still shows what's
+                     inside (the #885 invisible-collapsed bug). -->
+                <span
+                  v-if="isEdgeExpandable(row) && !edgeExpandedKeys.has(row.id)"
+                  class="mt-0.5 inline-flex flex-wrap items-center gap-1.5 text-xs"
+                >
+                  <template v-if="edgePanelSummary(row).discovered">
+                    <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.edgePanel.summary', { total: edgePanelSummary(row).total, schedulable: edgePanelSummary(row).schedulable }) }}</span>
+                    <span
+                      v-if="edgePanelSummary(row).abnormal"
+                      class="inline-flex items-center rounded bg-red-100 px-1 font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                    >⚠ {{ edgePanelSummary(row).abnormal }}</span>
+                  </template>
+                  <span v-else class="text-gray-400 dark:text-gray-500">{{ t('admin.accounts.edgePanel.summaryLoading') }}</span>
+                </span>
+              </div>
             </div>
           </template>
           <template #cell-notes="{ value }">
@@ -814,9 +843,12 @@ const {
 const {
   isExpandable: isEdgeExpandable,
   panelForStub: edgePanelForStub,
+  panelSummary: edgePanelSummary,
   expandedKeys: edgeExpandedKeys,
+  toggle: toggleEdgePanel,
   setExpanded: setEdgeExpanded,
   applyAccountUpdate: applyEdgeAccountUpdate,
+  refreshEdges,
   expandAll: expandAllEdges,
   collapseAll: collapseAllEdges,
   hasCollapsedVisible: hasCollapsedEdges,
@@ -824,8 +856,7 @@ const {
   edgeLoading: edgePanelsLoading,
   edgeError: edgePanelsError
 } = useTkAccountsEdgePanels({
-  prodAccounts: () => accounts.value,
-  search: () => params.search
+  prodAccounts: () => accounts.value
 })
 
 const {

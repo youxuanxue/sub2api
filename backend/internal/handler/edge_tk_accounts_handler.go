@@ -8,6 +8,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -47,6 +48,7 @@ var edgeAccountsSupportedPlatforms = map[string]struct{}{
 	service.PlatformAntigravity: {},
 	service.PlatformNewAPI:      {},
 	service.PlatformKiro:        {},
+	service.PlatformGrok:        {},
 }
 
 // edgeAccountsListFilter maps the requested platform to the ListAccounts filter
@@ -228,7 +230,12 @@ type edgeUsageProgress struct {
 type edgeAccountsResponse struct {
 	Platform string           `json:"platform"`
 	Accounts []edgeAccountDTO `json:"accounts"`
-	TS       int64            `json:"ts"`
+	// Group is the caller key's edge-side group name, set only when the read was
+	// scoped to it (group_scope=caller). The prod panel uses it for the precise
+	// "调度自 <group> 组" footnote; "" for the default full-inventory read or a
+	// universal caller key.
+	Group string `json:"group,omitempty"`
+	TS    int64  `json:"ts"`
 }
 
 // ListAccounts handles GET /api/v1/edge/accounts?platform=anthropic.
@@ -244,11 +251,32 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 		return
 	}
 
+	// group_scope=caller → scope the list to the authenticated caller key's group:
+	// exactly the accounts THIS api-key schedules (the prod /accounts inline panel's
+	// precise per-stub correspondence). Default (no param) → groupID 0 = no group
+	// filter = the edge's FULL inventory, so the standalone overview is unchanged. A
+	// universal caller key has no single group → stays groupID 0 (whole-platform
+	// pool, the single-pool-per-platform case).
+	var (
+		groupID   int64
+		groupName string
+	)
+	if strings.EqualFold(strings.TrimSpace(c.Query("group_scope")), "caller") {
+		if v, ok := c.Get(middleware.EdgeCallerAPIKeyCtxKey); ok {
+			if ak, ok := v.(*service.APIKey); ok && ak != nil && !ak.IsUniversal() && ak.GroupID != nil {
+				groupID = *ak.GroupID
+				if ak.Group != nil {
+					groupName = ak.Group.Name
+				}
+			}
+		}
+	}
+
 	ctx := c.Request.Context()
 	// status="" → all statuses (active/disabled/errored), matching the edge's own
 	// /admin/accounts page. priority asc mirrors the admin default ordering.
 	// platform="all" → "" filter (every platform); a concrete platform narrows.
-	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", 0, "", "priority", "asc")
+	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", groupID, "", "priority", "asc")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to list accounts")
 		return
@@ -266,6 +294,7 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 	response.Success(c, edgeAccountsResponse{
 		Platform: platform,
 		Accounts: dtos,
+		Group:    groupName,
 		TS:       time.Now().Unix(),
 	})
 }
