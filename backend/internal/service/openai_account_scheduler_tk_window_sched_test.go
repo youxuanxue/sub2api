@@ -191,3 +191,91 @@ func TestSelectBestAccount_WindowGuard_NeverEmptiesPool(t *testing.T) {
 	require.NotNil(t, account)
 	require.Equal(t, int64(36102), account.ID, "never-empty-pool fallback must serve the coolest account, not error")
 }
+
+// Integration through the LEGACY load-aware path (selectAccountWithLoadAwareness),
+// which is the DEFAULT prod path (advanced scheduler off) and the one that served
+// the reported gpt-5.5 incident.
+func TestSelectAccountWithScheduler_LegacyWindowGuard_RoutesAwayFromHotAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	ctx := context.Background()
+	groupID := int64(10301)
+	now := time.Now().Format(time.RFC3339)
+	accounts := []Account{
+		{ID: 38001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+			Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_usage_updated_at": now}},
+		{ID: 38002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
+			Extra: map[string]any{"codex_5h_used_percent": 10.0, "codex_usage_updated_at": now}},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	require.False(t, svc.isOpenAIAdvancedSchedulerEnabled(ctx))
+
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(38002), selection.Account.ID, "legacy path: hot 99% account skipped despite better priority")
+}
+
+func TestSelectAccountWithScheduler_LegacyWindowGuard_NeverEmptiesPool(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	ctx := context.Background()
+	groupID := int64(10302)
+	now := time.Now().Format(time.RFC3339)
+	accounts := []Account{
+		{ID: 38101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+			Extra: map[string]any{"codex_5h_used_percent": 99.5, "codex_usage_updated_at": now}},
+		{ID: 38102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
+			Extra: map[string]any{"codex_5h_used_percent": 98.0, "codex_usage_updated_at": now}},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(38102), selection.Account.ID, "legacy never-empty-pool: coolest of the all-hot pool is served, not an error")
+}
+
+// Integration through the ADVANCED scheduler (selectByLoadBalance + weighted TopK).
+func TestSelectAccountWithScheduler_AdvancedWindowGuard_RoutesAwayFromHotAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	ctx := context.Background()
+	groupID := int64(10303)
+	now := time.Now().Format(time.RFC3339)
+	accounts := []Account{
+		{ID: 39001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+			Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_usage_updated_at": now}},
+		{ID: 39002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
+			Extra: map[string]any{"codex_5h_used_percent": 10.0, "codex_usage_updated_at": now}},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	require.True(t, svc.isOpenAIAdvancedSchedulerEnabled(ctx))
+
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(39002), selection.Account.ID, "advanced path: hot 99% account excluded from the weighted TopK pool")
+}
