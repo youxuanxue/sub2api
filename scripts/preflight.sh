@@ -419,6 +419,26 @@ else
     echo "  ok: all newapi sentinels intact"
 fi
 
+# ---- sub2api: perf query-shape sentinel registry ----------------------------
+# Source of truth: scripts/sentinels/perf-query-shape.json. Guards
+# performance-critical query SHAPES whose regression is semantically invisible
+# (a revert returns identical results, so no test catches it; an EXPLAIN-plan
+# test is unreliable on small fixtures since the planner seq-scans tiny tables
+# regardless of shape). First entry: /admin/users GetLatestUsedAtByUserIDs must
+# stay a per-user LATERAL index probe and not revert to the full-table
+# `ANY($1) GROUP BY` seq scan (~1.3s on prod, 2.4M rows). See PR #877.
+echo ""
+echo "=== sub2api: perf query-shape sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read perf-query-shape.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-perf-query-shape.py --quiet; then
+    # check-perf-query-shape.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all perf query-shape sentinels intact"
+fi
+
 # ---- sub2api: kiro sentinel registry ----------------------------------------
 # Source of truth: scripts/sentinels/kiro.json. Verifies that every load-bearing
 # surface of the sixth platform (`kiro`, AWS Kiro / CodeWhisperer) — the vendored

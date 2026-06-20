@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "rationale": "Performance-critical SQL/query SHAPES whose regression is SEMANTICALLY INVISIBLE: a revert returns byte-identical results, so no unit/integration test can catch it, and an EXPLAIN-plan assertion is unreliable on small test fixtures (Postgres seq-scans tiny tables regardless of query shape). The only reliable mechanical guard is a source-substring assertion that the efficient shape is still present. These live in upstream-shaped files that upstream actively churns, so an upstream merge (or a well-meaning 'simplify' refactor) can silently restore the slow form with all tests green. Single source of truth read by both scripts/preflight.sh (perf query-shape sentinel section, always) and .github/workflows/upstream-merge-pr-shape.yml (on merge/upstream-* PRs). If you intentionally change one of these shapes to a DIFFERENT efficient form, update the must_contain anchors in the SAME commit (and re-measure) — do NOT silently delete entries to make the gate pass.",
+  "sentinels": [
+    {
+      "path": "backend/internal/repository/user_repo.go",
+      "must_contain": [
+        "FROM unnest($1::bigint[]) AS u(uid)",
+        "CROSS JOIN LATERAL"
+      ],
+      "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression."
+    }
+  ]
+}
