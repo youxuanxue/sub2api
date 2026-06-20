@@ -11,6 +11,7 @@
  */
 
 import { apiClient } from '../client'
+import type { AccountUsageInfo } from '@/types'
 
 /**
  * One account as reported by an edge. Mirrors backend handler.edgeAccountDTO /
@@ -186,10 +187,76 @@ export async function adminSession(edgeId: string): Promise<EdgeAdminSessionResu
   return data
 }
 
+/**
+ * Inline edge-account WRITE ops (status-class only — never credentials). Prod
+ * forwards each to the target edge's least-privilege endpoint
+ * (POST|DELETE|GET /api/v1/edge/accounts/:id/<op>) using the mirror-stub api-key;
+ * see backend service.EdgeAccountsAggregator.ForwardAccountOp + the prod proxy
+ * handler admin/edge_account_ops_handler_tk.go. Credential-class ops (edit /
+ * reauth / create / delete) are deliberately NOT here — they stay on the edge via
+ * the admin-session handoff (adminSession above), so secrets never reach prod.
+ *
+ * The mutation ops return the edge's updated, credential-free account DTO
+ * (EdgeAccountSummary) so the caller can merge the post-op state into the panel.
+ *
+ * edgeId resolves the prod mirror stub; accountId is the EDGE-local account id.
+ */
+function opPath(edgeId: string, accountId: number, op: string): string {
+  return `/admin/edge-accounts/${encodeURIComponent(edgeId)}/accounts/${accountId}/${op}`
+}
+
+export async function clearRateLimit(edgeId: string, accountId: number): Promise<EdgeAccountSummary> {
+  const { data } = await apiClient.post<EdgeAccountSummary>(opPath(edgeId, accountId, 'clear-rate-limit'))
+  return data
+}
+
+export async function resetQuota(edgeId: string, accountId: number): Promise<EdgeAccountSummary> {
+  const { data } = await apiClient.post<EdgeAccountSummary>(opPath(edgeId, accountId, 'reset-quota'))
+  return data
+}
+
+export async function clearTempUnschedulable(edgeId: string, accountId: number): Promise<EdgeAccountSummary> {
+  const { data } = await apiClient.delete<EdgeAccountSummary>(opPath(edgeId, accountId, 'temp-unschedulable'))
+  return data
+}
+
+export async function setSchedulable(
+  edgeId: string,
+  accountId: number,
+  schedulable: boolean
+): Promise<EdgeAccountSummary> {
+  const { data } = await apiClient.post<EdgeAccountSummary>(opPath(edgeId, accountId, 'schedulable'), { schedulable })
+  return data
+}
+
+/**
+ * Active/passive usage query for one edge account. source='active' (default) runs
+ * a real upstream query on the edge (the "查询" button); 'passive' returns the
+ * persisted-sample windows. Mirrors api/admin/accounts.ts:getUsage so the shared
+ * AccountUsageCell behaves identically for an edge account.
+ */
+export async function getUsage(
+  edgeId: string,
+  accountId: number,
+  source?: 'passive' | 'active',
+  force?: boolean
+): Promise<AccountUsageInfo> {
+  const params: Record<string, string> = {}
+  if (source) params.source = source
+  if (force) params.force = 'true'
+  const { data } = await apiClient.get<AccountUsageInfo>(opPath(edgeId, accountId, 'usage'), { params })
+  return data
+}
+
 export const edgeAccountsAPI = {
   list,
   listWithEtag,
-  adminSession
+  adminSession,
+  clearRateLimit,
+  resetQuota,
+  clearTempUnschedulable,
+  setSchedulable,
+  getUsage
 }
 
 export default edgeAccountsAPI

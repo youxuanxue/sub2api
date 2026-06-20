@@ -857,6 +857,11 @@ export interface Account {
   // legacy platforms always serialize 0 and it is meaningless to consume.
   channel_type?: number
   type: AccountType
+  // TK: when this is a prod anthropic mirror-stub (cc-<edge>), edge_id is the edge
+  // it relays to (api-us1 → "us1"); empty/undefined for ordinary accounts. Derived
+  // server-side (service.MirrorStubEdgeID). Drives the inline edge-panel expansion
+  // in the accounts table — unified prod+edge governance.
+  edge_id?: string
   // 后端响应里 credentials 已脱敏：access_token / refresh_token / id_token /
   // api_key / session_key / cookie / aws_secret_access_key / aws_session_token /
   // service_account_json / service_account / private_key 不会出现，

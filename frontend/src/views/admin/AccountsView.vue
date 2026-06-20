@@ -18,6 +18,17 @@
             @create="showCreate = true"
           >
             <template #after>
+              <!-- TK: expand/collapse all edge panels (only shown when the current
+                   page has cc-<edge> mirror stubs). -->
+              <button
+                v-if="hasEdgeStubs"
+                class="btn btn-secondary px-2 md:px-3"
+                :title="t('admin.accounts.edgePanel.expandHint')"
+                @click="hasCollapsedEdges ? expandAllEdges() : collapseAllEdges()"
+              >
+                <Icon :name="hasCollapsedEdges ? 'chevronDown' : 'chevronUp'" size="sm" />
+                <span class="ml-1 hidden md:inline">{{ hasCollapsedEdges ? t('admin.accounts.edgePanel.expandAll') : t('admin.accounts.edgePanel.collapseAll') }}</span>
+              </button>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -178,7 +189,20 @@
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
           :estimate-row-height="76"
           :overscan="5"
+          :expandable="isEdgeExpandable"
+          :expanded-keys="edgeExpandedKeys"
         >
+          <!-- TK: default-expanded edge panel under each cc-<edge> mirror-stub row —
+               query + manage that edge's real accounts inline (unified governance). -->
+          <template #row-detail="{ row }">
+            <EdgeAccountPanelTk
+              :stub="row"
+              :edge="edgePanelForStub(row)"
+              :loading="edgePanelsLoading"
+              :error="edgePanelsError"
+              @mutated="(acc) => { if (row.edge_id) { applyEdgeAccountUpdate(row.edge_id, acc); setEdgeExpanded(row.id, true) } }"
+            />
+          </template>
           <template #header-select>
             <input
               type="checkbox"
@@ -412,6 +436,10 @@ import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
+// TK: inline edge-account panels (unified prod+edge governance) — see
+// useTkAccountsEdgePanels.ts / EdgeAccountPanelTk.vue.
+import EdgeAccountPanelTk from '@/components/admin/account/EdgeAccountPanelTk.vue'
+import { useTkAccountsEdgePanels } from '@/composables/useTkAccountsEdgePanels'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
@@ -776,6 +804,28 @@ const {
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
+})
+
+// TK: inline edge-account panels under each cc-<edge> mirror-stub row. Owns the
+// edge data (fetched + ETag auto-refreshed eagerly so anomaly-driven default
+// expansion works) and the expand-state machine. Driven by the CURRENT prod page
+// rows + the search box: only anomalous edges default-expand; searching
+// auto-expands matches; explicit per-row toggles persist.
+const {
+  isExpandable: isEdgeExpandable,
+  panelForStub: edgePanelForStub,
+  expandedKeys: edgeExpandedKeys,
+  setExpanded: setEdgeExpanded,
+  applyAccountUpdate: applyEdgeAccountUpdate,
+  expandAll: expandAllEdges,
+  collapseAll: collapseAllEdges,
+  hasCollapsedVisible: hasCollapsedEdges,
+  hasAnyStub: hasEdgeStubs,
+  edgeLoading: edgePanelsLoading,
+  edgeError: edgePanelsError
+} = useTkAccountsEdgePanels({
+  prodAccounts: () => accounts.value,
+  search: () => params.search
 })
 
 const {

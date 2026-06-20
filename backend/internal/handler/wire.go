@@ -45,6 +45,7 @@ func ProvideAdminHandlers(
 	tkChannelHandler *admin.TKChannelAdminHandler,
 	tierHandler *admin.TierHandler,
 	edgeAccountsHandler *admin.EdgeAccountsHandler,
+	edgeAccountOpsHandler *admin.EdgeAccountOpsHandler,
 	trialProvisionHandler *admin.TrialProvisionHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
@@ -82,6 +83,7 @@ func ProvideAdminHandlers(
 		TKChannel:              tkChannelHandler,
 		Tier:                   tierHandler,
 		EdgeAccounts:           edgeAccountsHandler,
+		EdgeAccountOps:         edgeAccountOpsHandler,
 		TrialProvision:         trialProvisionHandler,
 	}
 }
@@ -218,12 +220,32 @@ func ProvideEdgeAdminSessionHandler(
 	return NewEdgeAdminSessionHandler(apiKeyService, userService, authService)
 }
 
+// ProvideEdgeAccountOpsHandler adapts the wire-provided concrete services (which
+// satisfy the handler's narrow rate-limit / admin / usage interfaces) to the edge
+// account least-privilege WRITE ops handler. A dedicated provider avoids wire.Bind
+// for the unexported interfaces; mirrors ProvideEdgeAdminSessionHandler in shape.
+func ProvideEdgeAccountOpsHandler(
+	rateLimitService *service.RateLimitService,
+	adminService service.AdminService,
+	accountUsageService *service.AccountUsageService,
+) *EdgeAccountOpsHandler {
+	return NewEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
+}
+
 // ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
 // *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
 // interface) to the prod-side cross-edge account overview handler. A dedicated
 // provider avoids a wire.Bind for the unexported interface.
 func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountsHandler {
 	return admin.NewEdgeAccountsHandler(agg)
+}
+
+// ProvideTKEdgeAccountOpsAdminHandler adapts the wire-provided concrete
+// *service.EdgeAccountsAggregator (which satisfies the proxy handler's narrow
+// forwarder interface via ForwardAccountOp) to the prod-side edge account ops
+// proxy. A dedicated provider avoids a wire.Bind for the unexported interface.
+func ProvideTKEdgeAccountOpsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountOpsHandler {
+	return admin.NewEdgeAccountOpsHandler(agg)
 }
 
 // ProvideTrialProvisionHandler constructs the Invite-to-Trial service from
@@ -274,6 +296,7 @@ func ProvideHandlers(
 	edgeCapacityHandler *EdgeCapacityHandler,
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
+	edgeAccountOpsHandler *EdgeAccountOpsHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -301,6 +324,7 @@ func ProvideHandlers(
 		EdgeCapacity:     edgeCapacityHandler,
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
+		EdgeAccountOps:   edgeAccountOpsHandler,
 	}
 }
 
@@ -334,6 +358,8 @@ var ProviderSet = wire.NewSet(
 	ProvideEdgeAccountsHandler,
 	// TK: edge admin-session mint for prod→edge "manage accounts" handoff — see edge_tk_admin_session_handler.go.
 	ProvideEdgeAdminSessionHandler,
+	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
+	ProvideEdgeAccountOpsHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -372,6 +398,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewTierHandler,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
 	ProvideTKEdgeAccountsAdminHandler,
+	// TK: prod-side thin proxy for inline edge-account WRITE ops — see edge_account_ops_handler_tk.go.
+	ProvideTKEdgeAccountOpsAdminHandler,
 	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
 	ProvideTrialProvisionHandler,
 
