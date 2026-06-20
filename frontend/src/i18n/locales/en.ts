@@ -4646,6 +4646,7 @@ export default {
         resetTooltipNeedQuery: 'Click Credits first to load the available count',
         resetTooltipNoCredits: 'No reset credits available',
         noCreditsAvailable: 'No reset credits available',
+        additionalLimitsTitle: 'Per-model limits',
         resetSuccess: 'Reset {windows} window(s)'
       },
       tier: {
