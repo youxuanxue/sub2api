@@ -48,6 +48,14 @@ func (r *dashboardAggregationRepository) AggregateRange(ctx context.Context, sta
 	if r == nil || r.sql == nil {
 		return nil
 	}
+	// TK: one-time historical backfill of the per-(group, day) rollup. The
+	// watermark-driven incremental feeder below only moves forward, so the Groups
+	// all-time usage-summary would never see pre-deploy history without this. Runs
+	// once (guarded by emptiness); best-effort — on failure the read path keeps
+	// the raw scan and the next cycle retries, so it never blocks aggregation.
+	if err := r.backfillGroupDailyAllOnce(ctx); err != nil {
+		log.Printf("[DashboardAggregation] group daily rollup backfill failed (read path falls back to raw scan): %v", err)
+	}
 	loc := timezone.Location()
 	startLocal := start.In(loc)
 	endLocal := end.In(loc)
@@ -100,6 +108,11 @@ func (r *dashboardAggregationRepository) aggregateRangeInTx(ctx context.Context,
 	// dashboard spending-ranking widget. Aggregates the same day window from raw
 	// usage_logs (see dashboard_aggregation_repo_tk_user_platform.go).
 	if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
+	// TK: per-(group, day) cost rollup feeding the admin Groups usage-summary
+	// (see dashboard_aggregation_repo_tk_group.go).
+	if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
 	return nil
@@ -163,6 +176,10 @@ func (r *dashboardAggregationRepository) recomputeRangeInTx(ctx context.Context,
 	if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
+	// TK: clear the per-(group, day) rollup for the window before rebuild.
+	if err := r.deleteGroupDailyRange(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
 
 	if err := r.insertHourlyActiveUsers(ctx, hourStart, hourEnd); err != nil {
 		return err
@@ -178,6 +195,10 @@ func (r *dashboardAggregationRepository) recomputeRangeInTx(ctx context.Context,
 	}
 	// TK: rebuild the per-(user, platform, day) rollup for the window.
 	if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
+	// TK: rebuild the per-(group, day) cost rollup for the window.
+	if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
 	return nil

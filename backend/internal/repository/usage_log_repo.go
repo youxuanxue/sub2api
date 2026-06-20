@@ -3305,10 +3305,19 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 
 // GetAllGroupUsageSummary returns today's and cumulative actual_cost for every group.
 // todayStart is the start-of-day in the caller's timezone (UTC-based).
-// TODO(perf): This query scans ALL usage_logs rows for total_cost aggregation.
-// When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
-// or a materialized view / pre-aggregation table for cumulative costs.
+//
+// TK perf: the legacy query below SUMs total_cost over the ENTIRE usage_logs table
+// on every GroupsView load. It is now served from the per-(group, day) rollup
+// (usage_dashboard_group_daily) — completed days from the rollup, today's partial
+// day from raw — via groupUsageSummaryFromRollup. The raw query below remains as
+// the fallback used until the one-time backfill populates the rollup (see
+// usage_log_repo_tk_group_rollup.go / dashboard_aggregation_repo_tk_group.go).
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
+	if rows, ok, err := r.groupUsageSummaryFromRollup(ctx, todayStart); err != nil {
+		return nil, err
+	} else if ok {
+		return rows, nil
+	}
 	query := `
 		SELECT
 			g.id AS group_id,
