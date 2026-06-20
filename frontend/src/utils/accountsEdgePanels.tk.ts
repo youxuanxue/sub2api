@@ -53,16 +53,6 @@ export function edgePanelHasAnomaly(edge: EdgeAccountsResult): boolean {
   return edge.accounts.some(edgeAccountIsAbnormal)
 }
 
-/**
- * The composite key for ONE edge-local account in the unified table. Prod stub ids
- * and edge-local account ids are independent DB primary keys (both small ints) and
- * collide, so an edge account is keyed as `edge:<edge_id>:<local_id>` — unique
- * across edges and distinct from any prod row's bare numeric id.
- */
-export function compositeEdgeAccountKey(edgeId: string, localId: number): string {
-  return `edge:${edgeId}:${localId}`
-}
-
 /** Counts for an edge's collapsed one-line summary ("N 账号 · M 可调度"). */
 export function edgePanelCounts(edge: EdgeAccountsResult): { total: number; schedulable: number } {
   return { total: edge.accounts.length, schedulable: schedulableCount(edge) }
@@ -73,18 +63,34 @@ export function edgePanelCounts(edge: EdgeAccountsResult): { total: number; sche
  * kept pure so the composable's expandedKeys computed is a thin wrapper and this
  * decision is unit-tested directly.
  *
- * Priority (an explicit user choice ALWAYS wins, so the operator stays in control):
- *   1. `override` set (the user toggled / expand-all / collapse-all, persisted) → its value
- *   2. `searching` (prod search box non-empty) → expanded (the match auto-opens)
- *   3. otherwise default to the edge's anomaly state (only problems expand); an
- *      undiscovered edge (null) stays collapsed unless overridden/searching.
+ * v2 core flip: the DEFAULT is expanded (一目了然 — the operator sees every stub's
+ * accounts on arrival, no manual expand, no切页). #885's anomaly-only default left
+ * healthy stubs as invisible flat rows that read as "the feature didn't ship".
+ * Anomaly now drives HIGHLIGHT + within-panel ordering (edgePanelHasAnomaly /
+ * sortEdgeAccountsAbnormalFirst), NOT visibility — so the decision is purely the
+ * explicit-override-or-default-true below (search is subsumed: everything is already
+ * open, and an explicit collapse override stays in the operator's control).
  */
-export function isStubPanelExpanded(
-  override: boolean | undefined,
-  searching: boolean,
-  edge: EdgeAccountsResult | null
-): boolean {
-  if (override !== undefined) return override
-  if (searching) return true
-  return edge ? edgePanelHasAnomaly(edge) : false
+export function isStubPanelExpanded(override: boolean | undefined): boolean {
+  return override ?? true
+}
+
+/** Count of attention-worthy edge accounts in a panel (for the collapsed summary). */
+export function edgePanelAbnormalCount(edge: EdgeAccountsResult): number {
+  return edge.accounts.reduce((n, a) => (edgeAccountIsAbnormal(a) ? n + 1 : n), 0)
+}
+
+/**
+ * Edge accounts sorted abnormal-first (仅异常高亮 的排序版: 高亮让坏的跳出来, 置顶让坏的
+ * 够得到), keeping a stable order within each band by priority then id so the list does
+ * not churn across refreshes. Returns a new array; never mutates the input.
+ */
+export function sortEdgeAccountsAbnormalFirst(accounts: EdgeAccountSummary[]): EdgeAccountSummary[] {
+  return accounts.slice().sort((a, b) => {
+    const aBad = edgeAccountIsAbnormal(a)
+    const bBad = edgeAccountIsAbnormal(b)
+    if (aBad !== bBad) return aBad ? -1 : 1
+    if (a.priority !== b.priority) return a.priority - b.priority
+    return a.id - b.id
+  })
 }

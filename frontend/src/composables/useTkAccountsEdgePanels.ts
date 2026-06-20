@@ -6,12 +6,10 @@
  * `cc-<edge>` mirror-stub row — unified prod+edge governance, so the operator never
  * leaves /accounts to see/manage an edge's accounts.
  *
- * Expand policy (predictable: an explicit user choice ALWAYS wins):
- *   - explicit per-row toggle (persisted to localStorage) → its value, else
- *   - searching (prod search box non-empty) → expanded (the match auto-opens), else
- *   - the edge has an anomaly (unreachable / stub paused or cooling / any abnormal
- *     edge account) → expanded, else collapsed (healthy edges stay a one-line
- *     summary so the prod table isn't drowned in nested rows).
+ * Expand policy (v2, predictable): default-full-expand — every stub's panel is open
+ * unless the operator explicitly collapsed it (per-row toggle / collapse-all,
+ * persisted to localStorage). Anomaly drives highlight + within-panel ordering, not
+ * visibility.
  *
  * State-only (CLAUDE.md §5): pure decisions live in utils/accountsEdgePanels.tk.ts.
  */
@@ -20,7 +18,11 @@ import { ref, computed, type Ref } from 'vue'
 import type { Account } from '@/types'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { isStubPanelExpanded } from '@/utils/accountsEdgePanels.tk'
+import {
+  isStubPanelExpanded,
+  edgePanelCounts,
+  edgePanelAbnormalCount
+} from '@/utils/accountsEdgePanels.tk'
 
 const OVERRIDES_STORAGE_KEY = 'tk-accounts-edge-panel-overrides'
 
@@ -50,17 +52,16 @@ function read<T>(src: Getter<T>): T {
 /**
  * @param prodAccounts reactive source of the CURRENT prod accounts page rows (so
  *   expand state is computed only for the stubs actually on screen).
- * @param search reactive source of the prod search box value (non-empty →
- *   auto-expand matching stubs).
  */
 export function useTkAccountsEdgePanels(options: {
   prodAccounts: Getter<Account[]>
-  search: Getter<string>
 }) {
-  // platform='all' → the panel shows the edge's FULL inventory across every
-  // platform (anthropic + antigravity + grok + …), so a non-anthropic edge account
-  // that has no prod mirror stub of its own is still visible/manageable here.
-  const tk = useTkEdgeAccounts('all')
+  // byStub → the backend returns one result PER prod mirror stub (any platform),
+  // each scoped to exactly that stub key's edge-side group (precise correspondence:
+  // cc-us4 → its default group's 2 accounts, not all of us4). Keyed by stub account
+  // id below, NOT edge_id — cc-us4 / openai-us4 / grok-us4 share one edge host but
+  // are three distinct panels.
+  const tk = useTkEdgeAccounts('all', { byStub: true })
 
   const overrides = ref<Map<number, boolean>>(loadOverrides())
 
@@ -77,37 +78,53 @@ export function useTkAccountsEdgePanels(options: {
     }
   }
 
-  // edge_id → that edge's full (unfiltered) slice. Raw `edges` (not displayEdges):
-  // the panel wants the complete edge inventory, not the standalone page's
-  // status/group-filtered view.
-  const edgeIndex = computed(() => {
-    const m = new Map<string, EdgeAccountsResult>()
-    for (const e of tk.edges.value) m.set(e.edge_id, e)
+  // stub_account_id → that stub's precise slice (the accounts its edge-side key
+  // schedules). Keyed by stub id, NOT edge_id: multiple stubs (cc-us4 / openai-us4 /
+  // grok-us4) share one edge host but each is its own panel. Raw `edges` (the by-stub
+  // aggregate); the standalone page's status/group filters do not apply here.
+  const stubIndex = computed(() => {
+    const m = new Map<number, EdgeAccountsResult>()
+    for (const e of tk.edges.value) {
+      if (typeof e.stub_account_id === 'number') m.set(e.stub_account_id, e)
+    }
     return m
   })
 
-  /** Only prod anthropic mirror stubs (edge_id set) can host an edge panel. */
+  /** Only prod mirror stubs (any platform; edge_id set) can host an edge panel. */
   function isExpandable(account: Account): boolean {
     return !!account.edge_id
   }
 
-  /** The edge slice backing a stub's panel, or null if not (yet) discovered. */
+  /** The precise slice backing this stub's panel, or null if not (yet) discovered. */
   function panelForStub(account: Account): EdgeAccountsResult | null {
     if (!account.edge_id) return null
-    return edgeIndex.value.get(account.edge_id) ?? null
+    return stubIndex.value.get(account.id) ?? null
+  }
+
+  /**
+   * One-line summary for a stub's COLLAPSED row, so a folded panel still shows what
+   * it holds (the #885 invisible-collapsed bug). `discovered=false` until the by-stub
+   * aggregate resolves this stub.
+   */
+  function panelSummary(account: Account): {
+    discovered: boolean
+    total: number
+    schedulable: number
+    abnormal: number
+  } {
+    const e = panelForStub(account)
+    if (!e) return { discovered: false, total: 0, schedulable: 0, abnormal: 0 }
+    const { total, schedulable } = edgePanelCounts(e)
+    return { discovered: true, total, schedulable, abnormal: edgePanelAbnormalCount(e) }
   }
 
   // The Set<stub id> the DataTable consumes. Recomputes on prod rows, edge data,
   // overrides, or search change.
   const expandedKeys = computed<Set<number>>(() => {
     const set = new Set<number>()
-    const searching = (read(options.search) ?? '').trim().length > 0
-    const idx = edgeIndex.value
     for (const acc of read(options.prodAccounts)) {
       if (!acc.edge_id) continue
-      if (isStubPanelExpanded(overrides.value.get(acc.id), searching, idx.get(acc.edge_id) ?? null)) {
-        set.add(acc.id)
-      }
+      if (isStubPanelExpanded(overrides.value.get(acc.id))) set.add(acc.id)
     }
     return set
   })
@@ -143,16 +160,20 @@ export function useTkAccountsEdgePanels(options: {
    */
   function applyAccountUpdate(edgeId: string, updated: EdgeAccountSummary) {
     const list = tk.edges.value
-    const ei = list.findIndex((e) => e.edge_id === edgeId)
-    if (ei < 0) return
-    const edge = list[ei]
-    const ai = edge.accounts.findIndex((a) => a.id === updated.id)
-    if (ai < 0) return
-    const newAccounts = edge.accounts.slice()
-    newAccounts[ai] = updated
-    const newList = list.slice()
-    newList[ei] = { ...edge, accounts: newAccounts }
-    tk.edges.value = newList
+    let changed = false
+    // Per-stub: several results can share one edge host, and an edge account may sit
+    // in more than one stub's group, so update the account in EVERY result on that
+    // edge that holds it (immutable swaps so Vue reactivity + accountVm's WeakMap fire).
+    const newList = list.map((e) => {
+      if (e.edge_id !== edgeId) return e
+      const ai = e.accounts.findIndex((a) => a.id === updated.id)
+      if (ai < 0) return e
+      const newAccounts = e.accounts.slice()
+      newAccounts[ai] = updated
+      changed = true
+      return { ...e, accounts: newAccounts }
+    })
+    if (changed) tk.edges.value = newList
   }
 
   function setAllVisible(expanded: boolean) {
@@ -189,9 +210,10 @@ export function useTkAccountsEdgePanels(options: {
     edgeError: tk.error,
     refreshEdges: tk.fetch,
     // panel resolution + expand state
-    edgeIndex,
+    stubIndex,
     isExpandable,
     panelForStub,
+    panelSummary,
     expandedKeys,
     toggle,
     setExpanded,
