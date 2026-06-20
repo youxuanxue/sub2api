@@ -122,3 +122,39 @@ func TestPgPartition_DropExpiredByData(t *testing.T) {
 	require.False(t, hasOld, "expired partition (all data < cutoff) must be dropped")
 	require.True(t, hasCur, "partition with recent data must be kept")
 }
+
+// TestPgPartition_OpsErrorLogsConvertedByMigration proves tk_037 (WAVE 2) converts
+// ops_error_logs in the REAL migration sequence — applying its dynamic index capture/replay
+// against the real ~18-index schema (incl trigram + partial), reassigning the id sequence
+// to the parent (R-001), and adding the id index that the UpdateErrorResolution WHERE id=$1
+// path needs after the PK is dropped.
+func TestPgPartition_OpsErrorLogsConvertedByMigration(t *testing.T) {
+	ctx := context.Background()
+	ok, err := pgpartition.IsPartitioned(ctx, integrationDB, "ops_error_logs")
+	require.NoError(t, err)
+	require.True(t, ok, "tk_037 must convert ops_error_logs to a partitioned table")
+
+	var seqOwner string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT t.relname FROM pg_depend d
+		JOIN pg_class s ON s.oid = d.objid AND s.relname = 'ops_error_logs_id_seq'
+		JOIN pg_class t ON t.oid = d.refobjid
+		WHERE d.deptype = 'a'`).Scan(&seqOwner))
+	require.Equal(t, "ops_error_logs", seqOwner, "id sequence must be owned by the parent")
+
+	var hasIDIndex bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE tablename='ops_error_logs' AND indexname='idx_ops_error_logs_id')`).Scan(&hasIDIndex))
+	require.True(t, hasIDIndex, "the id index for UpdateErrorResolution (WHERE id=$1) must exist")
+
+	// The resolution UPDATE (non-key columns, WHERE id) must work post-conversion.
+	id := int64(0)
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO ops_error_logs(created_at, error_phase, error_type) VALUES (now(), 'test', 'test') RETURNING id`).Scan(&id))
+	res, err := integrationDB.ExecContext(ctx,
+		`UPDATE ops_error_logs SET resolved=true, resolved_at=now(), resolved_by_user_id=1 WHERE id=$1`, id)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, int64(1), n, "UPDATE ... WHERE id must affect exactly the one row")
+	_, _ = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE id=$1`, id)
+}
