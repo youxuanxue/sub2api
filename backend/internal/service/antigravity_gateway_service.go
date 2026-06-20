@@ -2186,6 +2186,13 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
 	}
 
+	// TK: cloudcode-pa (Vertex-side v1internal) requires `role` on every
+	// contents[] entry even for single-turn — unlike the public AI Studio Gemini
+	// API where it is optional. Default a missing role to "user" (what every real
+	// client already sends) so a public-spec body no longer 400s upstream. See
+	// antigravity_gateway_service_tk_role_default.go.
+	injectedBody = tkEnsureGeminiContentRoles(injectedBody)
+
 	// 清理 Schema
 	if cleanedBody, err := cleanGeminiRequest(injectedBody); err == nil {
 		injectedBody = cleanedBody
