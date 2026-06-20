@@ -26,6 +26,13 @@ func (a cutoffDaysArg) Match(v driver.Value) bool {
 
 func expectCleanupTable(t *testing.T, mock sqlmock.Sqlmock, table string, cutoffDays int, deleted int64) {
 	t.Helper()
+	// opsCleanupRunOne first checks whether the table is partitioned; a plain table
+	// (false) falls through to the chunked DELETE below. (A partitioned table would
+	// instead ensure future partitions + DROP expired ones — covered by the
+	// pgpartition integration tests.)
+	mock.ExpectQuery("pg_partitioned_table").
+		WithArgs(table).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec(table).
 		WithArgs(cutoffDaysArg{days: cutoffDays}, 5000).
 		WillReturnResult(sqlmock.NewResult(0, deleted))

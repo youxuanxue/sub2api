@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 )
 
 const (
@@ -14,6 +16,11 @@ const (
 	opsCleanupCronStopTimeout  = 3 * time.Second
 	opsCleanupRunTimeout       = 30 * time.Minute
 	opsCleanupHeartbeatTimeout = 2 * time.Second
+	// opsPartitionMonthsAhead is how many future monthly partitions to keep
+	// provisioned for partitioned ops tables (e.g. ops_system_logs after tk_035),
+	// so live inserts always have a home as the calendar rolls forward. The daily
+	// cleanup tick re-ensures these; the conversion migration seeds the first two.
+	opsPartitionMonthsAhead = 3
 )
 
 type opsCleanupTarget struct {
@@ -72,6 +79,21 @@ func opsCleanupRunOne(
 ) (int64, error) {
 	if truncate {
 		return truncateOpsTable(ctx, db, table)
+	}
+	// Partitioned ops tables (e.g. ops_system_logs once tk_035 has converted it):
+	// retention is instant DROP PARTITION + keeping future months provisioned, not a
+	// bloat-generating chunked DELETE. The branch is keyed on the live partition state
+	// (not a hardcoded table list), so ops_error_logs / usage_logs auto-adopt it when
+	// their own conversion lands. Pre-conversion (plain table) falls through to DELETE.
+	partitioned, err := pgpartition.IsPartitioned(ctx, db, table)
+	if err != nil {
+		return 0, err
+	}
+	if partitioned {
+		if err := pgpartition.EnsureMonthly(ctx, db, table, time.Now().UTC(), opsPartitionMonthsAhead); err != nil {
+			return 0, err
+		}
+		return pgpartition.DropExpired(ctx, db, table, timeCol, cutoff)
 	}
 	return deleteOldRowsByID(ctx, db, table, timeCol, cutoff, batchSize, castDate)
 }
