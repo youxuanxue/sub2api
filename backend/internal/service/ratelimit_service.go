@@ -1666,6 +1666,18 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			// 尝试解析 OpenAI 的 usage_limit_reached 错误
 			if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
+				// TK: a codex per-model metered sub-limit 429 (e.g.
+				// gpt-5.3-codex-spark) — when the account-wide window is still
+				// healthy — cools only that model, keeping the account
+				// schedulable for other models and letting spark fail over. This
+				// path is reached only when no account-wide window is >=100%
+				// (calculateOpenAI429ResetTime returned nil above), so a healthy
+				// general window means the binding limit is the per-model
+				// sub-window. Uses the raw upstream reset (the sub-window reset),
+				// not the account-clamp. See ratelimit_service_tk_model_cooldown.go.
+				if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], headers, resetTime) {
+					return true
+				}
 				// TK (upstream#1981): opt-in clamp (default OFF) — see header path above.
 				resetTime = s.tkClampOpenAIRateLimitReset(ctx, account.ID, resetTime)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")

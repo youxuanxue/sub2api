@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -264,4 +265,141 @@ func tkAnthropicModelCooldownDetail(class string, result *anthropic429Result) st
 		return class + "·" + w
 	}
 	return class
+}
+
+// ----------------------------------------------------------------------------
+// OpenAI/Codex per-model metered sub-limit cooldown (e.g. GPT-5.3-Codex-Spark)
+// ----------------------------------------------------------------------------
+//
+// A ChatGPT/Codex OAuth account has TWO independent rate-limit dimensions:
+//   1. the account-wide 5h/7d window — the x-codex-primary/secondary-* response
+//      headers, normalized into codex_5h/7d_used_percent; and
+//   2. per-model METERED windows (the /wham/usage additional_rate_limits[],
+//      e.g. "GPT-5.3-Codex-Spark"), each with its own 5h/7d sub-window.
+//
+// The spark sub-window can hit 100% (upstream 429 usage_limit_reached) while the
+// account-wide window is at ~4% (prod 2026-06, account GPT-pro1: spark 5h=0%
+// remaining while codex_5h_used_percent=4%). Cooling the WHOLE account on that
+// 429 idles the account's still-healthy general-model capacity and, because the
+// dominant traffic IS spark, empties the pool into "No available accounts"
+// (the operator-reported "刷不出 codex 额度"; 12h prod: ~8k empty-pool 429s).
+//
+// This narrows such a 429 to a (account × model) cooldown — reusing the same
+// account.Extra["model_rate_limits"] store the scheduler already consults via
+// IsSchedulableForModelWithContext → isModelRateLimitedWithContext →
+// modelRateLimitKeysForRequest (which, for OpenAI, checks the
+// GetMappedModel(requestedModel) scope key). So writing the cooldown at the
+// mapped model scope is honored with NO read-side change: a future spark request
+// is skipped, while gpt-5.4 / other models on the same account still schedule
+// and spark fails over to accounts whose spark sub-window has headroom.
+//
+// Genuine account-wide window exhaustion is NOT handled here: it is caught
+// earlier by calculateOpenAI429ResetTime, which returns a (whole-account) reset
+// ONLY when a general 5h/7d window is >=100%. This helper runs solely in
+// handle429's body path (path 2), reached precisely when that returned nil —
+// i.e. no general window is exhausted.
+
+const (
+	// tkOpenAICodexMeteredCooldownReason marks a model_rate_limits entry as a
+	// codex per-model metered sub-limit cooldown, distinct from the whole-account
+	// rate_limit_reset_at and from the 404 / image-generation scope keys.
+	tkOpenAICodexMeteredCooldownReason = "openai_codex_metered_sublimit_exceeded"
+
+	// tkOpenAICodexGeneralHealthyMaxPercent is the used% ceiling below which the
+	// account-wide codex window (both 5h AND 7d) is considered healthy enough to
+	// narrow a 429 to the model. At/above it the shared window is near its cap,
+	// so the whole account is cooled (the binding limit may be account-wide).
+	tkOpenAICodexGeneralHealthyMaxPercent = 80.0
+)
+
+// tkIsOpenAICodexMeteredModel reports whether a codex model carries its own
+// per-model metered sub-limit (the /wham/usage additional_rate_limits family)
+// independent of the account-wide window. Today that is the "spark" tier.
+// Substring + lowercase so it survives version/date/provider prefixes
+// (e.g. "gpt-5.3-codex-spark").
+func tkIsOpenAICodexMeteredModel(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(name, "codex") && strings.Contains(name, "spark")
+}
+
+// tkOpenAICodexGeneralWindowHealthy reports whether the account-wide codex
+// window parsed from the 429 response headers is healthy enough to narrow the
+// cooldown to the model — both the 5h and 7d used% must be present AND strictly
+// below tkOpenAICodexGeneralHealthyMaxPercent. Missing data => not healthy
+// (conservative: caller falls back to the whole-account cooldown).
+//
+// This is also the self-protection against header-semantics uncertainty: if the
+// x-codex-primary/secondary-* headers on a spark 429 reflected the spark window
+// (100%) rather than the account-wide window, this returns false (>= ceiling)
+// and the caller keeps today's whole-account behaviour — no regression.
+func tkOpenAICodexGeneralWindowHealthy(headers http.Header) bool {
+	snapshot := ParseCodexRateLimitHeaders(headers)
+	if snapshot == nil {
+		return false
+	}
+	n := snapshot.Normalize()
+	if n == nil || n.Used5hPercent == nil || n.Used7dPercent == nil {
+		return false
+	}
+	return *n.Used5hPercent < tkOpenAICodexGeneralHealthyMaxPercent &&
+		*n.Used7dPercent < tkOpenAICodexGeneralHealthyMaxPercent
+}
+
+// tkTryOpenAICodexModelScopedCooldown narrows a codex per-model metered (spark)
+// 429 to a (account × model) cooldown instead of the whole-account
+// SetRateLimited. Mirrors tkTryAnthropicModelScopedCooldown: returns true ONLY
+// when the model-scoped cooldown was written (caller MUST NOT also call
+// account-level SetRateLimited), and still counts as an authoritative upstream
+// cooldown so the caller suppresses the 3/3 ladder write.
+//
+// It returns true ONLY when ALL hold:
+//   - openai OAuth account (direct chatgpt.com; mirror apikey relay accounts do
+//     not carry x-codex headers and fall through to whole-account);
+//   - the mapped model is a codex metered model (tkIsOpenAICodexMeteredModel);
+//   - the account-wide window from THIS 429's headers is healthy
+//     (tkOpenAICodexGeneralWindowHealthy).
+//
+// Otherwise it returns false and the caller keeps the existing whole-account
+// cooldown — covering account-wide exhaustion, non-metered models, mirror
+// accounts, absent model context (WS fast-path), and repo write failure.
+func (s *RateLimitService) tkTryOpenAICodexModelScopedCooldown(
+	ctx context.Context,
+	account *Account,
+	requestedModel string,
+	headers http.Header,
+	resetAt time.Time,
+) bool {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return false
+	}
+	if account.Platform != PlatformOpenAI || !account.IsOAuth() {
+		return false
+	}
+	// Canonical scope key = the mapped model the scheduler will look up
+	// (modelRateLimitKeysForRequest uses GetMappedModel). Applying GetMappedModel
+	// here is idempotent for already-mapped inputs (callers pass either the raw
+	// requested or the mapped model), so write-key and read-key always agree.
+	scopeKey := strings.TrimSpace(account.GetMappedModel(requestedModel))
+	if scopeKey == "" || !tkIsOpenAICodexMeteredModel(scopeKey) {
+		return false
+	}
+	if !tkOpenAICodexGeneralWindowHealthy(headers) {
+		return false
+	}
+
+	s.notifyAccountSchedulingBlocked(account, resetAt, "429_codex_metered", scopeKey)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkOpenAICodexMeteredCooldownReason); err != nil {
+		slog.Warn("openai_codex_metered_rate_limit_failed",
+			"account_id", account.ID,
+			"scope", scopeKey,
+			"error", err)
+		return false
+	}
+	slog.Info("openai_codex_metered_rate_limited",
+		"account_id", account.ID,
+		"scope", scopeKey,
+		"requested_model", requestedModel,
+		"reset_at", resetAt,
+		"reset_in", time.Until(resetAt).Truncate(time.Second))
+	return true
 }
