@@ -137,8 +137,10 @@ func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
 	postPaths := []string{
 		"/v1/video/generations",
 		"/v1/videos",
+		"/v1/videos/generations", // xAI-shaped alias (grok native arm / prod→edge relay)
 		"/video/generations",
 		"/videos",
+		"/videos/generations",
 	}
 	for _, path := range postPaths {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"doubao-seedance","prompt":"x"}`))
@@ -174,8 +176,10 @@ func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
 	for _, path := range []string{
 		"/v1/video/generations",
 		"/v1/videos",
+		"/v1/videos/generations",
 		"/video/generations",
 		"/videos",
+		"/videos/generations",
 	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"any","prompt":"x"}`))
 		req.Header.Set("Content-Type", "application/json")
