@@ -281,7 +281,8 @@ unset GHCR_PAT
 # --- 6. systemd units + helper scripts ----------------------------------
 PGDUMP_B64_PARAM_NAME="${STAGE0_PREFIX}/pgdump.b64"
 RAW="$(aws ssm get-parameter --name "${PGDUMP_B64_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text)"
-printf '%s' "${RAW}" | base64 -d > /usr/local/bin/tokenkey-pgdump.sh
+# pgdump is gzip+base64 (like compose/caddy/bootstrap) — see build-cfn.sh.
+printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-pgdump.sh
 chmod +x /usr/local/bin/tokenkey-pgdump.sh
 
 install -m 0755 /dev/stdin /usr/local/bin/tokenkey-disk-metrics.sh <<'DISKEOF'
