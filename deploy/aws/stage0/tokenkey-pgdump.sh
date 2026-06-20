@@ -1,5 +1,9 @@
 #!/bin/bash
 # tokenkey Stage0 pg_dump (hourly). Installed by stage0-ec2-bootstrap.sh.
+# PRECIOUS-CLASS dump: schema for all tables + data for everything EXCEPT the
+# bulky reconstructible log tables (see EXCLUDE_DATA_GLOBS below). A restore is
+# structurally complete; the excluded log tables come back empty and refill from
+# live traffic. See deploy/aws/RUNBOOK-disaster-recovery.md §4.4.
 # Off-box: if TOKENKEY_PGDUMP_S3_URI is set (via /var/lib/tokenkey/.env), each fresh
 # dump is also copied to S3 (archive of record; off-box RPO = dump cadence). S3
 # failure never fails the local dump.
@@ -34,8 +38,32 @@ find "${DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null ||
 # Prune BEFORE dumping so a near-full volume frees space first (dead-lock fix).
 prune_rolling
 
+# Precious-class dump. This hourly dump exists to protect the IRREPLACEABLE data
+# (the billing ledger usage_billing_dedup + all OLTP/config) — NOT the bulky,
+# reconstructible time-series LOG tables. Pre-tiering the full-DB dump dragged
+# ~8GB of logs (ops_system_logs 4.3G + usage_logs 2.3G + ops_error_logs 1.4G +
+# qa_records ~0.8G) into every hourly copy, and the dump's own footprint was the
+# disk-full fuse (2026-06-15 prod P0). We use --exclude-table-data (NOT
+# --exclude-table) so the table SCHEMA is still dumped and a restore stays
+# structurally complete — only the rows are dropped; these tables refill from
+# live traffic and carry their own DELETE/partition retention. New tables are
+# dumped by default (precious-safe — a new ledger table is never silently
+# missed); the size guard below warns if an unexpectedly bulky table enters the
+# precious set so it can be added here.
+EXCLUDE_DATA_GLOBS=(
+  'ops_system_logs*'   # ~4.3G operational system logs (own retention)
+  'usage_logs*'        # ~2.3G per-request usage detail (NOT billing SoT post-071; 90d retention)
+  'ops_error_logs*'    # ~1.4G operational error logs (own retention)
+  'qa_records*'        # ~0.8G QA trajectory evidence (already partitioned; own retention)
+)
+exclude_args=()
+for _g in "${EXCLUDE_DATA_GLOBS[@]}"; do
+  exclude_args+=( "--exclude-table-data=${_g}" )
+done
+
 set -o pipefail
 if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
+    "${exclude_args[@]}" \
     | gzip -9 > "${PART}"; then
   rm -f "${PART}"
   exit 1
@@ -45,6 +73,14 @@ SZ=$(wc -c < "${PART}")
 if [ "${SZ}" -lt 2048 ]; then
   rm -f "${PART}"
   exit 1
+fi
+
+# Bloat guard: the precious dump should be small (the bulky log tables are
+# data-excluded above). If it balloons, a new bulky table likely entered the
+# precious set — warn (never fail) so it gets added to EXCLUDE_DATA_GLOBS.
+PRECIOUS_MAX_BYTES="${TOKENKEY_PGDUMP_WARN_BYTES:-268435456}"   # 256 MiB compressed
+if [ "${SZ}" -gt "${PRECIOUS_MAX_BYTES}" ]; then
+  echo "::warning::pgdump: precious dump is ${SZ}B (> ${PRECIOUS_MAX_BYTES}B); a bulky table may have entered the precious set — review EXCLUDE_DATA_GLOBS in tokenkey-pgdump.sh" >&2
 fi
 
 mv -f "${PART}" "${OUT}"

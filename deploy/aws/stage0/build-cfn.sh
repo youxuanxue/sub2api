@@ -73,7 +73,11 @@ split_b64_for_ssm() {
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
-PGDUMP_B64="$(encode_b64 "${PGDUMP_SRC}")"
+# pgdump is gzip+base64 like compose/caddy/bootstrap (not raw base64 like the other
+# ops scripts): once it carries the precious-class --exclude-table-data list it no
+# longer fits the 4096-char SSM Standard-tier limit as raw base64. Decoded in
+# stage0-ec2-bootstrap.sh with `base64 -d | gunzip`.
+PGDUMP_GZB64="$(encode_gzb64 "${PGDUMP_SRC}")"
 PRUNE_B64="$(encode_b64 "${PRUNE_SRC}")"
 BOOTSTRAP_GZB64="$(encode_gzb64 "${BOOTSTRAP_SRC}")"
 
@@ -93,7 +97,7 @@ check_ssm_len() {
 check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
-check_ssm_len pgdump "${PGDUMP_B64}"
+check_ssm_len pgdump "${PGDUMP_GZB64}"
 check_ssm_len prune "${PRUNE_B64}"
 check_ssm_len bootstrap_part1 "${BOOTSTRAP_PART1}"
 check_ssm_len bootstrap_part2 "${BOOTSTRAP_PART2}"
@@ -121,7 +125,7 @@ refresh_template() {
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
   local new_qa="${indent}Value: '${QA_CLEANUP_B64}'"
-  local new_pgdump="${indent}Value: '${PGDUMP_B64}'"
+  local new_pgdump="${indent}Value: '${PGDUMP_GZB64}'"
   local new_prune="${indent}Value: '${PRUNE_B64}'"
   local new_bootstrap1="${indent}Value: '${BOOTSTRAP_PART1}'"
   local new_bootstrap2="${indent}Value: '${BOOTSTRAP_PART2}'"
@@ -196,9 +200,10 @@ if [[ "${mode}" == "check" ]]; then
   committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
   { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
     | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
+  # pgdump is also gzip+base64 (legacy marker name kept; content is gzipped):
+  committed_value PGDUMP_B64_PARAM     | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${PGDUMP_SRC}" || report pgdump
   # plain base64 payloads:
   committed_value QA_CLEANUP_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
-  committed_value PGDUMP_B64_PARAM     | base64 -d 2>/dev/null | cmp -s - "${PGDUMP_SRC}"     || report pgdump
   committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
   # (The thin UserData launcher is a pass-through YAML block, not a marker-spliced
   #  SSM embed, so it is not part of the gzip-drift surface; its 16 KiB size guard
@@ -220,7 +225,7 @@ echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
-echo "  pgdump base64 (SSM): ${#PGDUMP_B64} chars"
+echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2}, part3=${#BOOTSTRAP_PART3})"
 echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
