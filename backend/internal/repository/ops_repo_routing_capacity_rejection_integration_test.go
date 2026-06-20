@@ -89,3 +89,67 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	require.EqualValues(t, 3, overview.ErrorCountSLA,
 		"business-limited routing/auth/request rows are excluded from the SLA error count")
 }
+
+// TestTopRoutingCapacityRejectionUsers pins the WHO breakdown that names the
+// rejected users on the P0 card: grouped by (user_id, api_key_id) over routing
+// rows only, ordered by count, with the api-key NAME resolved via join (live key)
+// or the deleted-key snapshot (hard-deleted key). Unattributable rows (NULL
+// user_id) and non-routing rows are excluded.
+func TestTopRoutingCapacityRejectionUsers(t *testing.T) {
+	ctx := context.Background()
+	_, _ = integrationDB.ExecContext(ctx, "TRUNCATE ops_error_logs RESTART IDENTITY CASCADE")
+
+	repo := NewOpsRepository(integrationDB).(*opsRepository)
+
+	windowStart := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Hour)
+	windowEnd := windowStart.Add(time.Hour)
+	at := windowStart.Add(5 * time.Minute)
+
+	// A real user + live api_key, for the join (live-name) path. Cleaned up after
+	// (api_keys cascades on user delete) so the shared integration DB stays tidy.
+	var liveUserID, liveKeyID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+		"routing-users-test@example.com").Scan(&liveUserID))
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id = $1", liveUserID)
+	})
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO api_keys (user_id, key, name) VALUES ($1, $2, $3) RETURNING id`,
+		liveUserID, "sk-routing-users-test", "eval-harness").Scan(&liveKeyID))
+
+	insert := func(phase string, userID, apiKeyID *int64, deletedKeyName string) {
+		_, err := integrationDB.ExecContext(ctx, `
+			INSERT INTO ops_error_logs (
+				error_phase, error_type, severity, status_code, error_owner,
+				user_id, api_key_id, deleted_key_name, is_business_limited, created_at
+			) VALUES ($1, 'api_error', 'error', 429, 'platform', $2, $3, $4, true, $5)`,
+			phase, userID, apiKeyID, deletedKeyName, at)
+		require.NoError(t, err)
+	}
+	i64 := func(v int64) *int64 { return &v }
+
+	// Live user/key — 2 routing rejections → name resolved from api_keys join.
+	insert("routing", i64(liveUserID), i64(liveKeyID), "")
+	insert("routing", i64(liveUserID), i64(liveKeyID), "")
+	// Hard-deleted key — 1 routing rejection, api_key_id has no api_keys row →
+	// name from the deleted-key snapshot.
+	insert("routing", i64(9001), i64(987654321), "snap-key")
+	// Must NOT count: non-routing row for the live user.
+	insert("auth", i64(liveUserID), i64(liveKeyID), "")
+	// Must NOT count: routing row with NULL user_id (unattributable).
+	insert("routing", nil, nil, "")
+
+	filter := &service.OpsDashboardFilter{StartTime: windowStart, EndTime: windowEnd, QueryMode: service.OpsQueryModeRaw}
+	users, err := repo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
+	require.NoError(t, err)
+	require.Len(t, users, 2, "two attributable users; NULL-user and non-routing rows excluded")
+
+	// Ordered by count desc: live user (2) then snapshot user (1).
+	require.Equal(t, liveUserID, users[0].UserID)
+	require.Equal(t, "eval-harness", users[0].APIKeyName, "live key name resolved via api_keys join")
+	require.EqualValues(t, 2, users[0].Count)
+	require.EqualValues(t, 9001, users[1].UserID)
+	require.Equal(t, "snap-key", users[1].APIKeyName, "hard-deleted key name from snapshot fallback")
+	require.EqualValues(t, 1, users[1].Count)
+}

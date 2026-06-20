@@ -104,3 +104,67 @@ LIMIT $` + strconv.Itoa(next)
 	}
 	return out, nil
 }
+
+// TopRoutingCapacityRejectionUsers returns the top-`limit` (user, api-key) buckets
+// by routing-phase rejection count over the filter window/scope, descending — so
+// the P0 card can name WHO is being rejected and tell a single user hammering from
+// a site-wide shortage. user_id and api_key_id are populated from the
+// authenticated key on every routing rejection (ops_error_logger.go, same block as
+// platform), so attribution is reliable even though no account was selected.
+//
+// The operator-assigned key NAME is resolved by a join to api_keys (kept regardless
+// of soft-delete — the on-call wants the label even for a just-deleted key), with a
+// fallback to the deleted-key snapshot (ops_error_logs.deleted_key_name) for a
+// hard-deleted key. The key SECRET/prefix is never read. The shared error filter is
+// applied on the inner aggregate (no join there → no column ambiguity); the join
+// only resolves a handful of grouped rows by api_keys PK, so it stays cheap.
+func (r *opsRepository) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *service.OpsDashboardFilter, limit int) ([]*service.OpsRoutingRejectionUser, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if filter == nil {
+		return nil, fmt.Errorf("nil filter")
+	}
+	if filter.StartTime.IsZero() || filter.EndTime.IsZero() {
+		return nil, fmt.Errorf("start_time/end_time required")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+
+	where, args, next := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
+	q := `SELECT g.user_id,
+       COALESCE(NULLIF(TRIM(ak.name), ''), NULLIF(TRIM(g.deleted_key_name), ''), '') AS key_name,
+       g.cnt
+FROM (
+  SELECT user_id, api_key_id, MAX(deleted_key_name) AS deleted_key_name, COUNT(*) AS cnt
+  FROM ops_error_logs
+  ` + where + `
+    AND error_phase = 'routing'
+    AND user_id IS NOT NULL
+  GROUP BY user_id, api_key_id
+) g
+LEFT JOIN api_keys ak ON ak.id = g.api_key_id
+ORDER BY g.cnt DESC, g.user_id ASC
+LIMIT $` + strconv.Itoa(next)
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]*service.OpsRoutingRejectionUser, 0, limit)
+	for rows.Next() {
+		var u service.OpsRoutingRejectionUser
+		if err := rows.Scan(&u.UserID, &u.APIKeyName, &u.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

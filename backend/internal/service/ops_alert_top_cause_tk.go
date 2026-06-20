@@ -32,6 +32,17 @@ type OpsRoutingRejectionCause struct {
 	Count    int64
 }
 
+// OpsRoutingRejectionUser is one (user, api-key) bucket of routing-phase capacity
+// rejections, used to name WHO is being rejected on a
+// routing_capacity_rejection_count P0 card. APIKeyName is the operator-assigned
+// key label (resolved from api_keys.name, or the deleted-key snapshot for a
+// hard-deleted key); the key secret/prefix is NEVER surfaced in an alert.
+type OpsRoutingRejectionUser struct {
+	UserID     int64
+	APIKeyName string
+	Count      int64
+}
+
 // opsTopCauseMetricTypes are the rule metric types for which a top-cause
 // breakdown is meaningful (rate metrics over ops_error_logs). Other rule types
 // (system gauges, group-availability counts) get no breakdown — keeping the
@@ -68,21 +79,32 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 	if s.opsRepo == nil {
 		return ""
 	}
-	// routing_capacity_rejection_count's cause is WHICH platform pool(s) ran out
-	// of capacity — derived from the routing-phase rows themselves, not the
-	// (model, owner, upstream_status) breakdown the error-rate metrics use.
+	// routing_capacity_rejection_count's cause has TWO dimensions, derived from the
+	// routing-phase rows themselves (not the model/owner/upstream_status breakdown
+	// the error-rate metrics use): WHICH platform pool(s) ran out of capacity, and
+	// WHO got rejected. Together they answer the first on-call question — is this a
+	// single user hammering (rate-limit them) or site-wide capacity exhaustion (add
+	// accounts)? The top-N user list reveals the concentration on its own. Both
+	// sub-queries are best-effort: a failure in one must not drop the other or block
+	// the alert.
 	if metricType == "routing_capacity_rejection_count" {
-		causes, err := s.opsRepo.TopRoutingCapacityRejectionCauses(ctx, &OpsDashboardFilter{
+		filter := &OpsDashboardFilter{
 			StartTime: start,
 			EndTime:   end,
 			Platform:  platform,
 			GroupID:   groupID,
 			QueryMode: OpsQueryModeRaw,
-		}, 2)
-		if err != nil || len(causes) == 0 {
-			return ""
 		}
-		return formatRoutingRejectionCause(causes)
+		pools, _ := s.opsRepo.TopRoutingCapacityRejectionCauses(ctx, filter, 2)
+		users, _ := s.opsRepo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
+		segments := make([]string, 0, 2)
+		if pool := formatRoutingRejectionCause(pools); pool != "" {
+			segments = append(segments, pool)
+		}
+		if usr := formatRoutingRejectionUsers(users); usr != "" {
+			segments = append(segments, "用户 "+usr)
+		}
+		return strings.Join(segments, " ｜ ")
 	}
 	if !opsTopCauseApplies(metricType) {
 		return ""
@@ -156,4 +178,40 @@ func formatRoutingRejectionCause(causes []*OpsRoutingRejectionCause) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// formatRoutingRejectionUsers renders the top rejected users as a compact
+// one-line cause, e.g. `#42 "eval-harness" ×30 · #17 "mobile-app" ×12 · #9 ×8`.
+// Shows the internal user id + the operator-assigned api-key NAME (NEVER the key
+// secret) so the on-call can tell a single user hammering from a site-wide
+// shortage and, if needed, pin the offending key by its label. Capped at 3 — the
+// card answers "who", not "everyone".
+func formatRoutingRejectionUsers(users []*OpsRoutingRejectionUser) string {
+	parts := make([]string, 0, 3)
+	for _, u := range users {
+		if u == nil || u.Count <= 0 {
+			continue
+		}
+		seg := fmt.Sprintf("#%d", u.UserID)
+		if name := strings.TrimSpace(u.APIKeyName); name != "" {
+			seg += fmt.Sprintf(" %q", truncateRunes(name, 24))
+		}
+		seg += fmt.Sprintf(" ×%d", u.Count)
+		parts = append(parts, seg)
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// truncateRunes shortens s to at most max runes (rune-safe for multibyte key
+// names), appending an ellipsis when truncated. Keeps a long key name from
+// bloating the alert card's 主因 line.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }

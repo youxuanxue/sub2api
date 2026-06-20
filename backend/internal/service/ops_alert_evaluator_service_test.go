@@ -21,6 +21,8 @@ type stubOpsRepo struct {
 	routingRejectionsErr error
 	routingCauses        []*OpsRoutingRejectionCause
 	routingCausesErr     error
+	routingUsers         []*OpsRoutingRejectionUser
+	routingUsersErr      error
 }
 
 func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -45,6 +47,13 @@ func (s *stubOpsRepo) TopRoutingCapacityRejectionCauses(ctx context.Context, fil
 		return nil, s.routingCausesErr
 	}
 	return s.routingCauses, nil
+}
+
+func (s *stubOpsRepo) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionUser, error) {
+	if s.routingUsersErr != nil {
+		return nil, s.routingUsersErr
+	}
+	return s.routingUsers, nil
 }
 
 // GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
@@ -409,6 +418,28 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 			{Platform: "openai", Count: 15},
 		}}}
 		require.Equal(t, "anthropic ×40 · openai ×15", svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
+
+	t.Run("combines pool cause + user cause", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingCauses: []*OpsRoutingRejectionCause{{Platform: "anthropic", Count: 40}},
+			routingUsers: []*OpsRoutingRejectionUser{
+				{UserID: 42, APIKeyName: "eval-harness", Count: 30},
+				{UserID: 17, APIKeyName: "", Count: 5},
+			},
+		}}
+		require.Equal(t, `anthropic ×40 ｜ 用户 #42 "eval-harness" ×30 · #17 ×5`,
+			svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
+
+	t.Run("user segment survives a pool-query error (best-effort)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingCausesErr: context.DeadlineExceeded,
+			routingUsers:     []*OpsRoutingRejectionUser{{UserID: 1, APIKeyName: "k", Count: 9}},
+		}}
+		require.Equal(t, `用户 #1 "k" ×9`, svc.computeTopCause(ctx, rule, start, end, "", nil))
 	})
 
 	t.Run("no rows => no 主因 line", func(t *testing.T) {

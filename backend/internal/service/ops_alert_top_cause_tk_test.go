@@ -116,3 +116,48 @@ func TestFormatRoutingRejectionCause(t *testing.T) {
 		require.Equal(t, "", formatRoutingRejectionCause(nil))
 	})
 }
+
+// TestFormatRoutingRejectionUsers pins the WHO line on the empty-pool P0 card:
+// user id + operator-assigned api-key NAME (never the secret), so the on-call can
+// tell a single user hammering from a site-wide shortage.
+func TestFormatRoutingRejectionUsers(t *testing.T) {
+	t.Run("user + key name + count", func(t *testing.T) {
+		require.Equal(t, `#42 "eval-harness" ×30 · #17 "mobile-app" ×12`,
+			formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+				{UserID: 42, APIKeyName: "eval-harness", Count: 30},
+				{UserID: 17, APIKeyName: "mobile-app", Count: 12},
+			}))
+	})
+
+	t.Run("missing key name falls back to user only", func(t *testing.T) {
+		require.Equal(t, "#9 ×8", formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+			{UserID: 9, APIKeyName: "", Count: 8},
+		}))
+	})
+
+	t.Run("capped at three", func(t *testing.T) {
+		require.Equal(t, `#1 "a" ×9 · #2 "b" ×8 · #3 "c" ×7`,
+			formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+				{UserID: 1, APIKeyName: "a", Count: 9},
+				{UserID: 2, APIKeyName: "b", Count: 8},
+				{UserID: 3, APIKeyName: "c", Count: 7},
+				{UserID: 4, APIKeyName: "d", Count: 6},
+			}))
+	})
+
+	t.Run("long key name is truncated to 24 runes", func(t *testing.T) {
+		got := formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+			{UserID: 5, APIKeyName: "this-is-a-very-long-api-key-name-that-should-truncate", Count: 3},
+		})
+		// first 24 runes of the name, then an ellipsis
+		require.Equal(t, `#5 "this-is-a-very-long-api-…" ×3`, got)
+	})
+
+	t.Run("non-positive counts skipped, empty is empty", func(t *testing.T) {
+		require.Equal(t, "#7 ×4", formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+			{UserID: 3, APIKeyName: "x", Count: 0},
+			{UserID: 7, APIKeyName: "", Count: 4},
+		}))
+		require.Equal(t, "", formatRoutingRejectionUsers(nil))
+	})
+}
