@@ -94,21 +94,23 @@ func TestIsAccountSchedulableForOpenAIWindow(t *testing.T) {
 		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(50), true))
 	})
 	t.Run("sticky-only band: kept for sticky, dropped for load-balance", func(t *testing.T) {
-		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(90), false))
-		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(90), true))
+		// default band is [95%, 99%): 97% is sticky-only.
+		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(97), false))
+		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(97), true))
 	})
 	t.Run("not-schedulable band: dropped even for sticky", func(t *testing.T) {
-		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(99), false))
-		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(99), true))
+		// default avoid edge is 99%; 99.5% is unambiguously NotSchedulable.
+		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(99.5), false))
+		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(99.5), true))
 	})
 	t.Run("per-account disable => schedulable", func(t *testing.T) {
-		acc := hot(99)
+		acc := hot(99.5)
 		acc.Extra["openai_window_guard_disabled"] = true
 		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, acc, false))
 	})
 	t.Run("global kill-switch => schedulable", func(t *testing.T) {
 		disabledCtx := withOpenAIQuotaAutoPauseSettings(ctx, OpsOpenAIAccountQuotaAutoPauseSettings{WindowStickyGuardDisabled: true})
-		require.True(t, svc.isAccountSchedulableForOpenAIWindow(disabledCtx, hot(99), false))
+		require.True(t, svc.isAccountSchedulableForOpenAIWindow(disabledCtx, hot(99.5), false))
 	})
 	t.Run("operator threshold override widens the schedulable range", func(t *testing.T) {
 		// With threshold 0.98 + reserve 0.02, a 96%-used account is schedulable.

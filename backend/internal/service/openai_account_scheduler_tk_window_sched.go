@@ -30,8 +30,8 @@ const (
 	// load-balance traffic); above that => avoided, unless it is the only
 	// headroom left in the pool. Operators override via the ops settings or
 	// per-account Extra; see resolveOpenAIWindowStickyThresholds.
-	openAIWindowStickyThresholdDefault = 0.85
-	openAIWindowStickyReserveDefault   = 0.12
+	openAIWindowStickyThresholdDefault = 0.95
+	openAIWindowStickyReserveDefault   = 0.04
 )
 
 // openAIAccountWindowUtilization returns the WORSE (higher) of the account's 5h

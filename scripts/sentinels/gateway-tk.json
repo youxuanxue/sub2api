@@ -3109,7 +3109,7 @@
         "func CheckOpenAIWindowSchedulability(",
         "func (s *OpenAIGatewayService) isAccountSchedulableForOpenAIWindow(",
         "func leastUtilizedOpenAIAccount(",
-        "openAIWindowStickyThresholdDefault = 0.85"
+        "openAIWindowStickyThresholdDefault = 0.95"
       ],
       "rationale": "OpenAI/GPT-line window-aware soft scheduler — the twin of the anthropic window-cost tri-state filter (gateway_service.go isAccountSchedulableForWindowCost / account.go CheckWindowCostSchedulability). Steers new load-balance traffic away from a codex account approaching its 5h/7d usage window BEFORE it 429s, cutting avoidable failover hops (prod: 139 absorbed 429s on one gpt-5.5 account, all recovered via failover at the cost of a wasted hop each). Tri-state Schedulable/StickyOnly/NotSchedulable on the already-captured codex_5h/7d_used_percent (resolveOpenAIQuotaUtilization, fail-open on no-signal/stale/reset). The whole hop-reduction behaviour lives here; an upstream merge or refactor deleting this companion silently reverts the GPT line to window-blind load-balancing. Anchors the tri-state predicate, the scheduler method, the never-empty-pool fallback, and the default sticky threshold."
     },
