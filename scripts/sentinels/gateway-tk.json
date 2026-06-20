@@ -16,7 +16,7 @@
       "must_contain": [
         "s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)"
       ],
-      "rationale": "Load-bearing wiring of the sticky saturated-stub clear: appended to the clearSticky decision at every anthropic sticky-honor site (Layer-1.5 inline block in SelectAccountWithLoadAwareness plus the legacy selectAccountForModelWithPlatform / selectAccountWithMixedScheduling blocks, the latter also used by the count_tokens failover). If an upstream merge drops this one-line hook the helper in gateway_service_tk_sticky_saturation.go becomes dead and sticky-bound sessions silently revert to selecting a saturated dead-edge stub first. Anchors the hook so merge drift is caught by preflight + the upstream-merge PR shape check."
+      "rationale": "Load-bearing wiring of the sticky saturated-stub clear: appended to the clearSticky decision in the Layer-1.5 block of SelectAccountWithLoadAwareness (the prod LoadBatchEnabled path). Wired here ONLY because clearing falls through to Layer-2 where computeAnthropicSaturationPenalties de-prioritizes the cleared stub and selection lands on a healthy sibling; the legacy selectAccountForModel* sticky blocks lack that penalty so the hook is intentionally absent there (clearing would re-pick the same stub). If an upstream merge drops this one-line hook the helper in gateway_service_tk_sticky_saturation.go becomes dead and sticky-bound sessions silently revert to selecting a saturated dead-edge stub first. Anchors the hook so merge drift is caught by preflight + the upstream-merge PR shape check."
     },
     {
       "path": "backend/cmd/server/main.go",

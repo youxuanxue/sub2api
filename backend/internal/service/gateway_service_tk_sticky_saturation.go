@@ -17,21 +17,25 @@ import (
 // correctly SKIPS the cooldown ladder (counting it once caused the 2026-05-31
 // "503 amplifier") and instead feeds the bounded saturation counter. The
 // Layer-2 load-balance ranking then de-prioritizes the saturated stub. BUT the
-// sticky-session paths (Layer-1.5 inline block in SelectAccountWithLoadAwareness
-// and the legacy sticky blocks in selectAccountForModelWithPlatform /
-// selectAccountWithMixedScheduling, also used by the count_tokens failover)
-// honor a bound stub via shouldClearStickySession, which only inspects
+// Layer-1.5 sticky block in SelectAccountWithLoadAwareness honors a bound stub
+// via shouldClearStickySession, which only inspects
 // IsSchedulable()+model-rate-limit — both stay true for a saturated stub by
 // design. So a session bound to a dead edge keeps selecting it FIRST and paying
 // a wasted failover hop on every request, with zero prompt-cache benefit (the
 // request fails over to a DIFFERENT edge, so affinity to the dead stub is
 // already worthless). prod 24h: cc-us5 alone took 1590 such hits.
 //
-// tkShouldClearStickyForSaturation augments the existing clearSticky decision
-// at each sticky-honor site: when the bound anthropic stub is SUSTAINEDLY
-// saturated (live in-window count >= anthropicSaturationThreshold), the binding
-// is cleared so the next selection rebinds to a healthy sibling via the
-// load-balance path. It is a routing PREFERENCE, NOT a cooldown — it reuses the
+// tkShouldClearStickyForSaturation augments the clearSticky decision in the
+// Layer-1.5 block ONLY: when the bound anthropic stub is SUSTAINEDLY saturated
+// (live in-window count >= anthropicSaturationThreshold), the binding is cleared
+// so the request falls through to Layer-2, where computeAnthropicSaturationPenalties
+// applies the +1000 penalty and selection lands on a healthy sibling that is then
+// re-bound. It is deliberately NOT wired into the legacy
+// selectAccountForModelWithPlatform / selectAccountWithMixedScheduling sticky
+// blocks (count_tokens failover / LoadBatchEnabled=false): those re-select by raw
+// priority with NO saturation penalty, so clearing there could re-pick the SAME
+// saturated stub and re-bind it, churning the binding + this log for no benefit.
+// It is a routing PREFERENCE, NOT a cooldown — it reuses the
 // SAME clear+fall-through mechanism the existing unschedulable check already
 // triggers, never calls SetTempUnschedulable / SetRateLimited / advances the
 // 3/3 ladder, and is self-clearing (the counter has a ~90s TTL, so once the

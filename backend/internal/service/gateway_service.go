@@ -2142,8 +2142,13 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if accountID > 0 && !isExcluded(accountID) {
 			account, ok := accountByID[accountID]
 			if ok {
-				// 检查账户是否需要清理粘性会话绑定
-				clearSticky := shouldClearStickySession(account, requestedModel) || s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
+				// 检查账户是否需要清理粘性会话绑定。TK: 额外在「持续饱和」时清除——
+				// 见 gateway_service_tk_sticky_saturation.go。仅接在这一条 Layer-1.5
+				// 路径，因为清除后落到 Layer-2 负载均衡，那里才有 saturation 惩罚
+				// (computeAnthropicSaturationPenalties) 把被清的 stub 排到健康兄弟之后；
+				// legacy selectAccountForModel* 路径无此惩罚，清了可能原地回选同一 stub。
+				clearSticky := shouldClearStickySession(account, requestedModel) ||
+					s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
 				if clearSticky {
 					slog.Debug("sticky.layer1_5_no_routing_clear",
 						"account_id", accountID,
@@ -3422,7 +3427,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 					account, err := s.getSchedulableAccount(ctx, accountID)
 					// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
 					if err == nil {
-						clearSticky := shouldClearStickySession(account, requestedModel) || s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
+						clearSticky := shouldClearStickySession(account, requestedModel)
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
@@ -3543,7 +3548,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				account, err := s.getSchedulableAccount(ctx, accountID)
 				// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
 				if err == nil {
-					clearSticky := shouldClearStickySession(account, requestedModel) || s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
+					clearSticky := shouldClearStickySession(account, requestedModel)
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
@@ -3681,7 +3686,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					account, err := s.getSchedulableAccount(ctx, accountID)
 					// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
 					if err == nil {
-						clearSticky := shouldClearStickySession(account, requestedModel) || s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
+						clearSticky := shouldClearStickySession(account, requestedModel)
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
@@ -3804,7 +3809,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				account, err := s.getSchedulableAccount(ctx, accountID)
 				// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
 				if err == nil {
-					clearSticky := shouldClearStickySession(account, requestedModel) || s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
+					clearSticky := shouldClearStickySession(account, requestedModel)
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
