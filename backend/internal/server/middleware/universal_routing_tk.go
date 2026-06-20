@@ -80,7 +80,16 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 
 // peekUniversalModel 取请求模型名（仅作平台偏好提示）。body 类端点读 body 后“原样还原”
 // （连同原始头），让后续 handler 的 body 读取行为字节级不受影响；gemini 取 URL；
-// images/edits 与 video 是 multipart/poll，不读 body（候选平台已足够窄）。
+// images/edits 是 multipart（不读 body）。
+//
+// video：POST 提交（submit）是 JSON body，必须读出模型名 —— 候选平台 [openai, newapi]
+// 跨多个后端组（如 google-vertex ch41 / volcengine ch45 才支持视频，而 deepseek ch43 /
+// Qwen ch17 不支持）。不取模型则 resolver 退回“按 sort_order/id 确定性挑组”，会把视频
+// 请求落到一个非视频渠道的组，selected account 的 channel_type 在 handler 视频门
+// （engine.IsVideoSupportedForAccount）处被拒，表现为“全局视频 400”。读模型后既能经
+// 「组已服务模型集」收敛到对的组、又能让平台 hint（veo→gemini、seedance→newapi）偏向。
+// GET 轮询（poll）无 body、无模型：poll 用 VideoTaskCache 里 submit 时固定的上游路由，
+// 不重新选号，故 model="" 安全（任一 openai-compat 组即满足路由层的平台门）。
 func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 	switch shape {
 	case service.ShapeGemini:
@@ -88,8 +97,13 @@ func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 			return geminiModelFromAction(ma)
 		}
 		return c.Param("model")
-	case service.ShapeOpenAIImagesEdit, service.ShapeOpenAIVideo:
-		return "" // multipart / 轮询：无需模型
+	case service.ShapeOpenAIImagesEdit:
+		return "" // multipart：无需模型
+	case service.ShapeOpenAIVideo:
+		if c.Request != nil && strings.EqualFold(c.Request.Method, http.MethodPost) {
+			return peekModelFromJSONBody(c) // submit：JSON body 含 model
+		}
+		return "" // poll（GET）：无 body、无需模型
 	default:
 		return peekModelFromJSONBody(c)
 	}
