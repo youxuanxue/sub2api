@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 12 // v12: include exclusive group authorization fields
+const apiKeyAuthSnapshotVersion = 13 // v13: include api_keys.routing_mode (universal key)
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -212,6 +212,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		GroupID:     apiKey.GroupID,
 		Name:        apiKey.Name,
 		Status:      apiKey.Status,
+		RoutingMode: apiKey.RoutingMode,
 		IPWhitelist: apiKey.IPWhitelist,
 		IPBlacklist: apiKey.IPBlacklist,
 		Quota:       apiKey.Quota,
@@ -294,6 +295,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		Key:         key,
 		Name:        snapshot.Name,
 		Status:      snapshot.Status,
+		RoutingMode: snapshot.RoutingMode,
 		IPWhitelist: snapshot.IPWhitelist,
 		IPBlacklist: snapshot.IPBlacklist,
 		Quota:       snapshot.Quota,

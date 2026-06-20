@@ -53,6 +53,12 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetRateLimit1d(key.RateLimit1d).
 		SetRateLimit7d(key.RateLimit7d)
 
+	// routing_mode: empty falls back to the schema default ("direct"); the
+	// service layer sets "universal" for new keys (see APIKeyService.Create).
+	if key.RoutingMode != "" {
+		builder.SetRoutingMode(apikey.RoutingMode(key.RoutingMode))
+	}
+
 	if len(key.IPWhitelist) > 0 {
 		builder.SetIPWhitelist(key.IPWhitelist)
 	}
@@ -132,6 +138,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldGroupID,
 			apikey.FieldName,
 			apikey.FieldStatus,
+			apikey.FieldRoutingMode,
 			apikey.FieldIPWhitelist,
 			apikey.FieldIPBlacklist,
 			apikey.FieldQuota,
@@ -229,6 +236,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 		SetUsage1d(key.Usage1d).
 		SetUsage7d(key.Usage7d).
 		SetUpdatedAt(now)
+	if key.RoutingMode != "" {
+		builder.SetRoutingMode(apikey.RoutingMode(key.RoutingMode))
+	}
 	if key.GroupID != nil {
 		builder.SetGroupID(*key.GroupID)
 	} else {
@@ -705,6 +715,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Key:           m.Key,
 		Name:          m.Name,
 		Status:        m.Status,
+		RoutingMode:   string(m.RoutingMode),
 		IPWhitelist:   m.IPWhitelist,
 		IPBlacklist:   m.IPBlacklist,
 		LastUsedAt:    m.LastUsedAt,

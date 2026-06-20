@@ -98,7 +98,18 @@
           </template>
 
           <template #cell-group="{ row }">
-            <div class="group/dropdown relative">
+            <!-- 全能 Key:展示「全能」徽标,不走改组选择器(它跨所有授权平台) -->
+            <span
+              v-if="row.routing_mode === 'universal'"
+              class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+              :title="t('keys.universalHint')"
+            >
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5-2.5 2.5-15.5 0-18m0 18c-2.5-2.5-2.5-15.5 0-18M3 12h18" />
+              </svg>
+              {{ t('keys.universalBadge') }}
+            </span>
+            <div v-else class="group/dropdown relative">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
@@ -415,7 +426,31 @@
           />
         </div>
 
-        <div>
+        <!-- 全能 Key 开关：默认开,一把 key 通所有授权平台/模型/模态 -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="input-label mb-0">{{ t('keys.universalLabel') }}</label>
+            <button
+              type="button"
+              @click="formData.universal = !formData.universal"
+              :class="[
+                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+                formData.universal ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+              data-tour="key-form-universal"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  formData.universal ? 'translate-x-4' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <p class="input-hint">{{ t('keys.universalHint') }}</p>
+        </div>
+
+        <div v-if="!formData.universal">
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
@@ -1210,6 +1245,8 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 const formData = ref({
   name: '',
+  // 全能 Key：默认开启。开 → 不绑分组、跨所有授权平台；关 → 绑定下方所选分组（旧行为）。
+  universal: true,
   group_id: null as number | null,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
@@ -1433,6 +1470,7 @@ const editKey = (key: ApiKey) => {
   const hasExpiration = !!key.expires_at
   formData.value = {
     name: key.name,
+    universal: key.routing_mode === 'universal',
     group_id: key.group_id,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
@@ -1526,8 +1564,10 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
-  // Validate group_id is required
-  if (formData.value.group_id === null) {
+  // 全能 Key 不绑分组;仅 direct(关闭全能)时才要求选分组。
+  const routingMode: 'direct' | 'universal' = formData.value.universal ? 'universal' : 'direct'
+  const effectiveGroupId = formData.value.universal ? null : formData.value.group_id
+  if (!formData.value.universal && formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -1584,7 +1624,8 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
-        group_id: formData.value.group_id,
+        routing_mode: routingMode,
+        group_id: effectiveGroupId,
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
@@ -1599,13 +1640,14 @@ const handleSubmit = async () => {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       await keysAPI.create(
         formData.value.name,
-        formData.value.group_id,
+        effectiveGroupId,
         customKey,
         ipWhitelist,
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        routingMode
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1650,6 +1692,7 @@ const closeModals = () => {
   selectedKey.value = null
   formData.value = {
     name: '',
+    universal: true,
     group_id: null,
     status: 'active',
     use_custom_key: false,
