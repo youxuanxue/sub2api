@@ -27,6 +27,12 @@ type UniversalRoutingResolver struct {
 	sf    singleflight.Group
 	mu    sync.RWMutex
 	cache map[int64]*spanCacheEntry
+
+	// modelsProvider 是「组可服务模型集」真值源(GatewayService.GetAvailableModels),
+	// 经 APIKeyService.SetUniversalAvailableModelsProvider 在 GatewayService 构造后绑定
+	// (避免构造期环)。受 mu 保护。nil = 未接线/降级 → Resolve 退回平台级现状(安全兜底)。
+	// 见 universal_routing_tk_serving.go。
+	modelsProvider availableModelsProvider
 }
 
 // availableGroupsLister 由 *APIKeyService 满足，给出某用户当前有权绑定的全部分组
@@ -61,6 +67,25 @@ func NewUniversalRoutingResolver(lister availableGroupsLister) *UniversalRouting
 	}
 }
 
+// SetAvailableModelsProvider 后期注入「组可服务模型集」真值源(见 universal_routing_tk_serving.go)。
+// 由 APIKeyService.SetUniversalAvailableModelsProvider 在 GatewayService 构造后调用。nil-safe。
+func (r *UniversalRoutingResolver) SetAvailableModelsProvider(p availableModelsProvider) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.modelsProvider = p
+	r.mu.Unlock()
+}
+
+// providerSnapshot 取当前 provider(受 mu 保护读)。
+func (r *UniversalRoutingResolver) providerSnapshot() availableModelsProvider {
+	r.mu.RLock()
+	p := r.modelsProvider
+	r.mu.RUnlock()
+	return p
+}
+
 // Resolve 返回该请求应落到的后端组。shape 为入口端点形状，model 为请求模型名（可空，
 // 仅作平台偏好提示），forcedPlatform 非空时（如 /antigravity）只在该平台内解析。
 func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, shape UniversalShape, model, forcedPlatform string) (*Group, error) {
@@ -93,6 +118,24 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 	}
 	if len(eligible) == 0 {
 		return nil, ErrUniversalNoEntitledGroup
+	}
+
+	// 模型服务真值收敛:把 eligible 收敛到“真正服务该模型”的组(见 universal_routing_tk_serving.go)。
+	// 仅当有模型名 + provider 已接线时执行;收敛后非空则用收敛集(deepseek/qwen/imagen/veo/
+	// seedance 等落到声明了该模型的对的组),否则退回原 eligible —— 安全兜底:provider 取数失败/
+	// 无组声明该模型时不比现状更严,继续按平台+hint 挑(gpt-image 这类无账号者仍会被下游诚实拒绝)。
+	if model != "" {
+		if provider := r.providerSnapshot(); provider != nil {
+			served := make([]Group, 0, len(eligible))
+			for i := range eligible {
+				if groupServesModel(ctx, provider, eligible[i], model) {
+					served = append(served, eligible[i])
+				}
+			}
+			if len(served) > 0 {
+				eligible = served
+			}
+		}
 	}
 
 	// 模型平台提示：若提示命中且跨度内有该平台的 eligible 组，仅在这些组里挑（偏向，

@@ -707,6 +707,10 @@ var ProviderSet = wire.NewSet(
 	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
 	ProvidePricingAvailabilityService,
 	ProvideTKGatewayPricingAvailability,
+	// TokenKey: wires GatewayService.GetAvailableModels onto the universal-key
+	// resolver (APIKeyService) post-construction so resolution filters candidate
+	// groups by the models they actually serve. Consumed by provideCleanup.
+	ProvideTKUniversalModelsProvider,
 	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
 	// getter + catalog-cache invalidator onto PricingService, does the initial
 	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
@@ -796,6 +800,32 @@ func ProvideTKGatewayPricingAvailability(
 		gw.SetPricingAvailabilityService(avail)
 	}
 	return TKGatewayPricingAvailabilityReady{}
+}
+
+// TKUniversalModelsProviderReady is a wire sentinel: holding it proves
+// APIKeyService.SetUniversalAvailableModelsProvider has been called with
+// GatewayService.GetAvailableModels, so the universal-key resolver can filter
+// candidate groups by which models they actually serve. provideCleanup
+// (cmd/server/wire.go) consumes this type as an unused parameter to force wire
+// to evaluate the side-effect.
+type TKUniversalModelsProviderReady struct{}
+
+// ProvideTKUniversalModelsProvider wires the "group served-model set" truth
+// source (GatewayService.GetAvailableModels — the same source /v1/models uses)
+// onto the universal-key resolver post-construction. APIKeyService constructs
+// the resolver before GatewayService exists, so this late binding avoids the
+// construction cycle. Mirrors ProvideTKGatewayPricingAvailability in shape.
+//
+// Setter is nil-safe; if either dep is nil the resolver keeps its safe
+// platform-level fallback. See docs/approved/universal-key-routing.md.
+func ProvideTKUniversalModelsProvider(
+	api *APIKeyService,
+	gw *GatewayService,
+) TKUniversalModelsProviderReady {
+	if api != nil && gw != nil {
+		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
+	}
+	return TKUniversalModelsProviderReady{}
 }
 
 // TKPricingOverlayRuntimeReady is a wire sentinel: holding it proves the runtime

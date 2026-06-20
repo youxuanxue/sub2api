@@ -189,6 +189,11 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		account.AutoPauseOnExpired = true
 	}
 
+	// newapi 多 vendor 平台账号必须声明非空 model_mapping(不变量;见 account_service_tk_newapi_mapping.go)。
+	if err := validateNewapiAccountModelMapping(account.Platform, account.Credentials); err != nil {
+		return nil, err
+	}
+
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("create account: %w", err)
 	}
@@ -310,6 +315,15 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *req.GroupIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	// newapi 多 vendor 平台账号必须声明非空 model_mapping(不变量;见 account_service_tk_newapi_mapping.go)。
+	// 仅在本次更新**设置了 credentials** 时校验:避免对存量空映射账号(如未修复的 grok 账号 65)
+	// 的无关字段编辑(改 priority/notes 等)误拦——存量违例由 ops 审计 + 路由层兜底。
+	if req.Credentials != nil {
+		if err := validateNewapiAccountModelMapping(account.Platform, account.Credentials); err != nil {
 			return nil, err
 		}
 	}
