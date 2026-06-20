@@ -28,6 +28,7 @@ func SetupRouter(
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	eitherAuth middleware2.EitherAuthMiddleware,
 	apiKeyService *service.APIKeyService,
+	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
@@ -85,7 +86,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
+	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, userService, subscriptionService, opsService, settingService, cfg, redisClient)
 
 	return r
 }
@@ -99,6 +100,7 @@ func registerRoutes(
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	eitherAuth middleware2.EitherAuthMiddleware,
 	apiKeyService *service.APIKeyService,
+	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
@@ -116,7 +118,8 @@ func registerRoutes(
 	routes.RegisterUserRoutes(v1, h, jwtAuth, eitherAuth, settingService)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, settingService)
 	// TK: internal edge capacity read (surface C) — prod reconciler ↔ edge over HTTP.
-	routes.RegisterTKEdgeRoutes(v1, h, apiKeyService)
+	// userService backs the admin-owner gate on the edge account WRITE ops subgroup.
+	routes.RegisterTKEdgeRoutes(v1, h, apiKeyService, userService)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, settingService)
 
