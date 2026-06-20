@@ -3843,6 +3843,7 @@ export default {
         resetTooltipNeedQuery: '先点击「次数」加载剩余重置次数',
         resetTooltipNoCredits: '没有可用的重置次数',
         noCreditsAvailable: '没有可用的重置次数',
+        additionalLimitsTitle: '分模型限额',
         resetSuccess: '已重置 {windows} 个窗口'
       },
       tier: {
