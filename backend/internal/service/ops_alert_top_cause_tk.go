@@ -193,7 +193,7 @@ func formatRoutingRejectionUsers(users []*OpsRoutingRejectionUser) string {
 			continue
 		}
 		seg := fmt.Sprintf("#%d", u.UserID)
-		if name := strings.TrimSpace(u.APIKeyName); name != "" {
+		if name := sanitizeFeishuLabel(u.APIKeyName); name != "" {
 			seg += fmt.Sprintf(" %q", truncateRunes(name, 24))
 		}
 		seg += fmt.Sprintf(" ×%d", u.Count)
@@ -203,6 +203,25 @@ func formatRoutingRejectionUsers(users []*OpsRoutingRejectionUser) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// feishuLabelSanitizer defangs lark_md control characters in a user-controlled
+// label (the api-key name) before it is rendered in an operator-facing alert
+// card. The downstream escapeFeishuText only handles & < >, so without this a
+// user could name their key "[free credits](http://evil)" and inject a clickable
+// phishing link — or an unbalanced * / _ that bleeds emphasis into the rest of
+// the card — into the ops P0 message. Link / emphasis / code / table / newline
+// markers are replaced with a space; the name stays recognizable, the markdown is
+// neutralized.
+var feishuLabelSanitizer = strings.NewReplacer(
+	"[", " ", "]", " ", "(", " ", ")", " ", "`", " ",
+	"*", " ", "_", " ", "~", " ", "|", " ", "\n", " ", "\r", " ",
+)
+
+// sanitizeFeishuLabel neutralizes markdown in a user-controlled card label and
+// trims surrounding whitespace. Returns "" for an all-blank/empty name.
+func sanitizeFeishuLabel(s string) string {
+	return strings.TrimSpace(feishuLabelSanitizer.Replace(s))
 }
 
 // truncateRunes shortens s to at most max runes (rune-safe for multibyte key

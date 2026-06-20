@@ -160,4 +160,29 @@ func TestFormatRoutingRejectionUsers(t *testing.T) {
 		}))
 		require.Equal(t, "", formatRoutingRejectionUsers(nil))
 	})
+
+	// SECURITY: the api-key name is user-controlled and rendered in an operator's
+	// lark_md P0 card, where escapeFeishuText only handles & < >. A markdown link
+	// in the name would otherwise render as a clickable phishing link in the ops
+	// channel. The name must be defanged.
+	t.Run("markdown link in key name is neutralized (no phishing injection)", func(t *testing.T) {
+		got := formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+			{UserID: 42, APIKeyName: "[free credits](http://evil)", Count: 30},
+		})
+		require.NotContains(t, got, "[", "link-open bracket must be defanged")
+		require.NotContains(t, got, "](", "lark_md link syntax must not survive")
+		require.NotContains(t, got, ")", "link-close paren must be defanged")
+		require.Contains(t, got, "#42")
+		require.Contains(t, got, "×30")
+	})
+
+	t.Run("emphasis/code/table markers defanged (no card-layout bleed)", func(t *testing.T) {
+		got := formatRoutingRejectionUsers([]*OpsRoutingRejectionUser{
+			{UserID: 7, APIKeyName: "promo*bold*_it_`code`|x", Count: 5},
+		})
+		for _, bad := range []string{"*", "`", "_", "|"} {
+			require.NotContains(t, got, bad, "markdown marker %q must be defanged", bad)
+		}
+		require.Contains(t, got, "#7")
+	})
 }
