@@ -184,7 +184,7 @@
     },
     {
       "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
-      "must_contain": ["/videos/generations"],
+      "must_contain": [".POST(\"/videos/generations\""],
       "rationale": "The xAI-shaped video submit alias POST /videos/generations (plural videos + /generations), registered in BOTH the /v1 group and the no-prefix scope. This is the path grok's native arm POSTs to ({base}/videos/generations); the gateway's canonical video routes are /video/generations (singular) + /videos (no suffix), which do NOT match it. Without this alias the prod->edge grok video relay 404s at submit: a prod grok mirror account forwards to api-<edge>.tokenkey.dev/v1/videos/generations and the edge gateway has no such route (grok chat/image relay works only because /chat/completions and /images/generations already coincide with gateway routes). Losing this alias silently re-breaks the relay while direct-to-xAI still works, so no other test would catch it."
     }
   ]
