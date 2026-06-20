@@ -6537,7 +6537,10 @@
             </div>
           </div>
 
-          <EmailTemplateEditor />
+          <!-- Perf: v-if so the editor only mounts when the Email tab is opened,
+               not on every Settings load (it sits inside the v-show'd email panel
+               which otherwise builds its whole subtree on first render). -->
+          <EmailTemplateEditor v-if="activeTab === 'email'" />
 
           <!-- Balance Low Notification -->
           <div class="card">
@@ -6679,7 +6682,10 @@
       </form>
 
         <!-- Tab: Backup (must stay outside main form — backup UI may contain nested forms) -->
-        <div v-show="activeTab === 'backup'">
+        <!-- Perf: v-if (not v-show) so BackupSettings only mounts — and only fires
+             its s3-config/schedule/backups XHRs — when the Backup tab is opened,
+             instead of on every Settings page load (default tab is 'general'). -->
+        <div v-if="activeTab === 'backup'">
           <BackupSettings />
         </div>
 

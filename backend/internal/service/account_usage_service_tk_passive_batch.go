@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -60,13 +61,54 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 		if !account.IsAnthropicOAuthOrSetupToken() && !account.IsOpenAIOAuth() {
 			continue
 		}
-		usage, perr := s.GetPassiveUsage(ctx, account.ID)
+		// TK perf: the account is already fully loaded (GetByIDs above), so build
+		// the passive usage straight from it instead of GetPassiveUsage(ctx, ID),
+		// which would re-issue a per-account GetByID (a PK lookup + a groups join)
+		// for data we already hold. With the window-stats cache prewarmed above,
+		// that GetByID was the last residual per-account DB round-trip in this
+		// fan-out. See getPassiveUsageForAccount.
+		usage, perr := s.getPassiveUsageForAccount(ctx, account)
 		if perr != nil || usage == nil {
 			continue
 		}
 		result[account.ID] = usage
 	}
 	return result
+}
+
+// getPassiveUsageForAccount builds the passive UsageInfo from an already-loaded
+// *Account, skipping the GetByID that GetPassiveUsage(ctx, accountID) performs.
+//
+// It MUST stay byte-identical to GetPassiveUsage's body after its GetByID
+// (account_usage_service.go). GetPassiveUsage is an upstream-owned method, so
+// rather than refactor it to delegate here (an upstream edit), the post-fetch
+// logic is mirrored in this TK companion. Drift is caught mechanically by
+// TestGetPassiveUsageBatch_EqualsSinglePerAccount, which asserts this batch
+// path (now routed through getPassiveUsageForAccount) matches the per-account
+// GetPassiveUsage output.
+func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, account *Account) (*UsageInfo, error) {
+	if account == nil {
+		return nil, fmt.Errorf("get account failed: nil account")
+	}
+
+	// OpenAI OAuth (codex): rebuilt from Extra's codex_*_used_percent passive
+	// sampling, never probing upstream — same source as GetPassiveUsage.
+	if account.IsOpenAIOAuth() {
+		return s.buildPassiveOpenAIUsage(account), nil
+	}
+
+	if !account.IsAnthropicOAuthOrSetupToken() {
+		return nil, fmt.Errorf("passive usage only supported for Anthropic OAuth/SetupToken accounts")
+	}
+
+	info := s.estimateSetupTokenUsage(account)
+	info.Source = "passive"
+	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
+	info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
+	info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
+	s.addWindowStats(ctx, account, info)
+
+	return info, nil
 }
 
 // prefetchWindowStatsForPassive 把被动路径需要的窗口统计批量查询并写入
