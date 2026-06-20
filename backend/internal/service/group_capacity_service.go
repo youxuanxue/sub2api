@@ -44,6 +44,14 @@ func NewGroupCapacityService(
 
 // GetAllGroupCapacity returns capacity summary for all active groups.
 func (s *GroupCapacityService) GetAllGroupCapacity(ctx context.Context) ([]GroupCapacitySummary, error) {
+	// TK perf: when the repo supports batch loading (production path), collapse
+	// the per-group N+1 below into a constant number of DB + Redis round-trips.
+	// Falls through to the original per-group loop for repos that don't (test
+	// stubs). Output is byte-identical — see group_capacity_service_tk_batch.go.
+	if out, ok, err := s.getAllGroupCapacityBatched(ctx); ok {
+		return out, err
+	}
+
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, err

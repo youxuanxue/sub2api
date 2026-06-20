@@ -783,11 +783,18 @@ onMounted(async () => {
   // Load thresholds configuration
   loadThresholds()
 
+  // Perf: kick off the core dashboard data fetch in parallel with the
+  // advanced-settings load instead of serializing behind it. snapshot-v2 does
+  // not depend on advanced settings — those only feed display toggles + the
+  // auto-refresh countdown applied below — so awaiting them first just burned
+  // ~1 RTT of dead time before the first dashboard byte on a cold tab.
+  const dataPromise = opsEnabled.value ? fetchData() : null
+
   // Load auto refresh settings
   await loadDashboardAdvancedSettings()
 
-  if (opsEnabled.value) {
-    await fetchData()
+  if (dataPromise) {
+    await dataPromise
   }
 
   // Start auto refresh if enabled
