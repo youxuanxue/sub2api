@@ -86,6 +86,13 @@ export default defineConfig(({ mode }) => {
               return 'vendor-xlsx'
             }
 
+            // marked + dompurify（~63KB）仅在实际渲染 markdown 时经 useLazyMarkdown
+            // 动态引入（公告弹窗 / 合规弹窗 / 公告详情 / 法务页 / Chat），单独成块，
+            // 避免被根组件 App.vue 急切拉进入口 chunk（含登录页）。见 composables/useLazyMarkdown.ts
+            if (id.includes('/marked/') || id.includes('/dompurify/')) {
+              return 'vendor-markdown'
+            }
+
             // UI 工具库（较大，单独分离）
             if (id.includes('/@vueuse/')) {
               return 'vendor-ui'

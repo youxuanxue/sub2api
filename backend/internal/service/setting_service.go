@@ -231,6 +231,13 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 
+	// tkAdminComplianceGateCache memoizes the default-off admin compliance gate
+	// flag so it is not re-read from the DB on every admin request (the gate
+	// middleware runs across the whole /api/v1/admin/* surface). Per-instance,
+	// like the caches above, so tests stay isolated. See admin_compliance_tk_gate.go.
+	tkAdminComplianceGateCache atomic.Value // *cachedTkComplianceGate
+	tkAdminComplianceGateSF    singleflight.Group
+
 	// settingsPubSub fans out settings-write events across replicas (TK-only,
 	// see setting_service_tk_pubsub.go). nil when pub/sub is disabled — the
 	// existing 60s per-cache TTL remains the fallback.

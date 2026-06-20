@@ -9,6 +9,29 @@
         "CROSS JOIN LATERAL"
       ],
       "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo.go",
+      "must_contain": [
+        "groupUsageSummaryFromRollup"
+      ],
+      "rationale": "GetAllGroupUsageSummary feeds the admin Groups page usage-summary on every load. It MUST route through groupUsageSummaryFromRollup (the per-(group,day) rollup, completed days from usage_dashboard_group_daily + today from raw) before falling back to the legacy `groups g LEFT JOIN usage_logs ul ... SUM(actual_cost)` un-time-bounded full-table scan. An upstream merge or a 'simplify' refactor that drops the rollup call silently restores the full 2.4M-row scan on every GroupsView load with all tests green (the fallback returns identical numbers). This sentinel is the only mechanical guard. See usage_log_repo_tk_group_rollup.go."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",
+      "must_contain": [
+        "WHERE group_id > 0 AND bucket_date < $1::date",
+        "FILTER (WHERE created_at >= $2)"
+      ],
+      "rationale": "groupUsageSummaryFromRollup's exact rollup/raw decomposition: total_cost = SUM(rollup completed days, bucket_date < server-today) + SUM(raw remainder, created_at >= server-today); today_cost = SUM(raw, created_at >= user-today). Each usage_logs row is counted exactly once toward total_cost. A refactor that drops the `bucket_date < today` rollup bound or the `created_at >= $2` raw-remainder split would double-count or miss the today/history boundary — a SILENT correctness regression on a financial figure that a small test fixture may not surface. These anchors pin the load-bearing shape."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_group.go",
+      "must_contain": [
+        "backfillGroupDailyAllOnce",
+        "usage_dashboard_group_daily"
+      ],
+      "rationale": "The per-(group,day) rollup feeder + one-time historical backfill. backfillGroupDailyAllOnce is REQUIRED: the watermark-driven incremental feeder only moves forward and never backfills pre-deploy days, so without the guarded one-time backfill the all-time Groups total would permanently exclude historical cost (or force the read path to keep raw-scanning the whole table). A refactor that removes the backfill or the upsertGroupDailyAggregates feeder breaks the rollup silently — the read path then falls back to the slow full scan with identical numbers."
     }
   ]
 }

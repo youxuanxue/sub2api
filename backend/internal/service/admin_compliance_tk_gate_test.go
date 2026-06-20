@@ -66,6 +66,43 @@ func TestAdminComplianceStatusRespectsAckWhenGateEnabled(t *testing.T) {
 	require.NotNil(t, status.Acknowledgement)
 }
 
+// countingGateRepoStub counts GetValue calls so the cache-behavior tests can
+// assert the gate flag is read from the DB once and served from the per-instance
+// cache thereafter.
+type countingGateRepoStub struct {
+	*adminComplianceRepoStub
+	getValueCalls int
+}
+
+func (r *countingGateRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	r.getValueCalls++
+	return r.adminComplianceRepoStub.GetValue(ctx, key)
+}
+
+func TestIsTkAdminComplianceGateEnabledCachesEnabledRead(t *testing.T) {
+	repo := &countingGateRepoStub{adminComplianceRepoStub: &adminComplianceRepoStub{
+		values: map[string]string{SettingKeyTkAdminComplianceGateEnabled: "true"},
+	}}
+	svc := NewSettingService(repo, &config.Config{})
+
+	for i := 0; i < 5; i++ {
+		require.True(t, svc.IsTkAdminComplianceGateEnabled(context.Background()))
+	}
+	require.Equal(t, 1, repo.getValueCalls, "enabled gate flag should hit the DB once, then serve from cache")
+}
+
+func TestIsTkAdminComplianceGateEnabledCachesAbsentAsFalse(t *testing.T) {
+	// The default-off case (no setting row) is the common path: it must also be
+	// cached so the gate middleware does not re-query the DB on every admin request.
+	repo := &countingGateRepoStub{adminComplianceRepoStub: &adminComplianceRepoStub{values: map[string]string{}}}
+	svc := NewSettingService(repo, &config.Config{})
+
+	for i := 0; i < 5; i++ {
+		require.False(t, svc.IsTkAdminComplianceGateEnabled(context.Background()))
+	}
+	require.Equal(t, 1, repo.getValueCalls, "absent (default-off) gate flag should hit the DB once, then serve from cache")
+}
+
 func TestIsAdminComplianceAcknowledgedTrueWhenGateDisabled(t *testing.T) {
 	// Defense in depth: even though the middleware guard is skipped entirely when
 	// the gate is off, the acknowledgement predicate must not report a missing ack
