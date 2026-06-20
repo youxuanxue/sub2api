@@ -90,7 +90,7 @@ func opsCleanupRunOne(
 		return 0, err
 	}
 	if partitioned {
-		if err := pgpartition.EnsureMonthly(ctx, db, table, timeCol, time.Now().UTC(), opsPartitionMonthsAhead); err != nil {
+		if err := pgpartition.EnsureMonthly(ctx, db, table, time.Now().UTC(), opsPartitionMonthsAhead); err != nil {
 			return 0, err
 		}
 		return pgpartition.DropExpired(ctx, db, table, timeCol, cutoff)

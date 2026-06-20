@@ -69,6 +69,15 @@ BEGIN
     LIKE ops_system_logs_legacy INCLUDING DEFAULTS INCLUDING STORAGE
   ) PARTITION BY RANGE (created_at);
 
+  -- 2a. The BIGSERIAL id sequence is still OWNED BY the legacy partition's id column
+  --     (ownership does not follow a table RENAME). The parent's id default references
+  --     it by name, which works — but the OWNED BY dependency means that when retention
+  --     later DROPs the legacy partition, a plain DROP is refused (needs CASCADE) and a
+  --     CASCADE would drop the sequence and break id generation. Reassign ownership to
+  --     the new parent so the legacy partition can be dropped cleanly and the sequence
+  --     survives. (Sequence name is the BIGSERIAL default for ops_system_logs.id.)
+  ALTER SEQUENCE IF EXISTS ops_system_logs_id_seq OWNED BY ops_system_logs.id;
+
   -- 3. Canonical secondary indexes on the parent (partitioned indexes). When the legacy
   --    partition is attached below, Postgres matches its existing *_legacy indexes by
   --    definition and attaches them in place (no rebuild).

@@ -66,7 +66,7 @@ func TestIsOverlap(t *testing.T) {
 func TestEnsureMonthly_CreatesCurrentThroughAhead(t *testing.T) {
 	rec := &execRecorder{}
 	now := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
-	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", "created_at", now, 2); err != nil {
+	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", now, 2); err != nil {
 		t.Fatalf("EnsureMonthly: %v", err)
 	}
 	// monthsAhead=2 -> current + 2 future = 3 CREATE statements, June/July/Aug 2026.
@@ -93,7 +93,7 @@ func TestEnsureMonthly_SkipsOverlapContinues(t *testing.T) {
 	// skipped and the remaining future months still created.
 	rec := &execRecorder{errs: []error{&pq.Error{Code: pq.ErrorCode(pgPartitionOverlapCode)}}}
 	now := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
-	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", "created_at", now, 2); err != nil {
+	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", now, 2); err != nil {
 		t.Fatalf("overlap on month 0 must be benign, got: %v", err)
 	}
 	if len(rec.queries) != 3 {
@@ -104,7 +104,7 @@ func TestEnsureMonthly_SkipsOverlapContinues(t *testing.T) {
 func TestEnsureMonthly_RealErrorPropagates(t *testing.T) {
 	rec := &execRecorder{errs: []error{&pq.Error{Code: "53100"}}} // disk full -> must fail
 	now := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
-	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", "created_at", now, 2); err == nil {
+	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", now, 2); err == nil {
 		t.Fatal("a non-overlap error must propagate")
 	}
 }

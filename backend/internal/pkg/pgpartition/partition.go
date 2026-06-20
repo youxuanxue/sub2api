@@ -56,8 +56,7 @@ func IsPartitioned(ctx context.Context, db DB, table string) (bool, error) {
 // It never creates PAST months — those are either covered already or were intentionally
 // dropped by retention, and recreating them would resurrect an empty partition.
 // Idempotent (CREATE ... IF NOT EXISTS + overlap-skip).
-func EnsureMonthly(ctx context.Context, db DB, table, timeCol string, now time.Time, monthsAhead int) error {
-	_ = timeCol // partition key is fixed at conversion; kept for call-site symmetry/clarity
+func EnsureMonthly(ctx context.Context, db DB, table string, now time.Time, monthsAhead int) error {
 	base := monthStartUTC(now)
 	for m := 0; m <= monthsAhead; m++ {
 		start := base.AddDate(0, m, 0)

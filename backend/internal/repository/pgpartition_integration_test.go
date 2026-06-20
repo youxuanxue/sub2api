@@ -24,6 +24,19 @@ func TestPgPartition_OpsSystemLogsConvertedByMigration(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "tk_035 must convert ops_system_logs to a partitioned table")
 
+	// Regression (review R-001): the id sequence must be OWNED BY the parent, not the
+	// legacy partition. Otherwise retention dropping the legacy partition either fails
+	// (plain DROP refused) or, with CASCADE, drops the sequence and breaks id generation.
+	// (tk_035 step 2a reassigns ownership.)
+	var seqOwner string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT t.relname FROM pg_depend d
+		JOIN pg_class s ON s.oid = d.objid AND s.relname = 'ops_system_logs_id_seq'
+		JOIN pg_class t ON t.oid = d.refobjid
+		WHERE d.deptype = 'a'`).Scan(&seqOwner))
+	require.Equal(t, "ops_system_logs", seqOwner,
+		"id sequence must be owned by the parent so the legacy partition drops cleanly")
+
 	// A row inserted without id (mirrors BatchInsertSystemLogs COPY) must route into a
 	// partition and get an auto id from the inherited sequence.
 	var id int64
@@ -58,7 +71,7 @@ func TestPgPartition_EnsureMonthlySkipsLegacyOverlap(t *testing.T) {
 	require.NoError(t, err)
 
 	// EnsureMonthly: current month overlaps legacy (skipped); next + next+1 created.
-	require.NoError(t, pgpartition.EnsureMonthly(ctx, integrationDB, tbl, "created_at", now, 2))
+	require.NoError(t, pgpartition.EnsureMonthly(ctx, integrationDB, tbl, now, 2))
 
 	var parts int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `
