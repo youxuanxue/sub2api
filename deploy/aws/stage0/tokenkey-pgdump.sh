@@ -48,8 +48,8 @@ prune_rolling
 # structurally complete — only the rows are dropped; these tables refill from
 # live traffic and carry their own DELETE/partition retention. New tables are
 # dumped by default (precious-safe — a new ledger table is never silently
-# missed); the size guard below warns if an unexpectedly bulky table enters the
-# precious set so it can be added here.
+# missed); if a new BULKY table appears it just needs adding here, and disk
+# growth is already covered by the >=85% data-volume alert.
 EXCLUDE_DATA_GLOBS=(
   'ops_system_logs*'   # ~4.3G operational system logs (own retention)
   'usage_logs*'        # ~2.3G per-request usage detail (NOT billing SoT post-071; 90d retention)
@@ -73,14 +73,6 @@ SZ=$(wc -c < "${PART}")
 if [ "${SZ}" -lt 2048 ]; then
   rm -f "${PART}"
   exit 1
-fi
-
-# Bloat guard: the precious dump should be small (the bulky log tables are
-# data-excluded above). If it balloons, a new bulky table likely entered the
-# precious set — warn (never fail) so it gets added to EXCLUDE_DATA_GLOBS.
-PRECIOUS_MAX_BYTES="${TOKENKEY_PGDUMP_WARN_BYTES:-268435456}"   # 256 MiB compressed
-if [ "${SZ}" -gt "${PRECIOUS_MAX_BYTES}" ]; then
-  echo "::warning::pgdump: precious dump is ${SZ}B (> ${PRECIOUS_MAX_BYTES}B); a bulky table may have entered the precious set — review EXCLUDE_DATA_GLOBS in tokenkey-pgdump.sh" >&2
 fi
 
 mv -f "${PART}" "${OUT}"
