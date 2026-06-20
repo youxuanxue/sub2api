@@ -53,16 +53,6 @@ export function edgePanelHasAnomaly(edge: EdgeAccountsResult): boolean {
   return edge.accounts.some(edgeAccountIsAbnormal)
 }
 
-/**
- * The composite key for ONE edge-local account in the unified table. Prod stub ids
- * and edge-local account ids are independent DB primary keys (both small ints) and
- * collide, so an edge account is keyed as `edge:<edge_id>:<local_id>` — unique
- * across edges and distinct from any prod row's bare numeric id.
- */
-export function compositeEdgeAccountKey(edgeId: string, localId: number): string {
-  return `edge:${edgeId}:${localId}`
-}
-
 /** Counts for an edge's collapsed one-line summary ("N 账号 · M 可调度"). */
 export function edgePanelCounts(edge: EdgeAccountsResult): { total: number; schedulable: number } {
   return { total: edge.accounts.length, schedulable: schedulableCount(edge) }
@@ -75,22 +65,14 @@ export function edgePanelCounts(edge: EdgeAccountsResult): { total: number; sche
  *
  * v2 core flip: the DEFAULT is expanded (一目了然 — the operator sees every stub's
  * accounts on arrival, no manual expand, no切页). #885's anomaly-only default left
- * healthy stubs as invisible flat rows that read as "the feature didn't ship". The
- * `edge` arg is no longer consulted for the expand decision — anomaly now drives
- * HIGHLIGHT + ordering (edgePanelHasAnomaly / compareStubPanels), not visibility.
- *
- * Priority (an explicit user choice ALWAYS wins, so the operator stays in control):
- *   1. `override` set (the user toggled / expand-all / collapse-all, persisted) → its value
- *   2. otherwise expanded (default-full-expand). searching is subsumed: the default
- *      is already open, and an explicit collapse override still wins over a search.
+ * healthy stubs as invisible flat rows that read as "the feature didn't ship".
+ * Anomaly now drives HIGHLIGHT + within-panel ordering (edgePanelHasAnomaly /
+ * sortEdgeAccountsAbnormalFirst), NOT visibility — so the decision is purely the
+ * explicit-override-or-default-true below (search is subsumed: everything is already
+ * open, and an explicit collapse override stays in the operator's control).
  */
-export function isStubPanelExpanded(
-  override: boolean | undefined,
-  _searching: boolean,
-  _edge: EdgeAccountsResult | null
-): boolean {
-  if (override !== undefined) return override
-  return true
+export function isStubPanelExpanded(override: boolean | undefined): boolean {
+  return override ?? true
 }
 
 /** Count of attention-worthy edge accounts in a panel (for the collapsed summary). */

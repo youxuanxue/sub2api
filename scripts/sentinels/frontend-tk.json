@@ -960,16 +960,16 @@
         "isStubPanelExpanded",
         "applyAccountUpdate"
       ],
-      "rationale": "TK-only composable owning the inline edge-panel expand-state machine on /admin/accounts (the cc-<edge> mirror-stub second-level expansion). Composes useTkEdgeAccounts for edge data + ETag auto-refresh and exposes expandedKeys (driven by the pure isStubPanelExpanded: explicit override > search > anomaly), panelForStub, toggle/expandAll/collapseAll, and applyAccountUpdate (surgical post-op edge-data patch so an inline write reflects instantly without a full refetch). Keeps the upstream-shaped AccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards against silent upstream-merge/refactor deletion that would orphan the expandable edge panels."
+      "rationale": "TK-only composable owning the inline edge-panel expand-state machine on /admin/accounts (the cc-<edge> mirror-stub second-level expansion). Composes useTkEdgeAccounts for edge data + ETag auto-refresh and exposes expandedKeys (driven by the pure isStubPanelExpanded: explicit override, else default-expand), panelForStub, toggle/expandAll/collapseAll, and applyAccountUpdate (surgical post-op edge-data patch so an inline write reflects instantly without a full refetch). Keeps the upstream-shaped AccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards against silent upstream-merge/refactor deletion that would orphan the expandable edge panels."
     },
     {
       "path": "frontend/src/utils/accountsEdgePanels.tk.ts",
       "must_contain": [
         "export function edgePanelHasAnomaly",
         "export function isStubPanelExpanded",
-        "export function compositeEdgeAccountKey"
+        "export function sortEdgeAccountsAbnormalFirst"
       ],
-      "rationale": "TK-only pure helpers for the inline edge panels. edgePanelHasAnomaly decides which edges DEFAULT-expand (unreachable / stub paused-or-cooling / any abnormal edge account) so only problems surface; isStubPanelExpanded is the unit-tested expand-priority decision (override > search > anomaly) the composable's expandedKeys wraps; compositeEdgeAccountKey namespaces an edge-local id as edge:<edge_id>:<localId> so prod-stub and edge-local primary keys never collide in the unified table. Dropping any one regresses the default-expansion policy or the identity model."
+      "rationale": "TK-only pure helpers for the inline edge panels. edgePanelHasAnomaly + edgeAccountIsAbnormal decide which stubs/accounts are flagged as needing attention; isStubPanelExpanded is the unit-tested v2 expand decision (explicit override, else default-expand — every stub's panel is open unless the operator collapsed it, 一目了然); sortEdgeAccountsAbnormalFirst floats abnormal edge accounts to the top of each panel so what needs attention stays reachable regardless of list length. Dropping any one regresses the default-full-expand policy or the anomaly-first ordering."
     },
     {
       "path": "frontend/src/components/admin/account/EdgeAccountPanelTk.vue",

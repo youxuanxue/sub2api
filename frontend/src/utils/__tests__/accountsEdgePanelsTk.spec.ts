@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   edgeAccountIsAbnormal,
   edgePanelHasAnomaly,
-  compositeEdgeAccountKey,
   edgePanelCounts,
   edgePanelAbnormalCount,
   sortEdgeAccountsAbnormalFirst,
@@ -85,14 +84,6 @@ describe('edgePanelHasAnomaly', () => {
   })
 })
 
-describe('compositeEdgeAccountKey', () => {
-  it('namespaces an edge-local id so it never collides with a prod stub id', () => {
-    expect(compositeEdgeAccountKey('us4', 51)).toBe('edge:us4:51')
-    // Same numeric id on different edges → distinct keys.
-    expect(compositeEdgeAccountKey('uk2', 51)).not.toBe(compositeEdgeAccountKey('us4', 51))
-  })
-})
-
 describe('edgePanelCounts', () => {
   it('counts total and effectively-schedulable accounts', () => {
     const e = edge({
@@ -103,24 +94,12 @@ describe('edgePanelCounts', () => {
 })
 
 describe('isStubPanelExpanded (v2: default-full-expand)', () => {
-  const healthy = edge({ accounts: [acct({})] })
-  const anomalous = edge({ ok: false })
-
   it('an explicit override ALWAYS wins', () => {
-    // user collapsed → stays collapsed even for an anomalous edge
-    expect(isStubPanelExpanded(false, true, anomalous)).toBe(false)
-    expect(isStubPanelExpanded(false, false, healthy)).toBe(false)
-    // user expanded → stays expanded
-    expect(isStubPanelExpanded(true, false, healthy)).toBe(true)
+    expect(isStubPanelExpanded(false)).toBe(false) // user collapsed → stays collapsed
+    expect(isStubPanelExpanded(true)).toBe(true) // user expanded → stays expanded
   })
-  it('DEFAULT is expanded for every discovered state (一目了然), not anomaly-only', () => {
-    expect(isStubPanelExpanded(undefined, false, healthy)).toBe(true)
-    expect(isStubPanelExpanded(undefined, false, anomalous)).toBe(true)
-  })
-  it('an undiscovered (null) panel also defaults to expanded', () => {
-    expect(isStubPanelExpanded(undefined, false, null)).toBe(true)
-    // a collapse override still wins over the default
-    expect(isStubPanelExpanded(false, false, null)).toBe(false)
+  it('DEFAULT (no override) is expanded (一目了然)', () => {
+    expect(isStubPanelExpanded(undefined)).toBe(true)
   })
 })
 

@@ -6,12 +6,10 @@
  * `cc-<edge>` mirror-stub row — unified prod+edge governance, so the operator never
  * leaves /accounts to see/manage an edge's accounts.
  *
- * Expand policy (predictable: an explicit user choice ALWAYS wins):
- *   - explicit per-row toggle (persisted to localStorage) → its value, else
- *   - searching (prod search box non-empty) → expanded (the match auto-opens), else
- *   - the edge has an anomaly (unreachable / stub paused or cooling / any abnormal
- *     edge account) → expanded, else collapsed (healthy edges stay a one-line
- *     summary so the prod table isn't drowned in nested rows).
+ * Expand policy (v2, predictable): default-full-expand — every stub's panel is open
+ * unless the operator explicitly collapsed it (per-row toggle / collapse-all,
+ * persisted to localStorage). Anomaly drives highlight + within-panel ordering, not
+ * visibility.
  *
  * State-only (CLAUDE.md §5): pure decisions live in utils/accountsEdgePanels.tk.ts.
  */
@@ -54,12 +52,9 @@ function read<T>(src: Getter<T>): T {
 /**
  * @param prodAccounts reactive source of the CURRENT prod accounts page rows (so
  *   expand state is computed only for the stubs actually on screen).
- * @param search reactive source of the prod search box value (non-empty →
- *   auto-expand matching stubs).
  */
 export function useTkAccountsEdgePanels(options: {
   prodAccounts: Getter<Account[]>
-  search: Getter<string>
 }) {
   // byStub → the backend returns one result PER prod mirror stub (any platform),
   // each scoped to exactly that stub key's edge-side group (precise correspondence:
@@ -127,13 +122,9 @@ export function useTkAccountsEdgePanels(options: {
   // overrides, or search change.
   const expandedKeys = computed<Set<number>>(() => {
     const set = new Set<number>()
-    const searching = (read(options.search) ?? '').trim().length > 0
-    const idx = stubIndex.value
     for (const acc of read(options.prodAccounts)) {
       if (!acc.edge_id) continue
-      if (isStubPanelExpanded(overrides.value.get(acc.id), searching, idx.get(acc.id) ?? null)) {
-        set.add(acc.id)
-      }
+      if (isStubPanelExpanded(overrides.value.get(acc.id))) set.add(acc.id)
     }
     return set
   })

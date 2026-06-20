@@ -856,8 +856,7 @@ const {
   edgeLoading: edgePanelsLoading,
   edgeError: edgePanelsError
 } = useTkAccountsEdgePanels({
-  prodAccounts: () => accounts.value,
-  search: () => params.search
+  prodAccounts: () => accounts.value
 })
 
 const {
