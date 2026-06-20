@@ -24,6 +24,25 @@ type OpsTopErrorCause struct {
 	Count          int64
 }
 
+// OpsRoutingRejectionCause is one platform bucket of routing-phase capacity
+// rejections, used to name the empty pool(s) on a
+// routing_capacity_rejection_count P0 card.
+type OpsRoutingRejectionCause struct {
+	Platform string
+	Count    int64
+}
+
+// OpsRoutingRejectionUser is one (user, api-key) bucket of routing-phase capacity
+// rejections, used to name WHO is being rejected on a
+// routing_capacity_rejection_count P0 card. APIKeyName is the operator-assigned
+// key label (resolved from api_keys.name, or the deleted-key snapshot for a
+// hard-deleted key); the key secret/prefix is NEVER surfaced in an alert.
+type OpsRoutingRejectionUser struct {
+	UserID     int64
+	APIKeyName string
+	Count      int64
+}
+
 // opsTopCauseMetricTypes are the rule metric types for which a top-cause
 // breakdown is meaningful (rate metrics over ops_error_logs). Other rule types
 // (system gauges, group-availability counts) get no breakdown — keeping the
@@ -59,6 +78,33 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 	}
 	if s.opsRepo == nil {
 		return ""
+	}
+	// routing_capacity_rejection_count's cause has TWO dimensions, derived from the
+	// routing-phase rows themselves (not the model/owner/upstream_status breakdown
+	// the error-rate metrics use): WHICH platform pool(s) ran out of capacity, and
+	// WHO got rejected. Together they answer the first on-call question — is this a
+	// single user hammering (rate-limit them) or site-wide capacity exhaustion (add
+	// accounts)? The top-N user list reveals the concentration on its own. Both
+	// sub-queries are best-effort: a failure in one must not drop the other or block
+	// the alert.
+	if metricType == "routing_capacity_rejection_count" {
+		filter := &OpsDashboardFilter{
+			StartTime: start,
+			EndTime:   end,
+			Platform:  platform,
+			GroupID:   groupID,
+			QueryMode: OpsQueryModeRaw,
+		}
+		pools, _ := s.opsRepo.TopRoutingCapacityRejectionCauses(ctx, filter, 2)
+		users, _ := s.opsRepo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
+		segments := make([]string, 0, 2)
+		if pool := formatRoutingRejectionCause(pools); pool != "" {
+			segments = append(segments, pool)
+		}
+		if usr := formatRoutingRejectionUsers(users); usr != "" {
+			segments = append(segments, "用户 "+usr)
+		}
+		return strings.Join(segments, " ｜ ")
 	}
 	if !opsTopCauseApplies(metricType) {
 		return ""
@@ -111,4 +157,80 @@ func formatOpsTopCause(causes []*OpsTopErrorCause) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// formatRoutingRejectionCause renders the top routing-rejection platforms as a
+// compact one-line cause, e.g. "anthropic ×40 · openai ×15". The on-call reads
+// it as "these pools are out of capacity — add accounts / check that edge".
+func formatRoutingRejectionCause(causes []*OpsRoutingRejectionCause) string {
+	parts := make([]string, 0, 2)
+	for _, c := range causes {
+		if c == nil || c.Count <= 0 {
+			continue
+		}
+		platform := strings.TrimSpace(c.Platform)
+		if platform == "" {
+			platform = "(unknown)"
+		}
+		parts = append(parts, fmt.Sprintf("%s ×%d", platform, c.Count))
+		if len(parts) >= 2 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// formatRoutingRejectionUsers renders the top rejected users as a compact
+// one-line cause, e.g. `#42 "eval-harness" ×30 · #17 "mobile-app" ×12 · #9 ×8`.
+// Shows the internal user id + the operator-assigned api-key NAME (NEVER the key
+// secret) so the on-call can tell a single user hammering from a site-wide
+// shortage and, if needed, pin the offending key by its label. Capped at 3 — the
+// card answers "who", not "everyone".
+func formatRoutingRejectionUsers(users []*OpsRoutingRejectionUser) string {
+	parts := make([]string, 0, 3)
+	for _, u := range users {
+		if u == nil || u.Count <= 0 {
+			continue
+		}
+		seg := fmt.Sprintf("#%d", u.UserID)
+		if name := sanitizeFeishuLabel(u.APIKeyName); name != "" {
+			seg += fmt.Sprintf(" %q", truncateRunes(name, 24))
+		}
+		seg += fmt.Sprintf(" ×%d", u.Count)
+		parts = append(parts, seg)
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// feishuLabelSanitizer defangs lark_md control characters in a user-controlled
+// label (the api-key name) before it is rendered in an operator-facing alert
+// card. The downstream escapeFeishuText only handles & < >, so without this a
+// user could name their key "[free credits](http://evil)" and inject a clickable
+// phishing link — or an unbalanced * / _ that bleeds emphasis into the rest of
+// the card — into the ops P0 message. Link / emphasis / code / table / newline
+// markers are replaced with a space; the name stays recognizable, the markdown is
+// neutralized.
+var feishuLabelSanitizer = strings.NewReplacer(
+	"[", " ", "]", " ", "(", " ", ")", " ", "`", " ",
+	"*", " ", "_", " ", "~", " ", "|", " ", "\n", " ", "\r", " ",
+)
+
+// sanitizeFeishuLabel neutralizes markdown in a user-controlled card label and
+// trims surrounding whitespace. Returns "" for an all-blank/empty name.
+func sanitizeFeishuLabel(s string) string {
+	return strings.TrimSpace(feishuLabelSanitizer.Replace(s))
+}
+
+// truncateRunes shortens s to at most max runes (rune-safe for multibyte key
+// names), appending an ellipsis when truncated. Keeps a long key name from
+// bloating the alert card's 主因 line.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }

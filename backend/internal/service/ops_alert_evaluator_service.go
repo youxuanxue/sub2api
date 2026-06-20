@@ -650,6 +650,33 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return 0, false
 		}
 		return float64(n), true
+	case "routing_capacity_rejection_count":
+		// Count of routing/scheduling-phase capacity rejections over the rule
+		// window — the client-visible "no available accounts" empty-pool fast-fail
+		// (429, #575) plus relayed cc-<edge> downstream-capacity rejections,
+		// isolated by error_phase='routing' (set EXCLUSIVELY for these; see
+		// CountRoutingCapacityRejections). This is the ONE signal that sees a
+		// thin-pool-race storm: those rows are is_business_limited=true and so are
+		// excluded from error_rate/upstream_error_rate (numerator AND denominator),
+		// and they cool no account so the account-/pool-level P0 channels never
+		// fire. Queried directly (not via GetDashboardOverview) so it stays out of
+		// the dashboard hot path and needs no overview struct field. NO
+		// rateSampleFloor: a count is self-flooring (low traffic → low count → no
+		// breach), and flooring it would wrongly suppress a real storm on an
+		// otherwise low-success window.
+		if s == nil || s.opsRepo == nil {
+			return 0, false
+		}
+		n, err := s.opsRepo.CountRoutingCapacityRejections(ctx, &OpsDashboardFilter{
+			StartTime: start,
+			EndTime:   end,
+			Platform:  platform,
+			GroupID:   groupID,
+		})
+		if err != nil {
+			return 0, false
+		}
+		return float64(n), true
 	case "pool_load_rate":
 		// 池级并发负载率（在途+排队/席位），"账号池容量触顶"前瞻信号。
 		// 值 = scope 内最饱和调度池的负载率%；newapi 自动按 channel_type 拆子池

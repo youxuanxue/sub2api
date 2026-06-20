@@ -26,6 +26,22 @@ type OpsRepository interface {
 	GetRealtimeTrafficSummary(ctx context.Context, filter *OpsDashboardFilter) (*OpsRealtimeTrafficSummary, error)
 
 	GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error)
+	// TK (empty-pool-429 alert blind spot): count of routing/scheduling-phase
+	// capacity rejections (error_phase='routing' — empty-pool fast-fail 429 +
+	// relayed mirror-edge downstream-capacity) over the filter window/scope.
+	// Drives the routing_capacity_rejection_count P0 alert; see
+	// CountRoutingCapacityRejections impl + tk_035 seed.
+	CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error)
+	// TopRoutingCapacityRejectionCauses returns the top-N platforms by
+	// routing-phase rejection count over the filter window/scope, so a fired
+	// routing_capacity_rejection_count P0 card can name WHICH pool is empty
+	// (self-diagnosing, like the pool_load_rate / error-rate cards).
+	TopRoutingCapacityRejectionCauses(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionCause, error)
+	// TopRoutingCapacityRejectionUsers returns the top-N (user, api-key) buckets by
+	// routing-phase rejection count over the filter window/scope, so the same P0
+	// card can name WHO is being rejected (a single user hammering vs a site-wide
+	// shortage). The api-key NAME is resolved by join; the key secret is never read.
+	TopRoutingCapacityRejectionUsers(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionUser, error)
 	GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error)
 	GetLatencyHistogram(ctx context.Context, filter *OpsDashboardFilter) (*OpsLatencyHistogramResponse, error)
 	GetErrorTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsErrorTrendResponse, error)

@@ -23,6 +23,11 @@ var validOpsAlertMetricTypes = []string{
 	"cpu_usage_percent",
 	"memory_usage_percent",
 	"concurrency_queue_depth",
+	// pool_load_rate is evaluator-supported (first switch) and offered by the
+	// admin UI metric registry, but was missing here — so creating/editing a
+	// pool_load_rate rule via the API was rejected with 400 even though the UI
+	// presents it. (tk_031 seeds one directly in the DB, bypassing this gate.)
+	"pool_load_rate",
 	"group_available_accounts",
 	"group_available_ratio",
 	"group_rate_limit_ratio",
@@ -33,6 +38,7 @@ var validOpsAlertMetricTypes = []string{
 	"overload_account_count",
 	"proxy_expired_count",
 	"proxy_expiring_soon_count",
+	"routing_capacity_rejection_count",
 }
 
 var validOpsAlertMetricTypeSet = func() map[string]struct{} {
@@ -93,6 +99,7 @@ func isPercentOrRateMetric(metricType string) bool {
 		"upstream_error_rate",
 		"cpu_usage_percent",
 		"memory_usage_percent",
+		"pool_load_rate",
 		"group_available_ratio",
 		"group_rate_limit_ratio",
 		"account_error_ratio":

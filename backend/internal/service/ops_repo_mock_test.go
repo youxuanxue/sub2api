@@ -86,6 +86,18 @@ func (m *opsRepoMock) GetDashboardOverview(ctx context.Context, filter *OpsDashb
 	return &OpsDashboardOverview{}, nil
 }
 
+func (m *opsRepoMock) CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error) {
+	return 0, nil
+}
+
+func (m *opsRepoMock) TopRoutingCapacityRejectionCauses(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionCause, error) {
+	return nil, nil
+}
+
+func (m *opsRepoMock) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionUser, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error) {
 	return &OpsThroughputTrendResponse{}, nil
 }

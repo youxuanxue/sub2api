@@ -16,6 +16,13 @@ type stubOpsRepo struct {
 	OpsRepository
 	overview *OpsDashboardOverview
 	err      error
+
+	routingRejections    int64
+	routingRejectionsErr error
+	routingCauses        []*OpsRoutingRejectionCause
+	routingCausesErr     error
+	routingUsers         []*OpsRoutingRejectionUser
+	routingUsersErr      error
 }
 
 func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -26,6 +33,27 @@ func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashb
 		return s.overview, nil
 	}
 	return &OpsDashboardOverview{}, nil
+}
+
+func (s *stubOpsRepo) CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error) {
+	if s.routingRejectionsErr != nil {
+		return 0, s.routingRejectionsErr
+	}
+	return s.routingRejections, nil
+}
+
+func (s *stubOpsRepo) TopRoutingCapacityRejectionCauses(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionCause, error) {
+	if s.routingCausesErr != nil {
+		return nil, s.routingCausesErr
+	}
+	return s.routingCauses, nil
+}
+
+func (s *stubOpsRepo) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionUser, error) {
+	if s.routingUsersErr != nil {
+		return nil, s.routingUsersErr
+	}
+	return s.routingUsers, nil
 }
 
 // GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
@@ -308,4 +336,121 @@ func TestComputeRuleMetricRateSampleFloor(t *testing.T) {
 			require.InDelta(t, tt.wantValue, gotValue, 0.0001)
 		})
 	}
+}
+
+// TestComputeRuleMetricRoutingCapacityRejectionCount pins the empty-pool-429
+// blind-spot fix: the routing_capacity_rejection_count metric returns the
+// dedicated CountRoutingCapacityRejections value verbatim, and — unlike ratio
+// metrics — is NOT gated by the rate sample floor. A count is self-flooring (low
+// traffic → low count → no breach), so a real rejection storm must still surface
+// even on a window whose SLA request count is small; applying the floor here
+// would wrongly suppress it.
+func TestComputeRuleMetricRoutingCapacityRejectionCount(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	t.Run("returns the routing-capacity rejection count verbatim", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejections: 60},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.True(t, ok)
+		require.InDelta(t, 60.0, got, 0.0001)
+	})
+
+	t.Run("not gated by the rate sample floor (storm on a low-traffic window still fires)", func(t *testing.T) {
+		t.Parallel()
+		// rateRuleMinSamples=100 would skip any ratio metric on a near-empty
+		// window; a count must still be reported regardless of SLA volume.
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejections: 75},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.True(t, ok)
+		require.InDelta(t, 75.0, got, 0.0001)
+	})
+
+	t.Run("zero rejections is evaluated (ok) and does not breach", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejections: 0},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.True(t, ok)
+		require.Equal(t, 0.0, got)
+		require.False(t, compareMetric(got, ">=", 50.0))
+	})
+
+	t.Run("query error => skipped (ok=false)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejectionsErr: context.DeadlineExceeded},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		_, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.False(t, ok)
+	})
+}
+
+// TestComputeTopCauseRoutingCapacityRejection pins the self-diagnosing 主因 line
+// for the empty-pool P0: the card names WHICH platform pool(s) are out of
+// capacity (like pool_load_rate / error-rate cards do), instead of carrying a
+// bare number that forces the on-call to drill the dashboard.
+func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+	rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+
+	t.Run("names the offending pools", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingCauses: []*OpsRoutingRejectionCause{
+			{Platform: "anthropic", Count: 40},
+			{Platform: "openai", Count: 15},
+		}}}
+		require.Equal(t, "anthropic ×40 · openai ×15", svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
+
+	t.Run("combines pool cause + user cause", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingCauses: []*OpsRoutingRejectionCause{{Platform: "anthropic", Count: 40}},
+			routingUsers: []*OpsRoutingRejectionUser{
+				{UserID: 42, APIKeyName: "eval-harness", Count: 30},
+				{UserID: 17, APIKeyName: "", Count: 5},
+			},
+		}}
+		require.Equal(t, `anthropic ×40 ｜ 用户 #42 "eval-harness" ×30 · #17 ×5`,
+			svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
+
+	t.Run("user segment survives a pool-query error (best-effort)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingCausesErr: context.DeadlineExceeded,
+			routingUsers:     []*OpsRoutingRejectionUser{{UserID: 1, APIKeyName: "k", Count: 9}},
+		}}
+		require.Equal(t, `用户 #1 "k" ×9`, svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
+
+	t.Run("no rows => no 主因 line", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{}}
+		require.Equal(t, "", svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
+
+	t.Run("query error => no 主因 line (best-effort, never blocks firing)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingCausesErr: context.DeadlineExceeded}}
+		require.Equal(t, "", svc.computeTopCause(ctx, rule, start, end, "", nil))
+	})
 }
