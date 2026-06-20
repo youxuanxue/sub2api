@@ -257,8 +257,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tierHandler := admin.NewTierHandler(tierService)
 	edgeAccountsAggregator := service.ProvideEdgeAccountsAggregator(accountRepository)
 	edgeAccountsHandler := handler.ProvideTKEdgeAccountsAdminHandler(edgeAccountsAggregator)
+	edgeAccountOpsHandler := handler.ProvideTKEdgeAccountOpsAdminHandler(edgeAccountsAggregator)
 	trialProvisionHandler := handler.ProvideTrialProvisionHandler(subscriptionService, apiKeyService, settingService, userRepository, userGroupRateRepository, groupRepository)
-	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, paymentHandler, affiliateHandler, complianceHandler, tkChannelAdminHandler, tierHandler, edgeAccountsHandler, trialProvisionHandler)
+	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, paymentHandler, affiliateHandler, complianceHandler, tkChannelAdminHandler, tierHandler, edgeAccountsHandler, edgeAccountOpsHandler, trialProvisionHandler)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := service.ProvideUserMessageQueueService(userMsgQueueCache, rpmCache, configConfig)
@@ -283,14 +284,15 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	edgeCapacityHandler := handler.ProvideEdgeCapacityHandler(accountRepository)
 	handlerEdgeAccountsHandler := handler.ProvideEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
 	edgeAdminSessionHandler := handler.ProvideEdgeAdminSessionHandler(apiKeyService, userService, authService)
+	handlerEdgeAccountOpsHandler := handler.ProvideEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
-	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, qaService, pricingCatalogHandler, mePricingCatalogHandler, qaHandler, edgeCapacityHandler, handlerEdgeAccountsHandler, edgeAdminSessionHandler, idempotencyCoordinator, idempotencyCleanupService)
+	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, qaService, pricingCatalogHandler, mePricingCatalogHandler, qaHandler, edgeCapacityHandler, handlerEdgeAccountsHandler, edgeAdminSessionHandler, handlerEdgeAccountOpsHandler, idempotencyCoordinator, idempotencyCleanupService)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService)
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	eitherAuthMiddleware := middleware.NewEitherAuthMiddleware(jwtAuthMiddleware, apiKeyAuthMiddleware)
-	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, eitherAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, redisClient)
+	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, eitherAuthMiddleware, apiKeyService, userService, subscriptionService, opsService, settingService, redisClient)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -321,7 +323,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkAnthropicSaturationReady := service.ProvideTKAnthropicSaturation(gatewayService, rateLimitService, anthropicSaturationCounterCache)
 	modelListFilter := service.NewModelListFilter(pricingCatalogService, pricingAvailabilityService)
 	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, modelListFilter)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, antigravityConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkGatewayHandlerModelListReady)
+	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, antigravityConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -403,6 +406,8 @@ func provideCleanup(
 	_ service.TKAnthropicSaturationReady,
 
 	_ handler.TKGatewayHandlerModelListReady,
+
+	_ service.TKUniversalModelsProviderReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

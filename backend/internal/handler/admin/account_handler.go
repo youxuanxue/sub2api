@@ -179,6 +179,11 @@ type AccountWithConcurrency struct {
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	// EdgeID is the edge a prod anthropic mirror stub relays to (api-us1 → "us1"),
+	// empty for non-stub accounts. TK: lets the accounts UI expand a stub row into
+	// that edge's accounts inline (unified prod+edge governance). Derived, not
+	// stored — see service.MirrorStubEdgeID.
+	EdgeID string `json:"edge_id,omitempty"`
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -187,6 +192,8 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	item := AccountWithConcurrency{
 		Account:            dto.AccountFromService(account),
 		CurrentConcurrency: 0,
+		// TK: see List — tag mirror-stub rows with their edge id ("" for non-stubs).
+		EdgeID: service.MirrorStubEdgeID(account),
 	}
 	if account == nil {
 		return item
@@ -339,6 +346,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 		item := AccountWithConcurrency{
 			Account:            dto.AccountFromService(acc),
 			CurrentConcurrency: concurrencyCounts[acc.ID],
+			// TK: tag anthropic mirror-stub rows with their edge id so the accounts
+			// UI can expand them into that edge's accounts inline ("" for non-stubs).
+			EdgeID: service.MirrorStubEdgeID(acc),
 		}
 
 		// 添加窗口费用（仅当启用时）

@@ -3584,6 +3584,23 @@ export default {
       schedulableHint: '开启后账号参与API请求调度',
       schedulableEnabled: '调度已开启',
       schedulableDisabled: '调度已关闭',
+      // TK: inline edge-account panels (cc-<edge> 行二级展开,统一治理 prod+edge 账号)
+      edgePanel: {
+        actions: '操作',
+        expandAll: '展开全部',
+        collapseAll: '折叠全部',
+        expandHint: '展开/折叠该 edge 背后的账号（仅异常 edge 默认展开；搜索时自动展开命中项）',
+        queryUsage: '查询用量',
+        clearRateLimit: '清除限流',
+        clearTempUnsched: '重置临时不可调度',
+        resetQuota: '重置配额',
+        manageOnEdge: '在 edge 后台管理 ↗',
+        manageWholeEdge: '管理整个 edge ↗',
+        opSuccess: '操作成功',
+        opFailed: '操作失败，请稍后重试',
+        queryFailed: '用量查询失败',
+        notDiscovered: '该 edge 暂未被发现（其 prod stub 可能已禁用）'
+      },
       accountIdHint: '账号 ID（数据库主键），排查问题时用于精确定位该账号',
       failedToToggleSchedulable: '切换调度状态失败',
       groupCountTotal: '共 {count} 个分组',

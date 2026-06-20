@@ -104,7 +104,10 @@
         "fluid?: boolean",
         "stickyEdgeHints?: boolean",
         "table-wrapper--fluid",
-        ".table-wrapper.table-wrapper--fluid {\n  overflow-x: auto"
+        ".table-wrapper.table-wrapper--fluid {\n  overflow-x: auto",
+        "expandedKeys?: Set<string | number>",
+        "name=\"row-detail\"",
+        "flatItems"
       ],
       "rationale": "DataTable's `fluid` mode + `stickyEdgeHints` opt-out are how the admin accounts page fits the viewport without horizontal scroll. The fluid rule body must keep `overflow-x: auto` (not `hidden`) so narrow viewports get a scrollbar fallback rather than silently clipping the rightmost columns — the bug observed at 100% browser zoom on a 14-15\" laptop before that fix landed. Symbol-only sentinels (the prop names + modifier class) would let an upstream merge revert the rule body to `hidden` while keeping the symbols intact, so the multi-line literal anchors the rule body content too."
     },
@@ -126,7 +129,10 @@
         "const wrap = (maxW: string) =>",
         "wrap('max-w-[15rem]')",
         "current.current_rpm !== next.current_rpm",
-        "v-if=\"row.notes\""
+        "v-if=\"row.notes\"",
+        "EdgeAccountPanelTk",
+        "useTkAccountsEdgePanels",
+        ":expanded-keys=\"edgeExpandedKeys\""
       ],
       "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound. The sixth literal anchors current_rpm inside shouldReplaceAutoRefreshRow's auto-refresh field whitelist: current_rpm is a Redis-backed realtime gauge that never bumps updated_at, so an upstream merge that drops it from the whitelist would silently regress the 6s auto-refresh back to RPM-stale (only manual refresh would update the RPM badge). The seventh literal anchors the admin notes (备注) display under the account name in the #cell-name template: operators edit notes in EditAccountModal but the only other notes render is a default-hidden column, so dropping this line would silently hide multi-line notes again — it is rendered with whitespace-pre-wrap so newlines edited by the operator survive verbatim."
     },
@@ -476,7 +482,9 @@
         "adminSession",
         "stub_schedulable: boolean",
         "export async function listWithEtag",
-        "'If-None-Match'"
+        "'If-None-Match'",
+        "export async function clearRateLimit",
+        "export async function setSchedulable"
       ],
       "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts) plus the manage-accounts handoff (POST /admin/edge-accounts/:edge/admin-session, the adminSession method). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list or adminSession call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic. The EdgeAccountsResult type carries stub_schedulable — the prod-side stub's scheduling toggle — so the view can flag an edge whose stub was 关调度 (out of prod rotation but still reachable); dropping it would silently regress that visibility. listWithEtag is the ETag-aware variant the periodic auto-refresh uses: it sends If-None-Match and accepts a 304 (validateStatus) so an unchanged poll is a body-less no-op, mirroring api/admin/accounts.ts:listWithEtag — dropping it regresses the refresh back to a full-payload reload."
     },
@@ -944,6 +952,42 @@
         "keys.universalBadge"
       ],
       "rationale": "Universal Key (全能 Key) create/edit surface (docs/approved/universal-key-routing.md): the default-ON toggle that, when on, hides the group picker (v-if=\"!formData.universal\") and submits routing_mode='universal' with no group_id; and the key-table badge that shows row.routing_mode==='universal' instead of the change-group affordance. KeysView.vue is a large upstream-shaped file; an upstream merge that rewrites the create form or key card could silently drop the toggle or the badge while compiling green, regressing every new key back to mandatory single-group binding. These anchors turn that backward-drift into a merge-gate failure."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountsEdgePanels.ts",
+      "must_contain": [
+        "export function useTkAccountsEdgePanels",
+        "isStubPanelExpanded",
+        "applyAccountUpdate"
+      ],
+      "rationale": "TK-only composable owning the inline edge-panel expand-state machine on /admin/accounts (the cc-<edge> mirror-stub second-level expansion). Composes useTkEdgeAccounts for edge data + ETag auto-refresh and exposes expandedKeys (driven by the pure isStubPanelExpanded: explicit override > search > anomaly), panelForStub, toggle/expandAll/collapseAll, and applyAccountUpdate (surgical post-op edge-data patch so an inline write reflects instantly without a full refetch). Keeps the upstream-shaped AccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards against silent upstream-merge/refactor deletion that would orphan the expandable edge panels."
+    },
+    {
+      "path": "frontend/src/utils/accountsEdgePanels.tk.ts",
+      "must_contain": [
+        "export function edgePanelHasAnomaly",
+        "export function isStubPanelExpanded",
+        "export function compositeEdgeAccountKey"
+      ],
+      "rationale": "TK-only pure helpers for the inline edge panels. edgePanelHasAnomaly decides which edges DEFAULT-expand (unreachable / stub paused-or-cooling / any abnormal edge account) so only problems surface; isStubPanelExpanded is the unit-tested expand-priority decision (override > search > anomaly) the composable's expandedKeys wraps; compositeEdgeAccountKey namespaces an edge-local id as edge:<edge_id>:<localId> so prod-stub and edge-local primary keys never collide in the unified table. Dropping any one regresses the default-expansion policy or the identity model."
+    },
+    {
+      "path": "frontend/src/components/admin/account/EdgeAccountPanelTk.vue",
+      "must_contain": [
+        "EdgeAccountActionMenuTk",
+        "openEdgeManage",
+        "adminAPI.edgeAccounts.clearRateLimit"
+      ],
+      "rationale": "TK-only #row-detail panel rendered under each cc-<edge> stub row: the focused edge header (reachable/stub badges + 管理整个 edge handoff via openEdgeManage) plus the edge's account sub-table that REUSES AccountCapacityCell/AccountUsageCell/AccountStatusIndicator via accountVm, with inline status-class write ops (clearRateLimit/resetQuota/clearTempUnschedulable/setSchedulable/getUsage) through the prod thin-proxy and EdgeAccountActionMenuTk. Guards against silent deletion that would drop inline edge management."
+    },
+    {
+      "path": "frontend/src/components/admin/account/EdgeAccountActionMenuTk.vue",
+      "must_contain": [
+        "'query-usage'",
+        "'clear-rate-limit'",
+        "manage"
+      ],
+      "rationale": "TK-only per-edge-account action menu. Emits the WHITELISTED status-class ops (query-usage / clear-rate-limit / clear-temp-unschedulable / reset-quota) the panel forwards to the edge via the prod proxy, plus a 'manage' entry that hands off to the edge's own /admin/accounts for credential-class ops — the visual separation that stops an operator expecting an inline credential edit. Guards the credential boundary affordance against silent deletion."
     }
   ]
 }

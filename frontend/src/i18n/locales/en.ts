@@ -3514,6 +3514,24 @@ export default {
       schedulableHint: 'Enable to include this account in API request scheduling',
       schedulableEnabled: 'Scheduling enabled',
       schedulableDisabled: 'Scheduling disabled',
+      // TK: inline edge-account panels (the second-level expansion under a
+      // cc-<edge> row — unified prod+edge account governance).
+      edgePanel: {
+        actions: 'Actions',
+        expandAll: 'Expand all',
+        collapseAll: 'Collapse all',
+        expandHint: 'Expand/collapse the accounts behind this edge (only anomalous edges expand by default; a search auto-expands matches)',
+        queryUsage: 'Query usage',
+        clearRateLimit: 'Clear rate limit',
+        clearTempUnsched: 'Clear temp-unschedulable',
+        resetQuota: 'Reset quota',
+        manageOnEdge: 'Manage on edge ↗',
+        manageWholeEdge: 'Manage entire edge ↗',
+        opSuccess: 'Done',
+        opFailed: 'Operation failed, please retry',
+        queryFailed: 'Usage query failed',
+        notDiscovered: 'Edge not discovered yet (its prod stub may be disabled)'
+      },
       accountIdHint: 'Account ID (database primary key), used to pinpoint this account when troubleshooting',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',

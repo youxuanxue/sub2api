@@ -192,6 +192,8 @@ aws ssm start-session --target <NewInstanceId>
 
 **何时用**：DLM 快照也丢了 / 太旧，或需要把账本**干净重建**进一个新 PG。`tokenkey-pgdump.sh` 每小时把逻辑 dump 推到 S3（`stage0-backups.yaml` 栈的桶，保留 7 天），所以这是比 DLM（最长 24h）更新的账本副本。**仅恢复 PostgreSQL 账本**（逻辑 dump）；Redis 可重建。丢失「最近一次 hourly dump → 故障」之间的写入（≤1h）。**总损（卷+快照都没）时**，`.env` 密钥从离机 SSM SecureString 取回（下方第 0 步）——**不要重新生成**（否则旧 PG/JWT/2FA 失效）。
 
+> **dump 是「珍贵类」分级 dump**：含**全部表的 schema** + 除大体量可重建日志表外的全部**数据**。`tokenkey-pgdump.sh` 用 `--exclude-table-data`（保 schema、去行）排除了 `ops_system_logs* / usage_logs* / ops_error_logs* / qa_records*`（~8GB 遥测，各有自身 DELETE/分区保留）。**还原后这些日志表结构在、数据为空**，随线上流量重新累积；计费真值 `usage_billing_dedup`、账号/配置等珍贵数据**完整还原**。要带历史日志的整库副本，走 §3/§4.1-4.3 的卷/快照路径（整库物理副本，不受本 dump 分级影响）。
+
 ```bash
 # 0) 总损时先取回 .env 密钥（离机 SSM SecureString，与 dump 桶不同爆炸半径）。
 #    若恢复卷健在（§4.1-4.3），密钥随卷回来，跳过此步。新机/干净 PG 必须先放对密钥

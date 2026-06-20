@@ -412,6 +412,23 @@ func edgeIDFromBaseURL(baseURL string) string {
 	return trimmed
 }
 
+// MirrorStubEdgeID returns the edge id a prod anthropic mirror stub points at
+// (credentials.base_url https://api-us1.tokenkey.dev → "us1"), or "" if acc is
+// not a mirror stub.
+//
+// It is the exported, single-account form the prod admin accounts LIST uses to
+// tag each row with its edge (so the frontend knows which rows are edge mirrors
+// and which edge to expand). It reuses the SAME predicate + derivation the
+// cross-edge aggregator already uses (isAnthropicMirrorStub + edgeIDFromBaseURL
+// over the package edgeIDPattern), so the accounts list and the edge overview
+// agree on which rows are edge mirrors — no second regex, no baseline reload.
+func MirrorStubEdgeID(acc *Account) string {
+	if !isAnthropicMirrorStub(acc, edgeIDPattern) {
+		return ""
+	}
+	return edgeIDFromBaseURL(strings.TrimSpace(acc.GetCredential("base_url")))
+}
+
 // fetchEdgeAccounts GETs {base_url}/api/v1/edge/accounts?platform=... with
 // x-api-key auth and an 8s timeout. Any failure → {ok:false, error}, never a
 // panic and never a failed aggregate.

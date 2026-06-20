@@ -2142,8 +2142,13 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if accountID > 0 && !isExcluded(accountID) {
 			account, ok := accountByID[accountID]
 			if ok {
-				// 检查账户是否需要清理粘性会话绑定
-				clearSticky := shouldClearStickySession(account, requestedModel)
+				// 检查账户是否需要清理粘性会话绑定。TK: 额外在「持续饱和」时清除——
+				// 见 gateway_service_tk_sticky_saturation.go。仅接在这一条 Layer-1.5
+				// 路径，因为清除后落到 Layer-2 负载均衡，那里才有 saturation 惩罚
+				// (computeAnthropicSaturationPenalties) 把被清的 stub 排到健康兄弟之后；
+				// legacy selectAccountForModel* 路径无此惩罚，清了可能原地回选同一 stub。
+				clearSticky := shouldClearStickySession(account, requestedModel) ||
+					s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
 				if clearSticky {
 					slog.Debug("sticky.layer1_5_no_routing_clear",
 						"account_id", accountID,

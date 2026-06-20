@@ -947,6 +947,57 @@ func TestBuildForUser_NewapiUnrestricted_NoCanonicalLeak(t *testing.T) {
 	assert.Empty(t, resp.Models, "newapi has no canonical list — no Claude models may leak in")
 }
 
+// TestBuildForUser_GrokUnrestricted_ListsServableModels is the regression for
+// the 2026-06-20 incident: selecting a grok group on /pricing showed an EMPTY
+// "分组目录". Grok is a native OAuth-relay platform — its accounts carry no
+// channel and no credentials.model_mapping (unrestricted), so before the
+// platformDefaultModelIDs grok arm both the channel stage and the whitelist
+// stage produced nothing. The menu must now list the curated grok served set
+// (the priced overlay models — the SAME source the public /pricing catalog
+// filters by), with catalog prices joined where available.
+func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
+	gGrok := mkGroupForMe(60, "grok", "grok", 1.0)
+	k1 := mkKeyForMe(1, 16, "grok-key", ptrI(60))
+	// channel_type=0, nil whitelist → unrestricted native grok OAuth account.
+	acct := mkAccountWithWhitelist(11, "grok-oauth", "grok", 0, nil)
+	require.False(t, accountHasModelRestriction(acct.Credentials),
+		"empty model_mapping must read as unrestricted")
+	require.True(t, accountInGroupScope(&acct, "grok"),
+		"a channel_type=0 grok account must be in scope for a grok group")
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			// grok-code-fast-1 is the one token-priced grok chat model.
+			mkPublicCatalogModel("grok-code-fast-1", "xai", 0.0002, 0.0015, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gGrok}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+
+	want := supportedCatalogModelIDsForPlatform(PlatformGrok)
+	require.NotEmpty(t, want, "grok served set must be non-empty")
+	sort.Strings(want)
+	assert.Equal(t, want, modelIDsOf(resp.Models),
+		"grok menu must equal the curated grok served set (same source as public catalog)")
+
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+	// Catalog-priced model gets its price joined.
+	require.Contains(t, byID, "grok-code-fast-1")
+	require.NotNil(t, byID["grok-code-fast-1"].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.0002, *byID["grok-code-fast-1"].YourPrice.InputPer1K, 1e-9)
+	// The grok-imagine media models surface even without a catalog row joined.
+	require.Contains(t, byID, "grok-imagine-image")
+	require.Contains(t, byID, "grok-imagine-video")
+}
+
 // TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the
 // best-effort posture on the channel-listing side: a transient channel
 // read failure must NOT empty the whole menu when an account-whitelist
