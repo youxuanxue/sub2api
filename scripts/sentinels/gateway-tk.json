@@ -3,6 +3,22 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
+      "must_contain": [
+        "func (s *GatewayService) tkShouldClearStickyForSaturation(",
+        "count < anthropicSaturationThreshold",
+        "anthropic_sticky_cleared_saturated_stub"
+      ],
+      "rationale": "Sticky-side completion of the anthropic saturated mirror-stub de-prioritization (prod 2026-06-19). The Layer-2 penalty (gateway_service_tk_saturation_penalty.go) de-prioritizes a saturated stub, but the sticky-honor paths bind a session to a specific stub via shouldClearStickySession, which only inspects IsSchedulable()+model-rate-limit — both stay true for a saturated stub by design — so a session bound to a dead edge keeps selecting it FIRST and pays a wasted failover hop every request (prod 24h: cc-us5 alone 1590 hits, 0 client-facing exhaustion). This helper clears the binding when the bound anthropic stub is SUSTAINEDLY saturated (count >= anthropicSaturationThreshold) so the next selection rebinds to a healthy sibling. PREFERENCE not cooldown: never SetTempUnschedulable / advances the 3/3 ladder (would re-create the 2026-05-31 503 amplifier), reuses the existing clear+fall-through, self-clearing via the 90s counter TTL, shares the IsAnthropicSaturatedStubDeprioritizeEnabled kill-switch. Dropping this file silently reverts sticky-bound sessions to hammering a dead edge for the whole outage."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)"
+      ],
+      "rationale": "Load-bearing wiring of the sticky saturated-stub clear: appended to the clearSticky decision in the Layer-1.5 block of SelectAccountWithLoadAwareness (the prod LoadBatchEnabled path). Wired here ONLY because clearing falls through to Layer-2 where computeAnthropicSaturationPenalties de-prioritizes the cleared stub and selection lands on a healthy sibling; the legacy selectAccountForModel* sticky blocks lack that penalty so the hook is intentionally absent there (clearing would re-pick the same stub). If an upstream merge drops this one-line hook the helper in gateway_service_tk_sticky_saturation.go becomes dead and sticky-bound sessions silently revert to selecting a saturated dead-edge stub first. Anchors the hook so merge drift is caught by preflight + the upstream-merge PR shape check."
+    },
+    {
       "path": "backend/cmd/server/main.go",
       "must_contain": [
         "protocols.SetUnencryptedHTTP2(true)",
