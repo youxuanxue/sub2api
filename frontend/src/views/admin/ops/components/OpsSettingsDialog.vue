@@ -525,8 +525,10 @@ async function saveAllSettings() {
             </div>
           </div>
 
-          <!-- OpenAI 账号配额自动暂停（全局默认阈值） -->
-          <div class="space-y-3">
+          <!-- TK (PR #899 follow-up): OpenAI 账号配额自动暂停已退役 —— 由 window-sched
+               三态守卫统一承载（默认 95% 仅粘性 / 99% 避开，含全局开关与账号级覆写）。
+               全局阈值控件隐藏（refs/保存保留以便旧值无害回传）。去掉 v-if="false" 可恢复。 -->
+          <div v-if="false" class="space-y-3">
             <h5 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.openaiQuotaAutoPause') }}</h5>
             <p class="text-xs text-gray-500">{{ t('admin.ops.settings.openaiQuotaAutoPauseHint') }}</p>
 

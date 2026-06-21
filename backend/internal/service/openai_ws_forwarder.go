@@ -4311,12 +4311,22 @@ func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 		// keep the binding (transient) and fall through to normal scheduling.
 		return nil, nil
 	}
+	// TK (PR #899 follow-up): the window-sched tri-state guard replaces the retired
+	// auto-pause on this previous_response_id chain too, so the tri-state is the single
+	// window mechanism on every path auto-pause used to cover. isSticky=true: a
+	// StickyOnly account keeps serving its own chain (transient pressure), only a
+	// NotSchedulable account at its window cap yields. Binding preserved (NOT deleted)
+	// so the chain resumes after the window resets.
+	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+		return nil, nil
+	}
 	// Quota auto-pause must also gate the previous_response_id sticky path; otherwise an
 	// account over its 5h/7d threshold keeps serving the same response chain even though
 	// normal scheduling skips it. Pause is transient, so fall through to normal scheduling
 	// WITHOUT deleting the binding (the window may reset before the next turn). This early
 	// return also pre-empts the DB-recheck below, which would otherwise treat the paused
-	// account as gone and clear the sticky binding.
+	// account as gone and clear the sticky binding. (Retired in #899 follow-up — the
+	// tri-state guard above now carries this; kept as a no-op for §5.x merge-friendliness.)
 	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
 		return nil, nil
 	}

@@ -50,6 +50,8 @@ type OpsRepository interface {
 	// behind a fired error-rate alert, over the same window/scope as the metric.
 	GetTopErrorCause(ctx context.Context, filter *OpsDashboardFilter, upstreamOnly bool, limit int) ([]*OpsTopErrorCause, error)
 	GetOpenAITokenStats(ctx context.Context, filter *OpsOpenAITokenStatsFilter) (*OpsOpenAITokenStatsResponse, error)
+	// TK (PR #899 follow-up): per-account wasted-failover-hop KPI for the GPT line.
+	GetFailoverHopStats(ctx context.Context, filter *OpsFailoverHopStatsFilter) (*OpsFailoverHopStatsResponse, error)
 
 	InsertSystemMetrics(ctx context.Context, input *OpsInsertSystemMetricsInput) error
 	GetLatestSystemMetrics(ctx context.Context, windowMinutes int) (*OpsSystemMetricsSnapshot, error)
