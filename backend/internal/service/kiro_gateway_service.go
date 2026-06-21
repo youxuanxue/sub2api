@@ -217,6 +217,11 @@ func (s *KiroGatewayService) forwardStreaming(
 		flusher: flusher,
 		model:   model,
 		msgID:   requestID,
+		// Estimate input tokens up-front (pure function of the request) so the
+		// first message_start emitted mid-stream carries the real prompt count
+		// instead of 0 — the prod relay bills off the parsed SSE usage. See the
+		// inputTokens field doc in kiro_sse_encoder.go.
+		inputTokens: kiroproto.EstimateInputTokens(req),
 	}
 
 	var (
@@ -289,7 +294,9 @@ func (s *KiroGatewayService) forwardStreaming(
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
-	inputTokens := kiroproto.EstimateInputTokens(req)
+	// inputTokens was already computed for the encoder (message_start.usage); reuse
+	// it for the ForwardResult so the two never drift.
+	inputTokens := enc.inputTokens
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 
 	// Upstream succeeded but produced no content (enc.started still false):
