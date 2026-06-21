@@ -65,15 +65,28 @@ var edgeIDPattern = regexp.MustCompile(`^https?://api-([a-z0-9]+)\.tokenkey\.dev
 // edgeStubPlatforms are the platforms that can host a prod→edge mirror stub. The
 // per-stub fan-out loads candidates across all of them (ListByPlatform is platform-
 // scoped, so we union rather than change the interface — rule 6). gemini (direct to
-// Vertex/AI Studio) and newapi (channel bridge to an external upstream) never relay
-// through an edge, so they are intentionally absent. A NEW edge-stub platform MUST be
-// added here or its stubs won't expand in the inline panel.
+// Vertex/AI Studio) never relays through an edge, so it is intentionally absent.
+//
+// newapi IS present: the prod grok relay is a New API ct=1 OpenAI-compat bridge stub
+// (platform=newapi) whose credentials.base_url is an EDGE host (api-<edge>.tokenkey.dev)
+// — the native grok arm runs on the edge, prod merely bridges to it (see memory: "prod
+// 中继跳=newapi ct=1 bridge、grok 原生臂只在 edge 跳"). So a grok-<edge> stub is a newapi
+// account by transport, and excluding newapi here silently dropped it from the per-stub
+// aggregate while MirrorStubEdgeID (platform-agnostic) still tagged the prod row — a
+// phantom "该 edge 暂未被发现" panel. isEdgeMirrorStub's precise base_url regex keeps the
+// ordinary newapi channels (external upstreams like DeepSeek, never api-*.tokenkey.dev)
+// out, so unioning newapi only surfaces the real edge-host bridge stubs. Its edge POOL
+// platform (the ?platform= the edge is queried with) is resolved separately by
+// edgeStubPoolPlatform — "newapi" is a transport label, never an edge pool.
+//
+// A NEW edge-stub platform MUST be added here or its stubs won't expand in the inline panel.
 var edgeStubPlatforms = []string{
 	PlatformAnthropic,
 	PlatformOpenAI,
 	PlatformAntigravity,
 	PlatformGrok,
 	PlatformKiro,
+	PlatformNewAPI,
 }
 
 // edgeAccountsStore is the narrow account dependency: list anthropic accounts so
@@ -463,6 +476,15 @@ func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 	return targets
 }
 
+// edgeStubAllPoolsPlatform is the ?platform= sentinel that asks an edge for its FULL
+// inventory across every platform — the same value the edge accounts handler accepts as
+// edgeAccountsAllPlatforms ("all"). The per-stub fan-out uses it for a stub whose own
+// platform is a transport label that is NOT itself an edge pool (newapi, see
+// edgeStubPoolPlatform): paired with group_scope=caller the edge narrows to exactly the
+// stub key's group, so "all" returns precisely that group's real-platform accounts
+// without prod needing to know which platform the edge serves them under.
+const edgeStubAllPoolsPlatform = "all"
+
 // edgeStubPoolPlatform resolves the EDGE-POOL platform a mirror stub represents for
 // the per-stub fan-out (the inline /accounts panel) — which decides both the
 // ?platform= the edge is queried with AND the StubPlatform footnote.
@@ -474,7 +496,20 @@ func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 // kiro panel showed the anthropic oh-3-a account). credentials.mirror_platform is the
 // authoritative declaration of which edge pool the stub represents — the SAME field
 // surface-C's capacity mirror keys on (see mirrorCapacityPlatform). Non-empty
-// mirror_platform wins; otherwise fall back to the stub's own platform so native
+// mirror_platform wins.
+//
+// newapi is the second transport-only platform (after kiro's anthropic transport): the
+// prod grok relay is a New API ct=1 bridge (platform=newapi) and the edge has NO newapi
+// pool — it serves grok under platform=grok (the native grok arm). So a newapi stub with
+// no mirror_platform must NOT query ?platform=newapi (the edge returns zero accounts → a
+// "reachable but empty" panel, no better than the phantom). Resolve it to the "all"
+// sentinel instead: group_scope=caller narrows the edge to this key's group and the panel
+// footnote names that group from the edge's own response (EdgeGroup, e.g. "grok"), so the
+// correspondence stays precise with zero operator data. An operator may still set
+// mirror_platform=grok for an exact ?platform=grok query (the mp branch above), exactly as
+// kiro stubs do.
+//
+// Every other platform falls back to the stub's own platform so native
 // openai/grok/antigravity stubs (no mirror_platform) stay correct. Unlike
 // mirrorCapacityPlatform, the empty default is acct.Platform (NOT anthropic): the
 // per-stub path spans all edgeStubPlatforms, so coercing empty to anthropic would
@@ -485,6 +520,11 @@ func edgeStubPoolPlatform(acct *Account) string {
 	}
 	if mp := strings.ToLower(strings.TrimSpace(acct.GetCredential("mirror_platform"))); mp != "" {
 		return mp
+	}
+	if acct.Platform == PlatformNewAPI {
+		// Transport-only label: let the edge's caller-key group (group_scope=caller)
+		// pick the real-platform accounts rather than query a non-existent newapi pool.
+		return edgeStubAllPoolsPlatform
 	}
 	return acct.Platform
 }
