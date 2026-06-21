@@ -183,6 +183,18 @@
       "display": false,
       "notes": "Qwen account 60. Flagship open-source Qwen3 MoE (235B total / 22B active). Mapped by tk_032 (identity whitelist merge). Priced in overlay (added 2026-06-18, same per-token rates as qwen3-32b). Added per customer request: the Qwen group previously listed only the smaller Qwen3 models."
     },
+    "newapi/qwen3.6-27b": {
+      "platform": "newapi",
+      "model_id": "qwen3.6-27b",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.6-27b",
+      "display": false,
+      "notes": "Qwen account 60. Dense 27B Qwen3.6 model (released 2026-04-22, DashScope model id qwen3.6-27b). Mapped by tk_039 (identity whitelist merge). Priced in overlay (中国内地/华北2北京 in ¥3/M out ¥18/M, 非思考和思考同价, ÷6.7; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). Added 2026-06-21 per customer request (client wrote 'qwen3.6-27B'; served under DashScope's canonical lowercase id)."
+    },
     "newapi/doubao-seedance-1-0-pro-250528": {
       "platform": "newapi",
       "model_id": "doubao-seedance-1-0-pro-250528",
