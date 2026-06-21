@@ -573,8 +573,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"status_code", statusCode)
 			// TK: feed the bounded saturation de-prioritization preference.
 			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
-			// TK: sustained header-less downstream-exhaustion → class-scoped mirror
+			// TK: sustained 429 failover-exhausted envelope → class-scoped mirror
 			// cooldown + failover (see ratelimit_service_tk_mirror_class_429.go).
+			// (A genuine HTTP 502 exhausted body routes through the default→legacy
+			// path, which is intentionally not wired — it lacks requestedModel.)
 			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
 			return true
 		}

@@ -2539,9 +2539,10 @@
         "TestMirrorClass429_SustainedSonnet_WritesClassScopedCooldown",
         "TestMirrorClass429_BelowThreshold_NoCooldown",
         "TestMirrorClass429_Opus_OnlyCoolsOpus_SonnetSiblingStaysSchedulable",
-        "TestMirrorClass429_NonAuthoritative429Branch_WritesCooldown"
+        "TestMirrorClass429_NonAuthoritative429Branch_WritesCooldown",
+        "TestMirrorClass429_Genuine502_LegacyPath_NoMirrorClassCooldown"
       ],
-      "rationale": "Unit coverage for the prod-side per-class 429 propagation + failover helper (ratelimit_service_tk_mirror_class_429.go). Pins the amplifier-safety regression guards: sustained sonnet 429 writes ONLY anthropic:class:sonnet (never account-level SetRateLimited / ladder), a single blip writes nothing, an opus cooldown leaves sonnet schedulable, and the header-less non-authoritative-429 branch (the cc-us7 envelope) class-cools when sustained. An upstream merge that drops these tests removes the only mechanical proof the prod mirror failover stays class-scoped."
+      "rationale": "Unit coverage for the prod-side per-class 429 propagation + failover helper (ratelimit_service_tk_mirror_class_429.go). Pins the amplifier-safety regression guards: sustained sonnet 429 writes ONLY anthropic:class:sonnet (never account-level SetRateLimited / ladder), a single blip writes nothing, an opus cooldown leaves sonnet schedulable, and the header-less non-authoritative-429 branch (the cc-us7 envelope) class-cools when sustained. An upstream merge that drops these tests removes the only mechanical proof the prod mirror failover stays class-scoped. Includes the 502-legacy boundary test: a genuine HTTP 502 routes through the legacy handleAnthropicUpstreamError path which is intentionally NOT wired for the mirror per-class cooldown — pins that deliberate scope boundary against an accidental future widening."
     },
     {
       "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",

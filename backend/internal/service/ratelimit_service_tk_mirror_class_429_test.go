@@ -159,6 +159,56 @@ func TestMirrorClass429_NonAuthoritative429Branch_WritesCooldown(t *testing.T) {
 	require.Equal(t, 0, repo.tempCalls)
 }
 
+// 7) The all_available_accounts_exhausted branch (failover-exhausted sibling
+// capacity envelope) also writes the class cooldown when sustained — covering
+// the second of the three new injection points. NOTE: this injection point lives
+// in HandleUpstreamError's `case 429:` block, so it fires for the
+// failover-exhausted body relayed with a 429 status (e.g. empty-pool fast-fail).
+// A genuine HTTP 502 routes through the `default:` → legacy
+// handleAnthropicUpstreamError path, which is intentionally NOT wired (it lacks
+// requestedModel) and is documented as out-of-scope — see TestMirrorClass429_
+// Genuine502_LegacyPath_NoMirrorClassCooldown for that boundary.
+func TestMirrorClass429_FailoverExhaustedBody429_WritesCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc, _ := newMirrorClass429Service(repo)
+	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	// 429 whose body is TokenKey's own failover-exhausted capacity phrase.
+	body := []byte(`{"type":"error","error":{"type":"server_error","message":"all available accounts exhausted"}}`)
+	for i := 0; i < 5; i++ {
+		require.True(t, svc.HandleUpstreamError(context.Background(), account,
+			http.StatusTooManyRequests, http.Header{}, body, "claude-sonnet-4-5"))
+	}
+	require.NotEmpty(t, repo.modelRateLimitCalls,
+		"sustained failover-exhausted 429 must class-cool the mirror account")
+	require.Equal(t, "anthropic:class:sonnet", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, "anthropic_unified_window_exceeded", repo.modelRateLimitCalls[0].reason)
+	require.Equal(t, 0, repo.setRateLimitedCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+// 8) Boundary: a genuine HTTP 502 for an Anthropic mirror account routes through
+// the legacy handleAnthropicUpstreamError path, which is intentionally NOT wired
+// for the mirror per-class cooldown (it lacks requestedModel). Asserts no
+// mirror-class cooldown is written there — documenting the deliberate scope
+// boundary so a future reader does not assume 502 is covered.
+func TestMirrorClass429_Genuine502_LegacyPath_NoMirrorClassCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc, _ := newMirrorClass429Service(repo)
+	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	body := []byte(`{"type":"error","error":{"type":"server_error","message":"all available accounts exhausted"}}`)
+	for i := 0; i < 5; i++ {
+		// 502 → default: → legacy handleAnthropicUpstreamError (no requestedModel).
+		require.True(t, svc.HandleUpstreamError(context.Background(), account,
+			http.StatusBadGateway, http.Header{}, body, "claude-sonnet-4-5"))
+	}
+	require.Empty(t, repo.modelRateLimitCalls,
+		"the legacy 502 path is intentionally NOT wired for the mirror per-class cooldown")
+	require.Equal(t, 0, repo.setRateLimitedCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
 // accountWithClassCooldown builds an Account whose Extra carries an active
 // model-class cooldown at the given scope/resetAt, matching the JSON shape
 // modelRateLimitResetAt reads.
