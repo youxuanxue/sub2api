@@ -32,6 +32,38 @@ export function isTempUnschedActive(s: EdgeAccountSummary): boolean {
 }
 
 /**
+ * The edge stores per-class cooldowns under the full scope key
+ * `anthropic:class:sonnet`. AccountStatusIndicator's `formatScopeName` has no alias
+ * for that raw key (it would render verbatim), so the TK adapter strips the
+ * `anthropic:class:` prefix to the bare model class (`sonnet`) before handing the
+ * map to the shared badge — keeping the upstream-shared component untouched
+ * (CLAUDE.md §5 minimal injection). The badge then reads `sonnet 限流至 HH:MM`.
+ *
+ * The shared `Account.extra.model_rate_limits` consumer requires non-optional
+ * `rate_limited_at` / `rate_limit_reset_at` strings; the edge DTO leaves
+ * `rate_limited_at` optional, so fall back to `rate_limit_reset_at` (or '') — the
+ * indicator only gates visibility on `rate_limit_reset_at` being in the future.
+ */
+const ANTHROPIC_CLASS_PREFIX = 'anthropic:class:'
+
+export function stripClassPrefix(
+  m: Record<string, { rate_limited_at?: string; rate_limit_reset_at?: string; reason?: string }>
+): Record<string, { rate_limited_at: string; rate_limit_reset_at: string }> {
+  const out: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }> = {}
+  for (const [scope, info] of Object.entries(m)) {
+    const key = scope.startsWith(ANTHROPIC_CLASS_PREFIX)
+      ? scope.slice(ANTHROPIC_CLASS_PREFIX.length)
+      : scope
+    const resetAt = info.rate_limit_reset_at ?? ''
+    out[key] = {
+      rate_limited_at: info.rate_limited_at ?? resetAt,
+      rate_limit_reset_at: resetAt
+    }
+  }
+  return out
+}
+
+/**
  * Adapts a credential-free EdgeAccountSummary into the admin `Account` shape so
  * the read-only Edge Accounts page can reuse AccountCapacityCell verbatim (the
  * cell only reads capacity/gauge fields). Missing-but-required Account fields are
@@ -76,7 +108,14 @@ export function toAccountLike(s: EdgeAccountSummary): Account {
     rpm_sticky_buffer: s.rpm_sticky_buffer ?? null,
     current_window_cost: s.current_window_cost ?? null,
     active_sessions: s.active_sessions ?? null,
-    current_rpm: s.current_rpm ?? null
+    current_rpm: s.current_rpm ?? null,
+    // Light up the already-mounted AccountStatusIndicator per-class 限流 badge with
+    // the edge's active model_rate_limits (scope prefix stripped). Keep `extra`
+    // undefined when absent — do NOT emit `{}`, so mergeEdges' JSON diff stays
+    // stable and the row doesn't re-render on every auto-refresh.
+    extra: s.model_rate_limits
+      ? { model_rate_limits: stripClassPrefix(s.model_rate_limits) }
+      : undefined
   }
 }
 

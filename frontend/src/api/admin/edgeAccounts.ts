@@ -42,6 +42,14 @@ export interface EdgeAccountSummary {
   rate_limited_at?: string
   rate_limit_reset_at?: string
   overload_until?: string
+  // Active-only per-model-class rate-limit state (mirrors backend edgeModelRateLimit).
+  // Scope keys are the full edge-side scope (e.g. "anthropic:class:sonnet"); only
+  // still-active entries are emitted. Surfaced so the prod overview can show the
+  // edge's per-class (sonnet 5h/7d) cooldown that sits null on the prod mirror account.
+  model_rate_limits?: Record<
+    string,
+    { rate_limited_at?: string; rate_limit_reset_at?: string; reason?: string }
+  >
   // Configured caps (anthropic oauth/setup-token).
   window_cost_limit?: number
   window_cost_sticky_reserve?: number

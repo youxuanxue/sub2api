@@ -11,7 +11,9 @@ import {
   filterDisplayEdges,
   isStubRateLimited,
   isStubTempUnschedActive,
-  accountVm
+  accountVm,
+  toAccountLike,
+  stripClassPrefix
 } from '@/utils/edgeAccounts.tk'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 
@@ -324,5 +326,55 @@ describe('accountVm', () => {
   it('returns the same memoized view-model for a stable account reference', () => {
     const a = acct({})
     expect(accountVm(a)).toBe(accountVm(a))
+  })
+})
+
+describe('stripClassPrefix', () => {
+  it('strips the anthropic:class: prefix so the shared badge can alias the bare class', () => {
+    const reset = '2026-06-21T10:00:00Z'
+    const out = stripClassPrefix({
+      'anthropic:class:sonnet': {
+        rate_limited_at: '2026-06-21T09:00:00Z',
+        rate_limit_reset_at: reset,
+        reason: 'anthropic_unified_window_exceeded'
+      }
+    })
+    expect(Object.keys(out)).toEqual(['sonnet'])
+    expect(out.sonnet.rate_limit_reset_at).toBe(reset)
+    expect(out.sonnet.rate_limited_at).toBe('2026-06-21T09:00:00Z')
+  })
+
+  it('falls back rate_limited_at to reset when omitted, and passes non-prefixed keys through', () => {
+    const reset = '2026-06-21T10:00:00Z'
+    const out = stripClassPrefix({
+      'anthropic:class:opus': { rate_limit_reset_at: reset },
+      AICredits: { rate_limit_reset_at: reset }
+    })
+    expect(out.opus.rate_limited_at).toBe(reset)
+    expect(out.AICredits.rate_limit_reset_at).toBe(reset)
+  })
+})
+
+describe('toAccountLike model_rate_limits → extra', () => {
+  it('lights up extra.model_rate_limits with the prefix stripped', () => {
+    const reset = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    const result = toAccountLike(
+      acct({
+        model_rate_limits: {
+          'anthropic:class:sonnet': {
+            rate_limited_at: '2026-06-21T09:00:00Z',
+            rate_limit_reset_at: reset,
+            reason: 'anthropic_unified_window_exceeded'
+          }
+        }
+      })
+    )
+    expect(result.extra?.model_rate_limits).toEqual({
+      sonnet: { rate_limited_at: '2026-06-21T09:00:00Z', rate_limit_reset_at: reset }
+    })
+  })
+
+  it('leaves extra undefined (not {}) when no model_rate_limits present', () => {
+    expect(toAccountLike(acct({ model_rate_limits: undefined })).extra).toBeUndefined()
   })
 })
