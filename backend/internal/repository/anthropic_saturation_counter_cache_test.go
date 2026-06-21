@@ -31,7 +31,7 @@ func TestAnthropicSaturationCounter_IncrementAndGet(t *testing.T) {
 
 	// Three increments => count 3, batch read reflects it without mutating.
 	for i := 1; i <= 3; i++ {
-		c, incErr := cache.IncrementSaturation(ctx, 7, 90)
+		c, incErr := cache.IncrementSaturation(ctx, 7, 90, 150)
 		require.NoError(t, incErr)
 		require.Equal(t, int64(i), c)
 	}
@@ -46,7 +46,7 @@ func TestAnthropicSaturationCounter_FixedWindowTTLSelfClears(t *testing.T) {
 	cache, mr := newSaturationTestCache(t)
 	ctx := context.Background()
 
-	_, err := cache.IncrementSaturation(ctx, 42, 90)
+	_, err := cache.IncrementSaturation(ctx, 42, 90, 150)
 	require.NoError(t, err)
 	// TTL is set on the first INCR (key was absent).
 	ttl := mr.TTL(anthropicSaturationKey(42))
@@ -55,7 +55,7 @@ func TestAnthropicSaturationCounter_FixedWindowTTLSelfClears(t *testing.T) {
 	// Subsequent increments within the window keep the ORIGINAL window (TTL is
 	// only (re)set when the key was absent), so the window does not slide forever.
 	mr.FastForward(30 * time.Second)
-	_, err = cache.IncrementSaturation(ctx, 42, 90)
+	_, err = cache.IncrementSaturation(ctx, 42, 90, 150)
 	require.NoError(t, err)
 	ttlAfter := mr.TTL(anthropicSaturationKey(42))
 	require.LessOrEqual(t, ttlAfter, 60*time.Second, "window must not slide forward on later hits")
@@ -72,10 +72,10 @@ func TestAnthropicSaturationCounter_GetBatch(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		_, err := cache.IncrementSaturation(ctx, 1, 90)
+		_, err := cache.IncrementSaturation(ctx, 1, 90, 150)
 		require.NoError(t, err)
 	}
-	_, err := cache.IncrementSaturation(ctx, 2, 90)
+	_, err := cache.IncrementSaturation(ctx, 2, 90, 150)
 	require.NoError(t, err)
 
 	// id 3 never incremented => absent.
@@ -92,10 +92,12 @@ func TestAnthropicSaturationCounter_GetBatch(t *testing.T) {
 	require.Empty(t, empty)
 }
 
-func TestAnthropicSaturationCounter_InvalidWindow(t *testing.T) {
+func TestAnthropicSaturationCounter_InvalidArgs(t *testing.T) {
 	cache, _ := newSaturationTestCache(t)
-	_, err := cache.IncrementSaturation(context.Background(), 1, 0)
-	require.Error(t, err)
+	_, err := cache.IncrementSaturation(context.Background(), 1, 0, 150)
+	require.Error(t, err, "non-positive window rejected")
+	_, err = cache.IncrementSaturation(context.Background(), 1, 90, 0)
+	require.Error(t, err, "non-positive streak ttl rejected")
 }
 
 func TestAnthropicSaturationCounter_StreakFirstSeenNXLastSeenOverwrites(t *testing.T) {
@@ -103,7 +105,7 @@ func TestAnthropicSaturationCounter_StreakFirstSeenNXLastSeenOverwrites(t *testi
 	ctx := context.Background()
 
 	// Single fresh hit: firstSeen == lastSeen (span 0), both = current Redis TIME.
-	_, err := cache.IncrementSaturation(ctx, 5, 90)
+	_, err := cache.IncrementSaturation(ctx, 5, 90, 150)
 	require.NoError(t, err)
 	got, err := cache.GetSaturationStreakBatch(ctx, []int64{5})
 	require.NoError(t, err)
@@ -116,7 +118,7 @@ func TestAnthropicSaturationCounter_StreakFirstSeenNXLastSeenOverwrites(t *testi
 	// the streak span reflects the real outage duration — the sustained signal.
 	mr.Set(anthropicSaturationFirstKey(7), "1000")
 	mr.Set(anthropicSaturationLastKey(7), "1000")
-	_, err = cache.IncrementSaturation(ctx, 7, 90)
+	_, err = cache.IncrementSaturation(ctx, 7, 90, 150)
 	require.NoError(t, err)
 	got, err = cache.GetSaturationStreakBatch(ctx, []int64{7})
 	require.NoError(t, err)
@@ -129,7 +131,8 @@ func TestAnthropicSaturationCounter_StreakSelfClearsAfterTTL(t *testing.T) {
 	cache, mr := newSaturationTestCache(t)
 	ctx := context.Background()
 
-	_, err := cache.IncrementSaturation(ctx, 8, 90)
+	const streakTTL = 150 // streak TTL passed below; service owns the canonical const
+	_, err := cache.IncrementSaturation(ctx, 8, 90, streakTTL)
 	require.NoError(t, err)
 	got, err := cache.GetSaturationStreakBatch(ctx, []int64{8})
 	require.NoError(t, err)
@@ -137,7 +140,7 @@ func TestAnthropicSaturationCounter_StreakSelfClearsAfterTTL(t *testing.T) {
 
 	// No further hits for longer than the sliding streak TTL => keys expire and the
 	// streak self-clears (edge recovered), so the stub is re-included.
-	mr.FastForward((anthropicSaturationStreakTTLSeconds + 5) * time.Second)
+	mr.FastForward((streakTTL + 5) * time.Second)
 	got, err = cache.GetSaturationStreakBatch(ctx, []int64{8})
 	require.NoError(t, err)
 	require.Empty(t, got, "streak must self-clear after TTL of silence")
@@ -147,7 +150,7 @@ func TestAnthropicSaturationCounter_StreakBatchAbsentAndEmpty(t *testing.T) {
 	cache, _ := newSaturationTestCache(t)
 	ctx := context.Background()
 
-	_, err := cache.IncrementSaturation(ctx, 1, 90)
+	_, err := cache.IncrementSaturation(ctx, 1, 90, 150)
 	require.NoError(t, err)
 	out, err := cache.GetSaturationStreakBatch(ctx, []int64{1, 2})
 	require.NoError(t, err)

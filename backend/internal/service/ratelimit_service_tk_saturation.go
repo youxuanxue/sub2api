@@ -37,6 +37,19 @@ const (
 	// no-available hits (e.g. one momentary edge burst) never trip it; only a
 	// SUSTAINED pattern does.
 	anthropicSaturationThreshold int64 = 4
+
+	// anthropicSaturationStreakTTLSeconds is the SLIDING TTL of the firstSeen /
+	// lastSeen streak keys (refreshed on every hit), feeding the sustained-
+	// saturation HARD exclusion. It bounds the max gap between two consecutive
+	// capacity-envelope hits that still counts as ONE continuous streak; a longer
+	// gap expires the keys and resets the streak (so a recovered-then-re-failed
+	// edge starts fresh). It lives here — in the same package as
+	// anthropicSustainedSaturationMinAgeSeconds, which it MUST exceed so a span can
+	// reach the min age before the keys expire — and is passed into the counter
+	// (not a repo constant) so the invariant is intra-package and test-guarded
+	// (TestSustainedSaturation_StreakTTLExceedsMinAge). See
+	// gateway_service_tk_sustained_saturation.go.
+	anthropicSaturationStreakTTLSeconds = 150
 )
 
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
@@ -57,7 +70,7 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 	if s == nil || s.anthropicSaturationCounter == nil {
 		return
 	}
-	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, anthropicSaturationWindowSeconds)
+	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, anthropicSaturationWindowSeconds, anthropicSaturationStreakTTLSeconds)
 	if err != nil {
 		slog.Warn("anthropic_stub_saturation_increment_failed",
 			"account_id", accountID,

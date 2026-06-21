@@ -13,17 +13,6 @@ const (
 	anthropicSaturationCountPrefix = "anthropic_saturation_count:account:"
 	anthropicSaturationFirstPrefix = "anthropic_saturation_first:account:"
 	anthropicSaturationLastPrefix  = "anthropic_saturation_last:account:"
-
-	// anthropicSaturationStreakTTLSeconds is the SLIDING TTL of the firstSeen /
-	// lastSeen streak keys (refreshed on every hit). It bounds the max gap between
-	// two consecutive capacity-envelope hits that still counts as ONE continuous
-	// streak: gaps longer than this expire the keys and reset the streak (so an
-	// edge that recovered then later re-failed starts a fresh streak, not a
-	// resumed one). MUST stay > the sustained-saturation min-age gate in the
-	// service layer (anthropicSustainedSaturationMinAgeSeconds) so a genuinely
-	// sustained outage can accumulate enough span to trip the hard floor before
-	// its keys expire. Self-clearing: once hits stop the keys lapse on their own.
-	anthropicSaturationStreakTTLSeconds = 150
 )
 
 // anthropicSaturationIncrScript atomically maintains TWO things per account:
@@ -89,9 +78,12 @@ func anthropicSaturationLastKey(accountID int64) string {
 	return fmt.Sprintf("%s%d", anthropicSaturationLastPrefix, accountID)
 }
 
-func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int) (int64, error) {
+func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Context, accountID int64, windowSeconds, streakTTLSeconds int) (int64, error) {
 	if windowSeconds <= 0 {
 		return 0, fmt.Errorf("invalid window: %d", windowSeconds)
+	}
+	if streakTTLSeconds <= 0 {
+		return 0, fmt.Errorf("invalid streak ttl: %d", streakTTLSeconds)
 	}
 	keys := []string{
 		anthropicSaturationKey(accountID),
@@ -100,7 +92,7 @@ func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Contex
 	}
 	count, err := anthropicSaturationIncrScript.Run(
 		ctx, c.rdb, keys,
-		windowSeconds, anthropicSaturationStreakTTLSeconds,
+		windowSeconds, streakTTLSeconds,
 	).Int64()
 	if err != nil {
 		return 0, fmt.Errorf("increment anthropic saturation: %w", err)
@@ -162,18 +154,7 @@ func (c *anthropicSaturationCounterCache) GetSaturationBatch(ctx context.Context
 		return nil, fmt.Errorf("mget anthropic saturation: %w", err)
 	}
 	for i, v := range vals {
-		if v == nil {
-			continue
-		}
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		n, convErr := strconv.ParseInt(s, 10, 64)
-		if convErr != nil {
-			continue
-		}
-		if n != 0 {
+		if n := parseRedisInt64(v); n != 0 {
 			out[accountIDs[i]] = n
 		}
 	}

@@ -14,6 +14,16 @@ func anthropicAcct(id int64) *Account {
 	return &Account{ID: id, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 }
 
+// Load-bearing invariant, mechanized (was a prose comment across two packages):
+// the streak keys' sliding TTL must EXCEED the min-age gate, otherwise the keys
+// expire before a span can reach the min age and the hard exclusion silently
+// never fires. Both constants now live in package service so this guard can see
+// them; if a future edit narrows the margin the build fails here, not in prod.
+func TestSustainedSaturation_StreakTTLExceedsMinAge(t *testing.T) {
+	require.Greater(t, int64(anthropicSaturationStreakTTLSeconds), anthropicSustainedSaturationMinAgeSeconds,
+		"streak TTL must exceed the sustained min-age gate, else the streak expires before its span can reach the gate (silent feature death)")
+}
+
 func acctIDs(accs []*Account) map[int64]bool {
 	out := make(map[int64]bool, len(accs))
 	for _, a := range accs {

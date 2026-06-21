@@ -81,7 +81,7 @@ func TestRateLimitService_HandleUpstreamError_DownstreamNoAvailable429_DoesNotPe
 // side test (read methods are unused on the rate-limit side).
 type fakeSaturationCounterRL struct{ incrementIDs []int64 }
 
-func (f *fakeSaturationCounterRL) IncrementSaturation(_ context.Context, accountID int64, _ int) (int64, error) {
+func (f *fakeSaturationCounterRL) IncrementSaturation(_ context.Context, accountID int64, _, _ int) (int64, error) {
 	f.incrementIDs = append(f.incrementIDs, accountID)
 	return int64(len(f.incrementIDs)), nil
 }

@@ -22,7 +22,7 @@ type fakeSaturationCache struct {
 	streakErr error
 }
 
-func (f *fakeSaturationCache) IncrementSaturation(_ context.Context, accountID int64, _ int) (int64, error) {
+func (f *fakeSaturationCache) IncrementSaturation(_ context.Context, accountID int64, _, _ int) (int64, error) {
 	if f.counts == nil {
 		f.counts = map[int64]int64{}
 	}

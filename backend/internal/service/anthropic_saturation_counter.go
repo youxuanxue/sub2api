@@ -23,11 +23,14 @@ type AnthropicSaturationCounterCache interface {
 	// sliding it forward indefinitely). Returns the new fixed-window count.
 	//
 	// The SAME call also maintains a sliding "streak" pair (firstSeen + lastSeen
-	// epochs, sliding TTL refreshed on every hit) used by the sustained-saturation
-	// HARD exclusion (GetSaturationStreakBatch). The fixed count drives the bounded
-	// soft preference; the streak span drives the hard floor. Both are fed from the
-	// single increment site (recordAnthropicStubSaturation), so they stay in sync.
-	IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int) (count int64, err error)
+	// epochs, TTL=streakTTLSeconds refreshed on every hit) used by the sustained-
+	// saturation HARD exclusion (GetSaturationStreakBatch). The fixed count drives
+	// the bounded soft preference; the streak span drives the hard floor. Both are
+	// fed from the single increment site (recordAnthropicStubSaturation), so they
+	// stay in sync. streakTTLSeconds is passed (not a repo constant) so it lives in
+	// the same package as the min-age gate it must exceed — see the invariant test
+	// in gateway_service_tk_sustained_saturation_test.go.
+	IncrementSaturation(ctx context.Context, accountID int64, windowSeconds, streakTTLSeconds int) (count int64, err error)
 
 	// GetSaturationBatch returns the current in-window counts for accountIDs in a
 	// single round trip (MGET). Missing/expired keys map to 0. The scheduler
