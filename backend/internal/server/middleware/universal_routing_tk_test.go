@@ -319,6 +319,73 @@ func TestMaybeResolveUniversal_VideoPollNoBodyResolves(t *testing.T) {
 	}
 }
 
+// dispatchGroup builds an active group with AllowMessagesDispatch set, so the
+// /v1/messages shape folds openai-compat platforms into its candidate set.
+func dispatchGroup(id int64, platform string) service.Group {
+	g := activeGroup(id, platform)
+	g.AllowMessagesDispatch = true
+	return g
+}
+
+// Regression for prod user_id=16 (计算所): a Claude-Code-shaped client sending a
+// newapi model (deepseek-v4-flash) to /v1/messages. With a DIRECT key bound to the
+// claude/anthropic (or Qwen) group, that request 429s with "no available accounts"
+// (account_id=null) because the bound pool has no deepseek account — 1045 such fails
+// in a ~5h prod window. A UNIVERSAL key must instead peek the body model and swap to
+// the deepseek-serving newapi group, so the request succeeds via messages-dispatch.
+//
+// The span mirrors user16: anthropic(1) + three newapi vendor groups all with dispatch
+// and sort_order 0 (deepseek=11, Qwen=18, volcengine=5 — 5 is the lowest id, the
+// blind-tiebreak trap) + an openai dispatch group(2). Only the deepseek group serves
+// the model, so the served-model truth filter must converge onto 11 — not 5 by id,
+// not 1 by anthropic native, not 2 by openai.
+func TestMaybeResolveUniversal_MessagesDispatchRoutesDeepseekToNewapiGroup_User16(t *testing.T) {
+	const model = "deepseek-v4-flash"
+	span := []service.Group{
+		dispatchGroup(5, service.PlatformNewAPI),  // volcengine — lowest id (trap)
+		activeGroup(1, service.PlatformAnthropic), // claude (native, no dispatch)
+		dispatchGroup(2, service.PlatformOpenAI),  // GPT专线
+		dispatchGroup(11, service.PlatformNewAPI), // deepseek
+		dispatchGroup(18, service.PlatformNewAPI), // Qwen
+	}
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	resolver.SetAvailableModelsProvider(func(_ context.Context, groupID *int64, _ string) []string {
+		if groupID == nil {
+			return nil
+		}
+		switch *groupID {
+		case 11:
+			return []string{"deepseek-chat", "deepseek-v4-pro", "deepseek-reasoner", "deepseek-v4-flash"}
+		case 18:
+			return []string{"qwen-max", "qwen3-235b-a22b"}
+		case 5:
+			return []string{"doubao-seed-1-6-250615"}
+		default:
+			return nil // anthropic(1) / openai(2): native empty mapping
+		}
+	})
+
+	// No gin router → c.FullPath() empty → falls back to URL.Path, matched to
+	// ShapeAnthropicMessages by UniversalShapeForRequest.
+	c, _ := newTestCtx(http.MethodPost, "/v1/messages", `{"model":"`+model+`","messages":[{"role":"user","content":"hi"}]}`)
+	apiKey := &service.APIKey{ID: 1, UserID: 16, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("deepseek @/v1/messages resolve should succeed (continue auth), got abort status=%d", c.Writer.Status())
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != 11 {
+		t.Fatalf("must swap to deepseek-serving newapi group 11, got %v", apiKey.GroupID)
+	}
+	if apiKey.Group == nil || apiKey.Group.Platform != service.PlatformNewAPI {
+		t.Fatalf("swapped group must be newapi platform, got %+v", apiKey.Group)
+	}
+	// Body must still be readable by the downstream /v1/messages handler.
+	rest, _ := io.ReadAll(c.Request.Body)
+	if !strings.Contains(string(rest), `"model":"`+model+`"`) {
+		t.Fatalf("messages body not restored after peek: %q", string(rest))
+	}
+}
+
 func TestMaybeResolveUniversal_SkipEndpointNoSwap(t *testing.T) {
 	c, _ := newTestCtx(http.MethodGet, "/v1/models", "")
 	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(20, service.PlatformOpenAI)}})

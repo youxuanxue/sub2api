@@ -130,6 +130,108 @@ func TestResolve_NoServingGroupFallsBackNotHard403(t *testing.T) {
 	}
 }
 
+// user16Span 复刻 prod user_id=16(计算所)的权限跨度形状:一个 anthropic 组 +
+// 多个 newapi vendor 组(deepseek / Qwen / volcengine,全部 sort_order=0 且开 dispatch)
+// + 一个 openai dispatch 组。volcengine 的 id(5)最小,是「按 id tiebreak 盲选」的陷阱:
+// 不靠「组已服务模型集」真值过滤就会把 deepseek 落到 volcengine 组 → 下游 no available accounts。
+// 这正是 prod 上 user16 把 deepseek-v4-flash 发到 /v1/messages 时 1045 次 429 的成因
+// （direct key 绑死在 claude/Qwen 组,池里没有 deepseek 账号）。
+func user16Span() []Group {
+	return []Group{
+		dispatchGrp(5, PlatformNewAPI, 0, true),     // volcengine —— 最小 id,tiebreak 陷阱
+		grp(1, PlatformAnthropic, 1, false),         // claude(native,无 dispatch)
+		dispatchGrp(2, PlatformOpenAI, 0, true),     // GPT专线(native openai)
+		dispatchGrp(11, PlatformNewAPI, 0, true),    // deepseek
+		dispatchGrp(18, PlatformNewAPI, 0, true),    // Qwen
+	}
+}
+
+// user16ServingProvider 复刻 prod 上各组的真实服务集(account 39 ds-官 在 11、Qwen 在 18、
+// volcengine 在 5;openai/anthropic 组 native 空映射)。
+func user16ServingProvider() availableModelsProvider {
+	return servedProvider(map[int64][]string{
+		11: {"deepseek-chat", "deepseek-v4-pro", "deepseek-reasoner", "deepseek-v4-flash"},
+		18: {"qwen-max", "qwen3-235b-a22b", "qwen3-coder-plus"},
+		5:  {"doubao-seed-1-6-250615", "doubao-seedream-4-0-250828"},
+		// gid=1(anthropic)、gid=2(openai)缺席 → nil(native)
+	})
+}
+
+// 核心收敛(user16 修复守卫):deepseek-v4-flash 发到 /v1/messages(Anthropic 形状),全能 Key
+// 必须落到真正服务它的 deepseek 组(11),而非:anthropic 组(1,空池 429)、volcengine 组
+// (5,id 最小的盲选陷阱)、Qwen 组(18)。依赖 ① span 内有 dispatch 组让 /v1/messages 把
+// openai-compat 并入候选 ② 服务真值过滤在多 newapi vendor 间精确收敛。
+func TestResolve_MessagesDispatch_NewapiDeepseekDisambiguation_User16(t *testing.T) {
+	ctx := context.Background()
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
+	r.SetAvailableModelsProvider(user16ServingProvider())
+	key := universalKey(16)
+
+	// deepseek-v4-flash on /v1/messages → 必须落 deepseek 组(11)。
+	g, err := r.Resolve(ctx, key, ShapeAnthropicMessages, "deepseek-v4-flash", "")
+	if err != nil || g == nil || g.ID != 11 {
+		t.Fatalf("deepseek-v4-flash @/v1/messages 应落 deepseek 组 gid=11, got=%v err=%v", g, err)
+	}
+
+	// 同跨度同端点,claude-opus-4-8 仍正确落 anthropic 组(1)—— 不被 dispatch 并入的
+	// newapi/openai 候选污染(claude-* 的 hint==anthropic,且 native 组按 hint==platform 命中)。
+	g, err = r.Resolve(ctx, key, ShapeAnthropicMessages, "claude-opus-4-8", "")
+	if err != nil || g == nil || g.ID != 1 {
+		t.Fatalf("claude-opus-4-8 @/v1/messages 应落 anthropic 组 gid=1, got=%v err=%v", g, err)
+	}
+
+	// deepseek-v4-flash 经原生 openai-compat 入口(/v1/chat/completions)同样落 deepseek 组(11)。
+	g, err = r.Resolve(ctx, key, ShapeOpenAIChat, "deepseek-v4-flash", "")
+	if err != nil || g == nil || g.ID != 11 {
+		t.Fatalf("deepseek-v4-flash @/v1/chat/completions 应落 deepseek 组 gid=11, got=%v err=%v", g, err)
+	}
+}
+
+// 守卫服务真值过滤「不可或缺」:同 user16 跨度但 provider 未接线时,/v1/messages + deepseek
+// 的 hint==newapi 会在三个 sort_order=0 的 newapi 组里按 id 盲选到 volcengine(5)—— 一个
+// 不服务 deepseek 的组。这复现「没有真值过滤就投错组」的回归,锁死过滤器的存在价值。
+func TestResolve_MessagesDispatch_NewapiVendor_FilterIsLoadBearing(t *testing.T) {
+	ctx := context.Background()
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
+	// 故意不设 provider(模拟未接线/降级)。
+	g, err := r.Resolve(ctx, universalKey(16), ShapeAnthropicMessages, "deepseek-v4-flash", "")
+	if err != nil || g == nil {
+		t.Fatalf("无 provider 应仍解析出一个组(平台级兜底), got=%v err=%v", g, err)
+	}
+	if g.ID != 5 {
+		t.Fatalf("无 provider 时 hint=newapi 按 id 盲选应落 volcengine 组 gid=5(陷阱), got gid=%d —— "+
+			"若此处已非 5,说明 tiebreak 行为变更,需同步更新真值过滤守卫", g.ID)
+	}
+	// 接上 provider 后必须收敛到正确的 deepseek 组(11)—— 与上一个测试呼应。
+	r.SetAvailableModelsProvider(user16ServingProvider())
+	r.InvalidateAll()
+	g, err = r.Resolve(ctx, universalKey(16), ShapeAnthropicMessages, "deepseek-v4-flash", "")
+	if err != nil || g == nil || g.ID != 11 {
+		t.Fatalf("接上 provider 后 deepseek 应收敛到 gid=11, got=%v err=%v", g, err)
+	}
+}
+
+// count_tokens 候选恒为 [anthropic, antigravity],永不并入 openai-compat:即便模型是
+// deepseek(newapi)这类,count_tokens 也只在 anthropic/antigravity 组里挑,绝不落 newapi
+// 组(5/11/18)。在 user16 跨度里 → 唯一 count_tokens-eligible 组是 anthropic(1);服务真值
+// 过滤对它收敛为空,但安全兜底退回 eligible(不硬 403,由下游 anthropic count_tokens 处理器
+// 诚实拒绝 deepseek)。锁死「count_tokens 不被 dispatch 误导到 newapi」这条不变量。
+func TestResolve_CountTokensNeverDispatchesNewapi_User16(t *testing.T) {
+	ctx := context.Background()
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
+	r.SetAvailableModelsProvider(user16ServingProvider())
+	g, err := r.Resolve(ctx, universalKey(16), ShapeAnthropicCountTokens, "deepseek-v4-flash", "")
+	if err != nil || g == nil {
+		t.Fatalf("count_tokens 应解析到 anthropic 组(安全兜底), got=%v err=%v", g, err)
+	}
+	if g.Platform == PlatformNewAPI {
+		t.Fatalf("count_tokens 绝不应落 newapi 组(候选恒 [anthropic,antigravity]), got gid=%d platform=%s", g.ID, g.Platform)
+	}
+	if g.ID != 1 {
+		t.Fatalf("user16 跨度里 count_tokens 唯一 eligible 是 anthropic 组 gid=1, got gid=%d", g.ID)
+	}
+}
+
 func TestValidateNewapiAccountModelMapping(t *testing.T) {
 	nonEmpty := map[string]any{"model_mapping": map[string]any{"deepseek-chat": "deepseek-chat"}}
 	empty := map[string]any{"model_mapping": map[string]any{}}
