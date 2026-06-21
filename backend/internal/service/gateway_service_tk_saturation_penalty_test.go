@@ -16,8 +16,10 @@ import (
 // fakeSaturationCache implements AnthropicSaturationCounterCache from a static
 // per-account count map, so score-side tests run without Redis.
 type fakeSaturationCache struct {
-	counts map[int64]int64
-	getErr error
+	counts    map[int64]int64
+	streaks   map[int64]AnthropicSaturationStreak
+	getErr    error
+	streakErr error
 }
 
 func (f *fakeSaturationCache) IncrementSaturation(_ context.Context, accountID int64, _ int) (int64, error) {
@@ -36,6 +38,19 @@ func (f *fakeSaturationCache) GetSaturationBatch(_ context.Context, ids []int64)
 	for _, id := range ids {
 		if n := f.counts[id]; n != 0 {
 			out[id] = n
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSaturationCache) GetSaturationStreakBatch(_ context.Context, ids []int64) (map[int64]AnthropicSaturationStreak, error) {
+	if f.streakErr != nil {
+		return nil, f.streakErr
+	}
+	out := map[int64]AnthropicSaturationStreak{}
+	for _, id := range ids {
+		if st, ok := f.streaks[id]; ok {
+			out[id] = st
 		}
 	}
 	return out, nil

@@ -1952,6 +1952,13 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
+		// TK: drop sustainedly-saturated stubs (edge dead for a sustained window)
+		// from the routed set too, with an all-saturated last-resort guard. The
+		// soft +1000 preference is NOT applied on the routing path, so without this
+		// a routed dead stub would keep being picked first. See
+		// gateway_service_tk_sustained_saturation.go.
+		routingCandidates = s.tkFilterSustainedlySaturated(ctx, routingCandidates)
+
 		if len(routingCandidates) > 0 {
 			// 1.5. 在路由账号范围内检查粘性会话
 			if sessionHash != "" && stickyAccountID > 0 {
@@ -2363,6 +2370,14 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 		return nil, ErrNoAvailableAccounts
 	}
+
+	// TK: hard-exclude sustainedly-saturated anthropic mirror stubs (edge dead for
+	// a sustained window) from the load-balance + Layer-3 fallback candidate set,
+	// with an all-saturated last-resort guard. This is the hard tier above the
+	// bounded soft preference (computeAnthropicSaturationPenalties) and is what
+	// actually keeps traffic off a 30m-dead stub. See
+	// gateway_service_tk_sustained_saturation.go.
+	candidates = s.tkFilterSustainedlySaturated(ctx, candidates)
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
 	for _, acc := range candidates {

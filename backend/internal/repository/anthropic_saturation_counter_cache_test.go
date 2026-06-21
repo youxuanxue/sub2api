@@ -97,3 +97,65 @@ func TestAnthropicSaturationCounter_InvalidWindow(t *testing.T) {
 	_, err := cache.IncrementSaturation(context.Background(), 1, 0)
 	require.Error(t, err)
 }
+
+func TestAnthropicSaturationCounter_StreakFirstSeenNXLastSeenOverwrites(t *testing.T) {
+	cache, mr := newSaturationTestCache(t)
+	ctx := context.Background()
+
+	// Single fresh hit: firstSeen == lastSeen (span 0), both = current Redis TIME.
+	_, err := cache.IncrementSaturation(ctx, 5, 90)
+	require.NoError(t, err)
+	got, err := cache.GetSaturationStreakBatch(ctx, []int64{5})
+	require.NoError(t, err)
+	require.Positive(t, got[5].FirstSeenUnix)
+	require.Equal(t, got[5].FirstSeenUnix, got[5].LastSeenUnix, "single hit => span 0")
+
+	// Seed a pre-existing streak that started long ago (miniredis TIME is real
+	// wall-clock and not moved by FastForward, so seed explicit epochs). The next
+	// hit must PRESERVE firstSeen (set-once / NX) and OVERWRITE lastSeen to now, so
+	// the streak span reflects the real outage duration — the sustained signal.
+	mr.Set(anthropicSaturationFirstKey(7), "1000")
+	mr.Set(anthropicSaturationLastKey(7), "1000")
+	_, err = cache.IncrementSaturation(ctx, 7, 90)
+	require.NoError(t, err)
+	got, err = cache.GetSaturationStreakBatch(ctx, []int64{7})
+	require.NoError(t, err)
+	require.Equal(t, int64(1000), got[7].FirstSeenUnix, "firstSeen is set-once (NX), preserved across hits")
+	require.Greater(t, got[7].LastSeenUnix, int64(1000), "lastSeen is overwritten to now each hit")
+	require.Greater(t, got[7].LastSeenUnix-got[7].FirstSeenUnix, int64(120), "span grows with the streak (sustained)")
+}
+
+func TestAnthropicSaturationCounter_StreakSelfClearsAfterTTL(t *testing.T) {
+	cache, mr := newSaturationTestCache(t)
+	ctx := context.Background()
+
+	_, err := cache.IncrementSaturation(ctx, 8, 90)
+	require.NoError(t, err)
+	got, err := cache.GetSaturationStreakBatch(ctx, []int64{8})
+	require.NoError(t, err)
+	require.Contains(t, got, int64(8), "streak present right after a hit")
+
+	// No further hits for longer than the sliding streak TTL => keys expire and the
+	// streak self-clears (edge recovered), so the stub is re-included.
+	mr.FastForward((anthropicSaturationStreakTTLSeconds + 5) * time.Second)
+	got, err = cache.GetSaturationStreakBatch(ctx, []int64{8})
+	require.NoError(t, err)
+	require.Empty(t, got, "streak must self-clear after TTL of silence")
+}
+
+func TestAnthropicSaturationCounter_StreakBatchAbsentAndEmpty(t *testing.T) {
+	cache, _ := newSaturationTestCache(t)
+	ctx := context.Background()
+
+	_, err := cache.IncrementSaturation(ctx, 1, 90)
+	require.NoError(t, err)
+	out, err := cache.GetSaturationStreakBatch(ctx, []int64{1, 2})
+	require.NoError(t, err)
+	require.Contains(t, out, int64(1))
+	_, has2 := out[2]
+	require.False(t, has2, "account with no streak must be absent")
+
+	empty, err := cache.GetSaturationStreakBatch(ctx, nil)
+	require.NoError(t, err)
+	require.Empty(t, empty)
+}

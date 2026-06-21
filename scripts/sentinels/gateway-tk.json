@@ -2523,10 +2523,12 @@
       "must_contain": [
         "func NewAnthropicSaturationCounterCache(",
         "anthropic_saturation_count:account:",
+        "anthropic_saturation_first:account:",
         "anthropicSaturationIncrScript",
-        "func (c *anthropicSaturationCounterCache) GetSaturationBatch("
+        "func (c *anthropicSaturationCounterCache) GetSaturationBatch(",
+        "func (c *anthropicSaturationCounterCache) GetSaturationStreakBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for the saturation de-prioritization. The INCR+EXPIRE-on-first-hit Lua keeps the ORIGINAL window (no sliding) so the count tracks a sustained burst and self-clears on TTL; GetSaturationBatch (MGET) is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed counter for the saturation routing-away. The INCR+EXPIRE-on-first-hit Lua keeps the ORIGINAL fixed window for the soft-preference count (GetSaturationBatch); the SAME Lua also maintains the sliding firstSeen/lastSeen streak pair (Redis-clock stamped) whose span feeds the sustained-saturation HARD exclusion (GetSaturationStreakBatch). Deleting this repo file breaks the wire provider and disables both the soft preference and the hard floor."
     },
     {
       "path": "backend/internal/service/setting_service_tk_saturation.go",
@@ -3155,6 +3157,24 @@
         "if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {"
       ],
       "rationale": "PR #902 coverage parity: the window-sched tri-state guard now gates the previous_response_id chain (SelectAccountByPreviousResponseID) too, replacing the retired auto-pause that used to gate this path. isSticky=true keeps a StickyOnly account's chain, only a NotSchedulable account yields. If an upstream merge drops this line the prev-response path loses window coverage silently. Anchor pins the injection."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_sustained_saturation.go",
+      "must_contain": [
+        "func tkIsAnthropicStubSustainedlySaturated(",
+        "func (s *GatewayService) tkFilterSustainedlySaturated(",
+        "anthropicSustainedSaturationMinAgeSeconds int64 = 120",
+        "anthropic_sustained_saturation_excluded"
+      ],
+      "rationale": "Hard tier of the anthropic saturated mirror-stub routing-away (prod 2026-06-21): a stub whose continuous-saturation streak SPAN (lastSeen-firstSeen) has reached the min age is HARD-excluded from selection, not just soft de-prioritized. This is the primitive that actually keeps traffic off a 30m-dead edge — the soft +1000 preference (gateway_service_tk_saturation_penalty.go) only reorders and, at low/bursty traffic with a fixed-window count and LRU favouring the perpetually-failing stub, lets the dead stub keep being picked first (prod incident: cc-us2 hogging scheduling while healthy cc-us4 starves at 0/70, client retries). Amplifier-safe by construction: a transient burst's span can never reach the min age, so it can never reproduce the 2026-05-31 503 amplifier; all-saturated last-resort guard never empties the pool; self-clearing via the sliding streak TTL (no cooldown, no SetTempUnschedulable, no ladder). Deleting this file silently re-breaks prod failover."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.tkFilterSustainedlySaturated(ctx, candidates)",
+        "s.tkFilterSustainedlySaturated(ctx, routingCandidates)"
+      ],
+      "rationale": "Load-bearing wiring of the sustained-saturation HARD exclusion into BOTH the Layer-2 load-aware candidate set and the Layer-1 model-routing candidate set. These two thin calls are what actually route traffic away from a sustainedly-dead mirror stub; if an upstream merge reverts gateway_service.go they vanish and a 30m-dead stub is silently re-included as a first-class, LRU-preferred candidate, re-breaking prod failover (cc-us2 hogging scheduling while cc-us4 starves). See gateway_service_tk_sustained_saturation.go."
     }
   ]
 }

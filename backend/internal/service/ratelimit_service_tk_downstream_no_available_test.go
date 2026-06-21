@@ -88,6 +88,9 @@ func (f *fakeSaturationCounterRL) IncrementSaturation(_ context.Context, account
 func (f *fakeSaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64) (map[int64]int64, error) {
 	return map[int64]int64{}, nil
 }
+func (f *fakeSaturationCounterRL) GetSaturationStreakBatch(_ context.Context, _ []int64) (map[int64]AnthropicSaturationStreak, error) {
+	return map[int64]AnthropicSaturationStreak{}, nil
+}
 
 // The saturation feature MUST feed the de-prioritization counter on the skip
 // path while NEVER advancing the 3/3 ladder or writing temp_unschedulable /
