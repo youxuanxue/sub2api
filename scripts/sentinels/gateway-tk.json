@@ -2516,9 +2516,32 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"no_available_accounts\")",
-        "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"all_available_accounts_exhausted\")"
+        "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"all_available_accounts_exhausted\")",
+        "s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))"
       ],
-      "rationale": "Thin injection of the saturation counter increments at the two HandleUpstreamError skip-penalty branches (429 empty-pool + legacy 503 no-available, and the failover-exhausted 502 sibling). These sit AFTER the skip decision (the function still returns true to fail over) so they never change the cooldown/ladder behaviour — they only feed the de-prioritization preference. An upstream merge that rewrites the skip branches would silently drop the feed; these literal call anchors catch it."
+      "rationale": "Thin injection of the saturation counter increments at the two HandleUpstreamError skip-penalty branches (429 empty-pool + legacy 503 no-available, and the failover-exhausted 502 sibling). These sit AFTER the skip decision (the function still returns true to fail over) so they never change the cooldown/ladder behaviour — they only feed the de-prioritization preference. An upstream merge that rewrites the skip branches would silently drop the feed; these literal call anchors catch it. TK prod per-class 429 propagation: the same two skip branches (plus the non-authoritative-429 branch) now also call tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty with the saturation count + in-flight model, so a SUSTAINED header-less edge empty-pool 429 writes a class-scoped cooldown on the prod MIRROR account and prod fails the in-flight class over to sonnet-healthy sibling mirrors (amplifier-safe: class-scope only, never account-level/ladder). An upstream merge rewriting the skip branches would drop this feed; this literal anchor catches it. See ratelimit_service_tk_mirror_class_429.go."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_mirror_class_429.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(",
+        "if saturationCount < anthropicSaturationThreshold {",
+        "scopeKey := tkAnthropicModelClassScopeKeyForModel(requestedModel)",
+        "s.accountRepo.SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
+        "anthropic_mirror_class_rate_limited",
+        "func tkFirstRequestedModel(requestedModel []string) string"
+      ],
+      "rationale": "Prod-side per-class 429 propagation + failover (prod incident: cc-us7 / account 54 0/N on sonnet while sibling mirrors had sonnet headroom). The edge's relayed empty-pool 429 is header-less and class-agnostic, so the edge's per-class window is invisible to prod and the prod MIRROR account never recorded model_rate_limits[\"anthropic:class:sonnet\"] — prod kept sticky-binding sonnet to the dead mirror and never failed over to sonnet-healthy siblings. This helper infers the class from the in-flight requested model and writes a BOUNDED, self-renewing floor cooldown at anthropic:class:<class> scope (via SetModelRateLimit, reusing tkAnthropicModelCooldownReason) ONLY when the saturation hit is SUSTAINED (saturationCount >= anthropicSaturationThreshold). Amplifier-safe: writes ONLY the class-scoped key, never account-level SetRateLimited or the 3/3 ladder, so opus/haiku on the same mirror stay schedulable. The read/filter/sticky-clear side is already wired (model_rate_limit.go tkAnthropicModelClassRateLimitActive; gateway_service shouldClearStickySession). An upstream merge or refactor dropping this helper or its sustained-gate silently regresses the failover and re-strands sonnet on the dead mirror — these anchors pin the load-bearing decision lines."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_mirror_class_429_test.go",
+      "must_contain": [
+        "TestMirrorClass429_SustainedSonnet_WritesClassScopedCooldown",
+        "TestMirrorClass429_BelowThreshold_NoCooldown",
+        "TestMirrorClass429_Opus_OnlyCoolsOpus_SonnetSiblingStaysSchedulable",
+        "TestMirrorClass429_NonAuthoritative429Branch_WritesCooldown"
+      ],
+      "rationale": "Unit coverage for the prod-side per-class 429 propagation + failover helper (ratelimit_service_tk_mirror_class_429.go). Pins the amplifier-safety regression guards: sustained sonnet 429 writes ONLY anthropic:class:sonnet (never account-level SetRateLimited / ladder), a single blip writes nothing, an opus cooldown leaves sonnet schedulable, and the header-less non-authoritative-429 branch (the cc-us7 envelope) class-cools when sustained. An upstream merge that drops these tests removes the only mechanical proof the prod mirror failover stays class-scoped."
     },
     {
       "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",

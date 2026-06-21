@@ -37,6 +37,15 @@ const (
 	// no-available hits (e.g. one momentary edge burst) never trip it; only a
 	// SUSTAINED pattern does.
 	anthropicSaturationThreshold int64 = 4
+
+	// tkAnthropicMirrorClassCooldownSeconds is the bounded, self-renewing floor
+	// (in seconds) written on a prod MIRROR account's per-class cooldown when an
+	// edge's header-less empty-pool 429 is SUSTAINED for the in-flight model's
+	// class (see ratelimit_service_tk_mirror_class_429.go). Reuses the saturation
+	// window so there is a single knob: the edge 429 carries no authoritative
+	// reset, so the floor self-renews on each subsequent class-429 and
+	// self-expires on read.
+	tkAnthropicMirrorClassCooldownSeconds = anthropicSaturationWindowSeconds
 )
 
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
@@ -53,9 +62,14 @@ func (s *RateLimitService) SetAnthropicSaturationCounter(cache AnthropicSaturati
 // logged and swallowed — selection must never fail because the preference
 // counter is unavailable. Logs at threshold crossing only (low-volume), so ops
 // can see a stub entering the de-prioritized state.
-func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, accountID int64, statusCode int, reason string) {
+//
+// Returns the new in-window count so callers can gate a sustained-only side
+// effect (e.g. the prod mirror per-class cooldown) on the SAME threshold
+// without a second Redis read. Returns 0 when the counter is unwired or Redis
+// errored — callers MUST treat 0 as "cannot confirm sustained" (do NOT cool).
+func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, accountID int64, statusCode int, reason string) int64 {
 	if s == nil || s.anthropicSaturationCounter == nil {
-		return
+		return 0
 	}
 	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, anthropicSaturationWindowSeconds)
 	if err != nil {
@@ -63,7 +77,7 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 			"account_id", accountID,
 			"reason", reason,
 			"error", err)
-		return
+		return 0
 	}
 	// Log exactly on the threshold-crossing increment (count == threshold), not
 	// per hit — one line marks the transition into the de-prioritized state.
@@ -76,4 +90,5 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 			"status_code", statusCode,
 			"reason", reason)
 	}
+	return count
 }
