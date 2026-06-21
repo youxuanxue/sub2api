@@ -13,8 +13,6 @@
       "required_set": "all-deployable",
       "opt_out_edges": [
         {"id": "uk1", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
-        {"id": "uk2", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
-        {"id": "uk3", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
         {"id": "us2", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
         {"id": "us3", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
         {"id": "us4", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},

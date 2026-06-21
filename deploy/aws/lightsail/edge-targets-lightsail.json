@@ -175,40 +175,6 @@
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us7",
       "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4; corrected 2026-06-08: live static IP is StaticIp-oh-4-b/18.188.207.95 not StaticIp-oh-4/3.139.183.116 — A record was stale at the dead 3.139.183.116)"
-    },
-    "uk2": {
-      "deployable": true,
-      "profile": "edge-lightsail-minimal",
-      "swap_gib": 2,
-      "lightsail_region": "eu-west-2",
-      "ec2_equivalent_region": "eu-west-2",
-      "availability_zone": "eu-west-2a",
-      "domain": "api-uk2.tokenkey.dev",
-      "porkbun_a_ipv4": "35.176.1.19",
-      "instance_name": "edge-ls-uk-2",
-      "static_ip_name": "StaticIp-uk-2",
-      "bundle_id": "micro_3_0",
-      "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
-      "ssm_prefix": "/tokenkey/lightsail/uk2",
-      "purpose": "uk-egress-lightsail-prod-relay (adopted console-created edge-ls-uk-2 / StaticIp-uk-2)"
-    },
-    "uk3": {
-      "deployable": true,
-      "profile": "edge-lightsail-minimal",
-      "swap_gib": 2,
-      "lightsail_region": "eu-west-2",
-      "ec2_equivalent_region": "eu-west-2",
-      "availability_zone": "eu-west-2a",
-      "domain": "api-uk3.tokenkey.dev",
-      "porkbun_a_ipv4": "13.135.19.214",
-      "instance_name": "edge-ls-uk-3",
-      "static_ip_name": "StaticIp-uk-3",
-      "bundle_id": "micro_3_0",
-      "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
-      "ssm_prefix": "/tokenkey/lightsail/uk3",
-      "purpose": "uk-egress-lightsail-prod-relay (adopted console-created edge-ls-uk-3 / StaticIp-uk-3)"
     }
   }
 }
