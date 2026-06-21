@@ -452,11 +452,37 @@ func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 			tempUnschedulableUntil: acct.TempUnschedulableUntil,
 			groups:                 stubGroupNames(acct),
 			stubAccountID:          acct.ID,
-			platform:               acct.Platform,
+			platform:               edgeStubPoolPlatform(acct),
 			groupScopeCaller:       true,
 		})
 	}
 	return targets
+}
+
+// edgeStubPoolPlatform resolves the EDGE-POOL platform a mirror stub represents for
+// the per-stub fan-out (the inline /accounts panel) — which decides both the
+// ?platform= the edge is queried with AND the StubPlatform footnote.
+//
+// A mirror stub's OWN account platform is only its TRANSPORT shape: kiro rides the
+// same anthropic-apikey relay as the cc-<edge> stubs (platform=anthropic), so reading
+// acct.Platform makes a kiro stub query the edge's anthropic pool — the wrong pool it
+// merely shares a host with (e.g. cc-us6 and kiro-us6 both point at api-us6, so the
+// kiro panel showed the anthropic oh-3-a account). credentials.mirror_platform is the
+// authoritative declaration of which edge pool the stub represents — the SAME field
+// surface-C's capacity mirror keys on (see mirrorCapacityPlatform). Non-empty
+// mirror_platform wins; otherwise fall back to the stub's own platform so native
+// openai/grok/antigravity stubs (no mirror_platform) stay correct. Unlike
+// mirrorCapacityPlatform, the empty default is acct.Platform (NOT anthropic): the
+// per-stub path spans all edgeStubPlatforms, so coercing empty to anthropic would
+// mis-route a native non-anthropic stub.
+func edgeStubPoolPlatform(acct *Account) string {
+	if acct == nil {
+		return ""
+	}
+	if mp := strings.ToLower(strings.TrimSpace(acct.GetCredential("mirror_platform"))); mp != "" {
+		return mp
+	}
+	return acct.Platform
 }
 
 // discoverEdgeTargets filters the anthropic accounts down to mirror stubs and

@@ -1,8 +1,13 @@
 <template>
-  <!-- Sticky-left so the focused edge panel stays readable at the left edge as the
-       wide prod table scrolls horizontally; capped width with an inner overflow-x
-       so a busy edge's sub-table scrolls internally rather than overflowing. -->
-  <div class="dt-edge-panel sticky left-0 my-1 w-fit max-w-[min(100%,76rem)] overflow-hidden rounded-lg border border-primary-200 bg-primary-50/40 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
+  <!-- Indented + sticky-left so the panel nests under its parent stub row's data
+       columns (left edge aligned with the name column at --select-col-width, past the
+       checkbox) instead of jutting out at the table's absolute left, AND stays readable
+       at that offset as the wide prod table scrolls horizontally. --select-col-width is
+       only defined inside .table-wrapper (table mode), so the fallback 0px leaves the
+       mobile card render (outside .table-wrapper) un-indented. Capped width (minus the
+       indent) with an inner overflow-x so a busy edge's sub-table scrolls internally
+       rather than overflowing. -->
+  <div class="dt-edge-panel sticky left-[var(--select-col-width,0px)] ml-[var(--select-col-width,0px)] my-1 w-fit max-w-[min(100%_-_var(--select-col-width,0px),76rem)] overflow-hidden rounded-lg border border-primary-200 bg-primary-50/40 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
     <!-- Edge header -->
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-primary-100 px-4 py-2.5 dark:border-dark-700">
       <div class="flex min-w-0 items-center gap-2.5">
