@@ -39,10 +39,19 @@ func (s *GatewayService) tkCountTokensFailoverError(account *Account, resp *http
 		return nil
 	}
 	return &UpstreamFailoverError{
-		StatusCode:             resp.StatusCode,
-		ResponseBody:           respBody,
-		ResponseHeaders:        resp.Header,
-		RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+		StatusCode:      resp.StatusCode,
+		ResponseBody:    respBody,
+		ResponseHeaders: resp.Header,
+		// Use the same carve-out as the main /v1/messages path (tkRetryableOnSameAccount,
+		// account_tk_pool_retry.go) instead of the bare pool check: a header-less
+		// anthropic capacity-envelope 429 ("No available accounts") relayed by a
+		// dead edge is NON-authoritative, so it must NOT burn pool_mode_retry_count
+		// in-place same-account retries holding the dead stub's slot — it must
+		// switch accounts immediately. Without this, count_tokens on a pool_mode
+		// stub held the dead stub (part of the cc-us2 2/70 amplifier) before
+		// switching; an authoritative window-limit 429 still carries the headers and
+		// is unaffected.
+		RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 	}
 }
 
