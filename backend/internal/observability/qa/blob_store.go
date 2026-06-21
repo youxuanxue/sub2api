@@ -103,16 +103,7 @@ func newBlobStore(cfg config.QACaptureConfig) (BlobStore, error) {
 		return newLocalFSBlobStore(filepath.Join(dataDir, "qa_blobs")), nil
 	}
 
-	region := strings.TrimSpace(cfg.Storage.Region)
-	if region == "" {
-		region = "auto"
-	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion(region),
-		awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(cfg.Storage.AccessKeyID, cfg.Storage.SecretAccessKey, ""),
-		),
-	)
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), qaS3LoadOptions(cfg.Storage)...)
 	if err != nil {
 		return nil, fmt.Errorf("load qa s3 config: %w", err)
 	}
@@ -133,6 +124,36 @@ func newBlobStore(cfg config.QACaptureConfig) (BlobStore, error) {
 		bucket: cfg.Storage.Bucket,
 		prefix: strings.Trim(strings.TrimSpace(cfg.Storage.Prefix), "/"),
 	}, nil
+}
+
+// qaS3LoadOptions builds the AWS SDK config load options for the QA S3 store.
+//
+// It injects a static credentials provider ONLY when an access key is explicitly
+// configured (non-AWS / local S3-compatible stores like R2 / MinIO). When the
+// access key is empty it adds NO credentials provider, so LoadDefaultConfig uses
+// the default AWS credential chain — i.e. the EC2 instance role on prod. That is
+// exactly how the deploy is wired: ops/stage0/deploy_via_ssm.sh injects only
+// DRIVER/REGION/BUCKET/PREFIX (never a long-lived key), and the QaExports bucket
+// policy grants the app instance role Put/Get/Delete
+// (deploy/aws/cloudformation/stage0-backups.yaml).
+//
+// Previously newBlobStore unconditionally passed an empty static provider, so
+// every prod export died with "operation error S3: PutObject ... static
+// credentials are empty". This mirrors S3MediaStore
+// (internal/repository/media_s3_store.go), which is why media offload works on
+// the same instance role while export did not.
+func qaS3LoadOptions(storage config.QACaptureStorageConfig) []func(*awsconfig.LoadOptions) error {
+	region := strings.TrimSpace(storage.Region)
+	if region == "" {
+		region = "auto" // Cloudflare R2 default
+	}
+	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
+	if strings.TrimSpace(storage.AccessKeyID) != "" {
+		opts = append(opts, awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(storage.AccessKeyID, storage.SecretAccessKey, ""),
+		))
+	}
+	return opts
 }
 
 func (s *s3BlobStore) fullKey(key string) string {

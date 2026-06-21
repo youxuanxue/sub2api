@@ -11,7 +11,7 @@
  * (TokenKey upstream-isolation pattern, CLAUDE.md §5).
  */
 
-import { ref, type Ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 import { qaTrajAPI, type TrajExportJob } from '@/api/qaTraj'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
@@ -35,8 +35,30 @@ export function useTkExportPanel(args: UseTkExportPanelArgs) {
 
   const exports = ref<TrajExportJob[]>([])
   const loading = ref(false)
-  const running = ref(false)
   const error = ref(false)
+
+  // Set of api-key ids with an in-flight manual export. The panel is a SINGLE
+  // persistent instance reused for every key (KeysView toggles :show + swaps
+  // :api-key-id), and exportNow() polls for up to 10 min off the request path —
+  // so "is an export running" MUST be scoped per key, not a shared boolean.
+  // Otherwise exporting key A and switching to key B (or reopening the panel for
+  // B) would show B as "exporting" and disable its button until A's poll loop
+  // ends. Keyed independence also lets A and B export concurrently (the backend
+  // already serializes them on its single export worker).
+  const runningKeyIds = ref<Set<number>>(new Set())
+
+  /** Whether the key currently shown in the panel has an in-flight export. */
+  const running = computed(() => {
+    const id = args.apiKeyId.value
+    return id != null && runningKeyIds.value.has(id)
+  })
+
+  function setRunning(id: number, on: boolean): void {
+    const next = new Set(runningKeyIds.value)
+    if (on) next.add(id)
+    else next.delete(id)
+    runningKeyIds.value = next
+  }
 
   /** (Re)load the key's recent export jobs, newest first. */
   async function refresh(): Promise<void> {
@@ -64,8 +86,16 @@ export function useTkExportPanel(args: UseTkExportPanelArgs) {
    */
   async function exportNow(): Promise<void> {
     const id = args.apiKeyId.value
-    if (id == null || running.value) return
-    running.value = true
+    // Re-entry guard is per-key: block a second export of THIS key, but never
+    // block a different key whose own export isn't running.
+    if (id == null || runningKeyIds.value.has(id)) return
+    // `viewing` answers "is the user still on the key this export belongs to?".
+    // Toasts and the list refresh are gated on it so a backgrounded export
+    // (panel closed, or switched to another key) never fires feedback that
+    // appears to belong to whatever key is on screen now — the panel's job list
+    // (refreshed on open) is the durable record for those cases.
+    const viewing = () => args.apiKeyId.value === id
+    setRunning(id, true)
     try {
       let job = await qaTrajAPI.exportKey(id)
       const deadline = Date.now() + POLL_DEADLINE_MS
@@ -74,18 +104,20 @@ export function useTkExportPanel(args: UseTkExportPanelArgs) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
         job = await qaTrajAPI.getJob(job.job_id)
       }
-      if (job.status === 'failed') {
-        appStore.showInfo(job.error === 'no_records' ? t('keys.exportEmpty') : t('keys.exportFailed'))
-      } else if (!job.record_count) {
-        appStore.showInfo(t('keys.exportEmpty'))
-      } else {
-        appStore.showSuccess(t('keys.exportSuccess', { count: job.record_count }))
+      if (viewing()) {
+        if (job.status === 'failed') {
+          appStore.showInfo(job.error === 'no_records' ? t('keys.exportEmpty') : t('keys.exportFailed'))
+        } else if (!job.record_count) {
+          appStore.showInfo(t('keys.exportEmpty'))
+        } else {
+          appStore.showSuccess(t('keys.exportSuccess', { count: job.record_count }))
+        }
       }
     } catch {
-      appStore.showError(t('keys.exportFailed'))
+      if (viewing()) appStore.showError(t('keys.exportFailed'))
     } finally {
-      running.value = false
-      await refresh()
+      setRunning(id, false)
+      if (viewing()) await refresh()
     }
   }
 
