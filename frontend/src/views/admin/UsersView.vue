@@ -249,7 +249,7 @@
             </button>
 
             <!-- Create User Button (full width on mobile, auto width on desktop) -->
-            <button @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
+            <button data-testid="user-create-btn" @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.users.createUser') }}
             </button>
@@ -592,6 +592,7 @@
             <div class="flex items-center gap-1">
               <!-- Edit Button -->
               <button
+                data-testid="user-edit-btn"
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
@@ -747,27 +748,28 @@
       </div>
     </Teleport>
 
-    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.users.deleteUser')" :message="t('admin.users.deleteConfirm', { email: deletingUser?.email })" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
-    <UserCreateModal :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
-    <InviteTrialModal :show="showInviteTrialModal" :seed="inviteSeed" @close="showInviteTrialModal = false" @success="loadUsers" />
-    <UserEditModal :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
+    <ConfirmDialog v-if="lazyMount('delete', showDeleteDialog)" :show="showDeleteDialog" :title="t('admin.users.deleteUser')" :message="t('admin.users.deleteConfirm', { email: deletingUser?.email })" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <UserCreateModal v-if="lazyMount('create', showCreateModal)" :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
+    <InviteTrialModal v-if="lazyMount('invite', showInviteTrialModal)" :show="showInviteTrialModal" :seed="inviteSeed" @close="showInviteTrialModal = false" @success="loadUsers" />
+    <UserEditModal v-if="lazyMount('edit', showEditModal)" :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
     <UserPlatformQuotaModal
+      v-if="lazyMount('platformQuota', showPlatformQuotaModal)"
       :show="showPlatformQuotaModal"
       :user="platformQuotaUser"
       @close="closePlatformQuotaModal"
       @success="loadUsers"
     />
-    <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
-    <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
-    <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
-    <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
-    <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
-    <UserAttributesConfigModal :show="showAttributesModal" @close="handleAttributesModalClose" />
+    <UserApiKeysModal v-if="lazyMount('apiKeys', showApiKeysModal)" :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
+    <UserAllowedGroupsModal v-if="lazyMount('allowedGroups', showAllowedGroupsModal)" :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
+    <UserBalanceModal v-if="lazyMount('balance', showBalanceModal)" :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
+    <UserBalanceHistoryModal v-if="lazyMount('balanceHistory', showBalanceHistoryModal)" :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
+    <GroupReplaceModal v-if="lazyMount('groupReplace', showGroupReplaceModal)" :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
+    <UserAttributesConfigModal v-if="lazyMount('attributes', showAttributesModal)" :show="showAttributesModal" @close="handleAttributesModalClose" />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -1013,7 +1015,10 @@ const columns = computed<Column[]>(() =>
   )
 )
 
-const users = ref<AdminUser[]>([])
+// shallowRef: the user list is replaced wholesale on every load (line ~1619) and all per-row
+// derived data (usage/attributes/quota) lives in id-keyed side-maps, never mutated in place —
+// so deep reactivity is pure cost. Any future in-place row edit must reassign users.value.
+const users = shallowRef<AdminUser[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
@@ -1338,6 +1343,15 @@ const showApiKeysModal = ref(false)
 const showAttributesModal = ref(false)
 const showPlatformQuotaModal = ref(false)
 const editingUser = ref<AdminUser | null>(null)
+
+// Lazy-mount latch for action-triggered modals: a modal mounts the first time its show flag
+// goes true and then stays mounted, keeping first paint free of every modal's setup() while
+// open/close transitions and reopen behavior stay identical to always-mounted.
+const everOpened = reactive(new Set<string>())
+const lazyMount = (key: string, show: boolean): boolean => {
+  if (show) everOpened.add(key)
+  return everOpened.has(key)
+}
 const deletingUser = ref<AdminUser | null>(null)
 const viewingUser = ref<AdminUser | null>(null)
 const platformQuotaUser = ref<AdminUser | null>(null)
