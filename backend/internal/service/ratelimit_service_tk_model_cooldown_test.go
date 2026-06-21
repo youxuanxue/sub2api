@@ -409,9 +409,13 @@ func TestCodexSpark429_GeneralWindowHealthy_ModelScoped(t *testing.T) {
 		"model-scoped spark cooldown must NOT cool the whole account")
 }
 
-func TestCodexSpark429_GeneralWindowNearCap_WholeAccount(t *testing.T) {
-	// Account-wide 7d window near its cap (97%) but not yet 100%: the binding
-	// limit may be account-wide, so cool the whole account (current behaviour).
+func TestCodexSpark429_GeneralWindowNearCapNotExhausted_ModelScoped(t *testing.T) {
+	// Account-wide 7d window near its cap (97%) but NOT exhausted (<100%): the
+	// binding limit on this spark request is still the spark sub-window, so it is
+	// model-scoped. We deliberately do NOT whole-account cool on an INFERRED
+	// sub-100% threshold — only the fact-based >=100% (handled by path 1) cools
+	// the whole account. The account keeps its remaining general headroom; if 7d
+	// truly hits 100%, the next request is routed to whole-account by path 1.
 	repo := &rateLimitAccountRepoStub{}
 	svc := newG4RateLimitService(repo)
 	account := newOpenAICodexAccount(1002, AccountTypeOAuth)
@@ -425,34 +429,38 @@ func TestCodexSpark429_GeneralWindowNearCap_WholeAccount(t *testing.T) {
 		codexSparkModel,
 	)
 
-	require.Empty(t, repo.modelRateLimitCalls,
-		"near-cap account-wide window must NOT be model-scoped")
-	require.Equal(t, 1, repo.setRateLimitedCalls,
-		"near-cap account-wide window cools the whole account")
+	require.Len(t, repo.modelRateLimitCalls, 1,
+		"a sub-100% account-wide window still model-scopes the spark sub-limit (no inferred threshold)")
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, 0, repo.setRateLimitedCalls)
 }
 
-func TestCodexSpark429_HeadersReflectSparkWindow100_SelfProtectsWholeAccount(t *testing.T) {
-	// Self-protection: IF the x-codex-* headers reflected the spark window (100%)
-	// rather than the account-wide window, the >=100% reset path
-	// (calculateOpenAI429ResetTime) fires FIRST and cools the whole account — so
-	// the model-scope path is never reached. No regression vs today.
+func TestCodexSpark429_GeneralWindowExhausted_WholeAccountViaPath1(t *testing.T) {
+	// When a general window actually reads >=100% AND carries its reset, path 1
+	// (calculateOpenAI429ResetTime) cools the WHOLE account before the model-scope
+	// helper is reached — this is the only fact-based account-wide signal. Also
+	// the header-semantics self-protection: if the x-codex-* headers ever
+	// reflected the spark window at 100% instead of the account-wide one, this
+	// same path catches it. No model-scoped write.
 	repo := &rateLimitAccountRepoStub{}
 	svc := newG4RateLimitService(repo)
 	account := newOpenAICodexAccount(1003, AccountTypeOAuth)
+
+	headers := codexGeneralWindowHeaders(100, 1) // 5h reads 100%
+	headers.Set("x-codex-primary-reset-after-seconds", "7620")
 
 	svc.HandleUpstreamError(
 		context.Background(),
 		account,
 		http.StatusTooManyRequests,
-		codexGeneralWindowHeaders(100, 1), // 5h reads 100%
+		headers,
 		codexUsageLimitBody,
 		codexSparkModel,
 	)
 
 	require.Empty(t, repo.modelRateLimitCalls,
-		"a 100% window is treated as account-wide exhaustion, never model-scoped")
-	require.Equal(t, 1, repo.setRateLimitedCalls,
-		"100% window cools the whole account via the reset path")
+		"a >=100% account-wide window is whole-account cooled by path 1, never model-scoped")
+	require.Equal(t, 1, repo.setRateLimitedCalls)
 }
 
 func TestCodex429_NonSparkModel_GeneralHealthy_WholeAccount(t *testing.T) {
@@ -553,15 +561,4 @@ func TestTkIsOpenAICodexMeteredModel(t *testing.T) {
 	for _, m := range []string{"gpt-5.3-codex", "gpt-5.4", "codex", "spark", "", "claude-opus-4-8"} {
 		require.Falsef(t, tkIsOpenAICodexMeteredModel(m), "model=%q should NOT be metered", m)
 	}
-}
-
-func TestTkOpenAICodexGeneralWindowHealthy(t *testing.T) {
-	require.True(t, tkOpenAICodexGeneralWindowHealthy(codexGeneralWindowHeaders(4, 1)))
-	require.True(t, tkOpenAICodexGeneralWindowHealthy(codexGeneralWindowHeaders(79, 79)))
-	require.False(t, tkOpenAICodexGeneralWindowHealthy(codexGeneralWindowHeaders(80, 1)),
-		"5h at the ceiling is not healthy")
-	require.False(t, tkOpenAICodexGeneralWindowHealthy(codexGeneralWindowHeaders(4, 97)),
-		"7d near cap is not healthy")
-	require.False(t, tkOpenAICodexGeneralWindowHealthy(http.Header{}),
-		"absent window data is conservatively not healthy")
 }
