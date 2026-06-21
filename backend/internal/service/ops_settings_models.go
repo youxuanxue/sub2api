@@ -154,6 +154,16 @@ type OpsAdvancedSettings struct {
 type OpsOpenAIAccountQuotaAutoPauseSettings struct {
 	DefaultThreshold5h float64 `json:"default_threshold_5h"`
 	DefaultThreshold7d float64 `json:"default_threshold_7d"`
+	// TK: window-aware soft scheduling guard (twin of the anthropic window-cost
+	// tri-state). Steers new load-balance traffic away from a codex account
+	// approaching its 5h/7d window before it 429s, to cut failover hops. The
+	// guard is default-ON via built-in thresholds (openAIWindowStickyThreshold
+	// Default / ReserveDefault); these fields are operator overrides only. A
+	// zero-value struct => guard ON with built-in defaults. WindowStickyGuard
+	// Disabled is the global kill-switch (zero-value=false=ON, no redeploy).
+	WindowStickyGuardDisabled bool    `json:"window_sticky_guard_disabled"`
+	WindowStickyThreshold     float64 `json:"window_sticky_threshold"`
+	WindowStickyReserve       float64 `json:"window_sticky_reserve"`
 }
 
 type OpsDataRetentionSettings struct {

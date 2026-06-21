@@ -543,6 +543,8 @@ func normalizeOpsAdvancedSettings(cfg *OpsAdvancedSettings) {
 	}
 	cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold5h = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold5h)
 	cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold7d = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold7d)
+	cfg.OpenAIAccountQuotaAutoPause.WindowStickyThreshold = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.WindowStickyThreshold)
+	cfg.OpenAIAccountQuotaAutoPause.WindowStickyReserve = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.WindowStickyReserve)
 	cfg.DataRetention.CleanupSchedule = strings.TrimSpace(cfg.DataRetention.CleanupSchedule)
 	if cfg.DataRetention.CleanupSchedule == "" {
 		cfg.DataRetention.CleanupSchedule = opsCleanupDefaultSchedule

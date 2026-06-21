@@ -798,7 +798,11 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy7dT
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UnconfiguredThresholdKeepsLegacyBehavior(t *testing.T) {
 	ctx := context.Background()
-	primary := Account{ID: 35301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_7d_used_percent": 99.0}}
+	// This test isolates AUTO-PAUSE semantics (unconfigured threshold => no pause),
+	// so the orthogonal default-ON window guard is disabled on the high-usage
+	// account; the window guard's own behaviour is covered in
+	// openai_account_scheduler_tk_window_sched_test.go.
+	primary := Account{ID: 35301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_7d_used_percent": 99.0, "openai_window_guard_disabled": true}}
 	secondary := Account{ID: 35302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
@@ -850,6 +854,9 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerAccountDisa
 		Extra: map[string]any{
 			"codex_5h_used_percent":  99.0,
 			"auto_pause_5h_disabled": true,
+			// Isolate this test to AUTO-PAUSE semantics; the orthogonal default-ON
+			// window guard would otherwise also drop this 99%-used account.
+			"openai_window_guard_disabled": true,
 		},
 	}
 	secondary := Account{ID: 35702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}

@@ -428,6 +428,14 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	if !s.isAccountRequestCompatible(ctx, account, req) {
 		return nil, false, nil
 	}
+	// TK window guard (isSticky=true): a sticky-bound account keeps serving its
+	// own session up to NotSchedulable; only once it is essentially at its codex
+	// window cap do we skip the sticky hit and fall through to load-balance. The
+	// binding is left intact (NOT deleted) so the session resumes on this account
+	// after its window resets — unlike the hard-invalidation branches around it.
+	if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+		return nil, false, nil
+	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
@@ -991,6 +999,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
+	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
+	// retained for the never-empty-pool fallback below.
+	var windowDropped []*Account
 	for i := range accounts {
 		account := &accounts[i]
 		if req.ExcludedIDs != nil {
@@ -1020,11 +1031,30 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
 			continue
 		}
+		// TK window guard (isSticky=false, fresh load-balance): steer new traffic
+		// away from a codex account approaching its 5h/7d window before it 429s.
+		// Applied LAST so windowDropped holds only otherwise-valid candidates.
+		if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false) {
+			windowDropped = append(windowDropped, account)
+			continue
+		}
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
 			MaxConcurrency: account.EffectiveLoadFactor(),
 		})
+	}
+	// never-empty-pool: the window guard must not turn a non-empty schedulable
+	// pool into an empty-pool 429. If every otherwise-valid candidate was dropped
+	// purely by the window guard, re-admit the one with the most headroom.
+	if len(filtered) == 0 && len(windowDropped) > 0 {
+		if acc := leastUtilizedOpenAIAccount(windowDropped, time.Now()); acc != nil {
+			filtered = append(filtered, acc)
+			loadReq = append(loadReq, AccountWithConcurrency{
+				ID:             acc.ID,
+				MaxConcurrency: acc.EffectiveLoadFactor(),
+			})
+		}
 	}
 	if len(filtered) == 0 {
 		// TK: when the schedulable pool was emptied PURELY because no account serves
