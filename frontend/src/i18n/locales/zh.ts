@@ -5458,6 +5458,21 @@ export default {
           requestsWithFirstToken: '首 Token 样本数'
         }
       },
+      failoverHopStats: {
+        title: 'Failover 跳数统计（按账号）',
+        hint: '每个恢复成功的请求绕了几跳 = 浪费的上游往返；用于观测 #899 窗口调度的减跳效果。',
+        failedToLoad: '加载 Failover 跳数统计失败',
+        empty: '当前筛选条件下暂无 failover 跳数数据',
+        totalAccounts: '账号总数：{total}',
+        table: {
+          account: '账号',
+          platform: '平台',
+          recoveredCount: '恢复成功请求数',
+          totalFailoverHops: 'Failover 跳数合计',
+          totalWastedAttempts: '浪费上游尝试合计',
+          avgHopsPerRecovered: '每成功请求平均跳数'
+        }
+      },
       customTimeRange: {
         startTime: '开始时间',
         endTime: '结束时间'

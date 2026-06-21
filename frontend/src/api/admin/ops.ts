@@ -251,6 +251,36 @@ export interface OpsOpenAITokenStatsParams {
   top_n?: number
 }
 
+export type OpsFailoverHopStatsTimeRange = '30m' | '1h' | '1d' | '15d' | '30d'
+
+export interface OpsFailoverHopStatsItem {
+  account_id: number
+  account_name: string
+  platform: string
+  recovered_count: number
+  total_failover_hops: number
+  total_wasted_attempts: number
+  avg_failover_hops_per_recovered?: number | null
+}
+
+export interface OpsFailoverHopStatsResponse {
+  time_range: OpsFailoverHopStatsTimeRange
+  start_time: string
+  end_time: string
+  platform?: string
+  group_id?: number | null
+  items: OpsFailoverHopStatsItem[]
+  total: number
+  top_n: number
+}
+
+export interface OpsFailoverHopStatsParams {
+  time_range?: OpsFailoverHopStatsTimeRange
+  platform?: string
+  group_id?: number | null
+  top_n?: number
+}
+
 export interface OpsSystemMetricsSnapshot {
   id: number
   created_at: string
@@ -1097,6 +1127,17 @@ export async function getOpenAITokenStats(
   return data
 }
 
+export async function getFailoverHopStats(
+  params: OpsFailoverHopStatsParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsFailoverHopStatsResponse> {
+  const { data } = await apiClient.get<OpsFailoverHopStatsResponse>('/admin/ops/dashboard/failover-hop-stats', {
+    params,
+    signal: options.signal
+  })
+  return data
+}
+
 export type OpsErrorListView = 'errors' | 'excluded' | 'all'
 
 export type OpsErrorListQueryParams = {
@@ -1325,6 +1366,7 @@ export const opsAPI = {
   getErrorTrend,
   getErrorDistribution,
   getOpenAITokenStats,
+  getFailoverHopStats,
   getConcurrencyStats,
   getUserConcurrencyStats,
   getAccountAvailabilityStats,
