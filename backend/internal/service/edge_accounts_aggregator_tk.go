@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -452,11 +453,37 @@ func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 			tempUnschedulableUntil: acct.TempUnschedulableUntil,
 			groups:                 stubGroupNames(acct),
 			stubAccountID:          acct.ID,
-			platform:               acct.Platform,
+			platform:               edgeStubPoolPlatform(acct),
 			groupScopeCaller:       true,
 		})
 	}
 	return targets
+}
+
+// edgeStubPoolPlatform resolves the EDGE-POOL platform a mirror stub represents for
+// the per-stub fan-out (the inline /accounts panel) — which decides both the
+// ?platform= the edge is queried with AND the StubPlatform footnote.
+//
+// A mirror stub's OWN account platform is only its TRANSPORT shape: kiro rides the
+// same anthropic-apikey relay as the cc-<edge> stubs (platform=anthropic), so reading
+// acct.Platform makes a kiro stub query the edge's anthropic pool — the wrong pool it
+// merely shares a host with (e.g. cc-us6 and kiro-us6 both point at api-us6, so the
+// kiro panel showed the anthropic oh-3-a account). credentials.mirror_platform is the
+// authoritative declaration of which edge pool the stub represents — the SAME field
+// surface-C's capacity mirror keys on (see mirrorCapacityPlatform). Non-empty
+// mirror_platform wins; otherwise fall back to the stub's own platform so native
+// openai/grok/antigravity stubs (no mirror_platform) stay correct. Unlike
+// mirrorCapacityPlatform, the empty default is acct.Platform (NOT anthropic): the
+// per-stub path spans all edgeStubPlatforms, so coercing empty to anthropic would
+// mis-route a native non-anthropic stub.
+func edgeStubPoolPlatform(acct *Account) string {
+	if acct == nil {
+		return ""
+	}
+	if mp := strings.ToLower(strings.TrimSpace(acct.GetCredential("mirror_platform"))); mp != "" {
+		return mp
+	}
+	return acct.Platform
 }
 
 // discoverEdgeTargets filters the anthropic accounts down to mirror stubs and
@@ -627,7 +654,12 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 		res.Error = "no http client"
 		return res
 	}
-	endpoint := t.baseURL + "/api/v1/edge/accounts?platform=" + platform
+	// url.QueryEscape the platform: per-stub fan-out now derives it from the stub's
+	// operator-set credentials.mirror_platform (edgeStubPoolPlatform), not a fixed
+	// constant, so escape it like the sibling fetchEdgeCapacity does — a stray space/&
+	// must not corrupt the query. (A constant platform escapes to itself, so the
+	// per-edge overview path is unaffected.)
+	endpoint := t.baseURL + "/api/v1/edge/accounts?platform=" + url.QueryEscape(platform)
 	if t.groupScopeCaller {
 		// Per-stub: ask the edge to narrow to this key's group (precise correspondence).
 		endpoint += "&group_scope=caller"

@@ -450,19 +450,28 @@ func TestDiscoverStubTargets(t *testing.T) {
 	disabled.Status = StatusDisabled
 	noKey := mk(6, PlatformOpenAI, "https://api-uk8.tokenkey.dev", "")
 
+	// kiro mirror stub: TRANSPORT platform is anthropic-apikey, but
+	// credentials.mirror_platform=kiro declares it represents the edge's KIRO pool.
+	// It SHARES the edge host (api-us4) with the anthropic stub k1 — the exact
+	// cc-us6 / kiro-us6 topology — so the fan-out must query platform=kiro for it,
+	// not the anthropic pool they co-locate on.
+	kiroMirror := mk(8, PlatformAnthropic, "https://api-us4.tokenkey.dev", "k8")
+	kiroMirror.Credentials["mirror_platform"] = "kiro"
+
 	accounts := []Account{
 		mk(1, PlatformAnthropic, "https://api-us4.tokenkey.dev", "k1"),
 		mk(2, PlatformOpenAI, "https://api-us4.tokenkey.dev", "k2"), // SAME edge host — NOT deduped
 		mk(3, PlatformGrok, "https://api-us4.tokenkey.dev", "k3"),
-		disabled, // skipped (disabled)
-		noKey,    // skipped (no api_key)
+		kiroMirror, // SAME edge host as k1 — kiro pool via mirror_platform, NOT anthropic
+		disabled,   // skipped (disabled)
+		noKey,      // skipped (no api_key)
 		// non-edge base_url → not a stub
 		{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive,
 			Credentials: map[string]any{"base_url": "https://generativelanguage.googleapis.com"}},
 	}
 
 	targets := discoverStubTargets(accounts, edgeIDPattern)
-	require.Len(t, targets, 3) // three distinct stubs on one edge, NOT deduped
+	require.Len(t, targets, 4) // four distinct stubs on one edge, NOT deduped
 
 	byID := map[int64]edgeTarget{}
 	for _, tg := range targets {
@@ -473,4 +482,34 @@ func TestDiscoverStubTargets(t *testing.T) {
 	require.Equal(t, PlatformAnthropic, byID[1].platform)
 	require.Equal(t, PlatformOpenAI, byID[2].platform)
 	require.Equal(t, PlatformGrok, byID[3].platform)
+	// The kiro mirror stub fans out as KIRO (from mirror_platform), NOT anthropic
+	// (its transport platform) — the fix for the cc-us6/kiro-us6 mixing bug.
+	require.Equal(t, PlatformKiro, byID[8].platform)
+}
+
+// TestEdgeStubPoolPlatform covers the transport-vs-pool resolution: a stub's
+// credentials.mirror_platform (when set) is the authoritative edge pool, otherwise
+// the stub's own platform. This is what keeps the kiro mirror stub (anthropic
+// transport) from querying the anthropic pool it shares an edge host with.
+func TestEdgeStubPoolPlatform(t *testing.T) {
+	mk := func(platform string, cred map[string]any) *Account {
+		return &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: cred}
+	}
+	cases := []struct {
+		name string
+		acc  *Account
+		want string
+	}{
+		{"anthropic stub, no mirror_platform → anthropic", mk(PlatformAnthropic, map[string]any{}), PlatformAnthropic},
+		{"kiro mirror over anthropic transport → kiro", mk(PlatformAnthropic, map[string]any{"mirror_platform": "kiro"}), PlatformKiro},
+		{"empty mirror_platform falls back to own platform (NOT anthropic)", mk(PlatformOpenAI, map[string]any{"mirror_platform": "  "}), PlatformOpenAI},
+		{"mirror_platform is trimmed + lowercased", mk(PlatformAnthropic, map[string]any{"mirror_platform": " Kiro "}), PlatformKiro},
+		{"native openai stub, no mirror_platform → openai", mk(PlatformOpenAI, nil), PlatformOpenAI},
+		{"nil account → empty", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, edgeStubPoolPlatform(tc.acc))
+		})
+	}
 }
