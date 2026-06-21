@@ -117,8 +117,19 @@ func TestEdgeAccountsHandler_ReturnsSanitizedAccounts(t *testing.T) {
 
 // TestEdgeAccountsHandler_NeverLeaksCredentials is the load-bearing security
 // assertion: the raw response bytes must not contain ANY credential value or key.
+// It also seeds an active per-class cooldown so the curated model_rate_limits
+// projection is exercised alongside the leak check — a future credential-key rename
+// must not silently start leaking through the one Extra field that IS serialized.
 func TestEdgeAccountsHandler_NeverLeaksCredentials(t *testing.T) {
-	stub := &edgeAccountsListerStub{accounts: []service.Account{richAccount()}}
+	acct := richAccount()
+	acct.Extra["model_rate_limits"] = map[string]any{
+		"anthropic:class:sonnet": map[string]any{
+			"rate_limit_reset_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+			"rate_limited_at":     time.Now().Format(time.RFC3339),
+			"reason":              "anthropic_unified_window_exceeded",
+		},
+	}
+	stub := &edgeAccountsListerStub{accounts: []service.Account{acct}}
 	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusOK, w.Code)
@@ -132,6 +143,112 @@ func TestEdgeAccountsHandler_NeverLeaksCredentials(t *testing.T) {
 		require.NotContainsf(t, body, forbidden,
 			"response leaked credential-related token %q: %s", forbidden, body)
 	}
+	// The curated cooldown projection IS present (so a credential-key rename can't
+	// silently swallow it without this assertion noticing).
+	require.Contains(t, body, "model_rate_limits")
+	require.Contains(t, body, "anthropic:class:sonnet")
+}
+
+// TestEdgeAccountsHandler_ForwardsActiveModelRateLimits verifies the curated
+// active-only model_rate_limits projection: an edge OAuth account with an active
+// sonnet unified-window cooldown surfaces ONLY that scope (with reset + reason);
+// a lapsed cooldown (opus) is filtered out. This is the visibility surface that
+// lets the prod overview see an edge's per-class window without it sitting null on
+// the prod mirror account.
+func TestEdgeAccountsHandler_ForwardsActiveModelRateLimits(t *testing.T) {
+	acct := richOAuthAccount()
+	resetAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	limitedAt := time.Now().Add(-5 * time.Minute).UTC().Truncate(time.Second)
+	acct.Extra["model_rate_limits"] = map[string]any{
+		"anthropic:class:sonnet": map[string]any{
+			"rate_limit_reset_at": resetAt.Format(time.RFC3339),
+			"rate_limited_at":     limitedAt.Format(time.RFC3339),
+			"reason":              "anthropic_unified_window_exceeded",
+		},
+		// Lapsed (reset in the past) → must be filtered out (active-only).
+		"anthropic:class:opus": map[string]any{
+			"rate_limit_reset_at": time.Now().Add(-time.Hour).Format(time.RFC3339),
+		},
+	}
+
+	stub := &edgeAccountsListerStub{accounts: []service.Account{acct}}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
+	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Accounts, 1)
+	got := env.Data.Accounts[0]
+
+	require.Len(t, got.ModelRateLimits, 1, "only the active sonnet cooldown survives")
+	entry, ok := got.ModelRateLimits["anthropic:class:sonnet"]
+	require.True(t, ok, "the active sonnet scope must be present")
+	require.NotContains(t, got.ModelRateLimits, "anthropic:class:opus", "the lapsed opus cooldown is filtered out")
+	require.NotNil(t, entry.RateLimitResetAt)
+	require.WithinDuration(t, resetAt, *entry.RateLimitResetAt, time.Second)
+	require.NotNil(t, entry.RateLimitedAt)
+	require.WithinDuration(t, limitedAt, *entry.RateLimitedAt, time.Second)
+	require.Equal(t, "anthropic_unified_window_exceeded", entry.Reason)
+}
+
+// TestEdgeAccountsHandler_OmitsModelRateLimitsWhenInactive verifies the field is
+// nil (and the JSON omits it) when the account has no Extra / no active cooldown.
+func TestEdgeAccountsHandler_OmitsModelRateLimitsWhenInactive(t *testing.T) {
+	// No Extra at all.
+	bare := richOAuthAccount()
+	bare.Extra = nil
+	stub := &edgeAccountsListerStub{accounts: []service.Account{bare}}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
+	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotContains(t, w.Body.String(), "model_rate_limits", "field must be omitted when no Extra")
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Accounts, 1)
+	require.Nil(t, env.Data.Accounts[0].ModelRateLimits)
+}
+
+// TestActiveModelRateLimits_FiltersByActivity is a focused unit on the service-layer
+// enumerator: future kept, past dropped, malformed reset skipped (no panic), nil
+// account safe.
+func TestActiveModelRateLimits_FiltersByActivity(t *testing.T) {
+	t.Run("nil account is safe", func(t *testing.T) {
+		var a *service.Account
+		require.Nil(t, a.ActiveModelRateLimits(time.Now()))
+	})
+
+	t.Run("nil Extra is safe", func(t *testing.T) {
+		a := &service.Account{}
+		require.Nil(t, a.ActiveModelRateLimits(time.Now()))
+	})
+
+	now := time.Now()
+	a := &service.Account{Extra: map[string]any{
+		"model_rate_limits": map[string]any{
+			"anthropic:class:sonnet": map[string]any{
+				"rate_limit_reset_at": now.Add(time.Hour).Format(time.RFC3339),
+				"reason":              "anthropic_unified_window_exceeded",
+			},
+			"anthropic:class:opus": map[string]any{
+				"rate_limit_reset_at": now.Add(-time.Hour).Format(time.RFC3339),
+			},
+			"anthropic:class:haiku": map[string]any{
+				"rate_limit_reset_at": "not-a-timestamp",
+			},
+		},
+	}}
+	active := a.ActiveModelRateLimits(now)
+	require.Len(t, active, 1)
+	c, ok := active["anthropic:class:sonnet"]
+	require.True(t, ok)
+	require.True(t, c.RateLimitResetAt.After(now))
+	require.Equal(t, "anthropic_unified_window_exceeded", c.Reason)
 }
 
 // TestEdgeAccountsHandler_GroupScopeCaller verifies the v2 precise-correspondence
