@@ -3130,6 +3130,27 @@
         "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
       ],
       "rationale": "Legacy + priority/LRU wiring of the OpenAI window guard across the remaining candidate-filter selection paths: selectAccountWithLoadAwareness Layer-2 (isSticky=false) + Layer-1 sticky (isSticky=true, marks clearSticky so the hit falls through without deleting the binding), selectBestAccount (isSticky=false; used by count_tokens failover + gemini-compat) and tryStickySessionHit (isSticky=true). selectAccountWithLoadAwareness is the DEFAULT prod path (advanced scheduler defaults off), so this is the load-bearing wiring for the reported incident; never-empty-pool fallback present here too. Anchors the hooks so an upstream merge cannot silently drop the guard call and revert the GPT line to window-blind selection."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_autopause_retired.go",
+      "must_contain": [
+        "func tkOpenAIAutoPauseRetired() bool { return true }"
+      ],
+      "rationale": "PR #902: retires the upstream codex usage-window auto-pause in favour of the window-sched tri-state guard (the single window mechanism). This gate disables (does NOT delete — §5.x) shouldAutoPauseOpenAIAccountByQuota by short-circuiting it; the upstream code + the shared codex signal capture the #899 guard reads stay intact. Anchors the gate so an upstream merge cannot silently flip auto-pause back on."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if tkOpenAIAutoPauseRetired() {"
+      ],
+      "rationale": "PR #902 injection: the retirement short-circuit at the top of shouldAutoPauseOpenAIAccountByQuota. Pure-insertion guard returning a permanent no-op. If an upstream merge drops this one line, auto-pause silently revives and re-overlaps the window-sched guard — a silent regression. Anchor pins the injection."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {"
+      ],
+      "rationale": "PR #902 coverage parity: the window-sched tri-state guard now gates the previous_response_id chain (SelectAccountByPreviousResponseID) too, replacing the retired auto-pause that used to gate this path. isSticky=true keeps a StickyOnly account's chain, only a NotSchedulable account yields. If an upstream merge drops this line the prev-response path loses window coverage silently. Anchor pins the injection."
     }
   ]
 }
