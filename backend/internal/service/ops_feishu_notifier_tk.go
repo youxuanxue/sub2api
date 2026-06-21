@@ -228,6 +228,14 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	if cause := opsFeishuTopCause(event.Dimensions); cause != "" {
 		topCauseLine = fmt.Sprintf("\n**主因**：%s", escapeFeishuText(cause))
 	}
+	// routing_capacity_rejection_count attaches the per-user (client) concentration
+	// as its own dimension so it renders on a SECOND line under 主因 (readability,
+	// instead of a long single line), and so it can be dropped on edge nodes where
+	// the only client is the prod mirror-relay. Absent on edges and non-rejection
+	// rules.
+	if users := opsFeishuTopCauseUsers(event.Dimensions); users != "" {
+		topCauseLine += fmt.Sprintf("\n**用户**：%s", escapeFeishuText(users))
+	}
 	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
@@ -250,6 +258,23 @@ func opsFeishuTopCause(dimensions map[string]any) string {
 		return ""
 	}
 	if v, ok := dimensions["top_cause"]; ok {
+		if s, ok := v.(string); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+// opsFeishuTopCauseUsers extracts the per-user (client) concentration breakdown
+// the evaluator stashed for routing-rejection P0s (survives the DB JSON
+// round-trip as a plain string). Rendered on its own line under 主因 so the pool
+// cause and the client breakdown each read cleanly. Returns "" when absent (edge
+// nodes, non-rejection rules).
+func opsFeishuTopCauseUsers(dimensions map[string]any) string {
+	if len(dimensions) == 0 {
+		return ""
+	}
+	if v, ok := dimensions["top_cause_users"]; ok {
 		if s, ok := v.(string); ok {
 			return strings.TrimSpace(s)
 		}

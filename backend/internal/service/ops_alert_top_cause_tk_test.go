@@ -67,6 +67,51 @@ func TestBuildOpsFeishuAlertTextTopCauseLine(t *testing.T) {
 		out := buildOpsFeishuAlertText(rule, ev, "us7", "")
 		require.NotContains(t, out, "主因")
 	})
+
+	// Routing-rejection P0s carry the client concentration as top_cause_users.
+	// It renders on its OWN line under 主因 (the 换行 readability fix), so a long
+	// "anthropic ×339 · newapi ×4 ｜ 用户 #1 …" no longer wraps as one blob.
+	t.Run("renders 用户 on its own line under 主因 when top_cause_users present", func(t *testing.T) {
+		ev := &OpsAlertEvent{
+			MetricValue: &mv,
+			Dimensions: map[string]any{
+				"top_cause":       "anthropic ×339 · newapi ×4",
+				"top_cause_users": `#1 "yace" ×275 · #16 "benchmark-吕星宇2" ×29`,
+			},
+		}
+		out := buildOpsFeishuAlertText(rule, ev, "prod", "")
+		require.Contains(t, out, "**主因**：anthropic ×339 · newapi ×4")
+		require.Contains(t, out, `**用户**：#1 "yace" ×275`)
+		// the 用户 breakdown must sit on its own line, immediately after 主因
+		require.Contains(t, out, "anthropic ×339 · newapi ×4\n**用户**：")
+	})
+
+	// No top_cause_users dimension (non-rejection rules, or a degraded user query)
+	// => no 用户 line. (Edge nodes never reach this renderer at all — the whole
+	// routing-rejection alert is suppressed upstream in maybeSendAlertNotifications.)
+	t.Run("omits 用户 line when top_cause_users absent", func(t *testing.T) {
+		ev := &OpsAlertEvent{
+			MetricValue: &mv,
+			Dimensions:  map[string]any{"top_cause": "anthropic ×216 · kiro ×3"},
+		}
+		out := buildOpsFeishuAlertText(rule, ev, "prod", "")
+		require.Contains(t, out, "**主因**：anthropic ×216 · kiro ×3")
+		require.NotContains(t, out, "**用户**")
+	})
+
+	// Best-effort degradation: if the pool sub-query fails but the user sub-query
+	// succeeds (computeTopCause guarantees one failing must not drop the other),
+	// the evaluator stashes top_cause_users alone. The card then shows WHO without
+	// WHICH — still useful, and must render cleanly (用户 line, no orphan 主因).
+	t.Run("renders 用户 line alone when 主因 absent (pool-query degraded)", func(t *testing.T) {
+		ev := &OpsAlertEvent{
+			MetricValue: &mv,
+			Dimensions:  map[string]any{"top_cause_users": `#1 "yace" ×275`},
+		}
+		out := buildOpsFeishuAlertText(rule, ev, "prod", "")
+		require.Contains(t, out, `**用户**：#1 "yace" ×275`)
+		require.NotContains(t, out, "**主因**")
+	})
 }
 
 func TestOpsTopCauseApplies(t *testing.T) {
