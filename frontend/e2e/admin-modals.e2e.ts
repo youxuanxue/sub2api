@@ -41,7 +41,15 @@ function recordRequests(page: Page): { urls: string[]; seen: (re: RegExp) => boo
 const dialog = (page: Page) => page.locator('[role="dialog"]')
 
 async function closeDialog(page: Page): Promise<void> {
-  await page.keyboard.press('Escape')
+  // BaseDialog's header button (aria-label="Close modal") deterministically emits close.
+  // Fall back to Escape (closeOnEscape default) for any modal without the X.
+  const x = page.locator('[role="dialog"] button[aria-label="Close modal"]').last()
+  if (await x.count()) {
+    await x.click({ timeout: 5_000 }).catch(() => {})
+  }
+  if ((await dialog(page).count()) > 0) {
+    await page.keyboard.press('Escape')
+  }
   await expect(dialog(page)).toHaveCount(0, { timeout: 5_000 })
 }
 
@@ -69,14 +77,15 @@ test('accounts modals mount on demand via the latch (Import; Edit fires setup on
   await expect(dialog(page)).toBeVisible({ timeout: 10_000 })
   await closeDialog(page)
 
-  // Edit is the heavy modal whose setup() fetches web-search-emulation. It needs a row.
-  const rows = page.locator('table tbody tr')
-  if ((await rows.count()) === 0) {
+  // Edit is the heavy modal whose setup() fetches web-search-emulation. It needs a real row;
+  // guard on the edit button itself (an empty-state table can still render a <tr>).
+  const editBtn = page.getByTestId('account-edit-btn')
+  if ((await editBtn.count()) === 0) {
     console.warn('[admin-modals] no account rows seeded — Edit-open check skipped')
     return
   }
   expect(rec.seen(WEB_SEARCH_EMULATION), 'still deferred before opening Edit').toBe(false)
-  await page.getByTestId('account-edit-btn').first().click()
+  await editBtn.first().click()
   await expect(dialog(page)).toBeVisible({ timeout: 10_000 })
   // Deferral-not-removal: the setup request fires now that the modal mounted.
   await expect.poll(() => rec.seen(WEB_SEARCH_EMULATION), { timeout: 10_000 }).toBe(true)
@@ -94,12 +103,12 @@ test('users modals mount on demand via the latch (Create; Edit if rows seeded)',
   await expect(dialog(page)).toBeVisible({ timeout: 10_000 })
   await closeDialog(page)
 
-  const rows = page.locator('table tbody tr')
-  if ((await rows.count()) === 0) {
+  const userEditBtn = page.getByTestId('user-edit-btn')
+  if ((await userEditBtn.count()) === 0) {
     console.warn('[admin-modals] no user rows seeded — Edit-open check skipped')
     return
   }
-  await page.getByTestId('user-edit-btn').first().click()
+  await userEditBtn.first().click()
   await expect(dialog(page)).toBeVisible({ timeout: 10_000 })
   await page.screenshot({ path: 'e2e/artifacts/admin-users-edit-open.png', fullPage: true })
   await closeDialog(page)
