@@ -61,9 +61,23 @@
         <div v-for="i in 2" :key="i" class="h-5 w-full animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
       </div>
     </div>
-    <!-- Edge not discovered (e.g. stub disabled) -->
-    <div v-else-if="!edge" class="px-4 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
-      {{ error || t('admin.accounts.edgePanel.notDiscovered') }}
+    <!-- Edge not discovered (prod stub errored / disabled / undiscoverable): still
+         actionable — offer the jump to the edge so the operator can manage/configure
+         it there. The handoff mints by edge_id (any active stub for the edge), so it
+         works even when THIS stub is errored, as long as the edge has a reachable
+         stub. Without this the card was a dead end (#913 follow-up). -->
+    <div v-else-if="!edge" class="flex flex-wrap items-center justify-center gap-3 px-4 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
+      <span>{{ error || t('admin.accounts.edgePanel.notDiscovered') }}</span>
+      <button
+        v-if="edgeId"
+        type="button"
+        class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+        :disabled="managing"
+        @click="openEdgeManage"
+      >
+        <Icon name="link" size="sm" :class="managing ? 'animate-pulse' : ''" />
+        {{ t('admin.accounts.edgePanel.manageWholeEdge') }}
+      </button>
     </div>
     <!-- Unreachable edge: inline error + retry (not a broken empty expand) -->
     <div v-else-if="!edge.ok" class="flex flex-wrap items-center justify-center gap-3 px-4 py-4 text-center text-sm">

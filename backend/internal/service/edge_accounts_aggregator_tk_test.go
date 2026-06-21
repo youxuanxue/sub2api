@@ -435,6 +435,55 @@ func TestIsEdgeMirrorStub(t *testing.T) {
 	}
 }
 
+// platformAwareEdgeStore filters by platform like the real
+// accountRepository.ListByPlatform (the shared edgeAccountsStoreStub returns the same
+// slice for every platform, which would duplicate across loadEdgeStubCandidates' union
+// over edgeStubPlatforms). Used by the by-stub end-to-end test below.
+type platformAwareEdgeStore struct{ byPlatform map[string][]Account }
+
+func (s *platformAwareEdgeStore) ListByPlatform(_ context.Context, p string) ([]Account, error) {
+	return s.byPlatform[p], nil
+}
+
+// TestEdgeAccountsAggregator_ByStubDiscoversGrokViaAccessToken is the end-to-end
+// regression for the grok-<edge> inline panel "edge not discovered" bug. A grok edge
+// mirror stub carries its edge key in credentials.access_token (Bearer relay, no
+// api_key); the full by-stub path (AggregateByStub → loadEdgeStubCandidates →
+// ListByPlatform → discoverStubTargets → fetchEdgeAccounts) must (a) discover it,
+// keyed by its prod stub account id so the inline panel resolves, and (b) authenticate
+// the fan-out with the access_token.
+func TestEdgeAccountsAggregator_ByStubDiscoversGrokViaAccessToken(t *testing.T) {
+	grok := Account{
+		ID: 65, Name: "grok-us4", Platform: PlatformGrok, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"base_url":     "https://api-us4.tokenkey.dev",
+			"access_token": "grok-edge-key", // edge TokenKey key (Bearer); NO api_key
+		},
+	}
+	store := &platformAwareEdgeStore{byPlatform: map[string][]Account{PlatformGrok: {grok}}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us4.tokenkey.dev": `{"data":{"accounts":[],"group":""}}`,
+	}}
+	agg := NewEdgeAccountsAggregator(store, doer)
+
+	out, err := agg.AggregateByStub(context.Background())
+	require.NoError(t, err)
+
+	var got *EdgeAccountsResult
+	for i := range out.Edges {
+		if out.Edges[i].StubAccountID == 65 {
+			got = &out.Edges[i]
+		}
+	}
+	require.NotNil(t, got, "grok-us4 (id 65) must be discovered so the inline panel resolves (not 'edge not discovered')")
+	require.True(t, got.OK, "the edge fan-out must succeed")
+	require.Equal(t, "us4", got.EdgeID)
+	require.Equal(t, PlatformGrok, got.StubPlatform)
+	require.Equal(t, "grok-edge-key", doer.keysSeen["api-us4.tokenkey.dev"],
+		"the fan-out must authenticate with the grok stub's access_token, not a (missing) api_key")
+}
+
 // TestDiscoverStubTargets covers the per-stub discovery: NO dedup by edge host
 // (cc-us4 / openai-us4 / grok-us4 share one edge but are three distinct targets),
 // all-platform, carrying stub id + platform + the caller-group-scope flag; disabled
@@ -458,20 +507,30 @@ func TestDiscoverStubTargets(t *testing.T) {
 	kiroMirror := mk(8, PlatformAnthropic, "https://api-us4.tokenkey.dev", "k8")
 	kiroMirror.Credentials["mirror_platform"] = "kiro"
 
+	// grok mirror stub: grok (seventh platform) relays to its edge with a plain Bearer
+	// from credentials.access_token and carries NO api_key (the grok create flow stores
+	// access_token/refresh_token; see account_tk_grok.go). Reading bare api_key
+	// previously dropped it from the per-stub aggregate, so the inline panel rendered
+	// "edge not discovered" on an enabled, actively-relaying grok-<edge> stub. It MUST
+	// be discovered, with its access_token used as the edge key.
+	grokEdge := mk(9, PlatformGrok, "https://api-us4.tokenkey.dev", "")
+	grokEdge.Credentials["access_token"] = "grok-edge-key"
+
 	accounts := []Account{
 		mk(1, PlatformAnthropic, "https://api-us4.tokenkey.dev", "k1"),
 		mk(2, PlatformOpenAI, "https://api-us4.tokenkey.dev", "k2"), // SAME edge host — NOT deduped
 		mk(3, PlatformGrok, "https://api-us4.tokenkey.dev", "k3"),
 		kiroMirror, // SAME edge host as k1 — kiro pool via mirror_platform, NOT anthropic
+		grokEdge,   // SAME edge host — grok edge key in access_token, NOT api_key
 		disabled,   // skipped (disabled)
-		noKey,      // skipped (no api_key)
+		noKey,      // skipped (no api_key, no access_token fallback)
 		// non-edge base_url → not a stub
 		{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive,
 			Credentials: map[string]any{"base_url": "https://generativelanguage.googleapis.com"}},
 	}
 
 	targets := discoverStubTargets(accounts, edgeIDPattern)
-	require.Len(t, targets, 4) // four distinct stubs on one edge, NOT deduped
+	require.Len(t, targets, 5) // five distinct stubs on one edge, NOT deduped
 
 	byID := map[int64]edgeTarget{}
 	for _, tg := range targets {
@@ -485,6 +544,11 @@ func TestDiscoverStubTargets(t *testing.T) {
 	// The kiro mirror stub fans out as KIRO (from mirror_platform), NOT anthropic
 	// (its transport platform) — the fix for the cc-us6/kiro-us6 mixing bug.
 	require.Equal(t, PlatformKiro, byID[8].platform)
+	// The grok edge stub is discovered (regression: it was silently skipped) and
+	// authenticates the fan-out with its access_token, not a (missing) api_key.
+	require.Contains(t, byID, int64(9), "grok edge stub (access_token, no api_key) must be discovered")
+	require.Equal(t, PlatformGrok, byID[9].platform)
+	require.Equal(t, "grok-edge-key", byID[9].apiKey)
 }
 
 // TestEdgeStubPoolPlatform covers the transport-vs-pool resolution: a stub's
@@ -510,6 +574,37 @@ func TestEdgeStubPoolPlatform(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, edgeStubPoolPlatform(tc.acc))
+		})
+	}
+}
+
+// TestEdgeStubAPIKey covers the per-platform edge-key resolution: apikey-relay stubs
+// authenticate to their edge with credentials.api_key, but grok (seventh platform)
+// relays with a plain Bearer from credentials.access_token and carries no api_key —
+// so the fan-out must read access_token for grok. This is the fix for the grok-<edge>
+// inline panel showing "edge not discovered" on an enabled, actively-relaying stub.
+func TestEdgeStubAPIKey(t *testing.T) {
+	mk := func(platform string, cred map[string]any) *Account {
+		return &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: cred}
+	}
+	cases := []struct {
+		name string
+		acc  *Account
+		want string
+	}{
+		{"anthropic stub → api_key", mk(PlatformAnthropic, map[string]any{"api_key": "ak"}), "ak"},
+		{"openai stub → api_key", mk(PlatformOpenAI, map[string]any{"api_key": "ok"}), "ok"},
+		{"kiro mirror (anthropic transport) → api_key", mk(PlatformAnthropic, map[string]any{"api_key": "kk", "mirror_platform": "kiro"}), "kk"},
+		{"grok stub → access_token (Bearer relay, no api_key)", mk(PlatformGrok, map[string]any{"access_token": "gt"}), "gt"},
+		{"grok stub prefers access_token over a stray api_key", mk(PlatformGrok, map[string]any{"access_token": "gt", "api_key": "stray"}), "gt"},
+		{"grok stub with only api_key falls back to api_key", mk(PlatformGrok, map[string]any{"api_key": "fb"}), "fb"},
+		{"api_key/access_token trimmed", mk(PlatformGrok, map[string]any{"access_token": "  gt  "}), "gt"},
+		{"missing edge key → empty (skipped by discovery)", mk(PlatformGrok, map[string]any{}), ""},
+		{"nil account → empty", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, edgeStubAPIKey(tc.acc))
 		})
 	}
 }
