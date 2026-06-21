@@ -1449,6 +1449,15 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 }
 
 func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision) {
+	// TK (PR #899 follow-up): the upstream codex usage-window auto-pause is retired
+	// in favour of the window-sched tri-state guard, the single outward window
+	// mechanism. Short-circuited to a permanent no-op so any leftover thresholds
+	// cannot fire; upstream body below is retained (disabled, not deleted — §5.x)
+	// and the shared codex signal capture the new guard reads stays intact. See
+	// tkOpenAIAutoPauseRetired (openai_account_scheduler_tk_autopause_retired.go).
+	if tkOpenAIAutoPauseRetired() {
+		return false, openAIQuotaAutoPauseDecision{}
+	}
 	// Auto-pause keys off codex 5h/7d usage windows that only exist on `openai`
 	// accounts; this is a usage-window predicate, not a scheduling pool-membership
 	// filter, so newapi accounts are correctly skipped.
