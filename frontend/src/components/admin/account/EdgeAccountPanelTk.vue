@@ -1,15 +1,15 @@
 <template>
-  <!-- Indented + sticky-left so the panel nests under its parent stub row's data
-       columns (left edge aligned with the name column at --select-col-width, past the
-       checkbox) instead of jutting out at the table's absolute left, AND stays readable
-       at that offset as the wide prod table scrolls horizontally. --select-col-width is
-       only defined inside .table-wrapper (table mode), so the fallback 0px leaves the
-       mobile card render (outside .table-wrapper) un-indented. Capped width (minus the
-       indent) with an inner overflow-x so a busy edge's sub-table scrolls internally
-       rather than overflowing. -->
-  <div class="dt-edge-panel sticky left-[var(--select-col-width,0px)] ml-[var(--select-col-width,0px)] my-1 w-fit max-w-[min(100%_-_var(--select-col-width,0px),76rem)] overflow-hidden rounded-lg border border-primary-200 bg-primary-50/40 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
+  <!-- Indented under its parent stub row to read as a nested child: left margin =
+       --select-col-width (past the checkbox) + a fixed step so the panel visibly sits
+       inboard of the parent's name column, while the right edge fills the row width
+       (block element, no w-fit / max-w cap) for a roomy full-width sub-table.
+       --select-col-width is only defined inside .table-wrapper (table mode), so the
+       fallback 0px collapses the indent to just the fixed step in the mobile card
+       render (outside .table-wrapper). Inner overflow-x keeps a busy edge's sub-table
+       scrolling internally rather than overflowing. -->
+  <div class="dt-edge-panel ml-[calc(var(--select-col-width,0px)_+_1.5rem)] mr-2 my-1 overflow-hidden rounded-lg border border-primary-200 bg-primary-50/40 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
     <!-- Edge header -->
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-primary-100 px-4 py-2.5 dark:border-dark-700">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-primary-100 px-4 py-1.5 dark:border-dark-700">
       <div class="flex min-w-0 items-center gap-2.5">
         <span :class="['inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full', edge && edge.ok ? 'bg-green-500' : 'bg-red-500']"></span>
         <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ edgeId }}</span>
@@ -56,17 +56,17 @@
     </div>
 
     <!-- Loading (edge data not yet available) -->
-    <div v-if="!edge && loading" class="px-4 py-5">
+    <div v-if="!edge && loading" class="px-4 py-4">
       <div class="space-y-2">
         <div v-for="i in 2" :key="i" class="h-5 w-full animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
       </div>
     </div>
     <!-- Edge not discovered (e.g. stub disabled) -->
-    <div v-else-if="!edge" class="px-4 py-5 text-center text-sm text-gray-400 dark:text-gray-500">
+    <div v-else-if="!edge" class="px-4 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
       {{ error || t('admin.accounts.edgePanel.notDiscovered') }}
     </div>
     <!-- Unreachable edge: inline error + retry (not a broken empty expand) -->
-    <div v-else-if="!edge.ok" class="flex flex-wrap items-center justify-center gap-3 px-4 py-5 text-center text-sm">
+    <div v-else-if="!edge.ok" class="flex flex-wrap items-center justify-center gap-3 px-4 py-4 text-center text-sm">
       <span class="text-red-600 dark:text-red-400">{{ edge.error || t('admin.edgeAccounts.loadFailed') }}</span>
       <button type="button" class="btn btn-secondary btn-sm inline-flex items-center gap-1" :disabled="loading" @click="emit('retry')">
         <Icon name="sync" size="sm" :class="loading ? 'animate-spin' : ''" />
@@ -78,21 +78,21 @@
       <table class="min-w-full divide-y divide-primary-100 text-sm dark:divide-dark-700">
         <thead class="bg-primary-50/60 text-xs uppercase tracking-wide text-gray-500 dark:bg-dark-900 dark:text-gray-400">
           <tr>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.name') }}</th>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.platformType') }}</th>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.capacity') }}</th>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.usageWindows') }}</th>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.state') }}</th>
-            <th class="px-4 py-2 text-center font-medium">{{ t('admin.accounts.columns.schedulable') }}</th>
-            <th class="px-4 py-2 text-right font-medium">{{ t('admin.edgeAccounts.columns.priority') }}</th>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.groups') }}</th>
-            <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.lastUsed') }}</th>
-            <th class="px-4 py-2 text-right font-medium">{{ t('admin.accounts.edgePanel.actions') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.name') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.platformType') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.capacity') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.usageWindows') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.state') }}</th>
+            <th class="px-4 py-1.5 text-center font-medium">{{ t('admin.accounts.columns.schedulable') }}</th>
+            <th class="px-4 py-1.5 text-right font-medium">{{ t('admin.edgeAccounts.columns.priority') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.groups') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.lastUsed') }}</th>
+            <th class="px-4 py-1.5 text-right font-medium">{{ t('admin.accounts.edgePanel.actions') }}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-primary-50 dark:divide-dark-700/50">
           <tr v-for="acct in sortedAccounts" :key="acct.id" class="hover:bg-primary-50/50 dark:hover:bg-dark-700/40">
-            <td class="px-4 py-2 align-top">
+            <td class="px-4 py-1.5 align-top">
               <div class="font-medium text-gray-900 dark:text-white">{{ acct.name }}</div>
               <div class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.edgeAccounts.accountIdHint')">ID: {{ acct.id }}</div>
               <div v-if="acct.error_message" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">{{ acct.error_message }}</div>
@@ -107,25 +107,25 @@
               </div>
               <div v-if="acct.notes" class="mt-0.5 block max-w-xs whitespace-pre-wrap break-words text-xs text-gray-500 dark:text-gray-400" :title="acct.notes">{{ acct.notes }}</div>
             </td>
-            <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
+            <td class="px-4 py-1.5 align-top text-gray-600 dark:text-gray-300">
               <span>{{ acct.platform }}</span>
               <span class="text-gray-400 dark:text-gray-500"> / {{ acct.type }}</span>
               <span v-if="acct.channel_type" class="text-gray-400 dark:text-gray-500"> · ch{{ acct.channel_type }}</span>
             </td>
-            <td class="px-4 py-2 align-top">
+            <td class="px-4 py-1.5 align-top">
               <AccountCapacityCell :account="accountVm(acct).accountLike" :today-stats="accountVm(acct).windowStats" />
             </td>
-            <td class="px-4 py-2 align-top">
+            <td class="px-4 py-1.5 align-top">
               <AccountUsageCell
                 :account="accountVm(acct).accountLike"
                 :today-stats="accountVm(acct).windowStats"
                 :usage-override="usageOverrideFor(acct)"
               />
             </td>
-            <td class="px-4 py-2 align-top">
+            <td class="px-4 py-1.5 align-top">
               <AccountStatusIndicator :account="accountVm(acct).accountLike" />
             </td>
-            <td class="px-4 py-2 text-center align-top">
+            <td class="px-4 py-1.5 text-center align-top">
               <button
                 type="button"
                 :disabled="busyId === acct.id"
@@ -137,13 +137,13 @@
                 <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[acct.schedulable ? 'translate-x-4' : 'translate-x-0']" />
               </button>
             </td>
-            <td class="px-4 py-2 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
-            <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
+            <td class="px-4 py-1.5 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
+            <td class="px-4 py-1.5 align-top text-gray-600 dark:text-gray-300">
               <span v-if="acct.groups && acct.groups.length">{{ acct.groups.join(', ') }}</span>
               <span v-else class="text-gray-300 dark:text-gray-600">—</span>
             </td>
-            <td class="px-4 py-2 align-top text-xs text-gray-500 dark:text-gray-400">{{ acct.last_used_at ? formatRelativeTime(acct.last_used_at) : '—' }}</td>
-            <td class="px-4 py-2 text-right align-top">
+            <td class="px-4 py-1.5 align-top text-xs text-gray-500 dark:text-gray-400">{{ acct.last_used_at ? formatRelativeTime(acct.last_used_at) : '—' }}</td>
+            <td class="px-4 py-1.5 text-right align-top">
               <button
                 type="button"
                 class="inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
@@ -161,7 +161,7 @@
     </div>
     <!-- Reachable but empty (this stub key's group has no accounts on the edge):
          actionable, not a blank — jump to the edge to configure it. -->
-    <div v-else class="flex flex-wrap items-center justify-center gap-3 px-4 py-5 text-center text-sm text-gray-400 dark:text-gray-500">
+    <div v-else class="flex flex-wrap items-center justify-center gap-3 px-4 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
       <span>{{ t('admin.accounts.edgePanel.groupEmpty') }}</span>
       <button
         type="button"
