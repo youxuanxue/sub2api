@@ -20,10 +20,8 @@ type stubOpsRepo struct {
 
 	routingRejections    int64
 	routingRejectionsErr error
-	routingCauses        []*OpsRoutingRejectionCause
-	routingCausesErr     error
-	routingUsers         []*OpsRoutingRejectionUser
-	routingUsersErr      error
+	routingByPlatform    []*OpsRoutingRejectionPlatform
+	routingByPlatformErr error
 }
 
 func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -43,18 +41,11 @@ func (s *stubOpsRepo) CountRoutingCapacityRejections(ctx context.Context, filter
 	return s.routingRejections, nil
 }
 
-func (s *stubOpsRepo) TopRoutingCapacityRejectionCauses(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionCause, error) {
-	if s.routingCausesErr != nil {
-		return nil, s.routingCausesErr
+func (s *stubOpsRepo) TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error) {
+	if s.routingByPlatformErr != nil {
+		return nil, s.routingByPlatformErr
 	}
-	return s.routingCauses, nil
-}
-
-func (s *stubOpsRepo) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionUser, error) {
-	if s.routingUsersErr != nil {
-		return nil, s.routingUsersErr
-	}
-	return s.routingUsers, nil
+	return s.routingByPlatform, nil
 }
 
 // GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
@@ -401,9 +392,11 @@ func TestComputeRuleMetricRoutingCapacityRejectionCount(t *testing.T) {
 }
 
 // TestComputeTopCauseRoutingCapacityRejection pins the self-diagnosing 主因 line
-// for the empty-pool P0: the card names WHICH platform pool(s) are out of
-// capacity (like pool_load_rate / error-rate cards do), instead of carrying a
-// bare number that forces the on-call to drill the dashboard.
+// for the empty-pool P0: a single JOINT breakdown naming WHICH platform pool(s)
+// are out of capacity AND WHO inside each pool is driving it (user id + api-key
+// name + count), instead of two un-cross-referenceable marginal lines. `users` is
+// always empty now — the standalone 用户 line is retired. Example names here are
+// synthetic.
 func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 	t.Parallel()
 
@@ -412,40 +405,30 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 	ctx := context.Background()
 	rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
 
-	t.Run("names the offending pools", func(t *testing.T) {
+	t.Run("joint per-platform breakdown with nested users", func(t *testing.T) {
 		t.Parallel()
-		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingCauses: []*OpsRoutingRejectionCause{
-			{Platform: "anthropic", Count: 40},
-			{Platform: "openai", Count: 15},
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatform: []*OpsRoutingRejectionPlatform{
+			{Platform: "anthropic", Count: 40, Users: []*OpsRoutingRejectionUser{
+				{UserID: 1, APIKeyName: "eval-harness", Count: 30},
+				{UserID: 16, APIKeyName: "mobile-app", Count: 10},
+			}},
+			{Platform: "newapi", Count: 8, Users: []*OpsRoutingRejectionUser{
+				{UserID: 16, APIKeyName: "ci-runner", Count: 8},
+			}},
 		}}}
 		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
-		require.Equal(t, "anthropic ×40 · openai ×15", cause)
-		require.Empty(t, users)
+		require.Equal(t, `anthropic ×40（#1 "eval-harness" ×30 · #16 "mobile-app" ×10） · newapi ×8（#16 "ci-runner" ×8）`, cause)
+		require.Empty(t, users, "standalone 用户 line is retired for new events")
 	})
 
-	t.Run("pool cause + user breakdown are returned separately (two card lines)", func(t *testing.T) {
+	t.Run("platform with no attributable users renders bare", func(t *testing.T) {
 		t.Parallel()
-		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
-			routingCauses: []*OpsRoutingRejectionCause{{Platform: "anthropic", Count: 40}},
-			routingUsers: []*OpsRoutingRejectionUser{
-				{UserID: 42, APIKeyName: "eval-harness", Count: 30},
-				{UserID: 17, APIKeyName: "", Count: 5},
-			},
-		}}
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatform: []*OpsRoutingRejectionPlatform{
+			{Platform: "anthropic", Count: 40},
+		}}}
 		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
 		require.Equal(t, "anthropic ×40", cause)
-		require.Equal(t, `#42 "eval-harness" ×30 · #17 ×5`, users)
-	})
-
-	t.Run("user segment survives a pool-query error (best-effort)", func(t *testing.T) {
-		t.Parallel()
-		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
-			routingCausesErr: context.DeadlineExceeded,
-			routingUsers:     []*OpsRoutingRejectionUser{{UserID: 1, APIKeyName: "k", Count: 9}},
-		}}
-		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
-		require.Empty(t, cause)
-		require.Equal(t, `#1 "k" ×9`, users)
+		require.Empty(t, users)
 	})
 
 	t.Run("no rows => no 主因 line", func(t *testing.T) {
@@ -458,7 +441,7 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 
 	t.Run("query error => no 主因 line (best-effort, never blocks firing)", func(t *testing.T) {
 		t.Parallel()
-		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingCausesErr: context.DeadlineExceeded}}
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatformErr: context.DeadlineExceeded}}
 		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
 		require.Empty(t, cause)
 		require.Empty(t, users)

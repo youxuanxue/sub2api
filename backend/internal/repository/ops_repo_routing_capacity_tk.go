@@ -54,14 +54,29 @@ FROM ops_error_logs
 	return n, nil
 }
 
-// TopRoutingCapacityRejectionCauses returns the top-`limit` platforms by
-// routing-phase rejection count over the filter window/scope, descending. It
-// lets a fired routing_capacity_rejection_count P0 card name WHICH platform
-// pool(s) ran out of capacity — the platform comes from the API key's group
-// (apiKey.Group.Platform), so it is populated even though no account was
-// selected (see ops_error_logger.go). Best-effort: the caller drops the cause
-// line on any error rather than blocking the alert.
-func (r *opsRepository) TopRoutingCapacityRejectionCauses(ctx context.Context, filter *service.OpsDashboardFilter, limit int) ([]*service.OpsRoutingRejectionCause, error) {
+// TopRoutingCapacityRejectionByPlatform returns, for the top-`platformLimit`
+// platforms by routing-phase rejection count over the filter window/scope, each
+// platform's total rejection count and its top-`usersPerPlatform` contributing
+// users (numeric user id + count, descending). It powers the
+// routing_capacity_rejection_count P0 card's single joint "主因" line, which names
+// WHICH pool(s) ran out of capacity AND WHO inside each pool is driving the
+// rejections — the platform→user attribution the two old marginal queries
+// (platform-only + user-only) could not express, since a user spanning two
+// platforms smeared across both margins.
+//
+// platform, user_id and api_key_id are all populated from the authenticated key
+// on every routing rejection (ops_error_logger.go, same block), so attribution is
+// reliable even though no account was selected. Two queries assembled in Go:
+//   - platform totals: COUNT(*) over ALL routing rows per platform — faithful to
+//     the metric, so rows with no attributable user_id are still counted;
+//   - per-platform users: COUNT(*) per (platform, user_id, api_key_id) over routing
+//     rows with user_id IS NOT NULL, window-ranked within each platform, with the
+//     operator-assigned api-key NAME resolved by a LEFT JOIN to api_keys (or the
+//     deleted-key snapshot for a hard-deleted key). The key SECRET is never read.
+//
+// Best-effort: the caller drops the 主因 line on any error rather than blocking the
+// alert.
+func (r *opsRepository) TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *service.OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*service.OpsRoutingRejectionPlatform, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("nil ops repository")
 	}
@@ -71,99 +86,103 @@ func (r *opsRepository) TopRoutingCapacityRejectionCauses(ctx context.Context, f
 	if filter.StartTime.IsZero() || filter.EndTime.IsZero() {
 		return nil, fmt.Errorf("start_time/end_time required")
 	}
-	if limit <= 0 {
-		limit = 2
+	if platformLimit <= 0 {
+		platformLimit = 2
+	}
+	if usersPerPlatform <= 0 {
+		usersPerPlatform = 3
 	}
 
-	where, args, next := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
-	q := `SELECT COALESCE(NULLIF(TRIM(platform), ''), '(unknown)') AS platform, COUNT(*) AS cnt
+	// Query A — platform totals (top-platformLimit, INCLUDES rows with NULL
+	// user_id so the per-platform count stays faithful to the overall metric).
+	whereA, argsA, nextA := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
+	qA := `SELECT COALESCE(NULLIF(TRIM(platform), ''), '(unknown)') AS platform, COUNT(*) AS cnt
 FROM ops_error_logs
-` + where + `
+` + whereA + `
   AND error_phase = 'routing'
 GROUP BY 1
 ORDER BY cnt DESC, platform ASC
-LIMIT $` + strconv.Itoa(next)
-	args = append(args, limit)
+LIMIT $` + strconv.Itoa(nextA)
+	argsA = append(argsA, platformLimit)
 
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	rowsA, err := r.db.QueryContext(ctx, qA, argsA...)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { _ = rowsA.Close() }()
 
-	out := make([]*service.OpsRoutingRejectionCause, 0, limit)
-	for rows.Next() {
-		var c service.OpsRoutingRejectionCause
-		if err := rows.Scan(&c.Platform, &c.Count); err != nil {
+	out := make([]*service.OpsRoutingRejectionPlatform, 0, platformLimit)
+	idx := make(map[string]int, platformLimit)
+	for rowsA.Next() {
+		var p service.OpsRoutingRejectionPlatform
+		if err := rowsA.Scan(&p.Platform, &p.Count); err != nil {
 			return nil, err
 		}
-		out = append(out, &c)
+		idx[p.Platform] = len(out)
+		out = append(out, &p)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rowsA.Err(); err != nil {
 		return nil, err
 	}
-	return out, nil
-}
-
-// TopRoutingCapacityRejectionUsers returns the top-`limit` (user, api-key) buckets
-// by routing-phase rejection count over the filter window/scope, descending — so
-// the P0 card can name WHO is being rejected and tell a single user hammering from
-// a site-wide shortage. user_id and api_key_id are populated from the
-// authenticated key on every routing rejection (ops_error_logger.go, same block as
-// platform), so attribution is reliable even though no account was selected.
-//
-// The operator-assigned key NAME is resolved by a join to api_keys (kept regardless
-// of soft-delete — the on-call wants the label even for a just-deleted key), with a
-// fallback to the deleted-key snapshot (ops_error_logs.deleted_key_name) for a
-// hard-deleted key. The key SECRET/prefix is never read. The shared error filter is
-// applied on the inner aggregate (no join there → no column ambiguity); the join
-// only resolves a handful of grouped rows by api_keys PK, so it stays cheap.
-func (r *opsRepository) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *service.OpsDashboardFilter, limit int) ([]*service.OpsRoutingRejectionUser, error) {
-	if r == nil || r.db == nil {
-		return nil, fmt.Errorf("nil ops repository")
-	}
-	if filter == nil {
-		return nil, fmt.Errorf("nil filter")
-	}
-	if filter.StartTime.IsZero() || filter.EndTime.IsZero() {
-		return nil, fmt.Errorf("start_time/end_time required")
-	}
-	if limit <= 0 {
-		limit = 3
+	if len(out) == 0 {
+		return out, nil
 	}
 
-	where, args, next := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
-	q := `SELECT g.user_id,
-       COALESCE(NULLIF(TRIM(ak.name), ''), NULLIF(TRIM(g.deleted_key_name), ''), '') AS key_name,
-       g.cnt
+	// Query B — top contributing users per platform (user_id IS NOT NULL),
+	// window-ranked within each platform. Bucketed by (platform, user_id, api_key_id)
+	// so a user's distinct keys surface separately (each with its own name); the
+	// api-key NAME is resolved by a LEFT JOIN to api_keys, with the deleted-key
+	// snapshot as fallback. Platforms outside Query A's top set are dropped in Go,
+	// so no platform-id array param is needed.
+	whereB, argsB, nextB := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
+	qB := `SELECT platform, user_id, key_name, cnt
 FROM (
-  SELECT user_id, api_key_id, MAX(deleted_key_name) AS deleted_key_name, COUNT(*) AS cnt
-  FROM ops_error_logs
-  ` + where + `
-    AND error_phase = 'routing'
-    AND user_id IS NOT NULL
-  GROUP BY user_id, api_key_id
-) g
-LEFT JOIN api_keys ak ON ak.id = g.api_key_id
-ORDER BY g.cnt DESC, g.user_id ASC
-LIMIT $` + strconv.Itoa(next)
-	args = append(args, limit)
+  SELECT platform, user_id, key_name, cnt,
+         ROW_NUMBER() OVER (PARTITION BY platform ORDER BY cnt DESC, user_id ASC, key_name ASC) AS rn
+  FROM (
+    SELECT g.platform,
+           g.user_id,
+           COALESCE(NULLIF(TRIM(ak.name), ''), NULLIF(TRIM(g.deleted_key_name), ''), '') AS key_name,
+           g.cnt
+    FROM (
+      SELECT COALESCE(NULLIF(TRIM(platform), ''), '(unknown)') AS platform,
+             user_id,
+             api_key_id,
+             MAX(deleted_key_name) AS deleted_key_name,
+             COUNT(*) AS cnt
+      FROM ops_error_logs
+      ` + whereB + `
+        AND error_phase = 'routing'
+        AND user_id IS NOT NULL
+      GROUP BY 1, user_id, api_key_id
+    ) g
+    LEFT JOIN api_keys ak ON ak.id = g.api_key_id
+  ) named
+) ranked
+WHERE rn <= $` + strconv.Itoa(nextB) + `
+ORDER BY platform ASC, cnt DESC, user_id ASC, key_name ASC`
+	argsB = append(argsB, usersPerPlatform)
 
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	rowsB, err := r.db.QueryContext(ctx, qB, argsB...)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { _ = rowsB.Close() }()
 
-	out := make([]*service.OpsRoutingRejectionUser, 0, limit)
-	for rows.Next() {
-		var u service.OpsRoutingRejectionUser
-		if err := rows.Scan(&u.UserID, &u.APIKeyName, &u.Count); err != nil {
+	for rowsB.Next() {
+		var (
+			platform string
+			u        service.OpsRoutingRejectionUser
+		)
+		if err := rowsB.Scan(&platform, &u.UserID, &u.APIKeyName, &u.Count); err != nil {
 			return nil, err
 		}
-		out = append(out, &u)
+		if i, ok := idx[platform]; ok {
+			user := u
+			out[i].Users = append(out[i].Users, &user)
+		}
 	}
-	if err := rows.Err(); err != nil {
+	if err := rowsB.Err(); err != nil {
 		return nil, err
 	}
 	return out, nil
