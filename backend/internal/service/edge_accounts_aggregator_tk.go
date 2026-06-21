@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -653,7 +654,12 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 		res.Error = "no http client"
 		return res
 	}
-	endpoint := t.baseURL + "/api/v1/edge/accounts?platform=" + platform
+	// url.QueryEscape the platform: per-stub fan-out now derives it from the stub's
+	// operator-set credentials.mirror_platform (edgeStubPoolPlatform), not a fixed
+	// constant, so escape it like the sibling fetchEdgeCapacity does — a stray space/&
+	// must not corrupt the query. (A constant platform escapes to itself, so the
+	// per-edge overview path is unaffected.)
+	endpoint := t.baseURL + "/api/v1/edge/accounts?platform=" + url.QueryEscape(platform)
 	if t.groupScopeCaller {
 		// Per-stub: ask the edge to narrow to this key's group (precise correspondence).
 		endpoint += "&group_scope=caller"
