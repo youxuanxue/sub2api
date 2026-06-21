@@ -57,7 +57,7 @@ FROM ops_error_logs
 // TopRoutingCapacityRejectionByPlatform returns, for the top-`platformLimit`
 // platforms by routing-phase rejection count over the filter window/scope, each
 // platform's total rejection count and its top-`usersPerPlatform` contributing
-// users (numeric user id + count, descending). It powers the
+// users (user id + api-key name + count, descending). It powers the
 // routing_capacity_rejection_count P0 card's single joint "主因" line, which names
 // WHICH pool(s) ran out of capacity AND WHO inside each pool is driving the
 // rejections — the platform→user attribution the two old marginal queries
