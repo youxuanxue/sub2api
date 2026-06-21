@@ -5311,6 +5311,21 @@ export default {
           requestsWithFirstToken: 'Requests With First Token'
         }
       },
+      failoverHopStats: {
+        title: 'Failover Hop Stats (per account)',
+        hint: 'How many hops each recovered request wasted = wasted upstream round-trips; tracks the hop reduction from the #899 window scheduler.',
+        failedToLoad: 'Failed to load failover hop stats',
+        empty: 'No failover hop stats for the current filters',
+        totalAccounts: 'Total accounts: {total}',
+        table: {
+          account: 'Account',
+          platform: 'Platform',
+          recoveredCount: 'Recovered Requests',
+          totalFailoverHops: 'Total Failover Hops',
+          totalWastedAttempts: 'Total Wasted Attempts',
+          avgHopsPerRecovered: 'Avg Hops / Recovered'
+        }
+      },
       fullscreen: {
         enter: 'Enter Fullscreen'
       },

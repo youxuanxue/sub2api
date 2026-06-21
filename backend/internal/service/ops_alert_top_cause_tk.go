@@ -56,37 +56,47 @@ func opsTopCauseApplies(metricType string) bool {
 	}
 }
 
-// computeTopCause returns a pre-formatted "主因" string for the card, or "" when
-// the rule is not a rate metric, the query fails, or there is nothing to show.
-// It is best-effort: a failure here must never block firing the alert.
-func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) string {
+// computeTopCause returns the pre-formatted "主因" string(s) for the card — both
+// "" when the rule is not a rate metric, the query fails, or there is nothing to
+// show. `cause` is the primary line: the model/owner breakdown (error-rate
+// rules), the saturated pool(s) (pool_load_rate), or the empty platform pool(s)
+// (routing_capacity_rejection_count). `users` is the per-user (client)
+// concentration breakdown for routing_capacity_rejection_count, rendered on its
+// own line under 主因. Best-effort: a failure here must never block firing the
+// alert.
+//
+// This function is node-agnostic. Edge nodes suppress the WHOLE
+// routing_capacity_rejection_count alert at the notification layer
+// (maybeSendAlertNotifications → isEdgeNode), so there is no per-field edge
+// branching here.
+func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) (cause string, users string) {
 	if s == nil || rule == nil {
-		return ""
+		return "", ""
 	}
 	metricType := strings.TrimSpace(rule.MetricType)
 	// pool_load_rate 的主因来自实时池负载快照（哪几个调度池在饱和），而非
 	// ops_error_logs，所以单独取一支；详见 ops_pool_load_rate_tk.go。
 	if metricType == "pool_load_rate" {
 		if s.opsService == nil {
-			return ""
+			return "", ""
 		}
 		pools, err := s.opsService.ComputePoolLoadRates(ctx)
 		if err != nil {
-			return ""
+			return "", ""
 		}
-		return formatPoolLoadCause(pools, rule, platform, groupID)
+		return formatPoolLoadCause(pools, rule, platform, groupID), ""
 	}
 	if s.opsRepo == nil {
-		return ""
+		return "", ""
 	}
 	// routing_capacity_rejection_count's cause has TWO dimensions, derived from the
 	// routing-phase rows themselves (not the model/owner/upstream_status breakdown
-	// the error-rate metrics use): WHICH platform pool(s) ran out of capacity, and
-	// WHO got rejected. Together they answer the first on-call question — is this a
-	// single user hammering (rate-limit them) or site-wide capacity exhaustion (add
-	// accounts)? The top-N user list reveals the concentration on its own. Both
-	// sub-queries are best-effort: a failure in one must not drop the other or block
-	// the alert.
+	// the error-rate metrics use): WHICH platform pool(s) ran out of capacity
+	// (`cause`), and WHO got rejected (`users`). Together they answer the first
+	// on-call question — a single user hammering (rate-limit them) or site-wide
+	// capacity exhaustion (add accounts)? They render as two lines (主因 / 用户) on
+	// the card. Both sub-queries are best-effort: a failure in one must not drop
+	// the other or block the alert.
 	if metricType == "routing_capacity_rejection_count" {
 		filter := &OpsDashboardFilter{
 			StartTime: start,
@@ -96,18 +106,13 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 			QueryMode: OpsQueryModeRaw,
 		}
 		pools, _ := s.opsRepo.TopRoutingCapacityRejectionCauses(ctx, filter, 2)
-		users, _ := s.opsRepo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
-		segments := make([]string, 0, 2)
-		if pool := formatRoutingRejectionCause(pools); pool != "" {
-			segments = append(segments, pool)
-		}
-		if usr := formatRoutingRejectionUsers(users); usr != "" {
-			segments = append(segments, "用户 "+usr)
-		}
-		return strings.Join(segments, " ｜ ")
+		rejected, _ := s.opsRepo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
+		cause = formatRoutingRejectionCause(pools)
+		users = formatRoutingRejectionUsers(rejected)
+		return cause, users
 	}
 	if !opsTopCauseApplies(metricType) {
-		return ""
+		return "", ""
 	}
 	// upstream_error_rate counts only provider-owned, non-429/529 final failures
 	// (the upstream_excl set); error_rate counts all SLA errors. Mirror that so
@@ -121,9 +126,9 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 		QueryMode: OpsQueryModeRaw,
 	}, upstreamOnly, 2)
 	if err != nil || len(causes) == 0 {
-		return ""
+		return "", ""
 	}
-	return formatOpsTopCause(causes)
+	return formatOpsTopCause(causes), ""
 }
 
 // formatOpsTopCause renders up to two causes as a compact one-line string, e.g.

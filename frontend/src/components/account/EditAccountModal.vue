@@ -1910,8 +1910,14 @@
         </div>
       </div>
 
+      <!-- TK (PR #899 follow-up): the codex usage-window auto-pause is retired — the
+           window-sched tri-state guard is now the single window-avoidance mechanism
+           (backend defaults 95% sticky-only / 99% avoid, with a global kill-switch and
+           per-account override). These per-account 5h/7d threshold controls are hidden;
+           the v-model refs + save path are kept so any previously-stored thresholds
+           round-trip harmlessly. Re-enable by dropping the `false &&`. -->
       <div
-        v-if="account?.platform === 'openai'"
+        v-if="false && account?.platform === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="space-y-2">

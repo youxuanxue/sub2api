@@ -2056,17 +2056,21 @@
         "func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(",
         "if result.window == anthropicUnifiedWindow5h || result.window == anthropicUnifiedWindow7d {",
         "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
-        "func (a *Account) tkAnthropicModelClassRateLimitActive(requestedModel string) bool"
+        "func (a *Account) tkAnthropicModelClassRateLimitActive(requestedModel string) bool",
+        "func (s *RateLimitService) tkTryOpenAICodexModelScopedCooldown(",
+        "func tkIsOpenAICodexMeteredModel(model string) bool",
+        "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkOpenAICodexMeteredCooldownReason)"
       ],
-      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes. The model-scoped cooldown is ONLY correct for a genuine per-class sub-bucket limit; an account-wide unified window (anthropic-ratelimit-unified-{5h,7d}-* with NO class suffix) is shared and blocks every class even when that class's own sub-bucket is allowed (direct upstream probe edge-us3 account a1, 2026-06-06: unified-7d-status=rejected returned 429 to a sonnet request while unified-7d_sonnet-status=allowed). The 'if result.window == anthropicUnifiedWindow5h || ...7d' guard makes tkTryAnthropicModelScopedCooldown DECLINE (return false -> caller does account-level SetRateLimited) for account-wide windows, so all classes are cooled; model-scoping survives only for window=='' (per-class sub-bucket). Losing that guard re-introduces the bug where a 7d-exhausted account leaves haiku falsely schedulable and unmarked. Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the original account-level amplification; this sentinel catches both."
+      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes. The model-scoped cooldown is ONLY correct for a genuine per-class sub-bucket limit; an account-wide unified window (anthropic-ratelimit-unified-{5h,7d}-* with NO class suffix) is shared and blocks every class even when that class's own sub-bucket is allowed (direct upstream probe edge-us3 account a1, 2026-06-06: unified-7d-status=rejected returned 429 to a sonnet request while unified-7d_sonnet-status=allowed). The 'if result.window == anthropicUnifiedWindow5h || ...7d' guard makes tkTryAnthropicModelScopedCooldown DECLINE (return false -> caller does account-level SetRateLimited) for account-wide windows, so all classes are cooled; model-scoping survives only for window=='' (per-class sub-bucket). Losing that guard re-introduces the bug where a 7d-exhausted account leaves haiku falsely schedulable and unmarked. Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the original account-level amplification; this sentinel catches both. The same file also hosts the OpenAI/Codex analog tkTryOpenAICodexModelScopedCooldown: a ChatGPT account's per-model metered sub-window (e.g. gpt-5.3-codex-spark, the /wham/usage additional_rate_limits family) can hit 100% (429 usage_limit_reached) while the account-wide 5h/7d window is healthy; cooling the whole account there idles healthy capacity and empties the pool ('刷不出 codex 额度'). It narrows such a 429 to the mapped model scope (honored by modelRateLimitKeysForRequest's GetMappedModel key, no read-side change) when tkIsOpenAICodexMeteredModel; account-wide exhaustion is owned solely by calculateOpenAI429ResetTime (general window >=100% → whole account, the only fact-based account-wide signal — no inferred sub-100% threshold). Losing these on a merge reverts codex to account-level amplification."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
+        "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {",
         "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
       ],
-      "rationale": "G4 injection point in the upstream-shaped handle429 / case-429 dispatch. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. An upstream merge that rewrites the 429 path or drops the requestedModel passthrough would silently revert G4 back to account-level cooldown; this sentinel anchors both the call and the threading."
+      "rationale": "G4 injection point in the upstream-shaped handle429 / case-429 dispatch. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites the 429 path or drops the requestedModel passthrough would silently revert both G4 (Anthropic) and the codex spark cooldown back to account-level amplification; this sentinel anchors both calls and the threading."
     },
     {
       "path": "backend/internal/service/model_rate_limit.go",
@@ -3102,6 +3106,55 @@
         "service.EdgeAccountOpClearRateLimit"
       ],
       "rationale": "Prod admin thin-proxy handler mapping POST|DELETE|GET /admin/edge-accounts/:edge/accounts/:id/<op> onto the aggregator's ForwardAccountOp (admin-JWT gated, inherited from /admin). Relays the edge's credential-free response verbatim; unknown edge -> 404, unreachable -> 502. Guards the prod proxy entry against silent deletion that would break inline edge-account management."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_window_sched.go",
+      "must_contain": [
+        "func CheckOpenAIWindowSchedulability(",
+        "func (s *OpenAIGatewayService) isAccountSchedulableForOpenAIWindow(",
+        "func leastUtilizedOpenAIAccount(",
+        "openAIWindowStickyThresholdDefault = 0.95"
+      ],
+      "rationale": "OpenAI/GPT-line window-aware soft scheduler — the twin of the anthropic window-cost tri-state filter (gateway_service.go isAccountSchedulableForWindowCost / account.go CheckWindowCostSchedulability). Steers new load-balance traffic away from a codex account approaching its 5h/7d usage window BEFORE it 429s, cutting avoidable failover hops (prod: 139 absorbed 429s on one gpt-5.5 account, all recovered via failover at the cost of a wasted hop each). Tri-state Schedulable/StickyOnly/NotSchedulable on the already-captured codex_5h/7d_used_percent (resolveOpenAIQuotaUtilization, fail-open on no-signal/stale/reset). The whole hop-reduction behaviour lives here; an upstream merge or refactor deleting this companion silently reverts the GPT line to window-blind load-balancing. Anchors the tri-state predicate, the scheduler method, the never-empty-pool fallback, and the default sticky threshold."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false)",
+        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true)",
+        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+      ],
+      "rationale": "Advanced-scheduler wiring of the OpenAI window guard (see openai_account_scheduler_tk_window_sched.go): selectByLoadBalance applies it with isSticky=false (drops near-limit accounts from fresh selection) and selectBySessionHash with isSticky=true (keeps a StickyOnly account for its own session, preserving prompt-cache). The never-empty-pool fallback re-admits the coolest dropped account so the guard can never empty a thin pool into a worse no-available-accounts 429 — necessary because codex used% IS the upstream's own limit, unlike the anthropic $-budget twin. Dropping these one-line hooks silently disables the guard on the advanced path; anchors them so merge drift fails preflight + the upstream-merge PR shape check."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "s.isAccountSchedulableForOpenAIWindow(ctx, acc, false)",
+        "s.isAccountSchedulableForOpenAIWindow(ctx, account, true)",
+        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+      ],
+      "rationale": "Legacy + priority/LRU wiring of the OpenAI window guard across the remaining candidate-filter selection paths: selectAccountWithLoadAwareness Layer-2 (isSticky=false) + Layer-1 sticky (isSticky=true, marks clearSticky so the hit falls through without deleting the binding), selectBestAccount (isSticky=false; used by count_tokens failover + gemini-compat) and tryStickySessionHit (isSticky=true). selectAccountWithLoadAwareness is the DEFAULT prod path (advanced scheduler defaults off), so this is the load-bearing wiring for the reported incident; never-empty-pool fallback present here too. Anchors the hooks so an upstream merge cannot silently drop the guard call and revert the GPT line to window-blind selection."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_autopause_retired.go",
+      "must_contain": [
+        "func tkOpenAIAutoPauseRetired() bool { return true }"
+      ],
+      "rationale": "PR #902: retires the upstream codex usage-window auto-pause in favour of the window-sched tri-state guard (the single window mechanism). This gate disables (does NOT delete — §5.x) shouldAutoPauseOpenAIAccountByQuota by short-circuiting it; the upstream code + the shared codex signal capture the #899 guard reads stay intact. Anchors the gate so an upstream merge cannot silently flip auto-pause back on."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if tkOpenAIAutoPauseRetired() {"
+      ],
+      "rationale": "PR #902 injection: the retirement short-circuit at the top of shouldAutoPauseOpenAIAccountByQuota. Pure-insertion guard returning a permanent no-op. If an upstream merge drops this one line, auto-pause silently revives and re-overlaps the window-sched guard — a silent regression. Anchor pins the injection."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {"
+      ],
+      "rationale": "PR #902 coverage parity: the window-sched tri-state guard now gates the previous_response_id chain (SelectAccountByPreviousResponseID) too, replacing the retired auto-pause that used to gate this path. isSticky=true keeps a StickyOnly account's chain, only a NotSchedulable account yields. If an upstream merge drops this line the prev-response path loses window coverage silently. Anchor pins the injection."
     }
   ]
 }

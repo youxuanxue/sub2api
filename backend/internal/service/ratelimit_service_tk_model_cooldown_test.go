@@ -349,3 +349,216 @@ func TestG4_NonAnthropicPlatform_NoModelClassCooldown(t *testing.T) {
 	require.False(t, account.tkAnthropicModelClassRateLimitActive("claude-opus-4-8"))
 	require.Zero(t, account.tkAnthropicModelClassRateLimitRemaining("claude-opus-4-8"))
 }
+
+// ============================================================================
+// OpenAI/Codex per-model metered sub-limit (spark) cooldown
+// ============================================================================
+//
+// A codex usage_limit_reached 429 reaches handle429's body path (path 2) only
+// when no account-wide window is >=100% (calculateOpenAI429ResetTime returned
+// nil). There, a spark sub-limit 429 with a HEALTHY account-wide window is
+// narrowed to (account × model) so the account keeps serving other models and
+// spark fails over; an account-wide-near-cap window still cools the whole
+// account.
+
+// codexGeneralWindowHeaders models the account-wide codex window via the
+// x-codex-primary(5h)/secondary(7d)-* headers. window-minutes pin the 5h/7d
+// mapping the same way prod sends them (primary=300, secondary=10080).
+func codexGeneralWindowHeaders(used5h, used7d int) http.Header {
+	h := http.Header{}
+	h.Set("x-codex-primary-used-percent", strconv.Itoa(used5h))
+	h.Set("x-codex-primary-window-minutes", "300")
+	h.Set("x-codex-secondary-used-percent", strconv.Itoa(used7d))
+	h.Set("x-codex-secondary-window-minutes", "10080")
+	return h
+}
+
+const codexSparkModel = "gpt-5.3-codex-spark"
+
+// usage_limit_reached body carrying the (spark sub-window) reset.
+var codexUsageLimitBody = []byte(`{"error":{"type":"usage_limit_reached","message":"limit reached","resets_in_seconds":7620}}`)
+
+func newOpenAICodexAccount(id int64, accType string) *Account {
+	return &Account{ID: id, Platform: PlatformOpenAI, Type: accType}
+}
+
+func TestCodexSpark429_GeneralWindowHealthy_ModelScoped(t *testing.T) {
+	// Spark sub-limit hit while the account-wide window is healthy (5h=4%,7d=1%):
+	// cool ONLY the spark model, leave the account schedulable for other models.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1001, AccountTypeOAuth)
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(4, 1),
+		codexUsageLimitBody,
+		codexSparkModel,
+	)
+
+	require.Len(t, repo.modelRateLimitCalls, 1,
+		"healthy general window → spark 429 must be model-scoped")
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, int64(1001), call.accountID)
+	require.Equal(t, codexSparkModel, call.scope,
+		"scope is the mapped model so the scheduler's GetMappedModel key matches")
+	require.Equal(t, tkOpenAICodexMeteredCooldownReason, call.reason)
+	require.Equal(t, 0, repo.setRateLimitedCalls,
+		"model-scoped spark cooldown must NOT cool the whole account")
+}
+
+func TestCodexSpark429_GeneralWindowNearCapNotExhausted_ModelScoped(t *testing.T) {
+	// Account-wide 7d window near its cap (97%) but NOT exhausted (<100%): the
+	// binding limit on this spark request is still the spark sub-window, so it is
+	// model-scoped. We deliberately do NOT whole-account cool on an INFERRED
+	// sub-100% threshold — only the fact-based >=100% (handled by path 1) cools
+	// the whole account. The account keeps its remaining general headroom; if 7d
+	// truly hits 100%, the next request is routed to whole-account by path 1.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1002, AccountTypeOAuth)
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(5, 97),
+		codexUsageLimitBody,
+		codexSparkModel,
+	)
+
+	require.Len(t, repo.modelRateLimitCalls, 1,
+		"a sub-100% account-wide window still model-scopes the spark sub-limit (no inferred threshold)")
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, 0, repo.setRateLimitedCalls)
+}
+
+func TestCodexSpark429_GeneralWindowExhausted_WholeAccountViaPath1(t *testing.T) {
+	// When a general window actually reads >=100% AND carries its reset, path 1
+	// (calculateOpenAI429ResetTime) cools the WHOLE account before the model-scope
+	// helper is reached — this is the only fact-based account-wide signal. Also
+	// the header-semantics self-protection: if the x-codex-* headers ever
+	// reflected the spark window at 100% instead of the account-wide one, this
+	// same path catches it. No model-scoped write.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1003, AccountTypeOAuth)
+
+	headers := codexGeneralWindowHeaders(100, 1) // 5h reads 100%
+	headers.Set("x-codex-primary-reset-after-seconds", "7620")
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		codexUsageLimitBody,
+		codexSparkModel,
+	)
+
+	require.Empty(t, repo.modelRateLimitCalls,
+		"a >=100% account-wide window is whole-account cooled by path 1, never model-scoped")
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestCodex429_NonSparkModel_GeneralHealthy_WholeAccount(t *testing.T) {
+	// A non-metered model (gpt-5.4) draws on the account-wide window; a 429 there
+	// is not a per-model sub-limit, so it is never model-scoped.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1004, AccountTypeOAuth)
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(4, 1),
+		codexUsageLimitBody,
+		"gpt-5.4",
+	)
+
+	require.Empty(t, repo.modelRateLimitCalls,
+		"non-spark model must not be model-scoped")
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestCodexSpark429_MirrorApikeyAccount_WholeAccount(t *testing.T) {
+	// prod→edge mirror accounts are type=apikey (the real spark window lives at
+	// the edge). They must keep whole-account behaviour.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1005, AccountTypeAPIKey)
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(4, 1),
+		codexUsageLimitBody,
+		codexSparkModel,
+	)
+
+	require.Empty(t, repo.modelRateLimitCalls,
+		"mirror apikey account must not be model-scoped")
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestCodexSpark429_NoModelContext_WholeAccount(t *testing.T) {
+	// WS fast-path drops the model. Without it we cannot scope → whole account.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1006, AccountTypeOAuth)
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(4, 1),
+		codexUsageLimitBody,
+	)
+
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+// --- reader side: a spark-scoped cooldown keeps other models schedulable ------
+
+func TestCodexSpark_ModelScoped_OtherModelsStaySchedulable(t *testing.T) {
+	resetAt := time.Now().Add(90 * time.Minute)
+	account := &Account{
+		ID:          1007,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				codexSparkModel: map[string]any{
+					"rate_limit_reset_at": resetAt.Format(time.RFC3339),
+					"reason":              tkOpenAICodexMeteredCooldownReason,
+				},
+			},
+		},
+	}
+	ctx := context.Background()
+	require.False(t, account.IsSchedulableForModelWithContext(ctx, codexSparkModel),
+		"spark is unschedulable while its model-scoped cooldown is active")
+	require.True(t, account.IsSchedulableForModelWithContext(ctx, "gpt-5.4"),
+		"non-spark models stay schedulable on the same account")
+	require.InDelta(t, time.Until(resetAt).Seconds(),
+		account.GetModelRateLimitRemainingTimeWithContext(ctx, codexSparkModel).Seconds(), 2)
+	require.Zero(t, account.GetModelRateLimitRemainingTimeWithContext(ctx, "gpt-5.4"))
+}
+
+// --- pure predicate boundaries ------------------------------------------------
+
+func TestTkIsOpenAICodexMeteredModel(t *testing.T) {
+	for _, m := range []string{"gpt-5.3-codex-spark", "GPT-5.3-CODEX-SPARK", "  gpt-5.3-codex-spark  "} {
+		require.Truef(t, tkIsOpenAICodexMeteredModel(m), "model=%q should be metered", m)
+	}
+	for _, m := range []string{"gpt-5.3-codex", "gpt-5.4", "codex", "spark", "", "claude-opus-4-8"} {
+		require.Falsef(t, tkIsOpenAICodexMeteredModel(m), "model=%q should NOT be metered", m)
+	}
+}

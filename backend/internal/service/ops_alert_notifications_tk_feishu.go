@@ -36,6 +36,19 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 	if s == nil {
 		return result
 	}
+	// Edge nodes are prod→edge mirror-relay targets, so a routing_capacity_rejection
+	// P0 there is just the prod relay being turned away — client-invisible (prod
+	// fails over to another edge), and the relay-探测 failover smears it across every
+	// thin edge it probes. A REAL edge outage is already paged by the account-incident
+	// P0 (账号失效) and the "平台池全不可调度 [edge-xxx]" pool-exhausted P0, both
+	// event-driven on the edge's own siteID and sharing this same feishu.enabled
+	// switch. So this rule is pure Feishu noise on an edge: suppress its
+	// notifications there. The event is still persisted (edge dashboard /
+	// scan-edge-health keep the trail); prod still pages — it is the relay terminus
+	// where the thin-pool-race blind spot actually matters.
+	if s.isEdgeNode() && isEdgeSuppressedAlertRule(rule) {
+		return result
+	}
 	if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, event) {
 		result.EmailSent = true
 	}
@@ -43,6 +56,29 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 		result.FeishuSent = true
 	}
 	return result
+}
+
+// isEdgeSuppressedAlertRule reports whether a rule's P0 notifications are pure
+// noise on a prod→edge mirror-relay edge and should be silenced there. Today only
+// routing_capacity_rejection_count qualifies (see maybeSendAlertNotifications);
+// kept as a named predicate so the policy is one obvious list, not an inline
+// string compare.
+func isEdgeSuppressedAlertRule(rule *OpsAlertRule) bool {
+	return rule != nil && strings.TrimSpace(rule.MetricType) == "routing_capacity_rejection_count"
+}
+
+// isEdgeNode reports whether this node is a prod→edge mirror-relay edge
+// (api-<id>.<domain>), derived from the configured frontend URL — the SAME source
+// the alert card's node label uses (deriveOpsNodeIdentity / siteFromFrontendURL),
+// so a card that would be titled "· us6" is exactly what this classifies as edge.
+// Prod (api.<domain>), an empty/unparseable URL, and any non-edge custom host are
+// treated as non-edge, so notifications are suppressed only where we positively
+// identify a relay edge.
+func (s *OpsAlertEvaluatorService) isEdgeNode() bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	return strings.HasPrefix(siteFromFrontendURL(s.cfg.Server.FrontendURL), "edge-")
 }
 
 func (s *OpsAlertEvaluatorService) maybeSendAlertFeishu(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rule *OpsAlertRule, event *OpsAlertEvent) bool {
