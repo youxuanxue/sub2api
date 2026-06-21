@@ -53,9 +53,25 @@ func TestTkThinPoolAllExcluded(t *testing.T) {
 		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
 		require.False(t, gs.tkThinPoolAllExcluded(ctx, 1, 0, 0))
 	})
-	t.Run("池非薄_超过阈值_不命中", func(t *testing.T) {
+	t.Run("N=2_全部失败排除_命中", func(t *testing.T) {
+		// 真正的现场形状（cc-us2/cc-us4，prod 12h 893×）：2 个号都被本请求自己的
+		// failover 排空，其它过滤计数全 0 → 应救援（旧实现因 N>1 天花板漏掉）。
 		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
-		require.False(t, gs.tkThinPoolAllExcluded(ctx, 2, 1, 0))
+		require.True(t, gs.tkThinPoolAllExcluded(ctx, 2, 2, 0))
+	})
+	t.Run("N=5_全部失败排除_命中", func(t *testing.T) {
+		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
+		require.True(t, gs.tkThinPoolAllExcluded(ctx, 5, 5, 0))
+	})
+	t.Run("N=2_有真冷却_不命中_amplifier守卫", func(t *testing.T) {
+		// 一个被 failover 排除、另一个被真冷却/配额摘掉（otherFiltersSum>0）→ 守卫
+		// 必须不触发，尊重真限流，绝不绕过。这是放宽天花板后的关键安全性。
+		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
+		require.False(t, gs.tkThinPoolAllExcluded(ctx, 2, 1, 1))
+	})
+	t.Run("N=3_混入其他过滤_不命中", func(t *testing.T) {
+		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
+		require.False(t, gs.tkThinPoolAllExcluded(ctx, 3, 2, 1))
 	})
 	t.Run("总数0_不命中", func(t *testing.T) {
 		gs := &GatewayService{settingService: newThinPoolSettingService(nil)}
