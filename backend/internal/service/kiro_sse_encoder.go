@@ -29,6 +29,14 @@ type kiroSSEEncoder struct {
 	model   string
 	msgID   string
 
+	// inputTokens is the locally-estimated prompt token count (Kiro upstream
+	// reports none). It is computable from the request up-front, so the caller
+	// sets it before streaming starts and writeMessageStart emits it in
+	// message_start.usage.input_tokens. Without this the streamed SSE carried
+	// input_tokens=0, and the prod relay (which bills off the parsed SSE usage)
+	// recorded every streamed Kiro request at input=0 → systematic under-billing.
+	inputTokens int
+
 	started     bool          // message_start has been emitted
 	openBlock   kiroBlockKind // currently open content block
 	blockIndex  int           // index of the currently open / next block
@@ -64,7 +72,7 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 			"stop_reason":   nil,
 			"stop_sequence": nil,
 			"usage": map[string]any{
-				"input_tokens":  0,
+				"input_tokens":  e.inputTokens,
 				"output_tokens": 0,
 			},
 		},
