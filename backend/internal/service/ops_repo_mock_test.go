@@ -90,11 +90,7 @@ func (m *opsRepoMock) CountRoutingCapacityRejections(ctx context.Context, filter
 	return 0, nil
 }
 
-func (m *opsRepoMock) TopRoutingCapacityRejectionCauses(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionCause, error) {
-	return nil, nil
-}
-
-func (m *opsRepoMock) TopRoutingCapacityRejectionUsers(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionUser, error) {
+func (m *opsRepoMock) TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error) {
 	return nil, nil
 }
 

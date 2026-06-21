@@ -24,19 +24,26 @@ type OpsTopErrorCause struct {
 	Count          int64
 }
 
-// OpsRoutingRejectionCause is one platform bucket of routing-phase capacity
-// rejections, used to name the empty pool(s) on a
-// routing_capacity_rejection_count P0 card.
-type OpsRoutingRejectionCause struct {
+// OpsRoutingRejectionPlatform is one platform bucket of routing-phase capacity
+// rejections on a routing_capacity_rejection_count P0 card: the platform whose
+// pool ran out of capacity, its total rejection Count (ALL routing rows for the
+// platform, including any with no attributable user), and the top contributing
+// users nested under it. The nested shape answers, in one line, both "which pool
+// is empty" AND "who inside it is driving the rejections" — the platform→user
+// attribution two separate marginal queries (platform-only + user-only) could not
+// express, because a user spanning two platforms smeared across both margins.
+type OpsRoutingRejectionPlatform struct {
 	Platform string
 	Count    int64
+	Users    []*OpsRoutingRejectionUser
 }
 
 // OpsRoutingRejectionUser is one (user, api-key) bucket of routing-phase capacity
-// rejections, used to name WHO is being rejected on a
-// routing_capacity_rejection_count P0 card. APIKeyName is the operator-assigned
-// key label (resolved from api_keys.name, or the deleted-key snapshot for a
-// hard-deleted key); the key secret/prefix is NEVER surfaced in an alert.
+// rejections nested under a platform. APIKeyName is the operator-assigned key
+// label (resolved from api_keys.name, or the deleted-key snapshot for a
+// hard-deleted key) so the on-call can pin the offending client; the key
+// secret/prefix is NEVER surfaced. The label is user-controlled, so it is
+// markdown-defanged before rendering (see sanitizeFeishuLabel).
 type OpsRoutingRejectionUser struct {
 	UserID     int64
 	APIKeyName string
@@ -89,14 +96,18 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 	if s.opsRepo == nil {
 		return "", ""
 	}
-	// routing_capacity_rejection_count's cause has TWO dimensions, derived from the
+	// routing_capacity_rejection_count's cause is a single JOINT breakdown over the
 	// routing-phase rows themselves (not the model/owner/upstream_status breakdown
-	// the error-rate metrics use): WHICH platform pool(s) ran out of capacity
-	// (`cause`), and WHO got rejected (`users`). Together they answer the first
-	// on-call question — a single user hammering (rate-limit them) or site-wide
-	// capacity exhaustion (add accounts)? They render as two lines (主因 / 用户) on
-	// the card. Both sub-queries are best-effort: a failure in one must not drop
-	// the other or block the alert.
+	// the error-rate metrics use): the top platform pool(s) that ran out of
+	// capacity, each with its top contributing users nested inline (internal user id
+	// + api-key name, never the secret). One line answers the first
+	// on-call question WITH attribution — is the shortage one user hammering
+	// (rate-limit them) or spread across many (add accounts)? — which the old two
+	// separate marginal queries (platform-only + user-only) could not, since a user
+	// spanning two platforms smeared across both. `users` is left empty (the
+	// standalone 用户 line is retired); the notifier keeps its reader for
+	// already-stored historical events. Best-effort: a failure must not block the
+	// alert.
 	if metricType == "routing_capacity_rejection_count" {
 		filter := &OpsDashboardFilter{
 			StartTime: start,
@@ -105,11 +116,8 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 			GroupID:   groupID,
 			QueryMode: OpsQueryModeRaw,
 		}
-		pools, _ := s.opsRepo.TopRoutingCapacityRejectionCauses(ctx, filter, 2)
-		rejected, _ := s.opsRepo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
-		cause = formatRoutingRejectionCause(pools)
-		users = formatRoutingRejectionUsers(rejected)
-		return cause, users
+		platforms, _ := s.opsRepo.TopRoutingCapacityRejectionByPlatform(ctx, filter, 2, 3)
+		return formatRoutingRejectionByPlatform(platforms), ""
 	}
 	if !opsTopCauseApplies(metricType) {
 		return "", ""
@@ -164,20 +172,34 @@ func formatOpsTopCause(causes []*OpsTopErrorCause) string {
 	return strings.Join(parts, " · ")
 }
 
-// formatRoutingRejectionCause renders the top routing-rejection platforms as a
-// compact one-line cause, e.g. "anthropic ×40 · openai ×15". The on-call reads
-// it as "these pools are out of capacity — add accounts / check that edge".
-func formatRoutingRejectionCause(causes []*OpsRoutingRejectionCause) string {
+// formatRoutingRejectionByPlatform renders the joint platform×user breakdown as a
+// single compact line, e.g.
+//
+//	anthropic ×40（#1 "eval-harness" ×30 · #2 "mobile-app" ×10） · openai ×8（#5 "ci-runner" ×8）
+//
+// Each platform shows its total rejection count and, in full-width parens, its top
+// contributing users (internal user id + the operator-assigned api-key NAME, never
+// the key secret). A platform with no attributable user renders bare
+// ("anthropic ×40"). The on-call reads it as "these pools are out of capacity, and
+// within each pool these clients are driving it", telling a single user hammering
+// from a site-wide shortage while keeping per-platform attribution. Capped at the
+// top 2 platforms (the repo already limits; the cap here is defensive). Returns ""
+// when there is nothing to show.
+func formatRoutingRejectionByPlatform(platforms []*OpsRoutingRejectionPlatform) string {
 	parts := make([]string, 0, 2)
-	for _, c := range causes {
-		if c == nil || c.Count <= 0 {
+	for _, p := range platforms {
+		if p == nil || p.Count <= 0 {
 			continue
 		}
-		platform := strings.TrimSpace(c.Platform)
-		if platform == "" {
-			platform = "(unknown)"
+		name := strings.TrimSpace(p.Platform)
+		if name == "" {
+			name = "(unknown)"
 		}
-		parts = append(parts, fmt.Sprintf("%s ×%d", platform, c.Count))
+		seg := fmt.Sprintf("%s ×%d", name, p.Count)
+		if nested := formatRejectionUserSegments(p.Users); nested != "" {
+			seg += "（" + nested + "）"
+		}
+		parts = append(parts, seg)
 		if len(parts) >= 2 {
 			break
 		}
@@ -185,29 +207,33 @@ func formatRoutingRejectionCause(causes []*OpsRoutingRejectionCause) string {
 	return strings.Join(parts, " · ")
 }
 
-// formatRoutingRejectionUsers renders the top rejected users as a compact
-// one-line cause, e.g. `#42 "eval-harness" ×30 · #17 "mobile-app" ×12 · #9 ×8`.
-// Shows the internal user id + the operator-assigned api-key NAME (NEVER the key
-// secret) so the on-call can tell a single user hammering from a site-wide
-// shortage and, if needed, pin the offending key by its label. Capped at 3 — the
-// card answers "who", not "everyone".
-func formatRoutingRejectionUsers(users []*OpsRoutingRejectionUser) string {
+// formatRejectionUserSegments renders up to 3 nested users joined by " · ". Skips
+// nil/non-positive entries; returns "" when none remain.
+func formatRejectionUserSegments(users []*OpsRoutingRejectionUser) string {
 	parts := make([]string, 0, 3)
 	for _, u := range users {
 		if u == nil || u.Count <= 0 {
 			continue
 		}
-		seg := fmt.Sprintf("#%d", u.UserID)
-		if name := sanitizeFeishuLabel(u.APIKeyName); name != "" {
-			seg += fmt.Sprintf(" %q", truncateRunes(name, 24))
-		}
-		seg += fmt.Sprintf(" ×%d", u.Count)
-		parts = append(parts, seg)
+		parts = append(parts, formatRejectionUserSegment(u))
 		if len(parts) >= 3 {
 			break
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// formatRejectionUserSegment renders one nested user as `#<id> "<name>" ×<n>`,
+// falling back to `#<id> ×<n>` when the api-key name is blank. The name is
+// user-controlled, so it is markdown-defanged and rune-truncated before it lands
+// in the operator's lark_md card.
+func formatRejectionUserSegment(u *OpsRoutingRejectionUser) string {
+	seg := fmt.Sprintf("#%d", u.UserID)
+	if name := sanitizeFeishuLabel(u.APIKeyName); name != "" {
+		seg += fmt.Sprintf(" %q", truncateRunes(name, 24))
+	}
+	seg += fmt.Sprintf(" ×%d", u.Count)
+	return seg
 }
 
 // feishuLabelSanitizer defangs lark_md control characters in a user-controlled

@@ -70,14 +70,18 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 
 	// Self-diagnosing 主因 breakdown: only routing rows, grouped by platform,
 	// descending — so the P0 card names which pool is empty. The non-routing
-	// anthropic/openai rows above must NOT leak into these counts.
-	causes, err := repo.TopRoutingCapacityRejectionCauses(ctx, filter, 2)
+	// anthropic/openai rows above must NOT leak into these counts. These routing
+	// rows carry NULL user_id, so they count toward each platform's total but
+	// surface no nested user (Count includes NULL-user rows; Users excludes them).
+	platforms, err := repo.TopRoutingCapacityRejectionByPlatform(ctx, filter, 2, 3)
 	require.NoError(t, err)
-	require.Len(t, causes, 2)
-	require.Equal(t, "anthropic", causes[0].Platform)
-	require.EqualValues(t, 2, causes[0].Count)
-	require.Equal(t, "openai", causes[1].Platform)
-	require.EqualValues(t, 1, causes[1].Count)
+	require.Len(t, platforms, 2)
+	require.Equal(t, "anthropic", platforms[0].Platform)
+	require.EqualValues(t, 2, platforms[0].Count)
+	require.Empty(t, platforms[0].Users, "NULL-user routing rows count toward the total but surface no user")
+	require.Equal(t, "openai", platforms[1].Platform)
+	require.EqualValues(t, 1, platforms[1].Count)
+	require.Empty(t, platforms[1].Users)
 
 	// Cross-check the blind spot: the three routing rows are business-limited →
 	// excluded from the ratio metrics' numerator AND denominator, which is exactly
@@ -90,12 +94,16 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 		"business-limited routing/auth/request rows are excluded from the SLA error count")
 }
 
-// TestTopRoutingCapacityRejectionUsers pins the WHO breakdown that names the
-// rejected users on the P0 card: grouped by (user_id, api_key_id) over routing
-// rows only, ordered by count, with the api-key NAME resolved via join (live key)
-// or the deleted-key snapshot (hard-deleted key). Unattributable rows (NULL
-// user_id) and non-routing rows are excluded.
-func TestTopRoutingCapacityRejectionUsers(t *testing.T) {
+// TestTopRoutingCapacityRejectionByPlatform pins the JOINT breakdown that powers
+// the P0 card's single 主因 line: per platform, the total rejection Count (ALL
+// routing rows, including NULL-user) plus the top contributing users (user id +
+// api-key NAME, resolved by join or deleted-key snapshot) over routing rows with
+// user_id IS NOT NULL, ranked within each platform. The headline case is a user
+// that spans TWO platforms (via two keys) — it must be attributed to BOTH pools
+// with the right per-platform key name, which the old two marginal queries could
+// not express. Non-routing rows are excluded; NULL-user rows count toward Count
+// but never appear as a nested user. All names below are synthetic.
+func TestTopRoutingCapacityRejectionByPlatform(t *testing.T) {
 	ctx := context.Background()
 	_, _ = integrationDB.ExecContext(ctx, "TRUNCATE ops_error_logs RESTART IDENTITY CASCADE")
 
@@ -105,51 +113,70 @@ func TestTopRoutingCapacityRejectionUsers(t *testing.T) {
 	windowEnd := windowStart.Add(time.Hour)
 	at := windowStart.Add(5 * time.Minute)
 
-	// A real user + live api_key, for the join (live-name) path. Cleaned up after
-	// (api_keys cascades on user delete) so the shared integration DB stays tidy.
-	var liveUserID, liveKeyID int64
+	// A real user with two live api_keys — one used on each platform, so the same
+	// user surfaces under both pools with its respective key name (the cross-platform
+	// case the joint view fixes). Cleaned up after (api_keys cascade on user delete).
+	var liveUserID, keyAnthropicID, keyNewapiID int64
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
 		`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
-		"routing-users-test@example.com").Scan(&liveUserID))
+		"routing-byplatform-test@example.com").Scan(&liveUserID))
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id = $1", liveUserID)
 	})
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
 		`INSERT INTO api_keys (user_id, key, name) VALUES ($1, $2, $3) RETURNING id`,
-		liveUserID, "sk-routing-users-test", "eval-harness").Scan(&liveKeyID))
+		liveUserID, "sk-routing-byplatform-a", "eval-harness").Scan(&keyAnthropicID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO api_keys (user_id, key, name) VALUES ($1, $2, $3) RETURNING id`,
+		liveUserID, "sk-routing-byplatform-b", "ci-runner").Scan(&keyNewapiID))
 
-	insert := func(phase string, userID, apiKeyID *int64, deletedKeyName string) {
+	insert := func(phase, platform string, userID, apiKeyID *int64, deletedKeyName string) {
 		_, err := integrationDB.ExecContext(ctx, `
 			INSERT INTO ops_error_logs (
 				error_phase, error_type, severity, status_code, error_owner,
-				user_id, api_key_id, deleted_key_name, is_business_limited, created_at
-			) VALUES ($1, 'api_error', 'error', 429, 'platform', $2, $3, $4, true, $5)`,
-			phase, userID, apiKeyID, deletedKeyName, at)
+				platform, user_id, api_key_id, deleted_key_name, is_business_limited, created_at
+			) VALUES ($1, 'api_error', 'error', 429, 'platform', $2, $3, $4, $5, true, $6)`,
+			phase, platform, userID, apiKeyID, deletedKeyName, at)
 		require.NoError(t, err)
 	}
 	i64 := func(v int64) *int64 { return &v }
 
-	// Live user/key — 2 routing rejections → name resolved from api_keys join.
-	insert("routing", i64(liveUserID), i64(liveKeyID), "")
-	insert("routing", i64(liveUserID), i64(liveKeyID), "")
-	// Hard-deleted key — 1 routing rejection, api_key_id has no api_keys row →
-	// name from the deleted-key snapshot.
-	insert("routing", i64(9001), i64(987654321), "snap-key")
+	// anthropic: live user/eval-harness ×3, hard-deleted-key user 9001/snap-key ×1
+	// (no api_keys row → snapshot fallback), plus one NULL-user routing row.
+	insert("routing", "anthropic", i64(liveUserID), i64(keyAnthropicID), "")
+	insert("routing", "anthropic", i64(liveUserID), i64(keyAnthropicID), "")
+	insert("routing", "anthropic", i64(liveUserID), i64(keyAnthropicID), "")
+	insert("routing", "anthropic", i64(9001), i64(987654321), "snap-key")
+	insert("routing", "anthropic", nil, nil, "")
+	// newapi: the SAME live user, its OTHER key — cross-platform attribution.
+	insert("routing", "newapi", i64(liveUserID), i64(keyNewapiID), "")
 	// Must NOT count: non-routing row for the live user.
-	insert("auth", i64(liveUserID), i64(liveKeyID), "")
-	// Must NOT count: routing row with NULL user_id (unattributable).
-	insert("routing", nil, nil, "")
+	insert("auth", "anthropic", i64(liveUserID), i64(keyAnthropicID), "")
 
 	filter := &service.OpsDashboardFilter{StartTime: windowStart, EndTime: windowEnd, QueryMode: service.OpsQueryModeRaw}
-	users, err := repo.TopRoutingCapacityRejectionUsers(ctx, filter, 3)
+	platforms, err := repo.TopRoutingCapacityRejectionByPlatform(ctx, filter, 2, 3)
 	require.NoError(t, err)
-	require.Len(t, users, 2, "two attributable users; NULL-user and non-routing rows excluded")
+	require.Len(t, platforms, 2)
 
-	// Ordered by count desc: live user (2) then snapshot user (1).
-	require.Equal(t, liveUserID, users[0].UserID)
-	require.Equal(t, "eval-harness", users[0].APIKeyName, "live key name resolved via api_keys join")
-	require.EqualValues(t, 2, users[0].Count)
-	require.EqualValues(t, 9001, users[1].UserID)
-	require.Equal(t, "snap-key", users[1].APIKeyName, "hard-deleted key name from snapshot fallback")
-	require.EqualValues(t, 1, users[1].Count)
+	// anthropic: total 5 (3 + 1 + 1 NULL-user); nested users exclude the NULL-user
+	// row, ordered by count desc, names resolved (live join + deleted-key snapshot).
+	require.Equal(t, "anthropic", platforms[0].Platform)
+	require.EqualValues(t, 5, platforms[0].Count, "platform total includes the NULL-user routing row")
+	require.Len(t, platforms[0].Users, 2, "NULL-user row contributes to Count but not to Users")
+	require.Equal(t, liveUserID, platforms[0].Users[0].UserID)
+	require.Equal(t, "eval-harness", platforms[0].Users[0].APIKeyName, "live key name via api_keys join")
+	require.EqualValues(t, 3, platforms[0].Users[0].Count)
+	require.EqualValues(t, 9001, platforms[0].Users[1].UserID)
+	require.Equal(t, "snap-key", platforms[0].Users[1].APIKeyName, "hard-deleted key name from snapshot fallback")
+	require.EqualValues(t, 1, platforms[0].Users[1].Count)
+
+	// newapi: the same live user, its other key — proof the joint view attributes a
+	// cross-platform user to BOTH pools with the right per-platform key, which the
+	// old marginal lines smeared into one ambiguous number.
+	require.Equal(t, "newapi", platforms[1].Platform)
+	require.EqualValues(t, 1, platforms[1].Count)
+	require.Len(t, platforms[1].Users, 1)
+	require.Equal(t, liveUserID, platforms[1].Users[0].UserID)
+	require.Equal(t, "ci-runner", platforms[1].Users[0].APIKeyName)
+	require.EqualValues(t, 1, platforms[1].Users[0].Count)
 }
