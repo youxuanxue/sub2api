@@ -53,7 +53,7 @@ func (r *opsRepository) GetFailoverHopStats(ctx context.Context, filter *service
 	// failover_hops counts only account-switch events (same predicate as the
 	// fleet-wide queryAccountSwitchCount); wasted_attempts counts every failed
 	// upstream attempt regardless of kind.
-	q := `
+	recoveredCTE := `
 WITH recovered AS (
   SELECT
     account_id,
@@ -65,7 +65,20 @@ WITH recovered AS (
     ) AS failover_hops,
     jsonb_array_length(upstream_errors) AS wasted_attempts
   FROM ops_error_logs ` + where + `
-)
+)`
+
+	// True total = distinct (account, platform) groups with recovered hops, so the
+	// TopN footer reports the real account count rather than the trimmed page size.
+	var total int64
+	if err := r.db.QueryRowContext(ctx,
+		recoveredCTE+`
+SELECT COUNT(*) FROM (SELECT 1 FROM recovered GROUP BY account_id, platform) g`,
+		args...,
+	).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	q := recoveredCTE + `
 SELECT
   recovered.account_id,
   COALESCE(NULLIF(a.name, ''), '(account ' || recovered.account_id::text || ')') AS account_name,
@@ -79,9 +92,9 @@ LEFT JOIN accounts a ON a.id = recovered.account_id
 GROUP BY recovered.account_id, a.name, recovered.platform
 ORDER BY total_failover_hops DESC, recovered_count DESC, recovered.account_id ASC
 LIMIT $` + fmt.Sprintf("%d", idx)
-	args = append(args, filter.TopN)
+	queryArgs := append(append([]any{}, args...), filter.TopN)
 
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	rows, err := r.db.QueryContext(ctx, q, queryArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +132,7 @@ LIMIT $` + fmt.Sprintf("%d", idx)
 		Platform:  dashboardFilter.Platform,
 		GroupID:   dashboardFilter.GroupID,
 		Items:     items,
-		Total:     int64(len(items)),
+		Total:     total,
 		TopN:      filter.TopN,
 	}, nil
 }

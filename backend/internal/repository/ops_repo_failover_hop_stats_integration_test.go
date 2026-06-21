@@ -44,6 +44,8 @@ func TestGetFailoverHopStats(t *testing.T) {
 	insert(200, 100, "openai", `[{"kind":"failover"},{"kind":"failover_on_400"},{"kind":"retry"}]`)
 	//   row B: 1 failover                   -> failover_hops=1, wasted_attempts=1
 	insert(200, 100, "openai", `[{"kind":"failover:upstream_429"}]`)
+	// account 101 (newapi): one recovered request, fewer hops -> sorts after 100.
+	insert(200, 101, "newapi", `[{"kind":"failover"}]`)
 
 	// EXCLUDED rows:
 	//   final-failure (status>=400) — not recovered.
@@ -61,14 +63,27 @@ func TestGetFailoverHopStats(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Len(t, resp.Items, 1, "only account 100 (openai) has recovered hops in scope")
+	require.Len(t, resp.Items, 2, "accounts 100 (openai) + 101 (newapi) are in scope; anthropic excluded")
+	require.EqualValues(t, 2, resp.Total)
 
 	item := resp.Items[0]
-	require.EqualValues(t, 100, item.AccountID)
+	require.EqualValues(t, 100, item.AccountID, "highest total_failover_hops sorts first")
 	require.Equal(t, "openai", item.Platform)
 	require.EqualValues(t, 2, item.RecoveredCount, "2 recovered-200 requests")
 	require.EqualValues(t, 3, item.TotalFailoverHops, "2 + 1 account-switch events (retry excluded)")
 	require.EqualValues(t, 4, item.TotalWastedAttempts, "3 + 1 array elements (retry counted as wasted attempt)")
 	require.NotNil(t, item.AvgFailoverHopsPerRecovered)
 	require.InDelta(t, 1.5, *item.AvgFailoverHopsPerRecovered, 1e-6, "3 failover hops / 2 recovered requests")
+
+	// TopN trims the rows but Total reports the true account count.
+	trimmed, err := repo.GetFailoverHopStats(ctx, &service.OpsFailoverHopStatsFilter{
+		TimeRange: "1d",
+		StartTime: windowStart,
+		EndTime:   windowEnd,
+		TopN:      1,
+	})
+	require.NoError(t, err)
+	require.Len(t, trimmed.Items, 1, "topN=1 returns one row")
+	require.EqualValues(t, 100, trimmed.Items[0].AccountID)
+	require.EqualValues(t, 2, trimmed.Total, "Total is the true account count, not the trimmed page size")
 }
