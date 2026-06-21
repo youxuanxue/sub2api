@@ -281,3 +281,25 @@ func TestSelectAccountWithScheduler_AdvancedWindowGuard_RoutesAwayFromHotAccount
 	require.NotNil(t, selection.Account)
 	require.Equal(t, int64(39002), selection.Account.ID, "advanced path: hot 99% account excluded from the weighted TopK pool")
 }
+
+// Retirement gate (#902): the upstream codex auto-pause decision is a permanent
+// no-op now that the window-sched tri-state guard is the single window mechanism.
+// Even an account well over a configured auto_pause threshold must NOT be paused.
+func TestShouldAutoPauseOpenAIAccountByQuota_Retired(t *testing.T) {
+	require.True(t, tkOpenAIAutoPauseRetired(), "retirement gate must be on")
+
+	acc := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent":   99.0,
+			"codex_usage_updated_at":  time.Now().Format(time.RFC3339),
+			"auto_pause_5h_threshold": 0.90, // would have paused pre-retirement
+		},
+	}
+	// Seed a non-zero global default too, to prove neither account-level nor global
+	// thresholds can revive auto-pause.
+	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold5h: 0.90})
+	paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, acc)
+	require.False(t, paused, "auto-pause is retired; it must never fire regardless of thresholds")
+}
