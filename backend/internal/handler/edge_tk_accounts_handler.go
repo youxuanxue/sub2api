@@ -209,6 +209,24 @@ type edgeAccountDTO struct {
 
 	TierID *int64   `json:"tier_id,omitempty"`
 	Groups []string `json:"groups,omitempty"`
+
+	// ModelRateLimits is a curated, active-only projection of the edge account's
+	// per-model-class rate-limit state (account.Extra["model_rate_limits"]). It
+	// makes the EDGE's Anthropic unified-window 429 (e.g. sonnet 5h/7d exhausted at
+	// scope "anthropic:class:sonnet") visible to the prod overview, which otherwise
+	// reads an all-green snapshot while a single-account edge fails 100% of sonnet.
+	// Only still-active entries (reset_at in the future) are emitted; no credential
+	// substrings — scope keys + reset timestamps + an upstream reason string only.
+	ModelRateLimits map[string]edgeModelRateLimit `json:"model_rate_limits,omitempty"`
+}
+
+// edgeModelRateLimit is the on-the-wire shape of one active per-model-class
+// cooldown. Timestamps marshal as RFC3339 (nil → omitted); reason carries the
+// upstream cause (e.g. "anthropic_unified_window_exceeded"). Non-credential.
+type edgeModelRateLimit struct {
+	RateLimitedAt    *time.Time `json:"rate_limited_at,omitempty"`
+	RateLimitResetAt *time.Time `json:"rate_limit_reset_at,omitempty"`
+	Reason           string     `json:"reason,omitempty"`
 }
 
 // edgeUsageWindows mirrors the minimal subset of service.UsageInfo the usage
@@ -462,8 +480,11 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 }
 
 // toEdgeAccountDTO maps a service.Account to the sanitized read-model's static
-// fields. It reads ONLY non-sensitive fields/getters — Credentials/Extra/Proxy/
-// Notes are never touched. The live current_* gauges are attached separately by
+// fields. It reads ONLY non-sensitive fields/getters — Credentials/Proxy/Notes are
+// never touched. The sole Extra read is a curated, active-only projection of
+// model_rate_limits (scope keys + reset timestamps + reason string — no credential
+// substrings) via a.ActiveModelRateLimits, surfacing the edge's per-class window
+// cooldown. The live current_* gauges are attached separately by
 // edgeRuntimeGauges.apply.
 func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 	dto := edgeAccountDTO{
@@ -504,5 +525,29 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 			dto.Groups = append(dto.Groups, grp.Name)
 		}
 	}
+	dto.ModelRateLimits = toEdgeModelRateLimits(a.ActiveModelRateLimits(time.Now()))
 	return dto
+}
+
+// toEdgeModelRateLimits converts the service-layer active-cooldown projection into
+// the wire shape, keyed by the same scope (e.g. "anthropic:class:sonnet"). Returns
+// nil when there are no active entries so the DTO field omits cleanly.
+func toEdgeModelRateLimits(active map[string]service.ActiveModelCooldown) map[string]edgeModelRateLimit {
+	if len(active) == 0 {
+		return nil
+	}
+	out := make(map[string]edgeModelRateLimit, len(active))
+	for scope, c := range active {
+		entry := edgeModelRateLimit{Reason: c.Reason}
+		if !c.RateLimitResetAt.IsZero() {
+			resetAt := c.RateLimitResetAt
+			entry.RateLimitResetAt = &resetAt
+		}
+		if !c.RateLimitedAt.IsZero() {
+			limitedAt := c.RateLimitedAt
+			entry.RateLimitedAt = &limitedAt
+		}
+		out[scope] = entry
+	}
+	return out
 }
