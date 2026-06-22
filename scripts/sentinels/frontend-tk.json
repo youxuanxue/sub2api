@@ -63,9 +63,18 @@
     {
       "path": "frontend/src/router/index.ts",
       "must_contain": [
-        "redirect: { path: '/studio', query: { mode: 'chat' } }"
+        "redirect: { path: '/studio', query: { mode: 'chat' } }",
+        "...adminRoutes"
       ],
-      "rationale": "The retired /playground route 301-redirects to the Studio Chat modality (playground was folded in as the fourth Studio tab). This redirect is the only thing keeping old /playground bookmarks/links from 404-ing; a router-table rewrite (TK refactor or an upstream merge touching router/index.ts) could silently drop it. Anchor the redirect target so the dead-link guarantee can't regress unnoticed."
+      "rationale": "Two router invariants. (1) The retired /playground route 301-redirects to the Studio Chat modality (playground was folded in as the fourth Studio tab). This redirect is the only thing keeping old /playground bookmarks/links from 404-ing; a router-table rewrite could silently drop it. (2) The admin route subtree is isolated in router/admin.tk.ts and spread in via `...adminRoutes` to keep index.ts close to upstream shape; an upstream merge that rewrites the route table could drop the spread, silently removing the entire admin area. Anchor both so neither guarantee regresses unnoticed."
+    },
+    {
+      "path": "frontend/src/router/admin.tk.ts",
+      "must_contain": [
+        "export const adminRoutes: RouteRecordRaw[]",
+        "@/views/admin/AdminShellView.vue"
+      ],
+      "rationale": "TK-isolated admin route subtree (extracted from router/index.ts to minimize upstream-merge conflicts, see CLAUDE.md §5). The `adminRoutes` export is the contract index.ts spreads; the AdminShellView import is the persistent-shell nesting (PR #935) that the admin-shell-layout guard depends on. Anchor both so a refactor or merge that flattens the shell or breaks the export is caught at preflight time rather than in prod."
     },
     {
       "path": "frontend/src/views/user/studio/BakeOff.vue",
