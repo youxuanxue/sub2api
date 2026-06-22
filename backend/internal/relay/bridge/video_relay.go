@@ -78,6 +78,13 @@ type VideoFetchOutcome struct {
 	Status      string
 }
 
+// videoFetchResponseMaxBytes bounds task-poll response bodies. Some upstreams
+// return terminal video bytes as inline base64 JSON; TokenKey should hand that
+// result to the client once, not accept unbounded media into memory.
+const videoFetchResponseMaxBytes int64 = 80 << 20
+
+var errVideoFetchResponseTooLarge = errors.New("upstream task fetch response too large")
+
 // DispatchVideoSubmit runs the New API task adaptor for POST /v1/video/generations
 // (and the OpenAI-compat alias POST /v1/videos). It performs:
 //
@@ -235,9 +242,9 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		return nil, types.NewError(errors.New("empty upstream fetch response"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := readVideoFetchResponseBody(resp.Body)
 	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeReadResponseBodyFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, types.NewErrorWithStatusCode(
@@ -253,6 +260,27 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		out.Status = string(info.Status)
 	}
 	return out, nil
+}
+
+func readVideoFetchResponseBody(r io.Reader) ([]byte, error) {
+	return readVideoFetchResponseBodyLimited(r, videoFetchResponseMaxBytes)
+}
+
+func readVideoFetchResponseBodyLimited(r io.Reader, maxBytes int64) ([]byte, error) {
+	if r == nil {
+		return nil, errors.New("response body is nil")
+	}
+	if maxBytes <= 0 {
+		maxBytes = videoFetchResponseMaxBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("%w: limit=%d", errVideoFetchResponseTooLarge, maxBytes)
+	}
+	return body, nil
 }
 
 // taskAdaptorForChannel returns the new-api task adaptor registered for this

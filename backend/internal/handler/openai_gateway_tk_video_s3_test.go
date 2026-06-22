@@ -4,21 +4,17 @@ package handler
 
 import (
 	"context"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
-// fakeMediaStore records uploads and returns deterministic presigned URLs.
 type fakeMediaStore struct {
 	uploads    map[string][]byte
 	presignErr error
@@ -42,133 +38,10 @@ func (f *fakeMediaStore) PresignURL(_ context.Context, key string, _ time.Durati
 	return "https://s3.example.test/" + key, nil
 }
 
-// compile-time: fakeMediaStore satisfies the real interface.
 var _ service.MediaStore = (*fakeMediaStore)(nil)
-
-func veoSuccessBody(b64, mime string) []byte {
-	return []byte(`{"done":true,"response":{"videos":[{"bytesBase64Encoded":"` + b64 + `","mimeType":"` + mime + `"}]}}`)
-}
-
-func TestExtractInlineVideoBase64(t *testing.T) {
-	b64 := base64.StdEncoding.EncodeToString([]byte("FAKEMP4"))
-	got, mime := extractInlineVideoBase64(veoSuccessBody(b64, "video/mp4"))
-	if got != b64 || mime != "video/mp4" {
-		t.Fatalf("veo shape: got (%q,%q) want (%q,video/mp4)", got, mime, b64)
-	}
-	got, _ = extractInlineVideoBase64([]byte(`{"done":true,"response":{"bytesBase64Encoded":"` + b64 + `"}}`))
-	if got != b64 {
-		t.Fatalf("flat shape: got %q want %q", got, b64)
-	}
-	if got, _ := extractInlineVideoBase64([]byte(`{"status":"succeeded","content":{"video_url":"https://x/y.mp4"}}`)); got != "" {
-		t.Fatalf("url shape must yield empty base64, got %q", got)
-	}
-}
-
-func TestRewriteVideoBodyWithURL(t *testing.T) {
-	b64 := base64.StdEncoding.EncodeToString([]byte("FAKEMP4"))
-	url := "https://s3.example.test/media/videos/vt_x.mp4"
-	r := gjson.ParseBytes(rewriteVideoBodyWithURL(veoSuccessBody(b64, "video/mp4"), url))
-	// base64 must be GONE (else extractVideoUrl returns a now-empty data: URI).
-	if r.Get("response.videos").Exists() {
-		t.Fatalf("response.videos not stripped: %s", r.Raw)
-	}
-	if r.Get("video_url").String() != url {
-		t.Fatalf("video_url not set: %s", r.Raw)
-	}
-	if !r.Get("done").Bool() {
-		t.Fatalf("done flag lost (videoStateFromFetch would misclassify): %s", r.Raw)
-	}
-}
-
-func TestVideoExtAndContentType(t *testing.T) {
-	cases := map[string][2]string{ // mime -> {ext, contentType}
-		"video/mp4":       {".mp4", "video/mp4"},
-		"video/webm":      {".webm", "video/webm"},
-		"video/quicktime": {".mov", "video/quicktime"},
-		"":                {".mp4", "video/mp4"},
-		"text/html":       {".mp4", "video/mp4"}, // non-video falls back
-	}
-	for mime, want := range cases {
-		if e := videoExtForMime(mime); e != want[0] {
-			t.Errorf("videoExtForMime(%q)=%q want %q", mime, e, want[0])
-		}
-		if ct := mediaContentType(mime); ct != want[1] {
-			t.Errorf("mediaContentType(%q)=%q want %q", mime, ct, want[1])
-		}
-	}
-}
 
 func newRecord(taskID, s3key string) *service.VideoTaskRecord {
 	return &service.VideoTaskRecord{PublicTaskID: taskID, UpstreamTaskID: "u-" + taskID, UserID: 1, ChannelType: 41, MediaS3Key: s3key}
-}
-
-func TestMaybeOffloadVideoToS3(t *testing.T) {
-	b64 := base64.StdEncoding.EncodeToString([]byte("FAKEMP4"))
-	mk := func(store service.MediaStore) *OpenAIGatewayHandler {
-		h := &OpenAIGatewayHandler{}
-		h.SetVideoTaskCache(repository.NewVideoTaskCache(nil))
-		h.SetMediaStore(store)
-		return h
-	}
-	out := func(status string, body []byte) *bridge.VideoFetchOutcome {
-		return &bridge.VideoFetchOutcome{Status: status, RawResponse: body}
-	}
-
-	t.Run("nil store passes through", func(t *testing.T) {
-		h := &OpenAIGatewayHandler{}
-		h.SetVideoTaskCache(repository.NewVideoTaskCache(nil))
-		if _, ok := h.tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_a", ""), out("success", veoSuccessBody(b64, "video/mp4"))); ok {
-			t.Fatal("nil store must not offload")
-		}
-	})
-
-	t.Run("success uploads, rewrites, stores key", func(t *testing.T) {
-		fs := newFakeMediaStore()
-		h := mk(fs)
-		rec := newRecord("vt_b", "")
-		body, ok := h.tkMaybeOffloadVideoToS3(context.Background(), rec, out("success", veoSuccessBody(b64, "video/mp4")))
-		if !ok {
-			t.Fatal("expected offload")
-		}
-		wantKey := "media/videos/vt_b.mp4"
-		if rec.MediaS3Key != wantKey {
-			t.Fatalf("rec.MediaS3Key=%q want %q", rec.MediaS3Key, wantKey)
-		}
-		if string(fs.uploads[wantKey]) != "FAKEMP4" {
-			t.Fatalf("uploaded bytes=%q want FAKEMP4", fs.uploads[wantKey])
-		}
-		if gjson.GetBytes(body, "video_url").String() != "https://s3.example.test/"+wantKey {
-			t.Fatalf("rewritten body missing presigned url: %s", body)
-		}
-	})
-
-	t.Run("non-success does not offload", func(t *testing.T) {
-		fs := newFakeMediaStore()
-		if _, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_c", ""), out("processing", veoSuccessBody(b64, "video/mp4"))); ok {
-			t.Fatal("processing must not offload")
-		}
-		if _, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_d", ""), out("failure", veoSuccessBody(b64, "video/mp4"))); ok {
-			t.Fatal("failure must not offload")
-		}
-		if len(fs.uploads) != 0 {
-			t.Fatalf("no upload expected, got %d", len(fs.uploads))
-		}
-	})
-
-	t.Run("upstream-url body (no base64) passes through", func(t *testing.T) {
-		fs := newFakeMediaStore()
-		if _, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_e", ""), out("success", []byte(`{"status":"succeeded","content":{"video_url":"https://x/y.mp4"}}`))); ok {
-			t.Fatal("url-shaped body must not offload")
-		}
-	})
-
-	t.Run("upload failure degrades to passthrough", func(t *testing.T) {
-		fs := newFakeMediaStore()
-		fs.uploadErr = context.DeadlineExceeded
-		if _, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_f", ""), out("success", veoSuccessBody(b64, "video/mp4"))); ok {
-			t.Fatal("upload error must degrade to passthrough (ok=false)")
-		}
-	})
 }
 
 func TestVideoFastPathFromS3(t *testing.T) {
@@ -180,7 +53,7 @@ func TestVideoFastPathFromS3(t *testing.T) {
 		return c, w
 	}
 
-	t.Run("hits when key present", func(t *testing.T) {
+	t.Run("hits legacy offloaded record when key present", func(t *testing.T) {
 		h := &OpenAIGatewayHandler{}
 		h.SetMediaStore(newFakeMediaStore())
 		c, w := newCtx()
@@ -197,12 +70,12 @@ func TestVideoFastPathFromS3(t *testing.T) {
 		c, _ := newCtx()
 		hNoStore := &OpenAIGatewayHandler{}
 		if hNoStore.tkVideoFastPathFromS3(c, newRecord("vt_x", "media/videos/vt_x.mp4")) {
-			t.Fatal("no store → must not handle")
+			t.Fatal("no store must not handle")
 		}
 		hNoKey := &OpenAIGatewayHandler{}
 		hNoKey.SetMediaStore(newFakeMediaStore())
 		if hNoKey.tkVideoFastPathFromS3(c, newRecord("vt_x", "")) {
-			t.Fatal("empty key → must not handle")
+			t.Fatal("empty key must not handle")
 		}
 	})
 
@@ -213,7 +86,7 @@ func TestVideoFastPathFromS3(t *testing.T) {
 		h.SetMediaStore(fs)
 		c, _ := newCtx()
 		if h.tkVideoFastPathFromS3(c, newRecord("vt_x", "media/videos/vt_x.mp4")) {
-			t.Fatal("presign error → must not claim handled")
+			t.Fatal("presign error must not claim handled")
 		}
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,6 +219,37 @@ func TestDispatchVideoFetch_VolcEngine_OK(t *testing.T) {
 	if !bytes.Contains(out.RawResponse, []byte("https://cdn.example.com/video.mp4")) {
 		t.Fatalf("raw response missing video url, got %q", out.RawResponse)
 	}
+}
+
+func TestReadVideoFetchResponseBody_LimitsInlineMedia(t *testing.T) {
+	body, err := readVideoFetchResponseBody(bytes.NewReader([]byte("ok")))
+	if err != nil {
+		t.Fatalf("within limit returned error: %v", err)
+	}
+	if string(body) != "ok" {
+		t.Fatalf("body=%q want ok", body)
+	}
+
+	tooLarge := io.LimitReader(&zeroReader{}, 4)
+	body, err = readVideoFetchResponseBodyLimited(tooLarge, 3)
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if body != nil {
+		t.Fatalf("oversized body should be nil, got %d bytes", len(body))
+	}
+	if !errors.Is(err, errVideoFetchResponseTooLarge) {
+		t.Fatalf("err=%v want errVideoFetchResponseTooLarge", err)
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
 
 func mustJSON(t *testing.T, v any) []byte {

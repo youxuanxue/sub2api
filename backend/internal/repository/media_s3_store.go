@@ -25,16 +25,16 @@ import (
 // uses the default AWS credential chain — i.e. the EC2 instance role on prod.
 // This is the whole point of the design decision: media offload introduces NO
 // long-lived AWS key; presigned links are signed by the instance role and are
-// therefore short-lived (re-minted on demand by VideoFetch).
+// therefore short-lived. Fresh video generation results no longer upload here by
+// default; this store is for image offload and legacy media re-presign.
 type S3MediaStore struct {
 	client *s3.Client
 	bucket string
 }
 
-// NewMediaStore builds the media store from config. Returns nil (offload
-// disabled) when no driver/bucket is configured — the gateway then passes media
-// through as inline base64 (current behaviour). A nil return is a valid wired
-// value: handlers nil-check the MediaStore.
+// NewMediaStore builds the media store from config. Returns nil when no
+// driver/bucket is configured. A nil return is a valid wired value: handlers
+// nil-check the MediaStore.
 func NewMediaStore(cfg *config.Config) service.MediaStore {
 	mc := cfg.MediaStorage
 	if mc.Driver == "" || mc.Bucket == "" {

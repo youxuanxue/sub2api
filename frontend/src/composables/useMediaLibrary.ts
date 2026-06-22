@@ -12,8 +12,9 @@
  * deleted key simply means the task can no longer be polled.
  *
  * Storage is best-effort: a QuotaExceededError (large base64 images) trims the
- * oldest image entries and retries, then degrades to video-tasks-only, never
- * throwing into the UI.
+ * oldest image entries and retries. Video tasks are also sanitized before
+ * persistence so inline data:video payloads stay browser-local instead of being
+ * written to localStorage.
  */
 import { ref, watch, type Ref } from 'vue'
 
@@ -77,11 +78,22 @@ function loadPersisted(key: string): PersistShape {
     const parsed = JSON.parse(raw) as Partial<PersistShape> | null
     return {
       images: Array.isArray(parsed?.images) ? (parsed!.images as ImageHistoryItem[]) : [],
-      videoTasks: Array.isArray(parsed?.videoTasks) ? (parsed!.videoTasks as VideoTaskItem[]) : [],
+      videoTasks: Array.isArray(parsed?.videoTasks)
+        ? (parsed!.videoTasks as VideoTaskItem[]).map(sanitizeVideoTaskForPersistence)
+        : [],
     }
   } catch {
     return { images: [], videoTasks: [] }
   }
+}
+
+function sanitizeVideoTaskForPersistence(task: VideoTaskItem): VideoTaskItem {
+  if (!/^data:video/i.test(task.url) && !task.url.startsWith('blob:')) return task
+  return { ...task, url: '' }
+}
+
+function sanitizeVideoTasksForPersistence(tasks: VideoTaskItem[]): VideoTaskItem[] {
+  return tasks.map(sanitizeVideoTaskForPersistence)
 }
 
 /**
@@ -91,14 +103,15 @@ function loadPersisted(key: string): PersistShape {
 function persist(key: string, data: PersistShape): void {
   if (typeof window === 'undefined') return
   let images = data.images
+  const videoTasks = sanitizeVideoTasksForPersistence(data.videoTasks)
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      window.localStorage.setItem(key, JSON.stringify({ images, videoTasks: data.videoTasks }))
+      window.localStorage.setItem(key, JSON.stringify({ images, videoTasks }))
       return
     } catch {
       if (images.length === 0) {
         try {
-          window.localStorage.setItem(key, JSON.stringify({ images: [], videoTasks: data.videoTasks }))
+          window.localStorage.setItem(key, JSON.stringify({ images: [], videoTasks }))
         } catch {
           /* give up silently — history is a convenience, not correctness */
         }
