@@ -692,6 +692,10 @@ const rowVirtualizer = useVirtualizer(computed(() => ({
   getScrollElement: () => tableWrapperRef.value,
   estimateSize: () => props.estimateRowHeight ?? 56,
   overscan: props.overscan ?? 5,
+  // 关键:用稳定的逻辑 key(flatItemKey,行/明细行各自唯一)作为测量缓存键,而非默认的 flat index。
+  // 否则展开/折叠或 flatItems 重排会使某 index 的缓存高度落到「另一条逻辑行」上,measure 时读到错位
+  // 旧值 → 反复产生非零 delta → 校正→重排→再测量,在变高明细行(edge 面板)场景下永不收敛,表现为页面持续闪烁。
+  getItemKey: (index: number) => flatItemKey(index),
   // 兜底高度:首个有效高度读数到来前,先按一屏渲染,避免空白帧
   initialRect: { width: 0, height: estimatedViewportHeight() },
   // 关键:过滤 0 高度读数,杜绝 scrollRect 被钉成 0 → calculateRange 返回 null → 整表空白
