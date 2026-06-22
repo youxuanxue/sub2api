@@ -59,3 +59,37 @@ func tkPruneStructurallyGoneIDs(ctx context.Context, platform string, ids []stri
 	}
 	return kept
 }
+
+// ServableClientFacingIDs is the SINGLE client-facing servable truth shared by
+// every model-list surface — the public /pricing catalog filter, the Your-Menu
+// fallback, and the gateway /v1/models family fallback (/v1/models, /v1beta/models,
+// /antigravity/models). It enforces the invariant
+//
+//	visible ⟹ reachable ∧ priced
+//
+// by taking the per-platform servable candidate set (tkServableCandidateIDs:
+// empirical allowlist or canonical, with structurally-gone ids pruned) and keeping
+// only ids that resolve to a usable price (IsModelPriced — the billing-capability
+// gate). This closes the "in the allowlist but unpriced → advertised at $0" hole
+// structurally rather than ASSUMING allowlist ⊆ priced (e.g. an allowlisted but
+// price-less id like tab_flash_lite_preview is dropped here, not silently served
+// for free). It is the same priced gate FilterClientFacing applies to the
+// account-mapped path, so fallback and account-mapped surfaces agree.
+//
+// Nil-safe, matching the surrounding fail-open posture:
+//   - availability == nil → no structurally-gone prune (cold-start / tests)
+//   - pricing == nil      → no priced filter (cold-start / degraded wiring), so a
+//     broken pricing source never collapses a model-list to empty and breaks SDKs.
+func ServableClientFacingIDs(ctx context.Context, platform string, availability MePricingAvailability, pricing *PricingCatalogService) []string {
+	ids := tkServableCandidateIDs(ctx, platform, availability)
+	if pricing == nil || len(ids) == 0 {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if pricing.IsModelPriced(id, platform) {
+			out = append(out, id)
+		}
+	}
+	return out
+}

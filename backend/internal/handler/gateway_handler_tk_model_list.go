@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -40,100 +41,148 @@ func (h *GatewayHandler) tkFilterModelIDs(ctx context.Context, platform string, 
 	return h.tkModelListFilter.FilterClientFacing(ctx, platform, ids)
 }
 
-// tkOpenAIDefaultModelIDs returns the default OpenAI model IDs as a string slice,
-// optionally filtered by the model-list filter.
+// servableIDs is the gateway-side bridge to the unified client-facing servable
+// truth (service.ServableClientFacingIDs via the wired model-list filter): the
+// per-platform empirical allowlist (or canonical when unprobed), pruned of
+// structurally-gone ids and filtered to priced. Every /v1/models-family FALLBACK
+// sources its ids here, so the gateway advertises exactly the set the public
+// /pricing catalog and the Your-Menu fallback show — no advertised_dead (a priced
+// id not in the allowlist, e.g. gpt-5.2), no visible-but-unpriced. Nil-safe: no
+// filter wired → service.ServableClientFacingIDs fail-opens to the candidate set.
+func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []string {
+	if h == nil || h.tkModelListFilter == nil {
+		return service.ServableClientFacingIDs(ctx, platform, nil, nil)
+	}
+	return h.tkModelListFilter.ServableClientFacingIDs(ctx, platform)
+}
+
+// tkOpenAIDefaultModelIDs returns the /v1/models fallback for OpenAI-compat
+// platforms as []openai.Model, synthesized from the unified servable set
+// (servableIDs) and preferring the canonical openai.DefaultModels entry for an id
+// when present (DisplayName/Created fidelity), else synthesizing — mirroring
+// writeOpenAIModelsList. Converges with /pricing (drops advertised_dead like
+// gpt-5.2/gpt-image-*; surfaces every servable allowlist id).
 func (h *GatewayHandler) tkOpenAIDefaultModelIDs(ctx context.Context, platform string) []openai.Model {
-	ids := make([]string, len(openai.DefaultModels))
-	for i, m := range openai.DefaultModels {
-		ids[i] = m.ID
-	}
-	filtered := h.tkFilterModelIDs(ctx, platform, ids)
-	out := make([]openai.Model, 0, len(filtered))
-	filtSet := make(map[string]bool, len(filtered))
-	for _, id := range filtered {
-		filtSet[id] = true
-	}
+	byID := make(map[string]openai.Model, len(openai.DefaultModels))
 	for _, m := range openai.DefaultModels {
-		if filtSet[m.ID] {
+		byID[m.ID] = m
+	}
+	ids := h.servableIDs(ctx, platform)
+	out := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
 			out = append(out, m)
+			continue
 		}
+		out = append(out, openai.Model{
+			ID:          id,
+			Object:      "model",
+			Created:     1704067200,
+			OwnedBy:     "openai",
+			Type:        "model",
+			DisplayName: id,
+		})
 	}
 	return out
 }
 
-// tkClaudeDefaultModelIDs returns the default Claude model IDs as a string slice,
-// optionally filtered by the model-list filter.
+// tkClaudeDefaultModelIDs returns the /v1/models fallback for Claude as
+// []claude.Model, synthesized from the unified servable set. The allowlist carries
+// BASE ids (claude-opus-4-5) while claude.DefaultModels carries the canonical (often
+// DATED) form (claude-opus-4-5-20251101); we index DefaultModels by their
+// denormalized (base) id so a base servable id reuses the canonical entry —
+// preserving the dated /v1/models wire form + DisplayName — and synthesize for
+// allowlist-only ids absent from DefaultModels (e.g. claude-opus-4-1).
 func (h *GatewayHandler) tkClaudeDefaultModelIDs(ctx context.Context, platform string) []claude.Model {
-	ids := make([]string, len(claude.DefaultModels))
-	for i, m := range claude.DefaultModels {
-		ids[i] = m.ID
-	}
-	filtered := h.tkFilterModelIDs(ctx, platform, ids)
-	out := make([]claude.Model, 0, len(filtered))
-	filtSet := make(map[string]bool, len(filtered))
-	for _, id := range filtered {
-		filtSet[id] = true
-	}
+	byBase := make(map[string]claude.Model, len(claude.DefaultModels))
 	for _, m := range claude.DefaultModels {
-		if filtSet[m.ID] {
+		byBase[claude.DenormalizeModelID(m.ID)] = m
+	}
+	ids := h.servableIDs(ctx, platform)
+	out := make([]claude.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byBase[id]; ok {
 			out = append(out, m)
+			continue
 		}
+		out = append(out, claude.Model{
+			ID:          id,
+			Type:        "model",
+			DisplayName: id,
+			CreatedAt:   "2024-01-01T00:00:00Z",
+		})
 	}
 	return out
 }
 
-// tkAntigravityDefaultModels filters antigravity.DefaultModels() by pricing +
-// availability and returns []antigravity.ClaudeModel preserving the original
-// response shape. platform is always service.PlatformAntigravity.
-//
-// Fixes review finding R-001: AntigravityModels must keep []ClaudeModel shape
-// and must not substitute the full cross-platform catalog for the antigravity-
-// only candidate set.
+// tkAntigravityDefaultModels returns the /antigravity/models fallback as
+// []antigravity.ClaudeModel, synthesized from the unified servable set (gemini-only
+// per operator policy — the antigravity allowlist already excludes claude/gpt-oss).
+// Preserves the []ClaudeModel shape (R-001) and prefers the canonical
+// antigravity.DefaultModels() entry for DisplayName fidelity. The group
+// supported_model_scopes filter still runs after this in AntigravityModels.
 func (h *GatewayHandler) tkAntigravityDefaultModels(ctx context.Context) []antigravity.ClaudeModel {
 	defaults := antigravity.DefaultModels()
-	ids := make([]string, len(defaults))
-	for i, m := range defaults {
-		ids[i] = m.ID
-	}
-	filtered := h.tkFilterModelIDs(ctx, service.PlatformAntigravity, ids)
-	filtSet := make(map[string]bool, len(filtered))
-	for _, id := range filtered {
-		filtSet[id] = true
-	}
-	out := make([]antigravity.ClaudeModel, 0, len(filtered))
+	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
 	for _, m := range defaults {
-		if filtSet[m.ID] {
+		byID[m.ID] = m
+	}
+	ids := h.servableIDs(ctx, service.PlatformAntigravity)
+	out := make([]antigravity.ClaudeModel, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
 			out = append(out, m)
+			continue
 		}
+		out = append(out, antigravity.ClaudeModel{ID: id, DisplayName: id})
 	}
 	return out
 }
 
-// tkGeminiFallbackModelsList filters gemini.DefaultModels() by pricing +
-// availability and returns a gemini.ModelsListResponse preserving the original
-// response shape. Used by GeminiV1BetaListModels fallback paths.
+// tkGeminiDefaultModelsList returns the /v1/models fallback for the gemini platform
+// as []geminicli.Model, synthesized from the unified servable set so the gemini
+// /v1/models list converges with /pricing (drops advertised_dead like
+// gemini-2.0-flash). Prefers the canonical geminicli.DefaultModels entry for
+// DisplayName fidelity.
+func (h *GatewayHandler) tkGeminiDefaultModelsList(ctx context.Context) []geminicli.Model {
+	byID := make(map[string]geminicli.Model, len(geminicli.DefaultModels))
+	for _, m := range geminicli.DefaultModels {
+		byID[m.ID] = m
+	}
+	ids := h.servableIDs(ctx, service.PlatformGemini)
+	out := make([]geminicli.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, geminicli.Model{ID: id, Type: "model", DisplayName: id})
+	}
+	return out
+}
+
+// tkGeminiFallbackModelsList returns the /v1beta/models fallback as a
+// gemini.ModelsListResponse, synthesized from the unified servable set. gemini.Model
+// uses the "models/<id>" Name prefix; we restore it on output and prefer the
+// canonical gemini.DefaultModels() entry (carrying SupportedGenerationMethods) when
+// present, synthesizing a bare Name otherwise (a servable media id is advertised
+// faithfully — without claiming generateContent it owns).
 //
-// Fixes review finding CF-001: GeminiV1BetaListModels fallback paths must have
-// a thin filter injection per design doc §2.5.
-//
-// Note: gemini.Model.Name uses the "models/<id>" prefix; we strip the prefix
-// for pricing/availability lookup and restore it in the output.
+// Used by GeminiV1BetaListModels fallback paths (review finding CF-001).
 func (h *GatewayHandler) tkGeminiFallbackModelsList(ctx context.Context) gemini.ModelsListResponse {
 	defaults := gemini.DefaultModels()
-	ids := make([]string, len(defaults))
-	for i, m := range defaults {
-		ids[i] = strings.TrimPrefix(m.Name, "models/")
-	}
-	filtered := h.tkFilterModelIDs(ctx, service.PlatformGemini, ids)
-	filtSet := make(map[string]bool, len(filtered))
-	for _, id := range filtered {
-		filtSet[id] = true
-	}
-	out := make([]gemini.Model, 0, len(filtered))
+	byID := make(map[string]gemini.Model, len(defaults))
 	for _, m := range defaults {
-		if filtSet[strings.TrimPrefix(m.Name, "models/")] {
+		byID[strings.TrimPrefix(m.Name, "models/")] = m
+	}
+	ids := h.servableIDs(ctx, service.PlatformGemini)
+	out := make([]gemini.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
 			out = append(out, m)
+			continue
 		}
+		out = append(out, gemini.Model{Name: "models/" + id})
 	}
 	return gemini.ModelsListResponse{Models: out}
 }

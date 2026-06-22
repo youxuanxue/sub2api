@@ -119,23 +119,30 @@ func TestTkGeminiFallbackModelsList_ReturnsModelsListResponse(t *testing.T) {
 }
 
 func TestTkGeminiFallbackModelsList_NilFilterIsFailOpen(t *testing.T) {
+	// Post-SSOT-convergence (Goal 1): the nil-filter fail-open returns the unified
+	// servable candidate set (the empirical gemini allowlist), NOT the raw canonical
+	// gemini.DefaultModels(). It must stay non-empty (never break an SDK) AND drop
+	// advertised_dead ids (gemini-2.0-flash) that the canonical list still carried.
 	h := &GatewayHandler{}
 	result := h.tkGeminiFallbackModelsList(context.Background())
-	defaults := gemini.DefaultModels()
-	require.Equal(t, len(defaults), len(result.Models),
-		"nil filter must be fail-open (all fallback Gemini models pass)")
+	require.NotEmpty(t, result.Models, "nil filter must still produce a non-empty list")
+	names := make(map[string]bool, len(result.Models))
+	for _, m := range result.Models {
+		require.Contains(t, m.Name, "models/", "Gemini model Name must keep 'models/' prefix")
+		names[m.Name] = true
+	}
+	require.True(t, names["models/gemini-2.5-flash"], "servable gemini-2.5-flash present")
+	require.False(t, names["models/gemini-2.0-flash"],
+		"advertised_dead gemini-2.0-flash dropped — converged to the servable allowlist")
 }
 
 func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 
-	defaults := gemini.DefaultModels()
-	require.NotEmpty(t, defaults)
-	// targetID without "models/" prefix (that's what FilterClientFacing uses)
-	targetWithPrefix := defaults[0].Name // "models/gemini-2.0-flash"
-	targetID := targetWithPrefix[len("models/"):]
-
+	// Target an id that IS in the servable allowlist, so the structurally-gone
+	// prune is genuinely exercised (gemini-2.0-flash is no longer a candidate).
+	const targetID = "gemini-2.5-flash"
 	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
 		Platform:           service.PlatformGemini,
 		ModelID:            targetID,
@@ -144,22 +151,20 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 		UpstreamErrorBody:  `{"error":{"message":"Requested entity was not found."}}`,
 	})
 
-	// Provide pricing service with all Gemini fallback models priced so the availability filter runs.
-	geminiIDs := make([]string, len(defaults))
-	for i, m := range defaults {
-		geminiIDs[i] = m.Name[len("models/"):]
-	}
-	pricingJSON := buildPricingJSONFromIDs(geminiIDs)
-	pricingSvc := buildTestPricingService(t, pricingJSON)
-
+	// Price the servable gemini chat candidates so ∩priced keeps them and the
+	// structurally-gone prune is what removes the target.
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs([]string{
+		"gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
+	}))
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
 	result := h.tkGeminiFallbackModelsList(context.Background())
 	for _, m := range result.Models {
-		require.NotEqual(t, targetWithPrefix, m.Name,
-			"unreachable Gemini model must not appear in fallback response")
+		require.NotEqual(t, "models/"+targetID, m.Name,
+			"structurally-gone gemini-2.5-flash must not appear in fallback response")
 	}
+	require.True(t, len(result.Models) > 0, "reachable+priced siblings (e.g. gemini-2.5-pro) must remain")
 }
 
 // buildPricingJSON builds a minimal LiteLLM-shaped pricing JSON string where
