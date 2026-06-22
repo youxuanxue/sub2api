@@ -257,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -326,6 +326,17 @@ const loadTiers = async () => {
     loading.value = false
   }
 }
+
+// #900 lazy-mount latch: AccountsView/UsersView create this modal with show already
+// true on first open, so the show-watch (no immediate) never fires for the initial
+// mount. Mirror the watch's true-branch here for the already-shown case. On reopen the
+// component stays mounted (latch) so the watch fires and onMounted does not re-run — no
+// double-load on a single open.
+onMounted(() => {
+  if (props.show) {
+    loadTiers()
+  }
+})
 
 const resetForm = () => {
   Object.assign(form, emptyForm())

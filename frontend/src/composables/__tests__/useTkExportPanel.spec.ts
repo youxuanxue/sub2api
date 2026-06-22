@@ -120,3 +120,54 @@ describe('useTkExportPanel — per-key export independence', () => {
     expect(showSuccess).toHaveBeenCalledWith('keys.exportSuccess:{"count":9}')
   })
 })
+
+// A prod S3 presigned URL is signed with the EC2 instance role's temporary
+// session token (rotates within hours), so the URL captured when the panel
+// loaded ExpiredTokens when clicked later. download() must re-mint a fresh URL
+// at click time via getJob (which re-presigns server-side) before opening it.
+describe('useTkExportPanel — download re-mints the URL at click time', () => {
+  const mockDownload = vi.mocked(qaTrajAPI.download)
+  beforeEach(() => {
+    vi.useRealTimers()
+    showError.mockReset()
+    mockGetJob.mockReset()
+    mockDownload.mockReset()
+    mockDownload.mockResolvedValue(undefined as any)
+  })
+
+  it('opens the freshly re-signed URL, not the stale listed one', async () => {
+    const apiKeyId = ref<number | null>(1)
+    const apiKeyName = ref<string | undefined>('grok')
+    const tk = useTkExportPanel({ apiKeyId, apiKeyName })
+    mockGetJob.mockResolvedValue({ job_id: 'j9', status: 'done', record_count: 3, download_url: 'https://s3/fresh' } as any)
+
+    await tk.download({ job_id: 'j9', status: 'done', record_count: 3, download_url: 'https://s3/stale' } as any)
+
+    expect(mockGetJob).toHaveBeenCalledWith('j9')
+    expect(mockDownload).toHaveBeenCalledTimes(1)
+    expect(mockDownload.mock.calls[0][0]).toBe('https://s3/fresh')
+  })
+
+  it('falls back to the listed URL when the re-mint fetch fails', async () => {
+    const apiKeyId = ref<number | null>(1)
+    const apiKeyName = ref<string | undefined>('grok')
+    const tk = useTkExportPanel({ apiKeyId, apiKeyName })
+    mockGetJob.mockRejectedValue(new Error('network'))
+
+    await tk.download({ job_id: 'j9', status: 'done', record_count: 3, download_url: 'https://s3/stale' } as any)
+
+    expect(mockDownload).toHaveBeenCalledTimes(1)
+    expect(mockDownload.mock.calls[0][0]).toBe('https://s3/stale')
+  })
+
+  it('does nothing (no fetch, no open) when the job has no download_url', async () => {
+    const apiKeyId = ref<number | null>(1)
+    const apiKeyName = ref<string | undefined>('grok')
+    const tk = useTkExportPanel({ apiKeyId, apiKeyName })
+
+    await tk.download({ job_id: 'j9', status: 'done', record_count: 0 } as any)
+
+    expect(mockGetJob).not.toHaveBeenCalled()
+    expect(mockDownload).not.toHaveBeenCalled()
+  })
+})

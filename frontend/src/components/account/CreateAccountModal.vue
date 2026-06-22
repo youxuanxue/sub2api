@@ -3356,7 +3356,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -4008,35 +4008,54 @@ const canExchangeCode = computed(() => {
 })
 
 // Watchers
+// Extracted so the lazy-mount path (#900) can run the exact same load when the
+// modal is CREATED with props.show already true — the show-watch below is NOT
+// { immediate: true } (the loaders are const-declared after it → TDZ), so onMounted
+// mirrors this branch. Keep this body identical to the show-became-true branch.
+const onShown = () => {
+  // Load TLS fingerprint profiles
+  adminAPI.tlsFingerprintProfiles.list()
+    .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
+    .catch(() => { tlsFingerprintProfiles.value = [] })
+  // Modal opened - fill related models (self-healing for API-backed platforms)
+  void fillAllowedFromPlatform(form.platform)
+  // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
+  newapiBootstrap()
+  // Antigravity: 默认使用映射模式并填充默认映射
+  if (form.platform === 'antigravity') {
+    antigravityModelRestrictionMode.value = 'mapping'
+    fetchAntigravityDefaultMappings().then(mappings => {
+      antigravityModelMappings.value = [...mappings]
+    })
+    antigravityWhitelistModels.value = []
+  } else {
+    antigravityWhitelistModels.value = []
+    antigravityModelMappings.value = []
+    antigravityModelRestrictionMode.value = 'mapping'
+  }
+}
+
 watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
-      // Load TLS fingerprint profiles
-      adminAPI.tlsFingerprintProfiles.list()
-        .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
-        .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models (self-healing for API-backed platforms)
-      void fillAllowedFromPlatform(form.platform)
-      // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
-      newapiBootstrap()
-      // Antigravity: 默认使用映射模式并填充默认映射
-      if (form.platform === 'antigravity') {
-        antigravityModelRestrictionMode.value = 'mapping'
-        fetchAntigravityDefaultMappings().then(mappings => {
-          antigravityModelMappings.value = [...mappings]
-        })
-        antigravityWhitelistModels.value = []
-      } else {
-        antigravityWhitelistModels.value = []
-        antigravityModelMappings.value = []
-        antigravityModelRestrictionMode.value = 'mapping'
-      }
+      onShown()
     } else {
       resetForm()
     }
   }
 )
+
+// #900 lazy-mount fix: AccountsView/UsersView lazy-mount this modal with props.show
+// already true on first open, so the (non-immediate) show-watch above never fires
+// for that first open and the data never loads. Run the same load on mount when
+// already shown. onMounted fires once at mount only (not on reopen — reopen toggles
+// show and is handled by the watch), so there is no double-load on a single open.
+onMounted(() => {
+  if (props.show) {
+    onShown()
+  }
+})
 
 // Sync form.type based on accountCategory, addMethod, and platform-specific type
 watch(

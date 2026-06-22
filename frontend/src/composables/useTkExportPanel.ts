@@ -126,8 +126,23 @@ export function useTkExportPanel(args: UseTkExportPanelArgs) {
     if (!job.download_url) return
     const stamp = (job.created_at ? new Date(job.created_at) : new Date()).toISOString().slice(0, 10)
     const safeName = (args.apiKeyName.value || `key-${args.apiKeyId.value ?? ''}`).replace(/[^\w.-]+/g, '_')
+    // Re-mint the URL at click time. On prod the export blob store signs S3 URLs
+    // with the EC2 instance role's temporary credentials, whose session token
+    // (X-Amz-Security-Token) rotates within hours — so a presigned URL captured
+    // when the panel first loaded fails with S3 "ExpiredToken" when clicked
+    // later. getJob re-presigns server-side, so we fetch a freshly signed URL
+    // right before opening it (the browser then navigates straight to the
+    // off-origin S3 URL — CORS-free, fresh token). Best effort: fall back to the
+    // already-listed URL if the refresh fails (a recently signed one may still work).
+    let downloadUrl = job.download_url
     try {
-      await qaTrajAPI.download(job.download_url, `conversations-${safeName}-${stamp}.zip`)
+      const fresh = await qaTrajAPI.getJob(job.job_id)
+      if (fresh.download_url) downloadUrl = fresh.download_url
+    } catch {
+      // keep the listed URL
+    }
+    try {
+      await qaTrajAPI.download(downloadUrl, `conversations-${safeName}-${stamp}.zip`)
     } catch {
       appStore.showError(t('keys.exportFailed'))
     }

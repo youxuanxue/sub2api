@@ -15,9 +15,10 @@
       "must_contain": [
         "export function useTkExportPanel",
         "qaTrajAPI.listExports",
-        "exportNow"
+        "exportNow",
+        "async function download"
       ],
-      "rationale": "TK-only composable owning the per-API-key conversation Export Panel flow (#792 follow-up): lists the key's persisted export jobs (qaTrajAPI.listExports -> GET /users/me/qa/traj/export/jobs), runs an on-demand export with poll-to-terminal (exportNow), and triggers the download. Keeps the upstream-shaped KeysView.vue thin (template + wiring) per CLAUDE.md section 5. Guards against silent upstream-merge deletion that would orphan the panel."
+      "rationale": "TK-only composable owning the per-API-key conversation Export Panel flow (#792 follow-up): lists the key's persisted export jobs (qaTrajAPI.listExports -> GET /users/me/qa/traj/export/jobs), runs an on-demand export with poll-to-terminal (exportNow), and triggers the download. download() re-mints the presigned URL at click time via qaTrajAPI.getJob, because prod signs export URLs with the EC2 instance role's temporary credentials whose session token rotates within hours, so a URL captured when the panel loaded otherwise dies with S3 ExpiredToken on a later click. Keeps the upstream-shaped KeysView.vue thin (template + wiring) per CLAUDE.md section 5. Guards against silent upstream-merge deletion that would orphan the panel or revert the click-time re-mint."
     },
     {
       "path": "frontend/src/components/keys/ExportPanel.vue",

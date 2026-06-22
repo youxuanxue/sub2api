@@ -108,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useTkInviteTrial } from '@/composables/useTkInviteTrial'
@@ -157,17 +157,28 @@ const rateModel = computed({
   }
 })
 
+const onShown = async () => {
+  errorText.value = ''
+  savePresetName.value = ''
+  reset()
+  await load()
+  if (props.seed) seedFromUser(props.seed)
+}
+
 watch(
   () => props.show,
   async (open) => {
     if (!open) return
-    errorText.value = ''
-    savePresetName.value = ''
-    reset()
-    await load()
-    if (props.seed) seedFromUser(props.seed)
+    await onShown()
   }
 )
+
+// #900 lazy-mount: AccountsView/UsersView mount this modal with show already
+// true, so the show-watch (not { immediate: true } — loaders are const after
+// it) never fires on first open. Run the same load when mounted already-shown.
+onMounted(() => {
+  if (props.show) onShown()
+})
 
 const onPresetChange = () => {
   errorText.value = ''

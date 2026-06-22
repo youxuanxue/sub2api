@@ -448,7 +448,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Chart as ChartJS,
@@ -667,6 +667,14 @@ const loadStats = async () => {
     loading.value = false
   }
 }
+
+// Lazy-mount first-open: if the component is created already-shown (PR #900 latch),
+// the show-watch above does not fire on mount, so load here too (#900).
+onMounted(() => {
+  if (props.show && props.account) {
+    void loadStats()
+  }
+})
 
 const handleClose = () => {
   emit('close')

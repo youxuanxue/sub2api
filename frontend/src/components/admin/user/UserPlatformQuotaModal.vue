@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -202,6 +202,16 @@ watch(
   () => props.show,
   (s) => { if (s && props.user) load() },
 )
+
+// #900 lazy-mount: AccountsView/UsersView create this modal with props.show
+// already true on first open. The show-watch above is NOT { immediate: true },
+// so it does not fire on the initial mount and the data never loads on first
+// open. Mirror the watch's true-branch here so it loads on the already-shown
+// first open. Runs once at mount; reopen still goes through the watch (no
+// double-load on a single open).
+onMounted(() => {
+  if (props.show && props.user) load()
+})
 
 function onClearAll() {
   // 二次确认：一键清空全部平台的 daily/weekly/monthly 限额属于高风险批量操作，

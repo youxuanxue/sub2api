@@ -327,7 +327,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -397,6 +397,16 @@ const loadProfiles = async () => {
     loading.value = false
   }
 }
+
+// Lazy-mount (PR #900 latch): the modal is created with props.show already true on
+// first open, but the show-watch above is not { immediate: true }, so it does not
+// fire on the initial mount. Mirror the watch's true-branch here so data loads on
+// first open too. The watch still covers reopens (show toggles); onMounted runs once.
+onMounted(() => {
+  if (props.show) {
+    loadProfiles()
+  }
+})
 
 const resetForm = () => {
   form.name = ''
