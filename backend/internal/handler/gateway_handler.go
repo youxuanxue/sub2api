@@ -1034,9 +1034,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformGemini {
+		// TK: converge to the unified servable truth (servableIDs) so the gemini
+		// /v1/models fallback matches /pricing + Your-Menu — drops advertised_dead
+		// (e.g. gemini-2.0-flash) instead of returning the raw geminicli.DefaultModels.
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   geminicli.DefaultModels,
+			"data":   h.tkGeminiDefaultModelsList(c.Request.Context()),
 		})
 		return
 	}
