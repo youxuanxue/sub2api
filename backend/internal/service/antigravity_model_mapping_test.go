@@ -168,6 +168,12 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			accountMapping: nil,
 			expected:       "",
 		},
+		{
+			name:           "缺价模型 - tab_flash_lite_preview 默认映射不支持",
+			requestedModel: "tab_flash_lite_preview",
+			accountMapping: nil,
+			expected:       "",
+		},
 	}
 
 	for _, tt := range tests {

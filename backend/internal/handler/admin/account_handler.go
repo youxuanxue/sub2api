@@ -2019,13 +2019,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsOpenAI() {
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
@@ -2057,14 +2057,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsGemini() {
 		// For OAuth accounts: return default Gemini models
 		if account.IsOAuth() {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
@@ -2127,7 +2127,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
+		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
 		return
 	}
 
@@ -2135,7 +2135,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models
-		response.Success(c, claude.DefaultModels)
+		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
 		return
 	}
 
@@ -2163,6 +2163,25 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+// tk{OpenAI,Gemini,Claude}AdminDefaultModels return the admin available-models
+// fallback for an account with no usable model_mapping, narrowed from the raw
+// canonical *.DefaultModels to the unified servable candidate set (advertised-dead
+// ids drop via the allowlist). They share the per-type synthesizers with the
+// gateway /v1/models fallback (pkg .ModelsForIDs) so the two surfaces never drift
+// on the synthesized display metadata; they pass nil availability/pricing because
+// the admin capability view wants servability, not the gateway's priced gate.
+func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
+	return openai.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil))
+}
+
+func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
+	return geminicli.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil))
+}
+
+func tkClaudeAdminDefaultModels(ctx context.Context) []claude.Model {
+	return claude.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil))
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

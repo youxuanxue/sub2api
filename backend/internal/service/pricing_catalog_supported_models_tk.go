@@ -90,6 +90,7 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
 var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
+	"codex-auto-review":   {},
 	"gpt-5":               {},
 	"gpt-5-chat":          {},
 	"gpt-5-chat-latest":   {},

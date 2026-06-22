@@ -1,5 +1,5 @@
 {
-  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their two dedicated single-account groups, plus the volcengine account 7 doubao-seedance VIDEO family (channel_type 45, mode=video_generation, per-second priced in the overlay). NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by a 39/60 model_mapping). Consumers: drift guard (now), tokenkey-onboard-model skill (now), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated single-account groups, the GLM direct account 67 ZhipuV4 chat family, plus the volcengine account 7 doubao-seedance VIDEO family (channel_type 45, mode=video_generation, per-second priced in the overlay). NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by a 39/60/67 model_mapping). Consumers: drift guard (now), tokenkey-onboard-model skill (now), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
   "_schema": {
     "version": 1,
     "entry_key": "<platform>/<model_id>",
@@ -7,7 +7,7 @@
       "platform": "account/group platform string; for this manifest always 'newapi' (the fifth platform). MUST equal the served account's accounts.platform.",
       "model_id": "the client-facing model id that must appear as a KEY in the served account's credentials.model_mapping whitelist (identity-mapped: key==value for these accounts).",
       "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. For the seed every entry is a single dedicated account. This is the #812-catching anchor: the guard scans tk_*_model_mapping*.sql for model_id under each listed account.",
-      "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 43=DeepSeek, 45=VolcEngine). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
+      "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 26=ZhipuV4, 43=DeepSeek, 45=VolcEngine). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
       "price_source": "one of 'overlay' (priced in tk_pricing_overlay.json), 'mirror' (priced by the runtime litellm/Wei-Shaw mirror under the bare key — overlay deliberately absent because the mirror already carries a non-zero price), 'channel' (priced via channel_model_pricing DB rows). The guard resolves price differently per source.",
       "price_key": "the key under which the price resolves in the named source (overlay JSON key, or mirror/litellm key, or channel pricing model id). Usually == model_id.",
       "display": "bool. true => model_id MUST be present in the platform's Go servable-allowlist map (pricing_catalog_supported_models_tk.go). newapi has NO such map, so every seed entry is false (catalog renders these via price-presence passthrough, not via a map). Reserved true for a future curated newapi map.",
@@ -266,6 +266,150 @@
       "price_key": "doubao-seedream-4-0-250828",
       "display": false,
       "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Seedream 4.0 IMAGE model (/v1/images/generations), mapped by tk_035 (identity whitelist merge). Priced in overlay (output_cost_per_image, VolcEngine Ark official 0.2 CNY/image / 6.7). Added per the vol-test investigation 2026-06-20: account 7's model_mapping was a chat+seedance-video whitelist with NO seedream image id, so a universal-key /v1/images/generations request for doubao-seedream-4-0-250828 emptied the single-account pool -> 429 'No available accounts' (ops_error_logs phase=routing). ONLY the prefixed id is served+mapped: the no-prefix overlay alias seedream-4-0-250828 returned HTTP 404 on a direct Ark data-plane activation probe (2026-06-20) and is intentionally NOT a manifest entry / not model_mapped (priced only for billing-key parity)."
+    },
+    "newapi/glm-5.2": {
+      "platform": "newapi",
+      "model_id": "glm-5.2",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-5.2",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-5.1": {
+      "platform": "newapi",
+      "model_id": "glm-5.1",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-5.1",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-5": {
+      "platform": "newapi",
+      "model_id": "glm-5",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-5",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-5-turbo": {
+      "platform": "newapi",
+      "model_id": "glm-5-turbo",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-5-turbo",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-4.7": {
+      "platform": "newapi",
+      "model_id": "glm-4.7",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.7",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-4.7-flashx": {
+      "platform": "newapi",
+      "model_id": "glm-4.7-flashx",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.7-flashx",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22. Excludes free glm-4.7-flash so no zero-price model becomes visible."
+    },
+    "newapi/glm-4.6": {
+      "platform": "newapi",
+      "model_id": "glm-4.6",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.6",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-4.5": {
+      "platform": "newapi",
+      "model_id": "glm-4.5",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.5",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22. Excludes free glm-4.5-flash so no zero-price model becomes visible."
+    },
+    "newapi/glm-4.5-x": {
+      "platform": "newapi",
+      "model_id": "glm-4.5-x",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.5-x",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-4.5-air": {
+      "platform": "newapi",
+      "model_id": "glm-4.5-air",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.5-air",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-4.5-airx": {
+      "platform": "newapi",
+      "model_id": "glm-4.5-airx",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4.5-airx",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+    },
+    "newapi/glm-4-32b-0414-128k": {
+      "platform": "newapi",
+      "model_id": "glm-4-32b-0414-128k",
+      "served_on": [
+        "67"
+      ],
+      "channel_type": 26,
+      "price_source": "overlay",
+      "price_key": "glm-4-32b-0414-128k",
+      "display": false,
+      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
     }
   }
 }

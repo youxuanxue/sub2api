@@ -63,27 +63,7 @@ func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []str
 // writeOpenAIModelsList. Converges with /pricing (drops advertised_dead like
 // gpt-5.2/gpt-image-*; surfaces every servable allowlist id).
 func (h *GatewayHandler) tkOpenAIDefaultModelIDs(ctx context.Context, platform string) []openai.Model {
-	byID := make(map[string]openai.Model, len(openai.DefaultModels))
-	for _, m := range openai.DefaultModels {
-		byID[m.ID] = m
-	}
-	ids := h.servableIDs(ctx, platform)
-	out := make([]openai.Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byID[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, openai.Model{
-			ID:          id,
-			Object:      "model",
-			Created:     1704067200,
-			OwnedBy:     "openai",
-			Type:        "model",
-			DisplayName: id,
-		})
-	}
-	return out
+	return openai.ModelsForIDs(h.servableIDs(ctx, platform))
 }
 
 // tkClaudeDefaultModelIDs returns the /v1/models fallback for Claude as
@@ -94,25 +74,7 @@ func (h *GatewayHandler) tkOpenAIDefaultModelIDs(ctx context.Context, platform s
 // preserving the dated /v1/models wire form + DisplayName — and synthesize for
 // allowlist-only ids absent from DefaultModels (e.g. claude-opus-4-1).
 func (h *GatewayHandler) tkClaudeDefaultModelIDs(ctx context.Context, platform string) []claude.Model {
-	byBase := make(map[string]claude.Model, len(claude.DefaultModels))
-	for _, m := range claude.DefaultModels {
-		byBase[claude.DenormalizeModelID(m.ID)] = m
-	}
-	ids := h.servableIDs(ctx, platform)
-	out := make([]claude.Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byBase[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, claude.Model{
-			ID:          id,
-			Type:        "model",
-			DisplayName: id,
-			CreatedAt:   "2024-01-01T00:00:00Z",
-		})
-	}
-	return out
+	return claude.ModelsForIDs(h.servableIDs(ctx, platform))
 }
 
 // tkAntigravityDefaultModels returns the /antigravity/models fallback as
@@ -145,20 +107,7 @@ func (h *GatewayHandler) tkAntigravityDefaultModels(ctx context.Context) []antig
 // gemini-2.0-flash). Prefers the canonical geminicli.DefaultModels entry for
 // DisplayName fidelity.
 func (h *GatewayHandler) tkGeminiDefaultModelsList(ctx context.Context) []geminicli.Model {
-	byID := make(map[string]geminicli.Model, len(geminicli.DefaultModels))
-	for _, m := range geminicli.DefaultModels {
-		byID[m.ID] = m
-	}
-	ids := h.servableIDs(ctx, service.PlatformGemini)
-	out := make([]geminicli.Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byID[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, geminicli.Model{ID: id, Type: "model", DisplayName: id})
-	}
-	return out
+	return geminicli.ModelsForIDs(h.servableIDs(ctx, service.PlatformGemini))
 }
 
 // tkGeminiFallbackModelsList returns the /v1beta/models fallback as a

@@ -105,6 +105,22 @@ func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
 	require.Equal(t, len(defaults), len(result), "nil filter must be fail-open (all models pass)")
 }
 
+func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
+	h := &GatewayHandler{}
+	result := h.tkOpenAIDefaultModelIDs(context.Background(), service.PlatformOpenAI)
+	require.NotEmpty(t, result)
+
+	ids := make(map[string]bool, len(result))
+	for _, m := range result {
+		ids[m.ID] = true
+	}
+	require.True(t, ids["gpt-5.4"], "servable OpenAI default should remain visible")
+	require.True(t, ids["codex-auto-review"], "live-servable codex-auto-review should remain visible")
+	for _, dead := range []string{"gpt-5.2", "gpt-5.3-codex", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
+		require.False(t, ids[dead], "advertised_dead %s must not reach /v1/models fallback", dead)
+	}
+}
+
 // --- tkGeminiFallbackModelsList ---
 
 func TestTkGeminiFallbackModelsList_ReturnsModelsListResponse(t *testing.T) {

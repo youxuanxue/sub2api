@@ -107,7 +107,7 @@ func TestDefaultAntigravityModelMapping_ContainsEmpiricalGeminiWireIDs(t *testin
 // 未来 merge 静默删掉它而无测试翻红。
 // GeminiOnlyAntigravityModelMapping 必须是 DefaultAntigravityModelMapping 去掉
 // claude-* / gpt-oss-* 与 structural-dead 兼容别名后的严格子集，且保留可服务
-// gemini wire id + tab_flash_lite_preview。
+// gemini wire id；没有可靠公开价的模型不得作为规范账号映射写入。
 // 这是 AntigravityConfigReconciler 写入账号的规范 gemini-only 映射的单一真值源。
 func TestGeminiOnlyAntigravityModelMapping(t *testing.T) {
 	t.Parallel()
@@ -128,13 +128,21 @@ func TestGeminiOnlyAntigravityModelMapping(t *testing.T) {
 			t.Fatalf("gemini-only entry %q=%q not a faithful subset of default (default has ok=%v val=%q)", k, v, ok, got)
 		}
 	}
-	// representative gemini wire ids + the Google-native tab model are retained
+	// representative priced gemini wire ids are retained
 	for _, want := range []string{
 		"gemini-3.5-flash-low", "gemini-3.5-flash-extra-low", "gemini-3-flash-agent",
-		"gemini-pro-agent", "gemini-2.5-flash", "tab_flash_lite_preview",
+		"gemini-pro-agent", "gemini-2.5-flash",
 	} {
 		if _, ok := m[want]; !ok {
 			t.Fatalf("expected gemini-only map to retain %q", want)
+		}
+	}
+	for _, blocked := range []string{"tab_flash_lite_preview"} {
+		if _, ok := DefaultAntigravityModelMapping[blocked]; ok {
+			t.Fatalf("unpriced antigravity model %q must not remain in default mapping", blocked)
+		}
+		if _, ok := m[blocked]; ok {
+			t.Fatalf("unpriced antigravity model %q must not be written into gemini-only map", blocked)
 		}
 	}
 	// sanity: the default really did contain the excluded families (so we filtered)

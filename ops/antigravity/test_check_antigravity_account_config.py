@@ -50,6 +50,17 @@ class AccountViolationTest(unittest.TestCase):
                 self.assertIsNotNone(r)
                 self.assertIn(key, r)
 
+    def test_unpriced_model_key_is_violation(self):
+        r = CHK._account_violation({
+            "model_mapping": {
+                "tab_flash_lite_preview": "tab_flash_lite_preview",
+                "gemini-pro-agent": "gemini-pro-agent",
+            },
+        })
+        self.assertIsNotNone(r)
+        self.assertIn("unpriced", r)
+        self.assertIn("tab_flash_lite_preview", r)
+
     def _gemini_only_mm(self):
         return {"gemini-3-flash": "gemini-3-flash"}
 

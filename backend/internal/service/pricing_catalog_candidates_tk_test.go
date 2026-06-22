@@ -41,10 +41,11 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	for _, id := range allow {
 		allowSet[id] = true
 	}
-	dead := []string{"gpt-5.2", "gpt-image-1", "codex-auto-review", "gpt-5.3-codex"}
+	dead := []string{"gpt-5.2", "gpt-5.3-codex", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
 	for _, d := range dead {
 		require.False(t, allowSet[d], "precondition: %s must be advertised_dead (priced but NOT in allowlist)", d)
 	}
+	require.True(t, allowSet["codex-auto-review"], "codex-auto-review returned live 200 and must be in the allowlist")
 	// Price EVERYTHING (allowlist + dead ids) so the ONLY thing that can keep a
 	// dead id out is the candidate (allowlist) gate, not the price gate.
 	pricing := tkBuildPricedServiceForTest(t, append(append([]string{}, allow...), dead...))
@@ -60,6 +61,7 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	for _, d := range dead {
 		require.False(t, gotSet[d], "advertised_dead %s must not reach the /v1/models fallback", d)
 	}
+	require.True(t, gotSet["codex-auto-review"], "servable codex-auto-review must remain visible")
 }
 
 // TestServableClientFacingIDs_DropsVisibleButUnpriced pins the other half of the
@@ -127,7 +129,7 @@ func TestTkServableCandidateIDs(t *testing.T) {
 	t.Run("structurally-gone model is pruned; degraded model stays", func(t *testing.T) {
 		svc, repo, _ := newAvailabilityTestService(t)
 		seedAvail(repo, PlatformAnthropic, "claude-opus-4-8", AvailabilityStatusUnreachable, FailureKindModelNotFound) // gone
-		seedAvail(repo, PlatformAnthropic, "claude-sonnet-4-6", AvailabilityStatusUnreachable, FailureKindUpstream5xx)  // degraded
+		seedAvail(repo, PlatformAnthropic, "claude-sonnet-4-6", AvailabilityStatusUnreachable, FailureKindUpstream5xx) // degraded
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, svc)
 		require.False(t, contains(ids, "claude-opus-4-8"), "model_not_found→unreachable auto-drops (self-heal)")
 		require.True(t, contains(ids, "claude-sonnet-4-6"), "transient 5xx-unreachable stays")
@@ -143,5 +145,14 @@ func TestTkServableCandidateIDs(t *testing.T) {
 	t.Run("nil availability degrades to no pruning (passthrough)", func(t *testing.T) {
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, nil)
 		require.True(t, contains(ids, "claude-opus-4-8"), "without availability the full allowlist passes through")
+	})
+
+	t.Run("gemini draws from empirical allowlist, not raw advertised defaults", func(t *testing.T) {
+		svc, _, _ := newAvailabilityTestService(t)
+		ids := tkServableCandidateIDs(ctx, PlatformGemini, svc)
+		require.True(t, contains(ids, "gemini-2.5-flash"), "servable gemini present")
+		for _, dead := range []string{"gemini-2.0-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"} {
+			require.False(t, contains(ids, dead), "advertised_dead %s absent from gemini candidates", dead)
+		}
 	})
 }

@@ -29,6 +29,7 @@ advertised status is irrelevant (operator directive 实测通过的才行).
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import re
 import subprocess
@@ -40,6 +41,7 @@ CATALOG = REPO / "backend/resources/model-pricing/model_prices_and_context_windo
 GO_FILE = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 PROBE = REPO / "ops/pricing/probe-servable-models.sh"
 RUN_PROBE = REPO / "ops/observability/run-probe.sh"
+REPROBE_LEDGER = REPO / "ops/pricing/servable-reprobe-ledger.json"
 
 # Dated snapshot suffix, both fleet conventions: anthropic "-YYYYMMDD"
 # (claude-opus-4-5-20251101) and openai "-YYYY-MM-DD" (gpt-5.5-2026-04-23).
@@ -68,6 +70,14 @@ GEMINI_PREDICT_MODELS = (
 # silently $0-serves them: gemma open-weight, lyria music, deep-research,
 # robotics, antigravity, computer-use, tts/audio.
 GEMINI_EXCLUDE_RE = re.compile(r"gemma-|lyria-|deep-research|robotics|antigravity|computer-use|tts")
+
+PROBE_FAMILIES_BY_PLATFORM = {
+    "anthropic": ("anthropic",),
+    "openai": ("openai_chat", "openai_responses", "openai_image"),
+    "gemini": ("gemini_chat", "gemini_image", "gemini_video"),
+}
+GO_ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
+REPROBE_LISTS = ("watchlist", "skiplist", "deadlist")
 
 
 # ----- vendor → platform (mirrors service.inferPlatformFromVendor) -----
@@ -155,6 +165,205 @@ def build_candidates(catalog: dict, discovered: list[str]) -> dict[str, list[str
     return c
 
 
+def _probe_family_for(platform: str, model: str, probe_family: str | None = None) -> str:
+    if probe_family:
+        allowed = PROBE_FAMILIES_BY_PLATFORM.get(platform, ())
+        if probe_family not in allowed:
+            raise ValueError(f"{platform}/{model}: probe_family {probe_family!r} is not valid for {platform}")
+        return probe_family
+    if platform == "anthropic":
+        return "anthropic"
+    if platform == "openai":
+        if "image" in model:
+            return "openai_image"
+        if "codex" in model:
+            return "openai_responses"
+        return "openai_chat"
+    if platform == "gemini":
+        if model.startswith("veo-"):
+            return "gemini_video"
+        if model.startswith("imagen-") or "image" in model or "nano-banana" in model:
+            return "gemini_image"
+        return "gemini_chat"
+    raise ValueError(f"{platform}/{model}: refresh tool cannot probe this platform")
+
+
+def load_reprobe_ledger(path: Path = REPROBE_LEDGER) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _parse_date(value: str, label: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{label}: expected YYYY-MM-DD, got {value!r}") from exc
+
+
+def _known_allowlist_members(text: str) -> set[tuple[str, str]]:
+    out: set[tuple[str, str]] = set()
+    for platform in GO_ALLOWLIST_PLATFORMS:
+        begin = f"\t// servable-allowlist:begin {platform}\n"
+        end = f"\t// servable-allowlist:end {platform}"
+        bi = text.find(begin)
+        ei = text.find(end)
+        if bi < 0 or ei < 0 or ei < bi:
+            continue
+        block = text[bi + len(begin) : ei]
+        for match in re.finditer(r'^\s*"([^"]+)":\s*\{\},', block, flags=re.MULTILINE):
+            out.add((platform, match.group(1)))
+    return out
+
+
+def _candidate_members(candidates: dict[str, list[str]]) -> set[tuple[str, str]]:
+    family_platform = {
+        "anthropic": "anthropic",
+        "openai_chat": "openai",
+        "openai_responses": "openai",
+        "openai_image": "openai",
+        "gemini_chat": "gemini",
+        "gemini_image": "gemini",
+        "gemini_video": "gemini",
+    }
+    out: set[tuple[str, str]] = set()
+    for family, platform in family_platform.items():
+        out.update((platform, model) for model in candidates.get(family, []))
+    return out
+
+
+def _ledger_entries(ledger: dict, list_name: str) -> list[dict]:
+    entries = ledger.get(list_name, [])
+    if not isinstance(entries, list):
+        raise ValueError(f"{list_name}: expected list")
+    return entries
+
+
+def validate_reprobe_ledger(
+    ledger: dict,
+    *,
+    today: dt.date | None = None,
+    allowlist_members: set[tuple[str, str]] | None = None,
+    candidates: dict[str, list[str]] | None = None,
+) -> None:
+    today = today or dt.date.today()
+    seen: dict[tuple[str, str], str] = {}
+    watch_keys: set[tuple[str, str]] = set()
+    skip_keys: set[tuple[str, str]] = set()
+    dead_keys: set[tuple[str, str]] = set()
+    candidate_keys = _candidate_members(candidates) if candidates is not None else set()
+
+    for list_name in REPROBE_LISTS:
+        for idx, entry in enumerate(_ledger_entries(ledger, list_name)):
+            if not isinstance(entry, dict):
+                raise ValueError(f"{list_name}[{idx}]: expected object")
+            platform = entry.get("platform")
+            model = entry.get("model")
+            reason = entry.get("reason")
+            if not platform or not model:
+                raise ValueError(f"{list_name}[{idx}]: platform and model are required")
+            if not reason:
+                raise ValueError(f"{list_name}[{idx}] {platform}/{model}: reason is required")
+            key = (platform, model)
+            if key in seen:
+                raise ValueError(f"{platform}/{model}: appears in both {seen[key]} and {list_name}")
+            seen[key] = list_name
+            if list_name == "watchlist":
+                watch_keys.add(key)
+                if entry.get("auto_probe", False):
+                    _probe_family_for(platform, model, entry.get("probe_family"))
+                last_probe = entry.get("last_probe")
+                expires = entry.get("expires")
+                freshness_days = entry.get("freshness_days")
+                if last_probe:
+                    probed_at = _parse_date(str(last_probe), f"watchlist {platform}/{model} last_probe")
+                    if probed_at > today:
+                        raise ValueError(f"watchlist {platform}/{model}: last_probe {probed_at} is in the future")
+                    if freshness_days is not None:
+                        if not isinstance(freshness_days, int) or freshness_days < 1:
+                            raise ValueError(f"watchlist {platform}/{model}: freshness_days must be a positive integer")
+                        expires_at = probed_at + dt.timedelta(days=freshness_days)
+                        if today > expires_at:
+                            raise ValueError(
+                                f"watchlist {platform}/{model}: last_probe {probed_at} is stale "
+                                f"(freshness_days={freshness_days}, expired {expires_at})"
+                            )
+                elif not expires:
+                    raise ValueError(f"watchlist {platform}/{model}: last_probe or expires is required")
+                if expires:
+                    expires_at = _parse_date(str(expires), f"watchlist {platform}/{model} expires")
+                    if today > expires_at:
+                        raise ValueError(f"watchlist {platform}/{model}: expires {expires_at} is stale")
+                if entry.get("auto_probe") and candidates is not None and key not in candidate_keys:
+                    raise ValueError(f"watchlist {platform}/{model}: auto_probe entry missing from candidates")
+            elif list_name == "skiplist":
+                skip_keys.add(key)
+            else:
+                dead_keys.add(key)
+
+    blocked = skip_keys | dead_keys
+    overlap = watch_keys & blocked
+    if overlap:
+        rendered = ", ".join(f"{platform}/{model}" for platform, model in sorted(overlap))
+        raise ValueError(f"watchlist cannot overlap skiplist/deadlist: {rendered}")
+    if allowlist_members:
+        conflicts = allowlist_members & blocked
+        if conflicts:
+            rendered = ", ".join(f"{platform}/{model}" for platform, model in sorted(conflicts))
+            raise ValueError(f"servable allowlist cannot overlap skiplist/deadlist: {rendered}")
+
+
+def augment_candidates_with_watchlist(candidates: dict[str, list[str]], ledger: dict) -> dict[str, list[str]]:
+    out = {k: list(v) for k, v in candidates.items()}
+    for entry in _ledger_entries(ledger, "watchlist"):
+        if not entry.get("auto_probe", False):
+            continue
+        platform = entry["platform"]
+        model = entry["model"]
+        family = _probe_family_for(platform, model, entry.get("probe_family"))
+        for peer_family in PROBE_FAMILIES_BY_PLATFORM[platform]:
+            out[peer_family] = [mid for mid in out.get(peer_family, []) if mid != model]
+        out.setdefault(family, []).append(model)
+    blocked = {
+        (entry["platform"], entry["model"])
+        for list_name in ("skiplist", "deadlist")
+        for entry in _ledger_entries(ledger, list_name)
+    }
+    for family, platforms in (
+        ("anthropic", ("anthropic",)),
+        ("openai_chat", ("openai",)),
+        ("openai_responses", ("openai",)),
+        ("openai_image", ("openai",)),
+        ("gemini_chat", ("gemini",)),
+        ("gemini_image", ("gemini",)),
+        ("gemini_video", ("gemini",)),
+    ):
+        if family in out:
+            platform = platforms[0]
+            out[family] = [model for model in out[family] if (platform, model) not in blocked]
+    for family in out:
+        out[family] = sorted(set(out[family]))
+    return out
+
+
+def validate_results_against_reprobe_ledger(servable: dict[str, set[str]], ledger: dict) -> None:
+    blocked = {
+        (entry["platform"], entry["model"])
+        for list_name in ("skiplist", "deadlist")
+        for entry in _ledger_entries(ledger, list_name)
+    }
+    observed = {(platform, model) for platform, models in servable.items() for model in models}
+    conflicts = observed & blocked
+    if conflicts:
+        rendered = ", ".join(f"{platform}/{model}" for platform, model in sorted(conflicts))
+        raise SystemExit(f"FATAL: probe results mark skiplist/deadlist model as servable: {rendered}")
+
+
+def build_probe_candidates(catalog: dict, discovered: list[str]) -> tuple[dict[str, list[str]], dict]:
+    ledger = load_reprobe_ledger()
+    cands = augment_candidates_with_watchlist(build_candidates(catalog, discovered), ledger)
+    validate_reprobe_ledger(ledger, allowlist_members=_known_allowlist_members(GO_FILE.read_text(encoding="utf-8")), candidates=cands)
+    return cands, ledger
+
+
 # ----- de-duplication (operator rule) -----
 def dedup(servable: set[str]) -> list[str]:
     """Drop a dated `<base>-YYYYMMDD` form when its non-dated base also serves,
@@ -198,7 +407,9 @@ def splice_go(text: str, platform: str, ids: list[str]) -> str:
     return text[: bi + len(begin)] + body + text[ei:]
 
 
-def write_allowlists(servable: dict[str, set[str]]) -> dict[str, list[str]]:
+def write_allowlists(servable: dict[str, set[str]], ledger: dict | None = None) -> dict[str, list[str]]:
+    if ledger is not None:
+        validate_results_against_reprobe_ledger(servable, ledger)
     text = GO_FILE.read_text(encoding="utf-8")
     platforms = ("anthropic", "openai", "gemini")
     final = {p: dedup(servable.get(p, set())) for p in platforms}
@@ -304,6 +515,7 @@ def selftest() -> int:
         "claude-3-haiku-20240307": {"input_cost_per_token": 1, "litellm_provider": "anthropic"},
         "gpt-5.4": {"input_cost_per_token": 1, "litellm_provider": "openai"},
         "gpt-5.3-codex": {"input_cost_per_token": 1, "litellm_provider": "openai"},
+        "gpt-image-dead": {"input_cost_per_token": 1, "litellm_provider": "openai"},
         "gpt-image-2": {"input_cost_per_token": 1, "litellm_provider": "openai"},
         "gpt-4o": {"litellm_provider": "openai"},  # unpriced -> skipped
         "gemini-2.5-pro": {"input_cost_per_token": 1, "litellm_provider": "vertex_ai"},
@@ -312,9 +524,90 @@ def selftest() -> int:
     assert c["anthropic"] == ["claude-3-haiku-20240307", "claude-opus-4-8"], c["anthropic"]
     assert c["openai_chat"] == ["gpt-5.4"], c["openai_chat"]
     assert c["openai_responses"] == ["gpt-5.3-codex"], c["openai_responses"]
-    assert c["openai_image"] == ["gpt-image-2"], c["openai_image"]
+    assert c["openai_image"] == ["gpt-image-2", "gpt-image-dead"], c["openai_image"]
     assert "gpt-4o" not in sum(c.values(), []), "unpriced must be skipped"
     assert "gemini-2.5-pro" not in sum(c.values(), []), "vertex not a litellm-catalog candidate"
+
+    # reprobe ledger: auto-probe watchlist items are first-class candidates, and
+    # freshness/skip/dead conflicts fail before an operator can trust stale docs.
+    ledger = {
+        "watchlist": [
+            {
+                "platform": "openai",
+                "model": "gpt-5.2",
+                "reason": "capacity-sensitive backend set; keep reprobing",
+                "last_probe": "2026-06-05",
+                "freshness_days": 30,
+                "auto_probe": True,
+                "probe_family": "openai_chat",
+            },
+            {
+                "platform": "gemini",
+                "model": "gemini-3-pro-image-preview",
+                "reason": "wrong-surface prior probe; reprobe via chat",
+                "last_probe": "2026-06-09",
+                "freshness_days": 30,
+                "auto_probe": True,
+                "probe_family": "gemini_chat",
+            },
+            {
+                "platform": "antigravity",
+                "model": "gemini-2.5-pro",
+                "reason": "hand-maintained platform; separate probe runner",
+                "expires": "2026-07-13",
+                "auto_probe": False,
+            },
+        ],
+        "skiplist": [
+            {"platform": "openai", "model": "codex-mini-latest", "reason": "stable ChatGPT-account rejection"},
+            {"platform": "openai", "model": "gpt-image-dead", "reason": "fixture skiplist exclusion"},
+        ],
+        "deadlist": [
+            {"platform": "grok", "model": "grok-imagine-image-pro", "reason": "retired upstream"}
+        ],
+    }
+    aug = augment_candidates_with_watchlist(build_candidates(cat, ["gemini-3-pro-image-preview"]), ledger)
+    assert "gpt-5.2" in aug["openai_chat"], aug["openai_chat"]
+    assert "gemini-3-pro-image-preview" in aug["gemini_chat"], aug["gemini_chat"]
+    assert "gemini-3-pro-image-preview" not in aug["gemini_image"], aug["gemini_image"]
+    assert "gpt-image-dead" not in aug["openai_image"], aug["openai_image"]
+    validate_reprobe_ledger(
+        ledger,
+        today=dt.date(2026, 6, 22),
+        allowlist_members={("openai", "gpt-5.4"), ("antigravity", "gemini-2.5-pro")},
+        candidates=aug,
+    )
+    stale = json.loads(json.dumps(ledger))
+    stale["watchlist"][0]["last_probe"] = "2026-05-01"
+    try:
+        validate_reprobe_ledger(stale, today=dt.date(2026, 6, 22), candidates=aug)
+        raise AssertionError("stale watchlist must fail")
+    except ValueError as e:
+        assert "stale" in str(e), e
+    duplicate = json.loads(json.dumps(ledger))
+    duplicate["skiplist"].append({"platform": "openai", "model": "gpt-5.2", "reason": "bad duplicate"})
+    try:
+        validate_reprobe_ledger(duplicate, today=dt.date(2026, 6, 22), candidates=aug)
+        raise AssertionError("watchlist/skiplist duplicate must fail")
+    except ValueError as e:
+        assert "appears in both" in str(e), e
+    conflict = json.loads(json.dumps(ledger))
+    conflict["deadlist"].append({"platform": "openai", "model": "gpt-5.4", "reason": "bad allowlist conflict"})
+    try:
+        validate_reprobe_ledger(
+            conflict,
+            today=dt.date(2026, 6, 22),
+            allowlist_members={("openai", "gpt-5.4")},
+            candidates=aug,
+        )
+        raise AssertionError("allowlist/deadlist conflict must fail")
+    except ValueError as e:
+        assert "appears in both" in str(e) or "allowlist cannot overlap" in str(e), e
+    try:
+        validate_results_against_reprobe_ledger({"openai": {"codex-mini-latest"}}, ledger)
+        raise AssertionError("servable skiplist result must fail")
+    except SystemExit as e:
+        assert "skiplist/deadlist" in str(e), e
 
     # gemini family split: core families kept, exotic dropped, predict seed merged
     g = split_gemini_families([
@@ -395,6 +688,21 @@ def selftest() -> int:
     assert '"gemini-2.5-pro": {},' in gout, gout
     assert splice_go(gout, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"]) == gout, "gemini not idempotent"
 
+    # The real machine ledger is part of preflight, not just a runtime input.
+    # Include discovered fixtures so skiplist removal and watchlist
+    # probe_family overrides are both exercised without prod.
+    real_catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+    real_cands, _real_ledger = build_probe_candidates(
+        real_catalog,
+        ["gemini-3-pro-preview", "gemini-3-pro-image-preview", "gemini-3.1-flash-image"],
+    )
+    real_members = _candidate_members(real_cands)
+    assert ("openai", "gpt-5.2") in real_members, "watchlist gpt-5.2 must be probed"
+    assert ("openai", "codex-auto-review") in real_members, "watchlist codex-auto-review must be probed"
+    assert ("gemini", "gemini-3-pro-preview") not in real_members, "skiplist gemini chat must be excluded"
+    assert "gemini-3-pro-image-preview" in real_cands["gemini_chat"], real_cands["gemini_chat"]
+    assert "gemini-3-pro-image-preview" not in real_cands["gemini_image"], real_cands["gemini_image"]
+
     print("refresh-servable-allowlist selftest: PASS")
     return 0
 
@@ -429,23 +737,25 @@ def main() -> int:
         return selftest()
 
     if args.cmd == "candidates":
-        cands = build_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
+        cands, _ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
         print(json.dumps(cands, indent=2, ensure_ascii=False))
         return 0
 
     if args.cmd == "probe":
-        cands = build_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
+        cands, _ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
         print(live_probe(cands))
         return 0
 
     if args.cmd == "apply":
+        ledger = load_reprobe_ledger()
+        validate_reprobe_ledger(ledger, allowlist_members=_known_allowlist_members(GO_FILE.read_text(encoding="utf-8")))
         text = sys.stdin.read() if args.results == "-" else Path(args.results).read_text(encoding="utf-8")
-        _report(write_allowlists(parse_results(text)))
+        _report(write_allowlists(parse_results(text), ledger))
         return 0
 
     if args.cmd == "run":
-        cands = build_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
-        final = write_allowlists(parse_results(live_probe(cands)))
+        cands, ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
+        final = write_allowlists(parse_results(live_probe(cands)), ledger)
         _report(final)
         if args.open_pr:
             open_pr(final)
