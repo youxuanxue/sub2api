@@ -112,6 +112,29 @@ export default defineConfig(({ mode }) => {
             return 'vendor-misc'
           }
 
+          // TK admin perf: isolate heavy account page surfaces from the entry chunk.
+          if (id.includes('/components/account/CreateAccountModal') ||
+              id.includes('/components/account/EditAccountModal') ||
+              id.includes('/components/account/BulkEditAccountModal')) {
+            return 'admin-account-modals'
+          }
+          if (id.includes('/components/account/usage-cells/')) {
+            return 'admin-account-usage-cells'
+          }
+          if (id.includes('/views/admin/AccountsView.vue')) {
+            return 'admin-accounts-view'
+          }
+          if (id.includes('/views/admin/DashboardView.vue') ||
+              id.includes('/components/charts/')) {
+            return 'admin-dashboard-view'
+          }
+          if (id.includes('/views/admin/AdminShellView.vue') ||
+              id.includes('/components/layout/AppLayout.vue') ||
+              id.includes('/components/layout/AppSidebar.vue') ||
+              id.includes('/components/layout/AppHeader.vue')) {
+            return 'admin-shell'
+          }
+
           // 应用代码：按入口点自动分包，不手动干预
           // 这样可以避免循环依赖，同时保持合理的 chunk 数量
         }

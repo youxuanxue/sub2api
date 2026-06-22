@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sort"
 	"time"
 
@@ -474,6 +475,36 @@ func (r *usageLogRepository) fetchUserEmails(ctx context.Context, userIDs []int6
 	return emails, nil
 }
 
+func (r *usageLogRepository) fetchUserTrendIdentity(ctx context.Context, userIDs []int64) (emails, usernames map[int64]string, err error) {
+	emails = make(map[int64]string, len(userIDs))
+	usernames = make(map[int64]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return emails, usernames, nil
+	}
+	rows, err := r.sql.QueryContext(
+		ctx,
+		"SELECT id, COALESCE(email, ''), COALESCE(username, '') FROM users WHERE id = ANY($1)",
+		pq.Array(userIDs),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int64
+		var email, username string
+		if err := rows.Scan(&id, &email, &username); err != nil {
+			return nil, nil, err
+		}
+		emails[id] = email
+		usernames[id] = username
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return emails, usernames, nil
+}
+
 // sortUserSpendingRankingItems applies the legacy ORDER BY actual_cost DESC,
 // tokens DESC, user_id ASC.
 func sortUserSpendingRankingItems(items []UserSpendingRankingItem) {
@@ -487,4 +518,265 @@ func sortUserSpendingRankingItems(items []UserSpendingRankingItem) {
 		}
 		return a.UserID < b.UserID
 	})
+}
+
+type userTrendDayAgg struct {
+	requests   int64
+	tokens     int64
+	cost       float64
+	actualCost float64
+}
+
+// getUserUsageTrendRollup serves GetUserUsageTrend for day granularity from the
+// per-(user, platform, day) rollup for completed days plus raw usage_logs for
+// partial/today slices. Top-N user selection uses the same window totals as
+// GetUserSpendingRanking; per-date series is rebuilt in Go to preserve legacy
+// ordering (date ASC, tokens DESC).
+func (r *usageLogRepository) getUserUsageTrendRollup(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	granularity string,
+	limit int,
+) ([]UserUsageTrendPoint, error) {
+	if limit <= 0 {
+		limit = 12
+	}
+	dateFormat := safeDateFormat(granularity)
+
+	byUser := make(map[int64]*userSpendAgg)
+	addUserTotal := func(user int64, cost float64, reqs, toks int64) {
+		a, ok := byUser[user]
+		if !ok {
+			a = &userSpendAgg{}
+			byUser[user] = a
+		}
+		a.cost += cost
+		a.requests += reqs
+		a.tokens += toks
+	}
+
+	floorDay, hasRollupData, err := r.userPlatformRollupFloorDay(ctx)
+	if err != nil {
+		return nil, err
+	}
+	win := planUsageRollupWindow(startTime, endTime, floorDay, hasRollupData)
+
+	if win.hasRollup {
+		const q = `
+			SELECT
+				user_id,
+				COALESCE(SUM(actual_cost), 0),
+				COALESCE(SUM(total_requests), 0),
+				COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0)
+			FROM usage_dashboard_user_platform_daily
+			WHERE bucket_date >= $1::date AND bucket_date < $2::date
+			GROUP BY user_id
+		`
+		rows, err := r.sql.QueryContext(ctx, q, win.rollupStartDay, win.rollupEndDay)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var uid, reqs, toks int64
+			var cost float64
+			if err := rows.Scan(&uid, &cost, &reqs, &toks); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			addUserTotal(uid, cost, reqs, toks)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, span := range win.rawSpans {
+		from, to := span[0], span[1]
+		const q = `
+			SELECT
+				user_id,
+				COALESCE(SUM(actual_cost), 0),
+				COUNT(*),
+				COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0)
+			FROM usage_logs
+			WHERE created_at >= $1 AND created_at < $2
+			GROUP BY user_id
+		`
+		rows, err := r.sql.QueryContext(ctx, q, from, to)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var uid, reqs, toks int64
+			var cost float64
+			if err := rows.Scan(&uid, &cost, &reqs, &toks); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			addUserTotal(uid, cost, reqs, toks)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	rankingItems := make([]UserSpendingRankingItem, 0, len(byUser))
+	for uid, a := range byUser {
+		rankingItems = append(rankingItems, UserSpendingRankingItem{
+			UserID:     uid,
+			ActualCost: a.cost,
+			Requests:   a.requests,
+			Tokens:     a.tokens,
+		})
+	}
+	sortUserSpendingRankingItems(rankingItems)
+	if limit > 0 && len(rankingItems) > limit {
+		rankingItems = rankingItems[:limit]
+	}
+	if len(rankingItems) == 0 {
+		return []UserUsageTrendPoint{}, nil
+	}
+
+	topUserIDs := make([]int64, len(rankingItems))
+	for i, item := range rankingItems {
+		topUserIDs[i] = item.UserID
+	}
+
+	type trendKey struct {
+		date   string
+		userID int64
+	}
+	byDayUser := make(map[trendKey]*userTrendDayAgg)
+
+	addTrendRow := func(date string, userID int64, totalCost, actualCost float64, reqs, toks int64) {
+		k := trendKey{date: date, userID: userID}
+		a, ok := byDayUser[k]
+		if !ok {
+			a = &userTrendDayAgg{}
+			byDayUser[k] = a
+		}
+		a.cost += totalCost
+		a.actualCost += actualCost
+		a.requests += reqs
+		a.tokens += toks
+	}
+
+	if win.hasRollup {
+		query := fmt.Sprintf(`
+			SELECT
+				TO_CHAR(bucket_date::timestamp, '%s') AS date,
+				user_id,
+				COALESCE(SUM(total_cost), 0),
+				COALESCE(SUM(actual_cost), 0),
+				COALESCE(SUM(total_requests), 0),
+				COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0)
+			FROM usage_dashboard_user_platform_daily
+			WHERE user_id = ANY($1)
+			  AND bucket_date >= $2::date AND bucket_date < $3::date
+			GROUP BY bucket_date, user_id
+		`, dateFormat)
+		rows, err := r.sql.QueryContext(ctx, query, pq.Array(topUserIDs), win.rollupStartDay, win.rollupEndDay)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var date string
+			var uid, reqs, toks int64
+			var cost, actualCost float64
+			if err := rows.Scan(&date, &uid, &cost, &actualCost, &reqs, &toks); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			addTrendRow(date, uid, cost, actualCost, reqs, toks)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, span := range win.rawSpans {
+		from, to := span[0], span[1]
+		query := fmt.Sprintf(`
+			SELECT
+				TO_CHAR(created_at, '%s') AS date,
+				user_id,
+				COALESCE(SUM(total_cost), 0),
+				COALESCE(SUM(actual_cost), 0),
+				COUNT(*),
+				COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0)
+			FROM usage_logs
+			WHERE user_id = ANY($1)
+			  AND created_at >= $2 AND created_at < $3
+			GROUP BY date, user_id
+		`, dateFormat)
+		rows, err := r.sql.QueryContext(ctx, query, pq.Array(topUserIDs), from, to)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var date string
+			var uid, reqs, toks int64
+			var cost, actualCost float64
+			if err := rows.Scan(&date, &uid, &cost, &actualCost, &reqs, &toks); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			k := trendKey{date: date, userID: uid}
+			a, ok := byDayUser[k]
+			if !ok {
+				a = &userTrendDayAgg{}
+				byDayUser[k] = a
+			}
+			a.cost += cost
+			a.actualCost += actualCost
+			a.requests += reqs
+			a.tokens += toks
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	emails, usernames, err := r.fetchUserTrendIdentity(ctx, topUserIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]UserUsageTrendPoint, 0, len(byDayUser))
+	for k, a := range byDayUser {
+		results = append(results, UserUsageTrendPoint{
+			Date:       k.date,
+			UserID:     k.userID,
+			Email:      emails[k.userID],
+			Username:   usernames[k.userID],
+			Requests:   a.requests,
+			Tokens:     a.tokens,
+			Cost:       a.cost,
+			ActualCost: a.actualCost,
+		})
+	}
+
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Date != results[j].Date {
+			return results[i].Date < results[j].Date
+		}
+		if results[i].Tokens != results[j].Tokens {
+			return results[i].Tokens > results[j].Tokens
+		}
+		return results[i].UserID < results[j].UserID
+	})
+
+	return results, nil
 }

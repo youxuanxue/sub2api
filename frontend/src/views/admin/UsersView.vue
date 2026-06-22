@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <TablePageLayout>
       <!-- Single Row: Search, Filters, and Actions -->
       <template #filters>
@@ -765,8 +764,7 @@
     <UserBalanceHistoryModal v-if="lazyMount('balanceHistory', showBalanceHistoryModal)" :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <GroupReplaceModal v-if="lazyMount('groupReplace', showGroupReplaceModal)" :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
     <UserAttributesConfigModal v-if="lazyMount('attributes', showAttributesModal)" :show="showAttributesModal" @close="handleAttributesModalClose" />
-  </AppLayout>
-</template>
+  </template>
 
 <script setup lang="ts">
 import { ref, shallowRef, reactive, computed, onMounted, onUnmounted } from 'vue'
@@ -783,7 +781,6 @@ import type { BatchUserUsageStats } from '@/api/admin/dashboard'
 import type { PlatformQuotaItem } from '@/api/admin/users'
 import type { Column } from '@/components/common/types'
 import type { SelectOption } from '@/components/common/Select.vue'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
