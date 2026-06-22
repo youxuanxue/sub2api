@@ -47,8 +47,13 @@ PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A
 # quote/space that breaks the SQL literal or the jsonb key set (the audit's schema-gate,
 # applied at the one place that mutates model_mapping out-of-band).
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
-# guard-tuple name: a group/account display name; reject single quotes (SQL literal safety).
+# guard-tuple name: a group/account display name (may be non-ASCII, e.g. "ds-官"); reject
+# single quotes — the only char that breaks a PG string literal under
+# standard_conforming_strings (the default), so this is sufficient SQL-literal safety.
 _NAME_RE = re.compile(r"^[^']+$")
+# platform is a fixed enum-like token (newapi/anthropic/openai/gemini/antigravity/grok);
+# validate to a strict charset so it can never break the guard's SQL string literal.
+_PLATFORM_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def fail(msg: str) -> NoReturn:
@@ -205,6 +210,9 @@ def cmd_check(args) -> int:
 def cmd_sync_live(args) -> int:
     if not _NAME_RE.match(args.name):
         fail(f"--name {args.name!r} must not contain a single quote (SQL literal safety)")
+    if not _PLATFORM_RE.match(args.platform):
+        fail(f"--platform {args.platform!r} must match {_PLATFORM_RE.pattern} "
+             f"(newapi/anthropic/openai/gemini/antigravity/grok)")
     additions = build_additions(args.add_identity or [], args.add or [])
     additions_json = json.dumps(additions, ensure_ascii=False, separators=(",", ":"))
     additions_b64 = base64.b64encode(additions_json.encode()).decode()
@@ -285,6 +293,11 @@ def _selftest() -> int:
     # keys array literal
     if keys_array_sql(["b", "a"]) != "array['a', 'b']":
         failures.append("keys_array_sql wrong/ordering")
+    # guard-field validation regexes reject the SQL-literal escape char (injection gate)
+    if _PLATFORM_RE.match("newapi'; DROP") or not _PLATFORM_RE.match("newapi"):
+        failures.append("_PLATFORM_RE wrong (must reject quotes, accept newapi)")
+    if _NAME_RE.match("Qwen'; x") or not _NAME_RE.match("ds-官"):
+        failures.append("_NAME_RE wrong (must reject quotes, accept non-ASCII)")
     # merge SQL shape: guard tuple + jsonb || + scheduler_outbox + decode
     sql = build_merge_sql(60, "Qwen", "newapi", 17, "QQ==")
     for needle in ("id = 60", "name = 'Qwen'", "platform = 'newapi'", "channel_type = 17",
