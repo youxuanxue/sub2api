@@ -173,7 +173,7 @@ def dedup(servable: set[str]) -> list[str]:
 # ----- results TSV parsing -----
 def parse_results(text: str) -> dict[str, set[str]]:
     """platform -> set of servable model ids. Lines: platform\\tmodel\\tcode\\tverdict."""
-    out: dict[str, set[str]] = {"anthropic": set(), "openai": set(), "gemini": set()}
+    out: dict[str, set[str]] = {"anthropic": set(), "openai": set(), "gemini": set(), "grok": set()}
     for line in text.splitlines():
         parts = line.rstrip("\n").split("\t")
         if len(parts) != 4:
@@ -365,14 +365,22 @@ def selftest() -> int:
     cks = chunk(big, BATCH_SIZE)
     assert all(len(c) <= BATCH_SIZE for c in cks) and sum(cks, []) == big
 
-    # parse: gemini rows land in the gemini bucket; non-servable/auth dropped
+    # parse: gemini/grok rows land in their buckets; non-servable/auth dropped.
+    # Grok remains hand-maintained in pricing_catalog_supported_models_tk.go, so
+    # write_allowlists still rewrites only anthropic/openai/gemini.
     tsv = (
         "anthropic\tclaude-opus-4-8\t200\tservable\n"
         "openai\tgpt-4o\t400\tunsupported\nopenai\t*\t000\tauth_error\n"
-        "gemini\tgemini-2.5-pro\t200\tservable\ngemini\tgemma-4-31b-it\t400\tunsupported"
+        "gemini\tgemini-2.5-pro\t200\tservable\ngemini\tgemma-4-31b-it\t400\tunsupported\n"
+        "grok\tgrok-4.3\t200\tservable\ngrok\tgrok-4-0709\t429\tinconclusive"
     )
     p = parse_results(tsv)
-    assert p == {"anthropic": {"claude-opus-4-8"}, "openai": set(), "gemini": {"gemini-2.5-pro"}}, p
+    assert p == {
+        "anthropic": {"claude-opus-4-8"},
+        "openai": set(),
+        "gemini": {"gemini-2.5-pro"},
+        "grok": {"grok-4.3"},
+    }, p
 
     # splice round-trips between markers and is idempotent (anthropic + gemini)
     sample = (

@@ -143,22 +143,23 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 // channel, so before this set both the channel stage and the whitelist stage
 // of the per-user menu produced nothing and a grok group showed an EMPTY
 // "分组目录" (incident 2026-06-20). The set is the SAME grok IDs the public
-// /pricing catalog surfaces — exactly the four priced entries in
-// tk_pricing_overlay.json (litellm_provider="xai"): the grok-imagine media
-// family (image/video) plus grok-code-fast-1 chat.
+// /pricing catalog surfaces: the priced grok-imagine media family plus grok
+// chat ids whose official xAI price is in tk_pricing_overlay.json and whose
+// edge-us4 native-grok live probe returned 200 on 2026-06-22.
 //
 // Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
-// anthropic/openai/gemini and does not cover grok yet). The grok-4.x CHAT
-// models (grok-4 / grok-4.3 — the SuperGrok Heavy OAuth default) are
-// DELIBERATELY EXCLUDED: tk_pricing_overlay.json intentionally leaves them
-// unpriced (their 2026 list price is unconfirmed; they bill $0 and raise
-// served_zero_cost P0s) per the overlay's "a wrong price has no probe"
-// discipline — advertising an unpriced model at "—" would invite exactly that
-// free-usage leak. Add them here only once a verified price lands in the
-// overlay. While EMPTY the catalog/menu gates fall through to passthrough
-// (no regression), matching the gemini/antigravity arms.
+// anthropic/openai/gemini and does not cover grok yet). Back-compat aliases
+// such as grok-4.3-latest / grok-latest / grok-code-fast-1-0825 are priced in
+// the overlay so explicit requests do not bill $0, but are not public-listed:
+// the visible catalog prefers stable bare ids and current official SKUs. While
+// EMPTY the catalog/menu gates fall through to passthrough (no regression),
+// matching the gemini/antigravity arms.
 var supportedGrokCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin grok
+	"grok-4.20-0309-non-reasoning": {},
+	"grok-4.20-0309-reasoning":     {},
+	"grok-4.3":                     {},
+	"grok-build-0.1":               {},
 	"grok-code-fast-1":           {},
 	"grok-imagine-image":         {},
 	"grok-imagine-image-quality": {},

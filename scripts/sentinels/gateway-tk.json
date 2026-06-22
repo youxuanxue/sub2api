@@ -1002,6 +1002,15 @@
       "rationale": "Per-user pricing-catalog service. Five load-bearing invariants pinned: (1) BuildForUser is the only entry point; renaming it silently breaks the handler. (2) ErrMePricingGroupForbidden is part of the documented error contract (403 mapping in handler) — losing the sentinel would let a refactor collapse it into a generic error and the handler would surface 500 instead. (3) The cross-platform leak guard (`m.Platform != targetGroup.Platform`) prevents an anthropic-platform model from bleeding into a newapi group's menu when a channel sits on groups across platforms; the same discipline is enforced in available_channel_handler.go and dropping it here would re-introduce the leak. (4) The unrestricted-account fallback for anthropic/openai uses supportedCatalogModelIDsForPlatform — the SAME empirically-servable allowlist the public /pricing catalog filters by (pricing_catalog_supported_models_tk.go) — so a native OAuth group whose accounts carry no channel and no model_mapping whitelist lists exactly the models that passed a live prod probe, not the canonical advertised set that includes upstream-rejected models (user_id=16 incident + 实测通过 directive). Dropping this reverts the menu to empty or re-introduces unservable models. (5) The platformDefaultModelIDs `case PlatformGrok:` arm gives the seventh platform (native OAuth, unrestricted accounts, no channel) its curated served set; losing it re-empties a grok group's 分组目录 (2026-06-20 incident)."
     },
     {
+      "path": "backend/internal/service/me_pricing_catalog_tk_test.go",
+      "must_contain": [
+        "TestBuildForUser_GrokUnrestricted_ListsServableModels",
+        "grok-4.3",
+        "grok-code-fast-1"
+      ],
+      "rationale": "Regression test for the grok per-user menu fallback: a native grok OAuth account has no channel and no model_mapping whitelist, so BuildForUser must populate the menu from supportedCatalogModelIDsForPlatform(PlatformGrok) and join catalog token prices for both current grok chat (grok-4.3) and the grok-build alias family (grok-code-fast-1). Dropping this test re-opens the 2026-06-20 empty-grok-group class and the newer official-priced grok chat visibility regression."
+    },
+    {
       "path": "backend/internal/handler/me_pricing_catalog_handler_tk.go",
       "must_contain": [
         "middleware.GetAuthSubjectFromContext(c)",
@@ -1627,20 +1636,32 @@
       "must_contain": [
         "func (r *AntigravityConfigReconciler) runOnce(",
         "func antigravityCanServeExcluded(",
+        "domain.IsAntigravityStructuralDeadModelMappingKey",
         "domain.GeminiOnlyAntigravityModelMapping",
         "func (r *AntigravityConfigReconciler) reconcileGroups(",
         "func antigravityGroupScopesNeedGeminiOnly(",
         "domain.GeminiOnlyAntigravityModelScopes"
       ],
-      "rationale": "Per-node in-process self-healer that enforces the operator policy 'Antigravity serves gemini only' on TWO surfaces: (1) accounts — rewrites every antigravity account's credentials.model_mapping to domain.GeminiOnlyAntigravityModelMapping (antigravityCanServeExcluded drift predicate); (2) groups — rewrites every active antigravity group's supported_model_scopes to domain.GeminiOnlyAntigravityModelScopes (antigravityGroupScopesNeedGeminiOnly drift predicate, reconcileGroups), so /antigravity/v1/models + the API key usage guide hide claude for newly-created / drifted groups too. It is a plain-named (non-_tk_) service file that is compile-clean if dropped, so an upstream merge or refactor could silently delete either half and the gemini-only auto-sync would stop with no test failure. Both drift predicates must stay aligned with the post-rollout check ops/antigravity/check-antigravity-account-config.py (accounts + groups same口径); weakening antigravityCanServeExcluded back to a two-id probe re-opens the claude-leak the reconciler exists to close (xj-review R-001); dropping reconcileGroups re-opens claude in /models + usage guide for new groups."
+      "rationale": "Per-node in-process self-healer that enforces the operator policy 'Antigravity serves gemini only' on TWO surfaces: (1) accounts — rewrites every antigravity account's credentials.model_mapping to domain.GeminiOnlyAntigravityModelMapping (antigravityCanServeExcluded drift predicate, including PR #921 structural-dead aliases via domain.IsAntigravityStructuralDeadModelMappingKey); (2) groups — rewrites every active antigravity group's supported_model_scopes to domain.GeminiOnlyAntigravityModelScopes (antigravityGroupScopesNeedGeminiOnly drift predicate, reconcileGroups), so /antigravity/v1/models + the API key usage guide hide claude for newly-created / drifted groups too. It is a plain-named (non-_tk_) service file that is compile-clean if dropped, so an upstream merge or refactor could silently delete either half and the gemini-only auto-sync would stop with no test failure. Both drift predicates must stay aligned with the post-rollout check ops/antigravity/check-antigravity-account-config.py (accounts + groups same口径); weakening antigravityCanServeExcluded back to a two-id probe re-opens the claude/stale-alias leak the reconciler exists to close; dropping reconcileGroups re-opens claude in /models + usage guide for new groups."
     },
     {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
         "func buildGeminiOnlyAntigravityModelMapping(",
-        "strings.HasPrefix(k, \"claude-\") || strings.HasPrefix(k, \"gpt-oss-\")"
+        "strings.HasPrefix(k, \"claude-\") || strings.HasPrefix(k, \"gpt-oss-\")",
+        "antigravityStructuralDeadModelMappingKeys",
+        "func IsAntigravityStructuralDeadModelMappingKey("
       ],
-      "rationale": "GeminiOnlyAntigravityModelMapping — the canonical map the AntigravityConfigReconciler writes onto every antigravity account — is derived once at package init from DefaultAntigravityModelMapping by dropping claude-* / gpt-oss-* keys. A silent upstream-merge change to (or removal of) the builder's prefix filter would let claude/gpt-oss back into the map the reconciler writes, i.e. silently serve claude on antigravity — the exact backward-drift this guards. Locked by TestGeminiOnlyAntigravityModelMapping too; this sentinel additionally catches a source revert that lands without the test running."
+      "rationale": "GeminiOnlyAntigravityModelMapping — the canonical map the AntigravityConfigReconciler writes onto every antigravity account — is derived once at package init from DefaultAntigravityModelMapping by dropping claude-* / gpt-oss-* keys and PR #921-confirmed structural-dead antigravity aliases. A silent upstream-merge change to (or removal of) either filter would let excluded families or stale request aliases back into the map the reconciler writes, i.e. silently serve claude on antigravity or re-widen the DB mapping surface. Locked by TestGeminiOnlyAntigravityModelMapping too; this sentinel additionally catches a source revert that lands without the test running."
+    },
+    {
+      "path": "backend/migrations/tk_043_prune_antigravity_structural_dead_mapping.sql",
+      "must_contain": [
+        "gemini-3-pro-high",
+        "gemini-3.1-pro-preview",
+        "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)"
+      ],
+      "rationale": "DB hygiene migration for the #921-confirmed antigravity structural-dead aliases found on the four live persisted mappings (edge us3/us4 plus prod 61/62). The migration must keep the exact stale-key removal and enqueue scheduler account_changed events; otherwise running replicas keep stale mapping snapshots until a full rebuild, and future releases can re-advertise dead aliases even though the canonical reconciler map excludes them."
     },
     {
       "path": "backend/internal/domain/constants.go",

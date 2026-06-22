@@ -256,10 +256,14 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"antigravity", "claude-sonnet-4-6", false},   // claude routed to anthropic
 		{"antigravity", "gemini-2.5-pro", false},      // 503 at probe, not in antigravity set
 		// grok (xai vendor → grok platform): gated to the priced overlay set.
+		{"xai", "grok-4.3", true},
+		{"xai", "grok-4.20-0309-reasoning", true},
+		{"xai", "grok-build-0.1", true},
 		{"xai", "grok-code-fast-1", true},
 		{"xai", "grok-imagine-video", true},
-		{"x-ai", "grok-imagine-image", true},    // openrouter-style x-ai alias maps too
-		{"xai", "grok-4", false},                // chat models intentionally unpriced → not served
+		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
+		{"xai", "grok-4", false},             // third-party-priced / unverified legacy slug
+		{"xai", "grok-latest", false},        // priced alias, not public-listed
 		{"", "anything", true},                  // unknown vendor: pass-through
 	}
 	for _, c := range cases {
@@ -291,9 +295,9 @@ func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 
 // TestSupportedCatalogModelIDsForPlatform_Grok pins the grok served set used by
 // the per-user menu fallback (platformDefaultModelIDs) AND the admin
-// model-whitelist selector (tkServableCandidateIDs): the four priced grok
-// overlay models, with the grok-4.x chat family deliberately excluded
-// (intentionally unpriced). Regression for the 2026-06-20 empty-grok-group bug.
+// model-whitelist selector (tkServableCandidateIDs): priced grok overlay models
+// whose native-grok live probe returned 200. Regression for the 2026-06-20
+// empty-grok-group bug.
 func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 	ids := supportedCatalogModelIDsForPlatform(PlatformGrok)
 	require.NotEmpty(t, ids)
@@ -301,11 +305,20 @@ func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 	for _, id := range ids {
 		set[id] = struct{}{}
 	}
-	for _, want := range []string{"grok-code-fast-1", "grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-video"} {
+	for _, want := range []string{
+		"grok-4.3",
+		"grok-4.20-0309-reasoning",
+		"grok-4.20-0309-non-reasoning",
+		"grok-build-0.1",
+		"grok-code-fast-1",
+		"grok-imagine-image",
+		"grok-imagine-image-quality",
+		"grok-imagine-video",
+	} {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected grok menu to advertise %q", want)
 	}
-	for _, deny := range []string{"grok-4", "grok-4.3", "claude-opus-4-8"} {
+	for _, deny := range []string{"grok-4", "grok-latest", "grok-code-fast-1-0825", "claude-opus-4-8"} {
 		_, ok := set[deny]
 		assert.Falsef(t, ok, "grok menu must not advertise %q (unpriced/off-platform)", deny)
 	}

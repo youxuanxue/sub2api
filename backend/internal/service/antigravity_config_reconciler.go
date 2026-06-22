@@ -216,14 +216,15 @@ func (r *AntigravityConfigReconciler) tryAcquireLock() (func(), bool) {
 	}, true
 }
 
-// antigravityCanServeExcluded reports whether an antigravity account can still
-// serve a claude-* or gpt-oss-* model and therefore violates the gemini-only
-// policy. Two complementary checks (mirroring the post-rollout
-// check-antigravity-account-config.py invariant so the reconciler heals exactly
-// what the check flags):
-//   - scan the resolved mapping keys for a claude-* / gpt-oss-* prefix — catches
-//     ANY excluded id (e.g. claude-opus-4-8), not just the probe ids, and catches
-//     the empty-map case (which resolves to DefaultAntigravityModelMapping);
+// antigravityCanServeExcluded reports whether an antigravity account carries any
+// mapping drift the canonical gemini-only account map must heal: excluded
+// claude/gpt-oss families or PR #921 structural-dead Antigravity aliases. Two
+// complementary checks (mirroring the post-rollout check-antigravity-account-config.py
+// invariant so the reconciler heals exactly what the check flags):
+//   - scan the resolved mapping keys for a claude-* / gpt-oss-* prefix or
+//     structural-dead alias — catches ANY excluded id (e.g. claude-opus-4-8) and
+//     stale Antigravity aliases, not just the probe ids, and catches the empty-map
+//     case (which resolves to DefaultAntigravityModelMapping);
 //   - probe the representative ids — catches a catch-all wildcard (e.g. "*") that
 //     would match claude/gpt-oss without carrying a literal claude-* key.
 func antigravityCanServeExcluded(a *Account) bool {
@@ -231,17 +232,21 @@ func antigravityCanServeExcluded(a *Account) bool {
 		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
 			return true
 		}
+		if domain.IsAntigravityStructuralDeadModelMappingKey(k) {
+			return true
+		}
 	}
 	return a.IsModelSupported(antigravityClaudeProbeModel) || a.IsModelSupported(antigravityGptOssProbeModel)
 }
 
 // runOnce enforces gemini-only model_mapping on every antigravity account in the
-// LOCAL DB. An account that can still serve claude/gpt-oss (an empty mapping
-// falls back to DefaultAntigravityModelMapping, which includes both) has its
+// LOCAL DB. An account that can still serve claude/gpt-oss or carries stale
+// structural-dead aliases (an empty mapping falls back to DefaultAntigravityModelMapping,
+// which includes both excluded families and compatibility aliases) has its
 // credentials.model_mapping rewritten to GeminiOnlyAntigravityModelMapping via
-// BulkUpdate (whose JSONB shallow-merge replaces the whole model_mapping
-// sub-object — dropping claude/gpt-oss keys — and enqueues a scheduler_outbox
-// event so the change takes effect). Tests call it directly.
+// BulkUpdate (whose JSONB shallow-merge replaces the whole model_mapping sub-object
+// — dropping excluded/stale keys — and enqueues a scheduler_outbox event so the
+// change takes effect). Tests call it directly.
 func (r *AntigravityConfigReconciler) runOnce(ctx context.Context) {
 	if r == nil {
 		return

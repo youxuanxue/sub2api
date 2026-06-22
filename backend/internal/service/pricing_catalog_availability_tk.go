@@ -75,10 +75,10 @@ func inferPlatformFromVendor(vendor string) string {
 	case "antigravity":
 		return PlatformAntigravity
 	case "xai", "x-ai":
-		// xAI / Grok (seventh platform). The overlay rows for the grok-imagine
-		// media family + grok-code-fast-1 carry litellm_provider="xai"; mapping
-		// it here lets the public-catalog servable gate and the availability
-		// self-heal treat grok like the other native platforms.
+		// xAI / Grok (seventh platform). TK-owned overlay rows for grok chat
+		// and grok-imagine media carry litellm_provider="xai"; mapping it here
+		// lets the public-catalog servable gate and the availability self-heal
+		// treat grok like the other native platforms.
 		return PlatformGrok
 	}
 	return ""

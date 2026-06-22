@@ -43,6 +43,13 @@ class AccountViolationTest(unittest.TestCase):
         self.assertIn("claude-opus-4-8", r)
         self.assertIsNotNone(CHK._account_violation({"model_mapping": {"gpt-oss-120b-medium": "x"}}))
 
+    def test_structural_dead_alias_is_violation(self):
+        for key in CHK.ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS:
+            with self.subTest(key=key):
+                r = CHK._account_violation({"model_mapping": {key: "x", "gemini-pro-agent": "gemini-pro-agent"}})
+                self.assertIsNotNone(r)
+                self.assertIn(key, r)
+
     def _gemini_only_mm(self):
         return {"gemini-3-flash": "gemini-3-flash"}
 
