@@ -46,7 +46,7 @@
           {{ t('admin.accounts.selectTestModel') }}
         </label>
         <Select
-          v-if="!needsModelConfig"
+          v-if="!modelsError"
           v-model="selectedModelId"
           :options="availableModels"
           :disabled="loadingModels || status === 'connecting'"
@@ -56,16 +56,15 @@
         />
         <div
           v-else
-          class="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+          class="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
         >
-          <p>{{ t('admin.accounts.noModelMappingHint') }}</p>
+          <p>{{ modelsError }}</p>
           <button
-            v-if="account"
             type="button"
             class="mt-1.5 font-medium text-primary-600 hover:underline dark:text-primary-400"
-            @click="emit('configure', account)"
+            @click="loadAvailableModels"
           >
-            {{ t('admin.accounts.configureModels') }} →
+            {{ t('admin.accounts.retry') }}
           </button>
         </div>
       </div>
@@ -276,7 +275,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'configure', account: Account): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -288,6 +286,9 @@ const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
+// Non-empty when GetAvailableModels failed to load, so the UI can show why the
+// model picker is unavailable instead of a misleading empty "no options" box.
+const modelsError = ref('')
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
@@ -307,18 +308,6 @@ const supportsOpenAIImageTest = computed(() => {
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
-// A fifth-platform `newapi` account is servable only for the models its operator
-// declared in model_mapping; that mapping is the source of truth (an account's
-// base_url often points at a TokenKey edge whose /v1/models lists unrelated
-// models, so live discovery can't be trusted here). When the mapping is empty
-// GetAvailableModels returns [], i.e. the account simply hasn't been configured
-// with any servable model yet. Rather than invent a free-text picker that breaks
-// the "pick a declared model" pattern, guide the operator to configure the
-// account. Gated on "loaded AND empty AND newapi" so native platforms (which
-// always return their default catalog) keep the plain picker unchanged.
-const needsModelConfig = computed(
-  () => !loadingModels.value && availableModels.value.length === 0 && props.account?.platform === 'newapi'
-)
 
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
@@ -356,6 +345,7 @@ const loadAvailableModels = async () => {
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
+  modelsError.value = ''
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
@@ -372,10 +362,23 @@ const loadAvailableModels = async () => {
       }
     }
   } catch (error) {
+    // Surface the failure instead of silently showing an empty "no options"
+    // dropdown. For every account type GetAvailableModels returns a non-empty
+    // default/mapped catalog when the account is reachable, so an empty picker
+    // almost always means the request FAILED — the account became unavailable
+    // (404, e.g. deleted / mid-reauth), the admin session expired (401/403), or
+    // a network error. Masking that as "no models" misleads the operator.
     console.error('Failed to load available models:', error)
-    // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
+    const status = (error as { response?: { status?: number } })?.response?.status
+    if (status === 404) {
+      modelsError.value = t('admin.accounts.loadModelsUnavailable')
+    } else if (status === 401 || status === 403) {
+      modelsError.value = t('admin.accounts.loadModelsAuthExpired')
+    } else {
+      modelsError.value = t('admin.accounts.loadModelsFailed')
+    }
   } finally {
     loadingModels.value = false
   }

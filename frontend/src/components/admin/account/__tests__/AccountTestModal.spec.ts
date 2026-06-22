@@ -137,12 +137,11 @@ describe('AccountTestModal', () => {
     expect(preview.attributes('src')).toBe('data:image/png;base64,QUJD')
   })
 
-  // A fifth-platform `newapi` account with an empty model_mapping makes
-  // GetAvailableModels return []. model_mapping is the source of truth for what
-  // such an account serves (its base_url often points at a TokenKey edge whose
-  // /v1/models lists unrelated models, so live discovery can't be trusted) — so
-  // the modal must guide the operator to configure the account, not invent a
-  // free-text picker.
+  // An empty model dropdown for a normal account (e.g. an anthropic OAuth
+  // account, which always returns the Claude default catalog when reachable)
+  // means the getAvailableModels request FAILED — the modal must surface why
+  // (404 unavailable / 401 session / generic) instead of a misleading empty
+  // "no options" picker. (2026-06-22 edge-us6 oh-3-e incident.)
   function mountWith(account: Record<string, unknown>) {
     return mount(AccountTestModal, {
       props: { show: false, account } as any,
@@ -157,37 +156,50 @@ describe('AccountTestModal', () => {
     })
   }
 
-  it('newapi account with empty model_mapping shows configure guidance and emits configure', async () => {
-    getAvailableModels.mockResolvedValueOnce([])
-    const wrapper = mountWith({ id: 67, name: 'GLM', platform: 'newapi', type: 'apikey', channel_type: 16, status: 'active' })
+  it('surfaces a 404 as "account unavailable" instead of an empty dropdown, and retry reloads', async () => {
+    getAvailableModels.mockRejectedValueOnce({ response: { status: 404 } })
+    const wrapper = mountWith({ id: 11, name: 'oh-3-e', platform: 'anthropic', type: 'oauth', status: 'active' })
     await wrapper.setProps({ show: true })
     await flushPromises()
 
-    // no broken empty dropdown…
+    // the broken empty picker is replaced by a clear error…
     expect(wrapper.find('.select-stub').exists()).toBe(false)
-    // …instead a guidance message + a "configure" jump that carries the account up.
-    expect(wrapper.text()).toContain('admin.accounts.noModelMappingHint')
-    const btn = wrapper.findAll('button').find((b) => b.text().includes('admin.accounts.configureModels'))
-    expect(btn).toBeTruthy()
-    await btn!.trigger('click')
-    expect(wrapper.emitted('configure')?.[0]?.[0]).toMatchObject({ id: 67 })
-  })
+    expect(wrapper.text()).toContain('admin.accounts.loadModelsUnavailable')
 
-  it('account with models keeps the plain picker (no configure guidance)', async () => {
-    const wrapper = mountWith({ id: 42, name: 'g', platform: 'gemini', type: 'apikey', status: 'active' })
-    await wrapper.setProps({ show: true })
+    // …and retry re-loads (now succeeding) → the picker comes back, error clears.
+    getAvailableModels.mockResolvedValueOnce([{ id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' }])
+    const retry = wrapper.findAll('button').find((b) => b.text().includes('admin.accounts.retry'))
+    expect(retry).toBeTruthy()
+    await retry!.trigger('click')
     await flushPromises()
-
     expect(wrapper.find('.select-stub').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('admin.accounts.noModelMappingHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.loadModelsUnavailable')
   })
 
-  it('non-newapi account with no models does NOT show the model-mapping guidance', async () => {
-    getAvailableModels.mockResolvedValueOnce([])
-    const wrapper = mountWith({ id: 5, name: 'x', platform: 'openai', type: 'oauth', status: 'active' })
+  it('surfaces a 401 as a session-expired error', async () => {
+    getAvailableModels.mockRejectedValueOnce({ response: { status: 401 } })
+    const wrapper = mountWith({ id: 11, name: 'oh-3-e', platform: 'anthropic', type: 'oauth', status: 'active' })
     await wrapper.setProps({ show: true })
     await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.loadModelsAuthExpired')
+    expect(wrapper.find('.select-stub').exists()).toBe(false)
+  })
 
-    expect(wrapper.text()).not.toContain('admin.accounts.noModelMappingHint')
+  it('surfaces a generic load failure', async () => {
+    getAvailableModels.mockRejectedValueOnce(new Error('network'))
+    const wrapper = mountWith({ id: 11, name: 'oh-3-e', platform: 'anthropic', type: 'oauth', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.loadModelsFailed')
+    expect(wrapper.find('.select-stub').exists()).toBe(false)
+  })
+
+  it('shows the picker normally when models load (no error)', async () => {
+    getAvailableModels.mockResolvedValueOnce([{ id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' }])
+    const wrapper = mountWith({ id: 11, name: 'oh-3-e', platform: 'anthropic', type: 'oauth', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.find('.select-stub').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('admin.accounts.loadModelsFailed')
   })
 })
