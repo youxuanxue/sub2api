@@ -998,6 +998,7 @@ func ProvideTKAccountIncidentNotifier(
 	if rl != nil {
 		rl.SetAccountIncidentNotifier(n)
 	}
+	SetClaudeAPIStatusNotifier(n)
 	return n
 }
 

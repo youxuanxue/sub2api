@@ -45,10 +45,10 @@
     {
       "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",
       "must_contain": [
-        "func TestRateLimitService_OAuth401_ValidTokenDisablesFirstStrike(",
-        "func TestRateLimitService_OAuth401_ValidTokenDeferredDuringClaudeIncident("
+        "func TestRateLimitService_OAuth401_AnthropicAny401SetErrorsImmediately(",
+        "func TestRateLimitService_OAuth401_OpenAIValidTokenDisablesFirstStrike("
       ],
-      "rationale": "OAuth 401 on a still-valid token → first-strike disable (#831), DEFERRED during a Claude-wide incident (#834). A 401 returned while the local access_token is provably fresh means the grant was revoked upstream, so TK disables on the first strike — EXCEPT during a declared Claude API incident, when a 401 storm is upstream-wide and disabling would drain the pool. Both the disable and the incident-defer are deliberate TK choices a merge could silently undo."
+      "rationale": "Anthropic OAuth 401 → immediate SetError (any token state). OpenAI OAuth keeps valid-token first-strike disable."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_beta_selfheal_test.go",

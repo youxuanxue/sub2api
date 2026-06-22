@@ -79,10 +79,8 @@ func TestRateLimitService_BodylessBan403_StructuredBodyNeverCounts(t *testing.T)
 	require.Empty(t, counter.bodyless403IncrementIDs, "structured body must not advance the bodyless counter")
 }
 
-// During a live Claude API incident, a bodyless 403 must NOT escalate to a
-// permanent disable — we must not mass-disable the pool for a provider-wide
-// outage. The counter is not even advanced (we return before incrementing).
-func TestRateLimitService_BodylessBan403_IncidentSkipsEscalation(t *testing.T) {
+// During a live Claude API incident, bodyless 403 at threshold still permanently disables.
+func TestRateLimitService_BodylessBan403_IncidentStillEscalates(t *testing.T) {
 	setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: true, Status: "partial_outage", FetchedAt: time.Now()})
 
 	repo := &rateLimitAccountRepoStub{}
@@ -95,8 +93,8 @@ func TestRateLimitService_BodylessBan403_IncidentSkipsEscalation(t *testing.T) {
 
 	service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(""))
 
-	require.Equal(t, 0, repo.setErrorCalls, "incident must not permanently disable on a bodyless 403")
-	require.Empty(t, counter.bodyless403IncrementIDs, "incident path returns before advancing the counter")
+	require.Equal(t, 1, repo.setErrorCalls, "incident must not skip bodyless 403 permanent disable")
+	require.Equal(t, []int64{904}, counter.bodyless403IncrementIDs)
 }
 
 // A counter backend error must fail OPEN — never permanently disable on a

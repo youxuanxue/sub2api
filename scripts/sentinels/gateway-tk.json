@@ -196,10 +196,8 @@
         "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
         "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
-        "IsClaudeAPIIncident()",
-        "anthropic_upstream_error_incident_skip_cooldown",
         "s.tkDisableIfOAuth401OnValidToken(ctx, account, upstreamMsg)",
-        "oauth_401_disable_deferred_during_incident",
+        "oauth_401_immediate_disable",
         "case 413:",
         "anthropic_request_too_large_skip_penalty",
         "tkSkipDownstreamFailoverExhaustedPenalty",
@@ -208,7 +206,7 @@
         "tkLogAnthropicNonAuthoritative429Skip(account, statusCode)",
         "s.notifyAccountRecovered(accountID)"
       ],
-      "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstream merge that re-adds SetModelRateLimit on this 404 path reintroduces the amplifier. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file. Upstream-incident guard: when status.claude.com reports Claude API non-operational, `handleAnthropicUpstreamError` calls `IsClaudeAPIIncident()` and delegates to the existing `skipCooldownWrite=true` seam — account health scores are not penalised during Anthropic-caused incidents. The slog key `anthropic_upstream_error_incident_skip_cooldown` is the observability anchor. **G1 (413 / request_too_large)**: `case 413:` short-circuits an upstream request_too_large for Anthropic (slog `anthropic_request_too_large_skip_penalty`) so an oversized request that cleared TokenKey's local body-limit but exceeded Anthropic's own cap fails back to the client without advancing the 3/3 ladder — a client looping 300KB+ sessions must not be able to cool a shared OAuth account. Dropping the case lets request_too_large fall into the default 4xx-5xx branch and silently re-arm the amplifier. **G2 (narrow — downstream failover-exhausted)**: `tkSkipDownstreamFailoverExhaustedPenalty` (slog `anthropic_downstream_failover_exhausted_skip_penalty`) extends the no-available skip to TokenKey's own 'all available accounts exhausted' downstream capacity envelope; it matches ONLY that TokenKey-generated phrase, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Removing either hook silently regresses the corresponding non-account amplification exemption. **Recovery notify**: `notifyAccountSchedulingBlockCleared`(ClearRateLimit/RecoverAccountState 的账号真实清除汇聚点)末尾调 `s.notifyAccountRecovered(accountID)` 发飞书恢复绿卡(事件驱动)。删掉该行 → 账号恢复无任何飞书通知,恢复链路断裂。 **G3 (non-authoritative 429)**: 无 anthropic-ratelimit-* 头的 429 是 edge 的 header-less capacity/failover 信封('Upstream rate limit exceeded, please retry later' 等),不是真窗口限流(真窗口限流一定带头);case-429 调 `tkIsAnthropicNonAuthoritative429`(无条件,无开关)不冷却不喂阶梯(slog `anthropic_non_authoritative_429_skip_penalty`),泛化 no-available / failover-exhausted 两个 needle 跳过 —— 删掉它会重新点燃把健康镜像(cc-us7,2026-06-13 23:11 tier-0 30s)冷却的放大器。详见 ratelimit_service_tk_nonauthoritative_429.go。"
+      "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstream merge that re-adds SetModelRateLimit on this 404 path reintroduces the amplifier. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file. **G1 (413 / request_too_large)**: `case 413:` short-circuits an upstream request_too_large for Anthropic (slog `anthropic_request_too_large_skip_penalty`) so an oversized request that cleared TokenKey's local body-limit but exceeded Anthropic's own cap fails back to the client without advancing the 3/3 ladder — a client looping 300KB+ sessions must not be able to cool a shared OAuth account. Dropping the case lets request_too_large fall into the default 4xx-5xx branch and silently re-arm the amplifier. **G2 (narrow — downstream failover-exhausted)**: `tkSkipDownstreamFailoverExhaustedPenalty` (slog `anthropic_downstream_failover_exhausted_skip_penalty`) extends the no-available skip to TokenKey's own 'all available accounts exhausted' downstream capacity envelope; it matches ONLY that TokenKey-generated phrase, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Removing either hook silently regresses the corresponding non-account amplification exemption. **Recovery notify**: `notifyAccountSchedulingBlockCleared`(ClearRateLimit/RecoverAccountState 的账号真实清除汇聚点)末尾调 `s.notifyAccountRecovered(accountID)` 发飞书恢复绿卡(事件驱动)。删掉该行 → 账号恢复无任何飞书通知,恢复链路断裂。 **G3 (non-authoritative 429)**: 无 anthropic-ratelimit-* 头的 429 是 edge 的 header-less capacity/failover 信封('Upstream rate limit exceeded, please retry later' 等),不是真窗口限流(真窗口限流一定带头);case-429 调 `tkIsAnthropicNonAuthoritative429`(无条件,无开关)不冷却不喂阶梯(slog `anthropic_non_authoritative_429_skip_penalty`),泛化 no-available / failover-exhausted 两个 needle 跳过 —— 删掉它会重新点燃把健康镜像(cc-us7,2026-06-13 23:11 tier-0 30s)冷却的放大器。详见 ratelimit_service_tk_nonauthoritative_429.go。"
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_nonauthoritative_429.go",
@@ -378,17 +376,12 @@
     {
       "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",
       "must_contain": [
-        "TestRateLimitService_OAuth401_ValidTokenDisablesFirstStrike",
-        "TestRateLimitService_OAuth401_ExpiredTokenFallsThroughToCooldown",
-        "TestRateLimitService_OAuth401_NearExpiryFallsThroughToCooldown",
-        "TestRateLimitService_OAuth401_MissingExpiryFallsThroughToCooldown",
-        "TestRateLimitService_OAuth401_MarginUsesRefreshWindow",
-        "TestRateLimitService_OAuth401_MissingRefreshTokenImmediateDisable",
-        "TestRateLimitService_OAuth401_ValidTokenDeferredDuringClaudeIncident",
-        "TestRateLimitService_OAuth401_SetupTokenDeferredDuringClaudeIncident",
-        "TestRateLimitService_OAuth401_NonAnthropicNotDeferredDuringClaudeIncident"
+        "TestRateLimitService_OAuth401_AnthropicAny401SetErrorsImmediately",
+        "TestRateLimitService_OAuth401_AnthropicStillSetErrorsDuringClaudeIncident",
+        "TestRateLimitService_OAuth401_OpenAIValidTokenDisablesFirstStrike",
+        "TestRateLimitService_OAuth401_OpenAIExpiredTokenStillCools"
       ],
-      "rationale": "Focused regressions proving the token-validity disable: a 401 on a still-valid access token SetErrors on the FIRST strike with a manual-re-authorization message + scheduling-blocked alert; an expired token, a near-expiry token (inside the refresh-window margin), and a missing/unparseable expires_at all fall through to the existing temp_unschedulable cooldown (no false permanent disable); the margin tracks token_refresh.refresh_before_expiry_hours; and a refresh_token-less OAuth account still disables immediately via the pre-existing branch. Dropping these lets an upstream merge silently revert the disable to the infinite flap, or — worse — regress into permanently disabling healthy accounts on transient/expiry 401s, without any unit signal."
+      "rationale": "Anthropic OAuth 401 → immediate SetError + P0 (no token-expiry branch, no temp cooldown). Other OAuth platforms keep valid-token first-strike disable + expired-token cooldown via tkDisableIfOAuth401OnValidToken."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
@@ -1134,9 +1127,11 @@
         "claudeStatusAPIURL",
         "claudeStatusPageURL",
         "claudeStatusMaxStaleness",
-        "claude_api_incident_detected"
+        "claude_api_incident_detected",
+        "NotifyClaudeAPIIncidentStarted",
+        "getClaudeAPIStatusNotifier"
       ],
-      "rationale": "TK companion that polls status.claude.com/api/v2/components.json every 30s and exposes IsClaudeAPIIncident() for the incident-aware cooldown guard in ratelimit_service.go. If this file is silently dropped by an upstream merge (unlikely since it is a *_tk_*.go companion, but the hotspot-pattern gate covers it), account cooldown writes resume during upstream incidents and health scores are incorrectly penalised. claudeAPIComponentID must remain 'k8w3r06qmzrp' (the Claude API component ID on status.claude.com); if Anthropic changes their status-page IDs, this sentinel will fail and force a deliberate update. claudeStatusMaxStaleness anchors the fail-safe that treats a too-old incident reading as resolved (so a status-page outage cannot suppress cooldowns forever). claudeStatusPageURL is the human-facing link surfaced to clients by TkEnrichClaudeIncidentMessage."
+      "rationale": "TK companion that polls status.claude.com/api/v2/components.json every 30s. On transition to non-operational it fires a P0 Feishu card via SetClaudeAPIStatusNotifier (account_incident_notifier_tk_claude_status.go); account-level penalties are NOT suppressed during incidents. claudeAPIComponentID must remain 'k8w3r06qmzrp'. claudeStatusMaxStaleness is the fail-safe that treats a too-old incident reading as resolved."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_upstream_error_msg.go",
@@ -1144,7 +1139,7 @@
         "func TkEnrichForbiddenMessage(",
         "func TkEnrichClaudeIncidentMessage("
       ],
-      "rationale": "Service-layer client-message enrichers. TkEnrichForbiddenMessage keeps body-size context on upstream 403s. TkEnrichClaudeIncidentMessage rewrites the failover-exhausted client message during a Claude API incident so the caller is pointed at status.claude.com (the real upstream) instead of the generic 'all accounts exhausted' wording that wrongly implicates the TokenKey pool / the user's key. Dropping the incident enricher silently regresses the incident UX back to a misleading message."
+      "rationale": "Service-layer client-message enrichers. TkEnrichForbiddenMessage for upstream 403s. TkEnrichClaudeIncidentMessage adds status.claude.com context during upstream incidents (UX only; account penalties not suppressed)."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -1152,7 +1147,7 @@
         "service.TkEnrichClaudeIncidentMessage(",
         "service.TkStripEncryptedReasoningForFailover("
       ],
-      "rationale": "Locks two TK hooks in the OpenAI gateway handler. (1) TkEnrichClaudeIncidentMessage in handleAnthropicFailoverExhausted — the native /v1/messages (Claude Code / claude-cli) exhausted path; without it a Claude API incident surfaces to the caller as a generic upstream error with no pointer to status.claude.com. (2) TkStripEncryptedReasoningForFailover at the Responses failover boundary — strips a previous account's reasoning encrypted_content before re-dispatching to a freshly-selected account, so the new account's first hop does not draw a 400 invalid_encrypted_content. An upstream merge that rewrites the failover loop would silently drop either hook."
+      "rationale": "TkEnrichClaudeIncidentMessage in handleAnthropicFailoverExhausted surfaces upstream incident context to clients. TkStripEncryptedReasoningForFailover strips encrypted reasoning at Responses failover boundary."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_http.go",
@@ -2458,6 +2453,16 @@
       "rationale": "Platform-pool-exhausted P0 Feishu card (closes the #516 blind spot where 7 simultaneous per-account cooldowns produced no pool-level signal and the 06:49-06:58 outage went unalerted). Dedupe-per-platform is required: every subsequent account block during a cooldown storm re-triggers the pool check."
     },
     {
+      "path": "backend/internal/service/account_incident_notifier_tk_claude_status.go",
+      "must_contain": [
+        "NotifyClaudeAPIIncidentStarted",
+        "NotifyClaudeAPIIncidentResolved",
+        "SetClaudeAPIStatusNotifier",
+        "claudeAPIIncidentAlertDedupeWindow"
+      ],
+      "rationale": "P0 Feishu card when status.claude.com reports Claude API non-operational (replaces the old incident-aware account-penalty suppression). Wired from upstream_status_tk.go via SetClaudeAPIStatusNotifier in ProvideTKAccountIncidentNotifier."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler_tk_cc_only_fallback.go",
       "must_contain": [
         "func tkCCOnlyFallbackGroupValid(fallback *service.Group) bool",
@@ -2793,12 +2798,11 @@
       "must_contain": [
         "func (s *RateLimitService) tkTryEscalatePersistentBodyless403(",
         "func tkIsUnstructuredAnthropicErrorBody(",
-        "IsClaudeAPIIncident()",
         "IncrementAnthropicBodyless403Count(",
         "anthropic_persistent_bodyless_403_disable",
         "s.handleAuthError(ctx, account, msg)"
       ],
-      "rationale": "Persistent bodyless/unstructured Anthropic 403 terminal disable (handle403 gap after #810, 2026-06-16 edge us6). #810 only catches a STRUCTURED-body org-ban phrase; the same org ban also arrives with an EMPTY body (id=1 historically emitted bodyless 403s — see failover_loop.go), which cannot match the phrase and falls into the auto-recovering 3/3 ladder, flapping forever. This file accumulates ONLY empty/unstructured 403s on a SEPARATE counter (IncrementAnthropicBodyless403Count) and, at threshold, permanently disables (handleAuthError → SetError, stops scheduling AND background refresh). tkIsUnstructuredAnthropicErrorBody is the structured-body gate (a model-level 403 carries a structured body → never counts → no false disable, per #810's precision bar). The IsClaudeAPIIncident() guard prevents mass-disabling the pool during a provider-wide outage. The slog marker anthropic_persistent_bodyless_403_disable is the ops observability anchor. Deleting any of these silently reopens the bodyless-ban eternal-flap."
+      "rationale": "Persistent bodyless/unstructured Anthropic 403 terminal disable (handle403 gap after #810, 2026-06-16 edge us6). tkIsUnstructuredAnthropicErrorBody is the structured-body gate. The slog marker anthropic_persistent_bodyless_403_disable is the ops observability anchor."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_oauth_fatal_403_skip.go",

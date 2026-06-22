@@ -1059,11 +1059,12 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
 func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
+	if msg := service.ExtractUpstreamErrorMessage(failoverErr.ResponseBody); msg != "" {
+		errMsg = msg
+	}
 	if failoverErr.StatusCode == http.StatusForbidden {
 		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
 	}
-	// TK: during a Claude API incident, point the caller at the real upstream
-	// status page instead of letting the generic message implicate the pool.
 	errMsg = service.TkEnrichClaudeIncidentMessage(errMsg, failoverErr.StatusCode)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }

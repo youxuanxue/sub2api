@@ -80,26 +80,19 @@ func tkForbiddenAdvice(bodyLen int) string {
 	return "This is an upstream access/policy rejection unrelated to request size; retry the request, and contact administrator if it persists."
 }
 
-// TkEnrichClaudeIncidentMessage rewrites a failover-exhausted client message
-// into an incident-aware notice when status.claude.com reports a non-operational
-// Claude API. The goal is to redirect the caller's attention to the real
-// upstream (Anthropic) instead of the generic "all accounts exhausted" wording,
-// which wrongly implicates the TokenKey account pool or the user's own key.
-//
-// Returns defaultMsg verbatim when there is no active incident (including the
-// staleness fail-safe in IsClaudeAPIIncident), so non-incident behaviour is
-// unchanged. upstreamStatusCode carries the upstream HTTP status into the
-// message so the caller can see what Anthropic actually returned.
+// TkEnrichClaudeIncidentMessage rewrites a client-facing error during a Claude API
+// incident to include status.claude.com context and the upstream HTTP status.
+// Account-level penalties are NOT suppressed during incidents — this is UX only.
+// Returns defaultMsg verbatim when there is no active incident.
 func TkEnrichClaudeIncidentMessage(defaultMsg string, upstreamStatusCode int) string {
 	if !IsClaudeAPIIncident() {
 		return defaultMsg
 	}
 	snap := GetClaudeStatusSnapshot()
 	return fmt.Sprintf(
-		"Anthropic upstream is currently reporting an incident (Claude API status: %s, upstream returned %d). "+
-			"This is an Anthropic-side outage, not a problem with your account or API key. "+
-			"Check live status at %s — requests recover automatically once Anthropic returns to operational.",
-		snap.Status, upstreamStatusCode, claudeStatusPageURL,
+		"%s (Anthropic upstream incident: Claude API status %s, upstream HTTP %d). "+
+			"Check live status at %s — this is an Anthropic-side event; re-OAuth the account if auth errors persist.",
+		defaultMsg, snap.Status, upstreamStatusCode, claudeStatusPageURL,
 	)
 }
 

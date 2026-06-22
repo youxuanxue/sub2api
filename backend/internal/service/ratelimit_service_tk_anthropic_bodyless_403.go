@@ -28,8 +28,6 @@ import (
 //     里警告的「一个坏 model 请求误禁健康账号」。
 //   - **独立计数器**（IncrementAnthropicBodyless403Count，独立 Redis key），不与 429/5xx
 //     混——避免误把限流/过载账号永久禁用。
-//   - **尊重 IsClaudeAPIIncident()**：provider 级事件期间不批量禁用全池（与
-//     handleAnthropicUpstreamError 的 skipCooldown 同款封套）。
 //   - **fail-open**：计数器未注入 / 出错 / 未达阈值 → 返回 false，落回既有阶梯，行为不变。
 
 const (
@@ -78,11 +76,6 @@ func (s *RateLimitService) tkTryEscalatePersistentBodyless403(ctx context.Contex
 	// 只处理空 body / 非结构化 403。结构化 body（含 model-level 拒绝、以及已被 #810 捕获的
 	// org-ban 短语）一律不计入、不升级。
 	if !tkIsUnstructuredAnthropicErrorBody(responseBody) {
-		return false
-	}
-	// Provider 级事件期间（status.claude.com 报 Claude API 非运营）不升级，避免把全池因
-	// 上游短时故障批量永久禁用——与 handleAnthropicUpstreamError 的 skipCooldown 同款。
-	if IsClaudeAPIIncident() {
 		return false
 	}
 

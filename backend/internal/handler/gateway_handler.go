@@ -1585,6 +1585,12 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 	if statusCode == http.StatusForbidden {
 		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
 	}
+	if platform == service.PlatformAnthropic {
+		if msg := service.ExtractUpstreamErrorMessage(responseBody); msg != "" {
+			errMsg = msg
+		}
+		errMsg = service.TkEnrichClaudeIncidentMessage(errMsg, statusCode)
+	}
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
