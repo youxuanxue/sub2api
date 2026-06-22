@@ -174,6 +174,11 @@
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <!-- TK(防闪烁): overscan = 当前 page_size,使账号页(行数天然受 page_size 上界约束)始终渲染
+             整页行,等价于不开窗。fluid 模式走 table-auto——列宽由「当前已渲染的行」内容决定,虚拟化下
+             可见行集随滚动/测量变化会让换行单元格的高度抖动,打破 @tanstack/vue-virtual 的测量自收敛
+             假设,在变高 edge 明细行场景下出现「偶发的页面持续闪烁」。整页渲染后列宽对每帧恒定(与非虚拟化
+             的 /edge-accounts 页同样稳定),根除该抖动;edge 明细行仍按需展开,DOM 量受 page_size 约束。 -->
         <DataTable
           ref="dataTableRef"
           fluid
@@ -188,7 +193,7 @@
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
           :estimate-row-height="76"
-          :overscan="5"
+          :overscan="pagination.page_size"
           :expandable="isEdgeExpandable"
           :expanded-keys="edgeExpandedKeys"
         >
