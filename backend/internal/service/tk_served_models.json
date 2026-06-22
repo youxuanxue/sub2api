@@ -123,6 +123,18 @@
       "display": false,
       "notes": "Qwen account 60. Legacy stable alias mapped by tk_027. Flat-priced in overlay."
     },
+    "newapi/qwen-turbo": {
+      "platform": "newapi",
+      "model_id": "qwen-turbo",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen-turbo",
+      "display": false,
+      "notes": "Qwen account 60. Mapped by tk_042 (Goal 2 fleet servable-expansion). Flat non-thinking list price in overlay (commercial qwen, enable_thinking default false — thinking tier intentionally not modeled, see overlay source note)."
+    },
     "newapi/qwen-plus": {
       "platform": "newapi",
       "model_id": "qwen-plus",

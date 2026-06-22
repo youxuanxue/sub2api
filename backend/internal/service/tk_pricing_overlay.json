@@ -851,6 +851,14 @@
     "cache_read_input_token_cost": 3.582089552238806e-07,
     "source": "Alibaba DashScope qwen-max (legacy stable alias, 当前能力等同 qwen-max snapshot) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥2.4/M out ¥9.6/M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover (empty-pool 429 incident). List price only — Batch (half-price)/context-cache discounts not modeled (bill at list). International deployment is ~5x higher (¥11.743/¥46.971) and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
+  "qwen-turbo": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298507e-08,
+    "output_cost_per_token": 8.955223880597015e-08,
+    "cache_read_input_token_cost": 4.477611940298507e-08,
+    "source": "Alibaba DashScope qwen-turbo (commercial qwen3 alias) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯 in ¥0.3/M, out 非思考 ¥0.6/M); docs/accounts/aliyun_pricing_20260612.md line 394 captured 2026-06-12. Added 2026-06-22 (Goal 2 fleet servable-expansion): client-facing model served via account 60 (dashscope.aliyuncs.com), mapped by tk_042. Output priced at NON-thinking list; enable_thinking defaults FALSE for commercial qwen (same treatment as qwen-plus), thinking-mode output (¥3/M) intentionally NOT modeled (bill at non-thinking list). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
   "qwen-plus": {
     "litellm_provider": "dashscope",
     "mode": "chat",
