@@ -32,15 +32,23 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
 import re
-import subprocess
 import sys
+from pathlib import Path
 from typing import NoReturn
 
-PROD_REGION = "us-east-1"
-PROD_STACK = "tokenkey-prod-stage0"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
+
+# Shared prod SSM glue (resolve_prod_instance + run_shell_b64). importlib-loaded by path:
+# the module dir is not on sys.path when this script runs directly (mirrors how
+# audit-model-mapping.py loads edge_ssm_execution.py).
+_ssm_spec = importlib.util.spec_from_file_location(
+    "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
+_SSM = importlib.util.module_from_spec(_ssm_spec)
+_ssm_spec.loader.exec_module(_SSM)
 
 # model ids / mapping keys are DashScope/DeepSeek canonical ids — lowercase, dots, dashes,
 # underscores, slashes. Reject anything else so a key this tool WRITES can never carry a
@@ -132,65 +140,13 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
     ]
 
 
-# --- AWS / SSM I/O ------------------------------------------------------------
-
-def resolve_prod_instance() -> str:
-    try:
-        out = subprocess.check_output(
-            ["aws", "cloudformation", "describe-stacks", "--region", PROD_REGION,
-             "--stack-name", PROD_STACK,
-             "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-             "--output", "text"], text=True).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"describe-stacks failed for {PROD_STACK}/{PROD_REGION}: {e}")
-    if not re.match(r"^i-[0-9a-f]{8,}$", out):
-        fail(f"no valid InstanceId for {PROD_STACK}/{PROD_REGION} (got {out!r})")
-    return out
-
-
-def ssm_run_shell(instance_id: str, shell_b64: str, comment: str) -> str:
-    """Run a base64-encoded shell script on prod via SSM; return stdout.
-
-    The decoded script is written to a FILE and bash'd from the file (NOT piped to bash via
-    stdin) so an inner `docker exec -i psql` cannot slurp the rest of the script from the
-    shared stdin. `set -uo pipefail` (no -e) so a non-zero inner script still lets us
-    capture rc, clean up, and propagate the exit code.
-    """
-    command = (
-        "set -uo pipefail\n"
-        f"echo {shell_b64} | base64 -d > /tmp/.mm_apply_$$.sh\n"
-        "bash /tmp/.mm_apply_$$.sh; rc=$?\n"
-        "rm -f /tmp/.mm_apply_$$.sh\n"
-        "exit $rc"
-    )
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
-    try:
-        cid = subprocess.check_output(
-            ["aws", "ssm", "send-command", "--region", PROD_REGION,
-             "--instance-ids", instance_id, "--document-name", "AWS-RunShellScript",
-             "--comment", comment, "--parameters", params,
-             "--query", "Command.CommandId", "--output", "text"], text=True).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"ssm send-command failed ({comment}): {e}")
-    subprocess.run(["aws", "ssm", "wait", "command-executed", "--region", PROD_REGION,
-                    "--command-id", cid, "--instance-id", instance_id], check=False)
-    try:
-        inv = json.loads(subprocess.check_output(
-            ["aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
-             "--command-id", cid, "--instance-id", instance_id, "--output", "json"], text=True))
-    except (subprocess.CalledProcessError, ValueError) as e:
-        fail(f"ssm get-command-invocation failed ({comment}): {e}")
-    if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
-        err = (inv.get("StandardErrorContent") or "").strip()[:2000]
-        fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} "
-             f"({comment})\n  stderr: {err}")
-    return (inv.get("StandardOutputContent") or "").strip()
+# --- AWS / SSM I/O: resolve_prod_instance + run_shell_b64 live in ops/stage0/ssm_execution.py
 
 
 # --- subcommands --------------------------------------------------------------
 
 def cmd_check(args) -> int:
-    inst = resolve_prod_instance()
+    inst = _SSM.resolve_prod_instance()
     shell = (
         "set -uo pipefail\n"
         f"PSQL='{PSQL}'\n"
@@ -202,7 +158,7 @@ def cmd_check(args) -> int:
         f"(SELECT jsonb_object_keys(credentials->'model_mapping') k FROM accounts "
         f"WHERE id={args.account_id} AND deleted_at IS NULL) s;\" </dev/null\n"
     )
-    print(ssm_run_shell(inst, base64.b64encode(shell.encode()).decode(),
+    print(_SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
                         f"model_mapping check acct {args.account_id}"))
     return 0
 
@@ -224,7 +180,7 @@ def cmd_sync_live(args) -> int:
     if args.dry_run:
         print("DRY-RUN: would jsonb|| the above onto credentials.model_mapping + "
               "enqueue scheduler_outbox account_changed. No write.")
-        inst = resolve_prod_instance()
+        inst = _SSM.resolve_prod_instance()
         shell = (
             "set -uo pipefail\n"
             f"PSQL='{PSQL}'\n"
@@ -236,14 +192,14 @@ def cmd_sync_live(args) -> int:
             f"$PSQL -c \"SELECT coalesce((credentials->'model_mapping') ?& {keys_arr}, false) "
             f"FROM accounts WHERE id={args.account_id} AND deleted_at IS NULL;\" </dev/null\n"
         )
-        print(ssm_run_shell(inst, base64.b64encode(shell.encode()).decode(),
+        print(_SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
                             f"model_mapping dry-run acct {args.account_id}"))
         return 0
 
     merge_sql = build_merge_sql(args.account_id, args.name, args.platform,
                                 args.channel_type, additions_b64)
     sql_b64 = base64.b64encode(merge_sql.encode()).decode()
-    inst = resolve_prod_instance()
+    inst = _SSM.resolve_prod_instance()
     shell = (
         "set -uo pipefail\n"
         f"PSQL='{PSQL}'\n"
@@ -266,7 +222,7 @@ def cmd_sync_live(args) -> int:
         f"$PSQL -c \"SELECT count(*) FROM scheduler_outbox WHERE account_id={args.account_id} "
         f"AND event_type='account_changed' AND created_at > now() - interval '2 min';\" </dev/null\n"
     )
-    out = ssm_run_shell(inst, base64.b64encode(shell.encode()).decode(),
+    out = _SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
                         f"model_mapping sync-live acct {args.account_id}")
     print(out)
     if "APPLY_OK" not in out:

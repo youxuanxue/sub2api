@@ -31,8 +31,8 @@ from __future__ import annotations
 import argparse
 import base64
 import gzip
+import importlib.util
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -43,11 +43,16 @@ OVERLAY_PATH = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_over
 OVERLAY_GATE = REPO_ROOT / "scripts" / "checks" / "pricing-overlay.py"
 SETTING_KEY = "tk_pricing_overlay_runtime"
 
-PROD_REGION = "us-east-1"
-PROD_STACK = "tokenkey-prod-stage0"
-
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
+
+# Shared prod SSM glue (resolve_prod_instance + run_shell_b64). importlib-loaded by path:
+# the module dir is not on sys.path when this script runs directly (mirrors how
+# audit-model-mapping.py loads edge_ssm_execution.py).
+_ssm_spec = importlib.util.spec_from_file_location(
+    "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
+_SSM = importlib.util.module_from_spec(_ssm_spec)
+_ssm_spec.loader.exec_module(_SSM)
 
 
 def fail(msg: str) -> NoReturn:
@@ -85,66 +90,13 @@ def drift_is_clean(drift: dict) -> bool:
     return not (drift["pending"] or drift["shadow"] or drift["orphan"])
 
 
-# --- AWS / SSM I/O ------------------------------------------------------------
-
-def resolve_prod_instance() -> str:
-    try:
-        out = subprocess.check_output(
-            ["aws", "cloudformation", "describe-stacks", "--region", PROD_REGION,
-             "--stack-name", PROD_STACK,
-             "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-             "--output", "text"], text=True).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"describe-stacks failed for {PROD_STACK}/{PROD_REGION}: {e}")
-    if not re.match(r"^i-[0-9a-f]{8,}$", out):
-        fail(f"no valid InstanceId for {PROD_STACK}/{PROD_REGION} (got {out!r})")
-    return out
-
-
-def ssm_run_shell(instance_id: str, shell_b64: str, comment: str) -> str:
-    """Run a base64-encoded shell script on prod via SSM; return stdout.
-
-    The decoded script is written to a FILE and bash'd from that file rather than piped
-    to `bash` via stdin. If the script contains a `docker exec -i ... psql` call (it does),
-    that child shares the shell's stdin; when stdin is the decode pipe it SLURPS the rest
-    of the script, silently truncating everything after the first psql call while still
-    reporting Success (rc=0). File-backed exec gives the child an empty stdin instead.
-    `set -uo pipefail` (no -e) so a non-zero inner script still lets us capture rc, clean
-    up, and propagate the exit code."""
-    command = (
-        "set -uo pipefail\n"
-        f"echo {shell_b64} | base64 -d > /tmp/.ovr_runtime_$$.sh\n"
-        "bash /tmp/.ovr_runtime_$$.sh; rc=$?\n"
-        "rm -f /tmp/.ovr_runtime_$$.sh\n"
-        "exit $rc"
-    )
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
-    try:
-        cid = subprocess.check_output(
-            ["aws", "ssm", "send-command", "--region", PROD_REGION,
-             "--instance-ids", instance_id, "--document-name", "AWS-RunShellScript",
-             "--comment", comment, "--parameters", params,
-             "--query", "Command.CommandId", "--output", "text"], text=True).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"ssm send-command failed ({comment}): {e}")
-    subprocess.run(["aws", "ssm", "wait", "command-executed", "--region", PROD_REGION,
-                    "--command-id", cid, "--instance-id", instance_id], check=False)
-    try:
-        inv = json.loads(subprocess.check_output(
-            ["aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
-             "--command-id", cid, "--instance-id", instance_id, "--output", "json"], text=True))
-    except (subprocess.CalledProcessError, ValueError) as e:
-        fail(f"ssm get-command-invocation failed ({comment}): {e}")
-    if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
-        err = (inv.get("StandardErrorContent") or "").strip()[:1200]
-        fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} ({comment})\n  stderr: {err}")
-    return (inv.get("StandardOutputContent") or "").strip()
+# --- AWS / SSM I/O: resolve_prod_instance + run_shell_b64 live in ops/stage0/ssm_execution.py
 
 
 def read_runtime_blob(instance_id: str) -> dict:
     shell = f"{PSQL} -c \"SELECT value FROM settings WHERE key='{SETTING_KEY}';\""
     b64 = base64.b64encode(shell.encode()).decode()
-    out = ssm_run_shell(instance_id, b64, "overlay check: read runtime settings").strip()
+    out = _SSM.run_shell_b64(instance_id, b64, "overlay check: read runtime settings").strip()
     if not out:
         return {}
     try:
@@ -164,7 +116,7 @@ def load_repo_overlay() -> dict:
 
 def cmd_check(_args) -> int:
     repo = load_repo_overlay()
-    inst = resolve_prod_instance()
+    inst = _SSM.resolve_prod_instance()
     runtime = read_runtime_blob(inst)
     drift = compute_overlay_drift(repo, runtime)
     print(f"prod runtime overlay entries: {len(overlay_entries(runtime))} | "
@@ -197,7 +149,7 @@ def cmd_sync_runtime(args) -> int:
               f"({len(overlay_entries(doc))} entries) + PUBLISH settings_updated.")
         return 0
 
-    inst = resolve_prod_instance()
+    inst = _SSM.resolve_prod_instance()
     # Idempotency: skip the UPSERT + PUBLISH if the runtime already matches git, so a manual
     # retry or a double-fire cron doesn't churn the settings row / re-publish needlessly.
     if drift_is_clean(compute_overlay_drift(doc, read_runtime_blob(inst))):
@@ -240,7 +192,7 @@ def cmd_sync_runtime(args) -> int:
     if len(b64) > 90_000:  # headroom under the 97KB SSM SendCommand parameter ceiling
         fail(f"encoded sync payload is {len(b64)}B (>90KB) even gzipped; overlay too large "
              f"for SSM SendCommand — stage via S3 instead")
-    out = ssm_run_shell(inst, b64, "overlay sync-runtime: upsert + publish")
+    out = _SSM.run_shell_b64(inst, b64, "overlay sync-runtime: upsert + publish")
     print(out)
     if "UPSERT_OK" not in out:
         fail("UPSERT did not report success — inspect the SSM output above (psql error? guard?)")
