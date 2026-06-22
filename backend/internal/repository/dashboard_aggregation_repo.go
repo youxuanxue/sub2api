@@ -115,6 +115,10 @@ func (r *dashboardAggregationRepository) aggregateRangeInTx(ctx context.Context,
 	if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
+	// TK: per-(requested-model, day) rollup feeding dashboard model-stats widget.
+	if err := r.upsertModelDailyAggregates(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -180,6 +184,9 @@ func (r *dashboardAggregationRepository) recomputeRangeInTx(ctx context.Context,
 	if err := r.deleteGroupDailyRange(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
+	if err := r.deleteModelDailyRange(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
 
 	if err := r.insertHourlyActiveUsers(ctx, hourStart, hourEnd); err != nil {
 		return err
@@ -199,6 +206,9 @@ func (r *dashboardAggregationRepository) recomputeRangeInTx(ctx context.Context,
 	}
 	// TK: rebuild the per-(group, day) cost rollup for the window.
 	if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {
+		return err
+	}
+	if err := r.upsertModelDailyAggregates(ctx, dayStart, dayEnd); err != nil {
 		return err
 	}
 	return nil

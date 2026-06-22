@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <div class="space-y-6">
       <!-- Sticky header + summary: pinned just below the global AppHeader (h-16 =
            top-16) so the operator can hit 刷新 and read the fleet totals at any
@@ -350,13 +349,11 @@
         </section>
       </div>
     </div>
-  </AppLayout>
-</template>
+  </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'

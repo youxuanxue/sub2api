@@ -2319,6 +2319,13 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 
 // GetUserUsageTrend returns usage trend data grouped by user and date
 func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
+	if granularity == "day" {
+		return r.getUserUsageTrendRollup(ctx, startTime, endTime, granularity, limit)
+	}
+	return r.getUserUsageTrendRaw(ctx, startTime, endTime, granularity, limit)
+}
+
+func (r *usageLogRepository) getUserUsageTrendRaw(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
 	dateFormat := safeDateFormat(granularity)
 
 	query := fmt.Sprintf(`
@@ -3069,6 +3076,12 @@ func (r *usageLogRepository) GetModelStatsWithFiltersBySource(ctx context.Contex
 }
 
 func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string) (results []ModelStat, err error) {
+	if shouldUseModelDailyRollup(userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source) {
+		aggregated, aggregatedErr := r.getModelStatsFromRollup(ctx, startTime, endTime)
+		if aggregatedErr == nil && len(aggregated) > 0 {
+			return aggregated, nil
+		}
+	}
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {

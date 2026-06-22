@@ -565,6 +565,65 @@ func TestUsageLogRepositoryGetUserSpendingRanking(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageLogRepositoryGetUserUsageTrendRollupSelectsTopUsersByTokens(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
+
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+
+	mock.ExpectQuery("to_char\\(MIN\\(bucket_date\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow("2025-01-01"))
+
+	// Total ranking rows are deliberately ordered to expose the bug: user 3 has
+	// the highest spend but far fewer tokens. Legacy GetUserUsageTrend chooses
+	// top users by token volume, so limit=2 must select users 1 and 2.
+	mock.ExpectQuery("FROM usage_dashboard_user_platform_daily").
+		WithArgs(start, end).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "actual_cost", "total_requests", "tokens"}).
+			AddRow(int64(3), 99.0, int64(1), int64(100)).
+			AddRow(int64(1), 1.0, int64(10), int64(1000)).
+			AddRow(int64(2), 2.0, int64(9), int64(900)))
+
+	mock.ExpectQuery("FROM usage_dashboard_user_platform_daily").
+		WillReturnRows(sqlmock.NewRows([]string{"date", "user_id", "total_cost", "actual_cost", "requests", "tokens"}).
+			AddRow("2025-01-01", int64(1), 1.0, 1.0, int64(10), int64(1000)).
+			AddRow("2025-01-01", int64(2), 2.0, 2.0, int64(9), int64(900)))
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(email").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "username"}).
+			AddRow(int64(1), "alpha@example.com", "alpha").
+			AddRow(int64(2), "beta@example.com", "beta"))
+
+	got, err := repo.GetUserUsageTrend(context.Background(), start, end, "day", 2)
+	require.NoError(t, err)
+	require.Equal(t, []UserUsageTrendPoint{
+		{
+			Date:       "2025-01-01",
+			UserID:     1,
+			Email:      "alpha@example.com",
+			Username:   "alpha",
+			Requests:   10,
+			Tokens:     1000,
+			Cost:       1,
+			ActualCost: 1,
+		},
+		{
+			Date:       "2025-01-01",
+			UserID:     2,
+			Email:      "beta@example.com",
+			Username:   "beta",
+			Requests:   9,
+			Tokens:     900,
+			Cost:       2,
+			ActualCost: 2,
+		},
+	}, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestBuildRequestTypeFilterConditionLegacyFallback(t *testing.T) {
 	tests := []struct {
 		name      string

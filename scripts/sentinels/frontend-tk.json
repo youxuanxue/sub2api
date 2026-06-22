@@ -564,12 +564,18 @@
       "rationale": "TK-only edge admin-session handoff landing. Consumes the access JWT + refresh_token from the URL FRAGMENT (tk_session / refresh_token), persists refresh + expires (persistOAuthTokenContext) so the session self-renews, establishes the session on THIS (edge) origin via authStore.setToken, then redirects to the edge's own /admin/accounts. THREE load-bearing security properties: (1) history.replaceState scrubs the token AND refresh_token from the address bar / history immediately on load so a leaked URL can't be replayed from the bar; (2) safeNext rejects protocol-relative / external redirect targets (open-redirect guard) — only same-origin absolute paths are followed; (3) the tokens are read from the fragment (never a query param) so they are never sent to the server / logged. Silent deletion or weakening of any of these is a token-leak / open-redirect regression. Pairs with edge_tk_admin_session_handler.go (mint) + buildEdgeHandoffURL (prod)."
     },
     {
-      "path": "frontend/src/components/account/AccountUsageCell.vue",
+      "path": "frontend/src/components/account/accountUsageCellProps.ts",
       "must_contain": [
-        "usageOverride?: AccountUsageInfo | null",
+        "usageOverride?: AccountUsageInfo | null"
+      ],
+      "rationale": "TK injection point (prop contract): AccountUsageCell normally self-fetches /admin/accounts/:id/usage, which is wrong for the cross-edge Edge Accounts overview (those accounts live on a remote edge, not queryable via THIS deployment). The optional usageOverride prop lets the overview inject the edge's passive UsageInfo. Split from AccountUsageCell.vue (B6 perf) — this file is the single props/types source shared by the dispatcher + platform sub-cells."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/useAccountUsageFetch.ts",
+      "must_contain": [
         "if (props.usageOverride !== undefined) return false"
       ],
-      "rationale": "TK injection point: AccountUsageCell normally self-fetches /admin/accounts/:id/usage, which is wrong for the cross-edge Edge Accounts overview (those accounts live on a remote edge, not queryable via THIS deployment). The optional usageOverride prop lets the overview inject the edge's passive UsageInfo and skip the self-fetch (the shouldFetchUsage short-circuit). An upstream merge that rewrites this large cell and drops the prop or the short-circuit would silently re-enable the self-fetch — every edge account would then 404 its usage and the 5h/7d bars would vanish (or worse, hammer prod's /usage for non-existent ids). These two anchors pin the contract; the rest of the cell stays upstream-shaped."
+      "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip self-fetch and render injected usage verbatim. Split from AccountUsageCell.vue (B6 perf) — dropping this guard would re-enable per-row /usage fetches on Edge Accounts overview and hammer prod for non-existent ids."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",
