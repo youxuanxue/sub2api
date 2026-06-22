@@ -520,6 +520,16 @@ func sortUserSpendingRankingItems(items []UserSpendingRankingItem) {
 	})
 }
 
+func sortUserTrendTopUsers(items []UserSpendingRankingItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if a.Tokens != b.Tokens {
+			return a.Tokens > b.Tokens
+		}
+		return a.UserID < b.UserID
+	})
+}
+
 type userTrendDayAgg struct {
 	requests   int64
 	tokens     int64
@@ -635,7 +645,7 @@ func (r *usageLogRepository) getUserUsageTrendRollup(
 			Tokens:     a.tokens,
 		})
 	}
-	sortUserSpendingRankingItems(rankingItems)
+	sortUserTrendTopUsers(rankingItems)
 	if limit > 0 && len(rankingItems) > limit {
 		rankingItems = rankingItems[:limit]
 	}
