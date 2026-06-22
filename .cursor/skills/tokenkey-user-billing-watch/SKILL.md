@@ -14,7 +14,7 @@ description: >-
 
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审：
 
-- **机械化（脚本承载，prompt 不重写）**：取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫——全在 `ops/observability/probe-user-billing-watch.sh`。环比算术（箭头）也是机械的，按上一窗读数相减即可。
+- **机械化（脚本承载，prompt 不重写）**：取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫——全在 `ops/observability/probe-user-billing-watch.sh`。倍率与环比算术也是机械的：倍率按 `actual_cost / total_cost`；环比按上一窗读数相减。
 - **真判断（留给 prompt / 本 skill）**：一条错误是客户端侧噪声还是系统异常（§4 判别法）、是否触发推送（§3）。仅此二者。
 
 ## §1 启动（每次起盘跑这一条）
@@ -38,7 +38,7 @@ bash ops/observability/run-probe.sh \
 表格优先、中文、精简。每个 user 一行，含：
 
 - 成功请求数（`reqs` / `billed_reqs` / `zero_cost_reqs`）。
-- 计费 `total_cost` vs 实际 `actual_cost`，标注约几倍倍率（`total/actual`）。
+- 计费 `total_cost` vs 实际 `actual_cost`，标注倍率 `actual_cost / total_cost`（`total_cost=0` 时写 `N/A`，不要反向用 `total/actual`）。
 - 真客户端失败数 + 主错误类型（尤其空池 429 / 502 / 上游 4xx-5xx）。
 - 主力模型 Top3（按请求数；成本结构异于请求数时可补一句按成本的首位）。
 - **与对话里上一窗的环比**：请求 / 成本 / 错误各给 ↑↓= 箭头。
