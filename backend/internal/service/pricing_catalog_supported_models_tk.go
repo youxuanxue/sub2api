@@ -160,10 +160,10 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-4.20-0309-reasoning":     {},
 	"grok-4.3":                     {},
 	"grok-build-0.1":               {},
-	"grok-code-fast-1":           {},
-	"grok-imagine-image":         {},
-	"grok-imagine-image-quality": {},
-	"grok-imagine-video":         {},
+	"grok-code-fast-1":             {},
+	"grok-imagine-image":           {},
+	"grok-imagine-image-quality":   {},
+	"grok-imagine-video":           {},
 	// servable-allowlist:end grok
 }
 

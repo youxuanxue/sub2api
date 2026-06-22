@@ -264,7 +264,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
 		{"xai", "grok-4", false},             // third-party-priced / unverified legacy slug
 		{"xai", "grok-latest", false},        // priced alias, not public-listed
-		{"", "anything", true},                  // unknown vendor: pass-through
+		{"", "anything", true},               // unknown vendor: pass-through
 	}
 	for _, c := range cases {
 		assert.Equalf(t, c.want, isPublicCatalogModelSupported(c.vendor, c.model),
