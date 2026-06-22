@@ -970,6 +970,21 @@ else
     echo "  ok: embedded frontend source manifest is fresh; release workflow rebuilds full dist assets"
 fi
 
+# ---- sub2api: admin persistent-shell layout invariant -----------------------
+echo ""
+echo "=== sub2api: admin persistent-shell layout ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to run admin-shell-layout check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/admin-shell-layout.py --selftest >/dev/null; then
+    echo "  FAIL: admin-shell-layout selftest failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/admin-shell-layout.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: admin views rely on AdminShellView persistent shell (no per-view <AppLayout>)"
+fi
+
 # ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
 echo ""
 echo "=== sub2api: post-deploy smoke script syntax ==="
