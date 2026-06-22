@@ -50,15 +50,15 @@
 #   ANTHROPIC_KEY_ACCOUNT_ID default 54  (its credentials.api_key relays to the edge)
 #   PROD_BASE                default https://api.tokenkey.dev
 #   OPENAI_KEY_NAME          default TK_SMOKE_PROD_OPENAI_OAUTH_KEY (api_keys.user_id=1)
-#   GEMINI_GROUP_NAME        default google  (probe key pulled from an api_key bound to this group)
+#   GEMINI_GROUP_NAME        default google-vertex  (verified prod newapi Vertex group; CASE-SENSITIVE)
 #   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
 #   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
-#   DASHSCOPE_GROUP_NAME     default qwen  (TK api_key bound to this newapi/qwen group; never printed)
+#   DASHSCOPE_GROUP_NAME     default Qwen  (verified prod group, capital Q; CASE-SENSITIVE; never printed)
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
 # Output: one TSV line per model on stdout (keys never printed):
 #   <platform>\t<model>\t<http_code>\t<verdict>
-# verdict in: servable | unsupported | inconclusive | not_allowlisted | auth_error
+# verdict in: servable | unsupported | inconclusive | not_allowlisted | auth_error | config_error
 #
 # Classification (a model is "servable" iff a real 200 came back):
 #   200                                   -> servable
@@ -66,7 +66,10 @@
 #   400 "not supported when using Codex"  -> unsupported (this account does not serve it)
 #   429 + "No available accounts"          -> not_allowlisted (TK empty-pool: model not allowlisted at scheduling layer)
 #   429(other) / 502 / 503                  -> inconclusive (capacity / wrong protocol / rate-limit)
-#   401/403                               -> auth_error (probe setup wrong, not a model signal)
+#   401/403                               -> auth_error (upstream rejected the key — not a model signal)
+#   (no key/group/account resolvable)     -> config_error (probe SETUP bug: group name/case, missing
+#                                            key, or wrong account id; printed with a stderr diagnostic
+#                                            naming what failed; NEVER a model or upstream-auth signal)
 #
 # Determinism / safety: keys are pulled from the local DB into shell vars and
 # never echoed; only model + status are emitted. No unquoted parens in echo
@@ -78,7 +81,7 @@ AEDGE="${ANTHROPIC_EDGE_BASE:-https://api-us7.tokenkey.dev}"
 AACCT="${ANTHROPIC_KEY_ACCOUNT_ID:-54}"
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
 OKEY_NAME="${OPENAI_KEY_NAME:-TK_SMOKE_PROD_OPENAI_OAUTH_KEY}"
-GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
+GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google-vertex}"
 # Gemini/Vertex lives on an EDGE node whose Caddy restricts /v1/* to the prod
 # gateway CIDR (a host-local request to the public api-<edge> domain 403s with
 # "edge relay path is restricted"). The probe therefore hits the app container
@@ -86,12 +89,21 @@ GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
 # carries busybox wget and resolves the app service name on the compose network.
 GEMINI_APP_CONTAINER="${GEMINI_APP_CONTAINER:-tokenkey-caddy}"
 GEMINI_APP_URL="${GEMINI_APP_URL:-http://tokenkey:8080}"
-DASHSCOPE_GROUP_NAME="${DASHSCOPE_GROUP_NAME:-qwen}"
+DASHSCOPE_GROUP_NAME="${DASHSCOPE_GROUP_NAME:-Qwen}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
 
 emit() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; }
+
+# cfgerr: a probe-SETUP failure (key/group/account not resolvable) — emitted as a
+# distinct config_error verdict (NOT auth_error) plus a stderr diagnostic naming what
+# failed to resolve, so a group-name typo/case-mismatch self-diagnoses instead of hiding
+# behind a generic auth_error (a 'qwen' vs 'Qwen' default cost a livefire this session).
+cfgerr() { # $1=platform $2=diagnostic
+	printf '%s\t%s\t%s\t%s\n' "$1" "*" "000" "config_error"
+	printf 'probe-setup [%s]: %s\n' "$1" "$2" >&2
+}
 
 verdict() { # $1=code $2=bodyfile -> echoes verdict
 	local code="$1" f="$2"
@@ -220,7 +232,7 @@ main() {
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
 		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
-			emit anthropic "*" 000 "auth_error"
+			cfgerr anthropic "no api_key on account id=$AACCT (ANTHROPIC_KEY_ACCOUNT_ID)"
 		else
 			probe_anthropic "$akey"
 		fi
@@ -228,7 +240,7 @@ main() {
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
 		okey="$($PSQL -c "SELECT key FROM api_keys WHERE user_id=1 AND name='$OKEY_NAME' AND deleted_at IS NULL LIMIT 1" | tr -d '[:space:]')"
 		if [ -z "$okey" ]; then
-			emit openai "*" 000 "auth_error"
+			cfgerr openai "no api_key user_id=1 name='$OKEY_NAME' (OPENAI_KEY_NAME)"
 		else
 			[ -n "${OPENAI_CHAT_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/chat/completions "$OPENAI_CHAT_MODELS" body_chat
 			[ -n "${OPENAI_RESPONSES_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/responses "$OPENAI_RESPONSES_MODELS" body_resp
@@ -247,7 +259,7 @@ main() {
 		# paste .../api/v3 into base_url; the data plane wants the host root.
 		arkbase="${arkbase%/api/v3}"
 		if [ -z "$arkkey" ] || [ -z "$arkbase" ]; then
-			emit volcengine "*" 000 "auth_error"
+			cfgerr volcengine "no api_key/base_url on ark account id=$arkacct (ARK_ACCOUNT_ID)"
 		else
 			[ -n "${ARK_CHAT_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/chat/completions "$ARK_CHAT_MODELS" body_chat
 			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_img
@@ -261,7 +273,7 @@ main() {
 	if [ -n "${DASHSCOPE_CHAT_MODELS:-}" ]; then
 		dkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$DASHSCOPE_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
 		if [ -z "$dkey" ]; then
-			emit newapi "*" 000 "auth_error"
+			cfgerr newapi "no api_key bound to group '$DASHSCOPE_GROUP_NAME' (DASHSCOPE_GROUP_NAME) — check name/case + that a key is bound"
 		else
 			probe_dashscope "$dkey"
 		fi
@@ -271,7 +283,7 @@ main() {
 	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then
 		gkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GEMINI_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
 		if [ -z "$gkey" ]; then
-			emit gemini "*" 000 "auth_error"
+			cfgerr gemini "no api_key bound to group '$GEMINI_GROUP_NAME' (GEMINI_GROUP_NAME) — check name/case + that a key is bound"
 		else
 			[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
 			[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img

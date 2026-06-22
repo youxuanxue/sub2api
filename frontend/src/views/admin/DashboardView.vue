@@ -416,7 +416,6 @@ const rankingTotalActualCost = ref(0)
 const rankingTotalRequests = ref(0)
 const rankingTotalTokens = ref(0)
 let chartLoadSeq = 0
-let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
 
@@ -697,6 +696,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     loading.value = true
   }
   chartsLoading.value = true
+  userTrendLoading.value = true
   try {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
@@ -707,7 +707,12 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
       include_trend: true,
       include_model_stats: true,
       include_group_stats: false,
-      include_users_trend: false
+      // Fold the users-trend chart into this single snapshot request instead of a
+      // second parallel /users-trend call. The snapshot handler computes its
+      // sections concurrently, so this saves one round-trip without serializing
+      // the heavy users-trend aggregation behind stats/trend/models.
+      include_users_trend: true,
+      users_trend_limit: 12
     })
     if (currentSeq !== chartLoadSeq) return
     if (includeStats && response.stats) {
@@ -715,37 +720,16 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     }
     trendData.value = response.trend || []
     modelStats.value = response.models || []
+    userTrend.value = response.users_trend || []
   } catch (error) {
     if (currentSeq !== chartLoadSeq) return
+    userTrend.value = []
     appStore.showError(t('admin.dashboard.failedToLoad'))
     console.error('Error loading dashboard snapshot:', error)
   } finally {
     if (currentSeq === chartLoadSeq) {
       loading.value = false
       chartsLoading.value = false
-    }
-  }
-}
-
-const loadUsersTrend = async () => {
-  const currentSeq = ++usersTrendLoadSeq
-  userTrendLoading.value = true
-  try {
-    const response = await adminAPI.dashboard.getUserUsageTrend({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
-      granularity: granularity.value,
-      limit: 12
-    })
-    if (currentSeq !== usersTrendLoadSeq) return
-    userTrend.value = response.trend || []
-  } catch (error) {
-    if (currentSeq !== usersTrendLoadSeq) return
-    console.error('Error loading users trend:', error)
-    userTrend.value = []
-  } finally {
-    if (currentSeq === usersTrendLoadSeq) {
       userTrendLoading.value = false
     }
   }
@@ -783,9 +767,9 @@ const loadUserSpendingRanking = async () => {
 }
 
 const loadDashboardStats = async () => {
+  // users-trend is now folded into loadDashboardSnapshot (one snapshot request).
   await Promise.all([
     loadDashboardSnapshot(true),
-    loadUsersTrend(),
     loadUserSpendingRanking()
   ])
 }
@@ -793,7 +777,6 @@ const loadDashboardStats = async () => {
 const loadChartData = async () => {
   await Promise.all([
     loadDashboardSnapshot(false),
-    loadUsersTrend(),
     loadUserSpendingRanking()
   ])
 }

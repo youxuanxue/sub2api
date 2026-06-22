@@ -329,14 +329,17 @@ function formatDuration(seconds: number): string {
 }
 
 
+// Initial load + the shared auto-refresh cadence both arrive via the parent's
+// refreshToken bump (OpsDashboard bumps it once on mount and on every refresh),
+// so this watch only needs to react to realtime being toggled ON later. Dropping
+// the previous { immediate: true } removes the duplicate fetch on first paint.
 watch(
   () => realtimeEnabled.value,
   async (enabled) => {
     if (enabled) {
       await loadData()
     }
-  },
-  { immediate: true }
+  }
 )
 </script>
 

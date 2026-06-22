@@ -174,6 +174,11 @@
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <!-- TK(防闪烁): overscan = 当前 page_size,使账号页(行数天然受 page_size 上界约束)始终渲染
+             整页行,等价于不开窗。fluid 模式走 table-auto——列宽由「当前已渲染的行」内容决定,虚拟化下
+             可见行集随滚动/测量变化会让换行单元格的高度抖动,打破 @tanstack/vue-virtual 的测量自收敛
+             假设,在变高 edge 明细行场景下出现「偶发的页面持续闪烁」。整页渲染后列宽对每帧恒定(与非虚拟化
+             的 /edge-accounts 页同样稳定),根除该抖动;edge 明细行仍按需展开,DOM 量受 page_size 约束。 -->
         <DataTable
           ref="dataTableRef"
           fluid
@@ -188,7 +193,7 @@
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
           :estimate-row-height="76"
-          :overscan="5"
+          :overscan="pagination.page_size"
           :expandable="isEdgeExpandable"
           :expanded-keys="edgeExpandedKeys"
         >
@@ -309,7 +314,7 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="row.groups" :max-display="4" />
+            <AccountGroupsCell :groups="groupsForRow(row)" :max-display="4" />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -328,16 +333,16 @@
           </template>
           <template #cell-proxy="{ row }">
             <div class="flex flex-col gap-1">
-              <div v-if="row.proxy" class="flex items-center gap-2">
-                <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
-                <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
-                  ({{ row.proxy.country_code }})
+              <div v-if="proxyForRow(row)" class="flex items-center gap-2">
+                <span class="text-sm text-gray-700 dark:text-gray-300">{{ proxyForRow(row)?.name }}</span>
+                <span v-if="proxyForRow(row)?.country_code" class="text-xs text-gray-500 dark:text-gray-400">
+                  ({{ proxyForRow(row)?.country_code }})
                 </span>
               </div>
               <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
-              <div v-if="row.proxy && row.proxy.expires_at" class="flex items-center gap-2 text-xs">
-                <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(row.proxy.expires_at) }}</span>
-                <span :class="proxyExpiryBadge(row.proxy)">{{ proxyExpiryText(row.proxy) }}</span>
+              <div v-if="proxyForRow(row)?.expires_at" class="flex items-center gap-2 text-xs">
+                <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(proxyForRow(row)?.expires_at || '') }}</span>
+                <span :class="proxyExpiryBadge(proxyForRow(row))">{{ proxyExpiryText(proxyForRow(row)) }}</span>
               </div>
               <div v-if="row.proxy_fallback_origin_id" class="flex items-center gap-1">
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
@@ -496,14 +501,67 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
+// Active groups — feeds the filter dropdown + create/edit/bulk modals (unchanged).
 const groups = ref<AdminGroup[]>([])
+// Active + DISABLED groups — used ONLY to resolve chip names below. An account can
+// stay bound to a now-disabled group; the old embedded row.groups showed that chip,
+// so the resolver must see inactive groups too (groups.getAll() is active-only).
+const groupsForChips = ref<AdminGroup[]>([])
+
+// Group-chip resolution for the (lite) accounts list. The lite list payload omits
+// the fully-embedded group objects — which previously duplicated the same group
+// definitions across every row (~3.1KB/row) — and carries only group_ids. We
+// resolve chip names from the loaded groups list. Falls back to any embedded
+// `groups` for non-lite responses (single-account fetches, older data).
+const groupById = computed(() => {
+  const map = new Map<number, AdminGroup>()
+  // Active set first, then the inactive-inclusive set (superset) so every bound
+  // group_id resolves — including disabled groups. If the inactive fetch failed,
+  // the active set still covers active bindings.
+  for (const g of groups.value) map.set(g.id, g)
+  for (const g of groupsForChips.value) map.set(g.id, g)
+  return map
+})
+
+function groupsForRow(row: { groups?: unknown; group_ids?: unknown }): Group[] {
+  if (Array.isArray(row?.groups) && row.groups.length > 0) {
+    return row.groups as Group[]
+  }
+  const ids = Array.isArray(row?.group_ids) ? row.group_ids : []
+  const resolved: AdminGroup[] = []
+  for (const id of ids) {
+    const g = groupById.value.get(Number(id))
+    if (g) resolved.push(g)
+  }
+  return resolved as unknown as Group[]
+}
+
+// Proxy-cell resolution for the (lite) accounts list. The lite payload carries
+// only proxy_id (no embedded proxy object), so resolve the proxy from the
+// already-loaded proxies list. Falls back to any embedded `proxy` for non-lite
+// responses. Reactive on proxies.value, so the cell fills in once proxies load.
+const proxyById = computed(() => {
+  const map = new Map<number, AccountProxy>()
+  for (const p of proxies.value) map.set(p.id, p)
+  return map
+})
+
+function proxyForRow(row: { proxy?: unknown; proxy_id?: unknown }): AccountProxy | null {
+  if (row?.proxy) return row.proxy as AccountProxy
+  const pid = row?.proxy_id
+  if (typeof pid === 'number' && pid > 0) {
+    return proxyById.value.get(pid) ?? null
+  }
+  return null
+}
+
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -913,14 +971,13 @@ const load = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  if (isFirstLoad.value) {
-    requestParams.lite = '1'
-  }
+  // Always request the lite payload for the list. The embedded group objects are
+  // redundant here (chips resolve from group_ids via groupsForRow), so every load
+  // — including the 30s auto-refresh — is ~69% smaller. Detail/edit fetches still
+  // use the full single-account endpoint.
+  requestParams.lite = '1'
+  isFirstLoad.value = false
   await baseLoad()
-  if (isFirstLoad.value) {
-    isFirstLoad.value = false
-    delete requestParams.lite
-  }
   await refreshTodayStatsBatch()
   refreshUsageBatch(accounts.value)
 }
@@ -1794,8 +1851,10 @@ const isExpired = (value: number | null) => {
   return value * 1000 <= Date.now()
 }
 // 所绑定代理的有效期(逻辑同 /admin/proxies,见 utils/proxyExpiry)
-const proxyExpiryBadge = (p: AccountProxy): string => proxyExpiryBadgeClass(p.expires_at, p.status)
-const proxyExpiryText = (p: AccountProxy): string => {
+const proxyExpiryBadge = (p?: AccountProxy | null): string =>
+  p ? proxyExpiryBadgeClass(p.expires_at, p.status) : ''
+const proxyExpiryText = (p?: AccountProxy | null): string => {
+  if (!p) return ''
   const { key, params } = proxyExpiryLabelKey(p.expires_at, p.status)
   return params ? t(key, params) : t(key)
 }
@@ -1819,9 +1878,15 @@ const handleClickOutside = (event: MouseEvent) => {
 onMounted(async () => {
   load()
   try {
-    const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
+    const [p, g, gAll] = await Promise.all([
+      adminAPI.proxies.getAll(),
+      adminAPI.groups.getAll(),
+      // Inactive-inclusive set for chip resolution only (disabled-group bindings).
+      adminAPI.groups.getAllIncludingInactive()
+    ])
     proxies.value = p
     groups.value = g
+    groupsForChips.value = gAll
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }

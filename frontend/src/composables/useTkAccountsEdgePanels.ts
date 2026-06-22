@@ -61,7 +61,13 @@ export function useTkAccountsEdgePanels(options: {
   // cc-us4 → its default group's 2 accounts, not all of us4). Keyed by stub account
   // id below, NOT edge_id — cc-us4 / openai-us4 / grok-us4 share one edge host but
   // are three distinct panels.
-  const tk = useTkEdgeAccounts('all', { byStub: true })
+  // Only fan out to the edges when the current prod page actually has edge-stub
+  // rows. On a page (or filter) with no stubs, the edge fan-out + 30s poll never
+  // fire — previously they ran unconditionally on every /accounts mount.
+  const tk = useTkEdgeAccounts('all', {
+    byStub: true,
+    enabled: () => read(options.prodAccounts).some((a) => !!a.edge_id)
+  })
 
   const overrides = ref<Map<number, boolean>>(loadOverrides())
 

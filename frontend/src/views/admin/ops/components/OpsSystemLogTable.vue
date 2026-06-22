@@ -352,7 +352,11 @@ onMounted(async () => {
   if (props.platformFilter) {
     filters.platform = props.platformFilter
   }
-  await Promise.all([fetchLogs(), fetchHealth(), loadRuntimeConfig()])
+  // Initial logs + health load arrives via the parent's refreshToken bump (see
+  // the refreshToken watch above; OpsDashboard bumps it once on mount). Only the
+  // runtime config needs to load here — this removes the duplicate fetch that
+  // previously ran on both mount and the first refreshToken bump.
+  await loadRuntimeConfig()
 })
 </script>
 
