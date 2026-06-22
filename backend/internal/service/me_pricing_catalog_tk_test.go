@@ -947,6 +947,44 @@ func TestBuildForUser_NewapiUnrestricted_NoCanonicalLeak(t *testing.T) {
 	assert.Empty(t, resp.Models, "newapi has no canonical list — no Claude models may leak in")
 }
 
+func TestBuildForUser_GeminiUnrestricted_ListsServableModels(t *testing.T) {
+	gGemini := mkGroupForMe(55, "google", "gemini", 1.0)
+	k1 := mkKeyForMe(1, 16, "gemini-key", ptrI(55))
+	acct := mkAccountWithWhitelist(11, "gemini-oauth", "gemini", 0, nil)
+	require.False(t, accountHasModelRestriction(acct.Credentials),
+		"empty model_mapping must read as unrestricted")
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gemini-2.5-flash", "Google", 0.0003, 0.0025, 0),
+			mkPublicCatalogModel("gemini-2.5-pro", "Google", 0.00125, 0.005, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gGemini}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+
+	want := supportedCatalogModelIDsForPlatform(PlatformGemini)
+	require.NotEmpty(t, want, "gemini served set must be non-empty")
+	sort.Strings(want)
+	assert.Equal(t, want, modelIDsOf(resp.Models),
+		"gemini menu must equal the empirical served set, not raw geminicli.DefaultModels")
+
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+	require.Contains(t, byID, "gemini-2.5-flash")
+	require.Contains(t, byID, "gemini-2.5-pro")
+	for _, dead := range []string{"gemini-2.0-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"} {
+		assert.NotContains(t, byID, dead, "advertised_dead %s must not appear in the menu", dead)
+	}
+}
+
 // TestBuildForUser_GrokUnrestricted_ListsServableModels is the regression for
 // the 2026-06-20 incident: selecting a grok group on /pricing showed an EMPTY
 // "分组目录". Grok is a native OAuth-relay platform — its accounts carry no

@@ -72,6 +72,8 @@ func inferPlatformFromVendor(vendor string) string {
 		return PlatformAnthropic
 	case "newapi":
 		return PlatformNewAPI
+	case "zhipu", "bigmodel", "zai":
+		return PlatformNewAPI
 	case "antigravity":
 		return PlatformAntigravity
 	case "xai", "x-ai":

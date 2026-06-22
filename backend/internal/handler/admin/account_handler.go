@@ -2019,13 +2019,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsOpenAI() {
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
@@ -2057,14 +2057,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsGemini() {
 		// For OAuth accounts: return default Gemini models
 		if account.IsOAuth() {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
 			return
 		}
 
@@ -2127,7 +2127,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
+		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
 		return
 	}
 
@@ -2135,7 +2135,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models
-		response.Success(c, claude.DefaultModels)
+		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
 		return
 	}
 
@@ -2163,6 +2163,69 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
+	byID := make(map[string]openai.Model, len(openai.DefaultModels))
+	for _, m := range openai.DefaultModels {
+		byID[m.ID] = m
+	}
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil)
+	out := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, openai.Model{
+			ID:          id,
+			Object:      "model",
+			Created:     1704067200,
+			OwnedBy:     "openai",
+			Type:        "model",
+			DisplayName: id,
+		})
+	}
+	return out
+}
+
+func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
+	byID := make(map[string]geminicli.Model, len(geminicli.DefaultModels))
+	for _, m := range geminicli.DefaultModels {
+		byID[m.ID] = m
+	}
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
+	out := make([]geminicli.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, geminicli.Model{ID: id, Type: "model", DisplayName: id})
+	}
+	return out
+}
+
+func tkClaudeAdminDefaultModels(ctx context.Context) []claude.Model {
+	byBase := make(map[string]claude.Model, len(claude.DefaultModels))
+	for _, m := range claude.DefaultModels {
+		byBase[claude.DenormalizeModelID(m.ID)] = m
+	}
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil)
+	out := make([]claude.Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byBase[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, claude.Model{
+			ID:          id,
+			Type:        "model",
+			DisplayName: id,
+			CreatedAt:   "2024-01-01T00:00:00Z",
+		})
+	}
+	return out
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

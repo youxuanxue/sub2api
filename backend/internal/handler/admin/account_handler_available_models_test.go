@@ -37,6 +37,16 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func modelIDSet(models []struct {
+	ID string `json:"id"`
+}) map[string]bool {
+	ids := make(map[string]bool, len(models))
+	for _, m := range models {
+		ids[m.ID] = true
+	}
+	return ids
+}
+
 type syncUpstreamHTTPUpstream struct {
 	resp *http.Response
 	err  error
@@ -138,7 +148,78 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["codex-auto-review"], "servable probe result should be visible in OpenAI admin defaults")
+	for _, dead := range []string{"gpt-5.2", "gpt-5.3-codex", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
+		require.False(t, ids[dead], "advertised_dead %s must not appear in OpenAI admin defaults", dead)
+	}
+}
+
+func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       44,
+			Name:     "openai-oauth",
+			Platform: service.PlatformOpenAI,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/44/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["gpt-5.4"], "servable OpenAI default should remain visible")
+	require.True(t, ids["codex-auto-review"], "codex-auto-review had a live 200 and should remain visible")
+	for _, dead := range []string{"gpt-5.2", "gpt-5.3-codex", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
+		require.False(t, ids[dead], "advertised_dead %s must not appear in OpenAI admin defaults", dead)
+	}
+}
+
+func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       45,
+			Name:     "gemini-oauth",
+			Platform: service.PlatformGemini,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/45/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["gemini-2.5-flash"], "servable Gemini default should remain visible")
+	for _, dead := range []string{"gemini-2.0-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"} {
+		require.False(t, ids[dead], "advertised_dead %s must not appear in Gemini admin defaults", dead)
+	}
 }
 
 // TestAccountHandlerGetAvailableModels_NewAPI_DoesNotReturnClaudeCatalog is the

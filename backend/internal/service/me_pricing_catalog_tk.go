@@ -632,10 +632,10 @@ func addFallbackModel(
 // has no canonical DefaultModels list at all — its served set IS its priced
 // overlay set, so the allowlist is the only correct source.
 //
-// Gemini uses its canonical list (defaultModelsListCandidateIDs): it was not
-// probed, and an empty credentials.model_mapping genuinely means "all gemini
-// models allowed" (resolveModelMapping returns nil), so canonical is the best
-// available list until a probe adds gemini to the empirical set.
+// Gemini uses the empirical set once populated; an empty set still degrades to
+// canonical inside tkServableCandidateIDs. This keeps advertised-dead ids such
+// as gemini-2.0-flash and gemini-3.x chat out of the unrestricted menu once the
+// live probe has populated the allowlist.
 //
 // Antigravity is deliberately EXCLUDED: resolveModelMapping injects
 // domain.DefaultAntigravityModelMapping for an antigravity account with no
@@ -647,7 +647,7 @@ func platformDefaultModelIDs(platform string) []string {
 	case PlatformAnthropic, PlatformOpenAI:
 		return supportedCatalogModelIDsForPlatform(platform)
 	case PlatformGemini:
-		return defaultModelsListCandidateIDs(platform)
+		return supportedCatalogModelIDsForPlatform(platform)
 	case PlatformGrok:
 		// Grok (seventh platform) is native OAuth-relay: accounts are
 		// unrestricted and carry no channel, so the menu must fall back to the

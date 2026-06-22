@@ -37,7 +37,8 @@ func TestAntigravityReconciler_EmptyMapAccount_ReconciledToGeminiOnly(t *testing
 	}
 	require.Contains(t, mm, "gemini-3.5-flash-low")
 	require.Contains(t, mm, "gemini-3.5-flash-extra-low")
-	require.Contains(t, mm, "tab_flash_lite_preview")
+	require.NotContains(t, mm, "tab_flash_lite_preview",
+		"unpriced Antigravity models must not be written into account mappings")
 	require.Len(t, mm, len(domain.GeminiOnlyAntigravityModelMapping))
 }
 
@@ -64,6 +65,33 @@ func TestAntigravityReconciler_AlreadyGeminiOnly_Skip(t *testing.T) {
 	r.runOnce(context.Background())
 
 	require.Empty(t, acc.bulkCalls, "already-gemini-only account must not be rewritten")
+}
+
+func TestAntigravityReconciler_UnpricedTabModel_ReconciledOut(t *testing.T) {
+	acc := &reconcilerAccountStub{
+		byPlatform: map[string][]Account{
+			PlatformAntigravity: {
+				{
+					ID:       9,
+					Platform: PlatformAntigravity,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gemini-3.5-flash-low":   "gemini-3.5-flash-low",
+							"tab_flash_lite_preview": "tab_flash_lite_preview",
+						},
+					},
+				},
+			},
+		},
+	}
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
+	r.runOnce(context.Background())
+
+	require.Len(t, acc.bulkCalls, 1, "persisted $0-risk tab model must be reconciled out")
+	mm, ok := acc.bulkCalls[0].updates.Credentials["model_mapping"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, mm, "tab_flash_lite_preview")
+	require.Contains(t, mm, "gemini-3.5-flash-low")
 }
 
 // Mixed list: only the claude-serving account is reconciled; the gemini-only one

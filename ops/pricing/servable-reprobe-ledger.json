@@ -1,0 +1,251 @@
+{
+  "_doc": "Machine-readable reprobe ledger for ops/pricing/refresh-servable-allowlist.py. Keys are platform/model pairs. watchlist entries are transient or unconfirmed and must be re-probed before freshness expires; skiplist/deadlist entries are not allowed to re-enter a servable allowlist without editing this file with evidence.",
+  "_generated_from": "docs/all-platform-model-inventory.md §4.4, mechanized 2026-06-22",
+  "watchlist": [
+    {
+      "platform": "antigravity",
+      "model": "gemini-2.5-pro",
+      "reason": "2026-06-13 probe returned 503 MODEL_CAPACITY_EXHAUSTED; capacity recovery can make it servable.",
+      "last_probe": "2026-06-13",
+      "freshness_days": 30,
+      "auto_probe": false,
+      "owner": "native-antigravity"
+    },
+    {
+      "platform": "antigravity",
+      "model": "claude-sonnet-4-5",
+      "reason": "2026-06-13 antigravity anthropic-surface probe returned 503 MODEL_CAPACITY_EXHAUSTED; native anthropic serves the same id.",
+      "last_probe": "2026-06-13",
+      "freshness_days": 30,
+      "auto_probe": false,
+      "owner": "native-antigravity"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.2",
+      "reason": "2026-06-22 reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-22",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "openai_chat"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.3-codex",
+      "reason": "2026-06-22 reprobe returned 400 unsupported after this contract had flipped during 2026-05-28/29.",
+      "last_probe": "2026-06-22",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "openai",
+      "model": "codex-auto-review",
+      "reason": "2026-06-22 reprobe returned 200 on the OpenAI responses path; keep auto-probing until the new allowlist entry soaks.",
+      "last_probe": "2026-06-22",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5-codex",
+      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
+      "expires": "2026-07-06",
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.1-codex",
+      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
+      "expires": "2026-07-06",
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.1-codex-max",
+      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
+      "expires": "2026-07-06",
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.1-codex-mini",
+      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
+      "expires": "2026-07-06",
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.2-codex",
+      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
+      "expires": "2026-07-06",
+      "auto_probe": true,
+      "probe_family": "openai_responses"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.5-flash-image",
+      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-3.1-flash-image",
+      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-3-pro-image-preview",
+      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "nano-banana-pro-preview",
+      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "antigravity",
+      "model": "gemini-2.5-flash",
+      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "native-antigravity"
+    },
+    {
+      "platform": "antigravity",
+      "model": "gemini-2.5-flash-lite",
+      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "native-antigravity"
+    },
+    {
+      "platform": "antigravity",
+      "model": "gemini-2.5-flash-thinking",
+      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "native-antigravity"
+    },
+    {
+      "platform": "antigravity",
+      "model": "gemini-3-flash",
+      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "native-antigravity"
+    },
+    {
+      "platform": "newapi",
+      "model": "kimi-k2.x",
+      "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "qwq-32b",
+      "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "qwen-turbo",
+      "reason": "Backlog candidate from the inventory; newapi onboarding path owns the live probe.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "glm-5.x/glm-4.x",
+      "reason": "Direct GLM family is now modeled in code via account 67 channel_type=26 and tk_044; livefire still requires a GLM-group TK key plus approved prod canary apply.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "MiniMax-M2.x",
+      "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "deepseek-v4-none/max",
+      "reason": "Backlog alias candidate, never probed; not a native refresh-servable-allowlist platform.",
+      "expires": "2026-07-06",
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    }
+  ],
+  "skiplist": [
+    {
+      "platform": "openai",
+      "model": "codex-mini-latest",
+      "reason": "Stable 400: not supported with a ChatGPT account; codex normalization maps legacy requests away from this id."
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash",
+      "reason": "Project-scoped 502 on the current Vertex project; keep out of the native gemini allowlist until a new probe on an enabled project says otherwise."
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash-001",
+      "reason": "Project-scoped Gemini 2.0 chat 502 on the current Vertex project."
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash-lite",
+      "reason": "Project-scoped Gemini 2.0 chat 502 on the current Vertex project."
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash-lite-001",
+      "reason": "Project-scoped Gemini 2.0 chat 502 on the current Vertex project."
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-3-pro-preview",
+      "reason": "Project-scoped Gemini 3.x chat 502 on the current Vertex project."
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "reason": "Project-scoped Gemini 3.x chat 502 on the current Vertex project."
+    }
+  ],
+  "deadlist": [
+    {
+      "platform": "grok",
+      "model": "grok-imagine-image-pro",
+      "reason": "Retired upstream on 2026-05-15; replaced by grok-imagine-image-quality."
+    }
+  ]
+}
