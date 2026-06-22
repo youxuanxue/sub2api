@@ -415,19 +415,21 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
-		// TK: Claude API 故障期间，上游可能对全队仍有效的 token 误发 401。此窗口内任何
-		// anthropic 账号都不得被一次 401 永久禁用（first-strike 会把全池一起打死）——统一
-		// 回退 temp_unschedulable 冷却，覆盖下面所有子路径（OAuth 有效-token / 缺 refresh_token
-		// / setup-token / apikey）。与 403/429 路径同口径（IsClaudeAPIIncident）；非 anthropic
-		// 账号不受影响（该探测器只反映 Anthropic 状态）。故障结束后仍 401 才按各自路径处置。
-		if account.Platform == PlatformAnthropic && IsClaudeAPIIncident() {
-			msg := "OAuth 401 deferred during Claude API incident (not permanently disabled)"
-			if upstreamMsg != "" {
-				msg = "OAuth 401 (incident-deferred): " + upstreamMsg
+		// TK: Anthropic OAuth 任意 401 → 立即 SetError + P0 飞书（auth_error），不再区分
+		// token 是否过期、不再走 temp_unschedulable 冷却，由运营人工 re-OAuth。
+		if account.Platform == PlatformAnthropic && account.Type == AccountTypeOAuth {
+			if s.tokenCacheInvalidator != nil {
+				if err := s.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
+					slog.Warn("oauth_401_invalidate_cache_failed", "account_id", account.ID, "error", err)
+				}
 			}
-			slog.Warn("oauth_401_disable_deferred_during_incident",
+			msg := "OAuth 401 — manual re-authorization required (re-login via account management)"
+			if upstreamMsg != "" {
+				msg = "OAuth 401: " + upstreamMsg
+			}
+			slog.Warn("oauth_401_immediate_disable",
 				"account_id", account.ID, "platform", account.Platform)
-			s.tkApplyOAuth401Cooldown(ctx, account, msg)
+			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
 			break
 		}
@@ -1212,27 +1214,7 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		return true
 	}
 
-	// TK: when status.claude.com reports a non-operational Claude API, the error is
-	// Anthropic's fault, not the account's. Skip writing temp_unschedulable_until so
-	// account health scores are not penalised during upstream incidents.
-	// Counters still advance for observability (handled inside WithOptions).
-	//
-	// Scope note: this only protects account *health* (the account stays in the
-	// pool and is immediately usable the moment Anthropic recovers — no cooldown
-	// tail). It does NOT rescue the in-flight request: shouldDisable=true still
-	// fails this request over, and once the failover loop exhausts the pool the
-	// caller receives Anthropic's real upstream error. handleAnthropicFailoverExhausted
-	// then enriches that client message via TkEnrichClaudeIncidentMessage so the
-	// user is pointed at status.claude.com instead of blaming the TokenKey pool.
-	skipCooldown := IsClaudeAPIIncident()
-	if skipCooldown {
-		snap := GetClaudeStatusSnapshot()
-		slog.Info("anthropic_upstream_error_incident_skip_cooldown",
-			"account_id", account.ID,
-			"status_code", statusCode,
-			"upstream_status", snap.Status)
-	}
-	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, skipCooldown)
+	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, false)
 }
 
 // handleAnthropicUpstreamErrorWithOptions is the implementation seam for

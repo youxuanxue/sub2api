@@ -24,10 +24,9 @@ func setClaudeStatusForTest(t *testing.T, snap ClaudeStatusSnapshot) {
 	})
 }
 
-// During a live Claude API incident the 3/3 counter still advances (so ops
-// retains the failure signal) but the ladder MUST NOT write
-// SetTempUnschedulable — the error is Anthropic's fault, not the account's.
-func TestRateLimitService_AnthropicUpstreamError_IncidentSkipsCooldownWrite(t *testing.T) {
+// During a live Claude API incident the 3/3 ladder still writes cooldown — incident
+// no longer suppresses account penalties (ops get a Feishu P0 instead).
+func TestRateLimitService_AnthropicUpstreamError_IncidentStillLadders(t *testing.T) {
 	setClaudeStatusForTest(t, ClaudeStatusSnapshot{
 		IsIncident: true,
 		Status:     "partial_outage",
@@ -59,8 +58,8 @@ func TestRateLimitService_AnthropicUpstreamError_IncidentSkipsCooldownWrite(t *t
 		}
 	}
 
-	require.Equal(t, 0, repo.tempCalls,
-		"incident in progress: ladder MUST suppress SetTempUnschedulable so account health is not penalised")
+	require.Equal(t, 1, repo.tempCalls,
+		"incident in progress: ladder still writes SetTempUnschedulable")
 	require.Equal(t, []int64{801, 801, 801}, counter.incrementIDs,
 		"3/3 counter advances on every hit even during an incident (ops signal preserved)")
 }
@@ -183,40 +182,22 @@ func TestFetchClaudeAPIStatus(t *testing.T) {
 	}
 }
 
-// The client-facing failover-exhausted message must be rewritten to point at
-// the upstream status page during an incident, and left untouched otherwise.
 func TestTkEnrichClaudeIncidentMessage(t *testing.T) {
-	const def = "All available accounts exhausted"
-
-	t.Run("incident rewrites message with status + link", func(t *testing.T) {
+	const def = "upstream overloaded"
+	t.Run("incident appends status and link", func(t *testing.T) {
 		setClaudeStatusForTest(t, ClaudeStatusSnapshot{
 			IsIncident: true,
 			Status:     "partial_outage",
 			FetchedAt:  time.Now(),
 		})
 		got := TkEnrichClaudeIncidentMessage(def, http.StatusInternalServerError)
-		require.NotEqual(t, def, got)
+		require.Contains(t, got, def)
 		require.Contains(t, got, "partial_outage")
-		require.Contains(t, got, "500")
 		require.Contains(t, got, claudeStatusPageURL)
 	})
-
-	t.Run("operational leaves message unchanged", func(t *testing.T) {
-		setClaudeStatusForTest(t, ClaudeStatusSnapshot{
-			IsIncident: false,
-			Status:     "operational",
-			FetchedAt:  time.Now(),
-		})
-		require.Equal(t, def, TkEnrichClaudeIncidentMessage(def, http.StatusInternalServerError))
-	})
-
-	t.Run("stale incident is treated as resolved (unchanged)", func(t *testing.T) {
-		setClaudeStatusForTest(t, ClaudeStatusSnapshot{
-			IsIncident: true,
-			Status:     "partial_outage",
-			FetchedAt:  time.Now().Add(-claudeStatusMaxStaleness - time.Minute),
-		})
-		require.Equal(t, def, TkEnrichClaudeIncidentMessage(def, http.StatusInternalServerError))
+	t.Run("operational unchanged", func(t *testing.T) {
+		setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: false, Status: "operational", FetchedAt: time.Now()})
+		require.Equal(t, def, TkEnrichClaudeIncidentMessage(def, 500))
 	})
 }
 

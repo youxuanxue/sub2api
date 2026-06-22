@@ -269,8 +269,9 @@ func TestG4_OAuth401_StaysAccountLevel(t *testing.T) {
 	)
 
 	require.Empty(t, repo.modelRateLimitCalls,
-		"401 auth failure is account-level (temp-unschedulable for token refresh), never model-scoped")
-	require.Greater(t, repo.tempCalls, 0, "OAuth 401 → SetTempUnschedulable (account-level)")
+		"401 auth failure is account-level, never model-scoped")
+	require.Equal(t, 1, repo.setErrorCalls, "Anthropic OAuth 401 → SetError (account-level)")
+	require.Equal(t, 0, repo.tempCalls, "must not temp_unschedulable hold")
 }
 
 func TestG4_529Overloaded_StaysAccountLevel(t *testing.T) {
