@@ -32,6 +32,7 @@ import argparse
 import base64
 import gzip
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -95,8 +96,8 @@ def resolve_prod_instance() -> str:
              "--output", "text"], text=True).strip()
     except subprocess.CalledProcessError as e:
         fail(f"describe-stacks failed for {PROD_STACK}/{PROD_REGION}: {e}")
-    if not out or out == "None":
-        fail(f"no InstanceId resolvable for {PROD_STACK}/{PROD_REGION}")
+    if not re.match(r"^i-[0-9a-f]{8,}$", out):
+        fail(f"no valid InstanceId for {PROD_STACK}/{PROD_REGION} (got {out!r})")
     return out
 
 
@@ -128,9 +129,12 @@ def ssm_run_shell(instance_id: str, shell_b64: str, comment: str) -> str:
         fail(f"ssm send-command failed ({comment}): {e}")
     subprocess.run(["aws", "ssm", "wait", "command-executed", "--region", PROD_REGION,
                     "--command-id", cid, "--instance-id", instance_id], check=False)
-    inv = json.loads(subprocess.check_output(
-        ["aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
-         "--command-id", cid, "--instance-id", instance_id, "--output", "json"], text=True))
+    try:
+        inv = json.loads(subprocess.check_output(
+            ["aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
+             "--command-id", cid, "--instance-id", instance_id, "--output", "json"], text=True))
+    except (subprocess.CalledProcessError, ValueError) as e:
+        fail(f"ssm get-command-invocation failed ({comment}): {e}")
     if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
         err = (inv.get("StandardErrorContent") or "").strip()[:1200]
         fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} ({comment})\n  stderr: {err}")
@@ -194,6 +198,11 @@ def cmd_sync_runtime(args) -> int:
         return 0
 
     inst = resolve_prod_instance()
+    # Idempotency: skip the UPSERT + PUBLISH if the runtime already matches git, so a manual
+    # retry or a double-fire cron doesn't churn the settings row / re-publish needlessly.
+    if drift_is_clean(compute_overlay_drift(doc, read_runtime_blob(inst))):
+        print("runtime already in sync with git (embedded floor + runtime overlay) — nothing to push.")
+        return 0
     # Transport: GZIP then base64 so the SSM SendCommand parameter stays well under AWS's
     # 97KB limit. The raw overlay is ~100KB+ (long per-entry `source` strings); base64 of
     # that alone exceeds 97KB -> MaxDocumentSizeExceeded. gzip shrinks the repetitive JSON
@@ -233,7 +242,15 @@ def cmd_sync_runtime(args) -> int:
              f"for SSM SendCommand — stage via S3 instead")
     out = ssm_run_shell(inst, b64, "overlay sync-runtime: upsert + publish")
     print(out)
-    print("synced. Verify with: manage-overlay-runtime.py check")
+    if "UPSERT_OK" not in out:
+        fail("UPSERT did not report success — inspect the SSM output above (psql error? guard?)")
+    # Post-sync verify: re-read the settings row (DB truth, not the in-memory replica cache)
+    # and confirm it now matches git. Catches a silently-partial/failed write that still
+    # returned Success (the SSM stdout-truncation class of bug that motivated this hardening).
+    post = compute_overlay_drift(doc, read_runtime_blob(inst))
+    if not drift_is_clean(post):
+        fail(f"sync reported success but post-sync verify shows drift: {post}")
+    print("synced + verified: prod runtime overlay == git.")
     return 0
 
 
