@@ -22,6 +22,10 @@ A **violation** is any non-deleted ``platform=newapi`` account whose
 Exit codes (mirror the post-release checks): ``0`` = no violations (green);
 ``1`` = violations found (yellow); ``2`` = could not run (yellow). Read-only —
 never mutates. stdlib-only; reuses ops/stage0 SSM identity helper.
+
+Companion (write path): ops/newapi/apply-model-mapping-live.py hot-applies a model_mapping
+merge to prod (jsonb || + scheduler_outbox, guard-protected) — the zero-deploy onboarding
+step this audit verifies after.
 """
 from __future__ import annotations
 

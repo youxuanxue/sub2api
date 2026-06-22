@@ -30,10 +30,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OVERLAY_PATH = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
@@ -47,7 +50,7 @@ PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
 
 
-def fail(msg: str) -> "NoReturn":  # type: ignore[name-defined]
+def fail(msg: str) -> NoReturn:
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(2)
 
@@ -93,14 +96,28 @@ def resolve_prod_instance() -> str:
              "--output", "text"], text=True).strip()
     except subprocess.CalledProcessError as e:
         fail(f"describe-stacks failed for {PROD_STACK}/{PROD_REGION}: {e}")
-    if not out or out == "None":
-        fail(f"no InstanceId resolvable for {PROD_STACK}/{PROD_REGION}")
+    if not re.match(r"^i-[0-9a-f]{8,}$", out):
+        fail(f"no valid InstanceId for {PROD_STACK}/{PROD_REGION} (got {out!r})")
     return out
 
 
 def ssm_run_shell(instance_id: str, shell_b64: str, comment: str) -> str:
-    """Run a base64-encoded shell script on prod via SSM; return stdout."""
-    command = f"set -euo pipefail\necho {shell_b64} | base64 -d | bash"
+    """Run a base64-encoded shell script on prod via SSM; return stdout.
+
+    The decoded script is written to a FILE and bash'd from that file rather than piped
+    to `bash` via stdin. If the script contains a `docker exec -i ... psql` call (it does),
+    that child shares the shell's stdin; when stdin is the decode pipe it SLURPS the rest
+    of the script, silently truncating everything after the first psql call while still
+    reporting Success (rc=0). File-backed exec gives the child an empty stdin instead.
+    `set -uo pipefail` (no -e) so a non-zero inner script still lets us capture rc, clean
+    up, and propagate the exit code."""
+    command = (
+        "set -uo pipefail\n"
+        f"echo {shell_b64} | base64 -d > /tmp/.ovr_runtime_$$.sh\n"
+        "bash /tmp/.ovr_runtime_$$.sh; rc=$?\n"
+        "rm -f /tmp/.ovr_runtime_$$.sh\n"
+        "exit $rc"
+    )
     params = json.dumps({"commands": [command]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(
@@ -112,9 +129,12 @@ def ssm_run_shell(instance_id: str, shell_b64: str, comment: str) -> str:
         fail(f"ssm send-command failed ({comment}): {e}")
     subprocess.run(["aws", "ssm", "wait", "command-executed", "--region", PROD_REGION,
                     "--command-id", cid, "--instance-id", instance_id], check=False)
-    inv = json.loads(subprocess.check_output(
-        ["aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
-         "--command-id", cid, "--instance-id", instance_id, "--output", "json"], text=True))
+    try:
+        inv = json.loads(subprocess.check_output(
+            ["aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
+             "--command-id", cid, "--instance-id", instance_id, "--output", "json"], text=True))
+    except (subprocess.CalledProcessError, ValueError) as e:
+        fail(f"ssm get-command-invocation failed ({comment}): {e}")
     if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
         err = (inv.get("StandardErrorContent") or "").strip()[:1200]
         fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} ({comment})\n  stderr: {err}")
@@ -178,33 +198,59 @@ def cmd_sync_runtime(args) -> int:
         return 0
 
     inst = resolve_prod_instance()
-    value_b64 = base64.b64encode(overlay_bytes).decode()
-    # Pass the JSON value through a psql variable with :'v' quoting — psql escapes
-    # embedded single quotes (source strings may contain apostrophes), so no manual
-    # quoting hazard. base64 carries the multi-line JSON intact to the host.
+    # Idempotency: skip the UPSERT + PUBLISH if the runtime already matches git, so a manual
+    # retry or a double-fire cron doesn't churn the settings row / re-publish needlessly.
+    if drift_is_clean(compute_overlay_drift(doc, read_runtime_blob(inst))):
+        print("runtime already in sync with git (embedded floor + runtime overlay) — nothing to push.")
+        return 0
+    # Transport: GZIP then base64 so the SSM SendCommand parameter stays well under AWS's
+    # 97KB limit. The raw overlay is ~100KB+ (long per-entry `source` strings); base64 of
+    # that alone exceeds 97KB -> MaxDocumentSizeExceeded. gzip shrinks the repetitive JSON
+    # ~6x. On the host we gunzip and re-base64 (host-side command length is NOT SSM-limited)
+    # and decode it INSIDE Postgres via convert_from(decode(...,'base64'),'UTF8'): base64 is
+    # pure ASCII so it is safe inside the single-quoted SQL literal, and this avoids the
+    # psql :'v' variable interpolation which silently fails in -c mode (syntax error at ":").
+    gz_b64 = base64.b64encode(gzip.compress(overlay_bytes)).decode()
+    if gzip.decompress(base64.b64decode(gz_b64)) != overlay_bytes:
+        fail("gzip roundtrip mismatch; refusing to push")  # never touch prod on a bad encode
+    # Decode on the host, re-base64 the plain JSON, decode that inside Postgres. The stored
+    # `value` is the exact overlay JSON (byte-identical to the old :'v' path); `check` reads
+    # it back unchanged.
     upsert = (
-        f"INSERT INTO settings (key, value, updated_at) VALUES ('{SETTING_KEY}', :'v', NOW()) "
+        f"INSERT INTO settings (key, value, updated_at) VALUES "
+        f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
         "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();"
     )
     shell = (
-        "set -euo pipefail\n"
+        "set -uo pipefail\n"
         f"PSQL='{PSQL}'\n"
         f"RC='{REDISCLI}'\n"
-        f"VAL=\"$(echo {value_b64} | base64 -d)\"\n"
+        f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
         "echo '=== upsert tk_pricing_overlay_runtime ==='\n"
-        f"$PSQL -v v=\"$VAL\" -c \"{upsert}\"\n"
+        f"$PSQL -c \"{upsert}\" </dev/null && echo UPSERT_OK\n"
         "echo '=== publish settings_updated (fan-out reload) ==='\n"
-        # Best-effort: the UPSERT above is the durable truth; PUBLISH only makes the
-        # reload immediate. Surface a failure (don't swallow it) so the operator knows
-        # replicas will lag to the poll interval instead of reloading now.
-        "$RC PUBLISH settings_updated refresh || echo 'WARN: redis PUBLISH failed; replicas reload within the pricing poll interval, not immediately'\n"
+        # Best-effort: the UPSERT above is the durable truth; PUBLISH only makes the reload
+        # immediate. Surface (don't swallow) a failure so the operator knows replicas will
+        # lag to the poll interval instead of reloading now.
+        "$RC PUBLISH settings_updated refresh </dev/null || echo 'WARN: redis PUBLISH failed; replicas reload within the pricing poll interval, not immediately'\n"
         "echo '=== settings_after ==='\n"
-        f"$PSQL -c \"SELECT key, length(value) AS bytes FROM settings WHERE key='{SETTING_KEY}';\"\n"
+        f"$PSQL -c \"SELECT key, length(value) AS bytes FROM settings WHERE key='{SETTING_KEY}';\" </dev/null\n"
     )
     b64 = base64.b64encode(shell.encode()).decode()
+    if len(b64) > 90_000:  # headroom under the 97KB SSM SendCommand parameter ceiling
+        fail(f"encoded sync payload is {len(b64)}B (>90KB) even gzipped; overlay too large "
+             f"for SSM SendCommand — stage via S3 instead")
     out = ssm_run_shell(inst, b64, "overlay sync-runtime: upsert + publish")
     print(out)
-    print("synced. Verify with: manage-overlay-runtime.py check")
+    if "UPSERT_OK" not in out:
+        fail("UPSERT did not report success — inspect the SSM output above (psql error? guard?)")
+    # Post-sync verify: re-read the settings row (DB truth, not the in-memory replica cache)
+    # and confirm it now matches git. Catches a silently-partial/failed write that still
+    # returned Success (the SSM stdout-truncation class of bug that motivated this hardening).
+    post = compute_overlay_drift(doc, read_runtime_blob(inst))
+    if not drift_is_clean(post):
+        fail(f"sync reported success but post-sync verify shows drift: {post}")
+    print("synced + verified: prod runtime overlay == git.")
     return 0
 
 
