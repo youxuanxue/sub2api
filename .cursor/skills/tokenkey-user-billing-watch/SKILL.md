@@ -31,7 +31,7 @@ description: >-
 
 ## §1 启动（每次起盘跑这一条）
 
-在仓库根（`/Users/xuejiao/Codes/token/tk/sub2api`，或当前 worktree 根）运行：
+在仓库根（或当前 worktree 根）运行：
 
 ```bash
 bash ops/observability/run-probe.sh \
