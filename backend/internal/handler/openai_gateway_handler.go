@@ -40,7 +40,7 @@ type OpenAIGatewayHandler struct {
 	maxAccountSwitches       int
 	cfg                      *config.Config
 	videoTaskCache           service.VideoTaskCache // TK; wired via SetVideoTaskCache — see openai_gateway_tk_video.go.
-	mediaStore               service.MediaStore     // TK; wired via SetMediaStore — see openai_gateway_tk_video_s3.go. nil ⇒ inline base64 passthrough.
+	mediaStore               service.MediaStore     // TK; wired via SetMediaStore — image offload + legacy video S3 re-presign.
 }
 
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {

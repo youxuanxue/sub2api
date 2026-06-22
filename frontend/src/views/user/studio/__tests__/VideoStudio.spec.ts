@@ -53,7 +53,17 @@ const mountStudio = () =>
   })
 
 describe('VideoStudio succeeded-task presentation', () => {
-  beforeEach(() => window.localStorage.clear())
+  beforeEach(() => {
+    window.localStorage.clear()
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: vi.fn(() => 'blob:https://studio.test/video-preview'),
+      configurable: true,
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: vi.fn(),
+      configurable: true,
+    })
+  })
 
   it('renders a poster tile, NOT an always-on inline <video>, for a succeeded task', () => {
     // Bug 2: the old always-on <video> showed a black, poster-less 0:00 box.
@@ -67,36 +77,31 @@ describe('VideoStudio succeeded-task presentation', () => {
     expect(w.text()).toContain('statusSucceeded')
   })
 
-  it('plays in-page in the lightbox when the poster is clicked (data: clip, no network)', async () => {
+  it('does not resurrect a persisted inline data: clip after reload', () => {
     seedSucceeded('data:video/mp4;base64,AAAA')
     const w = mountStudio()
-    expect(w.find('[data-testid="studio-video-preview"]').exists()).toBe(false)
-    await w.find('[data-testid="studio-video-play"]').trigger('click')
-    await flushPromises()
-    const lightbox = w.find('[data-testid="studio-video-preview"]')
-    expect(lightbox.exists()).toBe(true)
-    expect(lightbox.find('video').exists()).toBe(true)
-    expect(lightbox.find('video').attributes('src')).toBe('data:video/mp4;base64,AAAA')
+    expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
+    expect(w.text()).toContain('noUrlHint')
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 
-  it('re-mints a fresh presigned URL on open for an http clip (skips re-stream for data:)', async () => {
+  it('plays an http upstream clip directly without re-fetching through TokenKey', async () => {
     const { gatewayVideoFetch } = await import('@/api/playground')
-    seedSucceeded('https://s3.example/stale.mp4')
+    seedSucceeded('https://cdn.example/upstream.mp4')
     const w = mountStudio()
     await w.find('[data-testid="studio-video-play"]').trigger('click')
     await flushPromises()
-    // openPreview must refresh a short-lived presigned link before playback.
-    expect(gatewayVideoFetch).toHaveBeenCalledTimes(1)
+    expect(gatewayVideoFetch).not.toHaveBeenCalled()
     expect(w.find('[data-testid="studio-video-preview"] video').attributes('src')).toBe(
-      'https://s3.example/fresh.mp4'
+      'https://cdn.example/upstream.mp4'
     )
   })
 
-  it('exposes a copy-link affordance in the lightbox ready state (restores the link #860 removed)', async () => {
+  it('exposes a copy-link affordance in the lightbox ready state', async () => {
     // The "看不到 S3 链接" regression: #860 dropped the open-in-new-tab anchor, so an
-    // expired card dead-ended. Once the URL is re-minted (ready), the user must be
-    // able to grab the link itself — not only Download.
-    seedSucceeded('https://s3.example/stale.mp4')
+    // URL-only card dead-ended. Once the URL is ready, the user must be able to
+    // grab the link itself — not only Download.
+    seedSucceeded('https://cdn.example/upstream.mp4')
     const w = mountStudio()
     await w.find('[data-testid="studio-video-play"]').trigger('click')
     await flushPromises()

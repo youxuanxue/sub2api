@@ -215,7 +215,7 @@ export default {
       reserved: '{cost} reserved · refunded if it fails',
       notifyMe: 'Notify me when done',
       usuallyTakes: 'Usually 30–90s',
-      noUrlHint: 'Task succeeded but no video URL could be parsed.',
+      noUrlHint: 'Task succeeded. Video results are not retained long-term, so it cannot be played here — generate again to view it.',
       download: 'Download',
       failedRefunded: 'Generation failed — {cost} refunded. Try a shorter clip or another tier.',
       techDetails: 'Technical details',
@@ -234,12 +234,12 @@ export default {
       close: 'Close',
       loadingPreview: 'Loading…',
       expiredTitle: 'Preview expired',
-      expiredHint: 'Generated videos are kept for about a day, then auto-removed. If it was just generated, try again — otherwise regenerate.',
+      expiredHint: 'The video link is a short-lived upstream URL and may have expired. If you just generated it, tap Retry — otherwise regenerate.',
       stalled: 'Cannot fetch progress (the API key may have been deleted). Please generate again.',
       retry: 'Try again',
       copyLink: 'Copy link',
       copied: 'Copied',
-      retentionHint: 'Kept ~1 day · download soon'
+      retentionHint: 'Temporary upstream link · download soon'
     },
     chat: {
       model: 'Model',

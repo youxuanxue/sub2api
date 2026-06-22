@@ -60,10 +60,9 @@ type VideoTaskRecord struct {
 	// anchor the terminal-failure refund uses to find the original billed row.
 	// Empty on records saved before this field existed — refund skips those.
 	BillingRequestID string `json:"billing_request_id,omitempty"`
-	// MediaS3Key is set once the generated clip has been offloaded to S3 (see
-	// MediaStore). When present, VideoFetch re-presigns from this key instead of
-	// re-pulling the upstream task — so a reloaded session gets a fresh short-lived
-	// URL for free. Empty ⇒ not yet offloaded (or offload disabled / passthrough).
+	// MediaS3Key is a legacy pointer for video records that were offloaded before
+	// video delivery switched to direct upstream URL passthrough / one-time inline
+	// delivery. New video records should leave it empty.
 	MediaS3Key string    `json:"media_s3_key,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }

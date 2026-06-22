@@ -462,8 +462,8 @@ function onKeydown(e: KeyboardEvent): void {
  * Re-mint fresh presigned URLs for persisted offloaded images. Studio history is
  * localStorage-backed, but a presigned URL is intentionally short-lived, so on a
  * reload the stored `src` for an offloaded image may have expired (broken <img>).
- * Mirror VideoStudio's poll.refreshUrl: for every persisted image carrying an
- * s3Key, re-presign from the key (no re-generation, no re-bill) and patch `src`.
+ * For every persisted image carrying an s3Key, re-presign from the key (no
+ * re-generation, no re-bill) and patch `src`.
  * Best-effort — a failure keeps the cached URL, at worst a stale thumbnail.
  */
 async function refreshOffloadedImageUrls(): Promise<void> {

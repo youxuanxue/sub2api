@@ -188,10 +188,11 @@ type QACaptureStorageConfig struct {
 	ForcePathStyle  bool   `mapstructure:"force_path_style"`
 }
 
-// MediaStorageConfig configures the S3(-compatible) bucket the gateway offloads
-// GENERATED MEDIA to (video now; image in a follow-up). When set, the video
-// fetch path uploads the upstream's inline-base64 clip and returns a short-lived
-// presigned URL instead of streaming a 10-20 MB body through the gateway.
+// MediaStorageConfig configures the S3-compatible bucket the gateway uses for
+// generated-media offload. Images may be uploaded and returned as short-lived
+// presigned URLs. Video generation deliberately does not rehost fresh upstream
+// results by default; URL results pass through and inline-byte results are
+// delivered once to the client.
 //
 // Credentials: leave AccessKeyID/SecretAccessKey EMPTY on prod to use the
 // default AWS credential chain (the EC2 instance role) — no long-lived key. Set

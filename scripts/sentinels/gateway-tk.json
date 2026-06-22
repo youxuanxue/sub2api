@@ -1796,19 +1796,27 @@
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "tkVideoFastPathFromS3",
+        "Pass through the upstream result directly",
+        "one-time delivery path"
+      ],
+      "must_not_contain": [
         "tkMaybeOffloadVideoToS3"
       ],
-      "rationale": "Generated-video S3 offload INJECTION points in VideoFetch. tkVideoFastPathFromS3 (re-presign from the stored S3 key, skip upstream) and tkMaybeOffloadVideoToS3 (decode the terminal-success inline base64, upload, rewrite the body to a presigned URL) are the two hooks that stop the gateway streaming a 10-20 MB inline-base64 clip — the root cause of the false-failure timeout (PR #847 was the band-aid; this is the fix). Both are compile-clean if dropped, so an upstream merge could silently revert VideoFetch to the inline-base64 passthrough; this anchor catches that."
+      "rationale": "Generated-video VideoFetch must not rehost fresh results into S3. tkVideoFastPathFromS3 is retained only for legacy records that already carry an S3 key; otherwise the handler passes upstream responses through directly: upstream video URLs go to the client unchanged, and inline video bytes are a one-time delivery path. Reintroducing tkMaybeOffloadVideoToS3 would put TokenKey back in the video storage/CDN path."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video_s3.go",
       "must_contain": [
         "func (h *OpenAIGatewayHandler) SetMediaStore",
-        "func (h *OpenAIGatewayHandler) tkMaybeOffloadVideoToS3",
-        "func rewriteVideoBodyWithURL",
+        "func (h *OpenAIGatewayHandler) tkVideoFastPathFromS3",
+        "func writeVideoURLSuccess",
         "\"video_url\""
       ],
-      "rationale": "TK companion implementing the generated-video S3 offload (see the injection sentinel above). rewriteVideoBodyWithURL strips every inline-base64 path extractVideoUrl checks and sets top-level video_url to the presigned link — the exact cross-layer contract the frontend extractVideoUrl URL branch reads. SetMediaStore is the post-construction wiring seam (nil => inline base64 passthrough). Deleting this file reverts media delivery to the 10-20 MB synchronous base64 transfer."
+      "must_not_contain": [
+        "func (h *OpenAIGatewayHandler) tkMaybeOffloadVideoToS3",
+        "func rewriteVideoBodyWithURL"
+      ],
+      "rationale": "TK companion for legacy already-offloaded video records only. SetMediaStore remains the shared media-store wiring, tkVideoFastPathFromS3 re-presigns records that already have MediaS3Key, and writeVideoURLSuccess keeps the frontend-compatible done=true + video_url response. Fresh video results must not be decoded, uploaded, or rewritten here."
     },
     {
       "path": "backend/internal/service/openai_images_s3_tk.go",

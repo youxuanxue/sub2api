@@ -222,12 +222,11 @@ describe('video task helpers', () => {
     expect(extractVideoUrl(null)).toBe('')
   })
 
-  it('reads the backend S3-offload rewrite shape (base64 stripped, top-level video_url, done:true)', () => {
-    // Cross-layer contract with the backend transform (rewriteVideoBodyWithURL):
-    // the Veo success body has its inline base64 removed and a presigned URL set
-    // at top-level video_url. Both helpers must still resolve it as a ready video.
-    const rewritten = { done: true, response: {}, video_url: 'https://s3.example.test/media/videos/vt_x.mp4' }
-    expect(videoStateFromFetch(rewritten)).toBe('succeeded')
-    expect(extractVideoUrl(rewritten)).toBe('https://s3.example.test/media/videos/vt_x.mp4')
+  it('reads a done:true top-level video_url response', () => {
+    // Some upstreams return only a hosted video URL on terminal success. TokenKey
+    // passes that URL through instead of rehosting it.
+    const response = { done: true, response: {}, video_url: 'https://cdn.example.test/videos/vt_x.mp4' }
+    expect(videoStateFromFetch(response)).toBe('succeeded')
+    expect(extractVideoUrl(response)).toBe('https://cdn.example.test/videos/vt_x.mp4')
   })
 })

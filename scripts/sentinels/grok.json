@@ -160,7 +160,7 @@
     {
       "path": "backend/internal/service/openai_gateway_grok_video_tk.go",
       "must_contain": ["func (s *OpenAIGatewayService) grokNativeVideoSubmit", "func (s *OpenAIGatewayService) grokNativeVideoFetch", "/videos/generations"],
-      "rationale": "The grok-native video arm: submit (POST api.x.ai/v1/videos/generations -> request_id) + poll (GET api.x.ai/v1/videos/{id}) over the grok OAuth Bearer, returning the same bridge.TaskSubmitOutcome/VideoFetchOutcome shapes the handler consumes so the vt_ public id, VideoTaskCache record, balance hold, per-second billing, terminal refund, S3 offload and ownership-404 are all reused. Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
+      "rationale": "The grok-native video arm: submit (POST api.x.ai/v1/videos/generations -> request_id) + poll (GET api.x.ai/v1/videos/{id}) over the grok OAuth Bearer, returning the same bridge.TaskSubmitOutcome/VideoFetchOutcome shapes the handler consumes so the vt_ public id, VideoTaskCache record, balance hold, per-second billing, terminal refund, direct video delivery and ownership-404 are all reused. Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",

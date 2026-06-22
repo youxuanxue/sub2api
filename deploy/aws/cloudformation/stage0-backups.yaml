@@ -7,9 +7,9 @@ Description: >
   (1) pg_dump ledger backups (tokenkey-pgdump.sh hourly; RetentionDays);
   (2) QA trajectory exports (qa_capture.export_storage; QaExportsRetentionDays;
   see docs/qa-export-s3-and-auto-archive.md);
-  (3) generated-media offload (media_storage): the gateway uploads generated
-  video here and returns a short-lived instance-role-signed presigned URL instead
-  of streaming a 10-20 MB inline-base64 body; media/ prefix, MediaRetentionDays
+  (3) generated-media offload (media_storage): images are offloaded here, and
+  legacy already-offloaded video records may still be re-presigned; fresh video
+  results are no longer uploaded to S3. media/ prefix, MediaRetentionDays
   (default 1). No versioning (keys are unique).
 
 Parameters:
@@ -41,9 +41,8 @@ Parameters:
     MaxValue: 365
     Description: >
       Days to keep each generated-media object (media/ prefix) before lifecycle
-      expiry. Generated clips are throwaway previews, so 1 day (the lifecycle
-      floor) is the default — presigned links are short-lived and re-minted on
-      demand from the stored S3 key.
+      expiry. Images and legacy already-offloaded video previews are throwaway
+      media, so 1 day (the lifecycle floor) is the default.
   AppInstanceRoleArn:
     Type: String
     Description: >
@@ -240,8 +239,9 @@ Resources:
                 'aws:SecureTransport': 'false'
           # Same direct-role-ARN principal pattern as above — same-account
           # resource-based grant, so the prod instance stack is never touched. The
-          # app writes generated clips (PutObject) and signs/serves presigned GET
-          # URLs (GetObject). NO DeleteObject: the media/ lifecycle rule reaps
+          # app writes generated image media (PutObject) and signs/serves
+          # presigned GET URLs (GetObject). Legacy video objects may still be
+          # re-presigned. NO DeleteObject: the media/ lifecycle rule reaps
           # objects, so the role never needs delete (least privilege).
           - Sid: AllowAppInstanceRolePutGetMedia
             Effect: Allow
@@ -286,8 +286,9 @@ Outputs:
   MediaBucketName:
     Description: >
       Generated-media bucket. Set MEDIA_STORAGE_DRIVER=s3 + MEDIA_STORAGE_BUCKET=<this>
-      + MEDIA_STORAGE_REGION=<region> in the app env to enable video S3 offload
-      (credentials come from the instance role — leave MEDIA_STORAGE_ACCESS_KEY_ID unset).
+      + MEDIA_STORAGE_REGION=<region> in the app env to enable image media offload
+      and legacy media re-presign (credentials come from the instance role — leave
+      MEDIA_STORAGE_ACCESS_KEY_ID unset).
     Value: !Ref MediaBucket
   MediaS3Uri:
     Description: s3:// base for generated media; objects land under media/ (reaped by expire-generated-media).

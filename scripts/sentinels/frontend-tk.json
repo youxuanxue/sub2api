@@ -887,10 +887,13 @@
         "data-testid=\"studio-video-play\"",
         "data-testid=\"studio-video-preview\"",
         "data-testid=\"studio-video-copy-link\"",
-        "!task.url.startsWith('data:')",
+        "dataVideoToObjectURL",
+        "revokePreviewObjectUrl"
+      ],
+      "must_not_contain": [
         "poll.refreshUrl"
       ],
-      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays both presigned-http and data: veo clips in-page, structurally avoiding both the black poster-less 0:00 box and the about:blank dead-end browsers impose on top-level data: navigation (the #842 class). An upstream merge that drops the poster/lightbox reintroduces one of those two regressions. The `!task.url.startsWith('data:')` guard is still load-bearing — it now gates URL re-minting in openPreview: a short-lived presigned http link is re-fetched (poll.refreshUrl) before playback while a self-contained data: URI is played directly, so dropping it either re-streams a 10-20 MB inline-base64 body on every open or hands the player an expired link. poll.refreshUrl anchors the lazy on-open re-mint of already-succeeded tasks' short-lived presigned S3 URLs (24h record TTL); dropping it leaves a reopened Studio with dead (expired) video links. studio-video-copy-link is the in-lightbox copy-link affordance that restores access to the (freshly re-minted) presigned URL after #860 dropped the open-in-new-tab anchor — its removal re-introduces the \"看不到 S3 链接\" dead-end, so it is pinned."
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays http(s) upstream URLs directly in the browser, while inline data:video results are converted into temporary Blob URLs for this tab and revoked on close/unmount. That keeps playback browser-local and prevents opening a succeeded card from refetching TokenKey as a video server. studio-video-copy-link remains the in-lightbox affordance for copying upstream/direct media URLs."
     },
     {
       "path": "frontend/src/constants/mediaTiers.tk.ts",

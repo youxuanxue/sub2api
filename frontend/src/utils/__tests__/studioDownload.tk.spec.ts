@@ -32,6 +32,13 @@ describe('downloadMedia', () => {
     expect(lastAnchor?.target).toBe('')
   })
 
+  it('downloads a blob: URL with the filename and no new tab', () => {
+    downloadMedia('blob:https://app.example/video-object', 'tokenkey-vt_1.mp4')
+    expect(clickSpy).toHaveBeenCalledOnce()
+    expect(lastAnchor?.getAttribute('download')).toBe('tokenkey-vt_1.mp4')
+    expect(lastAnchor?.target).toBe('')
+  })
+
   it('opens a remote URL in a new tab (download attr is cross-origin-ignored)', () => {
     downloadMedia('https://cdn.example.com/v.mp4', 'tokenkey-vt_1.mp4')
     expect(clickSpy).toHaveBeenCalledOnce()

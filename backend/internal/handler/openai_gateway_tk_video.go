@@ -345,10 +345,9 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
-	// Fast path: the clip was already offloaded to S3 — re-presign and return a
-	// small success JSON WITHOUT touching the upstream task (which may have
-	// expired). This is what makes a reloaded Studio session get a fresh
-	// short-lived URL for free; see openai_gateway_tk_video_s3.go.
+	// Legacy fast path: older records may carry an S3 key from the previous video
+	// offload design. Re-presign those without touching upstream. New video
+	// results use direct upstream URL passthrough or one-time inline delivery.
 	if h.tkVideoFastPathFromS3(c, rec) {
 		return
 	}
@@ -372,16 +371,13 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
-	// Offload a terminal-success inline-base64 clip to S3 and rewrite the body to
-	// carry a presigned URL instead — so the gateway returns a small JSON, not a
-	// 10–20 MB base64 body (the root cause of the false-failure timeout). No-op
-	// passthrough when offload is disabled or the upstream already returns a URL.
+	// Pass through the upstream result directly. If the upstream returns a short-
+	// lived video URL, the client receives that URL unchanged. If it returns
+	// inline video bytes, this request is the one-time delivery path; the Studio
+	// keeps playback browser-local and does not make TokenKey a video CDN.
 	body := out.RawResponse
-	if transformed, ok := h.tkMaybeOffloadVideoToS3(c.Request.Context(), rec, out); ok {
-		body = transformed
-	}
 
-	// Pass the (possibly transformed) upstream JSON through so volcengine / doubao
+	// Pass the upstream JSON through so volcengine / doubao
 	// SDK clients see the body shape new-api would have returned for the same
 	// channel type. We deliberately do NOT wrap in {code,success,data} at this
 	// layer — the upstream already does so for the OpenAI-Video API shape that
@@ -394,14 +390,10 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		_, _ = c.Writer.Write(body)
 	}
 
-	// Terminal handling. We delete the registry entry ONLY on terminal FAILURE
-	// (paired with the refund). Terminal SUCCESS is deliberately KEPT until its
-	// TTL: a Veo success body is a 10–20 MB inline base64 clip that takes ~30s to
-	// stream, and a client whose fetch is aborted mid-download (slow link, tab
-	// switch, an over-tight client timeout) must be able to RE-FETCH it. Deleting
-	// on success made that retry 404, which the Studio then rendered as a false
-	// "failed — refunded" card for a video that actually generated and was billed.
-	// Storage stays bounded by the record TTL either way.
+	// Terminal handling. Keep successful registry records until TTL so clients can
+	// re-read provider-returned URLs if they need to. Inline video bytes are still
+	// bounded in the bridge and are intended as one-time delivery; Studio does not
+	// persist or refetch them for playback.
 	if terminal, failed := videoTerminalOutcome(out.Status); terminal && failed {
 		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
 		// The user paid at submit for a video that never materialized — reverse
