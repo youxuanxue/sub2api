@@ -1,10 +1,10 @@
 ---
 title: Admin Dashboard Rollup Performance
-status: pending
-approved_by: pending
+status: approved
+approved_by: "xuejiao (design directive, this session)"
 created: 2026-06-22
 owners: [tk-platform]
-related_prs: []
+related_prs: [935]
 related_commits: []
 ---
 
