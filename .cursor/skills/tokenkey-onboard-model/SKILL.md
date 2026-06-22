@@ -1,15 +1,7 @@
 ---
 name: tokenkey-onboard-model
 description: >-
-  把"客户要在某账号上以价格 π served+priced 模型 X"从手工操作固化为分钟级确定性流水线：probe
-  上游可服务性 → 写 manifest 条目(backend/internal/service/tk_served_models.json,单一意图源)→ 投影
-  tk_NNN model_mapping 迁移 + tk_pricing_overlay.json fill-only 价(官方源,禁臆造)→
-  apply-live(scheduler_outbox 路由热更 + overlay sync-runtime 价热推,零发版)→ livefire 真请求 200 → 两档计费核对 + 话术。范围严格限
-  TK 策展、经账号 credentials.model_mapping 服务的 newapi 长尾(account 60 Qwen ch17/group18、
-  account 39 ds-官 DeepSeek ch43/group11),不含 litellm 全目录、四原生平台一类目录、grok(原生第七
-  平台经平台路由非 mapping)。安全网=scripts/checks/catalog-serving-drift.py 漂移门禁(manifest↔
-  migration↔overlay 三方一致,#812 类 priced-but-not-mapped 硬失败),经 preflight 调用。Use when
-  客户要上架/定价某模型、把某模型 served 到 39/60、新增 qwen/deepseek 长尾、或排查 priced 但空池 429/503。
+  TokenKey served+priced model onboarding workflow for curated newapi mapping accounts. Use when adding/pricing Qwen or DeepSeek long-tail models, serving a model via accounts 39/60, or debugging priced-but-empty-pool 429/503 drift.
 ---
 
 # TokenKey：上架一个模型（served + priced，确定性流水线）

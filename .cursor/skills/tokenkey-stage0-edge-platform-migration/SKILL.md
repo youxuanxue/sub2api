@@ -1,10 +1,7 @@
 ---
 name: tokenkey-stage0-edge-platform-migration
 description: >-
-  DEPRECATED 2026-06-07 — the EC2/CFN Edge path was removed; edges are now
-  Lightsail-only, so there is no EC2 edge left to migrate from. For adding a
-  new edge use tokenkey-stage0-edge-lightsail-expansion. (prod remains
-  EC2/CFN and is unaffected.)
+  Deprecated TokenKey EC2 edge platform migration path. Use only to explain that edges are Lightsail-only and redirect new edge work to tokenkey-stage0-edge-lightsail-expansion.
 ---
 
 # DEPRECATED：Edge 平台迁移（EC2 → Lightsail）

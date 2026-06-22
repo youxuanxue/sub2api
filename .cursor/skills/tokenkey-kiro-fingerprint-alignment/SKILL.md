@@ -1,15 +1,7 @@
 ---
 name: tokenkey-kiro-fingerprint-alignment
 description: >-
-  Capture a real Kiro IDE (AWS CodeWhisperer, sixth platform) TLS ClientHello by
-  passive pcap and diff its JA3 + aws-sdk-js User-Agent against TokenKey repo
-  constants (kiro/constants.go, tk_canonical_kiro_ide). Unlike cc, the Kiro IDE
-  endpoint is hard-coded and cannot be redirected to a collector, so capture is
-  tcpdump + tshark (handshake is plaintext); HTTP UA via mitm is best-effort.
-  Use when onboarding the canonical Kiro TLS profile, after a Kiro IDE update is
-  suspected of shifting the JA3, or before opening the Phase-2 PR that enables
-  IsTLSFingerprintEnabled for kiro. This skill is capture + diff only; it never
-  fabricates a JA3 and never opens the TLS gate.
+  Capture and diff real Kiro IDE TLS JA3 and aws-sdk-js User-Agent against TokenKey constants. Use for Kiro TLS onboarding, suspected IDE JA3 drift, or pre-Phase-2 TLS gate verification; capture/diff only.
 ---
 
 # TokenKey：Kiro 指纹对齐（被动抓包 → diff → 落 profile）

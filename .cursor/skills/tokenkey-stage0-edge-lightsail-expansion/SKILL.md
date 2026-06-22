@@ -1,14 +1,7 @@
 ---
 name: tokenkey-stage0-edge-lightsail-expansion
 description: >-
-  End-to-end runbook for adding a TokenKey Stage0 Edge gateway on AWS Lightsail —
-  the SOLE Edge deploy path (the EC2/CFN edge path was retired 2026-06-07; prod
-  stays EC2/CFN). Register the edge in
-  deploy/aws/lightsail/edge-targets-lightsail.json, ensure the one-time
-  Lightsail IAM addon is in place (GHCR PAT only needed when the image is
-  private — TokenKey GHCR is public so default provision uses anonymous pull),
-  provision via deploy-edge-lightsail-stage0.yml, point DNS, smoke, and
-  upgrade/rollback.
+  Add a TokenKey Stage0 Edge gateway on AWS Lightsail. Use for new edge registration, Lightsail provisioning, DNS pointing, smoke checks, upgrades, or rollbacks on the current edge platform.
 ---
 
 # TokenKey：新增 Lightsail Edge 网关全流程

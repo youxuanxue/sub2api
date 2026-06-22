@@ -1,19 +1,7 @@
 ---
 name: tokenkey-user-billing-watch
 description: >-
-  Read-only TokenKey production per-user billing/usage/error watch — boots the
-  recurring 盯盘 in any fresh session. Runs ops/observability/probe-user-billing-watch.sh
-  via run-probe.sh (one SSM round-trip, pure SELECT, default USER_IDS=1,16
-  WINDOW_MINUTES=30), then reports per-user success counts (reqs/billed/zero_cost),
-  metering total_cost vs actual_cost with the multiplier, error counts by
-  status/phase, and top-3 models, with window-over-window arrows. Pushes a
-  notification ONLY on a real anomaly (traffic to zero / error-rate spike / cost
-  spike / a new error fingerprint); routine reads stay in-chat, tables-first,
-  Chinese. Teaches the structural-fingerprint method to tell client-side noise
-  (wrong-group-key empty-pool 429, recovered-200, content/retired-model 4xx)
-  from a true system anomaly, instead of a brittle hardcoded noise list. Use
-  when asked to 盯盘 / 启动盯盘 / monitor user usage / 用量监控 / billing watch /
-  watch user 1,16, or to arm the 30-min reporting loop.
+  Read-only TokenKey production user billing/usage/error watch. Use for 盯盘, billing watch, user 1/16 monitoring, 30-minute reporting loops, anomaly notification, or distinguishing client noise from real metering/system issues.
 ---
 
 # TokenKey：按用户用量/计费/错误盯盘（新会话一键启动）

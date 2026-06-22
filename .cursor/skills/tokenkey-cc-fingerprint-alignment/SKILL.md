@@ -1,12 +1,7 @@
 ---
 name: tokenkey-cc-fingerprint-alignment
 description: >-
-  End-to-end workflow to capture real Claude Code (cc0-here / claude0-here) TLS
-  and HTTP fingerprints, diff against TokenKey repo constants
-  (tk_canonical_cc_oauth, constants.go, identity_service*), fix drift, and open
-  a spec-delta PR. Use when cc patch releases, ingress UA cohort mixes, OAuth
-  mimicry/beta/stainless drift is suspected, or after PR #423-style alignment
-  needs repeating for a new cc version.
+  Capture real Claude Code TLS/HTTP fingerprints and diff/fix TokenKey constants. Use after cc version changes, ingress UA cohort drift, OAuth mimicry/beta/stainless drift, or refreshing tk_canonical_cc_oauth alignment.
 ---
 
 # TokenKey：cc 指纹对齐（抓包 → diff → 修代码 → PR）

@@ -1,10 +1,7 @@
 ---
 name: tokenkey-online-log-troubleshooting
 description: >-
-  Read-only TokenKey production/edge troubleshooting workflow for querying live
-  logs, ops_error_logs, Docker containers, SSM targets, gateway UA/TLS
-  fingerprints, SUB2API_DEBUG_GATEWAY_BODY pulls, CI/deploy runs, and turning
-  evidence into a stable root-cause summary without ad-hoc command guessing.
+  Read-only TokenKey prod/edge troubleshooting workflow. Use for live logs, ops_error_logs, SSM/Docker checks, gateway UA/TLS/body evidence, CI/deploy traces, and evidence-based root-cause summaries.
 ---
 
 # TokenKey：线上日志查询与问题定位

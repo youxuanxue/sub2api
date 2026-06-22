@@ -1,15 +1,7 @@
 ---
 name: tokenkey-stage0-edge-lightsail-ip-rotation
 description: >-
-  Rotate the egress Static IP of a TokenKey Stage0 Lightsail Edge (uk1 /
-  us1 / us2 / fra1 / sg1 / …) when the live IP has been risk-blocked
-  ("polluted") by Anthropic / OpenAI / Google. Matrix `instance_name` /
-  `static_ip_name` may differ from default `tokenkey-edge-<id>-ls` (adopt
-  path). Mirrors the EC2 EIP rotation posture: a single primitive
-  (ops/lightsail/rotate-static-ip.sh) swaps the Static IP, the operator
-  updates Porkbun DNS, restarts Caddy if needed, and external verification
-  runs from a clean-egress host. No CloudFormation drift step because
-  Lightsail Edge is not CloudFormation-owned.
+  Rotate a TokenKey Stage0 Lightsail Edge egress Static IP after provider risk-blocking or pollution. Use for uk/us/fra/sg edge IP swaps, DNS/Caddy follow-up, and clean-egress verification.
 ---
 
 # TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
