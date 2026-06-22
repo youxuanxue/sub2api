@@ -2165,67 +2165,23 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	response.Success(c, models)
 }
 
+// tk{OpenAI,Gemini,Claude}AdminDefaultModels return the admin available-models
+// fallback for an account with no usable model_mapping, narrowed from the raw
+// canonical *.DefaultModels to the unified servable candidate set (advertised-dead
+// ids drop via the allowlist). They share the per-type synthesizers with the
+// gateway /v1/models fallback (pkg .ModelsForIDs) so the two surfaces never drift
+// on the synthesized display metadata; they pass nil availability/pricing because
+// the admin capability view wants servability, not the gateway's priced gate.
 func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
-	byID := make(map[string]openai.Model, len(openai.DefaultModels))
-	for _, m := range openai.DefaultModels {
-		byID[m.ID] = m
-	}
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil)
-	out := make([]openai.Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byID[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, openai.Model{
-			ID:          id,
-			Object:      "model",
-			Created:     1704067200,
-			OwnedBy:     "openai",
-			Type:        "model",
-			DisplayName: id,
-		})
-	}
-	return out
+	return openai.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil))
 }
 
 func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
-	byID := make(map[string]geminicli.Model, len(geminicli.DefaultModels))
-	for _, m := range geminicli.DefaultModels {
-		byID[m.ID] = m
-	}
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
-	out := make([]geminicli.Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byID[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, geminicli.Model{ID: id, Type: "model", DisplayName: id})
-	}
-	return out
+	return geminicli.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil))
 }
 
 func tkClaudeAdminDefaultModels(ctx context.Context) []claude.Model {
-	byBase := make(map[string]claude.Model, len(claude.DefaultModels))
-	for _, m := range claude.DefaultModels {
-		byBase[claude.DenormalizeModelID(m.ID)] = m
-	}
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil)
-	out := make([]claude.Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byBase[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, claude.Model{
-			ID:          id,
-			Type:        "model",
-			DisplayName: id,
-			CreatedAt:   "2024-01-01T00:00:00Z",
-		})
-	}
-	return out
+	return claude.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil))
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.
