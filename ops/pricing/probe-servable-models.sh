@@ -14,6 +14,11 @@
 #   GEMINI_VIDEO_MODELS      -> POST app:8080/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
 #     NB gemini families run ON the edge host and hit the app container directly
 #     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
+#   GROK_CHAT_MODELS         -> POST app:8080/v1/chat/completions  (native grok, edge-internal)
+#     NB grok lives on its native edge pool (currently edge-us4). Like gemini,
+#     the edge-local probe hits the app container directly instead of the public
+#     Caddy path. Use run-probe with --target edge:us4 and a key bound to the
+#     edge-side grok group.
 #   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
 #     The newapi fifth-platform pool IS served at prod (unlike gemini, which is
 #     edge-internal), so this family routes through the normal prod TK gateway
@@ -53,6 +58,9 @@
 #   GEMINI_GROUP_NAME        default google-vertex  (verified prod newapi Vertex group; CASE-SENSITIVE)
 #   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
 #   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
+#   GROK_GROUP_NAME          default grok  (verified edge native grok group; CASE-SENSITIVE)
+#   GROK_APP_CONTAINER       default tokenkey-caddy
+#   GROK_APP_URL             default http://tokenkey:8080
 #   DASHSCOPE_GROUP_NAME     default Qwen  (verified prod group, capital Q; CASE-SENSITIVE; never printed)
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
@@ -89,6 +97,9 @@ GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google-vertex}"
 # carries busybox wget and resolves the app service name on the compose network.
 GEMINI_APP_CONTAINER="${GEMINI_APP_CONTAINER:-tokenkey-caddy}"
 GEMINI_APP_URL="${GEMINI_APP_URL:-http://tokenkey:8080}"
+GROK_GROUP_NAME="${GROK_GROUP_NAME:-grok}"
+GROK_APP_CONTAINER="${GROK_APP_CONTAINER:-tokenkey-caddy}"
+GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
 DASHSCOPE_GROUP_NAME="${DASHSCOPE_GROUP_NAME:-Qwen}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
@@ -189,6 +200,21 @@ probe_gemini_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
 	done
 }
 
+probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
+	local key="$1" path="$2" models="$3" buildfn="$4" m hf bf code body
+	for m in $models; do
+		hf="$(mktemp)"; bf="$(mktemp)"; body="$($buildfn "$m")"
+		sudo docker exec "$GROK_APP_CONTAINER" wget -S -q -O - --timeout=90 \
+			--header="Authorization: Bearer $key" --header='content-type: application/json' \
+			--post-data="$body" "$GROK_APP_URL$path" >"$bf" 2>"$hf" || true
+		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$')"
+		[ -z "$code" ] && code=000
+		emit grok "$m" "$code" "$(verdict "$code" "$bf")"
+		rm -f "$hf" "$bf"
+		sleep "$REQ_SLEEP"
+	done
+}
+
 body_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
 body_resp() { printf '{"model":"%s","instructions":"You are a helpful assistant.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say OK"}]}],"stream":false}' "$1"; }
 body_img() { printf '{"model":"%s","prompt":"a small red circle on white","n":1,"size":"1024x1024"}' "$1"; }
@@ -228,7 +254,7 @@ probe_dashscope() { # $1=key  (models from $DASHSCOPE_CHAT_MODELS)
 }
 
 main() {
-	local akey okey gkey dkey arkacct arkkey arkbase
+	local akey okey gkey grkey dkey arkacct arkkey arkbase
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
 		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
@@ -276,6 +302,17 @@ main() {
 			cfgerr newapi "no api_key bound to group '$DASHSCOPE_GROUP_NAME' (DASHSCOPE_GROUP_NAME) — check name/case + that a key is bound"
 		else
 			probe_dashscope "$dkey"
+		fi
+	fi
+	# Grok family: native xAI OAuth pool on the edge (currently us4). Probe key is
+	# a TK api_key BOUND TO the edge-side grok group; never printed. The probe runs
+	# on the edge host and hits the app container directly, bypassing edge Caddy.
+	if [ -n "${GROK_CHAT_MODELS:-}" ]; then
+		grkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GROK_GROUP_NAME' AND g.platform='grok' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+		if [ -z "$grkey" ]; then
+			cfgerr grok "no api_key bound to group '$GROK_GROUP_NAME' (GROK_GROUP_NAME) — check name/case + that a key is bound"
+		else
+			probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
 		fi
 	fi
 	# Gemini family: newapi/Vertex models served through the google group on GEMINI_BASE.

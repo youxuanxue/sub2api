@@ -6,8 +6,9 @@ routed to anthropic, gpt-oss off antigravity) across all deployable edges + prod
 on BOTH surfaces the backend ``AntigravityConfigReconciler`` self-heals:
 
   1. **accounts** — every ``platform=antigravity`` account carries a gemini-only
-     ``credentials.model_mapping`` (no ``claude-*`` / ``gpt-oss-*`` keys), AND any
-     active+schedulable account is bound to an antigravity group (account_groups).
+     ``credentials.model_mapping`` (no ``claude-*`` / ``gpt-oss-*`` keys, no
+     PR #921 structural-dead Antigravity aliases), AND any active+schedulable
+     account is bound to an antigravity group (account_groups).
   2. **groups** — every active ``platform=antigravity`` group carries gemini-only
      ``supported_model_scopes`` (exactly ``[gemini_text, gemini_image]``), so
      ``/antigravity/v1/models`` + the API key usage guide hide claude.
@@ -18,11 +19,12 @@ tool is the only safety net for it. This tool is the post-rollout *verification*
 
 A **violation** is any antigravity account whose ``model_mapping`` is null/empty
 (an empty map falls back to ``DefaultAntigravityModelMapping``, which still
-includes claude + gpt-oss) or contains any ``claude-`` / ``gpt-oss-`` key, OR an
-active+schedulable account with no antigravity-group binding (account_groups missing
-→ scheduler "No available accounts" 429: looks ready but silently never serves); OR
-any active antigravity group whose ``supported_model_scopes`` is empty (unrestricted
-→ advertises claude) or not exactly the gemini-only set.
+includes claude + gpt-oss) or contains any ``claude-`` / ``gpt-oss-`` key or
+PR #921 structural-dead alias, OR an active+schedulable account with no
+antigravity-group binding (account_groups missing → scheduler "No available
+accounts" 429: looks ready but silently never serves); OR any active antigravity
+group whose ``supported_model_scopes`` is empty (unrestricted → advertises claude)
+or not exactly the gemini-only set.
 
 Exit codes (mirrors the anthropic post-release check): ``0`` = all gemini-only
 (green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
@@ -69,6 +71,17 @@ ANTIGRAVITY_GROUPS_SQL = (
 # Canonical gemini-only group scopes — mirrors domain.GeminiOnlyAntigravityModelScopes
 # and the reconciler's antigravityGroupScopesNeedGeminiOnly predicate.
 GEMINI_ONLY_SCOPES = {"gemini_text", "gemini_image"}
+
+ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS = {
+    "gemini-2.5-flash-image-preview",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-high",
+    "gemini-3-pro-image-preview",
+    "gemini-3-pro-low",
+    "gemini-3-pro-preview",
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-preview",
+}
 
 # ops-sql-coverage gate: ssm_run_sql ships SQL over SSM, it does not build it.
 SELF_CHECK_EXEMPT: dict[str, str] = {
@@ -166,6 +179,9 @@ def _account_violation(row: dict) -> str | None:
         leaked = sorted(k for k in mm if k.startswith("claude-") or k.startswith("gpt-oss-"))
         if leaked:
             reasons.append("serves excluded models: " + ", ".join(leaked))
+        stale = sorted(k for k in mm if k in ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS)
+        if stale:
+            reasons.append("contains structural-dead aliases: " + ", ".join(stale))
 
     if row.get("status") == "active" and row.get("schedulable") and not row.get("bound"):
         reasons.append("active+schedulable but NOT bound to any antigravity group "

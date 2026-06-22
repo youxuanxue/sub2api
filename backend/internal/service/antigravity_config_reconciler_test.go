@@ -121,6 +121,33 @@ func TestAntigravityReconciler_NonProbeClaudeId_StillReconciled(t *testing.T) {
 	require.NotContains(t, mm, "claude-opus-4-8")
 }
 
+func TestAntigravityReconciler_StructuralDeadAlias_StillReconciled(t *testing.T) {
+	acc := &reconcilerAccountStub{
+		byPlatform: map[string][]Account{
+			PlatformAntigravity: {
+				{
+					ID:       10,
+					Platform: PlatformAntigravity,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gemini-3-pro-preview": "gemini-pro-agent",
+							"gemini-pro-agent":     "gemini-pro-agent",
+						},
+					},
+				},
+			},
+		},
+	}
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
+	r.runOnce(context.Background())
+
+	require.Len(t, acc.bulkCalls, 1, "custom map with structural-dead alias must be reconciled")
+	require.Equal(t, []int64{10}, acc.bulkCalls[0].ids)
+	mm := acc.bulkCalls[0].updates.Credentials["model_mapping"].(map[string]any)
+	require.NotContains(t, mm, "gemini-3-pro-preview")
+	require.Contains(t, mm, "gemini-pro-agent")
+}
+
 // Nil store / nil reconciler must be safe (mirrors the wire minimal-deps smoke).
 func TestAntigravityReconciler_NilSafe(t *testing.T) {
 	var nilRec *AntigravityConfigReconciler
