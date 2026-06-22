@@ -23,7 +23,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
 - **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 5、grok 8（5 个 Go map）。
-- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7，GLM 直连族在账号 67（tk_044，待 prod canary livefire）。
+- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7，GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
 - **总计**：约 110 个 servable id / 140 个 priced id。
 - **不可服务台账**：139 行，按持久性分 **structural 49（永久跳过）/ policy 75（能服务但故意不上）/ transient 15（需复测）**。
 
@@ -199,7 +199,7 @@ glm-4.5  glm-4.5-x  glm-4.5-air  glm-4.5-airx
 glm-4-32b-0414-128k
 ```
 
-free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。livefire 仍需 prod canary：当前只读巡检显示 GLM 组无 active TK key，需先绑定测试 key，再用 `ZHIPU_CHAT_MODELS=glm-4.7` 探针验证。
+free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。prod canary 已于 2026-06-22 完成：runtime overlay 热推后，account 67 切到 ct26、`base_url=https://open.bigmodel.cn`、12 个 paid mapping；`ZHIPU_CHAT_MODELS=glm-4.7` 经 prod 网关返回 `200 servable`，`usage_logs` 落 account 67 / group 26 且 `total_cost=0.0004964000` 非零。
 
 ### 2.7 kiro（第六平台，CodeWhisperer 中继）
 
@@ -286,7 +286,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|
 | 高 | ct=25 Moonshot | `kimi-k2.5` `kimi-k2-thinking` 等订阅 OAuth 长上下文 | 已有 billing fallback 价；典型 net-new |
 | 中 | ct=35 MiniMax | `MiniMax-M2.x` chat + speech + `image-01` | 含音视频面 |
-| 已落代码 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 + overlay + manifest 已就绪；待 prod canary livefire |
+| 已完成 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 + overlay + manifest + prod canary 已完成；`glm-4.7` livefire 200 且计费非零 |
 | 中 | ct=17/43 Ali/DeepSeek 未接 id | `qwq-32b`；deepseek-v4 `-none/-max`（实为 adaptor 追加的思考后缀别名，非独立模型）| `qwen-turbo` 已由 tk_042 收敛 |
 | 低 | ct=1/57 OpenAI 尾 | o1/o3/o4、gpt-4*/4o*、audio/embeddings/dall-e/sora-2（153+24）| 按 raw count 最大一桶 |
 | 低 | ct=24/41 Gemini/Vertex 尾 | gemma、native-audio、robotics、computer-use 等 | 多为非目标 surface |
@@ -317,7 +317,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|
 | 1 | OpenAI | 153 | bridge 尾，未接 |
 | 14 | Anthropic | 39 | claude bridge 面 |
-| 16/26 | Zhipu/ZhipuV4 | 4/16 | ct26 GLM paid SKU 已由 tk_044 建模，待 prod canary；ct16 legacy 不再作为目标路径 |
+| 16/26 | Zhipu/ZhipuV4 | 4/16 | ct26 GLM paid SKU 已由 tk_044 建模并完成 prod canary；ct16 legacy 不再作为目标路径 |
 | 17 | Ali | 8 | 账号 60（部分）|
 | 24 | Gemini | 45 | bridge 尾 |
 | 25 | Moonshot | 5 | backlog（kimi）|

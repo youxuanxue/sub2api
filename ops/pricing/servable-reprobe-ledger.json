@@ -182,7 +182,7 @@
     {
       "platform": "newapi",
       "model": "glm-5.x/glm-4.x",
-      "reason": "Direct GLM family is now modeled in code via account 67 channel_type=26 and tk_044; livefire still requires a GLM-group TK key plus approved prod canary apply.",
+      "reason": "Direct GLM family is modeled via account 67 channel_type=26 and tk_044; prod canary completed 2026-06-22 with glm-4.7 livefire 200 and nonzero usage billing.",
       "expires": "2026-07-06",
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
