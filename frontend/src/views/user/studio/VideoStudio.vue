@@ -257,8 +257,9 @@
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
-          <!-- Generated clips are throwaway previews (auto-removed after ~1 day),
-               so nudge the user to grab it now rather than discover it expired. -->
+          <!-- The clip plays from a short-lived upstream link (TokenKey no longer
+               rehosts video results), so nudge the user to grab it now rather than
+               discover it expired. -->
           <p v-if="task.url" class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.video.retentionHint') }}</p>
         </div>
 

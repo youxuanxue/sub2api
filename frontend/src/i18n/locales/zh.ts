@@ -213,7 +213,7 @@ export default {
       reserved: '已预留 {cost} · 失败则退款',
       notifyMe: '完成通知我',
       usuallyTakes: '通常 30–90 秒',
-      noUrlHint: '任务成功，但未能解析出视频地址。',
+      noUrlHint: '任务已成功。视频结果不会长期保留，此处无法播放——如需查看请重新生成。',
       download: '下载',
       failedRefunded: '生成失败 — 已退你 {cost}。试试更短的片子或别的档位。',
       techDetails: '技术详情',
@@ -232,12 +232,12 @@ export default {
       close: '关闭',
       loadingPreview: '加载中…',
       expiredTitle: '预览已过期',
-      expiredHint: '生成的视频仅临时保存约 1 天，超时会自动清理。若是刚生成的请点重试，否则请重新生成。',
+      expiredHint: '视频链接是上游的临时地址、有效期较短，可能已过期。若是刚生成的请点重试，否则请重新生成。',
       stalled: '无法继续获取进度（密钥可能已删除）。请重新生成。',
       retry: '重试',
       copyLink: '复制链接',
       copied: '已复制',
-      retentionHint: '保留约 1 天 · 请及时下载'
+      retentionHint: '上游临时链接 · 请及时下载'
     },
     chat: {
       model: '模型',
