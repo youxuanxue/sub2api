@@ -51,8 +51,14 @@
           :disabled="loadingModels || status === 'connecting'"
           value-key="id"
           label-key="display_name"
+          :creatable="allowCustomModel"
+          :searchable="allowCustomModel ? true : 'auto'"
+          :creatable-prefix="t('admin.accounts.customModelPrefix')"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
         />
+        <p v-if="allowCustomModel" class="text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.customModelHint') }}
+        </p>
       </div>
 
       <div v-if="supportsImageTest" class="space-y-1.5">
@@ -290,6 +296,15 @@ const supportsOpenAIImageTest = computed(() => {
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
+
+// When the account exposes no preset test models — e.g. a fifth-platform `newapi`
+// bridge stub whose model_mapping is empty, so GetAvailableModels returns [] —
+// the dropdown would be an unusable "no options" box and the account couldn't be
+// tested at all. In that case let the operator type a model name to test (the
+// Select becomes searchable + creatable). Gated on "loaded AND empty" so the
+// native platforms (which always return their default catalog) keep the plain
+// picker unchanged.
+const allowCustomModel = computed(() => !loadingModels.value && availableModels.value.length === 0)
 
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))

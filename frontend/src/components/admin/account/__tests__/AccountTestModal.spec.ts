@@ -136,4 +136,47 @@ describe('AccountTestModal', () => {
     expect(preview.exists()).toBe(true)
     expect(preview.attributes('src')).toBe('data:image/png;base64,QUJD')
   })
+
+  // A fifth-platform `newapi` bridge stub (e.g. the prod grok stub) with no
+  // model_mapping makes GetAvailableModels return [] — without the fallback the
+  // dropdown is an unusable "no options" box and the account can't be tested.
+  function mountWith(account: Record<string, unknown>) {
+    return mount(AccountTestModal, {
+      props: { show: false, account } as any,
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Select: {
+            props: ['creatable', 'searchable'],
+            template: '<div class="select-stub" :data-creatable="String(creatable)" :data-searchable="String(searchable)"></div>'
+          },
+          TextArea: true,
+          Icon: true
+        }
+      }
+    })
+  }
+
+  it('newapi account with no preset models falls back to free-text entry', async () => {
+    getAvailableModels.mockResolvedValueOnce([])
+    const wrapper = mountWith({ id: 7, name: 'oh-3-e', platform: 'newapi', type: 'oauth', channel_type: 1, status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    // the operator is told to type a model name…
+    expect(wrapper.text()).toContain('admin.accounts.customModelHint')
+    // …and the Select is switched into searchable + creatable (free-text) mode.
+    const select = wrapper.find('.select-stub')
+    expect(select.attributes('data-creatable')).toBe('true')
+    expect(select.attributes('data-searchable')).toBe('true')
+  })
+
+  it('account with preset models keeps the plain picker (no free-text fallback)', async () => {
+    const wrapper = mountWith({ id: 42, name: 'g', platform: 'gemini', type: 'apikey', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.accounts.customModelHint')
+    expect(wrapper.find('.select-stub').attributes('data-creatable')).toBe('false')
+  })
 })

@@ -4711,6 +4711,8 @@ export default {
       startingTestForAccount: '开始测试账号：{name}',
       testAccountTypeLabel: '账号类型：{type}',
       selectTestModel: '选择测试模型',
+      customModelHint: '该账号无预设模型，请输入要测试的模型名称',
+      customModelPrefix: '测试',
       testModel: '测试模型',
       testPrompt: '提示词："hi"',
       imagePromptLabel: '生图提示词',
