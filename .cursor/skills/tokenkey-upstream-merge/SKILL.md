@@ -1,12 +1,7 @@
 ---
 name: tokenkey-upstream-merge
 description: >-
-  Standard TokenKey upstream merge workflow for regularly importing Wei-Shaw/sub2api
-  upstream/main while preserving TokenKey OPC goals: one product, one control plane,
-  minimum Engine Spine, QA/tool evidence integrity, no silent upstream feature deletion,
-  and minimum upstream conflict surface. Use when the user asks to merge upstream,
-  refresh from upstream/main, prepare an upstream merge PR, review upstream drift, or
-  create a recurring upstream update process.
+  TokenKey upstream merge workflow for importing Wei-Shaw/sub2api upstream/main. Use when merging or reviewing upstream drift, preparing an upstream merge PR, or maintaining recurring upstream update discipline.
 ---
 
 # TokenKey upstream merge SOP

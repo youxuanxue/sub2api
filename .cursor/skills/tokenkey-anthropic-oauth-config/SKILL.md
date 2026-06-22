@@ -1,7 +1,7 @@
 ---
 name: tokenkey-anthropic-oauth-config
 description: >-
-  TokenKey Anthropic OAuth 配置流水线（snapshot → check → [TLS 模板修复 / HTTP UA 同步] → verify），由 ops/anthropic/manage-anthropic-config.py 统一编排。本 skill 现仅覆盖 **后端 reconciler / admin UI 不负责的三件事**：(1) check 联查——跨所有 deployable edge + prod 一次 snapshot 后跑 OAuth 稳定性 guard，只读出 tier baseline / TLS / 余额漂移；(2) TLS fingerprint canonical 模板（tk_canonical_cc_oauth）的 upsert + 账号绑定与漂移修复（plan-guard-drift-fix / remediate-guard-drift）；(3) HTTP UA / mimicry 运行时同步（sync-runtime：settings.claude_code_user_agent_version + claude_code_http_mimicry_manifest UPSERT + DEL Redis fingerprint:{id}）。**tier 配置写入与 A/B/C/D/E 联动（operator Σ 并发、pool_mode、concurrency 镜像、claude_code_only、edge 余额门槛）已下沉到后端 anthropic_config_reconciler.go 自愈 + admin UI ApplyTier，不再由本 skill 驱动**——见 §3。Use when 提到 TokenKey Anthropic OAuth check 联查、TLS 指纹模板漂移、tk_canonical_cc_oauth、claude code UA / http mimicry 同步、manage-anthropic-config snapshot/check/sync-runtime。
+  TokenKey Anthropic OAuth read/check/remediation workflow. Use for manage-anthropic-config snapshot/check/sync-runtime, tk_canonical_cc_oauth TLS template drift, Claude Code UA/http mimicry sync, or OAuth stability guard checks across prod/edges.
 ---
 
 # TokenKey：Anthropic OAuth 配置流水线（check 联查 + TLS 模板 + HTTP UA）

@@ -1,12 +1,7 @@
 ---
 name: tokenkey-anthropic-oauth-priority-by-window
 description: >-
-  TokenKey 跨所有 deployable edge 的 Anthropic OAuth 账号 priority 重排流水线
-  （snapshot → plan → apply → verify）。按账号当前 5h/7d 可用用量窗口剩余度
-  打分，同 stability tier 内重排 priority（smaller wins），剩余越多 priority
-  越小（越优先调度）。**只写** accounts.priority 一个字段，不动 tier baseline、
-  不动 group.rpm_limit、不动 credentials。单一脚本
-  ops/anthropic/rebalance-anthropic-priority.py 编排，1 个 SQL 模板固化写入。
+  Rebalance TokenKey Anthropic OAuth account priority by remaining 5h/7d usage windows across deployable edges. Use for snapshot/plan/apply/verify of accounts.priority only; does not change tier, rpm limits, groups, or credentials.
 ---
 
 # TokenKey：Anthropic OAuth 按剩余用量窗口重排 priority

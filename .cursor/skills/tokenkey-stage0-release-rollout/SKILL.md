@@ -1,19 +1,7 @@
 ---
 name: tokenkey-stage0-release-rollout
 description: >-
-  Drives TokenKey AWS Stage0 release and rollout across prod and Edge targets:
-  release via scripts/release-bump-and-tag.sh (worktree-isolated decide/bump/tag,
-  wraps release-decide-version.sh + release-tag.sh), watch release.yml,
-  deploy prod via deploy-stage0.yml, roll out remaining edges via
-  scripts/stage0/rollout-edges.sh, deploy/smoke deployable Edge targets
-  (dynamic edge matrix from deploy/aws/lightsail/edge-targets-lightsail.json;
-  edges are Lightsail-only, dispatched via scripts/stage0/dispatch-edge-deploy.sh
-  to deploy-edge-lightsail-stage0.yml),
-  report structured smoke results, run post-release Anthropic OAuth config
-  check (manage-anthropic-config.py snapshot+check; see tokenkey-anthropic-oauth-config),
-  or run a pre-release check of code facts and production impact risk.
-  Use when the user asks to release, deploy, smoke, rollback, check release
-  risk, or roll out to prod, Edge regions, or all Stage0 targets.
+  Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback, and release-risk checks. Use for release tagging, deploy-stage0, Lightsail edge rollout, structured smoke results, or post-release OAuth checks.
 ---
 
 # TokenKey：Stage0 release → prod/Edge rollout → 真实测试

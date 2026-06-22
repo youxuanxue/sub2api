@@ -1,18 +1,7 @@
 ---
 name: tokenkey-antigravity-fingerprint-alignment
 description: >-
-  Capture a real Antigravity IDE (Google cloudcode-pa, the OAuth-relay platform)
-  HTTP fingerprint via mitmproxy and diff it against TokenKey's Go constants
-  (internal/pkg/antigravity/oauth.go, client.go, request_transformer.go). Inverted
-  vs kiro: for antigravity the load-bearing signal is HTTP (impersonated client UA
-  *version*, body `userAgent` literal, loadCodeAssist/onboardUser ideType metadata,
-  privacy-endpoint `X-Goog-Api-Client: gl-node/<ver>`), NOT the TLS JA3 — TokenKey
-  and the real IDE share a native Go/Node TLS stack so the ClientHello is
-  same-origin and JA3 carries no signal (captured optionally, never gates). The
-  cloudcode-pa endpoint is hard-coded (cannot be redirected like cc), so the IDE
-  must egress through the mitm proxy and trust its CA. Use when an Antigravity IDE
-  update is suspected of shifting the client UA version, or to refresh the
-  impersonation constants. Capture + diff only; never fabricates a JA3.
+  Capture and diff real Antigravity IDE HTTP fingerprints against TokenKey constants. Use when cloudcode-pa UA/body/header mimicry may have drifted or Antigravity impersonation constants need refresh; capture/diff only, never fabricate JA3.
 ---
 
 # TokenKey：Antigravity 指纹对齐（mitm 抓 HTTP → diff Go 常量 → 改常量 → PR）

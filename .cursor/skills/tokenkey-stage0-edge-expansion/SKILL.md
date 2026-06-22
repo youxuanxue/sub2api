@@ -1,9 +1,7 @@
 ---
 name: tokenkey-stage0-edge-expansion
 description: >-
-  DEPRECATED 2026-06-07 — the EC2/CFN Edge path was removed; edges are now
-  Lightsail-only. To add a new edge use tokenkey-stage0-edge-lightsail-expansion.
-  (prod remains EC2/CFN and is unaffected.)
+  Deprecated TokenKey EC2/CFN edge expansion path. Use only to redirect old edge-add requests to tokenkey-stage0-edge-lightsail-expansion.
 ---
 
 # DEPRECATED：新增 EC2/CFN Edge 网关

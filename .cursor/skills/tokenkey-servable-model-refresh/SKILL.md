@@ -1,17 +1,7 @@
 ---
 name: tokenkey-servable-model-refresh
 description: >-
-  刷新 TokenKey 公开 /pricing 目录 + 「我的菜单」的「实测可服务模型」allowlist
-  （candidates → probe → apply → PR）。经 prod SSM 逐平台逐模型发真实请求实测
-  （anthropic 走 edge-us7 的 Claude-Code 形 /v1/messages；openai 走 GPT专线 key 的
-  /v1/chat/completions，codex 走 /v1/responses，image 走 /v1/images 尽力探），**只保留
-  返回真 200 的**，去重 dated 快照（anthropic -YYYYMMDD / openai -YYYY-MM-DD，丢
-  dated-with-base + -thinking），splice 回 backend/internal/service/
-  pricing_catalog_supported_models_tk.go 的两个 Go map 并自动提 PR。单一脚本
-  ops/pricing/refresh-servable-allowlist.py 编排 + ops/pricing/probe-servable-models.sh
-  探测；selftest + preflight 门禁 + sentinel 守护确定性与 splice 标记。canonical/
-  广告状态无关——纯实测。Use when 刷新可服务模型清单、公开目录或我的菜单出现陈旧/
-  不可用模型、实测某平台模型是否还能经 TokenKey served、或重跑 2026-06-05 那次手工探测。
+  Refresh TokenKey public pricing and menu served-model allowlists from real upstream probes. Use when the catalog/menu is stale, models may no longer serve 200, or ops/pricing refresh/probe automation needs to update supported maps.
 ---
 
 # TokenKey：实测可服务模型 allowlist 刷新

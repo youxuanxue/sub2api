@@ -1,10 +1,7 @@
 ---
 name: tokenkey-stage0-edge-ip-rotation
 description: >-
-  DEPRECATED 2026-06-07 — the EC2/CFN Edge path (and its EIP-rotation tooling)
-  was removed; edges are now Lightsail-only. To rotate an edge's polluted egress
-  IP use tokenkey-stage0-edge-lightsail-ip-rotation. (prod remains EC2/CFN and
-  is unaffected.)
+  Deprecated TokenKey EC2 edge IP rotation path. Use only to redirect polluted edge egress IP rotation requests to tokenkey-stage0-edge-lightsail-ip-rotation.
 ---
 
 # DEPRECATED：Edge EIP 污染轮换（EC2/CFN）

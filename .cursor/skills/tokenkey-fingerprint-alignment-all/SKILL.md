@@ -1,18 +1,7 @@
 ---
 name: tokenkey-fingerprint-alignment-all
 description: >-
-  Umbrella that aligns ALL client fingerprints in one pass — runs the Claude Code
-  engine (ops/anthropic, active collector-redirect + cc0 MITM), the Kiro IDE engine
-  (ops/kiro, passive pcap), and the Antigravity IDE engine (ops/antigravity,
-  mitmproxy HTTP capture) via ops/fingerprint/capture-all-fingerprints.sh,
-  aggregates one combined drift report, and lands the refreshed artifacts in a
-  single PR. The three capture engines stay independent (different mechanisms /
-  clients / baselines); only the orchestration and the PR are unified.
-  Use when refreshing fingerprints across platforms together, after client updates
-  on more than one platform, or when you want one PR instead of per-platform churn.
-  For a single platform use the per-engine skills (tokenkey-cc-fingerprint-alignment
-  / tokenkey-kiro-fingerprint-alignment / tokenkey-antigravity-fingerprint-alignment)
-  directly.
+  Run the combined TokenKey fingerprint refresh for Claude Code, Kiro, and Antigravity. Use when multiple client fingerprints need one orchestrated capture/diff report and one PR; use platform-specific skills for single-client refreshes.
 ---
 
 # TokenKey：全平台指纹对齐（umbrella）

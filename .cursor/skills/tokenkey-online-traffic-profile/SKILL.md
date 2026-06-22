@@ -1,15 +1,7 @@
 ---
 name: tokenkey-online-traffic-profile
 description: >-
-  Read-only TokenKey production/edge traffic-profiling workflow. Reconstructs
-  per-minute request-traffic series for the past N hours per account — base RPM
-  (request-start minute), sticky vs non-sticky (load-balance) RPM split, active
-  sessions (idle-window), and peak concurrency — then compares each against its
-  cap (base_rpm / rpm_sticky_buffer / max_sessions / concurrency) and flags
-  which limit is being touched. Use when asked to profile online traffic, see
-  per-minute RPM/session/concurrency, validate the admin account-card gauges
-  (concurrency 1/8, $/window cost, sessions 16/30, RPM 3/28), or explain "no
-  available accounts" / throttling without ad-hoc command guessing.
+  Read-only TokenKey prod/edge traffic profiling. Use to reconstruct per-minute RPM, sticky/load-balance split, sessions, concurrency, cap pressure, admin account-card gauges, or no-available-accounts throttling evidence.
 ---
 
 # TokenKey：线上请求流量画像（逐分钟 RPM / sticky / session / concurrency）

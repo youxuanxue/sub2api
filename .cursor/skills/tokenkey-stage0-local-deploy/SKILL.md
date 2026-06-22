@@ -1,11 +1,7 @@
 ---
 name: tokenkey-stage0-local-deploy
 description: >-
-  Local Docker stack matching deploy/aws Stage 0 (Caddy + app + Postgres + Redis): export
-  $HOME-pinned paths, write .cache override + .env + Caddyfile, docker compose config/pull/up
-  with long timeouts for first pull/up, verify A curl via :8088, B bypass Caddy, optional C
-  tk_post_deploy_smoke when API key exists; compose down keeps bind-mounted DB/Redis by default.
-  Optional rm only for intentional reset. Mirrors prod skill posture (order, verify, teardown).
+  Run the local Docker Stage0 stack for TokenKey. Use for Caddy/app/Postgres/Redis local deploy, compose setup, smoke verification, teardown, or matching deploy/aws behavior on a workstation.
 ---
 
 # TokenKey：本地模拟 `deploy/aws` Stage 0（Compose + 验证 + 销毁）
