@@ -133,6 +133,62 @@ func DropExpired(ctx context.Context, db DB, table, timeCol string, cutoff time.
 	return reclaimed, nil
 }
 
+// ListStraddling returns child partitions of `table` that DropExpired cannot drop
+// (their newest timeCol value is NOT before cutoff — they still hold in-window
+// rows) yet which ALSO contain rows older than cutoff (oldest timeCol value is
+// before cutoff). This is the wide "legacy" mega-partition created at conversion:
+// it absorbs current writes (so it can never be dropped) while accumulating
+// expired rows. Without row-level reclaim such a partition grows unbounded — the
+// prod disk-fill root cause where retention "runs" but reclaims 0. Callers feed
+// the returned partitions to a capped chunked DELETE.
+func ListStraddling(ctx context.Context, db DB, table, timeCol string, cutoff time.Time) ([]string, error) {
+	const listQ = `
+		SELECT c.relname
+		FROM pg_inherits i
+		JOIN pg_class c ON c.oid = i.inhrelid
+		JOIN pg_class p ON p.oid = i.inhparent
+		WHERE p.relname = $1`
+	rows, err := db.QueryContext(ctx, listQ, table)
+	if err != nil {
+		return nil, fmt.Errorf("pgpartition: list partitions of %s: %w", table, err)
+	}
+	var children []string
+	for rows.Next() {
+		var name string
+		if scanErr := rows.Scan(&name); scanErr != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("pgpartition: scan partition name: %w", scanErr)
+		}
+		children = append(children, name)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("pgpartition: iterate partitions: %w", rowsErr)
+	}
+	_ = rows.Close()
+
+	var straddling []string
+	for _, name := range children {
+		var minT, maxT sql.NullTime
+		q := fmt.Sprintf(
+			"SELECT min(%s), max(%s) FROM %s",
+			pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(name),
+		)
+		if err := db.QueryRowContext(ctx, q).Scan(&minT, &maxT); err != nil {
+			return nil, fmt.Errorf("pgpartition: min/max(%s) on %s: %w", timeCol, name, err)
+		}
+		// Empty, or fully past the window (max < cutoff) → DropExpired handles it.
+		if !maxT.Valid || maxT.Time.Before(cutoff) {
+			continue
+		}
+		// Holds in-window rows (can't be dropped) AND has expired rows → straddling.
+		if minT.Valid && minT.Time.Before(cutoff) {
+			straddling = append(straddling, name)
+		}
+	}
+	return straddling, nil
+}
+
 func isOverlap(err error) bool {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {

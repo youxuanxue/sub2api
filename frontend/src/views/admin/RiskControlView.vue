@@ -1134,6 +1134,7 @@ import type { AdminGroup, SelectOption } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime as formatDateTimeValue } from '@/utils/format'
+import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
 
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
 type WorkerSlotState = 'active' | 'idle' | 'disabled'
@@ -1206,7 +1207,6 @@ const moderationTestPrompt = ref('')
 const moderationTestImages = ref<string[]>([])
 const moderationTestResult = ref<ContentModerationTestAuditResult | null>(null)
 const inputDetailRow = ref<ContentModerationLog | null>(null)
-let statusTimer: number | null = null
 
 const configForm = reactive({
   enabled: false,
@@ -1752,7 +1752,11 @@ async function loadStatus(silent = true) {
   try {
     const runtimeStatus = await adminAPI.riskControl.getStatus()
     status.value = runtimeStatus
-    if (Array.isArray(runtimeStatus.api_key_statuses)) {
+    // Never let a background status poll overwrite the editable api_key_statuses
+    // (and prune the user's pending deletes) while the settings dialog is open —
+    // that silently discards in-progress edits. The read-only `status` display
+    // above still refreshes; only the editable form is protected.
+    if (!settingsOpen.value && Array.isArray(runtimeStatus.api_key_statuses)) {
       configForm.api_key_statuses = [...runtimeStatus.api_key_statuses]
       prunePendingDeleteAPIKeyHashes()
     }
@@ -2333,17 +2337,16 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
 }
 
+const statusPoller = useVisibilityAwarePoller(() => {
+  void loadStatus(true)
+}, 15000)
+
 onMounted(() => {
   void loadAll()
-  statusTimer = window.setInterval(() => {
-    void loadStatus(true)
-  }, 15000)
+  statusPoller.start()
 })
 
 onUnmounted(() => {
-  if (statusTimer !== null) {
-    window.clearInterval(statusTimer)
-    statusTimer = null
-  }
+  statusPoller.stop()
 })
 </script>

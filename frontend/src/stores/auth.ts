@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, type LoginResponse } from '@/api'
 import { isBrowserOffline, isNetworkError } from '@/api/client.tk'
+import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
 import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
 
 const AUTH_TOKEN_KEY = 'auth_token'
@@ -80,8 +81,19 @@ export const useAuthStore = defineStore('auth', () => {
   const tokenExpiresAt = ref<number | null>(null) // 过期时间戳（毫秒）
   const runMode = ref<'standard' | 'simple'>('standard')
   const pendingAuthSession = ref<PendingAuthSessionSummary | null>(null)
-  let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  // Auto-refresh of user data: only ticks while the tab is visible, and catches
+  // up on return. A backgrounded admin tab no longer hits /auth/me every 60s.
+  const userRefreshPoller = useVisibilityAwarePoller(() => {
+    if (token.value && !isBrowserOffline()) {
+      refreshUser().catch((error) => {
+        if (!isNetworkError(error)) {
+          console.error('Auto-refresh user failed:', error)
+        }
+      })
+    }
+  }, AUTO_REFRESH_INTERVAL)
 
   // ==================== Computed ====================
 
@@ -146,29 +158,16 @@ export const useAuthStore = defineStore('auth', () => {
    * Refreshes user data every 60 seconds
    */
   function startAutoRefresh(): void {
-    // Clear existing interval if any
-    stopAutoRefresh()
     registerOnlineRefreshHandler()
-
-    refreshIntervalId = setInterval(() => {
-      if (token.value && !isBrowserOffline()) {
-        refreshUser().catch((error) => {
-          if (!isNetworkError(error)) {
-            console.error('Auto-refresh user failed:', error)
-          }
-        })
-      }
-    }, AUTO_REFRESH_INTERVAL)
+    // Idempotent; pauses itself while the tab is hidden (see poller above).
+    userRefreshPoller.start()
   }
 
   /**
    * Stop auto-refresh interval
    */
   function stopAutoRefresh(): void {
-    if (refreshIntervalId) {
-      clearInterval(refreshIntervalId)
-      refreshIntervalId = null
-    }
+    userRefreshPoller.stop()
   }
 
   /**

@@ -309,7 +309,7 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="row.groups" :max-display="4" />
+            <AccountGroupsCell :groups="groupsForRow(row)" :max-display="4" />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -496,7 +496,7 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -504,6 +504,31 @@ const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+
+// Group-chip resolution for the (lite) accounts list. The lite list payload omits
+// the fully-embedded group objects — which previously duplicated the same group
+// definitions across every row (~3.1KB/row) — and carries only group_ids. We
+// resolve chip names from the separately-loaded groups list. Falls back to any
+// embedded `groups` for non-lite responses (single-account fetches, older data).
+const groupById = computed(() => {
+  const map = new Map<number, AdminGroup>()
+  for (const g of groups.value) map.set(g.id, g)
+  return map
+})
+
+function groupsForRow(row: { groups?: unknown; group_ids?: unknown }): Group[] {
+  if (Array.isArray(row?.groups) && row.groups.length > 0) {
+    return row.groups as Group[]
+  }
+  const ids = Array.isArray(row?.group_ids) ? row.group_ids : []
+  const resolved: AdminGroup[] = []
+  for (const id of ids) {
+    const g = groupById.value.get(Number(id))
+    if (g) resolved.push(g)
+  }
+  return resolved as unknown as Group[]
+}
+
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -913,14 +938,13 @@ const load = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  if (isFirstLoad.value) {
-    requestParams.lite = '1'
-  }
+  // Always request the lite payload for the list. The embedded group objects are
+  // redundant here (chips resolve from group_ids via groupsForRow), so every load
+  // — including the 30s auto-refresh — is ~69% smaller. Detail/edit fetches still
+  // use the full single-account endpoint.
+  requestParams.lite = '1'
+  isFirstLoad.value = false
   await baseLoad()
-  if (isFirstLoad.value) {
-    isFirstLoad.value = false
-    delete requestParams.lite
-  }
   await refreshTodayStatsBatch()
   refreshUsageBatch(accounts.value)
 }

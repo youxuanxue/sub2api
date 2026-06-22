@@ -13,7 +13,7 @@
  * (CLAUDE.md §5).
  */
 
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIntervalFn } from '@vueuse/core'
 import { adminAPI } from '@/api/admin'
@@ -94,9 +94,17 @@ export function mergeEdges(current: EdgeAccountsResult[], next: EdgeAccountsResu
 // inline /accounts panel uses this; the standalone /edge-accounts overview does
 // not (it stays per-edge). In by-stub mode the platform filter does not apply
 // (every platform's stubs are returned), so setPlatform is inert.
-export function useTkEdgeAccounts(initialPlatform = 'all', options: { byStub?: boolean } = {}) {
+export function useTkEdgeAccounts(
+  initialPlatform = 'all',
+  options: { byStub?: boolean; enabled?: () => boolean } = {}
+) {
   const { t } = useI18n()
   const byStub = options.byStub === true
+  // Gate the (potentially expensive) edge fan-out + auto-refresh. The inline
+  // /accounts panel passes a getter that is true only when the current prod page
+  // actually contains edge-stub rows, so we never fan out to edges when there is
+  // nothing to show. Defaults to always-enabled for the standalone edge page.
+  const isEnabled = options.enabled ?? (() => true)
   const platform = ref(initialPlatform)
   const listParams = () => (byStub ? { view: 'by-stub' as const } : { platform: platform.value })
   const edges = ref<EdgeAccountsResult[]>([])
@@ -276,6 +284,7 @@ export function useTkEdgeAccounts(initialPlatform = 'all', options: { byStub?: b
   // a fetch is already in flight; when the countdown hits 0, refresh and reset it.
   const { pause, resume } = useIntervalFn(
     () => {
+      if (!isEnabled()) return
       if (!autoRefreshEnabled.value) return
       if (typeof document !== 'undefined' && document.hidden) return
       if (loading.value || fetching.value) return
@@ -308,12 +317,27 @@ export function useTkEdgeAccounts(initialPlatform = 'all', options: { byStub?: b
     if (autoRefreshEnabled.value) autoRefreshCountdown.value = seconds
   }
 
-  onMounted(() => {
-    void fetch()
+  function startIfEnabled() {
+    if (!isEnabled()) return
+    if (edges.value.length === 0) void fetch()
     if (autoRefreshEnabled.value) {
       autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
       resume()
     }
+  }
+
+  onMounted(() => {
+    startIfEnabled()
+    // React to the gate flipping — e.g. the prod /accounts page being filtered to
+    // (or away from) edge-stub rows. Only then do we fan out to the edges; when no
+    // stubs are visible we pause entirely (no fetch, no poll).
+    watch(isEnabled, (enabled) => {
+      if (enabled) {
+        startIfEnabled()
+      } else {
+        pause()
+      }
+    })
   })
   onBeforeUnmount(() => pause())
 
