@@ -218,13 +218,15 @@ func (r *AntigravityConfigReconciler) tryAcquireLock() (func(), bool) {
 
 // antigravityCanServeExcluded reports whether an antigravity account carries any
 // mapping drift the canonical gemini-only account map must heal: excluded
-// claude/gpt-oss families or PR #921 structural-dead Antigravity aliases. Two
+// claude/gpt-oss families, PR #921 structural-dead Antigravity aliases, or
+// unpriced Antigravity models that would bill at $0. Two
 // complementary checks (mirroring the post-rollout check-antigravity-account-config.py
 // invariant so the reconciler heals exactly what the check flags):
 //   - scan the resolved mapping keys for a claude-* / gpt-oss-* prefix or
-//     structural-dead alias — catches ANY excluded id (e.g. claude-opus-4-8) and
-//     stale Antigravity aliases, not just the probe ids, and catches the empty-map
-//     case (which resolves to DefaultAntigravityModelMapping);
+//     structural-dead/unpriced key — catches ANY excluded id (e.g.
+//     claude-opus-4-8), stale Antigravity aliases, and $0-risk models, not just
+//     the probe ids, and catches the empty-map case (which resolves to
+//     DefaultAntigravityModelMapping);
 //   - probe the representative ids — catches a catch-all wildcard (e.g. "*") that
 //     would match claude/gpt-oss without carrying a literal claude-* key.
 func antigravityCanServeExcluded(a *Account) bool {
@@ -232,7 +234,7 @@ func antigravityCanServeExcluded(a *Account) bool {
 		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
 			return true
 		}
-		if domain.IsAntigravityStructuralDeadModelMappingKey(k) {
+		if domain.IsAntigravityStructuralDeadModelMappingKey(k) || domain.IsAntigravityUnpricedModelMappingKey(k) {
 			return true
 		}
 	}
@@ -241,8 +243,9 @@ func antigravityCanServeExcluded(a *Account) bool {
 
 // runOnce enforces gemini-only model_mapping on every antigravity account in the
 // LOCAL DB. An account that can still serve claude/gpt-oss or carries stale
-// structural-dead aliases (an empty mapping falls back to DefaultAntigravityModelMapping,
-// which includes both excluded families and compatibility aliases) has its
+// structural-dead aliases / unpriced keys (an empty mapping falls back to
+// DefaultAntigravityModelMapping, which includes excluded families and
+// compatibility aliases) has its
 // credentials.model_mapping rewritten to GeminiOnlyAntigravityModelMapping via
 // BulkUpdate (whose JSONB shallow-merge replaces the whole model_mapping sub-object
 // — dropping excluded/stale keys — and enqueues a scheduler_outbox event so the

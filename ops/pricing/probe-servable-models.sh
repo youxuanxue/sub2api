@@ -36,6 +36,10 @@
 #     enable_thinking:true) and non-thinking (stream:false, enable_thinking:false)
 #     — so a default (thinking) call that 400s on shape alone never masks a
 #     genuinely servable model.
+#   ZHIPU_CHAT_MODELS        -> POST <prod>/v1/chat/completions  (newapi channel_type=26, GLM/Z.AI)
+#     Routes through the normal prod TK gateway with a TK api_key bound to the GLM
+#     group. This is the end-to-end truth probe after account 67 switches from
+#     legacy Zhipu v3 (channel_type=16) to ZhipuV4/OpenAI-compatible (26).
 #   ARK_CHAT_MODELS          -> POST <ark>/api/v3/chat/completions  (DIRECT ark data plane)
 #   ARK_IMAGE_MODELS         -> POST <ark>/api/v3/images/generations (direct; a servable model bills ~1 image)
 #   ARK_VIDEO_MODELS         -> POST <ark>/api/v3/contents/generations/tasks (direct; a servable model creates a REAL paid video task — probe sparingly)
@@ -55,13 +59,14 @@
 #   ANTHROPIC_KEY_ACCOUNT_ID default 54  (its credentials.api_key relays to the edge)
 #   PROD_BASE                default https://api.tokenkey.dev
 #   OPENAI_KEY_NAME          default TK_SMOKE_PROD_OPENAI_OAUTH_KEY (api_keys.user_id=1)
-#   GEMINI_GROUP_NAME        default google-vertex  (verified prod newapi Vertex group; CASE-SENSITIVE)
+#   GEMINI_GROUP_NAME        default google  (verified us6 newapi Vertex group; CASE-SENSITIVE)
 #   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
 #   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
 #   GROK_GROUP_NAME          default grok  (verified edge native grok group; CASE-SENSITIVE)
 #   GROK_APP_CONTAINER       default tokenkey-caddy
 #   GROK_APP_URL             default http://tokenkey:8080
 #   DASHSCOPE_GROUP_NAME     default Qwen  (verified prod group, capital Q; CASE-SENSITIVE; never printed)
+#   ZHIPU_GROUP_NAME         default GLM   (prod GLM group; CASE-SENSITIVE; never printed)
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
 # Output: one TSV line per model on stdout (keys never printed):
@@ -89,7 +94,7 @@ AEDGE="${ANTHROPIC_EDGE_BASE:-https://api-us7.tokenkey.dev}"
 AACCT="${ANTHROPIC_KEY_ACCOUNT_ID:-54}"
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
 OKEY_NAME="${OPENAI_KEY_NAME:-TK_SMOKE_PROD_OPENAI_OAUTH_KEY}"
-GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google-vertex}"
+GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
 # Gemini/Vertex lives on an EDGE node whose Caddy restricts /v1/* to the prod
 # gateway CIDR (a host-local request to the public api-<edge> domain 403s with
 # "edge relay path is restricted"). The probe therefore hits the app container
@@ -101,6 +106,7 @@ GROK_GROUP_NAME="${GROK_GROUP_NAME:-grok}"
 GROK_APP_CONTAINER="${GROK_APP_CONTAINER:-tokenkey-caddy}"
 GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
 DASHSCOPE_GROUP_NAME="${DASHSCOPE_GROUP_NAME:-Qwen}"
+ZHIPU_GROUP_NAME="${ZHIPU_GROUP_NAME:-GLM}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
@@ -253,8 +259,12 @@ probe_dashscope() { # $1=key  (models from $DASHSCOPE_CHAT_MODELS)
 	done
 }
 
+probe_zhipu() { # $1=key  (models from $ZHIPU_CHAT_MODELS)
+	probe_compat_endpoint newapi "$PROD" "$1" /v1/chat/completions "$ZHIPU_CHAT_MODELS" body_chat
+}
+
 main() {
-	local akey okey gkey grkey dkey arkacct arkkey arkbase
+	local akey okey gkey grkey dkey zkey arkacct arkkey arkbase
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
 		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
@@ -302,6 +312,17 @@ main() {
 			cfgerr newapi "no api_key bound to group '$DASHSCOPE_GROUP_NAME' (DASHSCOPE_GROUP_NAME) — check name/case + that a key is bound"
 		else
 			probe_dashscope "$dkey"
+		fi
+	fi
+	# Zhipu/GLM family: newapi channel_type=26 (account 67 "GLM") served through
+	# the PROD TK gateway /v1/chat/completions. Probe key is a TK api_key BOUND TO
+	# the GLM group; never printed.
+	if [ -n "${ZHIPU_CHAT_MODELS:-}" ]; then
+		zkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$ZHIPU_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+		if [ -z "$zkey" ]; then
+			cfgerr newapi "no api_key bound to group '$ZHIPU_GROUP_NAME' (ZHIPU_GROUP_NAME) — check name/case + that a key is bound"
+		else
+			probe_zhipu "$zkey"
 		fi
 	fi
 	# Grok family: native xAI OAuth pool on the edge (currently us4). Probe key is

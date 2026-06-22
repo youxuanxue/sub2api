@@ -117,7 +117,7 @@ func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 
 // TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
 // merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
-// glm-4-7-251222 — the VolcEngine fifth-platform batch + deepseek) must surface in
+// glm-4-7-251222 / glm-5.2 — the newapi fifth-platform batch + deepseek) must surface in
 // the public catalog / Your-Menu with their prices, matching the billing path that
 // already applies the overlay. The merge is fill-only: a model the file source
 // prices natively keeps the source value (overlay never overrides).
@@ -149,6 +149,12 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	assert.True(t, ok, "doubao overlay model must surface")
 	_, ok = byID["glm-4-7-251222"]
 	assert.True(t, ok, "glm-4-7 overlay model must surface")
+	glm52, ok := byID["glm-5.2"]
+	require.True(t, ok, "direct Z.AI GLM overlay model must surface")
+	assert.Equal(t, PlatformNewAPI, inferPlatformFromVendor(glm52.Vendor), "zhipu provider must classify as newapi")
+	assert.InDelta(t, 0.0014, glm52.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.0044, glm52.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.00026, glm52.Pricing.CacheReadPer1K, 1e-12)
 
 	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
 	flash, ok := byID["deepseek-v4-flash"]

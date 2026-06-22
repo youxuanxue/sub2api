@@ -263,3 +263,32 @@ func DenormalizeModelID(id string) string {
 	}
 	return id
 }
+
+// ModelsForIDs synthesizes a []Model for the given (servable) ids. The servable
+// allowlist carries BASE ids (claude-opus-4-5) while DefaultModels carries the
+// canonical (often DATED) form (claude-opus-4-5-20251101), so DefaultModels is
+// indexed by its denormalized (base) id: a base servable id reuses the canonical
+// entry (preserving the dated wire form + DisplayName), and allowlist-only ids
+// absent from DefaultModels are synthesized. Shared by the gateway /v1/models
+// fallback and the admin available-models surface so the two never drift on the
+// synthesized display metadata.
+func ModelsForIDs(ids []string) []Model {
+	byBase := make(map[string]Model, len(DefaultModels))
+	for _, m := range DefaultModels {
+		byBase[DenormalizeModelID(m.ID)] = m
+	}
+	out := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byBase[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, Model{
+			ID:          id,
+			Type:        "model",
+			DisplayName: id,
+			CreatedAt:   "2024-01-01T00:00:00Z",
+		})
+	}
+	return out
+}

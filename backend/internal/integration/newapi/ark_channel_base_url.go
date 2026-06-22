@@ -6,10 +6,10 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
 
-// NormalizeArkChannelBaseURL trims mistaken path suffixes from Volcengine Ark-style
-// channel base URLs. Admins often paste the full chat endpoint or /api/v3 root from
-// docs; new-api adaptors append /api/v3/... themselves, so a base like
-// https://ark.cn-beijing.volces.com/api/v3 would become a broken double path.
+// NormalizeArkChannelBaseURL trims mistaken path suffixes from upstreams whose
+// new-api adaptors append their own API path. Admins often paste the full chat
+// endpoint or version root from docs; keeping that in base_url would produce a
+// broken double path.
 func NormalizeArkChannelBaseURL(channelType int, base string) string {
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -23,6 +23,16 @@ func NormalizeArkChannelBaseURL(channelType int, base string) string {
 			"/api/v3/bots/chat/completions",
 			"/api/v3/models",
 			"/api/v3",
+		} {
+			if strings.HasSuffix(base, suf) {
+				return strings.TrimRight(strings.TrimSuffix(base, suf), "/")
+			}
+		}
+	case newapiconstant.ChannelTypeZhipu_v4:
+		for _, suf := range []string{
+			"/api/paas/v4/chat/completions",
+			"/api/paas/v4/models",
+			"/api/paas/v4",
 		} {
 			if strings.HasSuffix(base, suf) {
 				return strings.TrimRight(strings.TrimSuffix(base, suf), "/")

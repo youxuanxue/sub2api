@@ -30,8 +30,20 @@ def read_file(path: Path) -> str:
         raise RuntimeError(f"read {path} failed: {exc}") from exc
 
 
+# The admin account create/edit modals chunk. PR #935 split these modals out of
+# AccountsView into their own Vite manualChunk named "admin-account-modals" (see
+# frontend/vite.config.ts -> manualChunks). The Extension Engine / NewAPI field
+# mount validated below now ships in that chunk, NOT in AccountsView. Keep the
+# legacy "AccountsView" name as a fallback so the --url path still works against
+# older deploys built before #935. The --dist gate selects chunks by CONTENT (see
+# asset_has_account_create_mount) so it is immune to future chunk renames; this
+# name list only drives URL-based discovery where we cannot scan every chunk.
+ACCOUNT_MODAL_CHUNK_NAMES = ("admin-account-modals", "AccountsView")
+_CHUNK_NAME_ALT = "|".join(ACCOUNT_MODAL_CHUNK_NAMES)
+
+
 def account_assets_from_index(index_html: str) -> list[str]:
-    return re.findall(r'src="(/assets/AccountsView-[^"]+\.js)"', index_html)
+    return re.findall(rf'src="(/assets/(?:{_CHUNK_NAME_ALT})-[^"]+\.js)"', index_html)
 
 
 def vite_entry_script_from_index(index_html: str) -> str | None:
@@ -40,8 +52,8 @@ def vite_entry_script_from_index(index_html: str) -> str | None:
 
 
 def account_assets_from_vite_entry(entry_js: str) -> list[str]:
-    """Resolve AccountsView chunk paths embedded in the main Vite bundle (mapDeps, imports)."""
-    paths = re.findall(r'assets/(AccountsView-[^"\'\\]+\.js)', entry_js)
+    """Resolve account-modal chunk paths embedded in the main Vite bundle (mapDeps, imports)."""
+    paths = re.findall(rf'assets/((?:{_CHUNK_NAME_ALT})-[^"\'\\]+\.js)', entry_js)
     seen: list[str] = []
     for name in paths:
         path = "/assets/" + name
@@ -50,26 +62,33 @@ def account_assets_from_vite_entry(entry_js: str) -> list[str]:
     return seen
 
 
-def find_newapi_platform_anchor(asset: str) -> int:
-    anchors = [
-        "Extension Engine",
-        'name:"server",size:"sm"',
-        "text-cyan-600",
-    ]
-    positions = [idx for marker in anchors if (idx := asset.find(marker)) >= 0]
-    return min(positions) if positions else -1
+def asset_has_account_create_mount(asset: str) -> bool:
+    """Content fingerprint of the chunk that carries the account create-mode NewAPI
+    field mount, independent of the chunk's filename (rename-proof)."""
+    return 'variant:"create"' in asset and '"channel-type-options":' in asset
+
+
+def find_platform_picker_before(asset: str, before_idx: int) -> int:
+    """Locate the NewAPI/Extension Engine platform picker nearest *before* the
+    create-mode mount. Minified bundling (post-#935 the modals chunk also carries
+    the shared field component + edit/bulk modals) scatters the "Extension Engine"
+    label far from the picker, so we anchor on the picker markers closest to the
+    create mount rather than the globally-first occurrence."""
+    markers = ['text-cyan-600', 'name:"server"', "Extension Engine"]
+    positions = [pos for marker in markers if (pos := asset.rfind(marker, 0, before_idx)) >= 0]
+    return max(positions) if positions else -1
 
 
 def check_account_asset(asset: str, source: str) -> list[str]:
     errors: list[str] = []
-    platform_idx = find_newapi_platform_anchor(asset)
-    if platform_idx < 0:
-        errors.append(f"{source}: missing Extension Engine/newapi platform button anchor")
+    create_mount_idx = asset.find("variant:\"create\"")
+    if create_mount_idx < 0:
+        errors.append(f"{source}: missing create-mode Extension Engine field mount (no variant:\"create\")")
         return errors
 
-    create_mount_idx = asset.find("variant:\"create\"", platform_idx)
-    if create_mount_idx < 0:
-        errors.append(f"{source}: missing create-mode Extension Engine field mount near platform picker")
+    platform_idx = find_platform_picker_before(asset, create_mount_idx)
+    if platform_idx < 0:
+        errors.append(f"{source}: missing Extension Engine/newapi platform picker before create-mode field mount")
         return errors
 
     mount_window = asset[platform_idx:create_mount_idx]
@@ -115,21 +134,24 @@ def check_account_asset(asset: str, source: str) -> list[str]:
 
 
 def check_dist(dist: Path) -> list[str]:
+    # Rename-proof: scan every JS chunk and validate the one(s) that carry the
+    # account create-mode NewAPI field mount, identified by content rather than by
+    # a hard-coded chunk filename. This is what keeps the release gate from
+    # breaking again the next time frontend/vite.config.ts reshuffles manualChunks.
     errors: list[str] = []
-    accounts_assets = sorted((dist / "assets").glob("AccountsView-*.js"))
-    if not accounts_assets:
-        return [f"{dist}: missing assets/AccountsView-*.js"]
-
     checked = 0
-    for path in accounts_assets:
+    for path in sorted((dist / "assets").glob("*.js")):
         asset = read_file(path)
-        if find_newapi_platform_anchor(asset) < 0:
+        if not asset_has_account_create_mount(asset):
             continue
         checked += 1
         errors.extend(check_account_asset(asset, str(path)))
 
     if checked == 0:
-        errors.append(f"{dist}: no AccountsView asset contains Extension Engine/newapi platform anchor")
+        return [
+            f"{dist}: no JS chunk carries the admin account create-mode Extension Engine "
+            f"field mount (variant:\"create\" + channel-type-options)"
+        ]
     return errors
 
 
@@ -154,12 +176,12 @@ def check_url(base_url: str) -> list[str]:
     for asset_path in assets:
         asset_url = urljoin(base, asset_path.lstrip("/"))
         asset = read_url(asset_url)
-        if find_newapi_platform_anchor(asset) < 0:
+        if not asset_has_account_create_mount(asset):
             continue
         errors.extend(check_account_asset(asset, asset_url))
         return errors
 
-    errors.append(f"{base}: referenced AccountsView assets do not contain Extension Engine/newapi platform anchor")
+    errors.append(f"{base}: referenced account-modal assets do not contain the Extension Engine/newapi create-mode field mount")
     return errors
 
 

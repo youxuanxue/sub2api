@@ -143,8 +143,7 @@ var DefaultAntigravityModelMapping = map[string]string{
 	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
 	"gemini-pro-agent": "gemini-pro-agent",
 	// 其他官方模型
-	"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
-	"tab_flash_lite_preview": "tab_flash_lite_preview",
+	"gpt-oss-120b-medium": "gpt-oss-120b-medium",
 }
 
 var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
@@ -161,11 +160,24 @@ var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
 	"gemini-3.1-pro-preview":         {},
 }
 
+var antigravityUnpricedModelMappingKeys = map[string]struct{}{
+	// Served by Antigravity but absent from reliable public pricing. Keeping it
+	// in a visible/custom account mapping bills successful requests at $0.
+	"tab_flash_lite_preview": {},
+}
+
 // IsAntigravityStructuralDeadModelMappingKey reports whether k is a stale
 // Antigravity request alias that should not be persisted in canonical account
 // mappings. DefaultAntigravityModelMapping may still keep compatibility remaps.
 func IsAntigravityStructuralDeadModelMappingKey(k string) bool {
 	_, ok := antigravityStructuralDeadModelMappingKeys[k]
+	return ok
+}
+
+// IsAntigravityUnpricedModelMappingKey reports whether k is an Antigravity model
+// mapping key that must not be persisted because no reliable public price exists.
+func IsAntigravityUnpricedModelMappingKey(k string) bool {
+	_, ok := antigravityUnpricedModelMappingKeys[k]
 	return ok
 }
 
@@ -176,8 +188,8 @@ func IsAntigravityStructuralDeadModelMappingKey(k string) bool {
 // AntigravityConfigReconciler 自动写入每个 antigravity 账号。
 //
 // 在 DefaultAntigravityModelMapping 上方新增一个 gemini wire id 会自动流入此处（单一
-// 真值源），除非它是 structural-dead 兼容别名。保留 Google 原生
-// tab_flash_lite_preview（不是 claude/gpt-oss；定价缺口由 pricing 层单独处理）。
+// 真值源），除非它是 structural-dead 兼容别名。缺少可靠公开价的模型不应进入这里；
+// 否则它会作为可调模型服务并按 $0 记账。
 var GeminiOnlyAntigravityModelMapping = buildGeminiOnlyAntigravityModelMapping()
 
 func buildGeminiOnlyAntigravityModelMapping() map[string]string {
@@ -187,6 +199,9 @@ func buildGeminiOnlyAntigravityModelMapping() map[string]string {
 			continue
 		}
 		if IsAntigravityStructuralDeadModelMappingKey(k) {
+			continue
+		}
+		if IsAntigravityUnpricedModelMappingKey(k) {
 			continue
 		}
 		out[k] = v
