@@ -5,11 +5,13 @@ package handler
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -67,7 +69,7 @@ func TestExtractInlineVideoBase64(t *testing.T) {
 func TestRewriteVideoBodyWithURL(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString([]byte("FAKEMP4"))
 	url := "https://s3.example.test/media/videos/vt_x.mp4"
-	r := gjson.ParseBytes(rewriteVideoBodyWithURL(veoSuccessBody(b64, "video/mp4"), url))
+	r := gjson.ParseBytes(rewriteVideoBodyWithURL(veoSuccessBody(b64, "video/mp4"), url, "media/videos/vt_x.mp4"))
 	// base64 must be GONE (else extractVideoUrl returns a now-empty data: URI).
 	if r.Get("response.videos").Exists() {
 		t.Fatalf("response.videos not stripped: %s", r.Raw)
@@ -77,6 +79,9 @@ func TestRewriteVideoBodyWithURL(t *testing.T) {
 	}
 	if !r.Get("done").Bool() {
 		t.Fatalf("done flag lost (videoStateFromFetch would misclassify): %s", r.Raw)
+	}
+	if r.Get("s3_key").String() != "media/videos/vt_x.mp4" {
+		t.Fatalf("s3_key not set: %s", r.Raw)
 	}
 }
 
@@ -155,10 +160,53 @@ func TestMaybeOffloadVideoToS3(t *testing.T) {
 		}
 	})
 
-	t.Run("upstream-url body (no base64) passes through", func(t *testing.T) {
+	t.Run("upstream-url body downloads and offloads", func(t *testing.T) {
+		prev := downloadPublicVideoURL
+		downloadPublicVideoURL = func(_ context.Context, raw string, _ int64, _ time.Duration) (*pkghttputil.PublicURLDownload, error) {
+			if raw != "https://x/y.mp4" {
+				t.Fatalf("download url=%q want https://x/y.mp4", raw)
+			}
+			return &pkghttputil.PublicURLDownload{Body: []byte("URLMP4"), ContentType: "video/mp4"}, nil
+		}
+		defer func() { downloadPublicVideoURL = prev }()
+
 		fs := newFakeMediaStore()
-		if _, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_e", ""), out("success", []byte(`{"status":"succeeded","content":{"video_url":"https://x/y.mp4"}}`))); ok {
-			t.Fatal("url-shaped body must not offload")
+		rec := newRecord("vt_e", "")
+		body, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), rec, out("success", []byte(`{"status":"succeeded","content":{"video_url":"https://x/y.mp4"}}`)))
+		if !ok {
+			t.Fatal("url-shaped body should offload while upstream URL is fresh")
+		}
+		wantKey := "media/videos/vt_e.mp4"
+		if rec.MediaS3Key != wantKey {
+			t.Fatalf("rec.MediaS3Key=%q want %q", rec.MediaS3Key, wantKey)
+		}
+		if string(fs.uploads[wantKey]) != "URLMP4" {
+			t.Fatalf("uploaded bytes=%q want URLMP4", fs.uploads[wantKey])
+		}
+		if gjson.GetBytes(body, "content.video_url").String() != "https://x/y.mp4" {
+			t.Fatalf("original vendor body should be preserved: %s", body)
+		}
+		if gjson.GetBytes(body, "video_url").String() != "https://s3.example.test/"+wantKey {
+			t.Fatalf("rewritten body missing TokenKey URL: %s", body)
+		}
+		if gjson.GetBytes(body, "s3_key").String() != wantKey {
+			t.Fatalf("rewritten body missing s3_key: %s", body)
+		}
+	})
+
+	t.Run("upstream-url download failure degrades to passthrough", func(t *testing.T) {
+		prev := downloadPublicVideoURL
+		downloadPublicVideoURL = func(context.Context, string, int64, time.Duration) (*pkghttputil.PublicURLDownload, error) {
+			return nil, errors.New("expired")
+		}
+		defer func() { downloadPublicVideoURL = prev }()
+
+		fs := newFakeMediaStore()
+		if _, ok := mk(fs).tkMaybeOffloadVideoToS3(context.Background(), newRecord("vt_url_fail", ""), out("success", []byte(`{"status":"succeeded","content":{"video_url":"https://x/y.mp4"}}`))); ok {
+			t.Fatal("download error must degrade to passthrough (ok=false)")
+		}
+		if len(fs.uploads) != 0 {
+			t.Fatalf("no upload expected, got %d", len(fs.uploads))
 		}
 	})
 
@@ -188,7 +236,7 @@ func TestVideoFastPathFromS3(t *testing.T) {
 			t.Fatal("expected fast path to handle")
 		}
 		r := gjson.ParseBytes(w.Body.Bytes())
-		if !r.Get("done").Bool() || r.Get("video_url").String() != "https://s3.example.test/media/videos/vt_x.mp4" {
+		if !r.Get("done").Bool() || r.Get("video_url").String() != "https://s3.example.test/media/videos/vt_x.mp4" || r.Get("s3_key").String() != "media/videos/vt_x.mp4" {
 			t.Fatalf("fast-path body wrong: %s", w.Body.String())
 		}
 	})

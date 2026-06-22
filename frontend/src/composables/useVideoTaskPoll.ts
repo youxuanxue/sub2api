@@ -16,7 +16,7 @@
  */
 import { onUnmounted } from 'vue'
 import { gatewayVideoFetch } from '@/api/playground'
-import { videoStateFromFetch, extractVideoUrl, type PlaygroundVideoState } from '@/constants/playgroundMedia.tk'
+import { videoStateFromFetch, extractVideoUrl, extractVideoS3Key, type PlaygroundVideoState } from '@/constants/playgroundMedia.tk'
 import type { VideoTaskItem } from '@/composables/useMediaLibrary'
 
 const POLL_INTERVAL_MS = 5_000
@@ -120,15 +120,16 @@ export function useVideoTaskPoll(opts: VideoTaskPollOptions): VideoTaskPoller {
       p.errors = 0
       const state = videoStateFromFetch(raw)
       const url = state === 'succeeded' ? extractVideoUrl(raw) : ''
+      const s3Key = state === 'succeeded' ? extractVideoS3Key(raw) || undefined : undefined
       // Clear any stale `errorMessage` (e.g. a prior 'key_unavailable' stall): a
       // successful fetch means the loop is making progress again, so the card must
       // not keep showing the "stalled" warning.
-      opts.patch(task.id, { state, url, errorMessage: undefined })
+      opts.patch(task.id, { state, url, s3Key, errorMessage: undefined })
       if (state === 'processing') {
         schedule(task)
       } else {
         stop(task.id)
-        opts.onTerminal?.({ ...task, state, url }, state)
+        opts.onTerminal?.({ ...task, state, url, s3Key }, state)
       }
     } catch (e) {
       if (ctrl.signal.aborted || !pollers.has(task.id)) return
@@ -165,7 +166,8 @@ export function useVideoTaskPoll(opts: VideoTaskPollOptions): VideoTaskPoller {
       const state = videoStateFromFetch(raw)
       if (state === 'succeeded') {
         const url = extractVideoUrl(raw)
-        if (url) opts.patch(task.id, { url })
+        const s3Key = extractVideoS3Key(raw) || undefined
+        if (url) opts.patch(task.id, { url, s3Key })
       }
       // Non-succeeded (e.g. record expired past TTL) → keep the cached URL; the
       // self-contained data: URL fallback still plays, and we never downgrade a

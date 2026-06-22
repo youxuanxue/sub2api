@@ -332,7 +332,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gatewayVideoSubmit } from '@/api/playground'
-import { extractVideoTaskId, videoStateFromFetch, extractVideoUrl } from '@/constants/playgroundMedia.tk'
+import { extractVideoTaskId, videoStateFromFetch, extractVideoUrl, extractVideoS3Key } from '@/constants/playgroundMedia.tk'
 import {
   VIDEO_ASPECT_PRESETS,
   VIDEO_DURATION_DEFAULT,
@@ -595,6 +595,7 @@ async function generate(): Promise<void> {
       keyId: props.keyId,
       state,
       url: state === 'succeeded' ? extractVideoUrl(raw) : '',
+      s3Key: state === 'succeeded' ? extractVideoS3Key(raw) || undefined : undefined,
       submittedAtMs: Date.now(),
       elapsedS: 0,
     }

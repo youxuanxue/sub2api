@@ -280,6 +280,14 @@ export function extractVideoUrl(resp: unknown): string {
   return deepScanVideoUrl(root, 0)
 }
 
+/** Backend media-offload marker for generated videos. */
+export function extractVideoS3Key(resp: unknown): string {
+  const root = asRecord(resp)
+  if (!root) return ''
+  const key = typeof root.s3_key === 'string' ? root.s3_key.trim() : ''
+  return key.startsWith('media/videos/') ? key : ''
+}
+
 const DEEP_SCAN_MAX_DEPTH = 4
 
 function deepScanVideoUrl(node: unknown, depth: number): string {

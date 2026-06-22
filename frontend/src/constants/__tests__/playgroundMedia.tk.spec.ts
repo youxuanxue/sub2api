@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   extractChatImageItems,
   extractImageItems,
+  extractVideoS3Key,
   extractVideoTaskId,
   extractVideoUrl,
   isGeminiNativeImageModel,
@@ -226,8 +227,19 @@ describe('video task helpers', () => {
     // Cross-layer contract with the backend transform (rewriteVideoBodyWithURL):
     // the Veo success body has its inline base64 removed and a presigned URL set
     // at top-level video_url. Both helpers must still resolve it as a ready video.
-    const rewritten = { done: true, response: {}, video_url: 'https://s3.example.test/media/videos/vt_x.mp4' }
+    const rewritten = {
+      done: true,
+      response: {},
+      video_url: 'https://s3.example.test/media/videos/vt_x.mp4',
+      s3_key: 'media/videos/vt_x.mp4'
+    }
     expect(videoStateFromFetch(rewritten)).toBe('succeeded')
     expect(extractVideoUrl(rewritten)).toBe('https://s3.example.test/media/videos/vt_x.mp4')
+    expect(extractVideoS3Key(rewritten)).toBe('media/videos/vt_x.mp4')
+  })
+
+  it('rejects non-video s3_key values on video responses', () => {
+    expect(extractVideoS3Key({ s3_key: 'media/images/x.png' })).toBe('')
+    expect(extractVideoS3Key({ s3_key: 'https://s3.example/media/videos/x.mp4' })).toBe('')
   })
 })

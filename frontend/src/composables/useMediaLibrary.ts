@@ -52,6 +52,8 @@ export interface VideoTaskItem {
   keyId: number
   state: VideoTaskState
   url: string
+  /** S3 key for backend-offloaded videos; enables future explicit re-presign paths. */
+  s3Key?: string
   submittedAtMs: number
   elapsedS: number
   errorMessage?: string
