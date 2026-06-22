@@ -6,14 +6,24 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
+
+// groupUsageSummaryCache short-circuits the groups/usage-summary aggregation,
+// which scans usage_logs on every call (~85ms) and was previously the only
+// admin read path with no caching. A 30s TTL keyed by the local day boundary
+// means at most one aggregation per 30s regardless of how often the GroupsView
+// list refreshes (search/sort/paginate). "Today" totals being up to 30s stale
+// is fine for a dashboard summary. Mirrors the dashboard_query_cache pattern.
+var groupUsageSummaryCache = newSnapshotCache(30 * time.Second)
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
@@ -433,7 +443,16 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 	now := timezone.NowInUserLocation(userTZ)
 	todayStart := timezone.StartOfDayInUserLocation(now, userTZ)
 
-	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
+	// Cache by the local day boundary (the only input that affects the result).
+	cacheKey := todayStart.UTC().Format(time.RFC3339)
+	entry, _, err := groupUsageSummaryCache.GetOrLoad(cacheKey, func() (any, error) {
+		return h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
+	})
+	if err != nil {
+		response.Error(c, 500, "Failed to get group usage summary")
+		return
+	}
+	results, err := snapshotPayloadAs[[]usagestats.GroupUsageSummary](entry.Payload)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group usage summary")
 		return

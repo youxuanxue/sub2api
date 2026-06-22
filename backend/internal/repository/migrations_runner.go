@@ -475,8 +475,13 @@ func validateMigrationExecutionMode(name, content string) (bool, error) {
 		}
 
 		if strings.Contains(normalizedStmt, "CONCURRENTLY") {
-			isCreateIndex := strings.Contains(normalizedStmt, "CREATE") && strings.Contains(normalizedStmt, "INDEX")
-			isDropIndex := strings.Contains(normalizedStmt, "DROP") && strings.Contains(normalizedStmt, "INDEX")
+			// Classify by the LEADING keyword, not a substring-anywhere match: an
+			// index name can legitimately contain "create" (e.g.
+			// idx_usage_logs_created_at), and a bare Contains("CREATE") would then
+			// misclassify a DROP INDEX statement as CREATE and wrongly demand
+			// IF NOT EXISTS.
+			isCreateIndex := strings.HasPrefix(normalizedStmt, "CREATE") && strings.Contains(normalizedStmt, "INDEX")
+			isDropIndex := strings.HasPrefix(normalizedStmt, "DROP") && strings.Contains(normalizedStmt, "INDEX")
 			if !isCreateIndex && !isDropIndex {
 				return false, errors.New("*_notx.sql currently only supports CREATE/DROP INDEX CONCURRENTLY statements")
 			}

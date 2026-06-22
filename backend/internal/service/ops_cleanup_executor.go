@@ -21,6 +21,13 @@ const (
 	// so live inserts always have a home as the calendar rolls forward. The daily
 	// cleanup tick re-ensures these; the conversion migration seeds the first two.
 	opsPartitionMonthsAhead = 3
+	// opsStraddleReclaimMaxRowsPerRun caps how many expired rows the daily cleanup
+	// will chunk-DELETE from a straddling partition (the wide legacy mega-partition
+	// that can't be dropped because it also absorbs current writes) in a single run.
+	// Capping keeps the first reclaim of a large backlog online-safe; the remainder
+	// drains over subsequent daily runs, and steady-state daily volume is far below
+	// the cap.
+	opsStraddleReclaimMaxRowsPerRun = 1_000_000
 )
 
 type opsCleanupTarget struct {
@@ -93,9 +100,36 @@ func opsCleanupRunOne(
 		if err := pgpartition.EnsureMonthly(ctx, db, table, time.Now().UTC(), opsPartitionMonthsAhead); err != nil {
 			return 0, err
 		}
-		return pgpartition.DropExpired(ctx, db, table, timeCol, cutoff)
+		dropped, err := pgpartition.DropExpired(ctx, db, table, timeCol, cutoff)
+		if err != nil {
+			return dropped, err
+		}
+		// Whole-partition DROP cannot reclaim a partition that still holds in-window
+		// rows — notably the wide legacy mega-partition that also absorbs current
+		// writes (its max(timeCol) is always "now"). Left alone it grows unbounded,
+		// which is the prod disk-fill root cause where retention runs daily yet
+		// reclaims 0. Fall back to a capped chunked DELETE of its expired rows so
+		// retention actually bounds it at the configured window.
+		straddling, err := pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)
+		if err != nil {
+			return dropped, err
+		}
+		reclaimed := dropped
+		remaining := opsStraddleReclaimMaxRowsPerRun
+		for _, child := range straddling {
+			if remaining <= 0 {
+				break
+			}
+			n, delErr := deleteOldRowsByID(ctx, db, child, timeCol, cutoff, batchSize, false, remaining)
+			reclaimed += n
+			remaining -= int(n)
+			if delErr != nil {
+				return reclaimed, delErr
+			}
+		}
+		return reclaimed, nil
 	}
-	return deleteOldRowsByID(ctx, db, table, timeCol, cutoff, batchSize, castDate)
+	return deleteOldRowsByID(ctx, db, table, timeCol, cutoff, batchSize, castDate, 0)
 }
 
 func deleteOldRowsByID(
@@ -106,6 +140,7 @@ func deleteOldRowsByID(
 	cutoff time.Time,
 	batchSize int,
 	castCutoffToDate bool,
+	maxRows int,
 ) (int64, error) {
 	if db == nil {
 		return 0, nil
@@ -145,6 +180,11 @@ WHERE id IN (SELECT id FROM batch)
 		}
 		total += affected
 		if affected == 0 {
+			break
+		}
+		// Per-run cap (maxRows <= 0 means unlimited) — keeps a large backlog reclaim
+		// online-safe; the remainder drains over subsequent runs.
+		if maxRows > 0 && total >= int64(maxRows) {
 			break
 		}
 	}

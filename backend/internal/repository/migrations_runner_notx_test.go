@@ -49,6 +49,17 @@ DROP INDEX CONCURRENTLY IF EXISTS idx_b;
 		require.True(t, nonTx)
 		require.NoError(t, err)
 	})
+
+	// Regression: an index NAME containing "created" must not make a DROP look like
+	// a CREATE (classification is by leading keyword, not substring-anywhere).
+	t.Run("notx迁移允许DROP含created的索引名", func(t *testing.T) {
+		nonTx, err := validateMigrationExecutionMode("tk_040_drop_unused_usage_log_indexes_notx.sql", `
+DROP INDEX CONCURRENTLY IF EXISTS idx_usage_logs_request_type_created_at;
+DROP INDEX CONCURRENTLY IF EXISTS idx_usage_logs_created_model_upstream_model;
+`)
+		require.True(t, nonTx)
+		require.NoError(t, err)
+	})
 }
 
 func TestApplyMigrationsFS_NonTransactionalMigration(t *testing.T) {

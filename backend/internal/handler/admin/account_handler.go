@@ -343,8 +343,19 @@ func (h *AccountHandler) List(c *gin.Context) {
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
+		// In lite mode (list view) use the shallow mapper, which keeps GroupIDs but
+		// omits the fully-embedded Groups/AccountGroups objects. Those dominate the
+		// list payload (~3.1KB of ~4.5KB per row — the same group definitions are
+		// duplicated across every account row), and the list resolves group chips
+		// client-side from group_ids + the already-loaded groups list. The full
+		// payload (with embedded Groups) is still served for non-lite callers and
+		// for single-account detail/edit fetches.
+		accountDTO := dto.AccountFromService(acc)
+		if lite {
+			accountDTO = dto.AccountFromServiceShallow(acc)
+		}
 		item := AccountWithConcurrency{
-			Account:            dto.AccountFromService(acc),
+			Account:            accountDTO,
 			CurrentConcurrency: concurrencyCounts[acc.ID],
 			// TK: tag anthropic mirror-stub rows with their edge id so the accounts
 			// UI can expand them into that edge's accounts inline ("" for non-stubs).

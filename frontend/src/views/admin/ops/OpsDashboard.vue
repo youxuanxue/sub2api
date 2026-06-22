@@ -406,6 +406,9 @@ const { pause: pauseCountdown, resume: resumeCountdown } = useIntervalFn(
     if (!autoRefreshEnabled.value) return
     if (!opsEnabled.value) return
     if (loading.value) return
+    // Don't auto-fetch while the tab is hidden — visibilitychange pauses the
+    // countdown, but guard the tick too in case one races the pause.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
     if (autoRefreshCountdown.value <= 0) {
       // Fetch immediately when the countdown reaches 0.
@@ -783,6 +786,10 @@ watch(
 onMounted(async () => {
   // Fullscreen mode: listen for ESC key
   window.addEventListener('keydown', handleKeydown)
+  // Pause/resume auto-refresh with tab visibility.
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleOpsVisibility)
+  }
 
   await adminSettingsStore.fetch()
   if (!adminSettingsStore.opsMonitoringEnabled) {
@@ -807,8 +814,8 @@ onMounted(async () => {
     await dataPromise
   }
 
-  // Start auto refresh if enabled
-  if (autoRefreshEnabled.value) {
+  // Start auto refresh if enabled (and the tab is visible)
+  if (autoRefreshEnabled.value && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
     resumeCountdown()
   }
 })
@@ -823,8 +830,27 @@ async function loadThresholds() {
   }
 }
 
+// Pause auto-refresh while the tab is hidden; on return, do one catch-up fetch
+// and resume the cadence. A backgrounded ops dashboard no longer fans out to
+// ~12-15 endpoints every 30s (and no longer re-pays cold aggregation cost each
+// minute boundary).
+function handleOpsVisibility(): void {
+  if (typeof document === 'undefined') return
+  if (document.visibilityState === 'hidden') {
+    pauseCountdown()
+    return
+  }
+  if (autoRefreshEnabled.value && opsEnabled.value) {
+    void fetchData()
+    resumeCountdown()
+  }
+}
+
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleOpsVisibility)
+  }
   abortDashboardFetch()
   pauseCountdown()
 })
@@ -833,7 +859,10 @@ onUnmounted(() => {
 watch(autoRefreshEnabled, (enabled) => {
   if (enabled) {
     autoRefreshCountdown.value = Math.floor(autoRefreshIntervalMs.value / 1000)
-    resumeCountdown()
+    // Only start ticking if the tab is currently visible.
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+      resumeCountdown()
+    }
   } else {
     pauseCountdown()
     autoRefreshCountdown.value = 0
