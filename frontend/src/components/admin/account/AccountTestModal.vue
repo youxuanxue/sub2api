@@ -245,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -320,7 +320,7 @@ const sortTestModels = (models: ClaudeModel[]) => {
   })
 }
 
-// Load available models when modal opens
+// Load available models when the modal becomes shown (a reopen toggles show).
 watch(
   () => props.show,
   async (newVal) => {
@@ -333,6 +333,21 @@ watch(
     }
   }
 )
+
+// AccountsView lazy-mounts this modal (lazyMount latch, #900): on first open it is
+// CREATED with `show` already true, so the (non-immediate) watch above never fires
+// for that first open — loadAvailableModels() never ran and the picker stayed empty
+// ("无匹配选项") with no /models request at all (only a reopen, which toggles show,
+// worked). Loading on mount when already shown covers the first-open case. (We use
+// onMounted rather than the watch's `immediate` because loadAvailableModels is a
+// const declared below — an immediate watch would hit it in the temporal dead zone.)
+onMounted(() => {
+  if (props.show && props.account) {
+    testPrompt.value = ''
+    resetState()
+    void loadAvailableModels()
+  }
+})
 
 watch(selectedModelId, () => {
   if (supportsImageTest.value && !testPrompt.value.trim()) {

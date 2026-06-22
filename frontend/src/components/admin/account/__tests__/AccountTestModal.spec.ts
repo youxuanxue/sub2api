@@ -202,4 +202,27 @@ describe('AccountTestModal', () => {
     expect(wrapper.find('.select-stub').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('admin.accounts.loadModelsFailed')
   })
+
+  // Regression (#900 lazyMount): AccountsView lazy-mounts this modal, so on first
+  // open it is CREATED with show already true. A non-immediate show-watch never
+  // fires for that mount → models never loaded → empty picker. onMounted must load
+  // when mounted already-shown. Note the props start with show:true (not toggled).
+  it('loads models on first lazy-mount (created already shown), not only on reopen', async () => {
+    getAvailableModels.mockReset()
+    getAvailableModels.mockResolvedValueOnce([{ id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' }])
+    const wrapper = mount(AccountTestModal, {
+      props: { show: true, account: { id: 2, name: 'tokenkey-edge-us-or1-ls-b', platform: 'anthropic', type: 'oauth', status: 'active' } } as any,
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Select: { template: '<div class="select-stub"></div>' },
+          TextArea: true,
+          Icon: true
+        }
+      }
+    })
+    await flushPromises()
+    expect(getAvailableModels).toHaveBeenCalledWith(2)
+    expect(wrapper.find('.select-stub').exists()).toBe(true)
+  })
 })
