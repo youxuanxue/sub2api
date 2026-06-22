@@ -80,7 +80,7 @@
         "servable-allowlist:begin antigravity",
         "servable-allowlist:begin grok"
       ],
-      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels, gemini-only per operator policy — claude routed to anthropic, gpt-oss off antigravity) is hand-maintained from the 2026-06-13 empirical probe (the refresh tool has no antigravity family, so it never rewrites the antigravity anchors); losing it silently reverts antigravity to passthrough. The grok allowlist (supportedGrokCatalogModels, the four priced grok-imagine/grok-code-fast-1 overlay rows) is likewise hand-maintained (the refresh tool has no grok family); losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Other vendors (deepseek, …) intentionally pass through — claude + gpt + antigravity-gemini + grok are curated."
+      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels, gemini-only per operator policy — claude routed to anthropic, gpt-oss off antigravity) is hand-maintained from the 2026-06-13 empirical probe (the refresh tool has no antigravity family, so it never rewrites the antigravity anchors); losing it silently reverts antigravity to passthrough. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Other vendors (deepseek, …) intentionally pass through — claude + gpt + antigravity-gemini + grok are curated."
     },
     {
       "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
@@ -140,9 +140,11 @@
     {
       "path": "scripts/checks/pricing-overlay.py",
       "must_contain": [
-        "failure_billing"
+        "failure_billing",
+        "grok-4.3",
+        "grok-build-0.1"
       ],
-      "rationale": "The failure_billing declaration check is the human-judgment anchor of the video pricing workflow: TokenKey refunds users in full on terminal-failed video tasks, which is only loss-free when the provider does not charge for failures — whoever prices a video model must verify and declare that. Dropping this block from the check silently removes the forced verification while overlay entries keep parsing fine."
+      "rationale": "The failure_billing declaration check is the human-judgment anchor of the video pricing workflow: TokenKey refunds users in full on terminal-failed video tasks, which is only loss-free when the provider does not charge for failures — whoever prices a video model must verify and declare that. Dropping this block from the check silently removes the forced verification while overlay entries keep parsing fine. The grok-4.3 / grok-build-0.1 anchors keep xAI's two current chat price roots pinned in the same overlay gate, so a future edit cannot re-create the served-zero-cost grok chat hole while leaving media anchors intact."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard_contract_test.go",

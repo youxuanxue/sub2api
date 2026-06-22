@@ -18,6 +18,8 @@ a soft rule that bit us once becomes a mechanical gate). It asserts:
        deepseek-v4-flash              -> input_cost_per_token > 0
        doubao-seedream-4-0-250828     -> output_cost_per_image > 0
        doubao-seedance-1-0-pro-250528 -> output_cost_per_second > 0
+       grok-4.3                       -> input_cost_per_token > 0
+       grok-build-0.1                 -> input_cost_per_token > 0
   3. EVERY entry has a recognized mode and a > 0 price in the matching field(s)
      (no silently-shipped $0 entry, which would deduct nothing):
        image_generation -> output_cost_per_image
@@ -50,6 +52,8 @@ ANCHORS = {
     "deepseek-v4-flash": "input_cost_per_token",
     "doubao-seedream-4-0-250828": "output_cost_per_image",
     "doubao-seedance-1-0-pro-250528": "output_cost_per_second",
+    "grok-4.3": "input_cost_per_token",
+    "grok-build-0.1": "input_cost_per_token",
 }
 
 # Models that MUST carry a thinking-mode output price. For Qwen3 open-source dense

@@ -966,8 +966,8 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		"a channel_type=0 grok account must be in scope for a grok group")
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			// grok-code-fast-1 is the one token-priced grok chat model.
-			mkPublicCatalogModel("grok-code-fast-1", "xai", 0.0002, 0.0015, 0),
+			mkPublicCatalogModel("grok-4.3", "xai", 0.00125, 0.0025, 0),
+			mkPublicCatalogModel("grok-code-fast-1", "xai", 0.001, 0.002, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -990,9 +990,12 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		byID[m.ModelID] = m
 	}
 	// Catalog-priced model gets its price joined.
+	require.Contains(t, byID, "grok-4.3")
+	require.NotNil(t, byID["grok-4.3"].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.00125, *byID["grok-4.3"].YourPrice.InputPer1K, 1e-9)
 	require.Contains(t, byID, "grok-code-fast-1")
 	require.NotNil(t, byID["grok-code-fast-1"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.0002, *byID["grok-code-fast-1"].YourPrice.InputPer1K, 1e-9)
+	assert.InDelta(t, 0.001, *byID["grok-code-fast-1"].YourPrice.InputPer1K, 1e-9)
 	// The grok-imagine media models surface even without a catalog row joined.
 	require.Contains(t, byID, "grok-imagine-image")
 	require.Contains(t, byID, "grok-imagine-video")

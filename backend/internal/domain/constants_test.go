@@ -106,7 +106,8 @@ func TestDefaultAntigravityModelMapping_ContainsEmpiricalGeminiWireIDs(t *testin
 // credentials.model_mapping 排除，而非删默认）。与 claude keep-guard 对称，防止
 // 未来 merge 静默删掉它而无测试翻红。
 // GeminiOnlyAntigravityModelMapping 必须是 DefaultAntigravityModelMapping 去掉
-// claude-* / gpt-oss-* 后的严格子集，且保留全部 gemini + tab_flash_lite_preview。
+// claude-* / gpt-oss-* 与 structural-dead 兼容别名后的严格子集，且保留可服务
+// gemini wire id + tab_flash_lite_preview。
 // 这是 AntigravityConfigReconciler 写入账号的规范 gemini-only 映射的单一真值源。
 func TestGeminiOnlyAntigravityModelMapping(t *testing.T) {
 	t.Parallel()
@@ -118,6 +119,9 @@ func TestGeminiOnlyAntigravityModelMapping(t *testing.T) {
 	for k, v := range m {
 		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
 			t.Fatalf("excluded key leaked into gemini-only map: %q", k)
+		}
+		if _, dead := antigravityStructuralDeadModelMappingKeys[k]; dead {
+			t.Fatalf("structural-dead antigravity alias leaked into gemini-only map: %q", k)
 		}
 		// strict subset of the default (same key→value)
 		if got, ok := DefaultAntigravityModelMapping[k]; !ok || got != v {
@@ -142,6 +146,39 @@ func TestGeminiOnlyAntigravityModelMapping(t *testing.T) {
 	}
 	if _, ok := m["gpt-oss-120b-medium"]; ok {
 		t.Fatal("gpt-oss-120b-medium must be excluded from gemini-only map")
+	}
+}
+
+func TestGeminiOnlyAntigravityModelMapping_DropsStructuralDeadAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{
+		"gemini-2.5-flash-image-preview",
+		"gemini-3-flash-preview",
+		"gemini-3-pro-high",
+		"gemini-3-pro-image-preview",
+		"gemini-3-pro-low",
+		"gemini-3-pro-preview",
+		"gemini-3.1-pro-high",
+		"gemini-3.1-pro-preview",
+	} {
+		if _, ok := DefaultAntigravityModelMapping[key]; !ok {
+			t.Fatalf("default compatibility mapping must retain %q", key)
+		}
+		if _, ok := GeminiOnlyAntigravityModelMapping[key]; ok {
+			t.Fatalf("canonical gemini-only account mapping must drop structural-dead alias %q", key)
+		}
+	}
+	for _, want := range []string{
+		"gemini-2.5-flash-image",
+		"gemini-3-flash",
+		"gemini-3.1-flash-image",
+		"gemini-3.1-pro-low",
+		"gemini-pro-agent",
+	} {
+		if _, ok := GeminiOnlyAntigravityModelMapping[want]; !ok {
+			t.Fatalf("canonical gemini-only account mapping must keep servable target %q", want)
+		}
 	}
 }
 

@@ -147,20 +147,46 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"tab_flash_lite_preview": "tab_flash_lite_preview",
 }
 
+var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
+	// PR #921 inventory + 2026-06-22 live snapshot: these are stale request aliases
+	// in persisted antigravity account mappings. Keep DefaultAntigravityModelMapping
+	// compatibility remaps, but do not write these aliases into canonical accounts.
+	"gemini-2.5-flash-image-preview": {},
+	"gemini-3-flash-preview":         {},
+	"gemini-3-pro-high":              {},
+	"gemini-3-pro-image-preview":     {},
+	"gemini-3-pro-low":               {},
+	"gemini-3-pro-preview":           {},
+	"gemini-3.1-pro-high":            {},
+	"gemini-3.1-pro-preview":         {},
+}
+
+// IsAntigravityStructuralDeadModelMappingKey reports whether k is a stale
+// Antigravity request alias that should not be persisted in canonical account
+// mappings. DefaultAntigravityModelMapping may still keep compatibility remaps.
+func IsAntigravityStructuralDeadModelMappingKey(k string) bool {
+	_, ok := antigravityStructuralDeadModelMappingKeys[k]
+	return ok
+}
+
 // GeminiOnlyAntigravityModelMapping 是 DefaultAntigravityModelMapping 去掉所有
-// claude-* 与 gpt-oss-* 键后的「gemini-only」服务映射——运营策略下 antigravity 只服务
-// gemini（claude 路由到 anthropic、gpt-oss 移出 antigravity）的规范账号映射，由
+// claude-*、gpt-oss-* 与 #921 confirmed structural-dead 兼容别名后的
+// 「gemini-only」服务映射——运营策略下 antigravity 只服务 gemini（claude 路由到
+// anthropic、gpt-oss 移出 antigravity）的规范账号映射，由
 // AntigravityConfigReconciler 自动写入每个 antigravity 账号。
 //
 // 在 DefaultAntigravityModelMapping 上方新增一个 gemini wire id 会自动流入此处（单一
-// 真值源）。保留全部 gemini-* 以及 Google 原生 tab_flash_lite_preview（二者都不是
-// claude/gpt-oss）——「gemini-only」按 PR #767 明确点名的两类排除（claude + gpt-oss）。
+// 真值源），除非它是 structural-dead 兼容别名。保留 Google 原生
+// tab_flash_lite_preview（不是 claude/gpt-oss；定价缺口由 pricing 层单独处理）。
 var GeminiOnlyAntigravityModelMapping = buildGeminiOnlyAntigravityModelMapping()
 
 func buildGeminiOnlyAntigravityModelMapping() map[string]string {
 	out := make(map[string]string, len(DefaultAntigravityModelMapping))
 	for k, v := range DefaultAntigravityModelMapping {
 		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
+			continue
+		}
+		if IsAntigravityStructuralDeadModelMappingKey(k) {
 			continue
 		}
 		out[k] = v
