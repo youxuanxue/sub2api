@@ -46,19 +46,28 @@
           {{ t('admin.accounts.selectTestModel') }}
         </label>
         <Select
+          v-if="!needsModelConfig"
           v-model="selectedModelId"
           :options="availableModels"
           :disabled="loadingModels || status === 'connecting'"
           value-key="id"
           label-key="display_name"
-          :creatable="allowCustomModel"
-          :searchable="allowCustomModel ? true : 'auto'"
-          :creatable-prefix="t('admin.accounts.customModelPrefix')"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
         />
-        <p v-if="allowCustomModel" class="text-xs text-gray-500 dark:text-gray-400">
-          {{ t('admin.accounts.customModelHint') }}
-        </p>
+        <div
+          v-else
+          class="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+        >
+          <p>{{ t('admin.accounts.noModelMappingHint') }}</p>
+          <button
+            v-if="account"
+            type="button"
+            class="mt-1.5 font-medium text-primary-600 hover:underline dark:text-primary-400"
+            @click="emit('configure', account)"
+          >
+            {{ t('admin.accounts.configureModels') }} →
+          </button>
+        </div>
       </div>
 
       <div v-if="supportsImageTest" class="space-y-1.5">
@@ -267,6 +276,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'configure', account: Account): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -297,14 +307,18 @@ const supportsOpenAIImageTest = computed(() => {
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
-// When the account exposes no preset test models — e.g. a fifth-platform `newapi`
-// bridge stub whose model_mapping is empty, so GetAvailableModels returns [] —
-// the dropdown would be an unusable "no options" box and the account couldn't be
-// tested at all. In that case let the operator type a model name to test (the
-// Select becomes searchable + creatable). Gated on "loaded AND empty" so the
-// native platforms (which always return their default catalog) keep the plain
-// picker unchanged.
-const allowCustomModel = computed(() => !loadingModels.value && availableModels.value.length === 0)
+// A fifth-platform `newapi` account is servable only for the models its operator
+// declared in model_mapping; that mapping is the source of truth (an account's
+// base_url often points at a TokenKey edge whose /v1/models lists unrelated
+// models, so live discovery can't be trusted here). When the mapping is empty
+// GetAvailableModels returns [], i.e. the account simply hasn't been configured
+// with any servable model yet. Rather than invent a free-text picker that breaks
+// the "pick a declared model" pattern, guide the operator to configure the
+// account. Gated on "loaded AND empty AND newapi" so native platforms (which
+// always return their default catalog) keep the plain picker unchanged.
+const needsModelConfig = computed(
+  () => !loadingModels.value && availableModels.value.length === 0 && props.account?.platform === 'newapi'
+)
 
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))

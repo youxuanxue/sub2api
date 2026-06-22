@@ -137,19 +137,19 @@ describe('AccountTestModal', () => {
     expect(preview.attributes('src')).toBe('data:image/png;base64,QUJD')
   })
 
-  // A fifth-platform `newapi` bridge stub (e.g. the prod grok stub) with no
-  // model_mapping makes GetAvailableModels return [] — without the fallback the
-  // dropdown is an unusable "no options" box and the account can't be tested.
+  // A fifth-platform `newapi` account with an empty model_mapping makes
+  // GetAvailableModels return []. model_mapping is the source of truth for what
+  // such an account serves (its base_url often points at a TokenKey edge whose
+  // /v1/models lists unrelated models, so live discovery can't be trusted) — so
+  // the modal must guide the operator to configure the account, not invent a
+  // free-text picker.
   function mountWith(account: Record<string, unknown>) {
     return mount(AccountTestModal, {
       props: { show: false, account } as any,
       global: {
         stubs: {
           BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
-          Select: {
-            props: ['creatable', 'searchable'],
-            template: '<div class="select-stub" :data-creatable="String(creatable)" :data-searchable="String(searchable)"></div>'
-          },
+          Select: { template: '<div class="select-stub"></div>' },
           TextArea: true,
           Icon: true
         }
@@ -157,26 +157,37 @@ describe('AccountTestModal', () => {
     })
   }
 
-  it('newapi account with no preset models falls back to free-text entry', async () => {
+  it('newapi account with empty model_mapping shows configure guidance and emits configure', async () => {
     getAvailableModels.mockResolvedValueOnce([])
-    const wrapper = mountWith({ id: 7, name: 'oh-3-e', platform: 'newapi', type: 'oauth', channel_type: 1, status: 'active' })
+    const wrapper = mountWith({ id: 67, name: 'GLM', platform: 'newapi', type: 'apikey', channel_type: 16, status: 'active' })
     await wrapper.setProps({ show: true })
     await flushPromises()
 
-    // the operator is told to type a model name…
-    expect(wrapper.text()).toContain('admin.accounts.customModelHint')
-    // …and the Select is switched into searchable + creatable (free-text) mode.
-    const select = wrapper.find('.select-stub')
-    expect(select.attributes('data-creatable')).toBe('true')
-    expect(select.attributes('data-searchable')).toBe('true')
+    // no broken empty dropdown…
+    expect(wrapper.find('.select-stub').exists()).toBe(false)
+    // …instead a guidance message + a "configure" jump that carries the account up.
+    expect(wrapper.text()).toContain('admin.accounts.noModelMappingHint')
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('admin.accounts.configureModels'))
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    expect(wrapper.emitted('configure')?.[0]?.[0]).toMatchObject({ id: 67 })
   })
 
-  it('account with preset models keeps the plain picker (no free-text fallback)', async () => {
+  it('account with models keeps the plain picker (no configure guidance)', async () => {
     const wrapper = mountWith({ id: 42, name: 'g', platform: 'gemini', type: 'apikey', status: 'active' })
     await wrapper.setProps({ show: true })
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('admin.accounts.customModelHint')
-    expect(wrapper.find('.select-stub').attributes('data-creatable')).toBe('false')
+    expect(wrapper.find('.select-stub').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('admin.accounts.noModelMappingHint')
+  })
+
+  it('non-newapi account with no models does NOT show the model-mapping guidance', async () => {
+    getAvailableModels.mockResolvedValueOnce([])
+    const wrapper = mountWith({ id: 5, name: 'x', platform: 'openai', type: 'oauth', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.accounts.noModelMappingHint')
   })
 })
