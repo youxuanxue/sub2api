@@ -150,10 +150,10 @@ func extractInlineVideoBase64(body []byte) (b64, mime string) {
 }
 
 // rewriteVideoBodyWithURL strips every inline-base64 path extractVideoUrl checks
-// (so it can't return a now-empty data: URI) and sets top-level `video_url` to the
-// presigned URL — which is exactly the field extractVideoUrl's URL branch reads.
-// All other upstream fields (done/status/error) are preserved so videoStateFromFetch
-// still classifies the task as succeeded.
+// (so it can't return a now-empty data: URI) and replaces every known URL path
+// extractVideoUrl prefers with the presigned URL. All other upstream fields
+// (done/status/error) are preserved so videoStateFromFetch still classifies the
+// task as succeeded.
 func rewriteVideoBodyWithURL(body []byte, url string, s3Key string) []byte {
 	out := body
 	for _, p := range []string{"response.videos", "response.bytesBase64Encoded", "response.video"} {
@@ -161,8 +161,13 @@ func rewriteVideoBodyWithURL(body []byte, url string, s3Key string) []byte {
 			out = b
 		}
 	}
-	if b, err := sjson.SetBytes(out, "video_url", url); err == nil {
-		out = b
+	for _, p := range []string{"content.video_url", "data.video_url", "video_url", "data.url"} {
+		if p != "video_url" && !gjson.GetBytes(out, p).Exists() {
+			continue
+		}
+		if b, err := sjson.SetBytes(out, p, url); err == nil {
+			out = b
+		}
 	}
 	if s3Key != "" {
 		if b, err := sjson.SetBytes(out, "s3_key", s3Key); err == nil {

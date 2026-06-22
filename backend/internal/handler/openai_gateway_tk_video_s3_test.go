@@ -69,20 +69,35 @@ func TestExtractInlineVideoBase64(t *testing.T) {
 func TestRewriteVideoBodyWithURL(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString([]byte("FAKEMP4"))
 	url := "https://s3.example.test/media/videos/vt_x.mp4"
-	r := gjson.ParseBytes(rewriteVideoBodyWithURL(veoSuccessBody(b64, "video/mp4"), url, "media/videos/vt_x.mp4"))
-	// base64 must be GONE (else extractVideoUrl returns a now-empty data: URI).
-	if r.Get("response.videos").Exists() {
-		t.Fatalf("response.videos not stripped: %s", r.Raw)
-	}
-	if r.Get("video_url").String() != url {
-		t.Fatalf("video_url not set: %s", r.Raw)
-	}
-	if !r.Get("done").Bool() {
-		t.Fatalf("done flag lost (videoStateFromFetch would misclassify): %s", r.Raw)
-	}
-	if r.Get("s3_key").String() != "media/videos/vt_x.mp4" {
-		t.Fatalf("s3_key not set: %s", r.Raw)
-	}
+	t.Run("inline base64 is stripped and top-level URL is set", func(t *testing.T) {
+		r := gjson.ParseBytes(rewriteVideoBodyWithURL(veoSuccessBody(b64, "video/mp4"), url, "media/videos/vt_x.mp4"))
+		// base64 must be GONE (else extractVideoUrl returns a now-empty data: URI).
+		if r.Get("response.videos").Exists() {
+			t.Fatalf("response.videos not stripped: %s", r.Raw)
+		}
+		if r.Get("video_url").String() != url {
+			t.Fatalf("video_url not set: %s", r.Raw)
+		}
+		if !r.Get("done").Bool() {
+			t.Fatalf("done flag lost (videoStateFromFetch would misclassify): %s", r.Raw)
+		}
+		if r.Get("s3_key").String() != "media/videos/vt_x.mp4" {
+			t.Fatalf("s3_key not set: %s", r.Raw)
+		}
+	})
+
+	t.Run("known nested URL fields are replaced", func(t *testing.T) {
+		body := rewriteVideoBodyWithURL([]byte(`{"done":true,"content":{"video_url":"https://provider.example/a.mp4"},"data":{"video_url":"https://provider.example/b.mp4","url":"https://provider.example/c.mp4"}}`), url, "media/videos/vt_x.mp4")
+		r := gjson.ParseBytes(body)
+		for _, p := range []string{"content.video_url", "data.video_url", "data.url", "video_url"} {
+			if r.Get(p).String() != url {
+				t.Fatalf("%s not rewritten to TokenKey URL: %s", p, r.Raw)
+			}
+		}
+		if r.Get("s3_key").String() != "media/videos/vt_x.mp4" {
+			t.Fatalf("s3_key not set: %s", r.Raw)
+		}
+	})
 }
 
 func TestVideoExtAndContentType(t *testing.T) {
@@ -183,8 +198,8 @@ func TestMaybeOffloadVideoToS3(t *testing.T) {
 		if string(fs.uploads[wantKey]) != "URLMP4" {
 			t.Fatalf("uploaded bytes=%q want URLMP4", fs.uploads[wantKey])
 		}
-		if gjson.GetBytes(body, "content.video_url").String() != "https://x/y.mp4" {
-			t.Fatalf("original vendor body should be preserved: %s", body)
+		if gjson.GetBytes(body, "content.video_url").String() != "https://s3.example.test/"+wantKey {
+			t.Fatalf("nested provider URL should be replaced with TokenKey URL: %s", body)
 		}
 		if gjson.GetBytes(body, "video_url").String() != "https://s3.example.test/"+wantKey {
 			t.Fatalf("rewritten body missing TokenKey URL: %s", body)

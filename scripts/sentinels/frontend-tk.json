@@ -871,6 +871,16 @@
       "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (mediaTiers.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. refreshOffloadedImageUrls anchors the onMounted re-presign of persisted offloaded images: offloaded image src is a short-lived presigned S3 link, so a reloaded session must re-mint from the stored s3Key (POST /v1/images/presign) — dropping this call leaves a reopened Studio with dead (expired) image thumbnails. pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
     },
     {
+      "path": "frontend/src/composables/useVideoTaskPoll.ts",
+      "must_contain": [
+        "extractVideoS3Key",
+        "opts.patch(task.id, { state, url, s3Key, errorMessage: undefined })",
+        "opts.onTerminal?.({ ...task, state, url, s3Key }, state)",
+        "opts.patch(task.id, { url, s3Key })"
+      ],
+      "rationale": "TK-only Studio video polling must persist the backend media-offload marker (`s3_key`) whenever a task first succeeds and whenever an already-succeeded task refreshes its playback URL. The backend now converts short-lived upstream video URLs into TokenKey-owned S3 media, and the frontend needs s3Key in the task record so reopened sessions can keep moving through the durable offload path instead of falling back to an expired upstream preview URL. useVideoTaskPoll.ts is upstream-shaped; an upstream merge that removes these small patch/onTerminal fields would compile cleanly but silently reintroduce the customer-facing 'preview expired after generation' failure. These anchors pin the import, terminal-state persistence, terminal callback payload, and lazy refresh path."
+    },
+    {
       "path": "frontend/src/views/user/studio/VideoStudio.vue",
       "must_contain": [
         "data-testid=\"studio-video-model\"",
