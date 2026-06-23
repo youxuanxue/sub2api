@@ -9,11 +9,11 @@
 # Gateway business probes live in ops/stage0/post_deploy_smoke.sh (single runner).
 #
 # GitHub edge-<id> Environment:
-#   secret TK_SMOKE_EDGE_CANARY_KEY — main-via-edge (request via prod base URL)
+#   secret TK_SMOKE_API_KEY — main-via-edge (request via prod base URL)
 #
 # Fixed in smoke_env.sh (no per-edge GitHub var):
 #   TK_SMOKE_EDGE_CANARY_BASE_URL=https://api.tokenkey.dev
-#   TK_SMOKE_EDGE_LOCAL_CHAT_MODEL=claude-sonnet-4-6
+#   TK_SMOKE_EDGE_LOCAL_CHAT_MODELS=claude-sonnet-4-6
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,7 +104,7 @@ run_infra_smoke() {
     fi
     ssm_commands+=(
       "EDGE_KEY=\$(aws ssm get-parameter --region \"${AWS_CLI_REGION}\" --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
-      "sudo docker compose -f docker-compose.yml --env-file .env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e TK_SMOKE_SKIP_FRONTEND=1 -e TK_SMOKE_PROD_ANTHROPIC_MODEL=\"${TK_SMOKE_EDGE_LOCAL_CHAT_MODEL}\" -e TK_SMOKE_PROD_ANTHROPIC_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
+      "sudo docker compose -f docker-compose.yml --env-file .env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e GATEWAY_SMOKE_SUITE=quick -e TK_SMOKE_SKIP_FRONTEND=1 -e TK_SMOKE_ANTHROPIC_MODELS=\"${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}\" -e TK_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
     )
   else
     echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api after Edge upstream/key setup)"
@@ -176,21 +176,20 @@ run_infra_smoke() {
 }
 
 run_main_via_edge_smoke() {
-  if [[ -z "${TK_SMOKE_EDGE_CANARY_KEY}" ]]; then
-    echo "tk_edge_post_deploy_smoke: TK_SMOKE_EDGE_CANARY_KEY not set; skipping main-gateway-via-edge smoke"
+  if [[ -z "${TK_SMOKE_API_KEY}" ]]; then
+    echo "tk_edge_post_deploy_smoke: TK_SMOKE_API_KEY not set; skipping main-gateway-via-edge smoke"
     return 0
   fi
 
-  canary_key="${TK_SMOKE_EDGE_CANARY_KEY}"
-  prefix="$(printf '%s' "${canary_key}" | head -c 6)"
-  suffix="$(printf '%s' "${canary_key}" | tail -c 4)"
-  echo "tk_edge_post_deploy_smoke: main_gateway=${MAIN_GATEWAY_BASE_URL} key_hint=${prefix}…${suffix}"
+  canary_key="${TK_SMOKE_API_KEY}"
+  echo "tk_edge_post_deploy_smoke: main_gateway=${MAIN_GATEWAY_BASE_URL} key=configured"
 
   start_epoch="$(date -u +%s)"
   TOKENKEY_BASE_URL="${MAIN_GATEWAY_BASE_URL}" \
   GATEWAY_SMOKE_SUITE=main-via-edge \
   TK_SMOKE_SKIP_FRONTEND=1 \
-  TK_SMOKE_PROD_ANTHROPIC_KEY="${canary_key}" \
+  TK_SMOKE_API_KEY="${canary_key}" \
+  TK_SMOKE_ANTHROPIC_MODELS="${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}" \
   bash ops/stage0/post_deploy_smoke.sh
 
   log_cmd="sudo docker logs tokenkey-caddy --since 5m 2>&1 | tail -200 || true; sudo docker logs tokenkey --since 5m 2>&1 | tail -200 || true; echo smoke_start_epoch=${start_epoch}"
@@ -229,7 +228,7 @@ run_main_via_edge_smoke() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
-echo "tk_edge_post_deploy_smoke: edge=${EDGE_ID} edge_api=${EDGE_API_URL} phase=${EDGE_SMOKE_PHASE} self_mode=${EDGE_SELF_SMOKE_MODE} main_gateway=${MAIN_GATEWAY_BASE_URL} edge_local_model=${TK_SMOKE_EDGE_LOCAL_CHAT_MODEL} skip_external_health=${SKIP_EXTERNAL_HEALTH}"
+echo "tk_edge_post_deploy_smoke: edge=${EDGE_ID} edge_api=${EDGE_API_URL} phase=${EDGE_SMOKE_PHASE} self_mode=${EDGE_SELF_SMOKE_MODE} main_gateway=${MAIN_GATEWAY_BASE_URL} edge_local_models=${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS} skip_external_health=${SKIP_EXTERNAL_HEALTH}"
 
 case "${EDGE_SMOKE_PHASE}" in
   infra)

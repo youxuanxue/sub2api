@@ -165,8 +165,8 @@ bash scripts/release-rollout-summary.sh --mode upstream --fetch
 
 | 触达路径 | 验证方式 |
 |---|---|
-| Gemini 路径 | Gemini tool-schema 探针（`TK_SMOKE_PROD_GEMINI_KEY`）；HTTP 400=硬失败需回查 |
-| OpenAI-compat / Responses | OpenAI OAuth 探针（`TK_SMOKE_PROD_OPENAI_OAUTH_KEY`）；`reasoning_tokens` 是否透传 |
+| Gemini 路径 | 统一 smoke key + `TK_SMOKE_GEMINI_MODELS` 的 Gemini tool-schema 探针；HTTP 400=硬失败需回查 |
+| OpenAI-compat / Responses | 统一 smoke key + `TK_SMOKE_OPENAI_OAUTH_MODELS` 的 OpenAI OAuth 探针；`reasoning_tokens` 是否透传 |
 | pricing / model-list | `/v1/models` 数量与可用性标记 |
 | frontend 组件 | frontend release asset 探针 + 浏览器关键页 |
 | 新增/合入 admin 视图（`frontend/src/views/admin/**`） | **TK 持久壳不可退让**：上游新 admin 视图自带 `<AppLayout>` 包裹，必须①剥掉 `<AppLayout>`（布局由 `AdminShellView.vue` 持久壳统一提供）②把路由注册进 `frontend/src/router/admin.tk.ts` 的 `AdminShellView` children（**不要**在 `router/index.ts` 内联）。`scripts/checks/admin-shell-layout.py`（preflight 内）会机械拦截漏剥的 `<AppLayout>` |

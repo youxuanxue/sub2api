@@ -58,14 +58,8 @@ gh auth status >/dev/null 2>&1 || {
 
 required_secrets_for_env() {
   case "$1" in
-    prod)
-      printf '%s\n' \
-        TK_SMOKE_PROD_ANTHROPIC_KEY \
-        TK_SMOKE_PROD_GEMINI_KEY \
-        TK_SMOKE_PROD_OPENAI_OAUTH_KEY
-      ;;
-    edge-*)
-      printf '%s\n' TK_SMOKE_EDGE_CANARY_KEY
+    prod|edge-*)
+      printf '%s\n' TK_SMOKE_API_KEY
       ;;
     *)
       echo "tk_load_smoke_github_env: unsupported environment '${1}' (want prod or edge-<id>)" >&2

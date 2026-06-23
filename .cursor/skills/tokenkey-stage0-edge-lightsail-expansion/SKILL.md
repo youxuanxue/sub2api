@@ -60,7 +60,7 @@ bash scripts/preflight.sh
 
 - 本机有 `gh`、`aws`（or `aws-vault`）、`jq`。
 - 仓库 var `AWS_OIDC_ROLE_ARN` 已配置；`vars.EDGE_ACME_EMAIL`、`vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 已在 `edge-<edge_id>` Environment 配齐（**EDGE_MAIN_GATEWAY_ALLOWED_CIDR 没有默认值**，workflow 会在缺失时 `::error::` 直接挂）。
-- 若该 edge 要跑含 main-via-edge 的 smoke（当前仅 uk1/us1）：`TK_SMOKE_EDGE_CANARY_KEY` secret 已在对应 Environment 配置。
+- 若该 edge 要跑含 main-via-edge 的 smoke（当前仅 uk1/us1）：`TK_SMOKE_API_KEY` secret 已在对应 Environment 配置。
 
 ## 1) Prepare：注册新 Lightsail edge
 
@@ -143,12 +143,12 @@ aws ssm put-parameter --region "<lightsail_region>" \
 
 - `EDGE_ACME_EMAIL`
 - `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`（current prod main-gateway egress；**workflow 没有默认值**）
-- `TK_SMOKE_EDGE_CANARY_KEY`（secret）— **仅**计划跑 `operation=smoke`（含 main-via-edge）的 edge 需要。
+- `TK_SMOKE_API_KEY`（secret）— **仅**计划跑 `operation=smoke`（含 main-via-edge）的 edge 需要。
   当前 prod 惯例：**只**在 `edge-uk1` / `edge-us1` 配置即可；其它 edge（如 us2/us3/us4）
   **可不配**——缺 secret 时 `edge_post_deploy_smoke.sh` 跳过 main-via-edge 段，provision/upgrade
   的 infra 路径不受影响。GitHub secret 只写不可读，无法从 uk1 机械复制。
 
-Smoke base URL 与 Edge 本机 model 在代码内固定（`https://api.tokenkey.dev` / `claude-sonnet-4-6`），无需 Environment var。
+Smoke base URL 与 Edge 本机默认 model 清单在代码内固定（`https://api.tokenkey.dev` / `claude-sonnet-4-6`），无需 Environment var；如需覆盖，使用 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`。
 
 **飞书告警:不要按 edge 配。** webhook/secret 是**仓库级** secrets `TK_FEISHU_WEBHOOK_URL` / `TK_FEISHU_SIGNING_SECRET`(配一次,对所有 `edge-*` / `prod` Environment 可见),部署时由 `ops/stage0/sync-feishu-config.sh` 自动注入新边并启用 + 写后回读自验(配不齐则部署红)。别在 `edge-<id>` Environment 建同名密钥(会覆盖 repo 级)。新边 provision/upgrade 后即具备账号失效 / P0 告警能力,无手工步骤。详见 `deploy/aws/README.md` §「飞书告警自动接入」。
 
@@ -180,7 +180,7 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 
 `AssumeRoleWithWebIdentity` / `Not authorized` 且 provision 步骤未开始 → 先查此 trust，不要猜 Lightsail 权限。
 
-新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_EDGE_CANARY_KEY`（见 §1.5 说明；uk1/us1 以外的 edge 默认不配）。
+新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_API_KEY`（见 §1.5 说明；uk1/us1 以外的 edge 默认不配）。
 
 #### 1.3b Lightsail-only edge：**不要**加 EC2 CFN execution role
 
@@ -311,7 +311,7 @@ gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 
 接 `ops/stage0/external_health.sh` + `ops/stage0/edge_post_deploy_smoke.sh`（与 EC2 共用）。
 
 **Smoke 范围（operator 选择）**：全量 smoke + main-via-edge 目前只对 **uk1 / us1** 启用（需
-`TK_SMOKE_EDGE_CANARY_KEY`）。其它 Lightsail edge  provision 完成后以 DNS + 可选
+`TK_SMOKE_API_KEY`）。其它 Lightsail edge  provision 完成后以 DNS + 可选
 `curl https://api-<id>.tokenkey.dev/health` 或 `operation=smoke`（无 canary 时仅 infra 段）验收即可。
 
 ## 5) Upgrade / Rollback

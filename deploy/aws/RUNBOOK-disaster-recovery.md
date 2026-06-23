@@ -243,7 +243,7 @@ curl -fsS https://api.tokenkey.dev/health && echo " health-ok"
 
 # 2) 端到端 smoke（与发版同一套）
 export TK_SMOKE_GITHUB_ENV=prod
-export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...   # 从 GitHub prod environment secrets
+export TK_SMOKE_API_KEY=sk-...   # 从 GitHub prod environment secrets
 TOKENKEY_BASE_URL=https://api.tokenkey.dev bash ops/stage0/post_deploy_smoke.sh
 
 # 3) 真空/抖动确认（恢复期外网视角无客户端可见失败）

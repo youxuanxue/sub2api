@@ -28,14 +28,10 @@ class LoadSmokeGithubEnvTest(unittest.TestCase):
 
     @mock.patch.dict(
         os.environ,
-        {
-            "TK_SMOKE_PROD_ANTHROPIC_KEY": "sk-a",
-            "TK_SMOKE_PROD_GEMINI_KEY": "sk-g",
-            "TK_SMOKE_PROD_OPENAI_OAUTH_KEY": "sk-o",
-        },
+        {"TK_SMOKE_API_KEY": "sk-a"},
         clear=True,
     )
-    @mock.patch.object(loader, "fetch_tk_smoke_variables", return_value={"TK_SMOKE_PROD_ANTHROPIC_MODEL": "claude-a"})
+    @mock.patch.object(loader, "fetch_tk_smoke_variables", return_value={"TK_SMOKE_ANTHROPIC_MODELS": "claude-a"})
     @mock.patch.object(loader, "resolve_repo", return_value="owner/repo")
     def test_load_github_env_with_local_secrets(
         self,
@@ -43,7 +39,7 @@ class LoadSmokeGithubEnvTest(unittest.TestCase):
         _fetch: mock.Mock,
     ) -> None:
         out = loader.load_github_env("prod")
-        self.assertEqual(out["TK_SMOKE_PROD_ANTHROPIC_MODEL"], "claude-a")
+        self.assertEqual(out["TK_SMOKE_ANTHROPIC_MODELS"], "claude-a")
 
     @mock.patch.dict(os.environ, {}, clear=True)
     @mock.patch.object(loader, "secret_configured", return_value=True)
