@@ -25,7 +25,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 - **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 5、grok 8（5 个 Go map）。
 - **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7，GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
 - **总计**：约 110 个 servable id / 140 个 priced id。
-- **不可服务台账**：139 行，按持久性分 **structural 49（永久跳过）/ policy 75（能服务但故意不上）/ transient 15（需复测）**。
+- **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
 
 **三大风险类（按严重度）**：
 
@@ -166,7 +166,7 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 
 | 家族 | servable id（account_mapping）| 价 |
 |---|---|---|
-| Qwen 商用 | `qwen3.7-max` `qwen3.7-plus` `qwen3.6-flash` `qwen3-coder-plus` `qwen-max` `qwen-plus` | overlay(dashscope) |
+| Qwen 商用 | `qwen3.7-max` `qwen3.7-plus` `qwen3.6-flash` `qwen3-coder-plus` `qwen-max` `qwen-turbo` `qwen-plus` | overlay(dashscope) |
 | Qwen 开源 dense | `qwen3-8b` `qwen3-14b` `qwen3-32b` `qwen3.6-27b`（tk_039）`qwen3-235b-a22b` | overlay（思考/非思考双档）|
 | DeepSeek | `deepseek-v4-pro` `deepseek-v4-flash` | overlay |
 | DeepSeek 经典别名 | `deepseek-chat` `deepseek-reasoner` | **mirror**（overlay 故意不收，镜像已带非零价）|
@@ -205,7 +205,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 - **无自有目录、无 overlay 价**——纯**中继 claude 请求**到 CodeWhisperer，prod→edge anthropic apikey 拓扑。
 - 客户面 claude id 复用 §2.1 的 anthropic 可服务集；按**请求 id** 计费（`billing_tier=kiro-estimated`，因 CodeWhisperer 不返 token usage、parser 得 (0,0) → TK 估算 token）。
-- **`servable_unpriced` 风险（未证实，低置信）**：dot-form 请求 id（如 `claude-sonnet-4.5`）**可能** miss dash-form 镜像键 → $0。Critic 复核未能在 `billing_service.go` 找到 claude dot↔dash 归一器，**标「待证」**，不与 grok/tab_flash 那种代码已坐实的 P0 并列。处置：先追 claude 镜像查找的拼写路径再判。
+- **dot-form 计费风险已按代码事实证伪**：Kiro `MapModel` 会把 dash 版 Claude id 规范成 dot-form（如 `claude-sonnet-4.5`）用于上游；Anthropic 计费 funnel 的默认 billing key 是 `ForwardResult.Model`（请求 id）。无论请求 id 是 dash-form 还是 dot-form，`PricingService.matchByModelFamily` 都能匹配 `claude-sonnet-4-5` / `claude-sonnet-4.5` 并命中 dash/dated 镜像价，不会因拼写差异落 `$0`。回归测试：`TestCalculateCost_ClaudeDotFormMatchesDashFormFamilyPricing`。
 - 429=空池（在 toggle/上游之前）；502=disabled 或上游拍平无 failover。
 
 ---
@@ -218,7 +218,6 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|---|
 | `servable_unpriced_zero_cost_p0` | grok | grok-3/2/search 未核价长尾 | 中 | grok-4.3/4.20/build/code-fast 已补官方价+allowlist；剩余项继续 leave_excluded，等官方价+200 |
 | `servable_unpriced_zero_cost_p0` | antigravity | `tab_flash_lite_preview` | 已收敛 | 已从默认/mapping 自愈面移除，静态检查阻止回写 |
-| `servable_unpriced_zero_cost_p0` | kiro | dot-form claude id（**待证**）| 中 | 先追拼写归一路径再判 |
 | `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
@@ -235,7 +234,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 > **为什么要这张表**：servable-allowlist 只留「实测 200」，把**负面知识丢了**——于是每次 refresh 都重探已知打不通的模型（浪费 SSM），读者也看不到「X 为什么不在清单」。本台账把散落在代码注释/PR 里的实测负面证据固化，并按**持久性**分三类，关键是**别把临时失败记死成永久结论**。
 
-**总量 139 行：structural 49 / policy 75 / transient 15**（transient 集中在 4 个原生平台；grok/newapi/聚合器只有 policy/structural）。
+**机器源当前摘要**：`ops/pricing/servable-reprobe-ledger.json` 当前含 watchlist=22、skiplist=7、deadlist=1。分类口径以 JSON 字段为准，本文不再维护 derived 总数。
 
 ### 4.1 三类定义与处置
 
