@@ -117,13 +117,13 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 > **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，`edge-targets.json` 清空为 stub）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
 
-Edge 子网关不是第二个用户入口。区域域名（如 `api-uk1.tokenkey.dev`、`api-us2.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
+Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey.dev`、`api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
 所有 edge 都在 Lightsail（矩阵 `deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。当前 edge 矩阵示例：
 
 ```text
-uk1 -> eu-west-2 -> api-uk1.tokenkey.dev -> tokenkey-edge-uk1-ls -> deploy-edge-lightsail-stage0.yml
-us2 -> us-east-1 -> api-us2.tokenkey.dev -> tokenkey-edge-us2-ls -> deploy-edge-lightsail-stage0.yml
+us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls -> deploy-edge-lightsail-stage0.yml
+us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls -> deploy-edge-lightsail-stage0.yml
 ```
 
 新增 edge / 升级 / 回滚 / IP 轮换的端到端流程见
@@ -958,4 +958,3 @@ IAM 信任面：
 - **应用更新 / 滚动 / 回滚** → 主文档 §3.6
 - **Stage 1/2/3 升级触发条件** → 主文档 §二、§3.9
 - **CFN 全部 18 个参数详表** → 主文档 §3.5「全部参数总表」
-

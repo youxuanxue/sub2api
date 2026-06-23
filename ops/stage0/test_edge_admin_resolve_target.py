@@ -10,9 +10,11 @@ from __future__ import annotations
 import pathlib
 import subprocess
 import unittest
+import json
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "edge_admin_resolve_target.py"
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_LIGHTSAIL_MATRIX = _REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
 
 def _resolve(*args: str) -> subprocess.CompletedProcess[str]:
@@ -20,6 +22,16 @@ def _resolve(*args: str) -> subprocess.CompletedProcess[str]:
         ["python3", str(_SCRIPT), str(_REPO_ROOT), *args],
         capture_output=True, text=True, check=False,
     )
+
+
+def _deployable_lightsail_edge() -> str | None:
+    matrix = json.loads(_LIGHTSAIL_MATRIX.read_text(encoding="utf-8"))
+    targets = matrix.get("targets") or {}
+    deployable = sorted(
+        edge_id for edge_id, target in targets.items()
+        if isinstance(target, dict) and target.get("deployable") is True
+    )
+    return deployable[0] if deployable else None
 
 
 class EdgeAdminResolveTargetTest(unittest.TestCase):
@@ -39,7 +51,10 @@ class EdgeAdminResolveTargetTest(unittest.TestCase):
     def test_edge_resolution_still_works(self) -> None:
         # Sanity: a real deployable Lightsail edge still routes via the matrices,
         # proving the prod short-circuit did not shadow the edge path.
-        proc = _resolve("uk1")
+        edge_id = _deployable_lightsail_edge()
+        if edge_id is None:
+            self.skipTest("no deployable Lightsail edge in matrix")
+        proc = _resolve(edge_id)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         mode, region, _stack = proc.stdout.rstrip("\n").split("\t")
         self.assertEqual(mode, "lightsail")

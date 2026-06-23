@@ -156,12 +156,15 @@ PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 - **常见假阴性（已修复）**：`DescribeInstanceInformation` 不允许把「标签过滤器」与其它过滤器混在一起；也不得依赖 `ComputerName` 默认等于 Lightsail `instance_name`（AL2023 常为 DHCP hostname）。provision 脚本现以 **`ActivationIds` = 本次 Hybrid activation** 作为主查询，并在 bootstrap 里 `hostnamectl set-hostname` 对齐实例名。
 - **仍超时**：Lightsail 浏览器 SSH 查看 `/var/log/tokenkey-lightsail-bootstrap.log`；失败行以 `BOOTSTRAP_FAIL:` 开头。Workflow 末尾会打印 `describe-activations` 帮助判断 activation / 配额是否用尽。
 
-## uk1：`api-uk1.tokenkey.dev` 权威平台（Lightsail）
+## 已退役 edge 记录
 
-矩阵基线：**EC2 `uk1.deployable=false`**（`deploy/aws/stage0/edge-targets.json`），**Lightsail `uk1.deployable=true`**（本目录 `edge-targets-lightsail.json`）。
-同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被 **`scripts/checks/edge-platform-exclusivity.py`** 拦下。
+`uk1` / `us2` / `us7` 已于 2026-06-23 退役；对应 Lightsail instance、Static IP、
+SSM managed instance、SSM 参数、DNS A 记录、prod mirror account 均已删除。矩阵保留历史
+target 元数据，但必须保持 `deployable=false`；rollout、health、飞书配置同步和手动 edge
+deploy choice 都不应再指向这些 edge。
 
-**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录必须等于 Lightsail Static IP（`aws lightsail get-static-ip --static-ip-name vless-uk-fresh-1` 的 `ipAddress`）。当前矩阵记在 `edge-targets-lightsail.json` → **`targets.uk1.porkbun_a_ipv4`**（**`18.175.27.120`**），作为人工 DNS **唯一真值**。
+对仍在线的 edge，同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被
+**`scripts/checks/edge-platform-exclusivity.py`** 拦下。
 
 **不能与 EC2 EIP 混用：** 旧 EC2 Edge 的 Elastic IP（例如历史 **`16.61.87.51` / `eipalloc-03b2653ddd57b9c93`**）**无法挂到 Lightsail 实例**。若 Porkbun 仍指向已游离的 EC2 EIP，公网会超时。迁到 Lightsail 后必须把 A 记录改到 **Lightsail Static IP**；不再需要的老 EIP 可通过 `release-address` 回收。
 
