@@ -11,10 +11,11 @@
  * key is resolved from the live key list at runtime (useVideoTaskPoll). A
  * deleted key simply means the task can no longer be polled.
  *
- * Storage is best-effort: a QuotaExceededError (large base64 images) trims the
- * oldest image entries and retries. Video tasks are also sanitized before
- * persistence so inline data:video payloads stay browser-local instead of being
- * written to localStorage.
+ * Storage is best-effort. Inline data: payloads stay browser-local instead of
+ * being written to localStorage: video tasks (data:video / blob:) and now images
+ * (data: src with no s3Key — gemini-native, or imagen/gpt-image under the #944
+ * pass-through default) are sanitized before persistence. A residual
+ * QuotaExceededError still trims the oldest image entries and retries.
  */
 import { ref, watch, type Ref } from 'vue'
 
@@ -24,10 +25,12 @@ export interface ImageHistoryItem {
   id: string
   src: string
   /**
-   * S3 key when the image was offloaded by the gateway. `src` is then a short-lived
-   * presigned URL; on reload the Studio re-mints a fresh one from this key (POST
-   * /v1/images/presign) so persisted thumbnails don't break. Absent for inline
-   * data: URI images (gemini-native), which never expire.
+   * S3 key when the image was offloaded by the gateway (opt-in image offload only).
+   * `src` is then a short-lived presigned URL; on reload the Studio re-mints a fresh
+   * one from this key (POST /v1/images/presign) so persisted thumbnails don't break.
+   * Absent for inline data: URI images (gemini-native, or imagen/gpt-image under the
+   * #944 pass-through default) — those carry the bytes inline and are NOT persisted
+   * (sanitizeImageForPersistence blanks src), so on reload they show a regenerate hint.
    */
   s3Key?: string
   prompt: string
@@ -97,12 +100,26 @@ function sanitizeVideoTasksForPersistence(tasks: VideoTaskItem[]): VideoTaskItem
 }
 
 /**
+ * Inline data: image bytes (gemini-native, or imagen/gpt-image once image S3
+ * offload is off — the #944 pass-through default) must NOT be persisted: a multi-MB
+ * base64 string per image blows the ~5-10MB localStorage budget and silently evicts
+ * real history through the degradation loop below. Mirror the data:video sanitizer:
+ * blank the src on the PERSISTED copy only — the in-memory images.value keeps the
+ * full data: src so the current session's grid + lightbox still render browser-local.
+ * Offloaded (s3Key) and http(s) images are tiny + re-mintable, so they persist as-is.
+ */
+function sanitizeImageForPersistence(item: ImageHistoryItem): ImageHistoryItem {
+  if (item.s3Key || !/^data:/i.test(item.src)) return item
+  return { ...item, src: '' }
+}
+
+/**
  * Persist with graceful quota degradation: on QuotaExceededError, drop the
  * oldest images and retry; if still failing, persist video tasks only.
  */
 function persist(key: string, data: PersistShape): void {
   if (typeof window === 'undefined') return
-  let images = data.images
+  let images = data.images.map(sanitizeImageForPersistence)
   const videoTasks = sanitizeVideoTasksForPersistence(data.videoTasks)
   for (let attempt = 0; attempt < 6; attempt++) {
     try {

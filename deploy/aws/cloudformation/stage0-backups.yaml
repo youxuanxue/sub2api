@@ -7,10 +7,11 @@ Description: >
   (1) pg_dump ledger backups (tokenkey-pgdump.sh hourly; RetentionDays);
   (2) QA trajectory exports (qa_capture.export_storage; QaExportsRetentionDays;
   see docs/qa-export-s3-and-auto-archive.md);
-  (3) generated-media offload (media_storage): images are offloaded here, and
-  legacy already-offloaded video records may still be re-presigned; fresh video
-  results are no longer uploaded to S3. media/ prefix, MediaRetentionDays
-  (default 1). No versioning (keys are unique).
+  (3) generated-media offload (media_storage): OPT-IN image offload only (set
+  MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true), plus re-presign of legacy
+  already-offloaded video records. By default NEITHER image nor video rehosts
+  fresh results — they pass through inline (the gateway is not a media CDN).
+  media/ prefix, MediaRetentionDays (default 1). No versioning (keys are unique).
 
 Parameters:
   ProjectName:
@@ -286,9 +287,10 @@ Outputs:
   MediaBucketName:
     Description: >
       Generated-media bucket. Set MEDIA_STORAGE_DRIVER=s3 + MEDIA_STORAGE_BUCKET=<this>
-      + MEDIA_STORAGE_REGION=<region> in the app env to enable image media offload
-      and legacy media re-presign (credentials come from the instance role — leave
-      MEDIA_STORAGE_ACCESS_KEY_ID unset).
+      + MEDIA_STORAGE_REGION=<region> in the app env to enable legacy video re-presign;
+      add MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true to additionally opt back into image
+      S3 offload (off by default = images pass through inline). Credentials come from the
+      instance role — leave MEDIA_STORAGE_ACCESS_KEY_ID unset.
     Value: !Ref MediaBucket
   MediaS3Uri:
     Description: s3:// base for generated media; objects land under media/ (reaped by expire-generated-media).

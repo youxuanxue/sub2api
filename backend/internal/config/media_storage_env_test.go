@@ -49,3 +49,38 @@ func TestMediaStorageDefaultsToEmptyDriver(t *testing.T) {
 		t.Fatalf("media_storage.driver default must stay empty (passthrough), got %q", d)
 	}
 }
+
+// Image offload is OPT-IN since the #944 pass-through alignment: it defaults OFF
+// even when a bucket is wired, and is turned back on ONLY via the explicit env.
+// Pin both halves so a missing viper.SetDefault (which would silently fail to bind
+// the env) or a flipped default can't regress the pass-through behavior on prod.
+func TestMediaStorageImageOffloadEnabledEnvBinding(t *testing.T) {
+	t.Run("defaults off even with a bucket", func(t *testing.T) {
+		viper.Reset()
+		t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+		t.Setenv("MEDIA_STORAGE_DRIVER", "s3")
+		t.Setenv("MEDIA_STORAGE_REGION", "us-east-1")
+		t.Setenv("MEDIA_STORAGE_BUCKET", "tk-test-media")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.MediaStorage.ImageOffloadEnabled {
+			t.Fatal("image_offload_enabled must default to false (pass-through) even with a bucket wired")
+		}
+	})
+	t.Run("env opts back in", func(t *testing.T) {
+		viper.Reset()
+		t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+		t.Setenv("MEDIA_STORAGE_DRIVER", "s3")
+		t.Setenv("MEDIA_STORAGE_BUCKET", "tk-test-media")
+		t.Setenv("MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED", "true")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if !cfg.MediaStorage.ImageOffloadEnabled {
+			t.Fatal("MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true did NOT bind — needs viper.SetDefault for the nested key")
+		}
+	})
+}

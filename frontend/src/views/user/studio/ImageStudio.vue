@@ -61,6 +61,7 @@
             :remove-label="t('studio.image.inputRemove')"
             :hint="t('studio.image.inputHint')"
             :max-size="INPUT_IMAGE_MAX_BYTES"
+            :downscale-max-edge="INPUT_IMAGE_DOWNSCALE_EDGE"
             @update:model-value="inputImage = $event"
           />
           <button
@@ -189,13 +190,24 @@
                  browsers block top-level navigation to data: URLs (→ about:blank,
                  the "click shows nothing" report). A lightbox previews every src
                  (data: or http) without leaving the page. -->
-            <button type="button" class="block w-full cursor-zoom-in" :title="t('studio.image.enlargeHint')" data-testid="studio-image-thumb" @click="openPreview(img)">
-              <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
-            </button>
-            <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/40 p-1.5 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
-              <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="download(img)">{{ t('studio.image.download') }}</button>
-              <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="reuse(img)">{{ t('studio.image.usePrompt') }}</button>
-              <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" data-testid="studio-image-use-as-input" @click="useAsInput(img)">{{ t('studio.image.useAsInput') }}</button>
+            <template v-if="img.src">
+              <button type="button" class="block w-full cursor-zoom-in" :title="t('studio.image.enlargeHint')" data-testid="studio-image-thumb" @click="openPreview(img)">
+                <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
+              </button>
+              <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/40 p-1.5 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
+                <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="download(img)">{{ t('studio.image.download') }}</button>
+                <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="reuse(img)">{{ t('studio.image.usePrompt') }}</button>
+                <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" data-testid="studio-image-use-as-input" @click="useAsInput(img)">{{ t('studio.image.useAsInput') }}</button>
+              </div>
+            </template>
+            <!-- Reloaded inline image: its bytes were delivered ONCE and intentionally
+                 not persisted to localStorage (#944 pass-through default — the gateway
+                 does not rehost generated images), so after a reload there is no
+                 thumbnail to show. Offer a regenerate path instead of a broken <img>. -->
+            <div v-else class="flex aspect-square w-full flex-col items-center justify-center gap-1 bg-gray-50 px-2 text-center dark:bg-dark-800" data-testid="studio-image-expired">
+              <span aria-hidden="true" class="text-2xl text-gray-300 dark:text-dark-600">🖼</span>
+              <span class="text-[10px] leading-tight text-gray-400 dark:text-dark-500">{{ t('studio.image.expiredReload') }}</span>
+              <button type="button" class="mt-1 rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-medium text-gray-700 ring-1 ring-gray-200 hover:bg-white dark:bg-dark-700 dark:text-dark-200 dark:ring-dark-600" @click="reuse(img)">{{ t('studio.image.usePrompt') }}</button>
             </div>
           </div>
           <figcaption class="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-gray-500 dark:text-dark-400">
@@ -318,6 +330,11 @@ const errorCode = ref<StudioErrorCode | ''>('')
 // seedream take no input image on /v1/images/generations). The input image is a
 // data: URI (fresh upload) or a library image's src (reuse).
 const INPUT_IMAGE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — well within gemini inline-image limits
+// Downscale the input image to this max edge (px) before it travels inline through the
+// gateway: image-to-image / reverse-prompt / first-frame inputs don't need full res
+// (gemini inline-image guidance is well under 4 MB), so this cuts request-body bytes
+// by an order of magnitude. The 4 MB cap above still guards the original upload.
+const INPUT_IMAGE_DOWNSCALE_EDGE = 1536
 const inputImage = ref('')
 const reversing = ref(false)
 const supportsImageInput = computed(() => isFlatImage.value)
@@ -446,6 +463,9 @@ function download(img: ImageHistoryItem): void {
 // new tab (data: URIs can't be navigated to top-level — they 404 to about:blank).
 const preview = ref<ImageHistoryItem | null>(null)
 function openPreview(img: ImageHistoryItem): void {
+  // A reloaded inline image has an empty src (its bytes were not persisted); there
+  // is nothing to enlarge, so don't open an empty lightbox.
+  if (!img.src) return
   preview.value = img
 }
 function closePreview(): void {

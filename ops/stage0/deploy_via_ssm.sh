@@ -170,10 +170,15 @@ fi
 
 # --- Generated-media → S3 offload (prod-only) --------------------------------
 # Same proven mechanism as the QA-export block above (additive, grep-guarded,
-# idempotent .env + compose-mapping patches on a LIVE host). Activates the video
-# S3 offload: MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on
-# purpose — the prod instance role + the media bucket policy (Principal = prod
-# InstanceRole ARN) grant s3:PutObject/GetObject, so no static keys land in .env.
+# idempotent .env + compose-mapping patches on a LIVE host). Wires the media store:
+# MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on purpose — the prod
+# instance role + the media bucket policy (Principal = prod InstanceRole ARN) grant
+# s3:PutObject/GetObject, so no static keys land in .env.
+# Since the #944 pass-through alignment this only enables the LEGACY video re-presign
+# fast path; IMAGE offload is OPT-IN (MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED) and is
+# DELIBERATELY left unset here so generated images pass through inline (no S3 rehost,
+# no on-request PutObject pin, no per-Studio-mount presign fan-out). Do NOT add the
+# flag back without re-deciding that trade-off.
 # Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`) get [] and never offload media
 # (they passthrough base64 — same byte-identical command list as before). Safe to
 # enable before the CFN media bucket exists: the store degrades to base64

@@ -4,8 +4,41 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 )
+
+// TestReadGrokVideoResponseLimited pins the bounded read that protects the grok
+// video arm from a hostile/runaway upstream: a body within the cap reads back
+// verbatim, and one over the cap returns errGrokVideoResponseTooLarge instead of
+// buffering unbounded media into gateway memory (parity with the new-api bridge's
+// readVideoFetchResponseBodyLimited).
+func TestReadGrokVideoResponseLimited(t *testing.T) {
+	t.Run("within cap reads verbatim", func(t *testing.T) {
+		body := `{"video_url":"https://x.ai/v.mp4"}`
+		got, err := readGrokVideoResponseLimited(strings.NewReader(body), 1024)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != body {
+			t.Fatalf("body mismatch: got %q want %q", got, body)
+		}
+	})
+	t.Run("over cap errors", func(t *testing.T) {
+		_, err := readGrokVideoResponseLimited(strings.NewReader(strings.Repeat("a", 100)), 16)
+		if !errors.Is(err, errGrokVideoResponseTooLarge) {
+			t.Fatalf("expected errGrokVideoResponseTooLarge, got %v", err)
+		}
+	})
+	t.Run("exactly at cap is allowed", func(t *testing.T) {
+		body := strings.Repeat("a", 16)
+		got, err := readGrokVideoResponseLimited(strings.NewReader(body), 16)
+		if err != nil || len(got) != 16 {
+			t.Fatalf("at-cap read should succeed: got len=%d err=%v", len(got), err)
+		}
+	})
+}
 
 // TestNormalizeGrokVideoStatus pins the mapping from xAI's video status enum
 // (queued/processing/done/failed/expired) onto the handler's videoTerminalOutcome
