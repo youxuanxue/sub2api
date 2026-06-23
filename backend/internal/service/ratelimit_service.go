@@ -30,6 +30,8 @@ type RateLimitService struct {
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
 	settingService                     *SettingService
 	tokenCacheInvalidator              TokenCacheInvalidator
+	oauthRefreshAPI                    *OAuthRefreshAPI
+	kiroOAuthRefreshExecutor           OAuthRefreshExecutor
 	runtimeBlocker                     AccountRuntimeBlocker
 	// TK: 账号失效事件 → 飞书即时告警。挂钩在 notifyAccountSchedulingBlocked,
 	// 实现在 account_incident_notifier_tk.go / ratelimit_service_tk_incident.go。
@@ -230,6 +232,14 @@ func (s *RateLimitService) SetSettingService(settingService *SettingService) {
 // SetTokenCacheInvalidator 设置 token 缓存清理器（可选依赖）
 func (s *RateLimitService) SetTokenCacheInvalidator(invalidator TokenCacheInvalidator) {
 	s.tokenCacheInvalidator = invalidator
+}
+
+func (s *RateLimitService) SetOAuthRefreshAPI(refreshAPI *OAuthRefreshAPI) {
+	s.oauthRefreshAPI = refreshAPI
+}
+
+func (s *RateLimitService) SetKiroOAuthRefreshExecutor(executor OAuthRefreshExecutor) {
+	s.kiroOAuthRefreshExecutor = executor
 }
 
 func (s *RateLimitService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocker) {

@@ -78,6 +78,29 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	executor OAuthRefreshExecutor,
 	refreshWindow time.Duration,
 ) (*OAuthRefreshResult, error) {
+	return api.refresh(ctx, account, executor, refreshWindow, false)
+}
+
+// RefreshNow 在分布式锁保护下强制刷新 OAuth token。
+//
+// 它复用 RefreshIfNeeded 的锁、DB 重读、竞争恢复和持久化流程，但跳过
+// executor.NeedsRefresh 二次检查。用于上游已明确拒绝当前 access_token 的场景
+// （例如 Kiro still-valid 401），不能替代后台按窗口刷新。
+func (api *OAuthRefreshAPI) RefreshNow(
+	ctx context.Context,
+	account *Account,
+	executor OAuthRefreshExecutor,
+) (*OAuthRefreshResult, error) {
+	return api.refresh(ctx, account, executor, 0, true)
+}
+
+func (api *OAuthRefreshAPI) refresh(
+	ctx context.Context,
+	account *Account,
+	executor OAuthRefreshExecutor,
+	refreshWindow time.Duration,
+	force bool,
+) (*OAuthRefreshResult, error) {
 	cacheKey := executor.CacheKey(account)
 
 	// 0. 获取进程内互斥锁（防止同一进程内的并发刷新竞争）
@@ -118,8 +141,9 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		freshAccount = account
 	}
 
-	// 3. 二次检查是否仍需刷新（另一条路径可能已刷新）
-	if !executor.NeedsRefresh(freshAccount, refreshWindow) {
+	// 3. 二次检查是否仍需刷新（另一条路径可能已刷新）。force=true 时跳过，
+	// 用于已经收到上游 401 的当前 token。
+	if !force && !executor.NeedsRefresh(freshAccount, refreshWindow) {
 		return &OAuthRefreshResult{
 			Account: freshAccount,
 		}, nil

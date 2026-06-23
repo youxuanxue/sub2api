@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -50,6 +51,11 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 	if time.Until(*expiresAt) < s.tkOAuth401ValidTokenMargin() {
 		return false
 	}
+	if account.Platform == PlatformKiro && account.Type == AccountTypeOAuth {
+		if s.tkHandleKiroOAuth401OnValidToken(ctx, account, upstreamMsg, *expiresAt) {
+			return true
+		}
+	}
 	// token 仍 solidly valid 却被上游 401 → grant 吊销 → 第一次即禁用，人工重授权。
 	msg := "OAuth 401 on a still-valid access token — grant revoked upstream, manual re-authorization required (re-login via account management)"
 	if strings.TrimSpace(upstreamMsg) != "" {
@@ -62,6 +68,84 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 		"expires_at", expiresAt.UTC().Format(time.RFC3339),
 	)
 	s.handleAuthError(ctx, account, msg)
+	return true
+}
+
+func (s *RateLimitService) tkHandleKiroOAuth401OnValidToken(ctx context.Context, account *Account, upstreamMsg string, expiresAt time.Time) bool {
+	if s == nil || account == nil || s.oauthRefreshAPI == nil {
+		return false
+	}
+	executor := s.kiroOAuthRefreshExecutor
+	if executor == nil {
+		executor = NewKiroTokenRefresher()
+	}
+	if !executor.CanRefresh(account) {
+		return false
+	}
+
+	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
+	if err != nil {
+		if isNonRetryableRefreshError(err) {
+			slog.Warn("kiro_oauth_401_force_refresh_nonretryable",
+				"account_id", account.ID,
+				"expires_at", expiresAt.UTC().Format(time.RFC3339),
+				"error", err,
+			)
+			return false
+		}
+		msg := "Kiro OAuth 401 on a still-valid access token; force-refresh failed, temporary cooldown"
+		if strings.TrimSpace(upstreamMsg) != "" {
+			msg = msg + ": " + upstreamMsg
+		}
+		msg = msg + fmt.Sprintf(" (refresh_error=%v)", err)
+		slog.Warn("kiro_oauth_401_force_refresh_failed_cooldown",
+			"account_id", account.ID,
+			"expires_at", expiresAt.UTC().Format(time.RFC3339),
+			"error", err,
+		)
+		s.tkApplyOAuth401Cooldown(ctx, account, msg)
+		return true
+	}
+	if result != nil && result.LockHeld {
+		msg := "Kiro OAuth 401 on a still-valid access token; force-refresh already in progress, temporary cooldown"
+		if strings.TrimSpace(upstreamMsg) != "" {
+			msg = msg + ": " + upstreamMsg
+		}
+		slog.Info("kiro_oauth_401_force_refresh_lock_held",
+			"account_id", account.ID,
+			"expires_at", expiresAt.UTC().Format(time.RFC3339),
+		)
+		s.tkApplyOAuth401Cooldown(ctx, account, msg)
+		return true
+	}
+	if result == nil || (!result.Refreshed && result.Account == nil) {
+		return false
+	}
+
+	if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
+		slog.Warn("kiro_oauth_401_force_refresh_clear_error_failed", "account_id", account.ID, "error", err)
+	}
+	if err := s.accountRepo.SetSchedulable(ctx, account.ID, true); err != nil {
+		slog.Warn("kiro_oauth_401_force_refresh_set_schedulable_failed", "account_id", account.ID, "error", err)
+	}
+	if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
+		slog.Warn("kiro_oauth_401_force_refresh_clear_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.DeleteTempUnsched(ctx, account.ID); err != nil {
+			slog.Warn("kiro_oauth_401_force_refresh_clear_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	if s.tokenCacheInvalidator != nil {
+		if err := s.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
+			slog.Warn("kiro_oauth_401_force_refresh_invalidate_cache_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	s.notifyAccountSchedulingBlockCleared(account.ID)
+	slog.Info("kiro_oauth_401_force_refresh_recovered",
+		"account_id", account.ID,
+		"expires_at", expiresAt.UTC().Format(time.RFC3339),
+	)
 	return true
 }
 

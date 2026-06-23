@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
@@ -310,14 +311,16 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.ErrorAs(t, err, &invalidModelErr)
 	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
 
-	// 400 without the INVALID_MODEL_ID marker → generic wrapped error, NOT typed.
+	// 400 without the INVALID_MODEL_ID marker → failover error, NOT typed invalid-model.
 	other := classifyKiroForwardError(
 		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"THROTTLED\"}"),
 		"claude-haiku-4.5",
 	)
 	require.Error(t, other)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, other, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
 	require.NotErrorAs(t, other, &invalidModelErr)
-	require.Contains(t, other.Error(), "kiro upstream call failed")
 
 	// 500 with the marker substring → still not classified as invalid-model.
 	notFourHundred := classifyKiroForwardError(
@@ -325,7 +328,64 @@ func TestClassifyKiroForwardError(t *testing.T) {
 		"claude-haiku-4.5",
 	)
 	require.NotErrorAs(t, notFourHundred, &invalidModelErr)
+	require.ErrorAs(t, notFourHundred, &failoverErr)
+	require.Equal(t, http.StatusInternalServerError, failoverErr.StatusCode)
+
+	unauthorized := classifyKiroForwardError(
+		fmt.Errorf("HTTP 401 from CodeWhisperer: Invalid bearer token"),
+		"claude-sonnet-4",
+	)
+	require.ErrorAs(t, unauthorized, &failoverErr)
+	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
+	require.Equal(t, "Invalid bearer token", string(failoverErr.ResponseBody))
 
 	// nil passes through.
 	require.NoError(t, classifyKiroForwardError(nil, "m"))
+}
+
+func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroStatusUpstream{
+		status: http.StatusUnauthorized,
+		body:   "Invalid bearer token",
+	}
+	expiresAt := time.Now().Add(2 * time.Hour)
+	account := newKiroOAuth401Account(730, expiresAt)
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimit.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	rateLimit.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials: map[string]any{
+			"access_token":  "new-at",
+			"refresh_token": "new-rt",
+			"expires_at":    expiresAt.Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	})
+
+	svc := &GatewayService{
+		kiroGateway:      NewKiroGatewayService(upstream, nil),
+		rateLimitService: rateLimit,
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
 }
