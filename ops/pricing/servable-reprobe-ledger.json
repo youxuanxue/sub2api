@@ -5,8 +5,8 @@
     {
       "platform": "antigravity",
       "model": "gemini-2.5-pro",
-      "reason": "2026-06-13 probe returned 503 MODEL_CAPACITY_EXHAUSTED; capacity recovery can make it servable.",
-      "last_probe": "2026-06-13",
+      "reason": "2026-06-23 prod /antigravity/v1beta generateContent returned 000 timeout/inconclusive; streamGenerateContent single-model retry also returned 000. Keep watchlisted because the same antigravity path served baseline models.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-antigravity"
@@ -14,8 +14,8 @@
     {
       "platform": "antigravity",
       "model": "claude-sonnet-4-5",
-      "reason": "2026-06-13 antigravity anthropic-surface probe returned 503 MODEL_CAPACITY_EXHAUSTED; native anthropic serves the same id.",
-      "last_probe": "2026-06-13",
+      "reason": "2026-06-23 prod /antigravity/v1/messages returned 429 not_allowlisted; current operator policy routes claude to anthropic and keeps antigravity gemini-only. Reprobe only if that policy changes.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-antigravity"
@@ -23,8 +23,8 @@
     {
       "platform": "openai",
       "model": "gpt-5.2",
-      "reason": "2026-06-22 reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-22",
+      "reason": "2026-06-23 prod /v1/chat/completions reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_chat"
@@ -32,8 +32,8 @@
     {
       "platform": "openai",
       "model": "gpt-5.3-codex",
-      "reason": "2026-06-22 reprobe returned 400 unsupported after this contract had flipped during 2026-05-28/29.",
-      "last_probe": "2026-06-22",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported after this contract had flipped during 2026-05-28/29.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
@@ -41,8 +41,8 @@
     {
       "platform": "openai",
       "model": "codex-auto-review",
-      "reason": "2026-06-22 reprobe returned 200 on the OpenAI responses path; keep auto-probing until the new allowlist entry soaks.",
-      "last_probe": "2026-06-22",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 200 on the OpenAI responses path; keep auto-probing until the new allowlist entry soaks.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
@@ -50,48 +50,53 @@
     {
       "platform": "openai",
       "model": "gpt-5-codex",
-      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.1-codex",
-      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.1-codex-max",
-      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.1-codex-mini",
-      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.2-codex",
-      "reason": "Priced Codex-family id without a current explicit 200-or-fail probe record.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.5-flash-image",
-      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
-      "last_probe": "2026-06-09",
+      "reason": "2026-06-23 edge-us6 /v1/chat/completions reprobe returned 429 inconclusive; baseline gemini-2.5-flash also returned 429, so current Vertex path is pool/quota limited.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat"
@@ -99,8 +104,8 @@
     {
       "platform": "gemini",
       "model": "gemini-3.1-flash-image",
-      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
-      "last_probe": "2026-06-09",
+      "reason": "2026-06-23 edge-us6 /v1/chat/completions reprobe returned 429 inconclusive; baseline gemini-2.5-flash also returned 429, so current Vertex path is pool/quota limited.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat"
@@ -108,8 +113,8 @@
     {
       "platform": "gemini",
       "model": "gemini-3-pro-image-preview",
-      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
-      "last_probe": "2026-06-09",
+      "reason": "2026-06-23 edge-us6 /v1/chat/completions reprobe returned 429 inconclusive; baseline gemini-2.5-flash also returned 429, so current Vertex path is pool/quota limited.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat"
@@ -117,43 +122,110 @@
     {
       "platform": "gemini",
       "model": "nano-banana-pro-preview",
-      "reason": "2026-06-09 probe used /v1/images/generations and returned 500; re-probe the chat endpoint instead.",
-      "last_probe": "2026-06-09",
+      "reason": "2026-06-23 edge-us6 /v1/chat/completions reprobe returned 429 inconclusive; baseline gemini-2.5-flash also returned 429, so current Vertex path is pool/quota limited.",
+      "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat"
     },
     {
-      "platform": "antigravity",
-      "model": "gemini-2.5-flash",
-      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
-      "expires": "2026-07-06",
-      "auto_probe": false,
-      "owner": "native-antigravity"
+      "platform": "gemini",
+      "model": "imagen-3.0-capability-001",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
     },
     {
-      "platform": "antigravity",
-      "model": "gemini-2.5-flash-lite",
-      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
-      "expires": "2026-07-06",
-      "auto_probe": false,
-      "owner": "native-antigravity"
+      "platform": "gemini",
+      "model": "imagen-3.0-fast-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
     },
     {
-      "platform": "antigravity",
-      "model": "gemini-2.5-flash-thinking",
-      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
-      "expires": "2026-07-06",
-      "auto_probe": false,
-      "owner": "native-antigravity"
+      "platform": "gemini",
+      "model": "imagen-3.0-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
     },
     {
-      "platform": "antigravity",
-      "model": "gemini-3-flash",
-      "reason": "Advertised by antigravity but not yet backed by an explicit probe verdict.",
-      "expires": "2026-07-06",
-      "auto_probe": false,
-      "owner": "native-antigravity"
+      "platform": "gemini",
+      "model": "imagen-3.0-generate-002",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-2.0-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.0-fast-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.0-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-fast-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-fast-generate-preview",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-generate-preview",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-lite-generate-preview",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
     },
     {
       "platform": "newapi",
@@ -166,24 +238,9 @@
     {
       "platform": "newapi",
       "model": "qwq-32b",
-      "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
-      "expires": "2026-07-06",
-      "auto_probe": false,
-      "owner": "tokenkey-onboard-model"
-    },
-    {
-      "platform": "newapi",
-      "model": "qwen-turbo",
-      "reason": "Backlog candidate from the inventory; newapi onboarding path owns the live probe.",
-      "expires": "2026-07-06",
-      "auto_probe": false,
-      "owner": "tokenkey-onboard-model"
-    },
-    {
-      "platform": "newapi",
-      "model": "glm-5.x/glm-4.x",
-      "reason": "Direct GLM family is modeled via account 67 channel_type=26 and tk_044; prod canary completed 2026-06-22 with glm-4.7 livefire 200 and nonzero usage billing.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod Qwen-group thinking and nonthinking probes returned 429 not_allowlisted; no schedulable account currently maps this id.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
     },
@@ -198,8 +255,18 @@
     {
       "platform": "newapi",
       "model": "deepseek-v4-none/max",
-      "reason": "Backlog alias candidate, never probed; not a native refresh-servable-allowlist platform.",
-      "expires": "2026-07-06",
+      "reason": "2026-06-23 prod deepseek-group probes for deepseek-v4-none and deepseek-v4-max returned 429 not_allowlisted; registered DeepSeek ids deepseek-v4-pro/flash and deepseek-chat/reasoner returned 200.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "doubao-seed-translation-250915",
+      "reason": "2026-06-23 direct VolcEngine Ark /api/v3/chat/completions reprobe returned 400 inconclusive twice; tk_020 maps it and overlay prices it, but it is not promoted to tk_served_models.json until a 200 probe or a confirmed correct translation surface.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
     }

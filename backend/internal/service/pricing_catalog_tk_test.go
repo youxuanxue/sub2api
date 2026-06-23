@@ -163,6 +163,31 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		"source price wins over overlay (fill-only); overlay must NOT override")
 }
 
+func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) {
+	const fixture = `{
+	  "gemini-2.5-flash": {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000025,"cache_read_input_token_cost":0.00000003,"litellm_provider":"vertex_ai-language-models"}
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC), true
+	})
+
+	resp := FilterPublicCatalogToServable(s.BuildPublicCatalog(context.Background()))
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, m := range resp.Data {
+		byID[m.ModelID] = m
+	}
+
+	thinking, ok := byID["gemini-2.5-flash-thinking"]
+	require.True(t, ok, "Antigravity thinking wire id must surface once it is priced and allowlisted")
+	assert.Equal(t, "antigravity", thinking.Vendor)
+	assert.InDelta(t, 0.0003, thinking.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.0025, thinking.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.00003, thinking.Pricing.CacheReadPer1K, 1e-12)
+	assert.Contains(t, thinking.Capabilities, "prompt_caching")
+}
+
 // TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies the
 // display side of the absent-or-zero fill: a source row whose every price field
 // is 0.0 (litellm "cost unknown" — the prod shape of deepseek-v3-2-251201 under
@@ -256,11 +281,16 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"azure_openai", "gpt-4", false},                      // azure_openai → openai platform, gated
 		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
 		{"deepseek", "deepseek-chat", true},
-		// antigravity (2026-06-13 empirical probe): gated to the gemini-only set.
+		// antigravity (2026-06-13 empirical probe, refreshed 2026-06-23): gated to the gemini-only set.
+		{"antigravity", "gemini-2.5-flash", true},
+		{"antigravity", "gemini-2.5-flash-lite", true},
+		{"antigravity", "gemini-2.5-flash-thinking", true},
+		{"antigravity", "gemini-3-flash", true},
+		{"antigravity", "gemini-3.1-flash-image", true},
 		{"antigravity", "gemini-3.5-flash-low", true},
 		{"antigravity", "gpt-oss-120b-medium", false}, // gpt-oss off antigravity (operator policy)
 		{"antigravity", "claude-sonnet-4-6", false},   // claude routed to anthropic
-		{"antigravity", "gemini-2.5-pro", false},      // 503 at probe, not in antigravity set
+		{"antigravity", "gemini-2.5-pro", false},      // 000 timeout at 2026-06-23 reprobe, not in antigravity set
 		// grok (xai vendor → grok platform): gated to the priced overlay set.
 		{"xai", "grok-4.3", true},
 		{"xai", "grok-4.20-0309-reasoning", true},
@@ -279,9 +309,8 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 }
 
 // 直接固化 supportedCatalogModelIDsForPlatform 的 antigravity 契约：实测 gemini-only
-// 集合（claude 走 anthropic、gpt-oss 已从 antigravity 移除）。注意此 accessor 目前
-// 仅由本测试触达——线上 Your-Menu fallback 对 antigravity 走 DefaultAntigravityModelMapping
-// 而非此函数；保留 antigravity 分支是为与公共目录 gate 对称，未来接线即正确。
+// 集合（claude 走 anthropic、gpt-oss 已从 antigravity 移除）。gateway
+// /antigravity/models 和 admin selector 都经 tkServableCandidateIDs 消费这份集合。
 func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 	ids := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
 	require.NotEmpty(t, ids)
@@ -289,11 +318,22 @@ func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 	for _, id := range ids {
 		set[id] = struct{}{}
 	}
-	for _, want := range []string{"gemini-3.5-flash-low", "gemini-pro-agent"} {
+	for _, want := range []string{
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+		"gemini-2.5-flash-thinking",
+		"gemini-3-flash",
+		"gemini-3-flash-agent",
+		"gemini-3.1-flash-image",
+		"gemini-3.1-pro-low",
+		"gemini-3.5-flash-extra-low",
+		"gemini-3.5-flash-low",
+		"gemini-pro-agent",
+	} {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected antigravity menu to advertise %q", want)
 	}
-	for _, deny := range []string{"claude-sonnet-4-6", "gpt-oss-120b-medium"} {
+	for _, deny := range []string{"claude-sonnet-4-6", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
 		_, ok := set[deny]
 		assert.Falsef(t, ok, "antigravity menu must not advertise %q (routed off antigravity)", deny)
 	}

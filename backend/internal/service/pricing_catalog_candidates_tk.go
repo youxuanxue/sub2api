@@ -13,12 +13,12 @@ import "context"
 // the selector without a manual edit. (R-003 follow-up to PR #752.)
 
 // tkServableCandidateIDs returns the self-healing candidate list for one platform
-// (used by the admin selector). Empirical platforms (anthropic/openai, and gemini
-// once probed) draw from supportedCatalogModelIDsForPlatform; antigravity/newapi
-// have no empirical allowlist and keep their canonical defaults. Every platform
-// is then pruned of structurally-gone models (tkPruneStructurallyGoneIDs), so the
-// result respects PER-PLATFORM truth: a model gone on anthropic stays on
-// antigravity if it is still servable there. availability == nil → no prune.
+// (used by the admin selector). Empirical native platforms draw from
+// supportedCatalogModelIDsForPlatform; newapi keeps its canonical/channel-shaped
+// defaults. Every platform is then pruned of structurally-gone models
+// (tkPruneStructurallyGoneIDs), so the result respects PER-PLATFORM truth:
+// a model gone on anthropic stays on antigravity if it is still servable there.
+// availability == nil → no prune.
 func tkServableCandidateIDs(ctx context.Context, platform string, availability MePricingAvailability) []string {
 	var ids []string
 	switch platform {
@@ -28,6 +28,12 @@ func tkServableCandidateIDs(ctx context.Context, platform string, availability M
 		// group's admin model-whitelist selector. Its empirical allowlist (the
 		// priced overlay set) is the only correct source.
 		ids = supportedCatalogModelIDsForPlatform(platform)
+	case PlatformAntigravity:
+		// Probed Antigravity set when populated; canonical fallback when unprobed
+		// (supportedCatalogModelIDsForPlatform returns nil for an empty set).
+		if ids = supportedCatalogModelIDsForPlatform(platform); len(ids) == 0 {
+			ids = defaultModelsListCandidateIDs(platform)
+		}
 	case PlatformGemini:
 		// Probed gemini set when populated; canonical fallback when unprobed
 		// (supportedCatalogModelIDsForPlatform returns nil for an empty set).
@@ -35,7 +41,7 @@ func tkServableCandidateIDs(ctx context.Context, platform string, availability M
 			ids = defaultModelsListCandidateIDs(platform)
 		}
 	default:
-		// antigravity / newapi / unknown — no empirical allowlist; canonical.
+		// newapi / unknown — no empirical allowlist; canonical.
 		ids = defaultModelsListCandidateIDs(platform)
 	}
 	return tkPruneStructurallyGoneIDs(ctx, platform, ids, availability)

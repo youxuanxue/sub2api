@@ -534,13 +534,16 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 // account restricts its model set:
 //
 //   - Restricted account (non-empty credentials.model_mapping) — emit one
-//     row per whitelist entry (from === to). Mapping-mode entries
+//     row per whitelist entry (from === to). Antigravity additionally intersects
+//     those identity entries with its 200-probed display allowlist so stale or
+//     inconclusive mapped ids (for example gemini-2.5-pro) do not appear in the
+//     user-facing menu. Mapping-mode entries
 //     (from != to) are routing rewrites, not user-visible offerings, so
 //     they contribute nothing (see parseWhitelistFromCredentials).
 //   - Unrestricted account (empty/absent model_mapping = all models
 //     allowed, the native OAuth case) — emit the platform's canonical
-//     model list (claude/openai/gemini/antigravity default models, the
-//     same source gateway `/v1/models` uses). This is what fixes the
+//     model list (claude/openai/gemini/grok and any probed native allowlist, the
+//     same source gateway `/v1/models` uses when applicable). This is what fixes the
 //     empty "Group Catalog" for Anthropic OAuth groups: those accounts are
 //     not channels and carry no whitelist, so before this branch both
 //     the channel stage and the whitelist stage produced nothing.
@@ -582,6 +585,15 @@ func (s *MePricingCatalogService) fillAccountFallback(
 	// model auto-disappears from the menu without a manual servable-allowlist
 	// edit — same gone-vs-degraded rule as the public /pricing storefront.
 	platformDefaults := s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, platformDefaultModelIDs(targetGroup.Platform))
+	var restrictedDisplayAllow map[string]struct{}
+	if targetGroup.Platform == PlatformAntigravity {
+		if ids := supportedCatalogModelIDsForPlatform(targetGroup.Platform); len(ids) > 0 {
+			restrictedDisplayAllow = make(map[string]struct{}, len(ids))
+			for _, id := range ids {
+				restrictedDisplayAllow[id] = struct{}{}
+			}
+		}
+	}
 	for i := range accounts {
 		a := &accounts[i]
 		if !accountInGroupScope(a, targetGroup.Platform) {
@@ -589,6 +601,11 @@ func (s *MePricingCatalogService) fillAccountFallback(
 		}
 		if accountHasModelRestriction(a.Credentials) {
 			for _, modelID := range parseWhitelistFromCredentials(a.Credentials) {
+				if restrictedDisplayAllow != nil {
+					if _, ok := restrictedDisplayAllow[modelID]; !ok {
+						continue
+					}
+				}
 				addFallbackModel(bestByModel, modelID, effectiveRate, metaByID)
 			}
 			continue

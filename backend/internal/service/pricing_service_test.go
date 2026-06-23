@@ -65,6 +65,27 @@ func TestGetModelPricing_Gpt53CodexFallbackUsesGpt52(t *testing.T) {
 	require.Same(t, gpt52Pricing, got)
 }
 
+func TestCalculateCost_ClaudeDotFormMatchesDashFormFamilyPricing(t *testing.T) {
+	sonnetPricing := &LiteLLMModelPricing{InputCostPerToken: 3e-6}
+	opusPricing := &LiteLLMModelPricing{InputCostPerToken: 5e-6}
+
+	pricing := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"claude-sonnet-4-5-20250929": sonnetPricing,
+			"claude-opus-4-5-20251101":   opusPricing,
+		},
+	}
+	billing := NewBillingService(nil, pricing)
+
+	sonnetCost, err := billing.CalculateCost("claude-sonnet-4.5", UsageTokens{InputTokens: 1000}, 1.0)
+	require.NoError(t, err)
+	require.InDelta(t, 0.003, sonnetCost.TotalCost, 1e-12)
+
+	opusCost, err := billing.CalculateCost("claude-opus-4.5", UsageTokens{InputTokens: 1000}, 1.0)
+	require.NoError(t, err)
+	require.InDelta(t, 0.005, opusCost.TotalCost, 1e-12)
+}
+
 func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 	logSink, restore := captureStructuredLog(t)
 	defer restore()

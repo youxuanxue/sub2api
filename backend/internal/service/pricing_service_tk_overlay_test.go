@@ -65,6 +65,35 @@ func TestTKPricingOverlay_FillOnlySourceWins(t *testing.T) {
 	require.InDelta(t, 2e-6, flash.OutputCostPerToken, 1e-15, "source value must win over overlay")
 }
 
+// TestTKPricingOverlay_FillsAntigravityGeminiThinking verifies the Antigravity
+// Gemini thinking wire id has a concrete price. The plain gemini-2.5-flash row
+// is already present in the bundled/runtime Gemini catalog; the Antigravity
+// suffix id is not, so without this overlay it would be servable but $0-priced.
+func TestTKPricingOverlay_FillsAntigravityGeminiThinking(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"gemini-2.5-flash": {
+			"input_cost_per_token": 0.0000003,
+			"output_cost_per_token": 0.0000025,
+			"cache_read_input_token_cost": 0.00000003,
+			"litellm_provider": "vertex_ai-language-models",
+			"mode": "chat"
+		}
+	}`)
+
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	thinking := data["gemini-2.5-flash-thinking"]
+	require.NotNil(t, thinking, "overlay must inject Antigravity gemini-2.5-flash-thinking")
+	require.Equal(t, "antigravity", thinking.LiteLLMProvider)
+	require.Equal(t, "chat", thinking.Mode)
+	require.InDelta(t, 3e-7, thinking.InputCostPerToken, 1e-15)
+	require.InDelta(t, 2.5e-6, thinking.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 3e-8, thinking.CacheReadInputTokenCost, 1e-15)
+	require.True(t, thinking.SupportsPromptCaching)
+}
+
 // TestTKPricingOverlay_ZeroPlaceholderIsReplaced verifies the absent-or-zero fill:
 // a source entry whose every cost field is 0.0 (litellm's "cost unknown" shape —
 // the exact prod state of deepseek-v3-2-251201 under volcengine, which billed 683

@@ -4,7 +4,7 @@
 >
 > **数据来源（repo-grounded，非线上探测）**：本清单由仓库内的权威源推导——5 个 Go servable-allowlist map、`tk_served_models.json` 清单、`tk_pricing_overlay.json` 价格 overlay、各平台 `DefaultModels`、newapi 渠道适配器目录、`model_mapping` 迁移。
 >
-> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态。实测探针基线：claude/gpt 2026-06-05（`codex-auto-review` 2026-06-22 responses 200）、gemini/Vertex 2026-06-09、antigravity 2026-06-13、grok 2026-06-22（见 `pricing_catalog_supported_models_tk.go` 头注）。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
+> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist。实测探针基线：claude/gpt 2026-06-05（`codex-auto-review` 2026-06-23 responses 200）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，判不可定）、antigravity 2026-06-23、grok 2026-06-22（2026-06-23 alias 再探 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
 >
 > **如何重生成渠道目录**（附录 A）：在 `backend/` 写一个 `//go:build unit` 临时 test 调 `newapi.ChannelTypeModels()` / `ListChannelTypes()` 打印即可（本清单即如此抓取，用后删除）。
 
@@ -22,10 +22,10 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 ```
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
-- **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 5、grok 8（5 个 Go map）。
-- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7，GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
+- **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 10、grok 8（5 个 Go map）。
+- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单），GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
 - **总计**：约 110 个 servable id / 140 个 priced id。
-- **不可服务台账**：139 行，按持久性分 **structural 49（永久跳过）/ policy 75（能服务但故意不上）/ transient 15（需复测）**。
+- **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
 
 **三大风险类（按严重度）**：
 
@@ -122,23 +122,26 @@ servable allowlist 共 **7**（2026-06-09 探针）：
 | `imagen-4.0-fast-generate-001` / `-generate-001` / `-ultra-generate-001` | image | overlay(vertex_ai) |
 | `veo-3.1-generate-001` | video | overlay(vertex_ai) |
 
-- **`priced_not_displayed`（媒体，~11，低危）**：overlay 里还有 `imagen-3.0-*`（4 个）、`veo-2.0/3.0/3.1` 多个变体——**有价但不在 7-id 展示闸**。纯展示缺口、无资损（都有价）。
-- **`advertised_dead`**：`gemini-2.0-flash`（也是 admin `geminicli.DefaultTestModel`）、`gemini-3.x` chat——2026-06-09 在该 Vertex project 统一 502（**project/region 级**，非 vendor 级：同 wire id 在 antigravity 能 200）。
-- **wrong-surface 陷阱**：`gemini-*-image`（`gemini-2.5-flash-image` 等）经 `/v1/images/generations` 探返 500，但它们其实走 **chat 端点**——是**无效探针**不是模型死了，须经 `/v1/chat/completions` 复测（§4 reprobe）。
+- **`priced_not_displayed`（媒体，~11，低危）**：overlay 里还有 `imagen-3.0-*`（4 个）、`veo-2.0/3.0/3.1` 多个变体——**有价但不在 7-id 展示闸**。2026-06-23 edge-us6 走正确 image/video 端点复测，全部返回 429 inconclusive，不能当成已支持；已进入 `servable-reprobe-ledger.json` watchlist，等下次拿到 200 再扩 allowlist。
+- **`advertised_dead`**：`gemini-2.0-flash`（也是 admin `geminicli.DefaultTestModel`）、`gemini-3.x` chat——2026-06-09 在该 Vertex project 统一 502（**project/region 级**，非 vendor 级：同 wire id 在 antigravity 能 200）。2026-06-23 复测这些 id 与 `gemini-2.5-flash` 基线同返 429，当前只能判为池/配额不可定，不能迁成永久不支持。
+- **wrong-surface 陷阱**：`gemini-*-image`（`gemini-2.5-flash-image` 等）经 `/v1/images/generations` 探返 500，但它们其实走 **chat 端点**——是**无效探针**不是模型死了。2026-06-23 改走 `/v1/chat/completions` 后与 `gemini-2.5-flash` 基线同返 429，继续留在 watchlist。
 - media 路由经 Vertex ch41；gemini 原生生图走 `/v1/chat/completions` 返 markdown 图。
 
 ### 2.4 antigravity（第四平台，仅 gemini）
 
-servable allowlist 共 **5**（hand-maintained，2026-06-13 探针）；账号 mapping 实服 ~14 个 gemini wire id：
+servable allowlist 共 **10**（hand-maintained，2026-06-13 探针；2026-06-23 专项复测闭环）。账号 mapping 实服 ~14 个 gemini wire id。2026-06-23 专项复测确认 `gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-2.5-flash-thinking`、`gemini-3-flash` 以及既有基线 `gemini-3-flash-agent`、`gemini-3.1-pro-low`、`gemini-pro-agent`、`gemini-3.1-flash-image` 均能经 prod `/antigravity/v1beta/...:generateContent` 返回 200；`gemini-2.5-pro` 在 generateContent 与 streamGenerateContent 单模型复测均为 000 timeout/inconclusive，继续 watch。
 
 ```
-gemini-3-flash-agent   gemini-3.1-pro-low   gemini-3.5-flash-extra-low   gemini-3.5-flash-low   gemini-pro-agent
+gemini-2.5-flash           gemini-2.5-flash-lite    gemini-2.5-flash-thinking
+gemini-3-flash             gemini-3-flash-agent     gemini-3.1-flash-image
+gemini-3.1-pro-low         gemini-3.5-flash-extra-low
+gemini-3.5-flash-low       gemini-pro-agent
 ```
 
-- 价：overlay `litellm_provider="antigravity"`（4 个 flash 类）；`gemini-3.1-pro-low` 的价挂在 `vertex_ai` vendor 下（→ `inferPlatformFromVendor` 归 gemini，故 antigravity 展示闸看不到它，gemini 7-id 闸也不含它 → 两边都不展示，纯展示缺口）。
+- 价/展示闭环（2026-06-23）：`gemini-2.5-flash-thinking` 已补 `tk_pricing_overlay.json`（按 bundled `gemini-2.5-flash` 官方价镜像：in $0.30/M、out $2.50/M、cache-read $0.03/M）；`gemini-3-flash-agent`、`gemini-3.5-flash-{low,extra-low}`、`gemini-pro-agent` 继续走 Antigravity overlay；`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-3-flash`、`gemini-3.1-flash-image`、`gemini-3.1-pro-low` 走 bundled/litellm Gemini/Vertex 非零价。`/antigravity/models` 和 admin selector 已接 `supportedAntigravityCatalogModels`，因此这些 10 个 id 会作为 Antigravity 默认可见候选；`gemini-2.5-pro` 虽有原生 Gemini 价，但因 Antigravity 复测未拿到 200，不进该面。
+- `/api/v1/public/pricing` 仍是 flat `model_id` 目录：同名模型（如 `gemini-3-flash`）已有 Gemini/Vertex vendor 行时，fill-only overlay 不改 vendor 归属；只有 overlay-only wire id（如 `gemini-2.5-flash-thinking`、`gemini-3-flash-agent`、`gemini-pro-agent`）会显示为 `vendor=antigravity`。这是当前 DTO 的平台维度限制，不影响 Antigravity 请求按 `requested_model` 计费。
 - **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / gemini-only mapping / reconciler 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或自愈回写。
-- **policy（不可服务因策略）**：整个 claude-* 家族 + `gpt-oss-120b-medium` 按操作员策略不在 antigravity 服务（claude 路由到 anthropic）；由 `AntigravityConfigReconciler` 自愈维持 gemini-only。
-- fable-5 在 antigravity **保留可服务**（per-platform 真值，与 §2.1 anthropic 的下架独立）。
+- **policy（不可服务因策略）**：整个 claude-* 家族 + `gpt-oss-120b-medium` 按操作员策略不在 antigravity 服务（claude 路由到 anthropic）；由 `AntigravityConfigReconciler` 自愈维持 gemini-only。2026-06-23 `claude-sonnet-4-5` 经 `/antigravity/v1/messages` 返回 429 not_allowlisted，符合当前策略。
 
 ### 2.5 grok（第七平台，xAI）
 
@@ -155,6 +158,7 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 | `grok-imagine-video` | video | $0.08/s(720p+img 上限档) | success_only |
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
+- **兼容别名（不公开列）**：`grok-4.3-latest`、`grok-latest`、`grok-4-fast-reasoning`、`grok-code-fast`、`grok-code-fast-1-0825` 均有 overlay 价，2026-06-23 edge-us4 原生 grok 探针复测 200；它们只保证显式请求不落 `$0`，公开目录仍只列稳定 bare id / 当前官方 SKU。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
 - 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径。prod→edge grok 中继长期收敛为 `platform=grok,type=apikey` relay；旧 `newapi` edge-host bridge 仅作为迁移兼容形态保留。
 
@@ -166,24 +170,26 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 
 | 家族 | servable id（account_mapping）| 价 |
 |---|---|---|
-| Qwen 商用 | `qwen3.7-max` `qwen3.7-plus` `qwen3.6-flash` `qwen3-coder-plus` `qwen-max` `qwen-plus` | overlay(dashscope) |
+| Qwen 商用 | `qwen3.7-max` `qwen3.7-max-preview` `qwen3.7-max-2026-05-17` `qwen3.7-max-2026-05-20` `qwen3.7-max-2026-06-08` `qwen3.7-plus` `qwen3.6-flash` `qwen3-coder-plus` `qwen-max` `qwen-turbo` `qwen-plus` | overlay(dashscope) |
 | Qwen 开源 dense | `qwen3-8b` `qwen3-14b` `qwen3-32b` `qwen3.6-27b`（tk_039）`qwen3-235b-a22b` | overlay（思考/非思考双档）|
 | DeepSeek | `deepseek-v4-pro` `deepseek-v4-flash` | overlay |
 | DeepSeek 经典别名 | `deepseek-chat` `deepseek-reasoner` | **mirror**（overlay 故意不收，镜像已带非零价）|
 
-- **`displayed_not_priced` 错配（中危）**：`qwen3.7-max-preview` / `qwen3.7-max-2026-05-17/-05-20/-06-08` / `qwen2.5-coder-32b` / `qwen2.5-coder-7b` —— **有价但不在账号 60 mapping**（dated/parity 行），却因 dashscope vendor 走 default-true 而**展示**在 /pricing，请求却空池快失败 429。其中 `qwen2.5-coder-*` 存在是为闭合一条客户-channel 漏算（`qwen2.5-coder→gpt-5.4` ~$269 低估），属计费键 parity，非给客户调。
+- **`priced_not_served` 错配（中危）**：`qwen2.5-coder-32b` / `qwen2.5-coder-7b` —— **有价但不在账号 60 mapping**（parity 行），却因 dashscope vendor 走 default-true 而**展示**在 /pricing，请求空池快失败 429。`qwen3.7-max-preview` 与 `qwen3.7-max-2026-05-17/-05-20/-06-08` 已在 2026-06-23 prod mapping 中确认存在，thinking 路径实测 200（05-20/06-08 非 thinking 也 200；preview/05-17 非 thinking 为请求形状 400，不代表不可服务）。`qwen2.5-coder-*` 存在是为闭合一条客户-channel 漏算（`qwen2.5-coder→gpt-5.4` ~$269 低估），属计费键 parity，非给客户调。
 
 **(b) VolcEngine / Doubao + 媒体（账号 7，ct=45）**
 
-overlay `litellm_provider="volcengine"` 共 28 条：
+overlay `litellm_provider="volcengine"` 共 28 条；`tk_served_models.json` 当前正面清单是账号 7 的 24 条（19 chat + 1 image + 4 video），都必须同时满足 mapping + overlay + 实测/既有 served 证据。
 
-| mode | servable id（account_mapping）|
+| mode | servable id（manifest/account_mapping）|
 |---|---|
-| chat | `doubao-1-5-{lite-32k,pro-32k,pro-32k-character,vision-pro-32k}-*`、`doubao-seed-1-6-*`、`doubao-seed-1-8-251228`、`doubao-seed-2-0-{pro,lite,mini,code-preview}-*`、`doubao-seed-{character,code-preview,translation}-*`、`glm-4-7-251222`、`deepseek-v3-2-251201`* |
-| image | `doubao-seedream-4-0-250828`（+ no-prefix `seedream-4-0-250828` parity）|
-| video | `doubao-seedance-{1-0-pro,1-5-pro,2-0,2-0-fast}-*`（+ no-prefix `seedance-1-0-pro-*` parity）；`failure_billing=success_only` |
+| chat | `doubao-seed-2-0-pro-260215`、`doubao-seed-2-0-code-preview-260215`、`doubao-seed-2-0-lite-260215`、`doubao-seed-2-0-lite-260428`、`doubao-seed-2-0-mini-260215`、`doubao-seed-2-0-mini-260428` |
+| chat | `doubao-seed-1-8-251228`、`doubao-seed-1-6-250615`、`doubao-seed-1-6-251015`、`doubao-seed-1-6-flash-250615`、`doubao-seed-1-6-flash-250828`、`doubao-seed-1-6-vision-250815` |
+| chat | `doubao-seed-character-251128`、`doubao-seed-code-preview-251028`、`doubao-1-5-pro-32k-250115`、`doubao-1-5-pro-32k-character-250715`、`doubao-1-5-lite-32k-250115`、`doubao-1-5-vision-pro-32k-250115`、`glm-4-7-251222` |
+| image | `doubao-seedream-4-0-250828`（no-prefix `seedream-4-0-250828` 只是 parity 计费键，不进 manifest）|
+| video | `doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`（no-prefix `seedance-1-0-pro-*` 只是 parity 计费键）；`failure_billing=success_only` |
 
-> *`deepseek-v3-2-251201` 在 overlay 标 volcengine 但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价）；其 servable 家在 DeepSeek 直连（账号 39）。volcengine 标签价是无害残留。
+> `deepseek-v3-2-251201` 在 overlay 标 volcengine 但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价）；其 servable 家在 DeepSeek 直连（账号 39）。volcengine 标签价是无害残留。`doubao-seed-translation-250915` 虽在 tk_020 mapping 与 overlay 中，但 2026-06-23 两次 direct Ark `/api/v3/chat/completions` 复测均为 400 inconclusive，本轮不进 manifest/正面清单。
 
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。
@@ -205,7 +211,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 - **无自有目录、无 overlay 价**——纯**中继 claude 请求**到 CodeWhisperer，prod→edge anthropic apikey 拓扑。
 - 客户面 claude id 复用 §2.1 的 anthropic 可服务集；按**请求 id** 计费（`billing_tier=kiro-estimated`，因 CodeWhisperer 不返 token usage、parser 得 (0,0) → TK 估算 token）。
-- **`servable_unpriced` 风险（未证实，低置信）**：dot-form 请求 id（如 `claude-sonnet-4.5`）**可能** miss dash-form 镜像键 → $0。Critic 复核未能在 `billing_service.go` 找到 claude dot↔dash 归一器，**标「待证」**，不与 grok/tab_flash 那种代码已坐实的 P0 并列。处置：先追 claude 镜像查找的拼写路径再判。
+- **dot-form 计费风险已按代码事实证伪**：Kiro `MapModel` 会把 dash 版 Claude id 规范成 dot-form（如 `claude-sonnet-4.5`）用于上游；Anthropic 计费 funnel 的默认 billing key 是 `ForwardResult.Model`（请求 id）。无论请求 id 是 dash-form 还是 dot-form，`PricingService.matchByModelFamily` 都能匹配 `claude-sonnet-4-5` / `claude-sonnet-4.5` 并命中 dash/dated 镜像价，不会因拼写差异落 `$0`。回归测试：`TestCalculateCost_ClaudeDotFormMatchesDashFormFamilyPricing`。
 - 429=空池（在 toggle/上游之前）；502=disabled 或上游拍平无 failover。
 
 ---
@@ -218,12 +224,12 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|---|
 | `servable_unpriced_zero_cost_p0` | grok | grok-3/2/search 未核价长尾 | 中 | grok-4.3/4.20/build/code-fast 已补官方价+allowlist；剩余项继续 leave_excluded，等官方价+200 |
 | `servable_unpriced_zero_cost_p0` | antigravity | `tab_flash_lite_preview` | 已收敛 | 已从默认/mapping 自愈面移除，静态检查阻止回写 |
-| `servable_unpriced_zero_cost_p0` | kiro | dot-form claude id（**待证**）| 中 | 先追拼写归一路径再判 |
 | `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
-| `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low、deepseek-v3-2 | 低 | 纯展示，多为预期；可选从 storefront 抑制 parity 行 |
-| `displayed_not_priced` | newapi(qwen) | qwen3.7-max-preview/dated、qwen2.5-coder-* | 中 | 抑制 dated/parity 行的展示，或在账号 60 真 mapping |
+| `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low、deepseek-v3-2 | 低 | Gemini media 2026-06-23 复测 429，留 watchlist；deepseek-v3-2 是 VolcEngine 价残留，账号 7 不服务 |
+| `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 mapping + overlay 已有，但 2026-06-23 direct Ark 两次 400 inconclusive；不进 manifest，留 watchlist |
+| `priced_not_served` | newapi(qwen) | qwen2.5-coder-* | 中 | 抑制 parity 行的展示，或在账号 60 真 mapping；qwen3.7-max preview/dated 已由 2026-06-23 prod mapping + livefire 证实可服务 |
 | `dated_dup` | anthropic/grok/volcengine | claude bare↔dated、grok-imagine-image-pro、no-prefix seedream/seedance | 低 | anthropic 已由 override 机制处理；其余被 media 守卫/上游 404 收口 |
 | `cross_platform_inconsistency` | claude×{anthropic,kiro,bridge}；gemini×{native,antigravity} | claude-opus-4-*、gemini-2.5/3.x | 中 | 预期的 per-platform 路由真值；唯 kiro 估算 token 路径结构性有损 |
 
@@ -235,7 +241,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 > **为什么要这张表**：servable-allowlist 只留「实测 200」，把**负面知识丢了**——于是每次 refresh 都重探已知打不通的模型（浪费 SSM），读者也看不到「X 为什么不在清单」。本台账把散落在代码注释/PR 里的实测负面证据固化，并按**持久性**分三类，关键是**别把临时失败记死成永久结论**。
 
-**总量 139 行：structural 49 / policy 75 / transient 15**（transient 集中在 4 个原生平台；grok/newapi/聚合器只有 policy/structural）。
+**机器源当前摘要**：`ops/pricing/servable-reprobe-ledger.json` 维护 watchlist / skiplist / deadlist；分类口径以 JSON 字段为准，本文不再维护 derived 总数。
 
 ### 4.1 三类定义与处置
 
@@ -287,7 +293,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | 高 | ct=25 Moonshot | `kimi-k2.5` `kimi-k2-thinking` 等订阅 OAuth 长上下文 | 已有 billing fallback 价；典型 net-new |
 | 中 | ct=35 MiniMax | `MiniMax-M2.x` chat + speech + `image-01` | 含音视频面 |
 | 已完成 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 + overlay + manifest + prod canary 已完成；`glm-4.7` livefire 200 且计费非零 |
-| 中 | ct=17/43 Ali/DeepSeek 未接 id | `qwq-32b`；deepseek-v4 `-none/-max`（实为 adaptor 追加的思考后缀别名，非独立模型）| `qwen-turbo` 已由 tk_042 收敛 |
+| 中 | ct=17/43 Ali/DeepSeek 未接 id | `qwq-32b`；deepseek-v4 `-none/-max`（实为 adaptor 追加的思考后缀别名，非独立模型）| 2026-06-23 `qwq-32b` 与 `deepseek-v4-none/max` 均为 429 not_allowlisted；DeepSeek 正式 id `deepseek-v4-pro/flash` 与 `deepseek-chat/reasoner` 均 200；`qwen-turbo` 已由 tk_042 收敛 |
 | 低 | ct=1/57 OpenAI 尾 | o1/o3/o4、gpt-4*/4o*、audio/embeddings/dall-e/sora-2（153+24）| 按 raw count 最大一桶 |
 | 低 | ct=24/41 Gemini/Vertex 尾 | gemma、native-audio、robotics、computer-use 等 | 多为非目标 surface |
 | 低 | ct=33 AWS Bedrock | claude + nova 全族 | 另一条 claude 路径 |

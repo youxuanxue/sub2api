@@ -1,5 +1,5 @@
 {
-  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated single-account groups, the GLM direct account 67 ZhipuV4 chat family, plus the volcengine account 7 doubao-seedance VIDEO family (channel_type 45, mode=video_generation, per-second priced in the overlay). NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by a 39/60/67 model_mapping). Consumers: drift guard (now), tokenkey-onboard-model skill (now), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated single-account groups, the GLM direct account 67 ZhipuV4 chat family, plus the volcengine account 7 Ark family (channel_type 45: doubao chat, seedream image, seedance video) that is explicitly mapped and priced. NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by this manifest's newapi model_mapping intent). Consumers: drift guard (now), tokenkey-onboard-model skill (now), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
   "_schema": {
     "version": 1,
     "entry_key": "<platform>/<model_id>",
@@ -73,7 +73,55 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max",
       "display": false,
-      "notes": "Qwen account 60. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots (qwen3.7-max-preview/-2026-*) are priced in overlay but intentionally NOT manifest entries — they are not separately model_mapped and the manifest curates client-facing names, not every dated variant."
+      "notes": "Qwen account 60. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots now have their own manifest rows after 2026-06-23 prod mapping audit and livefire."
+    },
+    "newapi/qwen3.7-max-preview": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-preview",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-preview",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+    },
+    "newapi/qwen3.7-max-2026-05-17": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-2026-05-17",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-2026-05-17",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+    },
+    "newapi/qwen3.7-max-2026-05-20": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-2026-05-20",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-2026-05-20",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
+    },
+    "newapi/qwen3.7-max-2026-06-08": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-2026-06-08",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-2026-06-08",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
     },
     "newapi/qwen3.7-plus": {
       "platform": "newapi",
@@ -206,6 +254,234 @@
       "price_key": "qwen3.6-27b",
       "display": false,
       "notes": "Qwen account 60. Dense 27B Qwen3.6 model (released 2026-04-22, DashScope model id qwen3.6-27b). Mapped by tk_039 (identity whitelist merge). Priced in overlay (中国内地/华北2北京 in ¥3/M out ¥18/M, 非思考和思考同价, ÷6.7; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). Added 2026-06-21 per customer request (client wrote 'qwen3.6-27B'; served under DashScope's canonical lowercase id)."
+    },
+    "newapi/doubao-seed-2-0-pro-260215": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2-0-pro-260215",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2-0-pro-260215",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-2-0-code-preview-260215": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2-0-code-preview-260215",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2-0-code-preview-260215",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-2-0-lite-260215": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2-0-lite-260215",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2-0-lite-260215",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-2-0-lite-260428": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2-0-lite-260428",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2-0-lite-260428",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-2-0-mini-260215": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2-0-mini-260215",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2-0-mini-260215",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-2-0-mini-260428": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2-0-mini-260428",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2-0-mini-260428",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-1-8-251228": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-1-8-251228",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-1-8-251228",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-1-6-250615": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-1-6-250615",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-1-6-250615",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-1-6-251015": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-1-6-251015",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-1-6-251015",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-1-6-flash-250615": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-1-6-flash-250615",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-1-6-flash-250615",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-1-6-flash-250828": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-1-6-flash-250828",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-1-6-flash-250828",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-1-6-vision-250815": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-1-6-vision-250815",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-1-6-vision-250815",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-character-251128": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-character-251128",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-character-251128",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-seed-code-preview-251028": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-code-preview-251028",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-code-preview-251028",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-1-5-pro-32k-250115": {
+      "platform": "newapi",
+      "model_id": "doubao-1-5-pro-32k-250115",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-1-5-pro-32k-250115",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-1-5-pro-32k-character-250715": {
+      "platform": "newapi",
+      "model_id": "doubao-1-5-pro-32k-character-250715",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-1-5-pro-32k-character-250715",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-1-5-lite-32k-250115": {
+      "platform": "newapi",
+      "model_id": "doubao-1-5-lite-32k-250115",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-1-5-lite-32k-250115",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/doubao-1-5-vision-pro-32k-250115": {
+      "platform": "newapi",
+      "model_id": "doubao-1-5-vision-pro-32k-250115",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-1-5-vision-pro-32k-250115",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
+    },
+    "newapi/glm-4-7-251222": {
+      "platform": "newapi",
+      "model_id": "glm-4-7-251222",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "glm-4-7-251222",
+      "display": false,
+      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
     },
     "newapi/doubao-seedance-1-0-pro-250528": {
       "platform": "newapi",

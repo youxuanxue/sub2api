@@ -122,6 +122,20 @@
     "supports_reasoning": true,
     "source": "Anthropic official Fable 5 list price (2026-06: in $10/M, out $50/M, 1M ctx, 128K out); litellm mirror lags new model"
   },
+  "gemini-2.5-flash-thinking": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 3e-07,
+    "output_cost_per_token": 2.5e-06,
+    "cache_read_input_token_cost": 3e-08,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65535,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "supports_prompt_caching": true,
+    "source": "TK overlay: Antigravity wire id gemini-2.5-flash-thinking returned prod 200 on 2026-06-23. Priced at the equivalent bundled Gemini 2.5 Flash official-rate mirror (backend/resources/model-pricing/model_prices_and_context_window.json gemini-2.5-flash; source https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview): input $0.30/M, output/reasoning $2.50/M, cache-read $0.03/M, no markup. Billing keys on requested_model; this Antigravity wire id is absent from the trimmed runtime mirror."
+  },
   "gemini-3.5-flash-low": {
     "litellm_provider": "antigravity",
     "mode": "chat",
