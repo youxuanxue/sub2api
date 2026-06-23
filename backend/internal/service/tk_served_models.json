@@ -73,7 +73,55 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max",
       "display": false,
-      "notes": "Qwen account 60. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots (qwen3.7-max-preview/-2026-*) are priced in overlay but intentionally NOT manifest entries — they are not separately model_mapped and the manifest curates client-facing names, not every dated variant."
+      "notes": "Qwen account 60. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots now have their own manifest rows after 2026-06-23 prod mapping audit and livefire."
+    },
+    "newapi/qwen3.7-max-preview": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-preview",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-preview",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+    },
+    "newapi/qwen3.7-max-2026-05-17": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-2026-05-17",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-2026-05-17",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+    },
+    "newapi/qwen3.7-max-2026-05-20": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-2026-05-20",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-2026-05-20",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
+    },
+    "newapi/qwen3.7-max-2026-06-08": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max-2026-06-08",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max-2026-06-08",
+      "display": false,
+      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
     },
     "newapi/qwen3.7-plus": {
       "platform": "newapi",
