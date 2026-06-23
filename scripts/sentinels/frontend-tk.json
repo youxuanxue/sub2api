@@ -356,9 +356,14 @@
       "must_contain": [
         "getMePricingCatalog",
         "viewMode.value = 'my'",
-        "v-if=\"viewMode === 'my' && !loading"
+        "data-tk=\"pricing-filter-key\"",
+        "data-tk=\"pricing-filter-group\"",
+        "data-tk=\"pricing-filter-search\"",
+        "raw === 'public'",
+        "params.apiKeyId = selectedKeyId.value",
+        "params.groupId = selectedGroupId.value"
       ],
-      "rationale": "PricingView.vue must keep the per-user 'Your Menu' branch wired: (1) calling getMePricingCatalog (otherwise the page only ever shows the public LiteLLM catalog), (2) defaulting authenticated users to viewMode='my' on mount, and (3) the v-if guard that gates the key-picker / group-switcher toolbar to the 'my' view. Dropping any one silently regresses to upstream-style flat-catalog behavior even though the segmented control still renders."
+      "rationale": "PricingView.vue must keep the unified pricing toolbar wired to both per-user and public catalogs: (1) calling getMePricingCatalog, (2) defaulting authenticated users to the per-user scope on mount, (3) exposing stable API Key / group / search controls, and (4) preserving api_key_id, group_id, and public-scope selection paths. Dropping any one silently regresses the single /pricing page back to an upstream-style flat public catalog or a search-only table with no per-key/group filtering."
     },
     {
       "path": "frontend/src/components/account/AccountCapacityCell.vue",
