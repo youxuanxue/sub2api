@@ -121,11 +121,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	)
 
 	// 5. Build upstream request.
-	// Grok (seventh platform) reuses this raw CC path with an OAuth Bearer +
-	// api.x.ai base_url; only the credential source and base URL differ from the
-	// openai apikey case.
+	// Grok (seventh platform) reuses this raw CC path. OAuth uses the xAI bearer
+	// and xAI base URL; API-key relay uses the edge key and edge base URL.
 	var apiKey, baseURL string
-	if account.IsGrok() {
+	if account.IsGrokOAuth() {
 		apiKey = account.GetGrokAccessToken()
 		baseURL = account.GetGrokBaseURL()
 	} else {
@@ -136,6 +135,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, fmt.Errorf("account %d missing credential", account.ID)
 	}
 	if baseURL == "" {
+		if account.IsGrokAPIKey() {
+			return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
+		}
 		baseURL = "https://api.openai.com"
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)

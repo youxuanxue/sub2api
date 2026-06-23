@@ -67,6 +67,7 @@ _OPS_MODULES = [
     OPS_ANTHROPIC / "check-edge-oauth-stability.py",
     OPS_ANTHROPIC / "rebalance-anthropic-priority.py",
     OPS_DIR / "antigravity" / "check-antigravity-account-config.py",
+    OPS_DIR / "grok" / "migrate-grok-relay-stubs.py",
 ]
 
 

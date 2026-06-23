@@ -156,7 +156,7 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
-- 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径（prod grok 中继跳 = newapi ct=1 bridge；grok 原生臂只在 edge 跳）。
+- 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径。prod→edge grok 中继长期收敛为 `platform=grok,type=apikey` relay；旧 `newapi` edge-host bridge 仅作为迁移兼容形态保留。
 
 ### 2.6 newapi（第五平台）—— 策展长尾
 
