@@ -1,0 +1,4 @@
+interface:
+  display_name: "TokenKey Kiro Reauth"
+  short_description: "Run Kiro OAuth repair on TokenKey edges."
+  default_prompt: "Use $tokenkey-kiro-reauth to repair a Kiro OAuth account on an edge and verify traffic."
