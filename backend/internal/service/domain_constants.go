@@ -435,11 +435,6 @@ const (
 	// SettingKeyOpsAdvancedSettings stores JSON config for ops advanced settings (data retention, aggregation).
 	SettingKeyOpsAdvancedSettings = "ops_advanced_settings"
 
-	// SettingKeyCancelStormConfig stores JSON config for the TK per-API-key cancel-storm
-	// detector (mode off|detect_only + window/threshold knobs). Default off. See
-	// internal/service/ops_cancel_storm_tk.go and migrations/tk_018_seed_cancel_storm_config.sql.
-	SettingKeyCancelStormConfig = "cancel_storm_config"
-
 	// SettingKeyOpsRuntimeLogConfig stores JSON config for runtime log settings.
 	SettingKeyOpsRuntimeLogConfig = "ops_runtime_log_config"
 
