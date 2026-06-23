@@ -302,3 +302,34 @@ func TestResolve_SkipsInactiveGroups(t *testing.T) {
 		t.Fatalf("inactive-only span should yield no entitled group")
 	}
 }
+
+func TestResolve_ProbeGroupsMustNotBeInUniversalSpan(t *testing.T) {
+	probe := grp(99, PlatformAnthropic, 0, false)
+	probe.Name = "__tk_probe_20260623"
+	probe.IsExclusive = true
+
+	regular := grp(10, PlatformAnthropic, 10, false)
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{regular}})
+	g, err := r.Resolve(context.Background(), universalKey(1), ShapeAnthropicMessages, "claude-opus-4-8", "")
+	if err != nil || g == nil || g.ID != regular.ID {
+		t.Fatalf("universal span should contain only entitled non-probe groups, got %v err %v", g, err)
+	}
+
+	r2 := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{probe}})
+	if _, err := r2.Resolve(context.Background(), universalKey(1), ShapeAnthropicMessages, "claude-opus-4-8", ""); err == nil {
+		t.Fatalf("exclusive probe group must not be selected by universal routing")
+	}
+}
+
+func TestResolve_ProbeMessagesDispatchDoesNotOpenOpenAICompatGate(t *testing.T) {
+	probeDispatch := dispatchGrp(99, PlatformOpenAI, 0, true)
+	probeDispatch.Name = "__tk_probe_openai"
+	probeDispatch.IsExclusive = true
+
+	regular := grp(10, PlatformAnthropic, 10, false)
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{regular, probeDispatch}})
+	g, err := r.Resolve(context.Background(), universalKey(1), ShapeAnthropicMessages, "gpt-5", "")
+	if err != nil || g == nil || g.ID != regular.ID {
+		t.Fatalf("probe dispatch group must not open messages dispatch gate, got %v err %v", g, err)
+	}
+}
