@@ -2495,7 +2495,18 @@ func (s *adminServiceImpl) grantExclusiveGroupMembership(ctx context.Context, gr
 }
 
 func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error {
-	return s.groupRepo.UpdateSortOrders(ctx, updates)
+	if err := s.groupRepo.UpdateSortOrders(ctx, updates); err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		for _, u := range updates {
+			if u.ID <= 0 {
+				continue
+			}
+			s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, u.ID)
+		}
+	}
+	return nil
 }
 
 // AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定
