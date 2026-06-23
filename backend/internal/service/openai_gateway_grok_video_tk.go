@@ -174,6 +174,35 @@ func (s *OpenAIGatewayService) grokNativeVideoFetch(
 // shared upstream HTTP client (proxy + per-account concurrency honored). Bodies
 // are small JSON (request_id on submit; status+url on poll), so reading fully is
 // fine. account may be nil on the fetch path (used only for proxy/concurrency).
+// grokVideoResponseMaxBytes bounds the grok-native video submit/poll response we
+// read into memory. xAI returns small URL-JSON (the clip is hosted upstream, never
+// inline base64), so a few-MB ceiling is honest headroom while bounding a hostile or
+// runaway upstream. This is the grok-arm counterpart to the new-api bridge's
+// videoFetchResponseMaxBytes (80MB); we keep a SEPARATE service-local const rather
+// than importing the bridge's package-private value — grok never carries inline
+// bytes, so a smaller cap is more honest, and widening the bridge surface buys nothing.
+const grokVideoResponseMaxBytes int64 = 16 << 20
+
+var errGrokVideoResponseTooLarge = errors.New("grok video upstream response too large")
+
+// readGrokVideoResponseLimited reads at most maxBytes (+1 sentinel byte) from r and
+// errors if the body exceeds the cap — the same bounded-read shape the bridge uses in
+// readVideoFetchResponseBodyLimited. Extracted so the bound is unit-testable without a
+// live upstream.
+func readGrokVideoResponseLimited(r io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = grokVideoResponseMaxBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, errGrokVideoResponseTooLarge
+	}
+	return body, nil
+}
+
 func (s *OpenAIGatewayService) grokVideoHTTP(
 	ctx context.Context,
 	account *Account,
@@ -212,7 +241,7 @@ func (s *OpenAIGatewayService) grokVideoHTTP(
 		return nil, 0, fmt.Errorf("grok video upstream request failed: %s", sanitizeUpstreamErrorMessage(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	respBody, rerr := io.ReadAll(resp.Body)
+	respBody, rerr := readGrokVideoResponseLimited(resp.Body, grokVideoResponseMaxBytes)
 	if rerr != nil {
 		return nil, resp.StatusCode, fmt.Errorf("read grok video response: %w", rerr)
 	}
