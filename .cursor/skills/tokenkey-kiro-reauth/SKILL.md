@@ -53,7 +53,29 @@ Run locally on the operator machine; do not persist the output to a repo file.
 
 ```bash
 python3 - <<'PY'
-import glob, json, os
+import glob, json, os, time
+from datetime import datetime
+
+def unix_seconds(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        raw = value.strip()
+        normalized = raw.replace("UTC", "+00:00")
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            return str(int(datetime.fromisoformat(normalized).timestamp()))
+        except ValueError:
+            value = raw
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if n > 10_000_000_000:
+        n //= 1000
+    return str(n)
+
 cache = os.path.expanduser("~/.aws/sso/cache")
 tok_path = os.path.join(cache, "kiro-auth-token.json")
 t = json.load(open(tok_path, encoding="utf-8"))
@@ -64,6 +86,11 @@ out = {
     "region": t.get("region", "us-east-1"),
     "auth_method": auth,
 }
+expires_at = unix_seconds(t.get("expiresAt") or t.get("expires_at"))
+if expires_at is None and t.get("expiresIn") not in (None, ""):
+    expires_at = str(int(time.time()) + int(float(t["expiresIn"])))
+if expires_at:
+    out["expires_at"] = expires_at
 if auth == "idc":
     regs = []
     for path in glob.glob(os.path.join(cache, "*.json")):
@@ -74,10 +101,11 @@ if auth == "idc":
         except Exception:
             continue
         if "clientSecret" in j and "clientId" in j:
-            regs.append(j)
+            regs.append((os.path.getmtime(path), path, j))
     if not regs:
         raise SystemExit("missing Kiro IdC client registration in ~/.aws/sso/cache")
-    reg = regs[-1]
+    regs.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    reg = regs[0][2]
     out["client_id"] = reg["clientId"]
     out["client_secret"] = reg["clientSecret"]
 print(json.dumps(out, ensure_ascii=False, indent=2))
@@ -88,9 +116,10 @@ Important shape:
 
 - `auth_method=idc` requires `client_id` and `client_secret`.
 - `auth_method=social` uses only `refresh_token` for refresh.
-- If `expires_at` is absent in local cache, derive it by refreshing once through
-  the existing TokenKey Kiro refresh path or let the edge refresh after apply.
-  Prefer applying an access token plus refresh token from the real cache.
+- `expires_at` must be Unix seconds when present. If local cache does not expose
+  it, derive it by refreshing once through the existing TokenKey Kiro refresh
+  path before apply. Do not keep a stale far-future `expires_at` from the
+  revoked grant with a newly re-authorized access token.
 
 ## Edge Diagnosis Probe
 
@@ -144,6 +173,7 @@ Preferred path:
    - `credentials.refresh_token`
    - `credentials.region`
    - `credentials.auth_method`
+   - `credentials.expires_at` from the new local token or derived refresh result
    - `credentials.client_id` and `credentials.client_secret` for IdC
    - `credentials._token_version` to a fresh millisecond timestamp
 4. Clear account error and temporary unschedulable state in the same remediation
