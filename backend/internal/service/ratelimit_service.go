@@ -1082,6 +1082,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	if account.Platform == PlatformOpenAI {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
+	if s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
+		return true
+	}
 	if account.Platform == PlatformAnthropic {
 		// TK (PR #691 cc-only canary prep): a relayed canonical-ingress strict 403
 		// from a downstream strict-mode edge is the end client's identity problem,
