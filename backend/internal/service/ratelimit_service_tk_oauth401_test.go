@@ -210,6 +210,36 @@ func TestRateLimitService_OAuth401_KiroValidTokenInvalidGrantFallsBackToSetError
 	require.Contains(t, repo.lastErrorMsg, "grant revoked upstream")
 }
 
+func TestRateLimitService_OAuth401_KiroValidTokenInvalidGrantRaceRecoveryClearsState(t *testing.T) {
+	expiresAt := time.Now().Add(2 * time.Hour)
+	account := newKiroOAuth401Account(723, expiresAt)
+	recovered := newKiroOAuth401Account(723, expiresAt.Add(time.Hour))
+	recovered.Credentials["refresh_token"] = "new-rt"
+	repo := &rateLimitAccountRepoStub{
+		getByIDAccounts: []*Account{
+			account,   // OAuthRefreshAPI lock-protected reread before Refresh.
+			recovered, // invalid_grant race recovery reread.
+		},
+	}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("invalid_grant: token already used"),
+	})
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 0, repo.updateCredentialsCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.lastSchedulable)
+	require.Equal(t, 1, repo.clearTempCalls)
+}
+
 func TestRateLimitService_OAuth401_KiroValidTokenTransientRefreshFailureCoolsDown(t *testing.T) {
 	account := newKiroOAuth401Account(722, time.Now().Add(2*time.Hour))
 	repo := &rateLimitAccountRepoStub{accountOnGet: account}

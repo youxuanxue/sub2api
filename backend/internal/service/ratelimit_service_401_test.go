@@ -26,6 +26,7 @@ type rateLimitAccountRepoStub struct {
 	lastSchedulable        bool
 	lastTempReason         string
 	accountOnGet           *Account
+	getByIDAccounts        []*Account
 
 	// PR #338 (P3): track exact-reset-time writes so tests can assert
 	// handle429 / handle529 ran the upstream-precise path before the
@@ -125,6 +126,11 @@ func (r *rateLimitAccountRepoStub) SetOverloaded(ctx context.Context, id int64, 
 }
 
 func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if len(r.getByIDAccounts) > 0 {
+		account := r.getByIDAccounts[0]
+		r.getByIDAccounts = r.getByIDAccounts[1:]
+		return account, nil
+	}
 	if r.accountOnGet != nil {
 		return r.accountOnGet, nil
 	}

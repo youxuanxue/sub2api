@@ -118,7 +118,7 @@ func (s *RateLimitService) tkHandleKiroOAuth401OnValidToken(ctx context.Context,
 		s.tkApplyOAuth401Cooldown(ctx, account, msg)
 		return true
 	}
-	if result == nil || !result.Refreshed {
+	if result == nil || (!result.Refreshed && result.Account == nil) {
 		return false
 	}
 
