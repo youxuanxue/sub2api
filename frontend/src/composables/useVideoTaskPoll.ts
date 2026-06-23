@@ -19,8 +19,33 @@ import { gatewayVideoFetch } from '@/api/playground'
 import { videoStateFromFetch, extractVideoUrl, type PlaygroundVideoState } from '@/constants/playgroundMedia.tk'
 import type { VideoTaskItem } from '@/composables/useMediaLibrary'
 
-const POLL_INTERVAL_MS = 5_000
+// Stepped poll backoff: each poll is a real gateway request that REPLAYS the task
+// fetch upstream (VideoFetch → ForwardAsVideoFetchDispatched), so a fixed 5s cadence
+// on a multi-minute render is pure fan-out — and reattaching a full VIDEO_CAP of
+// persisted tasks on a Studio reload bursts it. Poll fast early (when completion is
+// plausible), then back off. There is DELIBERATELY no absolute duration cap: the
+// terminal-failure refund only fires when the client polls a terminal task
+// (openai_gateway_tk_video.go), so stopping early would orphan a real refund. The
+// server-side 24h TTL + terminal auto-delete + the 3-consecutive-error stop already
+// bound a genuinely stuck task.
+const POLL_INTERVAL_FAST_MS = 5_000
+const POLL_INTERVAL_MID_MS = 10_000
+const POLL_INTERVAL_SLOW_MS = 15_000
+const POLL_BACKOFF_MID_AFTER_MS = 60_000
+const POLL_BACKOFF_SLOW_AFTER_MS = 180_000
 const MAX_CONSECUTIVE_ERRORS = 3
+
+/**
+ * Poll interval for a task given its age (now - submittedAtMs): 5s for the first
+ * minute, 10s up to three minutes, 15s after. Pure + exported so the backoff schedule
+ * is unit-testable without driving setTimeout. A reattached task whose submit time is
+ * already old correctly starts at the slow cadence.
+ */
+export function pollIntervalMs(ageMs: number): number {
+  if (ageMs >= POLL_BACKOFF_SLOW_AFTER_MS) return POLL_INTERVAL_SLOW_MS
+  if (ageMs >= POLL_BACKOFF_MID_AFTER_MS) return POLL_INTERVAL_MID_MS
+  return POLL_INTERVAL_FAST_MS
+}
 
 export interface VideoTaskPollOptions {
   gatewayBase: () => string
@@ -90,7 +115,7 @@ export function useVideoTaskPoll(opts: VideoTaskPollOptions): VideoTaskPoller {
     if (!p) return
     p.timer = setTimeout(() => {
       void pollOnce(task)
-    }, POLL_INTERVAL_MS)
+    }, pollIntervalMs(Date.now() - task.submittedAtMs))
   }
 
   async function pollOnce(task: VideoTaskItem): Promise<void> {

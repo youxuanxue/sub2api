@@ -61,6 +61,7 @@
             :remove-label="t('studio.image.inputRemove')"
             :hint="t('studio.image.inputHint')"
             :max-size="INPUT_IMAGE_MAX_BYTES"
+            :downscale-max-edge="INPUT_IMAGE_DOWNSCALE_EDGE"
             @update:model-value="inputImage = $event"
           />
           <button
@@ -329,6 +330,11 @@ const errorCode = ref<StudioErrorCode | ''>('')
 // seedream take no input image on /v1/images/generations). The input image is a
 // data: URI (fresh upload) or a library image's src (reuse).
 const INPUT_IMAGE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — well within gemini inline-image limits
+// Downscale the input image to this max edge (px) before it travels inline through the
+// gateway: image-to-image / reverse-prompt / first-frame inputs don't need full res
+// (gemini inline-image guidance is well under 4 MB), so this cuts request-body bytes
+// by an order of magnitude. The 4 MB cap above still guards the original upload.
+const INPUT_IMAGE_DOWNSCALE_EDGE = 1536
 const inputImage = ref('')
 const reversing = ref(false)
 const supportsImageInput = computed(() => isFlatImage.value)
