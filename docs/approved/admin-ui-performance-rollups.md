@@ -1,11 +1,11 @@
 ---
 title: Admin UI Performance Rollups
-status: pending
-approved_by: pending
+status: approved
+approved_by: "xuejiao (design approval, 2026-06-23)"
 created: 2026-06-23
 owners: [tk-platform]
-related_prs: []
-related_commits: []
+related_prs: [963]
+related_commits: ["511ef944504de4387dec865f4ba11114e7cea0a5"]
 ---
 
 # Admin UI Performance Rollups
@@ -64,6 +64,25 @@ page supplies per-row overrides from `/admin/accounts/usage/batch`.
   read path starts using the new metric columns.
 - If backfill is deferred by a short request deadline, the next aggregation
   cycle retries and the read path remains on raw data.
+
+## Approval Guidance
+
+Approved with a Jobs-style product bar: this is one product promise, not a bag
+of unrelated optimizations. Admin first paint must stay responsive; slow
+aggregations must not block operators from using the dashboard, usage page, or
+accounts page.
+
+- Keep the success surface focused on `/admin/dashboard`, `/admin/usage`, and
+  `/admin/accounts`; implementation details only matter insofar as they improve
+  those paths.
+- Correctness is non-negotiable. Marker and coverage gates must prefer a safe
+  raw fallback over fast but incomplete rollup reads.
+- The additive `tk_046` migration is approved, provided production validation
+  confirms it is applied before group metric rollups are trusted.
+- Deployment is not complete until prod probes show dashboard users-trend no
+  longer returns 500 and the key latency paths materially improve against the
+  pre-deploy baseline. Safe fallback during marker convergence is acceptable,
+  but fallback alone is not a completed performance win.
 
 ## Pre-deploy Prod Baseline
 
