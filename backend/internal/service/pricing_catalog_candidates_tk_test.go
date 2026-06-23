@@ -135,11 +135,24 @@ func TestTkServableCandidateIDs(t *testing.T) {
 		require.True(t, contains(ids, "claude-sonnet-4-6"), "transient 5xx-unreachable stays")
 	})
 
-	t.Run("antigravity keeps fable-5 (per-platform truth: servable there)", func(t *testing.T) {
+	t.Run("antigravity draws from the empirically-servable gemini-only allowlist", func(t *testing.T) {
 		svc, _, _ := newAvailabilityTestService(t)
 		ids := tkServableCandidateIDs(ctx, PlatformAntigravity, svc)
-		require.True(t, contains(ids, "claude-fable-5"),
-			"fable-5 gone on anthropic must NOT vanish from antigravity — the backend is the per-platform authority")
+		for _, want := range []string{
+			"gemini-2.5-flash",
+			"gemini-2.5-flash-lite",
+			"gemini-2.5-flash-thinking",
+			"gemini-3-flash",
+			"gemini-3.1-flash-image",
+			"gemini-3.5-flash-low",
+			"gemini-pro-agent",
+		} {
+			require.True(t, contains(ids, want), "servable antigravity gemini id %s present", want)
+		}
+		for _, offPlatform := range []string{"claude-fable-5", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
+			require.False(t, contains(ids, offPlatform),
+				"%s must not leak into antigravity client/admin defaults without a 200 allowlist entry", offPlatform)
+		}
 	})
 
 	t.Run("nil availability degrades to no pruning (passthrough)", func(t *testing.T) {

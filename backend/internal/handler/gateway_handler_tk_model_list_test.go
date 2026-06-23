@@ -42,27 +42,28 @@ func TestTkAntigravityDefaultModels_ReturnsClaudeModelShape(t *testing.T) {
 }
 
 func TestTkAntigravityDefaultModels_ScopeIsAntigravityOnly(t *testing.T) {
-	// Regression pin for R-002: models that are NOT in antigravity.DefaultModels()
-	// must never appear in the output, even if the pricing catalog contains them.
+	// Regression pin for R-002 updated by the 2026-06-23 Antigravity refresh:
+	// the fallback source is the empirically servable Antigravity allowlist, not
+	// the whole pricing catalog and not the raw DefaultModels advertisement.
 	//
 	// Wire a filter that returns everything as priced, then verify output is
-	// still scoped to the antigravity candidate set.
+	// still scoped to the Antigravity servable candidate set.
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 	filter := service.NewModelListFilter(nil, availSvc) // pricing nil → fail-open (all pass)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
 	result := h.tkAntigravityDefaultModels(context.Background())
-	defaults := antigravity.DefaultModels()
+	allow := service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil)
 
-	// Every returned model must come from the antigravity default set.
-	defaultIDs := make(map[string]bool, len(defaults))
-	for _, m := range defaults {
-		defaultIDs[m.ID] = true
+	// Every returned model must come from the antigravity servable set.
+	allowIDs := make(map[string]bool, len(allow))
+	for _, id := range allow {
+		allowIDs[id] = true
 	}
 	for _, m := range result {
-		require.True(t, defaultIDs[m.ID],
-			"output model %q is not in antigravity.DefaultModels() — cross-platform leakage", m.ID)
+		require.True(t, allowIDs[m.ID],
+			"output model %q is not in the Antigravity servable allowlist — cross-platform leakage", m.ID)
 	}
 }
 
@@ -70,9 +71,7 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 
-	defaults := antigravity.DefaultModels()
-	require.NotEmpty(t, defaults, "test requires at least one antigravity model")
-	targetID := defaults[0].ID
+	const targetID = "gemini-2.5-flash"
 
 	// Drive target model to unreachable
 	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
@@ -85,8 +84,7 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 
 	// FilterClientFacing requires a non-nil pricing service (pricing=nil → fail-open, skip availability check too).
 	// Use a PricingCatalogService with all antigravity models priced so the availability filter runs.
-	pricingJSON := buildPricingJSON(defaults)
-	pricingSvc := buildTestPricingService(t, pricingJSON)
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil)))
 
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
@@ -98,11 +96,65 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 }
 
 func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
-	// When filter not wired, all default models must pass through.
+	// Post-SSOT convergence: nil filter still uses the unified servable candidate
+	// set, so SDKs see the current Antigravity allowlist without requiring pricing
+	// wiring. It does not fall back to raw DefaultModels, which still contains
+	// claude/gpt-oss and unprobed Gemini ids.
 	h := &GatewayHandler{}
 	result := h.tkAntigravityDefaultModels(context.Background())
-	defaults := antigravity.DefaultModels()
-	require.Equal(t, len(defaults), len(result), "nil filter must be fail-open (all models pass)")
+	require.NotEmpty(t, result, "nil filter must still produce a non-empty list")
+	ids := make(map[string]bool, len(result))
+	for _, m := range result {
+		ids[m.ID] = true
+		require.Equal(t, "model", m.Type, "synthesized allowlist-only entries must keep the Claude model shape")
+	}
+	require.True(t, ids["gemini-2.5-flash"], "live-servable Antigravity Gemini id present")
+	require.True(t, ids["gemini-2.5-flash-thinking"], "overlay-priced Antigravity thinking id present")
+	require.True(t, ids["gemini-3-flash-agent"], "allowlist-only Antigravity wire id present")
+	require.False(t, ids["gemini-2.5-pro"], "unprobed/inconclusive gemini-2.5-pro must not appear")
+	require.False(t, ids["claude-fable-5"], "claude is routed off Antigravity")
+}
+
+func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t *testing.T) {
+	// Price only the source-backed Antigravity ids; tk_pricing_overlay.json must
+	// provide the wire-only ids such as gemini-2.5-flash-thinking and
+	// gemini-3-flash-agent. gemini-2.5-pro is intentionally priced in normal
+	// Gemini catalogs but NOT in the Antigravity allowlist after the 2026-06-23
+	// reprobe, so it must remain hidden here.
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs([]string{
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+		"gemini-3-flash",
+		"gemini-3.1-flash-image",
+		"gemini-3.1-pro-low",
+		"gemini-2.5-pro",
+	}))
+	filter := service.NewModelListFilter(pricingSvc, nil)
+	h := &GatewayHandler{tkModelListFilter: filter}
+
+	result := h.tkAntigravityDefaultModels(context.Background())
+	ids := make(map[string]bool, len(result))
+	for _, m := range result {
+		ids[m.ID] = true
+		require.Equal(t, "model", m.Type, "all returned models must keep the Claude model-list shape")
+	}
+	for _, want := range []string{
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+		"gemini-2.5-flash-thinking",
+		"gemini-3-flash",
+		"gemini-3-flash-agent",
+		"gemini-3.1-flash-image",
+		"gemini-3.1-pro-low",
+		"gemini-3.5-flash-extra-low",
+		"gemini-3.5-flash-low",
+		"gemini-pro-agent",
+	} {
+		require.True(t, ids[want], "%s should be visible in /antigravity/models after pricing closure", want)
+	}
+	for _, deny := range []string{"gemini-2.5-pro", "claude-fable-5", "gpt-oss-120b-medium"} {
+		require.False(t, ids[deny], "%s must not leak into /antigravity/models", deny)
+	}
 }
 
 func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {

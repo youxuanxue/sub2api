@@ -22,7 +22,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 ```
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
-- **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 5、grok 8（5 个 Go map）。
+- **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 10、grok 8（5 个 Go map）。
 - **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7，GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
 - **总计**：约 110 个 servable id / 140 个 priced id。
 - **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
@@ -129,16 +129,19 @@ servable allowlist 共 **7**（2026-06-09 探针）：
 
 ### 2.4 antigravity（第四平台，仅 gemini）
 
-servable allowlist 共 **5**（hand-maintained，2026-06-13 探针）；账号 mapping 实服 ~14 个 gemini wire id。2026-06-23 专项复测确认 `gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-2.5-flash-thinking`、`gemini-3-flash` 以及既有基线 `gemini-3-flash-agent`、`gemini-3.1-pro-low`、`gemini-pro-agent`、`gemini-3.1-flash-image` 均能经 prod `/antigravity/v1beta/...:generateContent` 返回 200；`gemini-2.5-pro` 在 generateContent 与 streamGenerateContent 单模型复测均为 000 timeout/inconclusive，继续 watch。
+servable allowlist 共 **10**（hand-maintained，2026-06-13 探针；2026-06-23 专项复测闭环）。账号 mapping 实服 ~14 个 gemini wire id。2026-06-23 专项复测确认 `gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-2.5-flash-thinking`、`gemini-3-flash` 以及既有基线 `gemini-3-flash-agent`、`gemini-3.1-pro-low`、`gemini-pro-agent`、`gemini-3.1-flash-image` 均能经 prod `/antigravity/v1beta/...:generateContent` 返回 200；`gemini-2.5-pro` 在 generateContent 与 streamGenerateContent 单模型复测均为 000 timeout/inconclusive，继续 watch。
 
 ```
-gemini-3-flash-agent   gemini-3.1-pro-low   gemini-3.5-flash-extra-low   gemini-3.5-flash-low   gemini-pro-agent
+gemini-2.5-flash           gemini-2.5-flash-lite    gemini-2.5-flash-thinking
+gemini-3-flash             gemini-3-flash-agent     gemini-3.1-flash-image
+gemini-3.1-pro-low         gemini-3.5-flash-extra-low
+gemini-3.5-flash-low       gemini-pro-agent
 ```
 
-- 价：overlay `litellm_provider="antigravity"`（4 个 flash 类）；`gemini-3.1-pro-low` 的价挂在 `vertex_ai` vendor 下（→ `inferPlatformFromVendor` 归 gemini，故 antigravity 展示闸看不到它，gemini 7-id 闸也不含它 → 两边都不展示，纯展示缺口）。2026-06-23 新测得的 200 只证明 mapping 实服；其中 `gemini-2.5-flash-thinking` 尚无可靠独立定价行，不能仅凭 200 扩大公开展示 allowlist。
+- 价/展示闭环（2026-06-23）：`gemini-2.5-flash-thinking` 已补 `tk_pricing_overlay.json`（按 bundled `gemini-2.5-flash` 官方价镜像：in $0.30/M、out $2.50/M、cache-read $0.03/M）；`gemini-3-flash-agent`、`gemini-3.5-flash-{low,extra-low}`、`gemini-pro-agent` 继续走 Antigravity overlay；`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-3-flash`、`gemini-3.1-flash-image`、`gemini-3.1-pro-low` 走 bundled/litellm Gemini/Vertex 非零价。`/antigravity/models` 和 admin selector 已接 `supportedAntigravityCatalogModels`，因此这些 10 个 id 会作为 Antigravity 默认可见候选；`gemini-2.5-pro` 虽有原生 Gemini 价，但因 Antigravity 复测未拿到 200，不进该面。
+- `/api/v1/public/pricing` 仍是 flat `model_id` 目录：同名模型（如 `gemini-3-flash`）已有 Gemini/Vertex vendor 行时，fill-only overlay 不改 vendor 归属；只有 overlay-only wire id（如 `gemini-2.5-flash-thinking`、`gemini-3-flash-agent`、`gemini-pro-agent`）会显示为 `vendor=antigravity`。这是当前 DTO 的平台维度限制，不影响 Antigravity 请求按 `requested_model` 计费。
 - **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / gemini-only mapping / reconciler 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或自愈回写。
 - **policy（不可服务因策略）**：整个 claude-* 家族 + `gpt-oss-120b-medium` 按操作员策略不在 antigravity 服务（claude 路由到 anthropic）；由 `AntigravityConfigReconciler` 自愈维持 gemini-only。2026-06-23 `claude-sonnet-4-5` 经 `/antigravity/v1/messages` 返回 429 not_allowlisted，符合当前策略。
-- fable-5 在 antigravity **保留可服务**（per-platform 真值，与 §2.1 anthropic 的下架独立）。
 
 ### 2.5 grok（第七平台，xAI）
 

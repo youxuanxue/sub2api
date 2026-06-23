@@ -985,6 +985,51 @@ func TestBuildForUser_GeminiUnrestricted_ListsServableModels(t *testing.T) {
 	}
 }
 
+func TestBuildForUser_AntigravityMapped_ListsPricedReprobedGeminiModels(t *testing.T) {
+	gAG := mkGroupForMe(56, "antigravity", "antigravity", 1.0)
+	k1 := mkKeyForMe(1, 16, "ag-key", ptrI(56))
+	acct := mkAccountWithWhitelist(11, "ag-oauth", "antigravity", 0, []string{
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-thinking",
+		"gemini-3-flash",
+		"gemini-2.5-pro", // priced in Gemini, but 2026-06-23 Antigravity reprobe stayed inconclusive; must stay hidden.
+	})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gemini-2.5-flash", "vertex_ai-language-models", 0.0003, 0.0025, 0.00003),
+			mkPublicCatalogModel("gemini-3-flash", "vertex_ai-language-models", 0.0005, 0.003, 0.00005),
+			mkPublicCatalogModel("gemini-2.5-pro", "vertex_ai-language-models", 0.00125, 0.005, 0),
+			mkPublicCatalogModel("gemini-2.5-flash-thinking", "antigravity", 0.0003, 0.0025, 0.00003),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAG}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+	require.Contains(t, byID, "gemini-2.5-flash")
+	require.Contains(t, byID, "gemini-3-flash")
+	require.NotContains(t, byID, "gemini-2.5-pro",
+		"Antigravity user menu must not expose mapping ids outside the 200-probed allowlist")
+	require.Contains(t, byID, "gemini-2.5-flash-thinking")
+	thinking := byID["gemini-2.5-flash-thinking"]
+	require.NotNil(t, thinking.YourPrice.InputPer1K, "Antigravity thinking id must show a price in the user menu")
+	assert.InDelta(t, 0.0003, *thinking.YourPrice.InputPer1K, 1e-12)
+	require.NotNil(t, thinking.YourPrice.OutputPer1K)
+	assert.InDelta(t, 0.0025, *thinking.YourPrice.OutputPer1K, 1e-12)
+	require.NotNil(t, thinking.YourPrice.CacheReadPer1K)
+	assert.InDelta(t, 0.00003, *thinking.YourPrice.CacheReadPer1K, 1e-12)
+	assert.Equal(t, "antigravity", thinking.Vendor)
+}
+
 // TestBuildForUser_GrokUnrestricted_ListsServableModels is the regression for
 // the 2026-06-20 incident: selecting a grok group on /pricing showed an EMPTY
 // "分组目录". Grok is a native OAuth-relay platform — its accounts carry no

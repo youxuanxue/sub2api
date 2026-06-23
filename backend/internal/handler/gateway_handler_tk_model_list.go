@@ -96,7 +96,7 @@ func (h *GatewayHandler) tkAntigravityDefaultModels(ctx context.Context) []antig
 			out = append(out, m)
 			continue
 		}
-		out = append(out, antigravity.ClaudeModel{ID: id, DisplayName: id})
+		out = append(out, antigravity.ClaudeModel{ID: id, Type: "model", DisplayName: id})
 	}
 	return out
 }
