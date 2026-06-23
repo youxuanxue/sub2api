@@ -74,6 +74,7 @@ type reconcilerAccountStore interface {
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
 	SumConcurrencyAnthropic(ctx context.Context) (int64, error)
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
+	BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error
 }
 
 // reconcilerUserStore is the narrow user dependency for the operator Σ sync and
@@ -290,6 +291,11 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	// Step B: pool_mode self-heal on prod mirror stubs.
 	r.reconcileStubPoolMode(ctx, accounts)
 
+	// Step B-groups: keep kiro mirror stubs group-parity with their anthropic
+	// sibling stub on the same edge host, while retaining any kiro-local extra
+	// bindings already present on the kiro stub (e.g. kiro-edges).
+	r.reconcileKiroMirrorStubGroups(ctx, accounts)
+
 	// Step T: value-sync each tier-bound anthropic OAUTH account's concurrency
 	// column from its tier row (the reference-table write-source). Runs before
 	// Step A so the operator Σ reflects any concurrency it just re-asserted.
@@ -451,6 +457,70 @@ func (r *AnthropicConfigReconciler) reconcileStubPoolMode(ctx context.Context, a
 		slog.Info("anthropic config reconciler: stub pool_mode self-healed (local deployment only)",
 			"account_id", a.ID, "account_name", a.Name,
 			"pool_mode", wantPool, "pool_mode_retry_count", wantRetry)
+	}
+}
+
+// reconcileKiroMirrorStubGroups keeps every prod kiro mirror stub reachable from
+// the same anthropic groups as its sibling anthropic mirror stub on the same edge
+// host (same credentials.base_url), while preserving any kiro-local extra groups
+// the kiro stub already carries. This closes the prod routing gap where group-
+// scoped Claude Code traffic (for example cc-edges / paopi groups) could select
+// the anthropic sibling but never the kiro mirror because the kiro stub was only
+// bound to default + a kiro-local group.
+func (r *AnthropicConfigReconciler) reconcileKiroMirrorStubGroups(ctx context.Context, accounts []Account) {
+	doc, re, err := baseline.LoadStubPoolBaseline()
+	if err != nil {
+		slog.Warn("anthropic config reconciler: load stub-pool baseline failed (kiro groups)", "err", err)
+		return
+	}
+	_ = doc
+
+	sourceGroupsByBaseURL := make(map[string][]int64)
+	for i := range accounts {
+		a := &accounts[i]
+		if !r.isMirrorStub(a, re) {
+			continue
+		}
+		if mirrorCapacityPlatform(a.GetCredential("mirror_platform")) != PlatformAnthropic {
+			continue
+		}
+		baseURL := normalizeMirrorStubBaseURL(a.GetCredential("base_url"))
+		if baseURL == "" {
+			continue
+		}
+		sourceGroupsByBaseURL[baseURL] = appendUniquePositiveInt64s(sourceGroupsByBaseURL[baseURL], a.GroupIDs)
+	}
+
+	for i := range accounts {
+		a := &accounts[i]
+		if !r.isMirrorStub(a, re) {
+			continue
+		}
+		if mirrorCapacityPlatform(a.GetCredential("mirror_platform")) != PlatformKiro {
+			continue
+		}
+		baseURL := normalizeMirrorStubBaseURL(a.GetCredential("base_url"))
+		if baseURL == "" {
+			continue
+		}
+		siblingGroupIDs := sourceGroupsByBaseURL[baseURL]
+		if len(siblingGroupIDs) == 0 {
+			continue
+		}
+		desiredGroupIDs := append([]int64(nil), siblingGroupIDs...)
+		desiredGroupIDs = appendMissingPositiveInt64s(desiredGroupIDs, a.GroupIDs)
+		if int64SlicesEqual(a.GroupIDs, desiredGroupIDs) {
+			continue
+		}
+		if err := r.accounts.BindGroups(ctx, a.ID, desiredGroupIDs); err != nil {
+			slog.Warn("anthropic config reconciler: kiro mirror stub group self-heal write failed",
+				"account_id", a.ID, "account_name", a.Name, "base_url", baseURL,
+				"want_group_ids", desiredGroupIDs, "err", err)
+			continue
+		}
+		slog.Info("anthropic config reconciler: kiro mirror stub groups self-healed (local deployment only)",
+			"account_id", a.ID, "account_name", a.Name, "base_url", baseURL,
+			"group_ids", desiredGroupIDs)
 	}
 }
 
@@ -623,4 +693,48 @@ func (r *AnthropicConfigReconciler) isMirrorStub(a *Account, re interface{ Match
 	}
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	return baseURL != "" && re.MatchString(baseURL)
+}
+
+func normalizeMirrorStubBaseURL(raw string) string {
+	baseURL := strings.ToLower(strings.TrimSpace(raw))
+	return strings.TrimRight(baseURL, "/")
+}
+
+func appendUniquePositiveInt64s(dst []int64, src []int64) []int64 {
+	if len(src) == 0 {
+		return dst
+	}
+	seen := make(map[int64]struct{}, len(dst)+len(src))
+	for _, id := range dst {
+		if id > 0 {
+			seen[id] = struct{}{}
+		}
+	}
+	for _, id := range src {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		dst = append(dst, id)
+	}
+	return dst
+}
+
+func appendMissingPositiveInt64s(dst []int64, src []int64) []int64 {
+	return appendUniquePositiveInt64s(dst, src)
+}
+
+func int64SlicesEqual(a []int64, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

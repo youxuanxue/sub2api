@@ -22,6 +22,8 @@ type groupRepoStubForAdmin struct {
 	getByID *Group // GetByID 返回值
 	getErr  error  // GetByID 返回的错误
 
+	sortUpdates []GroupSortOrderUpdate
+
 	listWithFiltersCalls       int
 	listWithFiltersParams      pagination.PaginationParams
 	listWithFiltersPlatform    string
@@ -121,7 +123,8 @@ func (s *groupRepoStubForAdmin) GetAccountIDsByGroupIDs(_ context.Context, _ []i
 	panic("unexpected GetAccountIDsByGroupIDs call")
 }
 
-func (s *groupRepoStubForAdmin) UpdateSortOrders(_ context.Context, _ []GroupSortOrderUpdate) error {
+func (s *groupRepoStubForAdmin) UpdateSortOrders(_ context.Context, updates []GroupSortOrderUpdate) error {
+	s.sortUpdates = append([]GroupSortOrderUpdate(nil), updates...)
 	return nil
 }
 
@@ -373,6 +376,26 @@ func TestAdminService_UpdateGroup_InvalidatesAuthCacheOnRPMLimitChange(t *testin
 	require.NotNil(t, group)
 	require.Equal(t, 60, repo.updated.RPMLimit)
 	require.Equal(t, []int64{1}, invalidator.groupIDs, "分组 RPMLimit 写入 auth snapshot，变更后必须失效 API Key 认证缓存")
+}
+
+func TestAdminService_UpdateGroupSortOrders_InvalidatesAuthCache(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{
+		groupRepo:            repo,
+		authCacheInvalidator: invalidator,
+	}
+
+	err := svc.UpdateGroupSortOrders(context.Background(), []GroupSortOrderUpdate{
+		{ID: 1, SortOrder: 10},
+		{ID: 15, SortOrder: 150},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []GroupSortOrderUpdate{
+		{ID: 1, SortOrder: 10},
+		{ID: 15, SortOrder: 150},
+	}, repo.sortUpdates)
+	require.Equal(t, []int64{1, 15}, invalidator.groupIDs, "分组排序影响 universal 选组，更新后必须失效相关 auth/universal 缓存")
 }
 
 func TestAdminService_CreateGroup_NormalizesMessagesDispatchModelConfig(t *testing.T) {
