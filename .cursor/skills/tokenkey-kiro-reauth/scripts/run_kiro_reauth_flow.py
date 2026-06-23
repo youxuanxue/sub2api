@@ -72,6 +72,32 @@ def run_json(argv: list[str], *, stdin_text: str | None = None, label: str, extr
     return must_json(stdout, label)
 
 
+def normalize_edge_id(value: str) -> str:
+    edge_id = value.strip()
+    if edge_id.startswith("edge:"):
+        edge_id = edge_id.removeprefix("edge:")
+    if edge_id.startswith("edge-"):
+        edge_id = edge_id.removeprefix("edge-")
+    return edge_id
+
+
+def default_admin_password_file(edge_id: str, explicit_path: str) -> str:
+    if explicit_path:
+        return explicit_path
+    for candidate in (
+        Path.home() / "Codes" / "keys" / f"tokenkey-{edge_id}-admin-password.txt",
+        Path.home() / "Codes" / "keys" / f"tokenkey-edge-{edge_id}-admin-password.txt",
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return ""
+
+
+def require_probe_success(obj: dict[str, Any], label: str) -> None:
+    if obj.get("error"):
+        raise SystemExit(f"{label} returned error: {json.dumps(obj, ensure_ascii=False)}")
+
+
 def resolve_edge(edge_id: str) -> dict[str, Any]:
     return run_json(
         [sys.executable, str(EDGE_RESOLVE), "--repo-root", ".", "--edge-id", edge_id, "--format", "json"],
@@ -93,7 +119,7 @@ def local_admin_payload(refresh: bool) -> dict[str, Any]:
     return run_json(argv, label="local_admin_payload")
 
 
-def edge_summary(edge_id: str, account_id: int, account_name: str) -> dict[str, Any]:
+def edge_summary(edge_id: str, account_id: int | None, account_name: str) -> dict[str, Any]:
     argv = [
         "bash",
         str(RUN_PROBE),
@@ -102,10 +128,10 @@ def edge_summary(edge_id: str, account_id: int, account_name: str) -> dict[str, 
         "--script",
         str(EDGE_SUMMARY),
         "--env",
-        f"ACCOUNT_ID={account_id}",
-        "--env",
         f"ACCOUNT_NAME={account_name}",
     ]
+    if account_id is not None:
+        argv.extend(["--env", f"ACCOUNT_ID={account_id}"])
     return run_json(argv, label="edge_summary")
 
 
@@ -190,16 +216,28 @@ def real_probe(edge_id: str, account_id: int, group_name: str, model: str, promp
     return run_json(argv, label="real_probe")
 
 
-def render_plan(args: argparse.Namespace, edge_info: dict[str, Any]) -> dict[str, Any]:
+def render_plan(
+    args: argparse.Namespace,
+    edge_info: dict[str, Any],
+    *,
+    input_edge_id: str,
+    account_id: int,
+    account_name: str,
+    admin_password_file: str,
+) -> dict[str, Any]:
     return {
+        "input_edge_id": input_edge_id,
         "edge_id": args.edge_id,
         "base_url": args.base_url or f"https://{edge_info['domain']}",
         "account_id": args.account_id,
+        "resolved_account_id": account_id,
         "account_name": args.account_name,
+        "resolved_account_name": account_name,
         "local_refresh": args.local_refresh,
         "do_apply": args.apply,
         "do_real_probe": args.verify_real_request,
         "ensure_schedulable": args.ensure_schedulable,
+        "admin_password_file": admin_password_file,
         "group_name": args.group_name,
         "model": args.model,
         "log_window": args.log_window,
@@ -208,9 +246,9 @@ def render_plan(args: argparse.Namespace, edge_info: dict[str, Any]) -> dict[str
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--edge-id", required=True)
-    parser.add_argument("--account-id", required=True, type=int)
-    parser.add_argument("--account-name", required=True)
+    parser.add_argument("--edge-id", default="")
+    parser.add_argument("--account-id", type=int, default=None, help="optional when --account-name uniquely identifies a Kiro OAuth account")
+    parser.add_argument("--account-name", default="")
     parser.add_argument("--base-url", default="", help="override base URL; defaults to https://<resolved-domain>")
 
     parser.add_argument("--local-refresh", action="store_true", help="mint a fresh local Kiro access token first")
@@ -228,17 +266,46 @@ def main() -> int:
     parser.add_argument("--admin-email", default="")
     parser.add_argument("--admin-password", default="")
     parser.add_argument("--admin-password-file", default="")
+    parser.add_argument("shorthand", nargs="*", help="optional shorthand: <account-name> <edge-id>")
     args = parser.parse_args()
+
+    if args.shorthand:
+        if len(args.shorthand) != 2:
+            raise SystemExit("shorthand usage is: <account-name> <edge-id>")
+        args.account_name = args.account_name or args.shorthand[0]
+        args.edge_id = args.edge_id or args.shorthand[1]
+
+    if not args.edge_id:
+        raise SystemExit("--edge-id is required, or use shorthand: <account-name> <edge-id>")
+    if not args.account_name:
+        raise SystemExit("--account-name is required, or use shorthand: <account-name> <edge-id>")
+
+    input_edge_id = args.edge_id
+    args.edge_id = normalize_edge_id(args.edge_id)
+    args.admin_password_file = default_admin_password_file(args.edge_id, args.admin_password_file)
 
     edge_info = resolve_edge(args.edge_id)
     base_url = args.base_url or f"https://{edge_info['domain']}"
 
+    pre_edge = edge_summary(args.edge_id, args.account_id, args.account_name)
+    require_probe_success(pre_edge, "edge_summary")
+    resolved_account_id = int(pre_edge["id"])
+    resolved_account_name = str(pre_edge["name"])
+
     output: dict[str, Any] = {
         "edge": edge_info,
-        "plan": render_plan(args, edge_info),
+        "plan": render_plan(
+            args,
+            edge_info,
+            input_edge_id=input_edge_id,
+            account_id=resolved_account_id,
+            account_name=resolved_account_name,
+            admin_password_file=args.admin_password_file,
+        ),
     }
 
     if args.plan_only:
+        output["resolved_edge_summary"] = pre_edge
         json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
         return 0
@@ -246,15 +313,14 @@ def main() -> int:
     local_summary_obj = local_summary(args.local_refresh)
     output["local_summary"] = local_summary_obj
 
-    pre_edge = edge_summary(args.edge_id, args.account_id, args.account_name)
     output["pre_apply_edge_summary"] = pre_edge
 
     if args.apply:
         payload = local_admin_payload(args.local_refresh)
         apply_result = apply_edge(
             base_url=base_url,
-            account_id=args.account_id,
-            account_name=args.account_name,
+            account_id=resolved_account_id,
+            account_name=resolved_account_name,
             payload=payload,
             admin_api_key=args.admin_api_key,
             admin_email=args.admin_email,
@@ -268,7 +334,8 @@ def main() -> int:
     compare_edge = pre_edge
     output["compare_edge_source"] = "pre_apply_edge_summary"
     if args.apply:
-        post_edge = edge_summary(args.edge_id, args.account_id, args.account_name)
+        post_edge = edge_summary(args.edge_id, resolved_account_id, resolved_account_name)
+        require_probe_success(post_edge, "post_apply_edge_summary")
         output["post_apply_edge_summary"] = post_edge
         compare_edge = post_edge
         output["compare_edge_source"] = "post_apply_edge_summary"
@@ -277,7 +344,7 @@ def main() -> int:
     if args.verify_real_request:
         output["real_request_probe"] = real_probe(
             args.edge_id,
-            args.account_id,
+            resolved_account_id,
             args.group_name,
             args.model,
             args.prompt_text,

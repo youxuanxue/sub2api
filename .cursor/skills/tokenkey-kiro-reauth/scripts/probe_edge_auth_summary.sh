@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ACCOUNT_ID="${ACCOUNT_ID:-}"
 ACCOUNT_NAME="${ACCOUNT_NAME:-}"
+ACCOUNT_ID="${ACCOUNT_ID:-}"
 
-if [[ ! "${ACCOUNT_ID}" =~ ^[0-9]+$ ]]; then
-  echo '{"error":"ACCOUNT_ID must be a numeric account id"}'
+if [[ -n "${ACCOUNT_ID}" && ! "${ACCOUNT_ID}" =~ ^[0-9]+$ ]]; then
+  echo '{"error":"ACCOUNT_ID must be blank or a numeric account id"}'
   exit 0
 fi
 
@@ -27,8 +27,7 @@ ACCOUNT_NAME_B64="$(sql_b64 "${ACCOUNT_NAME}")"
 PSQL=(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
 result="$("${PSQL[@]}" -c "
-SELECT row_to_json(t)
-FROM (
+WITH matches AS (
   SELECT
     a.id,
     a.name,
@@ -67,13 +66,31 @@ FROM (
     END AS client_secret_md5_16
   FROM accounts a
   LEFT JOIN account_groups ag ON ag.account_id = a.id
-  WHERE a.id = ${ACCOUNT_ID}
-    AND a.name = convert_from(decode('${ACCOUNT_NAME_B64}','base64'),'utf8')
+  WHERE a.name = convert_from(decode('${ACCOUNT_NAME_B64}','base64'),'utf8')
+    AND (${ACCOUNT_ID:-0} = 0 OR a.id = ${ACCOUNT_ID:-0})
     AND a.platform = 'kiro'
     AND a.type = 'oauth'
     AND a.deleted_at IS NULL
   GROUP BY a.id
-) t;
+),
+match_count AS (
+  SELECT count(*) AS n FROM matches
+)
+SELECT CASE
+  WHEN (SELECT n FROM match_count) = 1 THEN (
+    SELECT row_to_json(matches)::jsonb FROM matches
+  )
+  WHEN (SELECT n FROM match_count) = 0 THEN jsonb_build_object(
+    'error', 'account_not_found',
+    'account_id', NULLIF('${ACCOUNT_ID}', '')::bigint,
+    'account_name', convert_from(decode('${ACCOUNT_NAME_B64}','base64'),'utf8')
+  )
+  ELSE jsonb_build_object(
+    'error', 'ambiguous_account_name',
+    'account_name', convert_from(decode('${ACCOUNT_NAME_B64}','base64'),'utf8'),
+    'matching_ids', (SELECT jsonb_agg(id ORDER BY id) FROM matches)
+  )
+END;
 ")"
 
 result="$(printf '%s' "${result}" | tr -d '\n')"
@@ -85,7 +102,7 @@ import sys
 
 print(json.dumps({
     "error": "account_not_found",
-    "account_id": int(sys.argv[1]),
+    "account_id": int(sys.argv[1]) if sys.argv[1] else None,
     "account_name": sys.argv[2],
 }, ensure_ascii=False))
 PY
