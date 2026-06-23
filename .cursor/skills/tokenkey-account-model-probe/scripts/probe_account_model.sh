@@ -9,6 +9,8 @@ APP_URL="${APP_URL:-http://localhost:8080}"
 MAX_TOKENS="${MAX_TOKENS:-16}"
 PROMPT_TEXT="${PROMPT_TEXT:-Reply with exactly: OK}"
 KEEP_PROBE_ARTIFACTS="${KEEP_PROBE_ARTIFACTS:-0}"
+PROBE_REUSE_MODE="${PROBE_REUSE_MODE:-1}"
+PROBE_LOCK_TIMEOUT_SECONDS="${PROBE_LOCK_TIMEOUT_SECONDS:-120}"
 USAGE_POLL_ATTEMPTS="${USAGE_POLL_ATTEMPTS:-12}"
 USAGE_POLL_INTERVAL_SECONDS="${USAGE_POLL_INTERVAL_SECONDS:-1}"
 LOG_WINDOW="${LOG_WINDOW:-3m}"
@@ -16,6 +18,10 @@ REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
 PROBE_USER_ID=1
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+
+sql_escape() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
 
 fail_json() {
   local message="$1"
@@ -35,19 +41,19 @@ fi
 if [[ ! "$REQUEST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$REQUEST_TIMEOUT_SECONDS" -lt 1 ]]; then
   fail_json "REQUEST_TIMEOUT_SECONDS must be a positive integer"
 fi
+case "$PROBE_REUSE_MODE" in
+  0|1) ;;
+  *) fail_json "PROBE_REUSE_MODE must be 1 or 0" ;;
+esac
+if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_SECONDS" -lt 1 ]]; then
+  fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
+fi
 case "$ENDPOINT" in
   messages|chat|responses) ;;
   *) fail_json "ENDPOINT must be messages, chat, or responses" ;;
 esac
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-GROUP_NAME="__tk_probe_${PROBE_ID}"
-KEY_NAME="$GROUP_NAME"
-API_KEY="sk-${PROBE_ID}-$(python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
-PY
-)"
 
 TARGET_JSON="$("${PSQL[@]}" -c "
 SELECT COALESCE(row_to_json(t)::text, '')
@@ -81,6 +87,44 @@ if [[ -z "$PLATFORM" ]]; then
   fail_json "target account platform is empty"
 fi
 
+PROBE_SCOPE="$(python3 - "$PLATFORM" <<'PY'
+import re
+import sys
+
+scope = re.sub(r"[^a-z0-9]+", "_", sys.argv[1].strip().lower()).strip("_")
+print((scope or "platform")[:48])
+PY
+)"
+if [[ -z "$PROBE_SCOPE" ]]; then
+  fail_json "failed to derive probe scope"
+fi
+
+if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+  GROUP_NAME="__tk_probe_${PROBE_SCOPE}_group"
+  KEY_NAME="__tk_probe_${PROBE_SCOPE}_key"
+else
+  GROUP_NAME="__tk_probe_${PROBE_ID}"
+  KEY_NAME="$GROUP_NAME"
+fi
+
+API_KEY=""
+if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+  if ! command -v flock >/dev/null 2>&1; then
+    fail_json "flock is required when PROBE_REUSE_MODE=1"
+  fi
+  LOCK_PATH="/tmp/tokenkey-account-model-probe-${PROBE_SCOPE}.lock"
+  exec 9>"$LOCK_PATH"
+  if ! flock -w "$PROBE_LOCK_TIMEOUT_SECONDS" 9; then
+    fail_json "timed out waiting for probe reuse lock"
+  fi
+else
+  API_KEY="sk-${PROBE_ID}-$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
+PY
+)"
+fi
+
 GROUP_ID=""
 API_KEY_ID=""
 cleanup() {
@@ -88,34 +132,94 @@ cleanup() {
     return
   fi
   if [[ -n "${GROUP_ID:-}" ]]; then
-    "${PSQL[@]}" -c "
+    if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+      "${PSQL[@]}" -c "
+	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
+	UPDATE groups SET updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
+	" >/dev/null 2>&1 || true # preflight-allow: swallow
+    else
+      "${PSQL[@]}" -c "
 	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
 	DELETE FROM user_allowed_groups WHERE group_id = ${GROUP_ID};
-	UPDATE api_keys SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(printf "%s" "$KEY_NAME" | sed "s/'/''/g")';
-	UPDATE groups SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(printf "%s" "$GROUP_NAME" | sed "s/'/''/g")';
+	UPDATE api_keys SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(sql_escape "$KEY_NAME")' AND deleted_at IS NULL;
+	UPDATE groups SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
 	" >/dev/null 2>&1 || true # preflight-allow: swallow
+    fi
   fi
   sudo docker exec "$APP_CONTAINER" rm -f /tmp/tk-probe-request.json /tmp/tk-probe-response.json /tmp/tk-probe-headers.txt >/dev/null 2>&1 || true # preflight-allow: swallow
 }
 trap cleanup EXIT
 
-GROUP_ID="$("${PSQL[@]}" -c "
+if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+  GROUP_ID="$("${PSQL[@]}" -c "
+WITH existing AS (
+  SELECT id
+  FROM groups
+  WHERE name = '$(sql_escape "$GROUP_NAME")'
+    AND deleted_at IS NULL
+  ORDER BY id
+  LIMIT 1
+),
+inserted AS (
+  INSERT INTO groups (
+    name, description, platform, rate_multiplier, is_exclusive, status,
+    subscription_type, default_validity_days, claude_code_only,
+    model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
+  )
+  SELECT
+    '$(sql_escape "$GROUP_NAME")',
+    'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
+    '$(sql_escape "$PLATFORM")',
+    1.0, true, 'active',
+    'standard', 30, false,
+    false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
+  WHERE NOT EXISTS (SELECT 1 FROM existing)
+  RETURNING id
+),
+picked AS (
+  SELECT id FROM inserted
+  UNION ALL
+  SELECT id FROM existing
+  LIMIT 1
+)
+UPDATE groups g
+SET
+  description = 'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
+  platform = '$(sql_escape "$PLATFORM")',
+  rate_multiplier = 1.0,
+  is_exclusive = true,
+  status = 'active',
+  subscription_type = 'standard',
+  default_validity_days = 30,
+  claude_code_only = false,
+  model_routing_enabled = false,
+  model_routing = '{}'::jsonb,
+  sort_order = 2147483000,
+  rpm_limit = 0,
+  updated_at = NOW()
+FROM picked
+WHERE g.id = picked.id
+RETURNING g.id;
+" | tr -d '[:space:]')"
+else
+  GROUP_ID="$("${PSQL[@]}" -c "
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
   model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
-	  '$(printf "%s" "$GROUP_NAME" | sed "s/'/''/g")',
+	  '$(sql_escape "$GROUP_NAME")',
 	  'exclusive temporary account/model probe; direct probe key only; excluded from universal routing',
-	  '$(printf "%s" "$PLATFORM" | sed "s/'/''/g")',
+	  '$(sql_escape "$PLATFORM")',
 	  1.0, true, 'active',
 	  'standard', 30, false,
 	  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
 	) RETURNING id;
 " | tr -d '[:space:]')"
+fi
 
 if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
-  fail_json "failed to create temporary group"
+  fail_json "failed to prepare probe group"
 fi
 
 "${PSQL[@]}" -c "
@@ -125,20 +229,63 @@ ON CONFLICT (user_id, group_id) DO NOTHING;
 " >/dev/null
 
 "${PSQL[@]}" -c "
+DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
 INSERT INTO account_groups (account_id, group_id, priority, created_at)
 VALUES (${ACCOUNT_ID}, ${GROUP_ID}, 1, NOW())
 ON CONFLICT (account_id, group_id) DO NOTHING;
 " >/dev/null
 
-API_KEY_ID="$("${PSQL[@]}" -c "
+if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+  API_KEY_ROW="$("${PSQL[@]}" -c "
+WITH existing AS (
+  SELECT id
+  FROM api_keys
+  WHERE group_id = ${GROUP_ID}
+    AND name = '$(sql_escape "$KEY_NAME")'
+    AND deleted_at IS NULL
+  ORDER BY id
+  LIMIT 1
+)
+SELECT COALESCE((SELECT id::text FROM existing), '');
+" | tr -d '\n')"
+  if [[ -n "$API_KEY_ROW" ]]; then
+    API_KEY_ID="$API_KEY_ROW"
+    API_KEY="$("${PSQL[@]}" -c "
+UPDATE api_keys
+SET
+  user_id = ${PROBE_USER_ID},
+  status = 'active',
+  routing_mode = 'direct',
+  quota = 0,
+  quota_used = 0,
+  rate_limit_5h = 0,
+  rate_limit_1d = 0,
+  rate_limit_7d = 0,
+  usage_5h = 0,
+  usage_1d = 0,
+  usage_7d = 0,
+  updated_at = NOW()
+WHERE id = ${API_KEY_ID}
+  AND group_id = ${GROUP_ID}
+  AND name = '$(sql_escape "$KEY_NAME")'
+  AND deleted_at IS NULL
+RETURNING key;
+" | tr -d '\n')"
+  else
+    API_KEY="sk-${PROBE_ID}-$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
+PY
+)"
+    API_KEY_ID="$("${PSQL[@]}" -c "
 INSERT INTO api_keys (
   user_id, key, name, group_id, status, routing_mode,
   quota, quota_used, rate_limit_5h, rate_limit_1d, rate_limit_7d,
   usage_5h, usage_1d, usage_7d, created_at, updated_at
 ) VALUES (
   ${PROBE_USER_ID},
-  '$(printf "%s" "$API_KEY" | sed "s/'/''/g")',
-  '$(printf "%s" "$KEY_NAME" | sed "s/'/''/g")',
+  '$(sql_escape "$API_KEY")',
+  '$(sql_escape "$KEY_NAME")',
   ${GROUP_ID},
   'active',
   'direct',
@@ -146,9 +293,31 @@ INSERT INTO api_keys (
   0, 0, 0, NOW(), NOW()
 ) RETURNING id;
 " | tr -d '[:space:]')"
+  fi
+else
+  API_KEY_ID="$("${PSQL[@]}" -c "
+INSERT INTO api_keys (
+  user_id, key, name, group_id, status, routing_mode,
+  quota, quota_used, rate_limit_5h, rate_limit_1d, rate_limit_7d,
+  usage_5h, usage_1d, usage_7d, created_at, updated_at
+) VALUES (
+  ${PROBE_USER_ID},
+  '$(sql_escape "$API_KEY")',
+  '$(sql_escape "$KEY_NAME")',
+  ${GROUP_ID},
+  'active',
+  'direct',
+  0, 0, 0, 0, 0,
+  0, 0, 0, NOW(), NOW()
+) RETURNING id;
+" | tr -d '[:space:]')"
+fi
 
 if [[ ! "$API_KEY_ID" =~ ^[0-9]+$ ]]; then
-  fail_json "failed to create temporary API key"
+  fail_json "failed to prepare probe API key"
+fi
+if [[ -z "$API_KEY" ]]; then
+  fail_json "failed to read probe API key"
 fi
 
 payload="$(
@@ -201,6 +370,7 @@ tmp_err="$(mktemp)"
 tmp_logs="$(mktemp)"
 printf '%s' "$payload" >"$tmp_payload"
 
+PROBE_STARTED_AT="$("${PSQL[@]}" -c "SELECT to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');" | tr -d '\n')"
 CLIENT_REQUEST_ID="$PROBE_ID"
 http_code=""
 http_output=""
@@ -267,7 +437,7 @@ FROM (
          upstream_model, duration_ms, stream, created_at AT TIME ZONE 'UTC' AS created_at_utc
   FROM usage_logs
   WHERE api_key_id = ${API_KEY_ID}
-    AND created_at > NOW() - interval '5 minutes'
+    AND created_at >= TIMESTAMPTZ '$(sql_escape "$PROBE_STARTED_AT")'
   ORDER BY id DESC
   LIMIT 1
 ) t;
@@ -279,7 +449,8 @@ done
 python3 - \
   "$TARGET_JSON" "$PLATFORM" "$GROUP_ID" "$GROUP_NAME" "$API_KEY_ID" "$KEY_NAME" \
   "$MODEL" "$ENDPOINT" "$http_code" "$tmp_body" "$tmp_headers" "$tmp_err" "$tmp_logs" \
-  "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" "$REQUEST_TIMEOUT_SECONDS" <<'PY'
+  "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" "$REQUEST_TIMEOUT_SECONDS" \
+  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" <<'PY'
 import json
 import re
 import sys
@@ -289,7 +460,8 @@ from pathlib import Path
     target_raw, platform, group_id, group_name, api_key_id, key_name,
     model, endpoint, http_code, body_path, headers_path, err_path, logs_path,
     usage_raw, keep_raw, log_window, request_timeout_seconds,
-) = sys.argv[1:18]
+    reuse_mode, probe_started_at,
+) = sys.argv[1:20]
 
 target = json.loads(target_raw)
 body = Path(body_path).read_text(encoding="utf-8", errors="replace")
@@ -340,10 +512,12 @@ out = {
         "platform": platform,
         "model": model,
         "endpoint": endpoint,
-        "temporary_group_id": int(group_id),
-        "temporary_group_name": group_name,
-        "temporary_api_key_id": int(api_key_id),
-        "temporary_api_key_name": key_name,
+        "group_id": int(group_id),
+        "group_name": group_name,
+        "api_key_id": int(api_key_id),
+        "api_key_name": key_name,
+        "reuse_mode": reuse_mode == "1",
+        "probe_started_at_utc": probe_started_at,
         "kept_artifacts": keep_raw == "1",
         "exclusive_group": True,
         "universal_routing_excluded": True,
