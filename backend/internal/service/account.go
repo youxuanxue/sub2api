@@ -1131,13 +1131,6 @@ func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
-func (a *Account) IsOpenAICompatAPIKey() bool {
-	if a == nil || a.Type != AccountTypeAPIKey {
-		return false
-	}
-	return IsOpenAICompatPlatform(a.Platform)
-}
-
 func (a *Account) GetOpenAIBaseURL() string {
 	if a == nil {
 		return ""
@@ -1179,7 +1172,7 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if !a.IsOpenAICompatAPIKey() {
+	if a == nil || (!a.IsOpenAIApiKey() && !a.IsGrokAPIKey()) {
 		return ""
 	}
 	return a.GetCredential("api_key")

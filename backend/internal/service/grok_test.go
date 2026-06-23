@@ -77,6 +77,17 @@ func TestAccountGrokHelpers(t *testing.T) {
 	if relay.IsGrokOAuth() {
 		t.Fatal("IsGrokOAuth should be false for grok apikey relay")
 	}
+
+	newapi := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "newapi-key",
+		},
+	}
+	if got := newapi.GetOpenAIApiKey(); got != "" {
+		t.Fatalf("newapi must not use the OpenAI native API-key getter, got %q", got)
+	}
 }
 
 // TestGrokTokenRefresher_CanRefreshNeedsRefresh covers the refresher gating
