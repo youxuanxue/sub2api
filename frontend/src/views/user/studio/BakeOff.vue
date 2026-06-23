@@ -122,9 +122,24 @@
         </template>
         <!-- video -->
         <template v-else>
-          <div v-if="p.url" class="overflow-hidden rounded-lg bg-black">
-            <video :src="p.url" controls class="aspect-video w-full"></video>
-          </div>
+          <!-- On-demand playback only: no always-on <video> (it shows a poster-less
+               black box pre-play and would race up to MAX_PANELS competing loads).
+               Poster tile → in-page lightbox, mirroring VideoStudio and sharing
+               videoPlaybackUrl so inline data:video plays tab-local without rehosting. -->
+          <button
+            v-if="p.url"
+            type="button"
+            class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
+            data-testid="bakeoff-video-play"
+            :title="t('studio.video.play')"
+            @click="openVideoPreview(p)"
+          >
+            <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span class="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg transition group-hover:scale-110 group-hover:bg-white">
+                <span aria-hidden="true" class="ml-1 text-xl text-gray-900">▶</span>
+              </span>
+            </span>
+          </button>
           <div v-else class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-xs text-gray-500 dark:bg-dark-800 dark:text-dark-400">
             <span v-if="p.state === 'processing'" class="inline-flex items-center gap-1.5"><span class="h-2 w-2 animate-pulse rounded-full bg-primary-500"></span>{{ t('studio.video.statusProcessing') }} {{ formatElapsed(p.elapsedS || 0) }}</span>
             <span v-else-if="p.state === 'failed'" class="text-red-500">{{ t('studio.bakeoff.failed') }}</span>
@@ -137,11 +152,36 @@
         </div>
       </div>
     </div>
+
+    <!-- In-page video lightbox: plays one panel on demand (http URL direct, inline
+         data:video as a tab-local Blob via the shared videoPlaybackUrl) instead of
+         rendering MAX_PANELS always-on <video> elements. -->
+    <Teleport to="body">
+      <div
+        v-if="videoPreview"
+        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
+        data-testid="bakeoff-video-preview"
+        @click.self="closeVideoPreview"
+      >
+        <div class="flex items-center justify-end p-3">
+          <button type="button" class="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20" data-testid="bakeoff-video-preview-close" @click="closeVideoPreview">
+            {{ t('studio.video.close') }} ✕
+          </button>
+        </div>
+        <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closeVideoPreview">
+          <video v-if="videoPreviewUrl" :src="videoPreviewUrl" controls autoplay playsinline class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"></video>
+        </div>
+        <div class="flex flex-wrap items-center justify-center gap-3 p-4">
+          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreview.label">{{ videoPreview.label }}</span>
+          <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(videoPreview.cost) }}</span>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
 import { extractImageItems, extractVideoTaskId, videoStateFromFetch, extractVideoUrl } from '@/constants/playgroundMedia.tk'
@@ -154,6 +194,7 @@ import {
   type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateImageCost, estimateImageHoldCost, estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
+import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useVideoTaskPoll } from '@/composables/useVideoTaskPoll'
 import type { VideoTaskItem } from '@/composables/useMediaLibrary'
@@ -226,6 +267,31 @@ const poll = useVideoTaskPoll({
   patch: patchVideoTask,
   onTerminal: () => emit('spent'),
 })
+
+// ---- In-page video lightbox (on-demand playback; no always-on <video>) ----------
+const videoPreview = ref<BakePanel | null>(null)
+const videoPreviewUrl = ref('')
+let videoPreviewRevoke: () => void = () => {}
+
+function openVideoPreview(panel: BakePanel): void {
+  if (!panel.url) return
+  videoPreviewRevoke()
+  // http(s) upstream URL plays directly; inline data:video becomes a tab-local Blob
+  // (shared with VideoStudio via videoPlaybackUrl — TokenKey never rehosts the clip).
+  const playback = videoPlaybackUrl(panel.url)
+  videoPreviewRevoke = playback.revoke
+  videoPreview.value = panel
+  videoPreviewUrl.value = playback.url
+}
+
+function closeVideoPreview(): void {
+  videoPreviewRevoke()
+  videoPreviewRevoke = () => {}
+  videoPreview.value = null
+  videoPreviewUrl.value = ''
+}
+
+onBeforeUnmount(closeVideoPreview)
 
 function selectedResolved() {
   return models.value.filter((r) => selectedModelIds.value.includes(r.model.modelId))
