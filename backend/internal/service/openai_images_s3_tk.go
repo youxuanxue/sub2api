@@ -39,7 +39,9 @@ const MediaImageKeyPrefix = "media/images/"
 // SetMediaStore wires the media-offload store post-construction. Mirrors the
 // handler's SetMediaStore for video (CLAUDE.md §5 — keep the upstream-shape
 // constructor stable). A nil store is the valid "offload disabled" state: image
-// responses then pass their inline base64 through unchanged (current behaviour).
+// responses then pass their inline base64 through unchanged. Note the store can be
+// wired (legacy video re-presign) while image offload itself stays OFF — image
+// rehosting is additionally gated on MediaStorage.ImageOffloadEnabled (default off).
 func (s *OpenAIGatewayService) SetMediaStore(store MediaStore) {
 	s.mediaStore = store
 }
@@ -50,13 +52,22 @@ func (s *OpenAIGatewayService) SetMediaStore(store MediaStore) {
 // upload to media/images/<sha256>.<ext> → set data[i].url to the presigned URL, drop
 // b64_json, and stamp data[i].s3_key so the Studio can re-presign on reload.
 //
-// It runs automatically whenever offload is configured — the client does NOT need to
-// opt in with response_format. The ONE exception is an explicit response_format =
-// "b64_json": that client asked for raw bytes, so we honour the API contract and pass
-// the body through untouched. Also returns the body UNCHANGED when offload is disabled
-// (nil store), there is no data array, an item already holds an http URL, or on ANY
-// best-effort failure — we never fail a generated + billed image over offload.
+// OPT-IN since the #944 pass-through alignment: offload runs ONLY when a deployment
+// explicitly sets MediaStorage.ImageOffloadEnabled (env MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED).
+// By DEFAULT the inline base64 passes through to the client ONCE — the gateway does not
+// rehost generated images, mirroring what #944 did for video (TokenKey is not an image
+// CDN). When offload IS enabled, the additional exception is an explicit response_format
+// = "b64_json": that client asked for raw bytes, so we honour the API contract and pass
+// the body through untouched. Also returns the body UNCHANGED when the store is nil,
+// there is no data array, an item already holds an http URL, or on ANY best-effort
+// failure — we never fail a generated + billed image over offload.
 func (s *OpenAIGatewayService) tkMaybeOffloadImagesToS3(ctx context.Context, body []byte, responseFormat string) []byte {
+	// Default: do not rehost — pass the inline base64 through once (#944 parity with
+	// video). Opt-in restores the old presigned-URL behavior for deployments that
+	// want the gateway to keep image bytes off the client-facing response.
+	if s.cfg == nil || !s.cfg.MediaStorage.ImageOffloadEnabled {
+		return body
+	}
 	if s.mediaStore == nil || len(body) == 0 {
 		return body
 	}

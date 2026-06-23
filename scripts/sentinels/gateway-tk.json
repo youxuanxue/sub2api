@@ -1826,14 +1826,14 @@
         ".s3_key",
         "media/images/"
       ],
-      "rationale": "TK companion implementing the generated-IMAGE S3 offload (the follow-up the video offload comment anticipated). tkMaybeOffloadImagesToS3 decodes the inline bytes (a b64_json field OR a data: URI in data[].url), uploads to media/images/<sha256>.<ext>, swaps the url for a short-lived presigned link, drops b64_json, and stamps data[].s3_key — the exact field the frontend extractImageItems reads to re-presign on reload. It runs AUTOMATICALLY whenever offload is configured — no client opt-in; the one exception is an explicit response_format=b64_json (the client asked for raw bytes, so the body passes through untouched). SetMediaStore is the post-construction wiring seam (nil => inline base64 passthrough). Deleting this file reverts /v1/images/generations to streaming multi-MB inline base64."
+      "rationale": "TK companion implementing the OPT-IN generated-IMAGE S3 offload. tkMaybeOffloadImagesToS3 decodes the inline bytes (a b64_json field OR a data: URI in data[].url), uploads to media/images/<sha256>.<ext>, swaps the url for a short-lived presigned link, drops b64_json, and stamps data[].s3_key — the exact field the frontend extractImageItems reads to re-presign on reload. Since the #944 pass-through alignment it runs ONLY when MediaStorage.ImageOffloadEnabled is set (env MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED); the DEFAULT is to pass the inline base64 through once (the gateway is not an image CDN). The other exception, when offload is on, is an explicit response_format=b64_json. SetMediaStore is the post-construction wiring seam (nil => inline passthrough; the store may still be wired for legacy video re-presign while image offload stays off). This anchor keeps the opt-in offload path from being silently deleted by an upstream merge."
     },
     {
       "path": "backend/internal/service/openai_images.go",
       "must_contain": [
         "s.tkMaybeOffloadImagesToS3(c.Request.Context(), body,"
       ],
-      "rationale": "Image S3 offload INJECTION point in the APIKey non-streaming path (handleOpenAIImagesNonStreamingResponse). Billing facts are read from the ORIGINAL body first, then the body is rewritten to a presigned URL before c.Data. Compile-clean if dropped, so an upstream merge could silently revert to the inline-base64 passthrough; this anchor catches that. See the companion sentinel openai_images_s3_tk.go."
+      "rationale": "Image S3 offload INJECTION point in the APIKey non-streaming path (handleOpenAIImagesNonStreamingResponse). Billing facts are read from the ORIGINAL body first, then the body is rewritten to a presigned URL before c.Data — but ONLY when image offload is opted in (MediaStorage.ImageOffloadEnabled); the default is pass-through. The call site must stay even though it early-returns by default, so a future re-enable has its seam. Compile-clean if dropped; this anchor catches an upstream merge silently removing the seam. See the companion sentinel openai_images_s3_tk.go."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",

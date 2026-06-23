@@ -9,9 +9,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+// imgOffloadSvc builds a service with image S3 offload OPT-IN. Since the #944
+// pass-through alignment, image offload is OFF by default (inline base64 passes
+// through once); these tests exercise the opt-in path, so they must set the flag.
+func imgOffloadSvc(store MediaStore) *OpenAIGatewayService {
+	return &OpenAIGatewayService{
+		mediaStore: store,
+		cfg:        &config.Config{MediaStorage: config.MediaStorageConfig{ImageOffloadEnabled: true}},
+	}
+}
 
 // imgFakeStore records uploads and returns deterministic presigned URLs.
 type imgFakeStore struct {
@@ -57,7 +68,7 @@ func TestMaybeOffloadImagesToS3_OffloadsDataURI(t *testing.T) {
 	raw := []byte("fake-png-bytes-\x00\x01\x02")
 	b64 := base64.StdEncoding.EncodeToString(raw)
 	fs := &imgFakeStore{}
-	svc := &OpenAIGatewayService{mediaStore: fs}
+	svc := imgOffloadSvc(fs)
 
 	body := imagesBodyWith(map[string]string{
 		"url":            "data:image/png;base64," + b64,
@@ -94,7 +105,7 @@ func TestMaybeOffloadImagesToS3_OffloadsBareB64JSON(t *testing.T) {
 	raw := []byte("bare-b64-image")
 	b64 := base64.StdEncoding.EncodeToString(raw)
 	fs := &imgFakeStore{}
-	svc := &OpenAIGatewayService{mediaStore: fs}
+	svc := imgOffloadSvc(fs)
 
 	out := svc.tkMaybeOffloadImagesToS3(context.Background(), imagesBodyWith(map[string]string{"b64_json": b64}), "")
 
@@ -146,10 +157,40 @@ func TestMaybeOffloadImagesToS3_Passthrough(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := &OpenAIGatewayService{mediaStore: tc.store}
+			svc := imgOffloadSvc(tc.store)
 			out := svc.tkMaybeOffloadImagesToS3(context.Background(), tc.body, tc.format)
 			if string(out) != string(tc.body) {
 				t.Errorf("expected body unchanged, got %s", out)
+			}
+		})
+	}
+}
+
+// TestMaybeOffloadImagesToS3_DefaultOffPassesThrough pins the #944 parity default:
+// even with a media store wired, offload does NOT run unless ImageOffloadEnabled is
+// set — the inline base64 passes through to the client untouched and nothing is
+// uploaded to S3. This is the whole point of the opt-in gate.
+func TestMaybeOffloadImagesToS3_DefaultOffPassesThrough(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("inline-image-bytes"))
+	body := imagesBodyWith(map[string]string{"url": "data:image/png;base64," + b64})
+
+	for _, tc := range []struct {
+		name string
+		svc  *OpenAIGatewayService
+	}{
+		{"nil cfg", &OpenAIGatewayService{mediaStore: &imgFakeStore{}}},
+		{"flag off", &OpenAIGatewayService{
+			mediaStore: &imgFakeStore{},
+			cfg:        &config.Config{MediaStorage: config.MediaStorageConfig{ImageOffloadEnabled: false}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := tc.svc.tkMaybeOffloadImagesToS3(context.Background(), body, "")
+			if string(out) != string(body) {
+				t.Errorf("expected inline body passed through unchanged, got %s", out)
+			}
+			if fs, ok := tc.svc.mediaStore.(*imgFakeStore); ok && len(fs.uploads) != 0 {
+				t.Errorf("expected NO S3 upload when offload is off, got %d", len(fs.uploads))
 			}
 		})
 	}
@@ -175,7 +216,7 @@ func TestMaybeOffloadImagesToS3_BestEffortOnStoreError(t *testing.T) {
 		{"presign error", &imgFakeStore{presignErr: errors.New("boom")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := &OpenAIGatewayService{mediaStore: tc.store}
+			svc := imgOffloadSvc(tc.store)
 			out := svc.tkMaybeOffloadImagesToS3(context.Background(), body, "")
 			// Never fail a billed generation over offload — original data: URI survives.
 			if gjson.GetBytes(out, "data.0.url").String() != "data:image/png;base64,"+b64 {
@@ -188,7 +229,7 @@ func TestMaybeOffloadImagesToS3_BestEffortOnStoreError(t *testing.T) {
 func TestMaybeOffloadImagesToS3_MixedItems(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString([]byte("img"))
 	fs := &imgFakeStore{}
-	svc := &OpenAIGatewayService{mediaStore: fs}
+	svc := imgOffloadSvc(fs)
 	body := imagesBodyWith(
 		map[string]string{"url": "data:image/jpeg;base64," + b64}, // offload → .jpg
 		map[string]string{"url": "https://cdn.example/keep.png"},  // passthrough

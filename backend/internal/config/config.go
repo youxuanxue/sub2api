@@ -189,15 +189,24 @@ type QACaptureStorageConfig struct {
 }
 
 // MediaStorageConfig configures the S3-compatible bucket the gateway uses for
-// generated-media offload. Images may be uploaded and returned as short-lived
-// presigned URLs. Video generation deliberately does not rehost fresh upstream
-// results by default; URL results pass through and inline-byte results are
-// delivered once to the client.
+// generated-media offload. By default NEITHER image NOR video rehosts fresh
+// upstream results: results pass through (URLs unchanged, inline base64 delivered
+// once to the client), exactly like #944 made video do. The store stays wired
+// (when Driver+Bucket are set) for the legacy video re-presign fast path and for
+// the OPT-IN image offload below.
+//
+// ImageOffloadEnabled (default false) opts a deployment back into the old image
+// behavior: inline-base64 /v1/images responses are uploaded to S3 and returned as
+// short-lived presigned URLs instead of passing the bytes through. It is a
+// deliberate, explicit opt-in (env MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true) —
+// merely wiring a bucket no longer turns image rehosting on. Trade-off when off:
+// the gateway carries the image bytes inline once and the Studio keeps playback
+// browser-local (it does NOT make TokenKey an image CDN).
 //
 // Credentials: leave AccessKeyID/SecretAccessKey EMPTY on prod to use the
 // default AWS credential chain (the EC2 instance role) — no long-lived key. Set
-// them only for non-AWS / local S3-compatible stores. Driver empty ⇒ the offload
-// is disabled and media passes through as inline base64 (current behavior).
+// them only for non-AWS / local S3-compatible stores. Driver empty ⇒ the store
+// is nil and all media passes through as inline base64.
 type MediaStorageConfig struct {
 	Driver          string `mapstructure:"driver"`
 	Endpoint        string `mapstructure:"endpoint"`
@@ -207,6 +216,9 @@ type MediaStorageConfig struct {
 	SecretAccessKey string `mapstructure:"secret_access_key"`
 	Prefix          string `mapstructure:"prefix"`
 	ForcePathStyle  bool   `mapstructure:"force_path_style"`
+	// ImageOffloadEnabled opts back into S3 rehosting for generated images
+	// (default false = pass inline base64 through once, #944 parity with video).
+	ImageOffloadEnabled bool `mapstructure:"image_offload_enabled"`
 }
 
 type IdempotencyConfig struct {
@@ -2011,6 +2023,9 @@ func setDefaults() {
 	viper.SetDefault("media_storage.secret_access_key", "")
 	viper.SetDefault("media_storage.prefix", "")
 	viper.SetDefault("media_storage.force_path_style", false)
+	// Default false = images pass inline base64 through once (no S3 rehost),
+	// #944 parity with video. Opt back in with MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true.
+	viper.SetDefault("media_storage.image_offload_enabled", false)
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
