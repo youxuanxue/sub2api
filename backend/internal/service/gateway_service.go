@@ -5043,7 +5043,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 
 	if account != nil && account.IsKiro() {
-		return s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
+		result, err := s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
+		var failoverErr *UpstreamFailoverError
+		if err != nil && s.rateLimitService != nil && errors.As(err, &failoverErr) {
+			s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody, parsed.Model)
+		}
+		return result, err
 	}
 
 	// Beta policy: evaluate once; block check + cache filter set for buildUpstreamRequest.

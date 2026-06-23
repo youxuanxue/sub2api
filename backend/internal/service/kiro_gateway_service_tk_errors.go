@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -37,9 +38,9 @@ func (e *KiroInvalidModelError) ClientMessage() string {
 
 // classifyKiroForwardError inspects an error returned by the vendored Kiro API
 // call path and, if it recognizes an HTTP 400 INVALID_MODEL_ID rejection,
-// wraps it as a typed *KiroInvalidModelError. Any other error is wrapped with
-// the historical "kiro upstream call failed" prefix so existing log/behavior is
-// preserved.
+// wraps it as a typed *KiroInvalidModelError. Other vendored HTTP errors are
+// surfaced as *UpstreamFailoverError so the gateway failover and rate-limit
+// paths can react to their real status/body.
 //
 // The vendored client formats non-200 responses as
 //
@@ -61,6 +62,12 @@ func classifyKiroForwardError(err error, model string) error {
 			Body:       msg,
 		}
 	}
+	if statusCode, body, ok := parseKiroHTTPError(msg); ok {
+		return &UpstreamFailoverError{
+			StatusCode:   statusCode,
+			ResponseBody: body,
+		}
+	}
 	return fmt.Errorf("kiro upstream call failed: %w", err)
 }
 
@@ -71,4 +78,27 @@ func isKiroInvalidModelError(msg string) bool {
 		return false
 	}
 	return strings.Contains(strings.ToUpper(msg), "INVALID_MODEL_ID")
+}
+
+func parseKiroHTTPError(msg string) (int, []byte, bool) {
+	if !strings.HasPrefix(msg, "HTTP ") {
+		return 0, nil, false
+	}
+	rest := strings.TrimPrefix(msg, "HTTP ")
+	space := strings.IndexByte(rest, ' ')
+	if space <= 0 {
+		return 0, nil, false
+	}
+	statusCode, err := strconv.Atoi(rest[:space])
+	if err != nil || statusCode < 100 || statusCode > 599 {
+		return 0, nil, false
+	}
+	body := []byte(msg)
+	if colon := strings.Index(rest, ": "); colon >= 0 {
+		bodyText := strings.TrimSpace(rest[colon+2:])
+		if bodyText != "" {
+			body = []byte(bodyText)
+		}
+	}
+	return statusCode, body, true
 }

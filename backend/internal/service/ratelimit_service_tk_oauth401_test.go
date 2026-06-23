@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -159,4 +160,87 @@ func TestRateLimitService_OAuth401_OpenAIExpiredTokenStillCools(t *testing.T) {
 	require.True(t, shouldDisable)
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Equal(t, 1, repo.tempCalls)
+}
+
+func TestRateLimitService_OAuth401_KiroValidTokenForceRefreshesInsteadOfSetError(t *testing.T) {
+	expiresAt := time.Now().Add(2 * time.Hour)
+	account := newKiroOAuth401Account(720, expiresAt)
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials: map[string]any{
+			"access_token":  "new-at",
+			"refresh_token": "new-rt",
+			"expires_at":    expiresAt.Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	service.SetKiroOAuthRefreshExecutor(executor)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, executor.refreshCalls, "force refresh must ignore NeedsRefresh=false")
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, "new-at", repo.lastCredentials["access_token"])
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.lastSchedulable)
+	require.Equal(t, 1, repo.clearTempCalls)
+}
+
+func TestRateLimitService_OAuth401_KiroValidTokenInvalidGrantFallsBackToSetError(t *testing.T) {
+	account := newKiroOAuth401Account(721, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("invalid_grant: token revoked"),
+	})
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Contains(t, repo.lastErrorMsg, "grant revoked upstream")
+}
+
+func TestRateLimitService_OAuth401_KiroValidTokenTransientRefreshFailureCoolsDown(t *testing.T) {
+	account := newKiroOAuth401Account(722, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("network timeout"),
+	})
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempReason, "force-refresh failed")
+}
+
+func newKiroOAuth401Account(id int64, expiresAt time.Time) *Account {
+	return &Account{
+		ID:       id,
+		Platform: PlatformKiro,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "old-at",
+			"refresh_token": "old-rt",
+			"expires_at":    expiresAt.UTC().Format(time.RFC3339),
+			"auth_method":   "idc",
+			"client_id":     "cid",
+			"client_secret": "secret",
+			"region":        "us-east-1",
+		},
+	}
 }

@@ -18,9 +18,14 @@ type rateLimitAccountRepoStub struct {
 	setErrorCalls          int
 	tempCalls              int
 	updateCredentialsCalls int
+	clearErrorCalls        int
+	setSchedulableCalls    int
+	clearTempCalls         int
 	lastCredentials        map[string]any
 	lastErrorMsg           string
+	lastSchedulable        bool
 	lastTempReason         string
+	accountOnGet           *Account
 
 	// PR #338 (P3): track exact-reset-time writes so tests can assert
 	// handle429 / handle529 ran the upstream-precise path before the
@@ -76,15 +81,34 @@ func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, error
 	return nil
 }
 
+func (r *rateLimitAccountRepoStub) ClearError(ctx context.Context, id int64) error {
+	r.clearErrorCalls++
+	return nil
+}
+
+func (r *rateLimitAccountRepoStub) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
+	r.setSchedulableCalls++
+	r.lastSchedulable = schedulable
+	return nil
+}
+
 func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.tempCalls++
 	r.lastTempReason = reason
 	return nil
 }
 
+func (r *rateLimitAccountRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {
+	r.clearTempCalls++
+	return nil
+}
+
 func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	r.updateCredentialsCalls++
 	r.lastCredentials = cloneCredentials(credentials)
+	if r.accountOnGet != nil && r.accountOnGet.ID == id {
+		r.accountOnGet.Credentials = cloneCredentials(credentials)
+	}
 	return nil
 }
 
@@ -101,6 +125,9 @@ func (r *rateLimitAccountRepoStub) SetOverloaded(ctx context.Context, id int64, 
 }
 
 func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if r.accountOnGet != nil {
+		return r.accountOnGet, nil
+	}
 	if r.tempReasonOnGet == "" {
 		return nil, nil
 	}

@@ -219,6 +219,27 @@ func TestRefreshIfNeeded_AlreadyRefreshed(t *testing.T) {
 	require.Equal(t, 0, executor.refreshCalls)
 }
 
+func TestRefreshNow_IgnoresNeedsRefreshAndPersists(t *testing.T) {
+	account := &Account{ID: 55, Platform: PlatformKiro, Type: AccountTypeOAuth}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials:  map[string]any{"access_token": "forced-token"},
+	}
+
+	api := NewOAuthRefreshAPI(repo, cache)
+	result, err := api.RefreshNow(context.Background(), account, executor)
+
+	require.NoError(t, err)
+	require.True(t, result.Refreshed)
+	require.Equal(t, "forced-token", result.NewCredentials["access_token"])
+	require.NotNil(t, result.NewCredentials["_token_version"])
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, 1, executor.refreshCalls)
+	require.Equal(t, 1, cache.releaseCalls)
+}
+
 func TestRefreshIfNeeded_RefreshError(t *testing.T) {
 	account := &Account{ID: 6, Platform: PlatformAnthropic}
 	repo := &refreshAPIAccountRepo{account: account}

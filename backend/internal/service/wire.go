@@ -346,6 +346,7 @@ func ProvideRateLimitService(
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
+	refreshAPI *OAuthRefreshAPI,
 ) *RateLimitService {
 	svc := NewRateLimitService(accountRepo, usageRepo, cfg, geminiQuotaService, tempUnschedCache)
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
@@ -353,6 +354,7 @@ func ProvideRateLimitService(
 	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)
+	svc.SetOAuthRefreshAPI(refreshAPI)
 	return svc
 }
 
