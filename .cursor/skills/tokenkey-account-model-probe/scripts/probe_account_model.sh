@@ -13,6 +13,7 @@ USAGE_POLL_ATTEMPTS="${USAGE_POLL_ATTEMPTS:-12}"
 USAGE_POLL_INTERVAL_SECONDS="${USAGE_POLL_INTERVAL_SECONDS:-1}"
 LOG_WINDOW="${LOG_WINDOW:-3m}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
+PROBE_USER_ID=1
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
@@ -117,7 +118,11 @@ if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
   fail_json "failed to create temporary group"
 fi
 
-"${PSQL[@]}" -c "DELETE FROM user_allowed_groups WHERE group_id = ${GROUP_ID};" >/dev/null
+"${PSQL[@]}" -c "
+INSERT INTO user_allowed_groups (user_id, group_id, created_at)
+VALUES (${PROBE_USER_ID}, ${GROUP_ID}, NOW())
+ON CONFLICT (user_id, group_id) DO NOTHING;
+" >/dev/null
 
 "${PSQL[@]}" -c "
 INSERT INTO account_groups (account_id, group_id, priority, created_at)
@@ -131,7 +136,7 @@ INSERT INTO api_keys (
   quota, quota_used, rate_limit_5h, rate_limit_1d, rate_limit_7d,
   usage_5h, usage_1d, usage_7d, created_at, updated_at
 ) VALUES (
-  1,
+  ${PROBE_USER_ID},
   '$(printf "%s" "$API_KEY" | sed "s/'/''/g")',
   '$(printf "%s" "$KEY_NAME" | sed "s/'/''/g")',
   ${GROUP_ID},

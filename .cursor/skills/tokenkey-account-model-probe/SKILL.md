@@ -58,7 +58,7 @@ Never paste returned API keys or credentials. The script intentionally prints ID
 - Prefer this skill over creating permanent admin groups for single-account debugging.
 - This is a live probe. It may consume a tiny amount of quota and can update normal usage tables.
 - Default cleanup must leave no persistent debug group/key. If `KEEP_PROBE_ARTIFACTS=1`, delete them manually after debugging.
-- Probe groups must stay exclusive and must not be added to `user_allowed_groups`; they are direct probe-key only and must not enter universal-key routing candidates.
+- Probe groups must stay exclusive, grant `user_allowed_groups` only to the temporary probe key owner, and remain direct probe-key only; they must not enter universal-key routing candidates.
 - Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, and `responses` for Codex/OpenAI responses.
 - If the goal is "can the raw upstream credential serve this model" for an API-key-compatible account, direct upstream curl can be a follow-up, but the default gateway probe is the authoritative TokenKey-path proof.
 
