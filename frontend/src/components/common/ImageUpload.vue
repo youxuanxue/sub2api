@@ -81,6 +81,11 @@ const props = withDefaults(defineProps<{
   removeLabel?: string
   hint?: string
   maxSize?: number // bytes
+  // Opt-in (image mode only): downscale the uploaded image to this max edge (px)
+  // and re-encode before emitting the data: URI, so a multi-MB input doesn't flow
+  // inline through the gateway. 0/undefined = emit the original (admin logo uploads
+  // want full fidelity; only the Studio input-image flows pass this).
+  downscaleMaxEdge?: number
 }>(), {
   mode: 'image',
   size: 'md',
@@ -88,6 +93,7 @@ const props = withDefaults(defineProps<{
   removeLabel: 'Remove',
   hint: '',
   maxSize: 300 * 1024,
+  downscaleMaxEdge: 0,
 })
 
 const emit = defineEmits<{
@@ -132,8 +138,14 @@ function handleUpload(event: Event) {
       input.value = ''
       return
     }
-    reader.onload = (e) => {
-      emit('update:modelValue', e.target?.result as string)
+    reader.onload = async (e) => {
+      const dataUrl = e.target?.result as string
+      if (!dataUrl) return
+      if (props.downscaleMaxEdge && props.downscaleMaxEdge > 0) {
+        emit('update:modelValue', await downscaleDataUrl(dataUrl, props.downscaleMaxEdge))
+      } else {
+        emit('update:modelValue', dataUrl)
+      }
     }
     reader.readAsDataURL(file)
   }
@@ -142,5 +154,41 @@ function handleUpload(event: Event) {
     error.value = 'Failed to read file'
   }
   input.value = ''
+}
+
+// Downscale a data: image URL to maxEdge (longest side) and re-encode lossily so a
+// large input image doesn't travel inline through the gateway. Best-effort: any
+// failure (no canvas/2d ctx, decode error, already-small image) resolves to the
+// ORIGINAL so an upload never silently fails over compression. Prefers WebP (alpha +
+// smaller); falls back to JPEG when the browser can't encode WebP.
+function downscaleDataUrl(dataUrl: string, maxEdge: number): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image()
+      img.onload = () => {
+        const longest = Math.max(img.width, img.height)
+        if (!longest || longest <= maxEdge) {
+          resolve(dataUrl)
+          return
+        }
+        const scale = maxEdge / longest
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const webp = canvas.toDataURL('image/webp', 0.85)
+        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.85))
+      }
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
+    } catch {
+      resolve(dataUrl)
+    }
+  })
 }
 </script>
