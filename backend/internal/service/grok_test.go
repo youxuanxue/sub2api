@@ -56,6 +56,38 @@ func TestAccountGrokHelpers(t *testing.T) {
 	if (&Account{Platform: PlatformOpenAI}).IsGrok() {
 		t.Fatal("IsGrok should be false for a non-grok platform")
 	}
+
+	relay := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "edge-key",
+			"base_url": "https://api-us4.tokenkey.dev",
+		},
+	}
+	if !relay.IsGrokAPIKey() {
+		t.Fatal("IsGrokAPIKey should be true for platform=grok,type=apikey")
+	}
+	if got := relay.GetOpenAIApiKey(); got != "edge-key" {
+		t.Fatalf("grok apikey relay GetOpenAIApiKey = %q, want edge-key", got)
+	}
+	if got := relay.GetOpenAIBaseURL(); got != "https://api-us4.tokenkey.dev" {
+		t.Fatalf("grok apikey relay GetOpenAIBaseURL = %q, want edge base URL", got)
+	}
+	if relay.IsGrokOAuth() {
+		t.Fatal("IsGrokOAuth should be false for grok apikey relay")
+	}
+
+	newapi := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "newapi-key",
+		},
+	}
+	if got := newapi.GetOpenAIApiKey(); got != "" {
+		t.Fatalf("newapi must not use the OpenAI native API-key getter, got %q", got)
+	}
 }
 
 // TestGrokTokenRefresher_CanRefreshNeedsRefresh covers the refresher gating

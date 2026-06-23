@@ -19,6 +19,14 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+func (a *Account) IsGrokOAuth() bool {
+	return a.IsGrok() && a.Type == AccountTypeOAuth
+}
+
+func (a *Account) IsGrokAPIKey() bool {
+	return a.IsGrok() && a.Type == AccountTypeAPIKey
+}
+
 // GetGrokBaseURL returns the xAI inference base URL for this account, honoring a
 // per-account credentials.base_url override and defaulting to api.x.ai/v1.
 func (a *Account) GetGrokBaseURL() string {

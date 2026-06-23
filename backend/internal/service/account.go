@@ -1132,6 +1132,12 @@ func (a *Account) IsOpenAIApiKey() bool {
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
+	if a == nil {
+		return ""
+	}
+	if a.IsGrokAPIKey() {
+		return a.GetCredential("base_url")
+	}
 	if !a.IsOpenAI() {
 		return ""
 	}
@@ -1166,14 +1172,14 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if !a.IsOpenAIApiKey() {
+	if a == nil || (!a.IsOpenAIApiKey() && !a.IsGrokAPIKey()) {
 		return ""
 	}
 	return a.GetCredential("api_key")
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
-	if !a.IsOpenAI() {
+	if a == nil || (!a.IsOpenAI() && !a.IsGrok()) {
 		return ""
 	}
 	return a.GetCredential("user_agent")

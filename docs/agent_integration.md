@@ -422,10 +422,11 @@ _No MCP entrypoint detected in this repository._
 
 ## TokenKey first-class platforms (account / group `platform` field)
 
-The gateway routes above dispatch to one of five first-class platforms.
+The gateway routes above dispatch to TokenKey first-class platforms.
 The canonical names are defined in `backend/internal/domain/constants.go`
 (`PlatformOpenAI`, `PlatformAnthropic`, `PlatformGemini`,
-`PlatformAntigravity`, `PlatformNewAPI`). Every TokenKey account and
+`PlatformAntigravity`, `PlatformNewAPI`, `PlatformKiro`, `PlatformGrok`).
+Every TokenKey account and
 group MUST set `platform` to exactly one of:
 
 | Platform name | Gateway entry points (subset) | Notes |
@@ -435,6 +436,8 @@ group MUST set `platform` to exactly one of:
 | `gemini` | `GET /v1beta/models`, `GET /v1beta/models/:model`, `POST /v1beta/models/*modelAction` | Gemini-native surface. |
 | `antigravity` | `GET /antigravity/models`, the `/antigravity/v1` and `/antigravity/v1beta` subtrees | Antigravity-native surface; admin endpoints under `/admin/antigravity/*`. |
 | `newapi` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses` and the WS variant) | First-class fifth platform — see next section. |
+| `kiro` | `POST /v1/messages` through the Anthropic-shaped client surface | Kiro-native scheduling pool backed by the vendored CodeWhisperer/EventStream protocol layer. |
+| `grok` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, embeddings/images/video where enabled) | First-class Grok/xAI platform. Edge capacity is `type=oauth`; prod edge relay stubs may be `type=apikey` with an edge `base_url`. |
 
 ## NewAPI as first-class fifth platform
 

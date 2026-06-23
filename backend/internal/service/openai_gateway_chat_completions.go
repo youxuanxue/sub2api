@@ -72,9 +72,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, err
 	}
 
-	// Grok（第七平台）：xAI 走标准 OpenAI /v1/chat/completions，绝不经 CC→Responses→Codex
-	// 转换（那条路写死 chatgpt.com/codex + chatgpt 专属头）。grok 用 OAuth Bearer，但转发形态
-	// 与 APIKey 直转路完全一致——故在 codex transform 之前就分流到 raw 直转。
+	// Grok（第七平台）：xAI/edge relay 走标准 OpenAI /v1/chat/completions，绝不经
+	// CC→Responses→Codex 转换（那条路写死 chatgpt.com/codex + chatgpt 专属头）。
+	// Grok OAuth 与 Grok API-key relay 都在 codex transform 之前分流到 raw 直转。
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
 	if account.IsGrok() || (account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
@@ -98,7 +98,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false
-	if promptCacheKey == "" && account.Type == AccountTypeOAuth && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
+	if promptCacheKey == "" && account.IsOpenAIOAuth() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 		promptCacheKey = deriveCompatPromptCacheKey(&chatReq, upstreamModel)
 		compatPromptCacheInjected = promptCacheKey != ""
 	}
@@ -181,7 +181,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	logger.L().Debug("openai chat_completions: model mapping applied", logFields...)
 
-	if account.Type == AccountTypeOAuth {
+	if account.IsOpenAIOAuth() {
 		var reqBody map[string]any
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
@@ -348,7 +348,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
-	if handleErr == nil && account.Type == AccountTypeOAuth {
+	if handleErr == nil && account.IsOpenAIOAuth() {
 		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
 		}

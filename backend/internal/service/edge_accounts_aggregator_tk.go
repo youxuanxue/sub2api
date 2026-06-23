@@ -67,16 +67,11 @@ var edgeIDPattern = regexp.MustCompile(`^https?://api-([a-z0-9]+)\.tokenkey\.dev
 // scoped, so we union rather than change the interface — rule 6). gemini (direct to
 // Vertex/AI Studio) never relays through an edge, so it is intentionally absent.
 //
-// newapi IS present: the prod grok relay is a New API ct=1 OpenAI-compat bridge stub
-// (platform=newapi) whose credentials.base_url is an EDGE host (api-<edge>.tokenkey.dev)
-// — the native grok arm runs on the edge, prod merely bridges to it (see memory: "prod
-// 中继跳=newapi ct=1 bridge、grok 原生臂只在 edge 跳"). So a grok-<edge> stub is a newapi
-// account by transport, and excluding newapi here silently dropped it from the per-stub
-// aggregate while MirrorStubEdgeID (platform-agnostic) still tagged the prod row — a
-// phantom "该 edge 暂未被发现" panel. isEdgeMirrorStub's precise base_url regex keeps the
-// ordinary newapi channels (external upstreams like DeepSeek, never api-*.tokenkey.dev)
-// out, so unioning newapi only surfaces the real edge-host bridge stubs. Its edge POOL
-// platform (the ?platform= the edge is queried with) is resolved separately by
+// newapi remains present for legacy edge-host bridge stubs created before Grok
+// relay converged to platform=grok,type=apikey. isEdgeMirrorStub's precise
+// base_url regex keeps ordinary newapi channels (external upstreams like
+// DeepSeek, never api-*.tokenkey.dev) out. Its edge POOL platform (the
+// ?platform= the edge is queried with) is resolved separately by
 // edgeStubPoolPlatform — "newapi" is a transport label, never an edge pool.
 //
 // A NEW edge-stub platform MUST be added here or its stubs won't expand in the inline panel.
@@ -441,8 +436,7 @@ func (a *EdgeAccountsAggregator) loadEdgeStubCandidates(ctx context.Context) ([]
 // (NO dedup by edge host — that is the per-stub vs per-edge difference). Carries the
 // stub's account id + platform so the fan-out can query the right platform and the
 // panel can key each result back to its prod row. Disabled stubs and those missing
-// base_url or an edge key (api_key, or access_token for grok — see edgeStubAPIKey)
-// are skipped, matching discoverEdgeTargets.
+// base_url or an edge key are skipped, matching discoverEdgeTargets.
 func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 	targets := make([]edgeTarget, 0, len(accounts))
 	for i := range accounts {
@@ -454,8 +448,6 @@ func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 			continue
 		}
 		baseURL := normalizeEdgeBaseURL(acct.GetCredential("base_url"))
-		// Per-platform edge key: api_key for apikey-relay stubs, access_token for grok
-		// (see edgeStubAPIKey). Reading bare api_key dropped every grok-<edge> stub.
 		apiKey := edgeStubAPIKey(acct)
 		if baseURL == "" || apiKey == "" {
 			continue
@@ -498,16 +490,14 @@ const edgeStubAllPoolsPlatform = "all"
 // surface-C's capacity mirror keys on (see mirrorCapacityPlatform). Non-empty
 // mirror_platform wins.
 //
-// newapi is the second transport-only platform (after kiro's anthropic transport): the
-// prod grok relay is a New API ct=1 bridge (platform=newapi) and the edge has NO newapi
-// pool — it serves grok under platform=grok (the native grok arm). So a newapi stub with
-// no mirror_platform must NOT query ?platform=newapi (the edge returns zero accounts → a
-// "reachable but empty" panel, no better than the phantom). Resolve it to the "all"
-// sentinel instead: group_scope=caller narrows the edge to this key's group and the panel
-// footnote names that group from the edge's own response (EdgeGroup, e.g. "grok"), so the
-// correspondence stays precise with zero operator data. An operator may still set
-// mirror_platform=grok for an exact ?platform=grok query (the mp branch above), exactly as
-// kiro stubs do.
+// newapi is a transport-only platform for legacy edge-host bridge stubs: the edge
+// has NO newapi pool, so a newapi stub with no mirror_platform must NOT query
+// ?platform=newapi (the edge returns zero accounts → a "reachable but empty"
+// panel). Resolve it to the "all" sentinel instead: group_scope=caller narrows
+// the edge to this key's group and the panel footnote names that group from the
+// edge's own response (EdgeGroup, e.g. "grok"), so the correspondence stays
+// precise with zero operator data. An operator may still set mirror_platform=grok
+// for an exact ?platform=grok query (the mp branch above), exactly as kiro stubs do.
 //
 // Every other platform falls back to the stub's own platform so native
 // openai/grok/antigravity stubs (no mirror_platform) stay correct. Unlike
@@ -533,35 +523,27 @@ func edgeStubPoolPlatform(acct *Account) string {
 // EDGE — the value fetchEdgeAccounts sends to the edge's /api/v1/edge/accounts
 // endpoint (which accepts it as x-api-key OR Bearer, see edge_admin_owner_tk.go).
 //
-// For the apikey-relay platforms (anthropic, openai, antigravity, and kiro which
-// rides the anthropic-apikey transport) that key is credentials.api_key. grok (the
-// seventh platform) is the exception: it relays to its edge with a plain Bearer from
-// credentials.access_token (the xAI OAuth posture — IsGrok short-circuits the type
-// switch in OpenAIGatewayService.GetAccessToken, and the grok create flow stores
-// access_token/refresh_token, never api_key; see account_tk_grok.go). So a grok
-// edge stub carries its edge key in access_token and has NO api_key.
-//
-// Reading api_key alone therefore silently dropped EVERY grok-<edge> stub from the
-// per-stub aggregate (discoverStubTargets skips a stub with an empty api_key), so the
-// inline /accounts panel resolved null for it and rendered the misleading "该 edge
-// 暂未被发现（其 prod stub 可能已禁用）" card on an ENABLED, actively-relaying grok
-// stub. Prefer access_token for grok (the actual relay credential, ignoring any stray
-// api_key), then fall back to api_key for every other platform.
+// Long-term converged relay stubs, including grok, use credentials.api_key. Keep
+// a grok access_token fallback only for pre-convergence stubs so the overview does
+// not go blind during migration.
 func edgeStubAPIKey(acct *Account) string {
 	if acct == nil {
 		return ""
+	}
+	if key := strings.TrimSpace(acct.GetCredential("api_key")); key != "" {
+		return key
 	}
 	if acct.IsGrok() {
 		if tok := strings.TrimSpace(acct.GetCredential("access_token")); tok != "" {
 			return tok
 		}
 	}
-	return strings.TrimSpace(acct.GetCredential("api_key"))
+	return ""
 }
 
 // discoverEdgeTargets filters the anthropic accounts down to mirror stubs and
 // dedups by normalized base_url (multiple stubs may point at one edge — keep the
-// first, log the dupe). Stubs missing base_url/api_key are skipped.
+// first, log the dupe). Stubs missing base_url/edge-key are skipped.
 func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 	seen := make(map[string]struct{})
 	targets := make([]edgeTarget, 0, len(accounts))
@@ -581,7 +563,7 @@ func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 			continue
 		}
 		baseURL := normalizeEdgeBaseURL(acct.GetCredential("base_url"))
-		apiKey := strings.TrimSpace(acct.GetCredential("api_key"))
+		apiKey := edgeStubAPIKey(acct)
 		if baseURL == "" || apiKey == "" {
 			continue
 		}
