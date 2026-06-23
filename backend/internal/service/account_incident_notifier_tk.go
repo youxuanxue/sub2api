@@ -171,14 +171,14 @@ type TKAccountIncidentNotifier struct {
 	siteID      string
 	now         func() time.Time
 
-	mu                sync.Mutex
-	permSentAt        map[string]time.Time                   // 永久失效去重: key -> 上次发送
-	permLimiter       *slidingWindowLimiter                  // 永久失效防爆量
-	digest            map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
-	active            map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
-	recoverySentAt    map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
-	poolExhaustSentAt map[string]time.Time                   // 平台池全不可调度 P0「待恢复」台账: platform -> 告警时刻(兼作 10min 去重)
-	claudeIncidentSentAt time.Time                           // Claude API 上游故障 P0 去重 + 恢复闭环台账
+	mu                   sync.Mutex
+	permSentAt           map[string]time.Time                   // 永久失效去重: key -> 上次发送
+	permLimiter          *slidingWindowLimiter                  // 永久失效防爆量
+	digest               map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
+	active               map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
+	recoverySentAt       map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
+	poolExhaustSentAt    map[string]time.Time                   // 平台池全不可调度 P0「待恢复」台账: platform -> 告警时刻(兼作 10min 去重)
+	claudeIncidentSentAt time.Time                              // Claude API 上游故障 P0 去重 + 恢复闭环台账
 
 	// poolSchedulableCounter 由 RateLimitService 注入(见 ProvideTKAccountIncidentNotifier),
 	// 返回某平台当前可调度账号数。池恢复轮询据此把空池火警闭环成「池已恢复」绿卡。
