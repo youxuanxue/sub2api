@@ -164,15 +164,18 @@ export interface EdgeAccountsListWithEtagResult {
 
 export async function listWithEtag(
   params: EdgeAccountsListParams = {},
-  options?: { signal?: AbortSignal; etag?: string | null }
+  options?: { signal?: AbortSignal; etag?: string | null; force?: boolean }
 ): Promise<EdgeAccountsListWithEtagResult> {
   const headers: Record<string, string> = {}
-  if (options?.etag) {
+  if (options?.etag && !options?.force) {
     headers['If-None-Match'] = options.etag
   }
 
   const response = await apiClient.get<EdgeAccountsAggregate>('/admin/edge-accounts', {
-    params,
+    params: {
+      ...params,
+      ...(options?.force ? { force: 'true' } : {})
+    },
     headers,
     signal: options?.signal,
     validateStatus: (status) => (status >= 200 && status < 300) || status === 304

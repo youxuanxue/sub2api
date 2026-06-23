@@ -372,6 +372,39 @@ func TestEdgeAccountsAggregator_CacheServesWithinSoftTTL(t *testing.T) {
 	require.Equal(t, int64(1), doer.calls.Load(), "fresh hit must not re-fan-out")
 }
 
+func TestEdgeAccountsAggregator_AggregateFreshBypassesSoftTTLAndUpdatesCache(t *testing.T) {
+	store := &edgeAccountsStoreStub{accounts: []Account{
+		mirrorStub(1, "https://api-us1.tokenkey.dev", "key-us1"),
+	}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us1.tokenkey.dev": `{"code":0,"data":{"accounts":[{"id":1,"name":"stale","platform":"kiro","type":"oauth","status":"error","error_message":"Access forbidden (403)"}]}}`,
+	}}
+	clk := newTestClock()
+	agg := NewEdgeAccountsAggregator(store, doer)
+	agg.now = clk.now
+
+	out1, err := agg.Aggregate(context.Background(), "kiro")
+	require.NoError(t, err)
+	require.Contains(t, string(out1.Edges[0].Accounts[0]), `"status":"error"`)
+	require.Equal(t, int64(1), doer.calls.Load())
+
+	doer.mu.Lock()
+	doer.bodyByHost["api-us1.tokenkey.dev"] = `{"code":0,"data":{"accounts":[{"id":1,"name":"fresh","platform":"kiro","type":"oauth","status":"active"}]}}`
+	doer.mu.Unlock()
+
+	clk.advance(edgeAccountsSoftTTL / 2) // still fresh; normal Aggregate would serve cache
+	out2, err := agg.AggregateFresh(context.Background(), "kiro")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), doer.calls.Load(), "manual fresh path must re-fan-out inside the soft TTL")
+	require.Contains(t, string(out2.Edges[0].Accounts[0]), `"status":"active"`)
+	require.NotContains(t, string(out2.Edges[0].Accounts[0]), `Access forbidden`)
+
+	out3, err := agg.Aggregate(context.Background(), "kiro")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), doer.calls.Load(), "fresh result replaces cache for the next passive read")
+	require.Contains(t, string(out3.Edges[0].Accounts[0]), `"name":"fresh"`)
+}
+
 // Past the soft TTL, Aggregate returns the cached (stale) aggregate immediately and
 // refreshes in the background; the next call (now fresh again) serves the refreshed
 // data. A slow/dead edge therefore only ever costs the background goroutine.

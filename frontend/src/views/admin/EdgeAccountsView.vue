@@ -123,7 +123,7 @@
               type="button"
               class="btn btn-secondary inline-flex items-center gap-2"
               :disabled="loading"
-              @click="fetch"
+              @click="() => fetch({ force: true })"
             >
               <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
               {{ t('admin.edgeAccounts.refresh') }}
@@ -279,7 +279,7 @@
                   <td class="px-4 py-2 align-top">
                     <div class="font-medium text-gray-900 dark:text-white">{{ acct.name }}</div>
                     <div class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.edgeAccounts.accountIdHint')">ID: {{ acct.id }}</div>
-                    <div v-if="acct.error_message" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">
+                    <div v-if="shouldShowEdgeAccountError(acct)" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">
                       {{ acct.error_message }}
                     </div>
                     <!-- temp-unschedulable reason shown inline: the reused AccountStatusIndicator's
@@ -364,6 +364,7 @@ import {
   schedulableCount,
   accountVm,
   isTempUnschedActive,
+  shouldShowEdgeAccountError,
   isStubRateLimited,
   isStubTempUnschedActive
 } from '@/utils/edgeAccounts.tk'

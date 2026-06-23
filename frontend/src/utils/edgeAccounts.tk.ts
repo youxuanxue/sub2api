@@ -32,6 +32,17 @@ export function isTempUnschedActive(s: EdgeAccountSummary): boolean {
 }
 
 /**
+ * Whether the edge account's persisted error_message should be shown as a live
+ * row error. The DB may retain a last error after the account has recovered to
+ * status=active; the shared AccountStatusIndicator already hides that stale
+ * breadcrumb unless status==='error'. Keep the edge name-cell copy aligned so a
+ * recovered account does not read as still broken.
+ */
+export function shouldShowEdgeAccountError(s: EdgeAccountSummary): boolean {
+  return s.status === 'error' && !!s.error_message
+}
+
+/**
  * The edge stores per-class cooldowns under the full scope key
  * `anthropic:class:sonnet`. AccountStatusIndicator's `formatScopeName` has no alias
  * for that raw key (it would render verbatim), so the TK adapter strips the

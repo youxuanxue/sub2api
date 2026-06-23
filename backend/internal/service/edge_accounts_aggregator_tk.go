@@ -45,10 +45,10 @@ const (
 	edgeAccountsFanoutCap = 16
 	// edgeAccountsSoftTTL is how long a cached aggregate is served as-is before a
 	// background refresh is kicked off. The overview is a read-only ops dashboard,
-	// so a few seconds of staleness is fine; in exchange, a slow/dead edge (up to
-	// edgeAccountsHTTPTO per fan-out) only ever costs the background goroutine, never
-	// the operator's request. After the first (cold) load, every load/refresh —
-	// manual button, periodic auto-refresh, a second admin — returns instantly.
+	// so a few seconds of staleness is fine for passive polling; in exchange, a
+	// slow/dead edge (up to edgeAccountsHTTPTO per fan-out) only ever costs the
+	// background goroutine, never the operator's request. Explicit manual refreshes
+	// call AggregateFresh / AggregateByStubFresh below to bypass this cache.
 	edgeAccountsSoftTTL = 15 * time.Second
 
 	// byStubCacheKey is the reserved "platform" the per-stub aggregate (the inline
@@ -265,6 +265,29 @@ func (a *EdgeAccountsAggregator) Aggregate(ctx context.Context, platform string)
 	return agg, nil
 }
 
+// AggregateFresh bypasses the stale-while-revalidate fast path and synchronously
+// fans out to every edge, then replaces the cache on success. It is intentionally
+// reserved for explicit operator refreshes: automatic polling should continue to
+// use Aggregate so a slow/dead edge never blocks the UI.
+func (a *EdgeAccountsAggregator) AggregateFresh(ctx context.Context, platform string) (*EdgeAccountsAggregate, error) {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == "" {
+		platform = PlatformAnthropic
+	}
+	if a == nil || a.accounts == nil {
+		return &EdgeAccountsAggregate{Platform: platform, Edges: []EdgeAccountsResult{}, TS: a.nowUnix()}, nil
+	}
+
+	agg, err := a.fanout(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.cache[platform] = cachedAggregate{agg: agg, fetchedAt: a.now()}
+	a.mu.Unlock()
+	return agg, nil
+}
+
 // refreshAsync re-fans-out a platform in the background and replaces its cache
 // entry on success. It uses context.Background() (NOT a request context, which is
 // cancelled the moment the serving request returns) with its own timeout; on
@@ -379,6 +402,14 @@ func (a *EdgeAccountsAggregator) fanoutTargets(ctx context.Context, targets []ed
 // machinery as Aggregate.
 func (a *EdgeAccountsAggregator) AggregateByStub(ctx context.Context) (*EdgeAccountsAggregate, error) {
 	return a.Aggregate(ctx, byStubCacheKey)
+}
+
+// AggregateByStubFresh is the manual-refresh sibling of AggregateByStub. It
+// forces a fresh edge fan-out for the prod /accounts inline panels so recovered
+// edge-side errors, usage windows, and last-used gauges are visible immediately
+// instead of waiting for the SWR cache/background refresh cycle.
+func (a *EdgeAccountsAggregator) AggregateByStubFresh(ctx context.Context) (*EdgeAccountsAggregate, error) {
+	return a.AggregateFresh(ctx, byStubCacheKey)
 }
 
 // fanoutByStub is the per-stub discovery + fan-out (see AggregateByStub). Reached
