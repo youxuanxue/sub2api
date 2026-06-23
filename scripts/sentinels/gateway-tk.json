@@ -2224,13 +2224,6 @@
       "rationale": "Focused regressions proving the issue #625 boundary: (1) a status-0 `context canceled` transport error (and an inbound Request.Context() cancel with no cancel signature in the message) classify as error_owner=client so they drop out of upstream_error_rate; (2) status-0 `context deadline exceeded` and `i/o timeout` stay error_owner=provider so genuine upstream slowness keeps counting; (3) a real upstream 5xx WITH a status code stays provider via the status gate. Dropping these lets an upstream merge silently revert the quad-P0 fix through the classifier."
     },
     {
-      "path": "backend/internal/handler/ops_error_logger.go",
-      "must_contain": [
-        "tkObserveCancelStorm(c, ops)"
-      ],
-      "rationale": "Per-API-key cancel-storm detector chokepoint hook (PR #635, Phase 1 detect-only). OpsErrorLoggerMiddleware is the single terminal-outcome observation point on /v1; this one line right after c.Next() feeds every request (success + >=400, independent of the ops-monitoring master switch) into OpsService.ObserveCancelStorm so a borrowed key issuing a context-canceled flood (the non-human-harness shape that got a subscription-OAuth account org-disabled) raises a real-time Feishu alert. The hook is small and compile-clean if dropped, so an upstream merge could silently revert it and re-blind the fleet to cancel storms. This sentinel pins the literal call; the detector itself (window counting + threshold + alert) lives in ops_cancel_storm_tk.go, which a missing hook would leave dead."
-    },
-    {
       "path": "backend/internal/handler/ops_error_logger_tk_downstream_capacity.go",
       "must_contain": [
         "func tkUpstreamDownstreamCapacity(c *gin.Context) bool",

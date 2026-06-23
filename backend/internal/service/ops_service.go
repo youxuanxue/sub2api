@@ -46,10 +46,6 @@ type OpsService struct {
 	// UpdateOpsAdvancedSettings 写入新配置后调用，把最新的 quota auto-pause 全局默认阈值
 	// 立即同步到调度热路径读取的内存缓存，避免下次请求才能感知新值。
 	quotaAutoPauseSink func(OpsOpenAIAccountQuotaAutoPauseSettings)
-
-	// cancelStorm 是 TK per-API-key 取消风暴检测器（detect + 飞书告警，默认 off）。
-	// 在 NewOpsService 中构造，热路径经 ObserveCancelStorm 喂入。见 ops_cancel_storm_tk.go。
-	cancelStorm *cancelStormDetector
 }
 
 // CleanupReloader 由 OpsCleanupService 实现。
@@ -105,12 +101,6 @@ func NewOpsService(
 		systemLogSink:             systemLogSink,
 	}
 	svc.applyRuntimeLogConfigOnStartup(context.Background())
-	// TK: per-API-key cancel-storm detector (detect + Feishu alert, default off).
-	frontendURL := ""
-	if cfg != nil {
-		frontendURL = cfg.Server.FrontendURL
-	}
-	svc.cancelStorm = newCancelStormDetector(settingRepo, svc, siteFromFrontendURL(frontendURL))
 	return svc
 }
 
