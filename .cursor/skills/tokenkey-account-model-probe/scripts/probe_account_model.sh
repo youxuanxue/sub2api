@@ -12,6 +12,7 @@ KEEP_PROBE_ARTIFACTS="${KEEP_PROBE_ARTIFACTS:-0}"
 USAGE_POLL_ATTEMPTS="${USAGE_POLL_ATTEMPTS:-12}"
 USAGE_POLL_INTERVAL_SECONDS="${USAGE_POLL_INTERVAL_SECONDS:-1}"
 LOG_WINDOW="${LOG_WINDOW:-3m}"
+REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
@@ -29,6 +30,9 @@ if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
 fi
 if [[ -z "$MODEL" ]]; then
   fail_json "MODEL is required"
+fi
+if [[ ! "$REQUEST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$REQUEST_TIMEOUT_SECONDS" -lt 1 ]]; then
+  fail_json "REQUEST_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
   messages|chat|responses) ;;
@@ -191,14 +195,17 @@ printf '%s' "$payload" >"$tmp_payload"
 
 CLIENT_REQUEST_ID="$PROBE_ID"
 http_code=""
+http_output=""
 if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
-  http_code="$(sudo docker exec -i \
+  if http_output="$(sudo docker exec -i \
     -e TK_PROBE_KEY="$API_KEY" \
     -e TK_PROBE_URL="${APP_URL}${PATH_SUFFIX}" \
     -e TK_PROBE_REQUEST_ID="$CLIENT_REQUEST_ID" \
+    -e TK_PROBE_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" \
     "$APP_CONTAINER" sh -lc '
       cat >/tmp/tk-probe-request.json
-      curl -sS -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
+      curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
+        -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
         -H "x-api-key: $TK_PROBE_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "anthropic-beta: claude-code-20250219" \
@@ -208,22 +215,32 @@ if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
         -H "User-Agent: claude-cli/2.1.165 (external, sdk-cli)" \
         --data-binary @/tmp/tk-probe-request.json \
         "$TK_PROBE_URL"
-    ' <"$tmp_payload" 2>"$tmp_err" || true)"
+    ' <"$tmp_payload" 2>"$tmp_err")"; then
+    http_code="$http_output"
+  else
+    http_code="$http_output"
+  fi
 else
-  http_code="$(sudo docker exec -i \
+  if http_output="$(sudo docker exec -i \
     -e TK_PROBE_KEY="$API_KEY" \
     -e TK_PROBE_URL="${APP_URL}${PATH_SUFFIX}" \
     -e TK_PROBE_REQUEST_ID="$CLIENT_REQUEST_ID" \
+    -e TK_PROBE_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" \
     "$APP_CONTAINER" sh -lc '
       cat >/tmp/tk-probe-request.json
-      curl -sS -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
+      curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
+        -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
         -H "Authorization: Bearer $TK_PROBE_KEY" \
         -H "X-Request-ID: $TK_PROBE_REQUEST_ID" \
         -H "Content-Type: application/json" \
         -H "User-Agent: tokenkey-account-model-probe/1" \
         --data-binary @/tmp/tk-probe-request.json \
         "$TK_PROBE_URL"
-    ' <"$tmp_payload" 2>"$tmp_err" || true)"
+    ' <"$tmp_payload" 2>"$tmp_err")"; then
+    http_code="$http_output"
+  else
+    http_code="$http_output"
+  fi
 fi
 http_code="$(printf '%s' "$http_code" | tr -cd '0-9' | tail -c 3)"
 
@@ -254,7 +271,7 @@ done
 python3 - \
   "$TARGET_JSON" "$PLATFORM" "$GROUP_ID" "$GROUP_NAME" "$API_KEY_ID" "$KEY_NAME" \
   "$MODEL" "$ENDPOINT" "$http_code" "$tmp_body" "$tmp_headers" "$tmp_err" "$tmp_logs" \
-  "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" <<'PY'
+  "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" "$REQUEST_TIMEOUT_SECONDS" <<'PY'
 import json
 import re
 import sys
@@ -263,8 +280,8 @@ from pathlib import Path
 (
     target_raw, platform, group_id, group_name, api_key_id, key_name,
     model, endpoint, http_code, body_path, headers_path, err_path, logs_path,
-    usage_raw, keep_raw, log_window,
-) = sys.argv[1:17]
+    usage_raw, keep_raw, log_window, request_timeout_seconds,
+) = sys.argv[1:18]
 
 target = json.loads(target_raw)
 body = Path(body_path).read_text(encoding="utf-8", errors="replace")
@@ -276,8 +293,10 @@ try:
 except Exception:
     usage = None
 
-def classify(code: str, body_text: str, usage_row):
-    if not code:
+def classify(code: str, body_text: str, usage_row, curl_err: str):
+    if not code or code == "000":
+        if curl_err:
+            return "setup_error"
         return "gateway_rejected"
     n = int(code)
     low = body_text.lower()
@@ -306,7 +325,7 @@ for line in logs.splitlines():
 
 body_excerpt = re.sub(r"\s+", " ", body).strip()[:1200]
 out = {
-    "verdict": classify(http_code, body, usage),
+    "verdict": classify(http_code, body, usage, curl_error),
     "http_code": http_code or "000",
     "target_account": target,
     "probe": {
@@ -318,6 +337,7 @@ out = {
         "temporary_api_key_id": int(api_key_id),
         "temporary_api_key_name": key_name,
         "kept_artifacts": keep_raw == "1",
+        "request_timeout_seconds": int(request_timeout_seconds),
     },
     "usage_match": usage,
     "response": {

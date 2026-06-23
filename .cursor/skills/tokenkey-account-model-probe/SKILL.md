@@ -36,6 +36,7 @@ Useful options:
 - `ENDPOINT=messages|chat|responses` chooses `/v1/messages`, `/v1/chat/completions`, or `/v1/responses`.
 - `MAX_TOKENS=16` keeps cost low.
 - `PROMPT_TEXT='Reply OK only.'` changes the prompt.
+- `REQUEST_TIMEOUT_SECONDS=90` caps the in-container gateway request.
 - `KEEP_PROBE_ARTIFACTS=1` preserves the temporary group/key for manual follow-up. Default is cleanup.
 - `APP_CONTAINER=tokenkey APP_URL=http://localhost:8080` are the default in-container request target.
 
