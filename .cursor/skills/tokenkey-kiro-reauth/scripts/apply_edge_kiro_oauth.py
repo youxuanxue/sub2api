@@ -163,6 +163,56 @@ def validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return credentials
 
 
+def require_live_target_confirmation(args: argparse.Namespace) -> None:
+    if args.dry_run:
+        return
+    if not args.expected_account_name:
+        raise SystemExit("--expected-account-name is required unless --dry-run is set")
+
+
+def fetch_account(
+    *,
+    base_url: str,
+    account_id: int,
+    auth_headers: dict[str, str],
+    timeout: int,
+) -> dict[str, Any]:
+    response_obj = request_json(
+        "GET",
+        f"{base_url}/api/v1/admin/accounts/{account_id}",
+        headers=auth_headers,
+        timeout=timeout,
+    )
+    account = unwrap_api_data(response_obj)
+    if not isinstance(account, dict):
+        raise SystemExit("account lookup returned no account object")
+    return account
+
+
+def validate_target_account(
+    account: dict[str, Any],
+    *,
+    account_id: int,
+    expected_account_name: str,
+) -> None:
+    response_id = account.get("id")
+    if response_id != account_id:
+        raise SystemExit(
+            f"account lookup id mismatch: expected {account_id!r}, got {response_id!r}"
+        )
+    response_name = str(account.get("name") or "")
+    if response_name != expected_account_name:
+        raise SystemExit(
+            f"account lookup name mismatch: expected {expected_account_name!r}, got {response_name!r}"
+        )
+    platform = str(account.get("platform") or "")
+    if platform.lower() != "kiro":
+        raise SystemExit(
+            f"refusing to apply Kiro oauth credentials to non-Kiro account: "
+            f"id={account_id}, name={response_name!r}, platform={platform!r}"
+        )
+
+
 def summarize_account(
     account: dict[str, Any],
     *,
@@ -207,6 +257,7 @@ def main() -> int:
     base_url = strip_trailing_slash(args.base_url)
     payload = read_json(args.payload_file)
     credentials = validate_payload(payload)
+    require_live_target_confirmation(args)
 
     # Auth resolution is intentionally early so dry-run can verify auth source shape.
     auth_headers, auth_mode, auth_email = resolve_auth_headers(args, base_url)
@@ -227,6 +278,18 @@ def main() -> int:
         sys.stdout.write("\n")
         return 0
 
+    target_account = fetch_account(
+        base_url=base_url,
+        account_id=args.account_id,
+        auth_headers=auth_headers,
+        timeout=args.timeout,
+    )
+    validate_target_account(
+        target_account,
+        account_id=args.account_id,
+        expected_account_name=args.expected_account_name,
+    )
+
     apply_response = request_json(
         "POST",
         f"{base_url}/api/v1/admin/accounts/{args.account_id}/apply-oauth-credentials",
@@ -238,12 +301,11 @@ def main() -> int:
     if not isinstance(account, dict):
         raise SystemExit("apply response contained no account object")
 
-    if args.expected_account_name:
-        response_name = str(account.get("name") or "")
-        if response_name != args.expected_account_name:
-            raise SystemExit(
-                f"apply response name mismatch: expected {args.expected_account_name!r}, got {response_name!r}"
-            )
+    validate_target_account(
+        account,
+        account_id=args.account_id,
+        expected_account_name=args.expected_account_name,
+    )
 
     ensured_schedulable = False
     if args.ensure_schedulable and account.get("schedulable") is False:

@@ -205,6 +205,9 @@ python3 .cursor/skills/tokenkey-kiro-reauth/scripts/apply_edge_kiro_oauth.py \
 Important:
 
 - Do not paste secrets into shell history, SSM command text, or chat.
+- `apply_edge_kiro_oauth.py` now does a read-before-write identity check via
+  `GET /api/v1/admin/accounts/:id`; keep `--expected-account-name` accurate and
+  treat a mismatch as a stop-the-line signal, not a warning.
 - Do not update a broad `WHERE platform='kiro'` set.
 - Do not overwrite full `extra` JSON with a credentials-only payload.
 - `apply-oauth-credentials` already invalidates token cache; do not add a blind
