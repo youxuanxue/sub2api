@@ -41,6 +41,9 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 	case AccountTypeAPIKey:
 		raw := strings.TrimSpace(account.GetOpenAIBaseURL())
 		if raw == "" {
+			if account.IsGrokAPIKey() {
+				return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+			}
 			return buildOpenAIV1SegmentURL("", segment), nil
 		}
 		validated, err := s.validateUpstreamBaseURL(raw)
@@ -52,7 +55,7 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 		// Grok (seventh platform) OAuth forwards to api.x.ai/v1 (OpenAI-compatible),
 		// NOT the ChatGPT platform base. The Bearer is the grok OAuth token resolved
 		// by GetAccessToken's grok branch.
-		if account.IsGrok() {
+		if account.IsGrokOAuth() {
 			validated, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
 			if err != nil {
 				return "", err
@@ -201,7 +204,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		openAIUsage = *usage.OpenAIUsage
 	}
 
-	if account.Type == AccountTypeOAuth {
+	if account.IsOpenAIOAuth() {
 		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
 		}

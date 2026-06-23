@@ -30,7 +30,7 @@ Two cheap, high-signal contract guards that catch the regressions we
 have actually seen:
 
   A) **Notes-section coverage**: every TokenKey first-class platform
-     (the four upstream platforms + `newapi`) must be mentioned in the
+     must be mentioned in the
      hand-maintained `# Agent Contract Notes` tail of the doc. This is
      the test that catches "we shipped a fifth platform but forgot to
      tell agents about it".
@@ -81,8 +81,9 @@ NOTES_MARKER = "# Agent Contract Notes"
 # one so an agent reading the contract knows what gateway surface exists.
 # Source of truth for the canonical names:
 #   backend/internal/domain/constants.go (PlatformOpenAI, PlatformAnthropic,
-#   PlatformGemini, PlatformAntigravity, PlatformNewAPI).
-REQUIRED_PLATFORMS = ("openai", "anthropic", "gemini", "antigravity", "newapi")
+#   PlatformGemini, PlatformAntigravity, PlatformNewAPI, PlatformKiro,
+#   PlatformGrok).
+REQUIRED_PLATFORMS = ("openai", "anthropic", "gemini", "antigravity", "newapi", "kiro", "grok")
 
 COUNT_TOLERANCE = 0.10  # ±10% considered noise
 

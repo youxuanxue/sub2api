@@ -44,8 +44,8 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",
-      "must_contain": ["if account.IsGrok()", "tkIsGrokEntitlement403"],
-      "rationale": "The grok arm of GetAccessToken (returns the grok OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrok() branch makes grok unable to fetch a token; losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."
+      "must_contain": ["if account.IsGrokOAuth()", "tkIsGrokEntitlement403"],
+      "rationale": "The grok OAuth arm of GetAccessToken (returns the xAI OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrokOAuth() branch makes grok OAuth unable to fetch a token; using broad IsGrok() here would steal first-class grok API-key relay stubs from the api_key branch. Losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_grok_entitlement_403.go",
@@ -59,13 +59,13 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
-      "must_contain": ["account.IsGrok()"],
-      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here (the path is otherwise apikey-gated via GetOpenAIApiKey/GetOpenAIBaseURL). Losing this arm makes grok forward with an empty credential / wrong base URL."
+      "must_contain": ["account.IsGrokOAuth()"],
+      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. Losing this arm makes grok OAuth forward with an empty credential / wrong base URL; broadening it back to IsGrok() breaks grok API-key relay stubs."
     },
     {
       "path": "backend/internal/service/openai_gateway_v1_forward.go",
-      "must_contain": ["account.IsGrok()"],
-      "rationale": "The image (/v1/images/generations) seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok arm redirects it to api.x.ai/v1. Losing it points grok image requests at OpenAI."
+      "must_contain": ["account.IsGrokOAuth()"],
+      "rationale": "The image/embeddings seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok OAuth arm redirects it to api.x.ai/v1. First-class grok API-key relay stubs use the API-key branch plus their edge base_url. Losing this arm points grok OAuth image requests at OpenAI; broadening it back to IsGrok() breaks grok API-key relay stubs."
     },
     {
       "path": "backend/internal/service/tk_pricing_overlay.json",

@@ -450,23 +450,20 @@ func (s *platformAwareEdgeStore) ListByPlatform(_ context.Context, p string) ([]
 	return s.byPlatform[p], nil
 }
 
-// TestEdgeAccountsAggregator_ByStubDiscoversGrokViaAccessToken covers a HYPOTHETICAL
-// native grok edge stub (platform=grok, edge key in credentials.access_token, no
-// api_key). NOTE: the REAL prod grok stub is NOT this shape — it is a New API ct=1
-// bridge (platform=newapi, api_key), covered by
-// TestEdgeAccountsAggregator_ByStubDiscoversGrokNewAPIBridge below. This test pins that
-// the access_token path still works should a native grok edge stub ever exist: the full
+// TestEdgeAccountsAggregator_ByStubDiscoversGrokAPIKeyRelay covers the converged
+// native grok relay stub (platform=grok, type=apikey, edge key in credentials.api_key).
+// The full
 // by-stub path (AggregateByStub → loadEdgeStubCandidates → ListByPlatform →
 // discoverStubTargets → fetchEdgeAccounts) must (a) discover it, keyed by its prod stub
 // account id so the inline panel resolves, and (b) authenticate the fan-out with the
-// access_token.
-func TestEdgeAccountsAggregator_ByStubDiscoversGrokViaAccessToken(t *testing.T) {
+// api_key.
+func TestEdgeAccountsAggregator_ByStubDiscoversGrokAPIKeyRelay(t *testing.T) {
 	grok := Account{
 		ID: 65, Name: "grok-us4", Platform: PlatformGrok, Type: AccountTypeAPIKey,
 		Status: StatusActive, Schedulable: true,
 		Credentials: map[string]any{
-			"base_url":     "https://api-us4.tokenkey.dev",
-			"access_token": "grok-edge-key", // edge TokenKey key (Bearer); NO api_key
+			"base_url": "https://api-us4.tokenkey.dev",
+			"api_key":  "grok-edge-key",
 		},
 	}
 	store := &platformAwareEdgeStore{byPlatform: map[string][]Account{PlatformGrok: {grok}}}
@@ -489,15 +486,12 @@ func TestEdgeAccountsAggregator_ByStubDiscoversGrokViaAccessToken(t *testing.T) 
 	require.Equal(t, "us4", got.EdgeID)
 	require.Equal(t, PlatformGrok, got.StubPlatform)
 	require.Equal(t, "grok-edge-key", doer.keysSeen["api-us4.tokenkey.dev"],
-		"the fan-out must authenticate with the grok stub's access_token, not a (missing) api_key")
+		"the fan-out must authenticate with the grok stub's api_key")
 }
 
-// TestEdgeAccountsAggregator_ByStubDiscoversGrokNewAPIBridge is the end-to-end regression
-// for grok-us4's "该 edge 暂未被发现（其 prod stub 可能已禁用）" phantom panel. The REAL prod
-// grok edge stub is a New API ct=1 OpenAI-compat bridge: platform=newapi, type=apikey,
-// edge key in credentials.api_key, NO access_token, NO mirror_platform (verified against
-// prod: account id 65). Two earlier gaps combined to render the phantom panel even though
-// the stub relays actively:
+// TestEdgeAccountsAggregator_ByStubDiscoversLegacyGrokNewAPIBridge keeps the old
+// newapi bridge shape observable until prod migration is complete. Two earlier gaps
+// combined to render the phantom panel even though the stub relayed actively:
 //
 //  1. edgeStubPlatforms excluded newapi, so loadEdgeStubCandidates never loaded it →
 //     discoverStubTargets never saw it → no by-stub result for id 65 (while the
@@ -509,7 +503,7 @@ func TestEdgeAccountsAggregator_ByStubDiscoversGrokViaAccessToken(t *testing.T) 
 // with the "all" sentinel (newapi → all in edgeStubPoolPlatform) so group_scope=caller
 // resolves the edge's grok pool, (c) authenticate with the api_key, and (d) surface the
 // edge's grok account + the edge-side group name ("grok") for the panel footnote.
-func TestEdgeAccountsAggregator_ByStubDiscoversGrokNewAPIBridge(t *testing.T) {
+func TestEdgeAccountsAggregator_ByStubDiscoversLegacyGrokNewAPIBridge(t *testing.T) {
 	grok := Account{
 		ID: 65, Name: "grok-us4", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
 		ChannelType: 1, Status: StatusActive, Schedulable: true,
@@ -535,7 +529,7 @@ func TestEdgeAccountsAggregator_ByStubDiscoversGrokNewAPIBridge(t *testing.T) {
 			got = &out.Edges[i]
 		}
 	}
-	require.NotNil(t, got, "newapi grok bridge grok-us4 (id 65) must be discovered so the inline panel resolves (not '该 edge 暂未被发现')")
+	require.NotNil(t, got, "legacy newapi grok bridge grok-us4 (id 65) must be discovered so the inline panel resolves (not '该 edge 暂未被发现')")
 	require.True(t, got.OK, "the edge fan-out must succeed")
 	require.Equal(t, "us4", got.EdgeID)
 	require.Equal(t, edgeStubAllPoolsPlatform, got.StubPlatform,
@@ -571,20 +565,14 @@ func TestDiscoverStubTargets(t *testing.T) {
 	kiroMirror := mk(8, PlatformAnthropic, "https://api-us4.tokenkey.dev", "k8")
 	kiroMirror.Credentials["mirror_platform"] = "kiro"
 
-	// grok mirror stub: grok (seventh platform) relays to its edge with a plain Bearer
-	// from credentials.access_token and carries NO api_key (the grok create flow stores
-	// access_token/refresh_token; see account_tk_grok.go). Reading bare api_key
-	// previously dropped it from the per-stub aggregate, so the inline panel rendered
-	// "edge not discovered" on an enabled, actively-relaying grok-<edge> stub. It MUST
-	// be discovered, with its access_token used as the edge key.
-	grokEdge := mk(9, PlatformGrok, "https://api-us4.tokenkey.dev", "")
-	grokEdge.Credentials["access_token"] = "grok-edge-key"
+	// grok mirror stub: the long-term shape is platform=grok,type=apikey with
+	// credentials.api_key. It MUST be discovered and use api_key as the edge key.
+	grokEdge := mk(9, PlatformGrok, "https://api-us4.tokenkey.dev", "grok-edge-key")
 
-	// REAL prod grok edge stub: a New API ct=1 OpenAI-compat bridge (platform=newapi,
-	// api_key, base_url=edge host, NO mirror_platform) — this is what grok-us4 (id 65)
-	// actually is in prod, NOT the platform=grok/access_token shape above. It MUST be
-	// discovered (newapi is in edgeStubPlatforms) and fan out as the "all" sentinel so
-	// group_scope=caller resolves the edge's real grok pool (the edge has no newapi pool).
+	// Legacy prod grok edge stub: a New API ct=1 OpenAI-compat bridge (platform=newapi,
+	// api_key, base_url=edge host, NO mirror_platform). Keep it discoverable during
+	// migration, fanning out as the "all" sentinel so group_scope=caller resolves the
+	// edge's real grok pool (the edge has no newapi pool).
 	grokNewAPIBridge := mk(65, PlatformNewAPI, "https://api-us4.tokenkey.dev", "grok-bridge-key")
 	grokNewAPIBridge.ChannelType = 1
 
@@ -593,7 +581,7 @@ func TestDiscoverStubTargets(t *testing.T) {
 		mk(2, PlatformOpenAI, "https://api-us4.tokenkey.dev", "k2"), // SAME edge host — NOT deduped
 		mk(3, PlatformGrok, "https://api-us4.tokenkey.dev", "k3"),
 		kiroMirror,       // SAME edge host as k1 — kiro pool via mirror_platform, NOT anthropic
-		grokEdge,         // SAME edge host — grok edge key in access_token, NOT api_key
+		grokEdge,         // SAME edge host — grok edge key in api_key
 		grokNewAPIBridge, // SAME edge host — newapi transport → "all" pool, api_key auth
 		disabled,         // skipped (disabled)
 		noKey,            // skipped (no api_key, no access_token fallback)
@@ -617,9 +605,8 @@ func TestDiscoverStubTargets(t *testing.T) {
 	// The kiro mirror stub fans out as KIRO (from mirror_platform), NOT anthropic
 	// (its transport platform) — the fix for the cc-us6/kiro-us6 mixing bug.
 	require.Equal(t, PlatformKiro, byID[8].platform)
-	// The grok edge stub is discovered (regression: it was silently skipped) and
-	// authenticates the fan-out with its access_token, not a (missing) api_key.
-	require.Contains(t, byID, int64(9), "grok edge stub (access_token, no api_key) must be discovered")
+	// The converged grok edge stub is discovered and authenticates with api_key.
+	require.Contains(t, byID, int64(9), "grok edge stub (api_key relay) must be discovered")
 	require.Equal(t, PlatformGrok, byID[9].platform)
 	require.Equal(t, "grok-edge-key", byID[9].apiKey)
 	// The REAL newapi grok bridge stub is discovered and fans out as the "all" sentinel
@@ -664,11 +651,8 @@ func TestEdgeStubPoolPlatform(t *testing.T) {
 	}
 }
 
-// TestEdgeStubAPIKey covers the per-platform edge-key resolution: apikey-relay stubs
-// authenticate to their edge with credentials.api_key, but grok (seventh platform)
-// relays with a plain Bearer from credentials.access_token and carries no api_key —
-// so the fan-out must read access_token for grok. This is the fix for the grok-<edge>
-// inline panel showing "edge not discovered" on an enabled, actively-relaying stub.
+// TestEdgeStubAPIKey covers edge-key resolution: converged relay stubs authenticate
+// with credentials.api_key. A grok access_token fallback remains only for old stubs.
 func TestEdgeStubAPIKey(t *testing.T) {
 	mk := func(platform string, cred map[string]any) *Account {
 		return &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: cred}
@@ -681,10 +665,10 @@ func TestEdgeStubAPIKey(t *testing.T) {
 		{"anthropic stub → api_key", mk(PlatformAnthropic, map[string]any{"api_key": "ak"}), "ak"},
 		{"openai stub → api_key", mk(PlatformOpenAI, map[string]any{"api_key": "ok"}), "ok"},
 		{"kiro mirror (anthropic transport) → api_key", mk(PlatformAnthropic, map[string]any{"api_key": "kk", "mirror_platform": "kiro"}), "kk"},
-		{"grok stub → access_token (Bearer relay, no api_key)", mk(PlatformGrok, map[string]any{"access_token": "gt"}), "gt"},
-		{"grok stub prefers access_token over a stray api_key", mk(PlatformGrok, map[string]any{"access_token": "gt", "api_key": "stray"}), "gt"},
-		{"grok stub with only api_key falls back to api_key", mk(PlatformGrok, map[string]any{"api_key": "fb"}), "fb"},
-		{"api_key/access_token trimmed", mk(PlatformGrok, map[string]any{"access_token": "  gt  "}), "gt"},
+		{"grok stub → api_key", mk(PlatformGrok, map[string]any{"api_key": "gk"}), "gk"},
+		{"grok stub prefers api_key over legacy access_token", mk(PlatformGrok, map[string]any{"access_token": "legacy", "api_key": "gk"}), "gk"},
+		{"grok legacy access_token fallback", mk(PlatformGrok, map[string]any{"access_token": "gt"}), "gt"},
+		{"api_key/access_token trimmed", mk(PlatformGrok, map[string]any{"api_key": "  gk  "}), "gk"},
 		{"missing edge key → empty (skipped by discovery)", mk(PlatformGrok, map[string]any{}), ""},
 		{"nil account → empty", nil, ""},
 	}
