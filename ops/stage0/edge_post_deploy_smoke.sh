@@ -182,9 +182,7 @@ run_main_via_edge_smoke() {
   fi
 
   canary_key="${TK_SMOKE_API_KEY}"
-  prefix="$(printf '%s' "${canary_key}" | head -c 6)"
-  suffix="$(printf '%s' "${canary_key}" | tail -c 4)"
-  echo "tk_edge_post_deploy_smoke: main_gateway=${MAIN_GATEWAY_BASE_URL} key_hint=${prefix}…${suffix}"
+  echo "tk_edge_post_deploy_smoke: main_gateway=${MAIN_GATEWAY_BASE_URL} key=configured"
 
   start_epoch="$(date -u +%s)"
   TOKENKEY_BASE_URL="${MAIN_GATEWAY_BASE_URL}" \

@@ -68,9 +68,7 @@ command -v jq >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: jq not on PATH" >
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-prefix="$(printf '%s' "${API_KEY}" | head -c 6)"
-suffix="$(printf '%s' "${API_KEY}" | tail -c 4)"
-echo "tk_post_deploy_smoke: base_url=${BASE} suite=${GATEWAY_SMOKE_SUITE} key_hint=${prefix}…${suffix}"
+echo "tk_post_deploy_smoke: base_url=${BASE} suite=${GATEWAY_SMOKE_SUITE} key=configured"
 
 # --- 1) Public settings (cold path) ---
 pub_http=$(curl -sS -o "$tmpdir/pub.json" -w "%{http_code}" "${BASE}/api/v1/settings/public")
