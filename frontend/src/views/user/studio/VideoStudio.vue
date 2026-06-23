@@ -345,6 +345,7 @@ import {
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
+import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
@@ -495,49 +496,25 @@ const previewState = ref<'loading' | 'ready' | 'expired'>('loading')
 // Transient "copied" confirmation for the copy-link button (no toast/banner).
 const copied = ref(false)
 let copiedTimer: ReturnType<typeof setTimeout> | undefined
-let previewObjectUrl = ''
+let previewRevoke: () => void = () => {}
 
 async function openPreview(task: VideoTaskItem): Promise<void> {
   if (!task.url) return
-  revokePreviewObjectUrl()
+  previewRevoke()
   preview.value = task
   previewUrl.value = ''
   previewState.value = 'loading'
-  let url = task.url
-  // Video playback must not turn TokenKey into a media server. For http(s)
-  // upstream URLs, hand the URL directly to the browser. For inline data:video
-  // results, convert the one response already delivered to this tab into a
-  // temporary Blob URL and revoke it when the preview closes.
-  if (/^data:video/i.test(url)) {
-    url = dataVideoToObjectURL(url)
+  // Playback must not turn TokenKey into a media server: http(s) upstream URLs go
+  // straight to the browser; an inline data:video result becomes a tab-local Blob
+  // URL we revoke on close. Shared with Bake-Off via videoPlaybackUrl.
+  const playback = videoPlaybackUrl(task.url)
+  previewRevoke = playback.revoke
+  if (preview.value?.id !== task.id) {
+    playback.revoke()
+    return
   }
-  if (preview.value?.id !== task.id) return
-  previewUrl.value = url
-  previewState.value = url ? 'ready' : 'expired'
-}
-
-function dataVideoToObjectURL(dataUrl: string): string {
-  try {
-    const match = /^data:(video\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/i.exec(dataUrl)
-    if (!match || typeof atob !== 'function' || typeof URL?.createObjectURL !== 'function') return dataUrl
-    const binary = atob(match[2])
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    previewObjectUrl = URL.createObjectURL(new Blob([bytes], { type: match[1] }))
-    return previewObjectUrl
-  } catch {
-    return dataUrl
-  }
-}
-
-function revokePreviewObjectUrl(): void {
-  if (!previewObjectUrl) return
-  try {
-    URL.revokeObjectURL?.(previewObjectUrl)
-  } catch {
-    /* ignore */
-  }
-  previewObjectUrl = ''
+  previewUrl.value = playback.url
+  previewState.value = playback.url ? 'ready' : 'expired'
 }
 
 // The <video> failed to load. Degrade to a translated "expired" message + a
@@ -568,7 +545,8 @@ async function copyPreviewLink(): Promise<void> {
 }
 
 function closePreview(): void {
-  revokePreviewObjectUrl()
+  previewRevoke()
+  previewRevoke = () => {}
   preview.value = null
   previewUrl.value = ''
   copied.value = false
@@ -650,7 +628,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   if (copiedTimer) clearTimeout(copiedTimer)
-  revokePreviewObjectUrl()
+  previewRevoke()
 })
 </script>
 

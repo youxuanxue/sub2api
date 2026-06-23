@@ -887,13 +887,22 @@
         "data-testid=\"studio-video-play\"",
         "data-testid=\"studio-video-preview\"",
         "data-testid=\"studio-video-copy-link\"",
-        "dataVideoToObjectURL",
-        "revokePreviewObjectUrl"
+        "videoPlaybackUrl"
       ],
       "must_not_contain": [
         "poll.refreshUrl"
       ],
-      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays http(s) upstream URLs directly in the browser, while inline data:video results are converted into temporary Blob URLs for this tab and revoked on close/unmount. That keeps playback browser-local and prevents opening a succeeded card from refetching TokenKey as a video server. studio-video-copy-link remains the in-lightbox affordance for copying upstream/direct media URLs."
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays http(s) upstream URLs directly in the browser, while inline data:video results are converted into temporary Blob URLs for this tab and revoked on close/unmount. That keeps playback browser-local and prevents opening a succeeded card from refetching TokenKey as a video server. The data:video->Blob conversion + revoke now lives in the shared videoPlaybackUrl helper (utils/studioMedia.tk.ts), used by both this lightbox and Bake-Off; this anchor pins that import/usage so the no-rehost playback can't be silently reverted to an always-on <video>. studio-video-copy-link remains the in-lightbox affordance for copying upstream/direct media URLs."
+    },
+    {
+      "path": "frontend/src/utils/studioMedia.tk.ts",
+      "must_contain": [
+        "export function videoPlaybackUrl",
+        "data:video",
+        "createObjectURL",
+        "revokeObjectURL"
+      ],
+      "rationale": "Shared Studio video-playback resolver enforcing the #944 'TokenKey is not a media CDN' rule for EVERY on-demand video surface (VideoStudio lightbox + Bake-Off panels). videoPlaybackUrl hands http(s) upstream URLs straight to the browser and converts an inline data:video result (the one response already delivered to this tab) into a tab-local Blob URL with a revoke() — never re-fetching or rehosting. Deleting/inlining this back into a single view risks one surface (e.g. Bake-Off) regressing to an always-on <video> that competes loads and black-boxes pre-play; the data:video + createObjectURL + revokeObjectURL anchors pin the conversion + cleanup."
     },
     {
       "path": "frontend/src/constants/mediaTiers.tk.ts",
