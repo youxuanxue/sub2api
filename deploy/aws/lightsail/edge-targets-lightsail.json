@@ -10,7 +10,7 @@
   ],
   "targets": {
     "uk1": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -24,7 +24,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "uk-egress-lightsail"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed"
     },
     "us1": {
       "deployable": false,
@@ -75,7 +75,7 @@
       "purpose": "sg-egress-planned"
     },
     "us2": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-east-2",
@@ -89,7 +89,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us2",
-      "purpose": "us-east-2-ohio-egress (adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution)"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution"
     },
     "us3": {
       "deployable": true,
@@ -160,7 +160,7 @@
       "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-3 / StaticIp-oh-3; corrected 2026-06-08: A record was stale at ephemeral 52.15.35.197 which AWS re-adopted to *.coverahealth.com — StaticIp-oh-3 truth is 3.148.79.145)"
     },
     "us7": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-east-2",
@@ -174,7 +174,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us7",
-      "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4; corrected 2026-06-08: live static IP is StaticIp-oh-4-b/18.188.207.95 not StaticIp-oh-4/3.139.183.116 — A record was stale at the dead 3.139.183.116)"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had been rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4"
     }
   }
 }

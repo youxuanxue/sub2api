@@ -18,14 +18,11 @@ on:
         required: true
         type: choice
         options:
-          - uk1
           - us1
-          - us2
           - us3
           - us4
           - us5
           - us6
-          - us7
       operation:
         description: "provision creates Lightsail instance; upgrade/rollback use SSM; smoke verifies."
         required: true
@@ -40,7 +37,7 @@ on:
         required: false
         type: string
       confirm_instance:
-        description: "Must match instance_name from matrix (e.g. tokenkey-edge-uk1-ls)."
+        description: "Must match instance_name from matrix (e.g. tokenkey-edge-us-oh1-ls)."
         required: true
         type: string
       recreate:
