@@ -7,14 +7,10 @@ import subprocess
 import sys
 from typing import Final
 
-# Keep in sync with required_secrets_for_env() in ops/stage0/load_smoke_github_env.sh
-# (all three prod smoke keys are hard prerequisites of deploy-stage0.yml).
-PROD_SECRETS: Final[tuple[str, ...]] = (
-    "TK_SMOKE_PROD_ANTHROPIC_KEY",
-    "TK_SMOKE_PROD_GEMINI_KEY",
-    "TK_SMOKE_PROD_OPENAI_OAUTH_KEY",
-)
-EDGE_SECRETS: Final[tuple[str, ...]] = ("TK_SMOKE_EDGE_CANARY_KEY",)
+# Keep in sync with required_secrets_for_env() in ops/stage0/load_smoke_github_env.sh.
+SMOKE_SECRETS: Final[tuple[str, ...]] = ("TK_SMOKE_API_KEY",)
+PROD_SECRETS: Final[tuple[str, ...]] = SMOKE_SECRETS
+EDGE_SECRETS: Final[tuple[str, ...]] = SMOKE_SECRETS
 
 
 def required_secrets(env_name: str) -> tuple[str, ...]:

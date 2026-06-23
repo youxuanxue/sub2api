@@ -144,7 +144,7 @@ ops/stage0/sync-feishu-config.sh
 
 **Anthropic OAuth 稳定基线**：新增 Edge 账号时，按 [`docs/accounts/anthropic-oauth-edge-stability-baseline-index.md`](../../docs/accounts/anthropic-oauth-edge-stability-baseline-index.md) 选择 L1-L5 等级，再用只读检查命令比对线上状态：`python3 ops/anthropic/check-edge-oauth-stability.py --edge-id <edge_id> --account-name <account_name>`。唯一机器可读基线是 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`；脚本默认不修改线上，`--emit-sql` 只生成审阅用 SQL。
 
-**GitHub**：每个 Edge 绑定 Environment `edge-<edge_id>`，请在仓库 Settings → Environments 里按需配置 Required reviewer。新 Edge 的 Variables / Secrets 可逐项参照已上线 Edge 复制（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`，以及仅跑 main-via-edge smoke 的 Edge 才需的 `TK_SMOKE_EDGE_CANARY_KEY`）。**GHCR 当前为 public，默认 anonymous pull，无需 PAT**（workflow 输入 `ghcr_pat_required` 默认 `false`）；仅当镜像转私有时，按 edge 落 SSM SecureString `/tokenkey/lightsail/<edge_id>/ghcr/pat` 并在 provision 时翻 `ghcr_pat_required=true`——切勿跨 edge 复制别人路径的 PAT 配置。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
+**GitHub**：每个 Edge 绑定 Environment `edge-<edge_id>`，请在仓库 Settings → Environments 里按需配置 Required reviewer。新 Edge 的 Variables / Secrets 可逐项参照已上线 Edge 复制（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`，以及仅跑 main-via-edge smoke 的 Edge 才需的 `TK_SMOKE_API_KEY`）。**GHCR 当前为 public，默认 anonymous pull，无需 PAT**（workflow 输入 `ghcr_pat_required` 默认 `false`）；仅当镜像转私有时，按 edge 落 SSM SecureString `/tokenkey/lightsail/<edge_id>/ghcr/pat` 并在 provision 时翻 `ghcr_pat_required=true`——切勿跨 edge 复制别人路径的 PAT 配置。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
 
 **飞书告警自动接入（无需按 Edge 重复配）**：账号失效 / P0 卡片靠每个节点 DB 里的
 `settings.ops_email_notification_config.feishu`（webhook + signing_secret + enabled）。这份配置不在镜像、
@@ -494,27 +494,26 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 
 | 类型 | 名字 | 用途 |
 |---|---|---|
-| secret | `TK_SMOKE_PROD_ANTHROPIC_KEY` | 主 Anthropic 烟测 key（`full` suite） |
-| secret | `TK_SMOKE_PROD_GEMINI_KEY` | Gemini schema 探针 |
-| secret | `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` | OpenAI OAuth 探针 |
-| var | `TK_SMOKE_PROD_ANTHROPIC_MODEL` | 首选 Anthropic chat/messages 模型（默认 `claude-sonnet-4-6`） |
-| var | `TK_SMOKE_PROD_GEMINI_MODEL` | 可选，默认 `gemini-3.1-pro-preview` |
-| var | `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL` | 可选，默认 `gpt-5.4` |
+| secret | `TK_SMOKE_API_KEY` | 全能用户侧烟测 key；必须能看到下方所有模型清单 |
+| var | `TK_SMOKE_ANTHROPIC_MODELS` | Anthropic/chat+messages 模型清单，逗号或空格分隔（默认 `claude-sonnet-4-6`） |
+| var | `TK_SMOKE_GEMINI_MODELS` | Gemini tool-schema 探针模型清单（默认 `gemini-3.1-pro-preview`） |
+| var | `TK_SMOKE_OPENAI_OAUTH_MODELS` | OpenAI OAuth 探针模型清单（默认 `gpt-5.4`） |
 
-> 三把 prod smoke key（anthropic / gemini / openai-oauth）都是 `deploy-stage0.yml` 的**硬前置**：缺任意一把，发版在镜像切换前就 `::error::` 失败，不会留下"红 smoke = 其实只是没配 key"的歧义。
+> `TK_SMOKE_API_KEY` 是 `deploy-stage0.yml` 的**硬前置**：缺 key，发版在镜像切换前就 `::error::` 失败。平台覆盖只维护模型清单，不再维护多把平台专用 smoke key。
 
 **`edge-<edge_id>` Environment**（如 `edge-uk1`）
 
 | 类型 | 名字 | 用途 |
 |---|---|---|
-| secret | `TK_SMOKE_EDGE_CANARY_KEY` | main-via-edge：经 prod 调度打到 Edge 的 key |
+| secret | `TK_SMOKE_API_KEY` | main-via-edge：经 prod 调度打到 Edge 的 key |
+| var | `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS` | 可选，main-via-edge / Edge self-smoke 模型清单 |
 
 **代码内固定（无需在 Edge Environment 配置）：**
 
 | 名字 | 固定值 |
 |---|---|
 | `TK_SMOKE_EDGE_CANARY_BASE_URL` | `https://api.tokenkey.dev` |
-| `TK_SMOKE_EDGE_LOCAL_CHAT_MODEL` | `claude-sonnet-4-6` |
+| `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS` | `claude-sonnet-4-6` |
 
 Edge 基础设施变量（**非烟测**，保持原名）：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 等。
 
@@ -522,23 +521,23 @@ Edge 基础设施变量（**非烟测**，保持原名）：`EDGE_ACME_EMAIL`、
 
 ```bash
 TOKENKEY_BASE_URL=https://api.tokenkey.dev \
-TK_SMOKE_PROD_ANTHROPIC_KEY=sk-... \
-TK_SMOKE_PROD_ANTHROPIC_MODEL=... \
+TK_SMOKE_API_KEY=sk-... \
+TK_SMOKE_ANTHROPIC_MODELS=... \
+TK_SMOKE_GEMINI_MODELS=... \
+TK_SMOKE_OPENAI_OAUTH_MODELS=... \
 python3 scripts/stage0/check_smoke_config.py
 ```
 
 #### deploy-stage0 发版后网关烟测（强制）
 
-Workflow 在 `/health` 之后会执行 `ops/stage0/post_deploy_smoke.sh`（`GATEWAY_SMOKE_SUITE=full`）。必须在 **`prod`** Environment 配置上表三个 **secret**；未配置则 deploy **失败**。Secret 必须在 **`api.tokenkey.dev`（prod 栈）** 下有效。
+Workflow 在 `/health` 之后会执行 `ops/stage0/post_deploy_smoke.sh`（`GATEWAY_SMOKE_SUITE=full`）。必须在 **`prod`** Environment 配置上表 **`TK_SMOKE_API_KEY` secret**；未配置则 deploy **失败**。Secret 必须在 **`api.tokenkey.dev`（prod 栈）** 下有效。
 
 本地复现（与 CI 同一套 `TK_SMOKE_*` 名字；**GitHub secret 值无法经 gh/API 读取**，须在本机 export 同名变量）：
 
 ```bash
 export TOKENKEY_BASE_URL=https://api.tokenkey.dev
 export TK_SMOKE_GITHUB_ENV=prod          # 自动拉取 Environment 中的 TK_SMOKE_* variables
-export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...   # 与 prod Environment secret 同名
-export TK_SMOKE_PROD_GEMINI_KEY=sk-...
-export TK_SMOKE_PROD_OPENAI_OAUTH_KEY=sk-...
+export TK_SMOKE_API_KEY=sk-...           # 与 prod Environment secret 同名
 bash ops/stage0/post_deploy_smoke.sh
 ```
 

@@ -52,6 +52,34 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
     printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.179 (external, sdk-cli)}"
   }
 
+  # smoke_model_list RAW DEFAULT
+  # Prints a newline-delimited model list. RAW may be comma or whitespace
+  # separated so GitHub Environment vars can stay compact.
+  smoke_model_list() {
+    local raw="${1:-}"
+    local default="${2:-}"
+    local item
+    raw="${raw:-${default}}"
+    raw="${raw//$'\r'/ }"
+    raw="${raw//,/ }"
+    for item in ${raw}; do
+      [[ -n "${item}" ]] && printf '%s\n' "${item}"
+    done
+  }
+
+  smoke_assert_model_listed() {
+    local models_file="$1"
+    local label="$2"
+    local model="$3"
+    if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "::error::tk_post_deploy_smoke: configured ${label} model '${model}' is not listed by /v1/models for this smoke key" >&2
+    echo "available models:" >&2
+    jq -r '(.data // [])[] | .id' "${models_file}" >&2 || true
+    return 1
+  }
+
   # soft_degrade_or_exit — see post_deploy_smoke.sh header for contract.
   soft_degrade_or_exit() {
     local label="$1" http="$2" resp_file="$3"

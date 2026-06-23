@@ -26,7 +26,7 @@ description: >-
 | prod Environment approval（canary 绿后） | 机械 | `gh api -X POST …/pending_deployments`（命令形状见 §「部署目标矩阵 → prod」；批不批、何时批是判断） |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
 | Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；main-via-edge 用 `GATEWAY_SMOKE_SUITE=main-via-edge`（/v1/messages + Claude UA，不走 chat） |
-| 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_PROD_ANTHROPIC_MODEL` ∈ key 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secrets/vars 已配置） |
+| 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
 | 发版后 tick 探针（hook 计数 + 流量/5xx/panic） | 机械 | `ops/observability/probe-post-release-tick.sh`（经 `run-probe.sh` 投递；`HOOK_PATTERNS` 里的 hook 关键词由模型按 Step A 命名——命名是判断，计数是机械） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
@@ -108,7 +108,7 @@ description: >-
 - **永远不在共享 checkout 里 bump/tag**：`release-bump-and-tag.sh` 自带 worktree 隔离与 fetch，不需要也不应该先 `git checkout main && git pull`（并行 agent 可能正占用 checkout——见 §「决策 + bump + tag」）。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
 - **Environment approval 不是失败**：`prod` / `edge-<edge_id>` run 卡在 `waiting` 时，按 §「部署目标矩阵 → prod」的 approval 命令在 canary 绿后自批（执行账号非 reviewer 时回落人工）；批准后继续 watch。
-- **完整烟测密钥**：prod 完整 smoke 以 **CI `deploy-stage0` job log** 为唯一验收源；Edge main-via-edge 依赖 **`TK_SMOKE_EDGE_CANARY_KEY`**（canary 一次）。
+- **完整烟测密钥**：prod 完整 smoke 以 **CI `deploy-stage0` job log** 为唯一验收源；prod 和 Edge main-via-edge 都使用同一类 **`TK_SMOKE_API_KEY`**，模型覆盖由各平台/channel 的 `TK_SMOKE_*_MODELS` 清单决定。
 - **部署前先校验 OIDC 目标实例**：`tokenkey-cicd-oidc` 的 `TargetInstanceId` 必须等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致会在 `Deploy via SSM Run-Command` 直接 `AccessDenied(ssm:SendCommand)`。
 - **禁止 `simple_release_override=true`**：prod / Edge 当前都跑 AWS Graviton arm64；单架构 manifest 会导致 `exec format error`。
 - **`gh` 连接抖动先做无代理重试**：若连续出现 `read ... 127.0.0.1:7890: connection reset by peer`，用一次性环境变量重试：`env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh ...`，恢复后再继续 watch/dispatch。
@@ -240,7 +240,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 3. 取矩阵**第一个** deployable Edge 作为 canary：`dispatch-edge-deploy.sh --operation upgrade --tag=$TARGET_TAG`（**infra smoke**，workflow 默认 `smoke_phase=infra`），watch 到 success。
 4. 推进 prod deploy：canary infra smoke 绿后 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`（prod 不再自动 queue），按 approval 命令自批，watch 到 success。
 5. **prod 验收（CI 唯一源）**：在本次 `deploy-stage0` run log 搜索 `tk_post_deploy_smoke: OK`，并核对 models/chat/messages 等 shape（见「prod 真实测试」§A）。**不要**在本地再跑完整 `post_deploy_smoke.sh`，除非 CI secret 缺失或日志不可解析。
-6. **canary main-via-edge（仅此一次）**：`dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge`（prod 已升级后）。缺 **`TK_SMOKE_EDGE_CANARY_KEY`** 则标记 partial，不 rollback。
+6. **canary main-via-edge（仅此一次）**：`dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge`（prod 已升级后）。缺 **`TK_SMOKE_API_KEY`** 则标记 partial，不 rollback。
 7. **其余 deployable Edge（单命令，fail-stop）**：
 
    ```bash
@@ -249,7 +249,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    ```
 
    脚本逐个 dispatch upgrade → watch（自动重连抖动的 `gh run watch`）→ 验 `tk_edge_post_deploy_smoke: OK phase=infra`，任一失败立即停（其余 edge 留在旧 tag）。**不再**对每个 edge 跑 main-via-edge。
-   - **main-via-edge canary** 仍通常仅 **uk1 / us1**（需 `TK_SMOKE_EDGE_CANARY_KEY`）。
+   - **main-via-edge canary** 仍通常仅 **uk1 / us1**（需 `TK_SMOKE_API_KEY`）。
    - **us2 / us3 / us4** 等 Lightsail-only edge：rollout 以 infra smoke + 可选 `curl https://api-<id>.tokenkey.dev/health` 为准；勿因缺 canary secret 判失败。
 8. **发版后跟进（按 diff 档位，至多一次 tick）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
    - `skip` → 不跟进，直接 rollout summary。
@@ -267,9 +267,9 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 - `/v1/models`：`object=list` 且 `data` 非空。
 - `/v1/chat/completions`：`object=chat.completion`，`choices[]` 非空，`usage` 存在。
 - `/v1/messages`：`type=message`，`role=assistant`，`content[]` 有文本，`usage` 存在。
-- Gemini / OpenAI OAuth 探针：workflow 已配置三个 secret 时应在 log 中出现对应 section（软警告 vs 硬失败见 `post_deploy_smoke.sh`）。
+- Gemini / OpenAI OAuth 探针：workflow 已配置 `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 时应在 log 中按模型出现对应 section（软警告 vs 硬失败见 `post_deploy_smoke.sh`）。
 
-若 CI 因 Anthropic model 不在 key 的 `/v1/models` 列表失败：改 **`prod`** Environment 的 **`TK_SMOKE_PROD_ANTHROPIC_MODEL`** 后 **重跑 deploy-stage0**。
+若 CI 因 smoke model 不在 key 的 `/v1/models` 列表失败：改 **`prod`** Environment 对应的 **`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS`** 后 **重跑 deploy-stage0**。
 
 ### B — 本地快速探活（无密钥，可选）
 
@@ -289,9 +289,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/setti
 ```bash
 export TOKENKEY_BASE_URL=https://api.tokenkey.dev
 export TK_SMOKE_GITHUB_ENV=prod              # 自动拉 GitHub Environment variables
-export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...    # secret 值 GitHub API 不可读，须本机 export 同名
-export TK_SMOKE_PROD_GEMINI_KEY=sk-...
-export TK_SMOKE_PROD_OPENAI_OAUTH_KEY=sk-...
+export TK_SMOKE_API_KEY=sk-...               # secret 值 GitHub API 不可读，须本机 export 同名
 bash ops/stage0/post_deploy_smoke.sh
 ```
 
@@ -309,7 +307,7 @@ bash ops/stage0/post_deploy_smoke.sh
 | `ops/stage0/smoke_lib.sh` | 共享 soft-degrade、model pick、suite gating |
 | `ops/stage0/edge_post_deploy_smoke.sh` | Edge **infra** SSM + **main-via-edge** 编排（调用 post_deploy） |
 | `ops/stage0/gateway_smoke.sh` | 手动 quick 探活（有 key 时 `GATEWAY_SMOKE_SUITE=quick` 委托 post_deploy） |
-| `scripts/stage0/check_smoke_config.py` | 发版前校验 `TK_SMOKE_PROD_ANTHROPIC_MODEL` ∈ key 的 `/v1/models` |
+| `scripts/stage0/check_smoke_config.py` | 发版前校验各平台/channel smoke 模型清单均在 `TK_SMOKE_API_KEY` 的 `/v1/models` |
 | `ops/stage0/smoke_env.sh` | GitHub `TK_SMOKE_*` 默认值与导出（`TK_SMOKE_GITHUB_ENV` 触发 gh 拉 variables） |
 | `ops/stage0/load_smoke_github_env.sh` | 从 GitHub Environment 拉 `TK_SMOKE_*` variables；`--check` 校验 secrets/vars 已配置 |
 
@@ -317,22 +315,22 @@ bash ops/stage0/post_deploy_smoke.sh
 
 | Environment | Secrets | Vars |
 |---|---|---|
-| **`prod`** | `TK_SMOKE_PROD_ANTHROPIC_KEY`, `TK_SMOKE_PROD_GEMINI_KEY`, `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` | `TK_SMOKE_PROD_ANTHROPIC_MODEL`, `TK_SMOKE_PROD_GEMINI_MODEL`, `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL` |
-| **`edge-<id>`** | `TK_SMOKE_EDGE_CANARY_KEY` | —（base URL 与 local model 见下） |
+| **`prod`** | `TK_SMOKE_API_KEY` | `TK_SMOKE_ANTHROPIC_MODELS`, `TK_SMOKE_GEMINI_MODELS`, `TK_SMOKE_OPENAI_OAUTH_MODELS` |
+| **`edge-<id>`** | `TK_SMOKE_API_KEY` | `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`（可选；默认见下） |
 
-> 三把 prod smoke key（anthropic / gemini / openai-oauth）都是 `deploy-stage0.yml` 硬前置——缺任意一把，发版在镜像切换前 `::error::` 失败。
+> `TK_SMOKE_API_KEY` 是 `deploy-stage0.yml` 硬前置——缺 key，发版在镜像切换前 `::error::` 失败。平台覆盖只维护模型清单，不再维护多把平台专用 smoke key。
 
-**Edge smoke 固定值（代码内）：** `TK_SMOKE_EDGE_CANARY_BASE_URL=https://api.tokenkey.dev`，`TK_SMOKE_EDGE_LOCAL_CHAT_MODEL=claude-sonnet-4-6`。
+**Edge smoke 固定值（代码内）：** `TK_SMOKE_EDGE_CANARY_BASE_URL=https://api.tokenkey.dev`，`TK_SMOKE_EDGE_LOCAL_CHAT_MODELS=claude-sonnet-4-6`。
 
 **Suite 矩阵**：
 
 | `GATEWAY_SMOKE_SUITE` | 何时 | 探针 |
 |---|---|---|
-| `full`（默认） | prod `deploy-stage0` | public + frontend + models + chat + messages + gemini/oauth（key 配置时） |
+| `full`（默认） | prod `deploy-stage0` | public + frontend + models + chat/messages 跑 `TK_SMOKE_ANTHROPIC_MODELS`；Gemini tool-schema 跑 `TK_SMOKE_GEMINI_MODELS`；OpenAI OAuth 跑 `TK_SMOKE_OPENAI_OAUTH_MODELS` |
 | `main-via-edge` | canary `smoke_phase=main-via-edge` | public + models + `/v1/messages`（Claude Code UA）；**跳过 chat**（Edge-only key 常限制 `/v1/messages`） |
 | `quick` | 本地 `gateway_smoke.sh` | public + models + chat |
 
-**模型 override**：`TK_SMOKE_PROD_ANTHROPIC_MODEL` 不在 key 的 `/v1/models` 时 **warn + 自动回退**（不再 hard fail）；发版前仍应用 `check_smoke_config.py` 拦截配置漂移。
+**模型清单**：清单中的任一模型不在 `TK_SMOKE_API_KEY` 的 `/v1/models` 时 hard fail；发版前用 `check_smoke_config.py` 提前拦截配置漂移。
 
 ## Edge smoke 验收
 
@@ -618,7 +616,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态（`rollout-edges.sh` 已内置重连）。 |
 | `TK_SMOKE_GITHUB_ENV=prod` 报 `unexpected gh variables response` | 旧版 `load_smoke_github_env.py` 对单页 gh api 响应断言成 list 的 bug，已修；若复现先 `gh api repos/{owner}/{repo}/environments/prod/variables` 看原始形状。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
-| prod smoke 报 Anthropic model not listed in GET /v1/models | 不是代码回归，改 **`prod`** Environment 的 **`TK_SMOKE_PROD_ANTHROPIC_MODEL`** 为该 key 可见模型后重跑。 |
+| prod smoke 报 configured smoke model not listed in GET /v1/models | 不是代码回归，改 **`prod`** Environment 对应的 **`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS`** 为 `TK_SMOKE_API_KEY` 可见模型后重跑。 |
 | `gh` 请求持续报 `read ... 127.0.0.1:7890: connection reset by peer` | 先用 `env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh <cmd>` 做无代理重试；恢复后再继续 watch。 |
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
 | 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |

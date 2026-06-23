@@ -271,7 +271,8 @@ jobs:
           EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
           EDGE_INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
           EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
-          TK_SMOKE_EDGE_CANARY_KEY: ${{ secrets.TK_SMOKE_EDGE_CANARY_KEY }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_EDGE_LOCAL_CHAT_MODELS: ${{ vars.TK_SMOKE_EDGE_LOCAL_CHAT_MODELS || 'claude-sonnet-4-6' }}
         run: |
           set -euo pipefail
           PHASE="${INPUT_SMOKE_PHASE:-}"

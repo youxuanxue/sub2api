@@ -58,7 +58,7 @@
 #   ANTHROPIC_EDGE_BASE      default https://api-us7.tokenkey.dev
 #   ANTHROPIC_KEY_ACCOUNT_ID default 54  (its credentials.api_key relays to the edge)
 #   PROD_BASE                default https://api.tokenkey.dev
-#   OPENAI_KEY_NAME          default TK_SMOKE_PROD_OPENAI_OAUTH_KEY (api_keys.user_id=1)
+#   OPENAI_KEY_NAME          default TK_SMOKE_API_KEY (api_keys.user_id=1)
 #   GEMINI_GROUP_NAME        default google  (verified us6 newapi Vertex group; CASE-SENSITIVE)
 #   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
 #   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
@@ -93,7 +93,7 @@ PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -
 AEDGE="${ANTHROPIC_EDGE_BASE:-https://api-us7.tokenkey.dev}"
 AACCT="${ANTHROPIC_KEY_ACCOUNT_ID:-54}"
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
-OKEY_NAME="${OPENAI_KEY_NAME:-TK_SMOKE_PROD_OPENAI_OAUTH_KEY}"
+OKEY_NAME="${OPENAI_KEY_NAME:-TK_SMOKE_API_KEY}"
 GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
 # Gemini/Vertex lives on an EDGE node whose Caddy restricts /v1/* to the prod
 # gateway CIDR (a host-local request to the public api-<edge> domain 403s with
