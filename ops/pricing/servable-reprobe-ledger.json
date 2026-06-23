@@ -129,6 +129,105 @@
       "probe_family": "gemini_chat"
     },
     {
+      "platform": "gemini",
+      "model": "imagen-3.0-capability-001",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
+    },
+    {
+      "platform": "gemini",
+      "model": "imagen-3.0-fast-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
+    },
+    {
+      "platform": "gemini",
+      "model": "imagen-3.0-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
+    },
+    {
+      "platform": "gemini",
+      "model": "imagen-3.0-generate-002",
+      "reason": "2026-06-23 edge-us6 /v1/images/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_image"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-2.0-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.0-fast-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.0-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-fast-generate-001",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-fast-generate-preview",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-generate-preview",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
+      "platform": "gemini",
+      "model": "veo-3.1-lite-generate-preview",
+      "reason": "2026-06-23 edge-us6 /v1/video/generations reprobe returned 429 inconclusive; current Vertex media path is pool/quota limited, so keep out of the gemini allowlist until a 200 probe.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_video"
+    },
+    {
       "platform": "newapi",
       "model": "kimi-k2.x",
       "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
@@ -157,6 +256,15 @@
       "platform": "newapi",
       "model": "deepseek-v4-none/max",
       "reason": "2026-06-23 prod deepseek-group probes for deepseek-v4-none and deepseek-v4-max returned 429 not_allowlisted; registered DeepSeek ids deepseek-v4-pro/flash and deepseek-chat/reasoner returned 200.",
+      "last_probe": "2026-06-23",
+      "freshness_days": 30,
+      "auto_probe": false,
+      "owner": "tokenkey-onboard-model"
+    },
+    {
+      "platform": "newapi",
+      "model": "doubao-seed-translation-250915",
+      "reason": "2026-06-23 direct VolcEngine Ark /api/v3/chat/completions reprobe returned 400 inconclusive twice; tk_020 maps it and overlay prices it, but it is not promoted to tk_served_models.json until a 200 probe or a confirmed correct translation surface.",
       "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": false,

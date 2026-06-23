@@ -4,7 +4,7 @@
 >
 > **数据来源（repo-grounded，非线上探测）**：本清单由仓库内的权威源推导——5 个 Go servable-allowlist map、`tk_served_models.json` 清单、`tk_pricing_overlay.json` 价格 overlay、各平台 `DefaultModels`、newapi 渠道适配器目录、`model_mapping` 迁移。
 >
-> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/newapi watchlist。实测探针基线：claude/gpt 2026-06-05（`codex-auto-review` 2026-06-23 responses 200）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，判不可定）、antigravity 2026-06-23、grok 2026-06-22（见 `pricing_catalog_supported_models_tk.go` 头注）。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
+> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist。实测探针基线：claude/gpt 2026-06-05（`codex-auto-review` 2026-06-23 responses 200）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，判不可定）、antigravity 2026-06-23、grok 2026-06-22（2026-06-23 alias 再探 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
 >
 > **如何重生成渠道目录**（附录 A）：在 `backend/` 写一个 `//go:build unit` 临时 test 调 `newapi.ChannelTypeModels()` / `ListChannelTypes()` 打印即可（本清单即如此抓取，用后删除）。
 
@@ -23,7 +23,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
 - **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 10、grok 8（5 个 Go map）。
-- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7，GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
+- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单），GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
 - **总计**：约 110 个 servable id / 140 个 priced id。
 - **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
 
@@ -122,7 +122,7 @@ servable allowlist 共 **7**（2026-06-09 探针）：
 | `imagen-4.0-fast-generate-001` / `-generate-001` / `-ultra-generate-001` | image | overlay(vertex_ai) |
 | `veo-3.1-generate-001` | video | overlay(vertex_ai) |
 
-- **`priced_not_displayed`（媒体，~11，低危）**：overlay 里还有 `imagen-3.0-*`（4 个）、`veo-2.0/3.0/3.1` 多个变体——**有价但不在 7-id 展示闸**。纯展示缺口、无资损（都有价）。
+- **`priced_not_displayed`（媒体，~11，低危）**：overlay 里还有 `imagen-3.0-*`（4 个）、`veo-2.0/3.0/3.1` 多个变体——**有价但不在 7-id 展示闸**。2026-06-23 edge-us6 走正确 image/video 端点复测，全部返回 429 inconclusive，不能当成已支持；已进入 `servable-reprobe-ledger.json` watchlist，等下次拿到 200 再扩 allowlist。
 - **`advertised_dead`**：`gemini-2.0-flash`（也是 admin `geminicli.DefaultTestModel`）、`gemini-3.x` chat——2026-06-09 在该 Vertex project 统一 502（**project/region 级**，非 vendor 级：同 wire id 在 antigravity 能 200）。2026-06-23 复测这些 id 与 `gemini-2.5-flash` 基线同返 429，当前只能判为池/配额不可定，不能迁成永久不支持。
 - **wrong-surface 陷阱**：`gemini-*-image`（`gemini-2.5-flash-image` 等）经 `/v1/images/generations` 探返 500，但它们其实走 **chat 端点**——是**无效探针**不是模型死了。2026-06-23 改走 `/v1/chat/completions` 后与 `gemini-2.5-flash` 基线同返 429，继续留在 watchlist。
 - media 路由经 Vertex ch41；gemini 原生生图走 `/v1/chat/completions` 返 markdown 图。
@@ -158,6 +158,7 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 | `grok-imagine-video` | video | $0.08/s(720p+img 上限档) | success_only |
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
+- **兼容别名（不公开列）**：`grok-4.3-latest`、`grok-latest`、`grok-4-fast-reasoning`、`grok-code-fast`、`grok-code-fast-1-0825` 均有 overlay 价，2026-06-23 edge-us4 原生 grok 探针复测 200；它们只保证显式请求不落 `$0`，公开目录仍只列稳定 bare id / 当前官方 SKU。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
 - 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径（prod grok 中继跳 = newapi ct=1 bridge；grok 原生臂只在 edge 跳）。
 
@@ -178,15 +179,17 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 
 **(b) VolcEngine / Doubao + 媒体（账号 7，ct=45）**
 
-overlay `litellm_provider="volcengine"` 共 28 条：
+overlay `litellm_provider="volcengine"` 共 28 条；`tk_served_models.json` 当前正面清单是账号 7 的 24 条（19 chat + 1 image + 4 video），都必须同时满足 mapping + overlay + 实测/既有 served 证据。
 
-| mode | servable id（account_mapping）|
+| mode | servable id（manifest/account_mapping）|
 |---|---|
-| chat | `doubao-1-5-{lite-32k,pro-32k,pro-32k-character,vision-pro-32k}-*`、`doubao-seed-1-6-*`、`doubao-seed-1-8-251228`、`doubao-seed-2-0-{pro,lite,mini,code-preview}-*`、`doubao-seed-{character,code-preview,translation}-*`、`glm-4-7-251222`、`deepseek-v3-2-251201`* |
-| image | `doubao-seedream-4-0-250828`（+ no-prefix `seedream-4-0-250828` parity）|
-| video | `doubao-seedance-{1-0-pro,1-5-pro,2-0,2-0-fast}-*`（+ no-prefix `seedance-1-0-pro-*` parity）；`failure_billing=success_only` |
+| chat | `doubao-seed-2-0-pro-260215`、`doubao-seed-2-0-code-preview-260215`、`doubao-seed-2-0-lite-260215`、`doubao-seed-2-0-lite-260428`、`doubao-seed-2-0-mini-260215`、`doubao-seed-2-0-mini-260428` |
+| chat | `doubao-seed-1-8-251228`、`doubao-seed-1-6-250615`、`doubao-seed-1-6-251015`、`doubao-seed-1-6-flash-250615`、`doubao-seed-1-6-flash-250828`、`doubao-seed-1-6-vision-250815` |
+| chat | `doubao-seed-character-251128`、`doubao-seed-code-preview-251028`、`doubao-1-5-pro-32k-250115`、`doubao-1-5-pro-32k-character-250715`、`doubao-1-5-lite-32k-250115`、`doubao-1-5-vision-pro-32k-250115`、`glm-4-7-251222` |
+| image | `doubao-seedream-4-0-250828`（no-prefix `seedream-4-0-250828` 只是 parity 计费键，不进 manifest）|
+| video | `doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`（no-prefix `seedance-1-0-pro-*` 只是 parity 计费键）；`failure_billing=success_only` |
 
-> *`deepseek-v3-2-251201` 在 overlay 标 volcengine 但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价）；其 servable 家在 DeepSeek 直连（账号 39）。volcengine 标签价是无害残留。
+> `deepseek-v3-2-251201` 在 overlay 标 volcengine 但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价）；其 servable 家在 DeepSeek 直连（账号 39）。volcengine 标签价是无害残留。`doubao-seed-translation-250915` 虽在 tk_020 mapping 与 overlay 中，但 2026-06-23 两次 direct Ark `/api/v3/chat/completions` 复测均为 400 inconclusive，本轮不进 manifest/正面清单。
 
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。
@@ -224,7 +227,8 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
-| `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low、deepseek-v3-2 | 低 | 纯展示，多为预期；可选从 storefront 抑制 parity 行 |
+| `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low、deepseek-v3-2 | 低 | Gemini media 2026-06-23 复测 429，留 watchlist；deepseek-v3-2 是 VolcEngine 价残留，账号 7 不服务 |
+| `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 mapping + overlay 已有，但 2026-06-23 direct Ark 两次 400 inconclusive；不进 manifest，留 watchlist |
 | `priced_not_served` | newapi(qwen) | qwen2.5-coder-* | 中 | 抑制 parity 行的展示，或在账号 60 真 mapping；qwen3.7-max preview/dated 已由 2026-06-23 prod mapping + livefire 证实可服务 |
 | `dated_dup` | anthropic/grok/volcengine | claude bare↔dated、grok-imagine-image-pro、no-prefix seedream/seedance | 低 | anthropic 已由 override 机制处理；其余被 media 守卫/上游 404 收口 |
 | `cross_platform_inconsistency` | claude×{anthropic,kiro,bridge}；gemini×{native,antigravity} | claude-opus-4-*、gemini-2.5/3.x | 中 | 预期的 per-platform 路由真值；唯 kiro 估算 token 路径结构性有损 |
