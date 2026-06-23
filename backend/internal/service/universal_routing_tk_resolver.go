@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -110,6 +111,9 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 	for i := range span {
 		g := span[i]
 		if !g.IsActive() {
+			continue
+		}
+		if isUniversalProbeGroup(g) {
 			continue
 		}
 		if _, ok := candidateSet[g.Platform]; ok {
@@ -232,11 +236,20 @@ func (r *UniversalRoutingResolver) jitteredTTL(userID int64) time.Duration {
 // 是否把 openai-compat 平台并入候选——用 Claude 名映射到 GPT 模型的场景）。
 func spanHasMessagesDispatch(span []Group) bool {
 	for i := range span {
+		if isUniversalProbeGroup(span[i]) {
+			continue
+		}
 		if span[i].AllowMessagesDispatch {
 			return true
 		}
 	}
 	return false
+}
+
+// __tk_probe_* is the reserved debug namespace used by tokenkey-account-model-probe.
+// These direct-key-only groups must never leak into universal-key routing.
+func isUniversalProbeGroup(g Group) bool {
+	return strings.HasPrefix(g.Name, "__tk_probe_")
 }
 
 // pickUniversalBackingGroup 在候选后端组里按确定规则挑一个：持订阅优先 → sort_order → id。

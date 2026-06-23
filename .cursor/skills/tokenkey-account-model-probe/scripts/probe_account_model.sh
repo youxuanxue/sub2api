@@ -88,10 +88,11 @@ cleanup() {
   fi
   if [[ -n "${GROUP_ID:-}" ]]; then
     "${PSQL[@]}" -c "
-DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
-UPDATE api_keys SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(printf "%s" "$KEY_NAME" | sed "s/'/''/g")';
-UPDATE groups SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(printf "%s" "$GROUP_NAME" | sed "s/'/''/g")';
-" >/dev/null 2>&1 || true # preflight-allow: swallow
+	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
+	DELETE FROM user_allowed_groups WHERE group_id = ${GROUP_ID};
+	UPDATE api_keys SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(printf "%s" "$KEY_NAME" | sed "s/'/''/g")';
+	UPDATE groups SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(printf "%s" "$GROUP_NAME" | sed "s/'/''/g")';
+	" >/dev/null 2>&1 || true # preflight-allow: swallow
   fi
   sudo docker exec "$APP_CONTAINER" rm -f /tmp/tk-probe-request.json /tmp/tk-probe-response.json /tmp/tk-probe-headers.txt >/dev/null 2>&1 || true # preflight-allow: swallow
 }
@@ -103,18 +104,20 @@ INSERT INTO groups (
   subscription_type, default_validity_days, claude_code_only,
   model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
-  '$(printf "%s" "$GROUP_NAME" | sed "s/'/''/g")',
-  'temporary account/model probe; auto-cleaned by tokenkey-account-model-probe',
-  '$(printf "%s" "$PLATFORM" | sed "s/'/''/g")',
-  1.0, false, 'active',
-  'standard', 30, false,
-  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
-) RETURNING id;
+	  '$(printf "%s" "$GROUP_NAME" | sed "s/'/''/g")',
+	  'exclusive temporary account/model probe; direct probe key only; excluded from universal routing',
+	  '$(printf "%s" "$PLATFORM" | sed "s/'/''/g")',
+	  1.0, true, 'active',
+	  'standard', 30, false,
+	  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
+	) RETURNING id;
 " | tr -d '[:space:]')"
 
 if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
   fail_json "failed to create temporary group"
 fi
+
+"${PSQL[@]}" -c "DELETE FROM user_allowed_groups WHERE group_id = ${GROUP_ID};" >/dev/null
 
 "${PSQL[@]}" -c "
 INSERT INTO account_groups (account_id, group_id, priority, created_at)
@@ -337,6 +340,8 @@ out = {
         "temporary_api_key_id": int(api_key_id),
         "temporary_api_key_name": key_name,
         "kept_artifacts": keep_raw == "1",
+        "exclusive_group": True,
+        "universal_routing_excluded": True,
         "request_timeout_seconds": int(request_timeout_seconds),
     },
     "usage_match": usage,

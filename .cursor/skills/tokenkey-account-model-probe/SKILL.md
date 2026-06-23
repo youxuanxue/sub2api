@@ -5,7 +5,7 @@ description: Probe a specific TokenKey prod or edge account against one model wi
 
 # TokenKey Account Model Probe
 
-Run a live, low-cost probe for one account and one model. Default path creates a temporary `__tk_probe_*` group and API key on the target host, routes one real gateway request through a pool containing only the target account, then cleans the artifacts.
+Run a live, low-cost probe for one account and one model. Default path creates a temporary exclusive `__tk_probe_*` group and API key on the target host, routes one real gateway request through a pool containing only the target account, then cleans the artifacts.
 
 Use `ops/observability/run-probe.sh`; do not SSH manually.
 
@@ -58,6 +58,7 @@ Never paste returned API keys or credentials. The script intentionally prints ID
 - Prefer this skill over creating permanent admin groups for single-account debugging.
 - This is a live probe. It may consume a tiny amount of quota and can update normal usage tables.
 - Default cleanup must leave no persistent debug group/key. If `KEEP_PROBE_ARTIFACTS=1`, delete them manually after debugging.
+- Probe groups must stay exclusive and must not be added to `user_allowed_groups`; they are direct probe-key only and must not enter universal-key routing candidates.
 - Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, and `responses` for Codex/OpenAI responses.
 - If the goal is "can the raw upstream credential serve this model" for an API-key-compatible account, direct upstream curl can be a follow-up, but the default gateway probe is the authoritative TokenKey-path proof.
 
