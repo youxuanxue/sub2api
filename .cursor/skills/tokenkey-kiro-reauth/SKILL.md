@@ -20,17 +20,43 @@ mechanical steps:
 - `.cursor/skills/tokenkey-kiro-reauth/scripts/probe_edge_auth_summary.sh`
 - `.cursor/skills/tokenkey-kiro-reauth/scripts/probe_real_kiro_request.sh`
 
+## Fast Path
+
+Use the orchestrator first. It normalizes `edge-<id>` / `edge:<id>` to the
+deployable edge id, resolves the exact Kiro OAuth account by name when
+`--account-id` is omitted, defaults the admin password file from the normalized
+edge id, and fails closed on zero or multiple matches.
+
+```bash
+# read-only: resolve edge + exact account, no local credential read, no writes
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
+  <account-name> <edge-id> --plan-only
+
+# read-only: compare local safe fingerprints with edge safe fingerprints
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
+  <account-name> <edge-id>
+
+# repair + verify: apply current local Kiro cache, restore schedulable, prove traffic
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
+  <account-name> <edge-id> \
+  --apply --ensure-schedulable --verify-real-request
+```
+
+Example: `kiro-us6-real edge-us6` resolves to edge `us6`, account id `2`, and
+`~/Codes/keys/tokenkey-us6-admin-password.txt` when present.
+
 ## Ground Rules
 
 - Treat all Kiro credentials as secrets. Never print `access_token`,
   `refresh_token`, `client_secret`, or full credentials JSON in chat or logs.
 - Prefer read-only diagnosis first. Writing refreshed credentials to an edge is
   a live operation and requires explicit user authorization.
-- Use exact account identity before writing: edge id, account id, account name,
+- Use exact account identity before writing: normalized edge id, account id,
+  account name,
   `platform=kiro`, `type=oauth`, group binding, status, schedulable.
 - Use `ops/observability/run-probe.sh --target edge:<id>` for remote probes.
-  If a custom temporary probe is required, create it via `apply_patch`, run it,
-  then delete it before the final response.
+  Prefer the bundled probes; create a custom temporary probe only when a bundled
+  probe cannot answer the question, then delete it before the final response.
 - Every remote SQL query must emit field-named JSON (`row_to_json` or
   `jsonb_build_object`). Never rely on column positions.
 
@@ -58,17 +84,24 @@ mechanical steps:
 
 ## Deterministic Workflow
 
-Default to the orchestrator unless you are debugging a specific phase:
+Default to the orchestrator unless you are debugging a specific phase. The
+preferred shorthand is:
+
+```bash
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
+  <account-name> <edge-id> \
+  --apply --ensure-schedulable --verify-real-request
+```
+
+The explicit form still works:
 
 ```bash
 python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
   --edge-id <edge> \
-  --account-id <id> \
   --account-name <name> \
   --apply \
   --ensure-schedulable \
-  --verify-real-request \
-  --admin-password-file ~/Codes/keys/tokenkey-<edge>-admin-password.txt
+  --verify-real-request
 ```
 
 Useful variants:
@@ -76,22 +109,22 @@ Useful variants:
 ```bash
 # read-only plan / target resolution only
 python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
-  --edge-id <edge> --account-id <id> --account-name <name> --plan-only
+  <account-name> <edge-id> --plan-only
 
 # local reauth already fresh, compare only, no writes
 python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
-  --edge-id <edge> --account-id <id> --account-name <name>
+  <account-name> <edge-id>
 
 # mint a fresh local access token first, then apply and verify
 python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
-  --edge-id <edge> --account-id <id> --account-name <name> \
-  --local-refresh --apply --ensure-schedulable --verify-real-request \
-  --admin-password-file ~/Codes/keys/tokenkey-<edge>-admin-password.txt
+  <account-name> <edge-id> \
+  --local-refresh --apply --ensure-schedulable --verify-real-request
 ```
 
 ### 1. Resolve the Edge and Identify the Exact Account
 
-If you are not using the orchestrator, resolve target metadata first:
+The orchestrator handles this. If you are debugging manually, resolve target
+metadata first:
 
 ```bash
 python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id <edge> --format json
@@ -134,6 +167,15 @@ Use this only after the user confirms Kiro was opened and re-authorized locally.
 Run locally on the operator machine. Do not save the emitted JSON under a repo
 path.
 
+For the operator onboarding doc handoff, prefer the repo-level field exporter.
+It writes a human-readable admin-form field file with mode `0600`; the operator
+doc intentionally tells operators to receive fields from a technical owner
+instead of running skill scripts themselves:
+
+```bash
+bash ops/kiro/export-tokenkey-fields.sh /tmp/kiro-tokenkey-fields.txt
+```
+
 Commands:
 
 ```bash
@@ -161,13 +203,13 @@ Rules:
 
 ### 4. Edge Auth Summary Probe
 
-After you know the exact `ACCOUNT_ID` and `ACCOUNT_NAME`, read the edge summary:
+After you know the exact `ACCOUNT_NAME`, read the edge summary. `ACCOUNT_ID` is
+optional and should be passed when already known:
 
 ```bash
 bash ops/observability/run-probe.sh \
   --target edge:<edge> \
   --script .cursor/skills/tokenkey-kiro-reauth/scripts/probe_edge_auth_summary.sh \
-  --env ACCOUNT_ID=<id> \
   --env ACCOUNT_NAME=<name>
 ```
 
@@ -201,6 +243,10 @@ python3 .cursor/skills/tokenkey-kiro-reauth/scripts/apply_edge_kiro_oauth.py \
 ```
 
 3. Re-read the edge auth summary immediately afterward.
+
+Do not use the helper directly for normal runs; the orchestrator already wraps
+payload generation, identity check, apply, post-summary, compare, and real
+request verification.
 
 Important:
 
