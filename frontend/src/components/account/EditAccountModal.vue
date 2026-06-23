@@ -36,6 +36,22 @@
         />
       </div>
 
+      <!-- kiro (6th platform, OAuth): token refresh paste path. Blank secrets keep current values. -->
+      <div v-if="account.platform === 'kiro'" class="space-y-4">
+        <AccountKiroPlatformFields
+          v-model:accessToken="kiroAccessToken"
+          v-model:refreshToken="kiroRefreshToken"
+          v-model:region="kiroRegion"
+          v-model:authMethod="kiroAuthMethod"
+          v-model:machineId="kiroMachineId"
+          v-model:clientId="kiroClientId"
+          v-model:clientSecret="kiroClientSecret"
+          v-model:profileArn="kiroProfileArn"
+          v-model:tosAcknowledged="kiroTosAcknowledged"
+          variant="edit"
+        />
+      </div>
+
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <!--
@@ -2529,6 +2545,8 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
+import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'
+import { useTkAccountKiroPlatform } from '@/composables/useTkAccountKiroPlatform'
 import AccountGrokPlatformFields from './AccountGrokPlatformFields.vue'
 import { useTkAccountGrokPlatform } from '@/composables/useTkAccountGrokPlatform'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
@@ -2635,6 +2653,21 @@ const {
   isNewapi: () => props.account?.platform === 'newapi',
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
 })
+
+// 第六平台 kiro：编辑时可轮换 access_token / refresh_token 与 IdC 字段。
+const {
+  accessToken: kiroAccessToken,
+  refreshToken: kiroRefreshToken,
+  region: kiroRegion,
+  authMethod: kiroAuthMethod,
+  machineId: kiroMachineId,
+  clientId: kiroClientId,
+  clientSecret: kiroClientSecret,
+  profileArn: kiroProfileArn,
+  tosAcknowledged: kiroTosAcknowledged,
+  populateFromAccount: kiroPopulateFromAccount,
+  buildSubmitBundle: kiroBuildSubmitBundle,
+} = useTkAccountKiroPlatform()
 
 // 第七平台 grok：编辑时的 refresh_token 轮换 + base_url。
 const {
@@ -3322,6 +3355,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   loadTempUnschedRules(credentials)
 
+  if (newAccount.platform === 'kiro') {
+    kiroPopulateFromAccount({
+      credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
+    })
+  }
+
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
@@ -3969,6 +4008,22 @@ const handleSubmit = async () => {
       }
     }
 
+    if (props.account.platform === 'kiro') {
+      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const bundle = kiroBuildSubmitBundle('edit')
+      if (!bundle) return
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
+
+      delete newCredentials.machine_id
+      delete newCredentials.profile_arn
+      if (bundle.credentials.auth_method !== 'idc') {
+        delete newCredentials.client_id
+        delete newCredentials.client_secret
+      }
+
+      updatePayload.credentials = { ...newCredentials, ...bundle.credentials }
+    }
+
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
@@ -4310,8 +4365,8 @@ const handleSubmit = async () => {
 
       updatePayload.credentials = newCredentials
     } else {
-      // For oauth/setup-token types, only update intercept_warmup_requests if changed
-      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
@@ -55,6 +55,19 @@ vi.mock('vue-i18n', async () => {
 })
 
 import EditAccountModal from '../EditAccountModal.vue'
+
+beforeEach(() => {
+  updateAccountMock.mockReset()
+  checkMixedChannelRiskMock.mockReset()
+  getWebSearchEmulationConfigMock.mockReset()
+  getSettingsMock.mockReset()
+  listTLSFingerprintProfilesMock.mockReset()
+
+  checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+  getWebSearchEmulationConfigMock.mockResolvedValue({ enabled: false, providers: [] })
+  getSettingsMock.mockResolvedValue({ account_quota_notify_enabled: false })
+  listTLSFingerprintProfilesMock.mockResolvedValue([])
+})
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -167,6 +180,32 @@ function buildVertexAccount() {
     group_ids: [],
     expires_at: null,
     auto_pause_on_expired: false
+  } as any
+}
+
+function buildKiroAccount() {
+  return {
+    id: 6,
+    name: 'Kiro Real',
+    notes: '',
+    platform: 'kiro',
+    type: 'oauth',
+    credentials: {
+      region: 'us-east-1',
+      auth_method: 'social',
+      machine_id: 'old-machine',
+      profile_arn: '',
+      tos_acknowledged: true
+    },
+    extra: {},
+    proxy_id: null,
+    concurrency: 30,
+    priority: 10,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: true
   } as any
 }
 
@@ -549,5 +588,58 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).not.toHaveBeenCalled()
   })
-})
 
+  it('renders and submits Kiro credential fields in edit mode', async () => {
+    const account = buildKiroAccount()
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    const accessTokenInput = wrapper.get<HTMLTextAreaElement>(
+      'textarea[placeholder="admin.accounts.kiroPlatform.accessTokenPlaceholder"]'
+    )
+    const refreshTokenInput = wrapper.get<HTMLTextAreaElement>(
+      'textarea[placeholder="admin.accounts.kiroPlatform.refreshTokenPlaceholder"]'
+    )
+    const authMethodSelect = wrapper
+      .findAll<HTMLSelectElement>('select')
+      .find((select) => select.find('option[value="idc"]').exists())
+    expect(authMethodSelect).toBeTruthy()
+    const tosCheckbox = wrapper.get<HTMLInputElement>('input[type="checkbox"]')
+
+    expect(tosCheckbox.element.checked).toBe(true)
+
+    await accessTokenInput.setValue('new-access-token')
+    await refreshTokenInput.setValue('new-refresh-token')
+    await wrapper.get<HTMLInputElement>('input[placeholder="us-east-1"]').setValue('us-west-2')
+    await authMethodSelect!.setValue('idc')
+    await wrapper
+      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.clientIdPlaceholder"]')
+      .setValue('new-client-id')
+    await wrapper
+      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.clientSecretPlaceholder"]')
+      .setValue('new-client-secret')
+    await wrapper
+      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.machineIdPlaceholder"]')
+      .setValue('new-machine-id')
+    await wrapper
+      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.profileArnPlaceholder"]')
+      .setValue('arn:aws:codewhisperer:us-west-2:123456789012:profile/example')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      access_token: 'new-access-token',
+      refresh_token: 'new-refresh-token',
+      region: 'us-west-2',
+      auth_method: 'idc',
+      client_id: 'new-client-id',
+      client_secret: 'new-client-secret',
+      machine_id: 'new-machine-id',
+      profile_arn: 'arn:aws:codewhisperer:us-west-2:123456789012:profile/example',
+      tos_acknowledged: true
+    })
+  })
+})
