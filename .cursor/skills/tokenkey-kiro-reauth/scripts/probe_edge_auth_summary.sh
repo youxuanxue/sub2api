@@ -14,10 +14,19 @@ if [[ -z "${ACCOUNT_NAME}" ]]; then
   exit 0
 fi
 
-name_sql="${ACCOUNT_NAME//\'/\'\'}"
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+sql_b64() {
+  python3 - "$1" <<'PY'
+import base64
+import sys
 
-result="$($PSQL -c "
+print(base64.b64encode(sys.argv[1].encode("utf-8")).decode("ascii"), end="")
+PY
+}
+
+ACCOUNT_NAME_B64="$(sql_b64 "${ACCOUNT_NAME}")"
+PSQL=(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+
+result="$("${PSQL[@]}" -c "
 SELECT row_to_json(t)
 FROM (
   SELECT
@@ -59,7 +68,7 @@ FROM (
   FROM accounts a
   LEFT JOIN account_groups ag ON ag.account_id = a.id
   WHERE a.id = ${ACCOUNT_ID}
-    AND a.name = '${name_sql}'
+    AND a.name = convert_from(decode('${ACCOUNT_NAME_B64}','base64'),'utf8')
     AND a.platform = 'kiro'
     AND a.type = 'oauth'
     AND a.deleted_at IS NULL

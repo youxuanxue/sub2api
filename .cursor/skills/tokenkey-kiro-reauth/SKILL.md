@@ -241,26 +241,32 @@ not admin usage and not speculative refresh output.
 bash ops/observability/run-probe.sh \
   --target edge:<edge> \
   --script .cursor/skills/tokenkey-kiro-reauth/scripts/probe_real_kiro_request.sh \
+  --env ACCOUNT_ID=<id> \
   --env GROUP_NAME=kiro \
   --env MODEL=claude-opus-4-8
 ```
 
 This probe:
 
-- fetches the direct Kiro group API key from the edge DB
+- resolves the exact target account inside the named group, then fetches that
+  group's direct API key from the edge DB
 - sends a real `POST /v1/messages` **from inside the `tokenkey` container**
-- returns only safe response shape data and recent Kiro access-log rows
+- correlates the resulting request by exact `X-Client-Request-ID` /
+  `usage_logs.request_id=client:<id>` and reports whether the target account
+  actually served it
+- returns only safe response shape data, exact request correlation, and recent
+  Kiro access-log rows
 
 Success criterion:
 
+- `verification.verdict == "exact_target_verified"`
 - `request.http_status == 200`
 - response `type=message`
 - `role=assistant`
 
 The returned text does **not** need to match an exact marker string. A real 200
-message response is the truth signal. Recent Kiro access-log rows are secondary
-evidence; an empty recent window does not override a successful real 200
-response.
+that routed to a **different** Kiro sibling account is **not** success for the
+reauth target; the probe reports that as `wrong_account_served`, not as a pass.
 
 ### 8. Verification Summary
 

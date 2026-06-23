@@ -168,7 +168,7 @@ def compare_summaries(local_obj: dict[str, Any], edge_obj: dict[str, Any]) -> di
         )
 
 
-def real_probe(edge_id: str, group_name: str, model: str, prompt_text: str, log_window: str) -> dict[str, Any]:
+def real_probe(edge_id: str, account_id: int, group_name: str, model: str, prompt_text: str, log_window: str) -> dict[str, Any]:
     argv = [
         "bash",
         str(RUN_PROBE),
@@ -176,6 +176,8 @@ def real_probe(edge_id: str, group_name: str, model: str, prompt_text: str, log_
         f"edge:{edge_id}",
         "--script",
         str(REAL_PROBE),
+        "--env",
+        f"ACCOUNT_ID={account_id}",
         "--env",
         f"GROUP_NAME={group_name}",
         "--env",
@@ -263,13 +265,19 @@ def main() -> int:
         )
         output["apply_result"] = apply_result
 
-    post_edge = edge_summary(args.edge_id, args.account_id, args.account_name)
-    output["post_apply_edge_summary"] = post_edge
-    output["compare"] = compare_summaries(local_summary_obj, post_edge)
+    compare_edge = pre_edge
+    output["compare_edge_source"] = "pre_apply_edge_summary"
+    if args.apply:
+        post_edge = edge_summary(args.edge_id, args.account_id, args.account_name)
+        output["post_apply_edge_summary"] = post_edge
+        compare_edge = post_edge
+        output["compare_edge_source"] = "post_apply_edge_summary"
+    output["compare"] = compare_summaries(local_summary_obj, compare_edge)
 
     if args.verify_real_request:
         output["real_request_probe"] = real_probe(
             args.edge_id,
+            args.account_id,
             args.group_name,
             args.model,
             args.prompt_text,
