@@ -1247,6 +1247,23 @@ else
     echo "  ok: release.yml simple_release default = false (Graviton-safe)"
 fi
 
+# ---- sub2api: GoReleaser Docker config is Graviton-safe + v2 ---------------
+# Keeps release.yml on the faster dockers_v2 path. The legacy `dockers` +
+# `docker_manifests` split pushes per-arch intermediate tags and then creates
+# shared manifests afterward; it is extra registry work on the slowest release
+# path. Default/full releases must also keep linux/arm64 because prod + Edge
+# Stage0 hosts are Graviton.
+echo ""
+echo "=== sub2api: GoReleaser Docker config ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to parse GoReleaser configs)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/release-goreleaser-docker.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: GoReleaser Docker config uses dockers_v2 with safe platforms"
+fi
+
 # ---- sub2api: main ancestry anchor ------------------------------------------
 # Mechanizes CLAUDE.md §5.y / §5.y.1 ("`main` is immutable history once
 # pushed"). The previous enforcement stack worked on diff content; none of
