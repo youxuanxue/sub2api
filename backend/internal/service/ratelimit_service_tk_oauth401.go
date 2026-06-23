@@ -52,7 +52,7 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 		return false
 	}
 	if account.Platform == PlatformKiro && account.Type == AccountTypeOAuth {
-		if s.tkHandleKiroOAuth401OnValidToken(ctx, account, upstreamMsg, *expiresAt) {
+		if s.tkHandleKiroOAuthAuthReject(ctx, account, upstreamMsg, *expiresAt, "401_valid_token") {
 			return true
 		}
 	}
@@ -71,7 +71,22 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 	return true
 }
 
-func (s *RateLimitService) tkHandleKiroOAuth401OnValidToken(ctx context.Context, account *Account, upstreamMsg string, expiresAt time.Time) bool {
+func (s *RateLimitService) tkMaybeRefreshKiroInvalidBearer403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) bool {
+	if s == nil || account == nil || account.Platform != PlatformKiro || account.Type != AccountTypeOAuth {
+		return false
+	}
+	if !tkIsKiroInvalidBearer403(upstreamMsg, responseBody) {
+		return false
+	}
+	return s.tkHandleKiroOAuthAuthReject(ctx, account, upstreamMsg, time.Time{}, "403_invalid_bearer")
+}
+
+func tkIsKiroInvalidBearer403(upstreamMsg string, responseBody []byte) bool {
+	hay := strings.ToLower(strings.TrimSpace(upstreamMsg) + "\n" + strings.TrimSpace(string(responseBody)))
+	return strings.Contains(hay, "bearer token") && strings.Contains(hay, "invalid")
+}
+
+func (s *RateLimitService) tkHandleKiroOAuthAuthReject(ctx context.Context, account *Account, upstreamMsg string, expiresAt time.Time, reason string) bool {
 	if s == nil || account == nil || s.oauthRefreshAPI == nil {
 		return false
 	}
@@ -86,34 +101,37 @@ func (s *RateLimitService) tkHandleKiroOAuth401OnValidToken(ctx context.Context,
 	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
 	if err != nil {
 		if isNonRetryableRefreshError(err) {
-			slog.Warn("kiro_oauth_401_force_refresh_nonretryable",
+			slog.Warn("kiro_oauth_auth_reject_force_refresh_nonretryable",
 				"account_id", account.ID,
-				"expires_at", expiresAt.UTC().Format(time.RFC3339),
+				"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+				"reason", reason,
 				"error", err,
 			)
 			return false
 		}
-		msg := "Kiro OAuth 401 on a still-valid access token; force-refresh failed, temporary cooldown"
+		msg := "Kiro OAuth auth rejection; force-refresh failed, temporary cooldown"
 		if strings.TrimSpace(upstreamMsg) != "" {
 			msg = msg + ": " + upstreamMsg
 		}
 		msg = msg + fmt.Sprintf(" (refresh_error=%v)", err)
-		slog.Warn("kiro_oauth_401_force_refresh_failed_cooldown",
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_failed_cooldown",
 			"account_id", account.ID,
-			"expires_at", expiresAt.UTC().Format(time.RFC3339),
+			"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+			"reason", reason,
 			"error", err,
 		)
 		s.tkApplyOAuth401Cooldown(ctx, account, msg)
 		return true
 	}
 	if result != nil && result.LockHeld {
-		msg := "Kiro OAuth 401 on a still-valid access token; force-refresh already in progress, temporary cooldown"
+		msg := "Kiro OAuth auth rejection; force-refresh already in progress, temporary cooldown"
 		if strings.TrimSpace(upstreamMsg) != "" {
 			msg = msg + ": " + upstreamMsg
 		}
-		slog.Info("kiro_oauth_401_force_refresh_lock_held",
+		slog.Info("kiro_oauth_auth_reject_force_refresh_lock_held",
 			"account_id", account.ID,
-			"expires_at", expiresAt.UTC().Format(time.RFC3339),
+			"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+			"reason", reason,
 		)
 		s.tkApplyOAuth401Cooldown(ctx, account, msg)
 		return true
@@ -123,30 +141,38 @@ func (s *RateLimitService) tkHandleKiroOAuth401OnValidToken(ctx context.Context,
 	}
 
 	if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
-		slog.Warn("kiro_oauth_401_force_refresh_clear_error_failed", "account_id", account.ID, "error", err)
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_clear_error_failed", "account_id", account.ID, "error", err)
 	}
 	if err := s.accountRepo.SetSchedulable(ctx, account.ID, true); err != nil {
-		slog.Warn("kiro_oauth_401_force_refresh_set_schedulable_failed", "account_id", account.ID, "error", err)
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_set_schedulable_failed", "account_id", account.ID, "error", err)
 	}
 	if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
-		slog.Warn("kiro_oauth_401_force_refresh_clear_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_clear_temp_unschedulable_failed", "account_id", account.ID, "error", err)
 	}
 	if s.tempUnschedCache != nil {
 		if err := s.tempUnschedCache.DeleteTempUnsched(ctx, account.ID); err != nil {
-			slog.Warn("kiro_oauth_401_force_refresh_clear_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
+			slog.Warn("kiro_oauth_auth_reject_force_refresh_clear_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
 		}
 	}
 	if s.tokenCacheInvalidator != nil {
 		if err := s.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
-			slog.Warn("kiro_oauth_401_force_refresh_invalidate_cache_failed", "account_id", account.ID, "error", err)
+			slog.Warn("kiro_oauth_auth_reject_force_refresh_invalidate_cache_failed", "account_id", account.ID, "error", err)
 		}
 	}
 	s.notifyAccountSchedulingBlockCleared(account.ID)
-	slog.Info("kiro_oauth_401_force_refresh_recovered",
+	slog.Info("kiro_oauth_auth_reject_force_refresh_recovered",
 		"account_id", account.ID,
-		"expires_at", expiresAt.UTC().Format(time.RFC3339),
+		"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+		"reason", reason,
 	)
 	return true
+}
+
+func tkFormatOptionalTimeUTC(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // tkApplyOAuth401Cooldown 把一次非-Anthropic OAuth 401 落成 temp_unschedulable 冷却 +
