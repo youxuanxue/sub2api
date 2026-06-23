@@ -219,6 +219,14 @@
       "rationale": "Wire provider registration for the kiro forwarder (NewKiroGatewayService). Dropping it de-wires the gateway's kiro branch dependency. (The KiroTokenRefresher is constructed inside NewTokenRefreshService, not via wire — its registration is guarded by the token_refresh_service.go sentinel entry instead.)"
     },
     {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "refreshAPI *OAuthRefreshAPI",
+        "svc.SetOAuthRefreshAPI(refreshAPI)"
+      ],
+      "rationale": "Production wiring for the Kiro valid-token 401 force-refresh path. RateLimitService.tkHandleKiroOAuth401OnValidToken needs OAuthRefreshAPI to refresh Kiro using the edge's existing refresh_token/client credentials before falling back to grant-revoked SetError. An upstream merge that drops this parameter or setter still compiles but leaves s.oauthRefreshAPI nil, silently reverting Kiro valid-token 401 to manual re-OAuth."
+    },
+    {
       "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate_test.go",
       "must_contain": [
         "tkValidateKiroAccountCreate"

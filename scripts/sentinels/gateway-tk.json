@@ -265,9 +265,19 @@
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,",
-        "svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)"
+        "svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)",
+        "refreshAPI *OAuthRefreshAPI",
+        "svc.SetOAuthRefreshAPI(refreshAPI)"
       ],
-      "rationale": "ProvideRateLimitService MUST keep the Anthropic upstream-error counter parameter and the SetAnthropicUpstreamErrorCounterCache wire call. If an upstream merge drops either line, handleAnthropicUpstreamError silently falls through (nil counter → returns false → no temp_unschedulable) and the burst protection becomes a NOOP that compiles cleanly and passes all current unit tests. The literal parameter declaration is what wire.go regen sees; the Set call is what hands the dependency to the runtime service. (The former OAuth401AfterRefreshCounterCache parameter + SetOAuth401AfterRefreshCounter call were removed when the revoked-OAuth-401 escalation was replaced by the token-validity check in ratelimit_service_tk_oauth401.go, which needs no injected counter.)"
+      "rationale": "ProvideRateLimitService MUST keep the Anthropic upstream-error counter parameter and the SetAnthropicUpstreamErrorCounterCache wire call. If an upstream merge drops either line, handleAnthropicUpstreamError silently falls through (nil counter → returns false → no temp_unschedulable) and the burst protection becomes a NOOP that compiles cleanly and passes all current unit tests. The Kiro valid-token 401 force-refresh path also depends on OAuthRefreshAPI being injected here; dropping the refreshAPI parameter or svc.SetOAuthRefreshAPI(refreshAPI) compiles but leaves s.oauthRefreshAPI nil, silently reverting Kiro still-valid access-token 401 back to manual re-OAuth. The literal parameter declarations are what wire.go regen sees; the Set calls are what hand the dependencies to the runtime service. (The former OAuth401AfterRefreshCounterCache parameter + SetOAuth401AfterRefreshCounter call were removed when the revoked-OAuth-401 escalation was replaced by the token-validity check in ratelimit_service_tk_oauth401.go, which needs no injected counter.)"
+    },
+    {
+      "path": "backend/internal/service/wire_tk_kiro_test.go",
+      "must_contain": [
+        "TestProvideRateLimitService_KiroOAuth401RefreshAPIWired",
+        "require.Same(t, refreshAPI, svc.oauthRefreshAPI)"
+      ],
+      "rationale": "Focused regression proving ProvideRateLimitService wires OAuthRefreshAPI into RateLimitService. This is the guard for the Kiro valid-token 401 force-refresh production seam: if an upstream merge rewrites service/wire.go and omits svc.SetOAuthRefreshAPI(refreshAPI), the app still builds but Kiro falls back to grant-revoked/manual re-OAuth instead of refreshing the edge's current refresh_token/client credentials."
     },
     {
       "path": "backend/internal/repository/wire.go",
