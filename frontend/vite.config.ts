@@ -34,6 +34,19 @@ function injectPublicSettings(backendUrl: string): Plugin {
   }
 }
 
+const ENTRY_HTML_PRELOAD_BLOCKLIST = [
+  '/AccountsView-',
+  '/AccountUsageCell-',
+  '/CreateAccountModal-',
+  '/EditAccountModal-',
+  '/BulkEditAccountModal-',
+  '/ModelWhitelistSelector',
+  '/OAuthAuthorizationFlow',
+  '/DashboardView-',
+  '/admin-dashboard-view-',
+  '/vendor-chart-'
+]
+
 export default defineConfig(({ mode }) => {
   // 加载环境变量
   const env = loadEnv(mode, process.cwd(), '')
@@ -61,6 +74,17 @@ export default defineConfig(({ mode }) => {
     __INTLIFY_JIT_COMPILATION__: true
   },
   build: {
+    modulePreload: {
+      resolveDependencies(filename, deps, context) {
+        if (context.hostType !== 'html') return deps
+
+        // TK admin perf: the SPA shell is shared by all routes. Keep route-level
+        // dynamic-import preloads intact; only trim the index.html eager set.
+        if (!filename.startsWith('assets/index-')) return deps
+
+        return deps.filter(dep => !ENTRY_HTML_PRELOAD_BLOCKLIST.some(token => dep.includes(token)))
+      }
+    },
     outDir: '../backend/internal/web/dist',
     emptyOutDir: true,
     rollupOptions: {
@@ -112,22 +136,6 @@ export default defineConfig(({ mode }) => {
             return 'vendor-misc'
           }
 
-          // TK admin perf: isolate heavy account page surfaces from the entry chunk.
-          if (id.includes('/components/account/CreateAccountModal') ||
-              id.includes('/components/account/EditAccountModal') ||
-              id.includes('/components/account/BulkEditAccountModal')) {
-            return 'admin-account-modals'
-          }
-          if (id.includes('/components/account/usage-cells/')) {
-            return 'admin-account-usage-cells'
-          }
-          if (id.includes('/views/admin/AccountsView.vue')) {
-            return 'admin-accounts-view'
-          }
-          if (id.includes('/views/admin/DashboardView.vue') ||
-              id.includes('/components/charts/')) {
-            return 'admin-dashboard-view'
-          }
           if (id.includes('/views/admin/AdminShellView.vue') ||
               id.includes('/components/layout/AppLayout.vue') ||
               id.includes('/components/layout/AppSidebar.vue') ||

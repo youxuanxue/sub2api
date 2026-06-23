@@ -28,8 +28,7 @@ export function clearAccountUsageCache(accountId?: number) {
 
 const desktopViewportQuery = '(min-width: 768px)'
 
-function shouldFetchUsageForAccount(props: AccountUsageCellProps): boolean {
-  if (props.usageOverride !== undefined) return false
+function canFetchUsageForAccount(props: AccountUsageCellProps): boolean {
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }
@@ -43,6 +42,11 @@ function shouldFetchUsageForAccount(props: AccountUsageCellProps): boolean {
     return props.account.type === 'oauth'
   }
   return false
+}
+
+function shouldAutoFetchUsageForAccount(props: AccountUsageCellProps): boolean {
+  if (props.usageOverride !== undefined) return false
+  return canFetchUsageForAccount(props)
 }
 
 export function useAccountUsageFetch(
@@ -84,7 +88,8 @@ export function useAccountUsageFetch(
   let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
   let visibilityObserver: IntersectionObserver | null = null
 
-  const shouldFetchUsage = computed(() => shouldFetchUsageForAccount(props))
+  const shouldFetchUsage = computed(() => shouldAutoFetchUsageForAccount(props))
+  const canFetchUsage = computed(() => canFetchUsageForAccount(props))
 
   const shouldAutoLoadUsageOnMount = computed(() => shouldFetchUsage.value)
 
@@ -105,7 +110,7 @@ export function useAccountUsageFetch(
     source?: 'passive' | 'active'
     bypassCache?: boolean
   }) => {
-    if (!shouldFetchUsage.value) return
+    if (!canFetchUsage.value) return
 
     if (!loadOptions?.bypassCache) {
       const cached = _usageCache.get(props.account.id)
@@ -233,7 +238,10 @@ export function useAccountUsageFetch(
     () => props.manualRefreshToken,
     (nextToken, prevToken) => {
       if (nextToken === prevToken) return
-      if (!shouldFetchUsage.value) return
+      if (!canFetchUsage.value) return
+      // AccountsView already refreshes Anthropic passive usage through the batch
+      // endpoint before bumping this token; do not reintroduce per-row fan-out.
+      if (props.usageOverride !== undefined && isAnthropicOAuthOrSetupToken.value) return
 
       const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
       _usageCache.delete(props.account.id)

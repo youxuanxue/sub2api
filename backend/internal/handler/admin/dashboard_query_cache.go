@@ -11,11 +11,13 @@ import (
 
 var (
 	dashboardTrendCache        = newSnapshotCache(30 * time.Second)
-	dashboardModelStatsCache   = newSnapshotCache(30 * time.Second)
-	dashboardGroupStatsCache   = newSnapshotCache(30 * time.Second)
+	dashboardModelStatsCache   = newSnapshotCache(dashboardDistributionCacheTTL)
+	dashboardGroupStatsCache   = newSnapshotCache(dashboardDistributionCacheTTL)
 	dashboardUsersTrendCache   = newSnapshotCache(30 * time.Second)
 	dashboardAPIKeysTrendCache = newSnapshotCache(30 * time.Second)
 )
+
+const dashboardDistributionCacheTTL = 5 * time.Minute
 
 type dashboardTrendCacheKey struct {
 	StartTime   string `json:"start_time"`

@@ -9,13 +9,11 @@
  * /admin/accounts/usage/batch call, and exposes a per-row override the cell
  * renders verbatim (usageOverride !== undefined => the cell never self-fetches).
  *
- * Scope is deliberately Anthropic OAuth/SetupToken only — exactly the rows the
- * cell loads with source='passive' on mount, so the override is a byte-identical
- * passive→passive replacement. gemini/antigravity/openai rows keep their own
- * fetch (gemini computes from local logs; openai/antigravity use the active
- * path on mount), so no behavior changes for them. The residual per-cell
- * fetches for those minority platforms are bounded by the p-limit in
- * utils/usageLoadQueue.
+ * The server endpoint remains passive-only. Rows it can serve receive that
+ * passive payload; rows that would otherwise self-fetch active usage receive a
+ * null override on table load, so mounting the account list no longer fans out
+ * to upstream usage probes. Explicit user refresh still flows through the
+ * cell's manual-refresh token.
  */
 import { ref } from 'vue'
 import { adminAPI } from '@/api'
@@ -30,6 +28,14 @@ function isBatchPassiveCapable(account: Account): boolean {
   )
 }
 
+function canSelfFetchUsage(account: Account): boolean {
+  if (isBatchPassiveCapable(account)) return true
+  if (account.platform === 'gemini') return true
+  if (account.platform === 'antigravity') return account.type === 'oauth'
+  if (account.platform === 'openai') return account.type === 'oauth'
+  return false
+}
+
 export function useTkAccountUsageBatch() {
   // accountID(string) -> usage. Present-with-null is a deliberate signal to the
   // cell: "the list owns your usage, do not self-fetch" (override !== undefined).
@@ -38,14 +44,15 @@ export function useTkAccountUsageBatch() {
 
   /**
    * usageOverrideFor returns the prop value for a given row:
-   *  - AccountUsageInfo | null  for batch-capable rows (suppresses self-fetch);
-   *  - undefined                for all other rows (cell self-fetches as before).
+   *  - AccountUsageInfo | null  for rows whose list view owns usage loading;
+   *  - undefined                for rows that never self-fetch usage.
    */
   function usageOverrideFor(account: Account): AccountUsageInfo | null | undefined {
-    if (!isBatchPassiveCapable(account)) return undefined
+    if (!canSelfFetchUsage(account)) return undefined
     const key = String(account.id)
     // Until the batch resolves, return null (still suppresses the per-row XHR;
-    // the cell shows "-" briefly, then the override watcher fills it in).
+    // batch-capable cells show "-" briefly, then the override watcher fills it in.
+    // Active-only platforms stay null until an explicit refresh.
     return key in usageByAccountId.value ? usageByAccountId.value[key] : null
   }
 
@@ -68,8 +75,13 @@ export function useTkAccountUsageBatch() {
       if (reqSeq !== usageReqSeq.value) return
       const server = result.usage ?? {}
       const next: Record<string, AccountUsageInfo | null> = {}
-      for (const id of ids) {
-        const key = String(id)
+      for (const account of accounts) {
+        if (!canSelfFetchUsage(account)) continue
+        const key = String(account.id)
+        if (!isBatchPassiveCapable(account)) {
+          next[key] = null
+          continue
+        }
         // Omitted by the server (cannot serve passive) => null => cell shows "-".
         next[key] = server[key] ?? null
       }

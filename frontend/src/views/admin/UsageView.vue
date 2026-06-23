@@ -38,7 +38,7 @@
           <GroupDistributionChart
             v-model:metric="groupDistributionMetric"
             :group-stats="groupStats"
-            :loading="chartsLoading"
+            :loading="groupStatsLoading"
             :show-metric-toggle="true"
             :start-date="startDate"
             :end-date="endDate"
@@ -46,20 +46,22 @@
           />
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <EndpointDistributionChart
-            v-model:source="endpointDistributionSource"
-            v-model:metric="endpointDistributionMetric"
-            :endpoint-stats="inboundEndpointStats"
-            :upstream-endpoint-stats="upstreamEndpointStats"
-            :endpoint-path-stats="endpointPathStats"
-            :loading="endpointStatsLoading"
-            :show-source-toggle="true"
-            :show-metric-toggle="true"
-            :title="t('usage.endpointDistribution')"
-            :start-date="startDate"
-            :end-date="endDate"
-            :filters="breakdownFilters"
-          />
+          <div ref="endpointChartRef" class="min-h-[360px]">
+            <EndpointDistributionChart
+              v-model:source="endpointDistributionSource"
+              v-model:metric="endpointDistributionMetric"
+              :endpoint-stats="inboundEndpointStats"
+              :upstream-endpoint-stats="upstreamEndpointStats"
+              :endpoint-path-stats="endpointPathStats"
+              :loading="endpointStatsLoading"
+              :show-source-toggle="true"
+              :show-metric-toggle="true"
+              :title="t('usage.endpointDistribution')"
+              :start-date="startDate"
+              :end-date="endDate"
+              :filters="breakdownFilters"
+            />
+          </div>
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
@@ -177,7 +179,7 @@ type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
 const route = useRoute()
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
-const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
+const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const groupStatsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const modelDistributionSource = ref<ModelDistributionSource>('requested')
 const loadedModelSources = reactive<Record<ModelDistributionSource, boolean>>({
@@ -192,10 +194,15 @@ const inboundEndpointStats = ref<EndpointStat[]>([])
 const upstreamEndpointStats = ref<EndpointStat[]>([])
 const endpointPathStats = ref<EndpointStat[]>([])
 const endpointStatsLoading = ref(false)
+const endpointChartRef = ref<HTMLElement | null>(null)
+const endpointStatsActivated = ref(false)
 let abortController: AbortController | null = null; let exportAbortController: AbortController | null = null
+let endpointObserver: IntersectionObserver | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
+let endpointStatsReqSeq = 0
 let modelStatsReqSeq = 0
+let initialChartTimer: number | null = null
 const exportProgress = reactive({ show: false, progress: 0, current: 0, total: 0, estimatedTime: '' })
 const cleanupDialogVisible = ref(false)
 // Balance history modal state
@@ -333,6 +340,28 @@ const loadLogs = async () => {
 }
 const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
+  try {
+    const requestType = filters.value.request_type
+    const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
+    const s = await adminAPI.usage.getStats({
+      ...filters.value,
+      stream: legacyStream === null ? undefined : legacyStream,
+      include_endpoints: 0,
+      ...(force ? { nocache: 1 } : {}),
+    })
+    if (seq !== statsReqSeq) return
+    usageStats.value = s
+  } catch (error) {
+    if (seq !== statsReqSeq) return
+    console.error('Failed to load usage stats:', error)
+  }
+}
+
+const loadEndpointStats = async (force = false) => {
+  if (!force && !endpointStatsActivated.value) {
+    return
+  }
+  const seq = ++endpointStatsReqSeq
   endpointStatsLoading.value = true
   try {
     const requestType = filters.value.request_type
@@ -340,22 +369,31 @@ const loadStats = async (force = false) => {
     const s = await adminAPI.usage.getStats({
       ...filters.value,
       stream: legacyStream === null ? undefined : legacyStream,
+      include_summary: 0,
+      include_endpoints: 1,
       ...(force ? { nocache: 1 } : {}),
     })
-    if (seq !== statsReqSeq) return
-    usageStats.value = s
+    if (seq !== endpointStatsReqSeq) return
     inboundEndpointStats.value = s.endpoints || []
     upstreamEndpointStats.value = s.upstream_endpoints || []
     endpointPathStats.value = s.endpoint_paths || []
   } catch (error) {
-    if (seq !== statsReqSeq) return
-    console.error('Failed to load usage stats:', error)
+    if (seq !== endpointStatsReqSeq) return
+    console.error('Failed to load endpoint stats:', error)
     inboundEndpointStats.value = []
     upstreamEndpointStats.value = []
     endpointPathStats.value = []
   } finally {
-    if (seq === statsReqSeq) endpointStatsLoading.value = false
+    if (seq === endpointStatsReqSeq) endpointStatsLoading.value = false
   }
+}
+
+const activateEndpointStats = () => {
+  if (endpointStatsActivated.value) return
+  endpointStatsActivated.value = true
+  void loadEndpointStats(true)
+  endpointObserver?.disconnect()
+  endpointObserver = null
 }
 
 // 失效模型统计缓存:仅标记需要重取,保留旧数据直到新数据到达(避免刷新时图表闪空)。
@@ -417,40 +455,69 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
   }
 }
 
-const loadChartData = async () => {
-  const seq = ++chartReqSeq
+const buildChartSnapshotParams = () => {
+  const requestType = filters.value.request_type
+  const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
+  return {
+    start_date: filters.value.start_date || startDate.value,
+    end_date: filters.value.end_date || endDate.value,
+    granularity: granularity.value,
+    user_id: filters.value.user_id,
+    model: filters.value.model,
+    api_key_id: filters.value.api_key_id,
+    account_id: filters.value.account_id,
+    group_id: filters.value.group_id,
+    request_type: requestType,
+    stream: legacyStream === null ? undefined : legacyStream,
+    billing_type: filters.value.billing_type,
+  }
+}
+
+const loadTrendData = async (seq: number) => {
   chartsLoading.value = true
   try {
-    const requestType = filters.value.request_type
-    const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const snapshot = await adminAPI.dashboard.getSnapshotV2({
-      start_date: filters.value.start_date || startDate.value,
-      end_date: filters.value.end_date || endDate.value,
-      granularity: granularity.value,
-      user_id: filters.value.user_id,
-      model: filters.value.model,
-      api_key_id: filters.value.api_key_id,
-      account_id: filters.value.account_id,
-      group_id: filters.value.group_id,
-      request_type: requestType,
-      stream: legacyStream === null ? undefined : legacyStream,
-      billing_type: filters.value.billing_type,
+      ...buildChartSnapshotParams(),
       include_stats: false,
       include_trend: true,
+      include_model_stats: false,
+      include_group_stats: false,
+      include_users_trend: false
+    })
+    if (seq !== chartReqSeq) return
+    trendData.value = snapshot.trend || []
+  } catch (error) { console.error('Failed to load usage trend data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
+}
+
+const loadGroupStats = async (seq: number) => {
+  groupStatsLoading.value = true
+  try {
+    const snapshot = await adminAPI.dashboard.getSnapshotV2({
+      ...buildChartSnapshotParams(),
+      include_stats: false,
+      include_trend: false,
       include_model_stats: false,
       include_group_stats: true,
       include_users_trend: false
     })
     if (seq !== chartReqSeq) return
-    trendData.value = snapshot.trend || []
     groupStats.value = snapshot.groups || []
-  } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
+  } catch (error) { console.error('Failed to load group distribution data:', error) } finally { if (seq === chartReqSeq) groupStatsLoading.value = false }
+}
+
+const loadChartData = async () => {
+  const seq = ++chartReqSeq
+  await Promise.allSettled([
+    loadTrendData(seq),
+    loadGroupStats(seq),
+  ])
 }
 const applyFilters = () => {
   pagination.page = 1
   invalidateModelStatsCache()
   loadLogs()
   loadStats()
+  if (endpointStatsActivated.value) loadEndpointStats()
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
   errPage.value = 1
@@ -464,6 +531,7 @@ const refreshData = () => {
   invalidateModelStatsCache()
   loadLogs()
   loadStats(true)
+  if (endpointStatsActivated.value) loadEndpointStats(true)
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
   if (activeTab.value === 'errors') loadAdminErrors()
@@ -678,18 +746,31 @@ onMounted(() => {
   applyRouteQueryFilters()
   loadLogs()
   loadStats()
-  loadModelStats(modelDistributionSource.value, true)
-  window.setTimeout(() => {
+  initialChartTimer = window.setTimeout(() => {
+    void loadModelStats(modelDistributionSource.value, true)
     void loadChartData()
+    initialChartTimer = null
   }, 120)
+  if ('IntersectionObserver' in window) {
+    endpointObserver = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        activateEndpointStats()
+      }
+    }, { rootMargin: '200px 0px' })
+    if (endpointChartRef.value) {
+      endpointObserver.observe(endpointChartRef.value)
+    }
+  } else {
+    activateEndpointStats()
+  }
   loadSavedColumns()
   document.addEventListener('click', handleColumnClickOutside)
 })
-onUnmounted(() => { abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
+onUnmounted(() => { if (initialChartTimer !== null) window.clearTimeout(initialChartTimer); endpointObserver?.disconnect(); abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
 
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)
 })
 
-defineExpose({ requestedModelStats, refreshData })
+defineExpose({ requestedModelStats, refreshData, activateEndpointStats })
 </script>

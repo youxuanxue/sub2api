@@ -19,6 +19,7 @@ type dashboardAggregationRepository struct {
 
 const usageLogsCleanupBatchSize = 10000
 const usageBillingDedupCleanupBatchSize = 10000
+const dashboardHistoricalBackfillMinRemaining = 5 * time.Minute
 
 // NewDashboardAggregationRepository 创建仪表盘预聚合仓储。
 func NewDashboardAggregationRepository(sqlDB *sql.DB) service.DashboardAggregationRepository {
@@ -34,6 +35,11 @@ func NewDashboardAggregationRepository(sqlDB *sql.DB) service.DashboardAggregati
 
 func newDashboardAggregationRepositoryWithSQL(sqlq sqlExecutor) *dashboardAggregationRepository {
 	return &dashboardAggregationRepository{sql: sqlq}
+}
+
+func hasDashboardHistoricalBackfillBudget(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	return !ok || time.Until(deadline) >= dashboardHistoricalBackfillMinRemaining
 }
 
 func isPostgresDriver(db *sql.DB) bool {
@@ -55,6 +61,12 @@ func (r *dashboardAggregationRepository) AggregateRange(ctx context.Context, sta
 	// the raw scan and the next cycle retries, so it never blocks aggregation.
 	if err := r.backfillGroupDailyAllOnce(ctx); err != nil {
 		log.Printf("[DashboardAggregation] group daily rollup backfill failed (read path falls back to raw scan): %v", err)
+	}
+	if err := r.backfillGroupDailyMetricsAllOnce(ctx); err != nil {
+		log.Printf("[DashboardAggregation] group daily metrics backfill failed (group distribution falls back to raw scan): %v", err)
+	}
+	if err := r.backfillModelDailyAllOnce(ctx); err != nil {
+		log.Printf("[DashboardAggregation] model daily rollup backfill failed (model distribution falls back to raw scan): %v", err)
 	}
 	loc := timezone.Location()
 	startLocal := start.In(loc)

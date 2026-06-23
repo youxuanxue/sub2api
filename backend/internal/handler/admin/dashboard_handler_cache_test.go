@@ -62,9 +62,19 @@ func resetDashboardReadCachesForTest() {
 	dashboardTrendCache = newSnapshotCache(30 * time.Second)
 	dashboardUsersTrendCache = newSnapshotCache(30 * time.Second)
 	dashboardAPIKeysTrendCache = newSnapshotCache(30 * time.Second)
-	dashboardModelStatsCache = newSnapshotCache(30 * time.Second)
-	dashboardGroupStatsCache = newSnapshotCache(30 * time.Second)
+	dashboardModelStatsCache = newSnapshotCache(dashboardDistributionCacheTTL)
+	dashboardGroupStatsCache = newSnapshotCache(dashboardDistributionCacheTTL)
 	dashboardSnapshotV2Cache = newSnapshotCache(30 * time.Second)
+}
+
+func TestDashboardHandler_DistributionCachesUseLongerTTL(t *testing.T) {
+	t.Cleanup(resetDashboardReadCachesForTest)
+	resetDashboardReadCachesForTest()
+
+	require.Equal(t, 30*time.Second, dashboardTrendCache.ttl)
+	require.Equal(t, dashboardDistributionCacheTTL, dashboardModelStatsCache.ttl)
+	require.Equal(t, dashboardDistributionCacheTTL, dashboardGroupStatsCache.ttl)
+	require.Equal(t, 30*time.Second, dashboardUsersTrendCache.ttl)
 }
 
 func TestDashboardHandler_GetUsageTrend_UsesCache(t *testing.T) {

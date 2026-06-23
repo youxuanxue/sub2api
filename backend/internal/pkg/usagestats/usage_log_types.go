@@ -274,6 +274,10 @@ type UsageLogFilters struct {
 	EndTime     *time.Time
 	// ExactTotal requests exact COUNT(*) for pagination. Default false for fast large-table paging.
 	ExactTotal bool
+	// SkipSummary and SkipEndpointStats let admin stats callers split expensive
+	// aggregate and endpoint-distribution queries without changing legacy defaults.
+	SkipSummary       bool
+	SkipEndpointStats bool
 }
 
 // UsageStats represents usage statistics

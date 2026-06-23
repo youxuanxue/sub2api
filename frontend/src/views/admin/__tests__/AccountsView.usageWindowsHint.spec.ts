@@ -171,4 +171,36 @@ describe('admin AccountsView usage windows hint', () => {
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
   })
+
+  it('does not wait for today stats before loading batch usage metrics', async () => {
+    let resolveTodayStats!: (value: { stats: Record<string, unknown> }) => void
+    getBatchTodayStats.mockReturnValue(new Promise(resolve => {
+      resolveTodayStats = resolve
+    }))
+    listAccounts.mockResolvedValue({
+      items: [{
+        id: 42,
+        name: 'anthropic-oauth',
+        platform: 'anthropic',
+        type: 'oauth',
+        status: 'active',
+        schedulable: true,
+        created_at: '2026-03-07T10:00:00Z',
+        updated_at: '2026-03-07T10:00:00Z'
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    mountView()
+    await flushPromises()
+
+    expect(getBatchTodayStats).toHaveBeenCalledWith([42])
+    expect(getBatchPassiveUsage).toHaveBeenCalledWith([42])
+
+    resolveTodayStats({ stats: {} })
+    await flushPromises()
+  })
 })
