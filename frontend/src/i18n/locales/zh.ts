@@ -47,6 +47,16 @@ export default {
       resultCount: '{count} 个模型',
       noMatches: '没有匹配的模型。可切换到模糊搜索或缩短关键词。'
     },
+    filters: {
+      apiKey: 'API Key',
+      keyPlaceholder: '全部 Key',
+      group: 'Group',
+      publicCatalog: '公开目录',
+      search: '搜索',
+      activePublic: '正在查看公开目录',
+      activeGroup: '正在查看 {group} 的分组目录',
+      activeKeyGroup: '正在查看 {key} · {group}'
+    },
     ctaBonus: '立即注册 · 获赠 {amount} 试用额度',
     ctaBonusHint: '当本站开启注册赠额时显示此提示。',
     perRequest: '/ 次',

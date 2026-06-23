@@ -48,6 +48,16 @@ export default {
       resultCount: '{count} models',
       noMatches: 'No models match your search. Try fuzzy mode or a shorter query.'
     },
+    filters: {
+      apiKey: 'API Key',
+      keyPlaceholder: 'All keys',
+      group: 'Group',
+      publicCatalog: 'Public catalog',
+      search: 'Search',
+      activePublic: 'Viewing the public catalog',
+      activeGroup: 'Viewing {group} group catalog',
+      activeKeyGroup: 'Viewing {key} · {group}'
+    },
     ctaBonus: 'Register — get {amount} trial credit',
     ctaBonusHint: 'Shown when signup bonus is enabled for this site.',
     perRequest: '/ request',

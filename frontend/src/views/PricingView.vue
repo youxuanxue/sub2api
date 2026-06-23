@@ -57,55 +57,36 @@
             <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
           </div>
 
-          <!-- Segmented view switch: 分组目录 / 所有目录. Only shown when logged in. -->
-          <div v-if="canShowMyView" class="mt-6 flex justify-center">
-            <div
-              role="tablist"
-              class="inline-flex rounded-xl border border-gray-200 bg-white/80 p-1 shadow-sm dark:border-dark-700 dark:bg-dark-900/70"
-            >
-              <button
-                v-for="opt in viewOptions"
-                :key="opt.value"
-                role="tab"
-                :aria-selected="viewMode === opt.value"
-                type="button"
-                class="rounded-lg px-4 py-1.5 text-sm font-medium transition-colors"
-                :class="
-                  viewMode === opt.value
-                    ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500'
-                    : 'text-gray-600 hover:text-primary-700 dark:text-dark-300 dark:hover:text-primary-200'
-                "
-                @click="setView(opt.value)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
       <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
-        <!-- "分组目录" toolbar: key picker + group switcher + banner -->
+        <!-- Unified catalog filters: key, group/public scope, search. -->
         <div
-          v-if="viewMode === 'my' && !loading && !errorMessage && myCatalog"
+          v-if="!loading && !errorMessage"
           class="mb-4 flex flex-col gap-3"
         >
           <div
-            class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-dark-800 dark:bg-dark-900/70 sm:flex-row sm:items-center sm:justify-between"
+            class="rounded-2xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-dark-800 dark:bg-dark-900/70"
           >
-            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <div
+              class="grid gap-3"
+              :class="canShowCatalogFilters ? 'lg:grid-cols-[minmax(14rem,1fr)_minmax(14rem,1fr)_minmax(20rem,2fr)]' : 'lg:grid-cols-[minmax(20rem,2fr)_auto]'"
+            >
               <label
-                v-if="myCatalog.my_keys.length > 0"
-                class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-200"
+                v-if="canShowCatalogFilters"
+                class="flex min-w-0 flex-col gap-1 text-sm text-gray-700 dark:text-dark-200"
               >
-                <span class="font-medium">{{ t('pricing.my.pickerKey') }}</span>
+                <span class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('pricing.filters.apiKey') }}</span>
                 <select
                   :value="displayKeyId"
-                  class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+                  data-tk="pricing-filter-key"
+                  class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
                   @change="onPickKey"
                 >
+                  <option :value="0">{{ t('pricing.filters.keyPlaceholder') }}</option>
                   <option
-                    v-for="k in myCatalog.my_keys"
+                    v-for="k in myCatalog?.my_keys ?? []"
                     :key="k.id"
                     :value="k.id"
                   >
@@ -113,30 +94,85 @@
                   </option>
                 </select>
               </label>
-              <span
-                v-else
-                class="text-sm text-gray-500 dark:text-dark-400"
+
+              <label
+                v-if="canShowCatalogFilters"
+                class="flex min-w-0 flex-col gap-1 text-sm text-gray-700 dark:text-dark-200"
               >
-                {{ t('pricing.my.noKeyHint') }}
-              </span>
-            </div>
-            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-200">
-              <span>{{ t('pricing.my.pickerCompare') }}</span>
-              <select
-                :value="selectedGroupId"
-                class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
-                @change="onPickGroup"
-              >
-                <option :value="0">{{ t('pricing.my.compareDefault') }}</option>
-                <option
-                  v-for="g in groupsForComparison"
-                  :key="g.id"
-                  :value="g.id"
+                <span class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('pricing.filters.group') }}</span>
+                <select
+                  :value="displayGroupValue"
+                  data-tk="pricing-filter-group"
+                  class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+                  @change="onPickGroup"
                 >
-                  {{ g.name }}
-                </option>
-              </select>
-            </label>
+                  <option value="public">{{ t('pricing.filters.publicCatalog') }}</option>
+                  <option
+                    v-for="g in groupFilterOptions"
+                    :key="g.id"
+                    :value="`group:${g.id}`"
+                  >
+                    {{ g.name }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="flex min-w-0 flex-col gap-1 text-sm text-gray-700 dark:text-dark-200">
+                <span class="text-xs font-medium uppercase text-gray-500 dark:text-dark-400">{{ t('pricing.filters.search') }}</span>
+                <span class="relative block min-w-0">
+                  <Icon
+                    name="search"
+                    size="sm"
+                    class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
+                  />
+                  <input
+                    id="pricing-model-search"
+                    v-model="modelSearchQuery"
+                    data-tk="pricing-filter-search"
+                    type="search"
+                    autocomplete="off"
+                    :placeholder="t('pricing.search.placeholder')"
+                    class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:placeholder:text-dark-500"
+                  />
+                </span>
+              </label>
+            </div>
+
+            <div class="mt-3 flex flex-col gap-3 border-t border-gray-100 pt-3 dark:border-dark-800 sm:flex-row sm:items-center sm:justify-between">
+              <div role="tablist" class="flex w-fit rounded-lg border border-gray-200 bg-white p-0.5 text-xs font-medium dark:border-dark-700 dark:bg-dark-900">
+                <button
+                  v-for="opt in modalityOptions"
+                  :key="opt.value"
+                  role="tab"
+                  type="button"
+                  :aria-selected="pricingModality === opt.value"
+                  class="rounded-md px-2.5 py-1 transition-colors"
+                  :class="pricingModality === opt.value ? 'bg-primary-600 text-white' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
+                  @click="pricingModality = opt.value"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+              <div class="flex flex-wrap items-center gap-4">
+                <fieldset class="flex items-center gap-3 text-xs">
+                  <legend class="sr-only">{{ t('pricing.search.modeLabel') }}</legend>
+                  <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
+                    <input v-model="modelSearchMode" type="radio" value="fuzzy" class="text-primary-600" />
+                    {{ t('pricing.search.modeFuzzy') }}
+                  </label>
+                  <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
+                    <input v-model="modelSearchMode" type="radio" value="exact" class="text-primary-600" />
+                    {{ t('pricing.search.modeExact') }}
+                  </label>
+                </fieldset>
+                <span
+                  v-if="hasClientFilterActive"
+                  class="text-xs tabular-nums text-gray-500 dark:text-dark-400"
+                >
+                  {{ t('pricing.search.resultCount', { count: filteredRows.length }) }}
+                </span>
+              </div>
+            </div>
           </div>
 
           <!-- Banner: exploring a group the user doesn't have a key in -->
@@ -207,55 +243,7 @@
           <div
             class="flex shrink-0 flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
           >
-            <label class="sr-only" for="pricing-model-search">{{ t('pricing.search.placeholder') }}</label>
-            <div class="relative min-w-0 flex-1 xl:max-w-xl">
-              <Icon
-                name="search"
-                size="sm"
-                class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
-              />
-              <input
-                id="pricing-model-search"
-                v-model="modelSearchQuery"
-                type="search"
-                autocomplete="off"
-                :placeholder="t('pricing.search.placeholder')"
-                class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:placeholder:text-dark-500"
-              />
-            </div>
-            <div class="flex shrink-0 flex-wrap items-center gap-4">
-              <div role="tablist" class="flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs font-medium dark:border-dark-700 dark:bg-dark-900">
-                <button
-                  v-for="opt in modalityOptions"
-                  :key="opt.value"
-                  role="tab"
-                  type="button"
-                  :aria-selected="pricingModality === opt.value"
-                  class="rounded-md px-2.5 py-1 transition-colors"
-                  :class="pricingModality === opt.value ? 'bg-primary-600 text-white' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
-                  @click="pricingModality = opt.value"
-                >
-                  {{ opt.label }}
-                </button>
-              </div>
-              <fieldset class="flex items-center gap-3 text-xs">
-                <legend class="sr-only">{{ t('pricing.search.modeLabel') }}</legend>
-                <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
-                  <input v-model="modelSearchMode" type="radio" value="fuzzy" class="text-primary-600" />
-                  {{ t('pricing.search.modeFuzzy') }}
-                </label>
-                <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
-                  <input v-model="modelSearchMode" type="radio" value="exact" class="text-primary-600" />
-                  {{ t('pricing.search.modeExact') }}
-                </label>
-              </fieldset>
-              <span
-                v-if="modelSearchQuery.trim()"
-                class="text-xs tabular-nums text-gray-500 dark:text-dark-400"
-              >
-                {{ t('pricing.search.resultCount', { count: filteredRows.length }) }}
-              </span>
-            </div>
+            <p class="text-xs text-gray-500 dark:text-dark-400" data-tk="pricing-active-catalog">{{ activeCatalogLabel }}</p>
           </div>
           <p
             class="shrink-0 border-b border-gray-100 bg-gray-50/50 px-4 py-2 text-xs text-gray-500 dark:border-dark-800 dark:bg-dark-800/30 dark:text-dark-400 lg:hidden"
@@ -263,7 +251,7 @@
             {{ t('pricing.tableHint') }}
           </p>
           <div
-            v-if="filteredRows.length === 0 && modelSearchQuery.trim()"
+            v-if="filteredRows.length === 0 && hasClientFilterActive"
             class="border-t border-gray-100 px-4 py-12 text-center dark:border-dark-800"
           >
             <Icon name="inbox" size="xl" class="mx-auto text-gray-400 dark:text-dark-500" />
@@ -451,7 +439,7 @@
               class="flex shrink-0 flex-col gap-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between dark:border-dark-800 dark:bg-dark-800/40 dark:text-dark-400"
             >
               <p class="text-left tabular-nums">
-                <template v-if="modelSearchQuery.trim()">
+                <template v-if="hasClientFilterActive">
                   {{
                     t('pricing.footer.filtered', {
                       shown: filteredRows.length,
@@ -478,19 +466,15 @@
 /**
  * Model + pricing catalog page.
  *
- * Two views share the same URL `/pricing`:
- *  - Public view (unauthenticated default): GET /api/v1/public/pricing returns
- *    the platform-wide LiteLLM list-price catalog. Behaves per US-028 AC-005
- *    (empty when source unavailable; 404 when admin disabled public catalog).
- *  - "分组目录" view (authenticated default when accessible groups exist):
- *    GET /api/v1/me/pricing-catalog returns models scoped to the user's
- *    selected key's group, at OFFICIAL list prices (decoupled from the
- *    group/override rate — see me_pricing_catalog_tk.go header). The user can
- *    switch keys or explore other accessible groups.
+ * `/pricing` is one catalog surface with scope filters:
+ *  - Public scope: GET /api/v1/public/pricing returns the platform-wide
+ *    LiteLLM list-price catalog. Behaves per US-028 AC-005.
+ *  - Authenticated group scope: GET /api/v1/me/pricing-catalog returns models
+ *    scoped to the selected API key's group or an accessible group, at official
+ *    list prices (decoupled from group/override rates).
  *
- * Both feed a single normalized row shape so the table markup stays identical
- * between modes — this is by design; the v1 trade-off accepted in
- * /Users/xuejiao/.claude/plans/bubbly-bouncing-sunbeam.md.
+ * Both sources feed one normalized row shape so the table markup stays identical
+ * while the UI avoids separate "group catalog" vs "public catalog" modes.
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -605,31 +589,13 @@ const myCatalog = ref<MePricingCatalogResponse | null>(null)
 const selectedKeyId = ref<number>(0)
 const selectedGroupId = ref<number>(0)
 
-const canShowMyView = computed(() => authStore.isAuthenticated)
-
-const viewOptions = computed(() => [
-  { value: 'my' as ViewMode, label: t('pricing.my.tabMy') },
-  { value: 'public' as ViewMode, label: t('pricing.my.tabPublic') }
-])
-
-function setView(next: ViewMode): void {
-  if (next === viewMode.value) return
-  viewMode.value = next
-  modelSearchQuery.value = ''
-  void load()
-}
+const canShowCatalogFilters = computed(() => myCatalog.value != null)
 
 // ============================== hero copy ==============================
 
-const heroTitle = computed(() =>
-  viewMode.value === 'my' ? t('pricing.my.title') : t('pricing.title')
-)
-const heroSubtitle = computed(() =>
-  viewMode.value === 'my' ? t('pricing.my.subtitle') : t('pricing.subtitle')
-)
-const heroDescription = computed(() =>
-  viewMode.value === 'my' ? t('pricing.my.description') : t('pricing.description')
-)
+const heroTitle = computed(() => t('pricing.title'))
+const heroSubtitle = computed(() => t('pricing.subtitle'))
+const heroDescription = computed(() => t('pricing.description'))
 
 const inputColumnTitle = computed(() =>
   viewMode.value === 'my' ? t('pricing.my.columns.input') : t('pricing.columns.input')
@@ -698,7 +664,10 @@ const hasMaxOutputColumn = computed(() =>
 )
 
 const rowTotal = computed(() => normalizedRows.value.length)
-const hasFilterActive = computed(() => modelSearchQuery.value.trim().length > 0)
+const hasClientFilterActive = computed(() =>
+  modelSearchQuery.value.trim().length > 0 || pricingModality.value !== 'all'
+)
+const hasFilterActive = hasClientFilterActive
 
 // ============================== empty-state copy ==============================
 
@@ -740,9 +709,27 @@ const formattedUpdatedAt = computed(() => {
 // TK: pricing 页（分组目录/所有目录）一律展示官方定价，与分组倍率/个人覆写
 // 彻底脱钩——故不再有倍率提示（原 rateHint）、对比下拉不再拼 ×N 倍率角标。
 
-const groupsForComparison = computed<MePricingGroupRef[]>(() => {
+const groupFilterOptions = computed<MePricingGroupRef[]>(() => {
   if (!myCatalog.value) return []
   return myCatalog.value.accessible_groups
+})
+
+const displayGroupValue = computed(() => {
+  if (viewMode.value === 'public') return 'public'
+  const id = selectedGroupId.value > 0
+    ? selectedGroupId.value
+    : myCatalog.value?.target_group?.id
+  return id && id > 0 ? `group:${id}` : 'public'
+})
+
+const activeCatalogLabel = computed(() => {
+  if (viewMode.value === 'public') return t('pricing.filters.activePublic')
+  const group = myCatalog.value?.target_group?.name
+  if (!group) return t('pricing.my.title')
+  const key = myCatalog.value?.my_keys.find((k) => k.id === displayKeyId.value)
+  return key
+    ? t('pricing.filters.activeKeyGroup', { key: key.name, group })
+    : t('pricing.filters.activeGroup', { group })
 })
 
 interface ExploreBanner {
@@ -754,6 +741,7 @@ interface ExploreBanner {
 const exploreBanner = computed<ExploreBanner | null>(() => {
   if (viewMode.value !== 'my' || !myCatalog.value) return null
   const tg = myCatalog.value.target_group
+  if (!tg?.id) return null
   const currentKeysInTarget = myCatalog.value.my_keys.some((k) => k.group_id === tg.id)
   if (currentKeysInTarget) return null
   // User is viewing a group they don't hold a key in → upgrade-CTA banner.
@@ -816,6 +804,32 @@ async function loadMyCatalog(): Promise<void> {
   myCatalog.value = await getMePricingCatalog(params)
 }
 
+function hasSavedAuthToken(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token')
+  } catch {
+    return false
+  }
+}
+
+async function loadInitialCatalog(): Promise<void> {
+  if (!hasSavedAuthToken()) {
+    viewMode.value = 'public'
+    await loadPublicCatalog()
+    return
+  }
+
+  try {
+    viewMode.value = 'my'
+    await loadMyCatalog()
+  } catch {
+    viewMode.value = 'public'
+    selectedKeyId.value = 0
+    selectedGroupId.value = 0
+    await loadPublicCatalog()
+  }
+}
+
 /**
  * `displayKeyId` is the value the key-picker shows. Derived (never written
  * back into selectedKeyId by the loader) to avoid the watch-loop where a
@@ -823,6 +837,7 @@ async function loadMyCatalog(): Promise<void> {
  * onPickKey — no implicit reactive ping-pong.
  */
 const displayKeyId = computed<number>(() => {
+  if (viewMode.value === 'public' || selectedGroupId.value > 0) return 0
   if (selectedKeyId.value > 0) return selectedKeyId.value
   if (!myCatalog.value || myCatalog.value.my_keys.length === 0) return 0
   const tgID = myCatalog.value.target_group.id
@@ -832,7 +847,8 @@ const displayKeyId = computed<number>(() => {
 
 function onPickKey(e: Event): void {
   const next = Number((e.target as HTMLSelectElement).value)
-  if (!Number.isFinite(next) || next <= 0) return
+  if (!Number.isFinite(next) || next < 0) return
+  viewMode.value = 'my'
   selectedKeyId.value = next
   // Switching key clears any explore-group override.
   selectedGroupId.value = 0
@@ -840,8 +856,20 @@ function onPickKey(e: Event): void {
 }
 
 function onPickGroup(e: Event): void {
-  const next = Number((e.target as HTMLSelectElement).value)
-  if (!Number.isFinite(next) || next < 0) return
+  const raw = (e.target as HTMLSelectElement).value
+  if (raw === 'public') {
+    viewMode.value = 'public'
+    selectedKeyId.value = 0
+    selectedGroupId.value = 0
+    void load()
+    return
+  }
+  const match = /^group:(\d+)$/.exec(raw)
+  if (!match) return
+  const next = Number(match[1])
+  if (!Number.isFinite(next) || next <= 0) return
+  viewMode.value = 'my'
+  selectedKeyId.value = 0
   selectedGroupId.value = next
   void load()
 }
@@ -850,7 +878,9 @@ async function load(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
   try {
-    if (viewMode.value === 'my') {
+    if (!myCatalog.value && selectedKeyId.value === 0 && selectedGroupId.value === 0) {
+      await loadInitialCatalog()
+    } else if (viewMode.value === 'my') {
       await loadMyCatalog()
     } else {
       await loadPublicCatalog()
@@ -868,9 +898,6 @@ function reload(): void {
 }
 
 onMounted(() => {
-  if (canShowMyView.value) {
-    viewMode.value = 'my'
-  }
   void load()
   void appStore.fetchPublicSettings()
 })

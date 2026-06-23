@@ -63,8 +63,21 @@ vi.mock('vue-i18n', async () => {
     'pricing.search.modeLabel': '',
     'pricing.search.modeFuzzy': '',
     'pricing.search.modeExact': '',
+    'pricing.search.resultCount': '{count} models',
     'pricing.tableHint': '',
-    'pricing.search.noMatches': '',
+    'pricing.search.noMatches': 'No models match your search',
+    'pricing.modality.all': 'All',
+    'pricing.modality.text': 'Text',
+    'pricing.modality.image': 'Image',
+    'pricing.modality.video': 'Video',
+    'pricing.filters.apiKey': 'API Key',
+    'pricing.filters.keyPlaceholder': 'All keys',
+    'pricing.filters.group': 'Group',
+    'pricing.filters.publicCatalog': 'Public catalog',
+    'pricing.filters.search': 'Search',
+    'pricing.filters.activePublic': 'Viewing the public catalog',
+    'pricing.filters.activeGroup': 'Viewing {group} group catalog',
+    'pricing.filters.activeKeyGroup': 'Viewing {key} · {group}',
     'common.loading': 'Loading',
     'pricing.my.tabMy': 'Group Catalog',
     'pricing.my.tabPublic': 'All Catalog',
@@ -96,16 +109,109 @@ vi.mock('vue-i18n', async () => {
         base = base.replace(/\{time\}/g, String(params?.time ?? ''))
         base = base.replace(/\{multiplier\}/g, String(params?.multiplier ?? ''))
         base = base.replace(/\{group\}/g, String(params?.group ?? ''))
+        base = base.replace(/\{key\}/g, String(params?.key ?? ''))
         return base
       },
     }),
   }
 })
 
+function mountPricingView() {
+  return mount(PricingView, {
+    global: {
+      stubs: {
+        RouterLink: { template: '<a><slot /></a>' },
+        LocaleSwitcher: true,
+        Icon: true,
+      },
+    },
+  })
+}
+
+function publicCatalog(models: PublicCatalogResponse['data']): PublicCatalogResponse {
+  return {
+    object: 'list',
+    updated_at: '2025-01-01T00:00:00Z',
+    data: models,
+  }
+}
+
+function publicModel(model_id: string): PublicCatalogResponse['data'][number] {
+  return {
+    model_id,
+    vendor: 'openai',
+    pricing: {
+      currency: 'USD',
+      input_per_1k_tokens: 0.001,
+      output_per_1k_tokens: 0.002,
+    },
+    context_window: 128000,
+    max_output_tokens: 16384,
+    capabilities: [],
+  }
+}
+
+function meCatalog(overrides: Partial<MePricingCatalogResponse> = {}): MePricingCatalogResponse {
+  return {
+    target_group: {
+      id: 10,
+      name: 'Pro',
+      platform: 'newapi',
+      rate_multiplier: 1.5,
+      list_multiplier: 1.5,
+      has_override: false,
+      is_exclusive: false,
+      subscription_type: 'standard',
+    },
+    models: [
+      {
+        model_id: 'gpt-4o',
+        vendor: 'openai',
+        billing_mode: 'token',
+        your_price: {
+          currency: 'USD',
+          input_per_1k: 0.0045,
+          output_per_1k: 0.0225,
+        },
+        context_window: 128000,
+        max_output_tokens: 16384,
+        capabilities: ['vision'],
+      },
+    ],
+    my_keys: [
+      { id: 1, name: 'default', group_id: 10, group_name: 'Pro' },
+      { id: 2, name: 'batch', group_id: 20, group_name: 'Batch' },
+    ],
+    accessible_groups: [
+      {
+        id: 10,
+        name: 'Pro',
+        platform: 'newapi',
+        rate_multiplier: 1.5,
+        is_current_for_key: true,
+        is_exclusive: false,
+        subscription_type: 'standard',
+      },
+      {
+        id: 20,
+        name: 'Batch',
+        platform: 'newapi',
+        rate_multiplier: 1,
+        is_current_for_key: false,
+        is_exclusive: false,
+        subscription_type: 'standard',
+      },
+    ],
+    updated_at: '2026-05-20T10:00:00Z',
+    ...overrides,
+  }
+}
+
 describe('PricingView', () => {
   beforeEach(() => {
     getPublicPricing.mockReset()
     getMePricingCatalog.mockReset()
+    localStorage.clear()
     authState.isAuthenticated = false
     authState.isAdmin = false
   })
@@ -131,15 +237,7 @@ describe('PricingView', () => {
     }
     getPublicPricing.mockResolvedValue(catalog)
 
-    const wrapper = mount(PricingView, {
-      global: {
-        stubs: {
-          RouterLink: { template: '<a><slot /></a>' },
-          LocaleSwitcher: true,
-          Icon: true,
-        },
-      },
-    })
+    const wrapper = mountPricingView()
     await flushPromises()
 
     expect(wrapper.text()).toContain('Max output')
@@ -164,15 +262,7 @@ describe('PricingView', () => {
     }
     getPublicPricing.mockResolvedValue(catalog)
 
-    const wrapper = mount(PricingView, {
-      global: {
-        stubs: {
-          RouterLink: { template: '<a><slot /></a>' },
-          LocaleSwitcher: true,
-          Icon: true,
-        },
-      },
-    })
+    const wrapper = mountPricingView()
     await flushPromises()
 
     expect(wrapper.html()).toContain('max-w-[90rem]')
@@ -180,66 +270,122 @@ describe('PricingView', () => {
 
   it('authenticated user defaults to "Group Catalog" view showing official catalog prices', async () => {
     authState.isAuthenticated = true
-    const me: MePricingCatalogResponse = {
-      target_group: {
-        id: 10,
-        name: 'Pro',
-        platform: 'newapi',
-        rate_multiplier: 1.5,
-        list_multiplier: 1.5,
-        has_override: false,
-        is_exclusive: false,
-        subscription_type: 'standard',
-      },
-      models: [
-        {
-          model_id: 'gpt-4o',
-          vendor: 'openai',
-          billing_mode: 'token',
-          your_price: {
-            currency: 'USD',
-            input_per_1k: 0.0045,
-            output_per_1k: 0.0225,
-          },
-          context_window: 128000,
-          max_output_tokens: 16384,
-          capabilities: ['vision'],
-        },
-      ],
-      my_keys: [{ id: 1, name: 'default', group_id: 10, group_name: 'Pro' }],
-      accessible_groups: [
-        {
-          id: 10,
-          name: 'Pro',
-          platform: 'newapi',
-          rate_multiplier: 1.5,
-          is_current_for_key: true,
-          is_exclusive: false,
-          subscription_type: 'standard',
-        },
-      ],
-      updated_at: '2026-05-20T10:00:00Z',
-    }
-    getMePricingCatalog.mockResolvedValue(me)
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(meCatalog())
 
-    const wrapper = mount(PricingView, {
-      global: {
-        stubs: {
-          RouterLink: { template: '<a><slot /></a>' },
-          LocaleSwitcher: true,
-          Icon: true,
-        },
-      },
-    })
+    const wrapper = mountPricingView()
     await flushPromises()
 
     expect(getMePricingCatalog).toHaveBeenCalled()
     expect(getPublicPricing).not.toHaveBeenCalled()
-    // Hero swaps to "Group Model Catalog" copy.
-    expect(wrapper.text()).toContain('Group Model Catalog')
+    expect(wrapper.find('[data-tk="pricing-filter-key"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="pricing-filter-group"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Viewing default · Pro')
     // Catalog price rendered from your_price (now the official price) — 0.0045 → "$0.0045"
     expect(wrapper.text()).toContain('$0.0045')
     // TK: pricing 页与倍率脱钩——不再展示倍率提示。
     expect(wrapper.text()).not.toContain('Multiplier')
+  })
+
+  it('filters the current catalog by search without refetching', async () => {
+    getPublicPricing.mockResolvedValue(publicCatalog([
+      publicModel('gpt-4o-mini'),
+      publicModel('claude-sonnet-4'),
+    ]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-search"]').setValue('sonnet')
+
+    expect(wrapper.text()).toContain('claude-sonnet-4')
+    expect(wrapper.text()).not.toContain('gpt-4o-mini')
+    expect(wrapper.text()).toContain('Showing 1 of 2 models')
+    expect(getPublicPricing).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows no-match state for a client-side search miss', async () => {
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('gpt-4o-mini')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-search"]').setValue('missing-model')
+
+    expect(wrapper.text()).toContain('No models match your search')
+    expect(wrapper.text()).toContain('0 models')
+    expect(getPublicPricing).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets authenticated users switch API key, group scope, and public catalog from one toolbar', async () => {
+    authState.isAuthenticated = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog
+      .mockResolvedValueOnce(meCatalog())
+      .mockResolvedValueOnce(meCatalog({
+        target_group: {
+          ...meCatalog().target_group,
+          id: 20,
+          name: 'Batch',
+        },
+        models: [
+          {
+            ...meCatalog().models[0],
+            model_id: 'batch-only-model',
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(meCatalog({
+        target_group: {
+          ...meCatalog().target_group,
+          id: 20,
+          name: 'Batch',
+        },
+        models: [
+          {
+            ...meCatalog().models[0],
+            model_id: 'batch-group-model',
+          },
+        ],
+      }))
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('public-model')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-key"]').setValue('2')
+    await flushPromises()
+
+    expect(getMePricingCatalog).toHaveBeenLastCalledWith({ apiKeyId: 2 })
+    expect(wrapper.text()).toContain('batch-only-model')
+
+    await wrapper.get('[data-tk="pricing-filter-group"]').setValue('group:20')
+    await flushPromises()
+
+    expect(getMePricingCatalog).toHaveBeenLastCalledWith({ groupId: 20 })
+    expect(wrapper.text()).toContain('batch-group-model')
+
+    await wrapper.get('[data-tk="pricing-filter-group"]').setValue('public')
+    await flushPromises()
+
+    expect(getPublicPricing).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('Viewing the public catalog')
+    expect(wrapper.text()).toContain('public-model')
+    expect(wrapper.find('[data-tk="pricing-filter-key"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="pricing-filter-group"]').exists()).toBe(true)
+  })
+
+  it('falls back to the public catalog when saved auth cannot load the user catalog', async () => {
+    localStorage.setItem('auth_token', 'expired-token')
+    getMePricingCatalog.mockRejectedValueOnce({ status: 401, message: 'unauthorized' })
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('public-model')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    expect(getMePricingCatalog).toHaveBeenCalledTimes(1)
+    expect(getPublicPricing).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('Viewing the public catalog')
+    expect(wrapper.text()).toContain('public-model')
   })
 })
