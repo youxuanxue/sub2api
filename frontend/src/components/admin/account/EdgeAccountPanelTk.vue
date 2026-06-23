@@ -109,7 +109,7 @@
             <td class="px-4 py-1.5 align-top">
               <div class="font-medium text-gray-900 dark:text-white">{{ acct.name }}</div>
               <div class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.edgeAccounts.accountIdHint')">ID: {{ acct.id }}</div>
-              <div v-if="acct.error_message" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">{{ acct.error_message }}</div>
+              <div v-if="shouldShowEdgeAccountError(acct)" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">{{ acct.error_message }}</div>
               <div
                 v-if="acct.temp_unschedulable_reason"
                 class="mt-0.5 max-w-xs truncate text-xs"
@@ -219,6 +219,7 @@ import {
   schedulableCount,
   accountVm,
   isTempUnschedActive,
+  shouldShowEdgeAccountError,
   isStubRateLimited,
   isStubTempUnschedActive
 } from '@/utils/edgeAccounts.tk'

@@ -11,6 +11,7 @@ import {
   filterDisplayEdges,
   isStubRateLimited,
   isStubTempUnschedActive,
+  shouldShowEdgeAccountError,
   accountVm,
   toAccountLike,
   stripClassPrefix
@@ -71,6 +72,23 @@ describe('isTempUnschedActive', () => {
   it('returns true while the cooldown is still in the future', () => {
     const future = new Date(Date.now() + 60 * 1000).toISOString()
     expect(isTempUnschedActive(acct({ temp_unschedulable_until: future }))).toBe(true)
+  })
+})
+
+describe('shouldShowEdgeAccountError', () => {
+  it('hides a stale error_message after the account recovered to active', () => {
+    expect(
+      shouldShowEdgeAccountError(
+        acct({
+          status: 'active',
+          error_message: 'Access forbidden (403): The bearer token included in the request is invalid'
+        })
+      )
+    ).toBe(false)
+  })
+
+  it('shows the error_message while the account status is still error', () => {
+    expect(shouldShowEdgeAccountError(acct({ status: 'error', error_message: 'Access forbidden (403)' }))).toBe(true)
   })
 })
 

@@ -10,7 +10,8 @@ const {
   getBatchPassiveUsage,
   getAllProxies,
   getAllGroups,
-  getAllIncludingInactive
+  getAllIncludingInactive,
+  listEdgeAccounts
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
@@ -18,7 +19,8 @@ const {
   getBatchPassiveUsage: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
-  getAllIncludingInactive: vi.fn()
+  getAllIncludingInactive: vi.fn(),
+  listEdgeAccounts: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -39,6 +41,9 @@ vi.mock('@/api/admin', () => ({
     groups: {
       getAll: getAllGroups,
       getAllIncludingInactive
+    },
+    edgeAccounts: {
+      listWithEtag: listEdgeAccounts
     }
   }
 }))
@@ -85,6 +90,17 @@ const AccountBulkActionsBarStub = {
   template: '<button data-test="edit-filtered" @click="$emit(\'edit-filtered\')">edit filtered</button>'
 }
 
+const AccountTableActionsStub = {
+  emits: ['refresh'],
+  template: `
+    <div>
+      <button data-test="refresh-accounts" @click="$emit('refresh')">refresh</button>
+      <slot name="beforeCreate" />
+      <slot name="after" />
+    </div>
+  `
+}
+
 const BulkEditAccountModalStub = {
   props: ['show', 'target'],
   template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
@@ -101,6 +117,7 @@ describe('admin AccountsView bulk edit scope', () => {
     getAllProxies.mockReset()
     getAllGroups.mockReset()
     getAllIncludingInactive.mockReset()
+    listEdgeAccounts.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [],
@@ -119,6 +136,7 @@ describe('admin AccountsView bulk edit scope', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
+    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
   })
 
   it('opens bulk edit in filtered-results mode from the bulk actions dropdown', async () => {
@@ -132,7 +150,7 @@ describe('admin AccountsView bulk edit scope', () => {
           DataTable: DataTableStub,
           Pagination: true,
           ConfirmDialog: true,
-          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableActions: AccountTableActionsStub,
           AccountTableFilters: { template: '<div></div>' },
           AccountBulkActionsBar: AccountBulkActionsBarStub,
           AccountActionMenu: true,
@@ -197,7 +215,7 @@ describe('admin AccountsView bulk edit scope', () => {
           DataTable: DataTableStub,
           Pagination: true,
           ConfirmDialog: true,
-          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableActions: AccountTableActionsStub,
           AccountTableFilters: { template: '<div></div>' },
           AccountBulkActionsBar: AccountBulkActionsBarStub,
           AccountActionMenu: true,
@@ -233,5 +251,71 @@ describe('admin AccountsView bulk edit scope', () => {
       label: 'admin.accounts.columns.createdAt',
       sortable: true
     })
+  })
+
+  it('manual refresh also force-refreshes inline edge panels', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 69,
+          name: 'kiro-us4',
+          platform: 'anthropic',
+          type: 'apikey',
+          status: 'active',
+          schedulable: true,
+          edge_id: 'us4',
+          created_at: '2026-03-07T10:00:00Z',
+          updated_at: '2026-03-07T10:00:00Z'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: AccountTableActionsStub,
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    listEdgeAccounts.mockClear()
+    await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
+    await flushPromises()
+
+    expect(listEdgeAccounts).toHaveBeenCalledWith({ view: 'by-stub' }, { force: true })
   })
 })

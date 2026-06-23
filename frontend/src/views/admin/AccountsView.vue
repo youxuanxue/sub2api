@@ -205,7 +205,7 @@
               :loading="edgePanelsLoading"
               :error="edgePanelsError"
               @mutated="(acc) => { if (row.edge_id) { applyEdgeAccountUpdate(row.edge_id, acc); setEdgeExpanded(row.id, true) } }"
-              @retry="refreshEdges"
+              @retry="() => refreshEdges({ force: true })"
             />
           </template>
           <template #header-select>
@@ -1159,6 +1159,7 @@ const refreshAccountsIncrementally = async () => {
 
 const handleManualRefresh = async () => {
   await load()
+  await refreshEdges({ force: true })
   // load() already refreshed the batch passive-usage for Anthropic rows
   // (override path). Bump the token so the residual self-fetch platforms
   // (gemini/antigravity/openai cells) also refresh on explicit user refresh.

@@ -21,7 +21,9 @@ import (
 // *service.EdgeAccountsAggregator satisfies it.
 type edgeAccountsAggregator interface {
 	Aggregate(ctx context.Context, platform string) (*service.EdgeAccountsAggregate, error)
+	AggregateFresh(ctx context.Context, platform string) (*service.EdgeAccountsAggregate, error)
 	AggregateByStub(ctx context.Context) (*service.EdgeAccountsAggregate, error)
+	AggregateByStubFresh(ctx context.Context) (*service.EdgeAccountsAggregate, error)
 	MintAdminSession(ctx context.Context, edgeID string) (*service.EdgeAdminSession, error)
 }
 
@@ -64,11 +66,20 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 	// mirror stub (any platform) fanned out with ITS OWN api-key, so each result is
 	// that key's group-scoped accounts (precise correspondence), keyed by stub id.
 	// Default → the per-edge fleet overview, narrowed by ?platform=.
+	force := truthyQuery(c.Query("force"))
 	if strings.EqualFold(strings.TrimSpace(c.Query("view")), "by-stub") {
-		agg, err = h.aggregator.AggregateByStub(ctx)
+		if force {
+			agg, err = h.aggregator.AggregateByStubFresh(ctx)
+		} else {
+			agg, err = h.aggregator.AggregateByStub(ctx)
+		}
 	} else {
 		platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "all")))
-		agg, err = h.aggregator.Aggregate(ctx, platform)
+		if force {
+			agg, err = h.aggregator.AggregateFresh(ctx, platform)
+		} else {
+			agg, err = h.aggregator.Aggregate(ctx, platform)
+		}
 	}
 	if err != nil {
 		response.Error(c, 500, "failed to aggregate edge accounts")
@@ -87,6 +98,15 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 		}
 	}
 	response.Success(c, agg)
+}
+
+func truthyQuery(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // buildEdgeAccountsETag hashes the aggregate's stable content — Platform + Edges —

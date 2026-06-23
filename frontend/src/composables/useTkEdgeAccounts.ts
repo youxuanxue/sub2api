@@ -215,13 +215,15 @@ export function useTkEdgeAccounts(
   }
 
   // Full (re)load: used on mount, manual refresh, and platform change. Replaces the
-  // visible loading state and resets the ETag baseline.
-  async function fetch() {
+  // visible loading state and resets the ETag baseline. force=true bypasses the
+  // prod-side SWR cache so an operator click observes edge runtime changes now
+  // (error cleared, usage/last-used advanced) instead of on the next background pass.
+  async function fetch(options: { force?: boolean } = {}) {
     if (loading.value) return
     loading.value = true
     error.value = null
     try {
-      const res = await adminAPI.edgeAccounts.listWithEtag(listParams())
+      const res = await adminAPI.edgeAccounts.listWithEtag(listParams(), { force: options.force === true })
       if (!res.notModified && res.data) {
         edges.value = res.data.edges ?? []
       }
