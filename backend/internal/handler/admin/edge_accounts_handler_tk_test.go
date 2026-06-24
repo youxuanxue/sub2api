@@ -213,12 +213,33 @@ func TestList_ForceUsesFreshAggregate(t *testing.T) {
 	require.Equal(t, 1, stub.freshCalls)
 }
 
-func TestList_ByStubForceUsesFreshAggregate(t *testing.T) {
+func TestList_ByStubUsesFreshAggregate(t *testing.T) {
 	stub := &aggregatorStub{agg: &service.EdgeAccountsAggregate{Platform: "__by_stub__"}}
 	h := NewEdgeAccountsHandler(stub)
 
-	w := performListRequest(t, h, "view=by-stub&force=true", "")
+	w := performListRequest(t, h, "view=by-stub", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, 0, stub.byStubCalls)
 	require.Equal(t, 1, stub.byStubFreshCalls)
+}
+
+func TestList_ByStubStillSupportsETagAfterFreshFanout(t *testing.T) {
+	stub := &aggregatorStub{agg: &service.EdgeAccountsAggregate{
+		Platform: "__by_stub__",
+		Edges: []service.EdgeAccountsResult{{
+			EdgeID: "us3", BaseURL: "https://api-us3.tokenkey.dev", OK: true, StubAccountID: 70,
+		}},
+	}}
+	h := NewEdgeAccountsHandler(stub)
+
+	first := performListRequest(t, h, "view=by-stub", "")
+	require.Equal(t, http.StatusOK, first.Code)
+	etag := first.Header().Get("ETag")
+	require.NotEmpty(t, etag)
+
+	second := performListRequest(t, h, "view=by-stub", etag)
+	require.Equal(t, http.StatusNotModified, second.Code)
+	require.Equal(t, 0, stub.byStubCalls)
+	require.Equal(t, 2, stub.byStubFreshCalls, "by-stub must re-fan-out before deciding 304")
+	require.Empty(t, second.Body.Bytes())
 }
