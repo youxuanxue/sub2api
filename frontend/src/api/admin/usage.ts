@@ -126,6 +126,7 @@ export async function getStats(params: {
   nocache?: number
   include_summary?: number | boolean
   include_endpoints?: number | boolean
+  endpoint_source?: 'inbound' | 'upstream' | 'path'
 }): Promise<AdminUsageStatsResponse> {
   const { data } = await apiClient.get<AdminUsageStatsResponse>('/admin/usage/stats', {
     params

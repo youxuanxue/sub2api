@@ -7,6 +7,10 @@ const (
 	ModelSourceRequested = "requested"
 	ModelSourceUpstream  = "upstream"
 	ModelSourceMapping   = "mapping"
+
+	EndpointSourceInbound  = "inbound"
+	EndpointSourceUpstream = "upstream"
+	EndpointSourcePath     = "path"
 )
 
 func IsValidModelSource(source string) bool {
@@ -23,6 +27,15 @@ func NormalizeModelSource(source string) string {
 		return source
 	}
 	return ModelSourceRequested
+}
+
+func IsValidEndpointSource(source string) bool {
+	switch source {
+	case EndpointSourceInbound, EndpointSourceUpstream, EndpointSourcePath:
+		return true
+	default:
+		return false
+	}
 }
 
 // DashboardStats 仪表盘统计
@@ -278,6 +291,9 @@ type UsageLogFilters struct {
 	// aggregate and endpoint-distribution queries without changing legacy defaults.
 	SkipSummary       bool
 	SkipEndpointStats bool
+	// EndpointStatsSource optionally narrows endpoint-distribution work to one
+	// dimension. Empty preserves the legacy response shape and computes all three.
+	EndpointStatsSource string
 }
 
 // UsageStats represents usage statistics
