@@ -6,7 +6,7 @@ approved_at: 2026-04-24
 created: 2026-04-23
 shipped_at: 2026-04-24
 owners: [tk-platform]
-related_prs: ["#53", "#976"]
+related_prs: ["#53", "#976", "#978"]
 # First successful prod deploy via the new workflow:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872412714
 #   (env=prod, tag=1.6.0, no-op image hash, external /health 200).
@@ -260,9 +260,9 @@ Step 6.
       (env=prod, tag=1.6.0, external `/health` HTTP 200)
 - [x] Status flipped to `shipped` (this PR)
 - [x] 2026-06-24 revision: prod deploy primitive changed from single-container
-      restart to same-host blue/green, single data layer. Approved by
-      youxuanxue in the PR #976 review path; merge of #976 makes this section
-      the new conformance baseline.
+      restart to same-host blue/green, single data layer. PR #976 shipped the
+      runtime change; PR #978 hardened the approved baseline, Caddy active
+      upstream handling, SSM timeout, and migration-safety guard.
 
 ### Adversarial gate verified
 
