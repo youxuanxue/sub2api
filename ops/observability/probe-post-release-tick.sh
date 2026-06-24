@@ -9,7 +9,13 @@
 #
 # Env (consumed inside the remote shell):
 #   SINCE          docker logs --since window (default 6m)
-#   CONTAINER      gateway container name (default tokenkey)
+#   CONTAINER      gateway container name (default auto). auto resolves
+#                  /var/lib/tokenkey/active-color to tokenkey-blue/green and
+#                  falls back to the legacy tokenkey container. This keeps
+#                  post-release ticks working across the prod blue/green cutover.
+#   ACTIVE_COLOR_FILE
+#                  active-color file path for CONTAINER=auto
+#                  (default /var/lib/tokenkey/active-color; test seam).
 #   HOOK_PATTERNS  comma-separated FIXED strings (grep -F semantics), one per
 #                  release hook, e.g.:
 #                  HOOK_PATTERNS='stripped explicit thinking.type=disabled,pricing_missing'
@@ -22,16 +28,54 @@
 set -u
 
 SINCE="${SINCE:-6m}"
-CONTAINER="${CONTAINER:-tokenkey}"
+CONTAINER="${CONTAINER:-auto}"
+ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 HOOK_PATTERNS="${HOOK_PATTERNS:-}"
 
-python3 - "$SINCE" "$CONTAINER" "$HOOK_PATTERNS" <<'PY'
+python3 - "$SINCE" "$CONTAINER" "$HOOK_PATTERNS" "$ACTIVE_COLOR_FILE" <<'PY'
 import json
+import pathlib
 import re
 import subprocess
 import sys
 
-since, container, hook_patterns_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+since, container_arg, hook_patterns_raw, active_color_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+
+def docker_inspect_exists(name):
+    proc = subprocess.run(
+        ["docker", "inspect", name, "--format", "{{.Name}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def resolve_container(container):
+    notes = []
+    if container != "auto":
+        return container, ["explicit"]
+
+    path = pathlib.Path(active_color_file)
+    if path.is_file():
+        color = path.read_text(encoding="utf-8", errors="ignore").strip()
+        notes.append(f"active-color={color or '<empty>'}")
+        if color in ("blue", "green"):
+            candidate = f"tokenkey-{color}"
+            if docker_inspect_exists(candidate):
+                return candidate, notes + ["active-color container exists"]
+            notes.append(f"{candidate} missing")
+    else:
+        notes.append("active-color missing")
+
+    for candidate in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
+        if docker_inspect_exists(candidate):
+            return candidate, notes + [f"fallback={candidate}"]
+    return "tokenkey", notes + ["fallback=tokenkey-unverified"]
+
+
+container, resolution = resolve_container(container_arg)
 
 proc = subprocess.run(
     ["docker", "logs", container, "--since", since],
@@ -40,7 +84,12 @@ proc = subprocess.run(
     check=False,
 )
 if proc.returncode != 0:
-    print(json.dumps({"error": proc.stderr.strip() or "docker logs failed"}))
+    print(json.dumps({
+        "error": proc.stderr.strip() or "docker logs failed",
+        "container_input": container_arg,
+        "container": container,
+        "container_resolution": resolution,
+    }))
     sys.exit(1)
 
 # The gateway writes structured logs to one stream, but ops shells have merged
@@ -48,7 +97,13 @@ if proc.returncode != 0:
 lines = list(dict.fromkeys(proc.stdout.splitlines() + proc.stderr.splitlines()))
 
 print("=== meta ===")
-print(json.dumps({"container": container, "since": since, "log_lines": len(lines)}))
+print(json.dumps({
+    "container_input": container_arg,
+    "container": container,
+    "container_resolution": resolution,
+    "since": since,
+    "log_lines": len(lines),
+}))
 
 print("=== hooks ===")
 patterns = [p.strip() for p in hook_patterns_raw.split(",") if p.strip()]

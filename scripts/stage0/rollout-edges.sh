@@ -1,22 +1,29 @@
 #!/usr/bin/env bash
-# rollout-edges.sh — Sequential fail-stop Edge rollout for a released tag.
+# rollout-edges.sh — fail-stop Edge rollout for a released tag.
 #
 # Mechanizes the tokenkey-stage0-release-rollout skill step "其余 deployable
-# Edge 顺序 upgrade（infra only）": for each deployable edge (minus --skip,
-# normally the canary already upgraded), dispatch an upgrade via
-# dispatch-edge-deploy.sh, watch the run to completion, and verify the
-# canonical acceptance marker `tk_edge_post_deploy_smoke: OK phase=infra`
-# in the run log. The first failure stops the rollout (fail-stop), leaving
-# remaining edges on the previous tag.
+# Edge upgrade（infra only）": for each deployable edge (minus --skip, normally
+# the canary already upgraded), dispatch an upgrade via dispatch-edge-deploy.sh,
+# watch the run to completion, and verify the canonical acceptance marker
+# `tk_edge_post_deploy_smoke: OK phase=infra` in the run log.
+#
+# Default is sequential. --parallel N dispatches bounded batches after the
+# canary/prod gates have already passed, reducing all-rollout wall clock while
+# preserving fail-stop between batches. If any edge in a batch fails, the script
+# finishes verifying that already-dispatched batch, prints the failed edge(s),
+# and does not dispatch the next batch.
 #
 # Usage:
 #   bash scripts/stage0/rollout-edges.sh --tag 1.7.88 --skip uk1
+#   bash scripts/stage0/rollout-edges.sh --tag 1.7.88 --skip uk1 --parallel 3
 #   bash scripts/stage0/rollout-edges.sh --tag 1.7.88 --edges "uk2 uk3 us2"
 #
 # Flags:
 #   --tag X.Y.Z      image tag (no leading v). Required.
 #   --skip a[,b]     edges to exclude from the deployable matrix (e.g. canary).
 #   --edges "a b c"  explicit edge list; overrides the matrix + --skip.
+#   --parallel N     batch size (default 1). N>1 dispatches a batch before
+#                    watching/verifying it; fail-stop applies before next batch.
 #
 # Output contract (stable, line-oriented):
 #   rollout-edges: edge=<id> run_id=<id> result=ok|fail
@@ -32,11 +39,13 @@ cd "$REPO_ROOT"
 TAG=""
 SKIP=""
 EDGES=""
+PARALLEL=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --tag) TAG="${2:-}"; shift 2 ;;
     --skip) SKIP="${2:-}"; shift 2 ;;
     --edges) EDGES="${2:-}"; shift 2 ;;
+    --parallel) PARALLEL="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "rollout-edges: unknown arg: $1" >&2; exit 1 ;;
   esac
@@ -49,6 +58,13 @@ fi
 case "$TAG" in
   v*) echo "rollout-edges: --tag must not carry the leading 'v' (workflows take the bare version)" >&2; exit 1 ;;
 esac
+case "$PARALLEL" in
+  ''|*[!0-9]*) echo "rollout-edges: --parallel must be a positive integer" >&2; exit 1 ;;
+esac
+if [ "$PARALLEL" -lt 1 ]; then
+  echo "rollout-edges: --parallel must be >= 1" >&2
+  exit 1
+fi
 
 if [ -z "$EDGES" ]; then
   EDGES="$(python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable)"
@@ -68,7 +84,7 @@ if [ -z "$EDGES" ]; then
   echo "rollout-edges: edge list is empty after filtering" >&2
   exit 1
 fi
-echo "rollout-edges: tag=$TAG edges=[$EDGES]"
+echo "rollout-edges: tag=$TAG edges=[$EDGES] parallel=$PARALLEL"
 
 # find_run — resolve the run id created by the dispatch we just issued.
 # Prefer the run URL the dispatch prints (if gh ever starts printing one);
@@ -156,35 +172,102 @@ verify_smoke_marker() {
   [ "$got_log" -eq 1 ] && return 1 || return 2
 }
 
-COUNT=0
-for EDGE in $EDGES; do
-  echo "rollout-edges: dispatching edge=$EDGE"
+dispatch_edge() {
+  local EDGE="$1" T0 DISPATCH_OUT RUN_ID
+  echo "rollout-edges: dispatching edge=$EDGE" >&2
   T0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if ! DISPATCH_OUT="$(bash scripts/stage0/dispatch-edge-deploy.sh \
         --edge-id "$EDGE" --operation upgrade --tag "$TAG" 2>&1)"; then
     printf '%s\n' "$DISPATCH_OUT" >&2
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (dispatch)" >&2
-    exit 2
+    return 2
   fi
   if ! RUN_ID="$(find_run "$DISPATCH_OUT" "$T0" "$EDGE")"; then
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (run not found after dispatch)" >&2
-    exit 2
+    return 2
   fi
+  printf '%s|%s\n' "$EDGE" "$RUN_ID"
+}
+
+verify_edge_run() {
+  local EDGE="$1" RUN_ID="$2" MARKER_RC=0
   if ! watch_run "$RUN_ID"; then
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (run failed)" >&2
-    exit 1
+    return 1
   fi
-  MARKER_RC=0
   verify_smoke_marker "$RUN_ID" || MARKER_RC=$?
   if [ "$MARKER_RC" -eq 2 ]; then
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (could not fetch run log)" >&2
-    exit 2
+    return 2
   elif [ "$MARKER_RC" -ne 0 ]; then
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (smoke marker missing)" >&2
-    exit 1
+    return 1
   fi
   echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=ok"
-  COUNT=$((COUNT + 1))
+  return 0
+}
+
+COUNT=0
+FAILURES=""
+declare -a BATCH_EDGES=()
+declare -a BATCH_RUNS=()
+
+flush_batch() {
+  local i edge run_id rc batch_failed=0 transport_failed=0
+  for i in "${!BATCH_EDGES[@]}"; do
+    edge="${BATCH_EDGES[$i]}"
+    run_id="${BATCH_RUNS[$i]}"
+    rc=0
+    verify_edge_run "$edge" "$run_id" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      COUNT=$((COUNT + 1))
+    else
+      batch_failed=1
+      [ "$rc" -eq 2 ] && transport_failed=1
+      FAILURES="${FAILURES} ${edge}:${run_id}"
+    fi
+  done
+  BATCH_EDGES=()
+  BATCH_RUNS=()
+  if [ "$batch_failed" -ne 0 ]; then
+    echo "rollout-edges: FAILURES${FAILURES}" >&2
+    [ "$transport_failed" -ne 0 ] && return 2 || return 1
+  fi
+  return 0
+}
+
+for EDGE in $EDGES; do
+  DISPATCH_RC=0
+  FLUSH_RC=0
+  DISPATCH_ROW="$(dispatch_edge "$EDGE")" || DISPATCH_RC=$?
+  if [ "$DISPATCH_RC" -ne 0 ]; then
+    if [ "${#BATCH_EDGES[@]}" -gt 0 ]; then
+      set +e
+      flush_batch
+      FLUSH_RC=$?
+      set -e
+      [ "$FLUSH_RC" -eq 0 ] || exit "$FLUSH_RC"
+    fi
+    exit "$DISPATCH_RC"
+  fi
+  RUN_ID="$(printf '%s\n' "$DISPATCH_ROW" | awk -F '|' 'NF >= 2 {print $2; exit}')"
+  if [ -z "$RUN_ID" ]; then
+    echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (dispatch row malformed)" >&2
+    if [ "${#BATCH_EDGES[@]}" -gt 0 ]; then
+      set +e
+      flush_batch
+      FLUSH_RC=$?
+      set -e
+      [ "$FLUSH_RC" -eq 0 ] || exit "$FLUSH_RC"
+    fi
+    exit 2
+  fi
+  BATCH_EDGES+=("$EDGE")
+  BATCH_RUNS+=("$RUN_ID")
+  if [ "${#BATCH_EDGES[@]}" -ge "$PARALLEL" ]; then
+    flush_batch || exit $?
+  fi
 done
 
+[ "${#BATCH_EDGES[@]}" -eq 0 ] || flush_batch || exit $?
 echo "rollout-edges: ALL_OK n=$COUNT"

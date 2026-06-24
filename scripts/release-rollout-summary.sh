@@ -25,7 +25,8 @@
 # (e.g. release mode with a non-tag base). Useful for local testing.
 #
 # Output: a markdown report on stdout. Sections:
-#   1. **Range** — base/head SHAs + commit count
+#   1. **Range** — base/head commit SHAs + commit count (annotated tags are
+#      peeled with ^{commit}, never reported as tag-object SHAs)
 #   2. **Commits** — `git log --oneline --no-merges` filtered per mode
 #   3. **Top changed files** — `git diff --stat | head -10` for backend/ and frontend/src/
 #   4. **Sentinel changes** — list `scripts/sentinels/*.json` paths changed
@@ -113,9 +114,9 @@ esac
 [ -n "$BASE_OVERRIDE" ] && BASE="$BASE_OVERRIDE"
 [ -n "$HEAD_OVERRIDE" ] && HEAD_REF="$HEAD_OVERRIDE"
 
-BASE_SHA=$(git rev-parse --short=12 "$BASE" 2>/dev/null) || {
+BASE_SHA=$(git rev-parse --short=12 "${BASE}^{commit}" 2>/dev/null) || {
   echo "[release-rollout-summary] ERROR: cannot resolve BASE=$BASE" >&2; exit 1; }
-HEAD_SHA=$(git rev-parse --short=12 "$HEAD_REF" 2>/dev/null) || {
+HEAD_SHA=$(git rev-parse --short=12 "${HEAD_REF}^{commit}" 2>/dev/null) || {
   echo "[release-rollout-summary] ERROR: cannot resolve HEAD=$HEAD_REF" >&2; exit 1; }
 
 COMMIT_COUNT=$(git log --oneline "${BASE}..${HEAD_REF}" 2>/dev/null | wc -l | tr -d ' ')
@@ -131,7 +132,7 @@ filter_commits() {
 # === Markdown ===
 printf '## Summary (mode=%s)\n\n' "$MODE"
 printf -- '- **Range**: `%s` → `%s` (%s commits)\n' "$BASE" "$HEAD_REF" "$COMMIT_COUNT"
-printf -- '- BASE sha: `%s`  HEAD sha: `%s`\n\n' "$BASE_SHA" "$HEAD_SHA"
+printf -- '- BASE commit sha: `%s`  HEAD commit sha: `%s`\n\n' "$BASE_SHA" "$HEAD_SHA"
 
 printf '### Commits\n\n'
 printf '```\n'
