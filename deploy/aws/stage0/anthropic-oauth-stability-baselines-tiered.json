@@ -127,7 +127,7 @@
     "l1": {
       "baseline": {
         "account": {
-          "concurrency": 50,
+          "concurrency": 30,
           "priority": 1,
           "rate_multiplier": 1.0
         },
@@ -144,7 +144,7 @@
     "l2": {
       "baseline": {
         "account": {
-          "concurrency": 50,
+          "concurrency": 30,
           "priority": 1,
           "rate_multiplier": 1.0
         },
@@ -162,7 +162,7 @@
     "l3": {
       "baseline": {
         "account": {
-          "concurrency": 50,
+          "concurrency": 30,
           "priority": 1,
           "rate_multiplier": 1.0
         },
@@ -179,12 +179,12 @@
     "l4": {
       "baseline": {
         "account": {
-          "concurrency": 70,
+          "concurrency": 40,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 90,
+          "base_rpm": 80,
           "rpm_sticky_buffer": 20,
           "max_sessions": 450,
           "session_idle_timeout_minutes": 8,
@@ -196,12 +196,12 @@
     "l5": {
       "baseline": {
         "account": {
-          "concurrency": 90,
+          "concurrency": 50,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 120,
+          "base_rpm": 100,
           "rpm_sticky_buffer": 30,
           "max_sessions": 600,
           "session_idle_timeout_minutes": 8,
