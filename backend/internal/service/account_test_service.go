@@ -215,16 +215,7 @@ func normalizeKiroAdminTestModel(modelID string) string {
 	if modelID == "" {
 		return KiroDefaultTestModel
 	}
-	switch modelID {
-	case "claude-sonnet-4-5-20250929":
-		return "claude-sonnet-4-5"
-	case "claude-opus-4-5-20251101":
-		return "claude-opus-4-5"
-	case "claude-haiku-4-5-20251001":
-		return "claude-haiku-4-5"
-	default:
-		return modelID
-	}
+	return claude.DenormalizeModelID(modelID)
 }
 
 func createKiroAdminTestPayload(modelID string, prompt string) (map[string]any, error) {
