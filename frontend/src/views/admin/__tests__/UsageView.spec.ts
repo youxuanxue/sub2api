@@ -140,6 +140,16 @@ const GroupDistributionChartStub = {
     </div>
   `,
 }
+const EndpointDistributionChartStub = {
+  props: ['source'],
+  emits: ['update:source'],
+  template: `
+    <div data-test="endpoint-chart">
+      <span class="source">{{ source }}</span>
+      <button class="switch-source" @click="$emit('update:source', 'upstream')">upstream</button>
+    </div>
+  `,
+}
 
 describe('admin UsageView distribution metric toggles', () => {
   beforeEach(() => {
@@ -185,7 +195,7 @@ describe('admin UsageView distribution metric toggles', () => {
         UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
         UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
-        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: EndpointDistributionChartStub,
       } },
     })
 
@@ -212,6 +222,43 @@ describe('admin UsageView distribution metric toggles', () => {
     expect(getStats).toHaveBeenNthCalledWith(2, expect.objectContaining({
       include_summary: 0,
       include_endpoints: 1,
+      endpoint_source: 'inbound',
+    }))
+
+    getStats.mockClear()
+    await flushPromises()
+    expect(getStats).toHaveBeenCalledTimes(0)
+  })
+
+  it('loads only the selected endpoint distribution source when switching source', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: EndpointDistributionChartStub,
+      } },
+    })
+
+    await flushPromises()
+    triggerEndpointIntersection()
+    await flushPromises()
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      include_summary: 0,
+      include_endpoints: 1,
+      endpoint_source: 'inbound',
+    }))
+
+    getStats.mockClear()
+    await wrapper.find('[data-test="endpoint-chart"] .switch-source').trigger('click')
+    await flushPromises()
+
+    expect(getStats).toHaveBeenCalledTimes(1)
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({
+      include_summary: 0,
+      include_endpoints: 1,
+      endpoint_source: 'upstream',
     }))
   })
 

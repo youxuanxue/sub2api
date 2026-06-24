@@ -84,6 +84,18 @@ Parameters:
       instance with all data intact, instead of being thrown away with the
       old root EBS. Sized for prod organic growth: live PostgreSQL + ~1.5 days
       of QA blobs + 6 hourly pgdump retained copies; 30 GiB proved too tight.
+  DataVolumeIops:
+    Type: Number
+    Default: 6000
+    MinValue: 3000
+    MaxValue: 16000
+    Description: Dedicated gp3 data volume provisioned IOPS.
+  DataVolumeThroughput:
+    Type: Number
+    Default: 250
+    MinValue: 125
+    MaxValue: 1000
+    Description: Dedicated gp3 data volume provisioned throughput in MiB/s.
   AmazonLinux2023Arm64Ami:
     Type: AWS::EC2::Image::Id
     Default: ami-0b183bb1259186479
@@ -495,6 +507,8 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs '']
       Size: !Ref DataVolumeSizeGiB
       VolumeType: gp3
+      Iops: !Ref DataVolumeIops
+      Throughput: !Ref DataVolumeThroughput
       Encrypted: true
       Tags:
         - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-data'}

@@ -152,6 +152,69 @@ func TestSnapshotCache_GetOrLoad_ConcurrentSingleflight(t *testing.T) {
 	require.Equal(t, int32(1), loads.Load())
 }
 
+func TestSnapshotCache_GetStaleReturnsExpiredEntry(t *testing.T) {
+	c := newSnapshotCache(1 * time.Millisecond)
+	entry := c.Set("key1", "old-value")
+	time.Sleep(5 * time.Millisecond)
+
+	stale, ok := c.GetStale("key1")
+	require.True(t, ok, "stale Get should leave expired entries available")
+	require.Equal(t, entry.ETag, stale.ETag)
+	require.Equal(t, "old-value", stale.Payload)
+
+	_, ok = c.Get("key1")
+	require.False(t, ok, "regular Get should not return expired entries")
+}
+
+func TestSnapshotCache_RefreshReplacesExpiredEntry(t *testing.T) {
+	c := newSnapshotCache(50 * time.Millisecond)
+	c.Set("key1", "old-value")
+	time.Sleep(60 * time.Millisecond)
+
+	err := c.Refresh("key1", func() (any, error) {
+		return "new-value", nil
+	})
+	require.NoError(t, err)
+
+	entry, ok := c.Get("key1")
+	require.True(t, ok)
+	require.Equal(t, "new-value", entry.Payload)
+}
+
+func TestSnapshotCache_RefreshConcurrentSingleflight(t *testing.T) {
+	c := newSnapshotCache(5 * time.Second)
+	var loads atomic.Int32
+	start := make(chan struct{})
+	const callers = 8
+	errCh := make(chan error, callers)
+
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			<-start
+			errCh <- c.Refresh("shared", func() (any, error) {
+				loads.Add(1)
+				time.Sleep(20 * time.Millisecond)
+				return "refreshed", nil
+			})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	entry, ok := c.Get("shared")
+	require.True(t, ok)
+	require.Equal(t, "refreshed", entry.Payload)
+	require.Equal(t, int32(1), loads.Load())
+}
+
 func TestParseBoolQueryWithDefault(t *testing.T) {
 	tests := []struct {
 		name string

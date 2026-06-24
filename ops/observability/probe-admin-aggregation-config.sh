@@ -3,12 +3,38 @@
 # admin dashboard aggregation jobs.
 set -euo pipefail
 
+APP_CONTAINER="${APP_CONTAINER:-auto}"
+if [ "$APP_CONTAINER" = "auto" ]; then
+  if [ -r /var/lib/tokenkey/active-color ]; then
+    color="$(sed -n '1p' /var/lib/tokenkey/active-color 2>/dev/null | tr -d '[:space:]')"
+    case "$color" in
+      blue|green)
+        if docker inspect "tokenkey-$color" >/dev/null 2>&1; then
+          APP_CONTAINER="tokenkey-$color"
+        fi
+        ;;
+    esac
+  fi
+  if [ "$APP_CONTAINER" = "auto" ]; then
+    for candidate in tokenkey tokenkey-blue tokenkey-green; do
+      if docker inspect "$candidate" >/dev/null 2>&1; then
+        APP_CONTAINER="$candidate"
+        break
+      fi
+    done
+  fi
+  if [ "$APP_CONTAINER" = "auto" ]; then
+    APP_CONTAINER="tokenkey"
+  fi
+fi
+
 echo "=== env_dashboard_aggregation ==="
-docker exec tokenkey sh -c 'printenv | grep -E "^(DASHBOARD_AGGREGATION_|DASHBOARD_CACHE_)" | sort || true' |
+printf 'APP_CONTAINER=%s\n' "$APP_CONTAINER"
+docker exec "$APP_CONTAINER" sh -c 'printenv | grep -E "^(DASHBOARD_AGGREGATION_|DASHBOARD_CACHE_)" | sort || true' |
   sed -E 's/(PASSWORD|TOKEN|SECRET|KEY)=.*/\1=<redacted>/'
 
 echo "=== config_files ==="
-docker exec tokenkey sh -c '
+docker exec "$APP_CONTAINER" sh -c '
 for f in /app/config.yaml /app/config.yml /app/config/config.yaml /app/config/config.yml; do
   [ -f "$f" ] && printf "%s\n" "$f"
 done

@@ -60,6 +60,16 @@ func (c *snapshotCache) Get(key string) (snapshotCacheEntry, bool) {
 	return entry, true
 }
 
+func (c *snapshotCache) GetStale(key string) (snapshotCacheEntry, bool) {
+	if c == nil || key == "" {
+		return snapshotCacheEntry{}, false
+	}
+	c.mu.RLock()
+	entry, ok := c.items[key]
+	c.mu.RUnlock()
+	return entry, ok
+}
+
 func (c *snapshotCache) Set(key string, payload any) snapshotCacheEntry {
 	if c == nil {
 		return snapshotCacheEntry{}
@@ -111,6 +121,24 @@ func (c *snapshotCache) GetOrLoad(key string, load func() (any, error)) (snapsho
 		return snapshotCacheEntry{}, false, nil
 	}
 	return result.Entry, result.Hit, nil
+}
+
+func (c *snapshotCache) Refresh(key string, load func() (any, error)) error {
+	if load == nil {
+		return nil
+	}
+	if c == nil || key == "" {
+		_, err := load()
+		return err
+	}
+	_, err, _ := c.sf.Do(key, func() (any, error) {
+		payload, err := load()
+		if err != nil {
+			return nil, err
+		}
+		return c.Set(key, payload), nil
+	})
+	return err
 }
 
 func buildETagFromAny(payload any) string {

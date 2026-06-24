@@ -3,23 +3,69 @@
 set -euo pipefail
 
 SINCE="${SINCE:-24h}"
-CONTAINER="${CONTAINER:-tokenkey}"
+CONTAINER="${CONTAINER:-auto}"
 TOP_LIMIT="${TOP_LIMIT:-80}"
 SLOW_LIMIT="${SLOW_LIMIT:-30}"
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
-docker logs "$CONTAINER" --since "$SINCE" >"$tmp" 2>&1 || true
+CONTAINER_RESOLUTION="$(python3 - "$CONTAINER" <<'PY'
+import pathlib
+import subprocess
+import sys
 
-python3 - "$tmp" "$SINCE" "$TOP_LIMIT" "$SLOW_LIMIT" "$CONTAINER" <<'PY'
+container_arg = sys.argv[1]
+
+def exists(name: str) -> bool:
+    return subprocess.run(
+        ["docker", "inspect", name, "--format", "{{.Name}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).returncode == 0
+
+notes = []
+container = container_arg
+if container_arg == "auto":
+    active = pathlib.Path("/var/lib/tokenkey/active-color")
+    if active.is_file():
+        color = active.read_text(encoding="utf-8", errors="ignore").strip()
+        notes.append(f"active-color={color or '<empty>'}")
+        if color in ("blue", "green") and exists(f"tokenkey-{color}"):
+            container = f"tokenkey-{color}"
+            notes.append("active-color container exists")
+        else:
+            if color in ("blue", "green"):
+                notes.append(f"tokenkey-{color} missing")
+            for candidate in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
+                if exists(candidate):
+                    container = candidate
+                    notes.append(f"fallback={candidate}")
+                    break
+    else:
+        notes.append("active-color missing")
+        for candidate in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
+            if exists(candidate):
+                container = candidate
+                notes.append(f"fallback={candidate}")
+                break
+print(container + "\t" + ",".join(notes))
+PY
+)"
+RESOLVED_CONTAINER="${CONTAINER_RESOLUTION%%$'\t'*}"
+RESOLUTION_NOTES="${CONTAINER_RESOLUTION#*$'\t'}"
+
+docker logs "$RESOLVED_CONTAINER" --since "$SINCE" >"$tmp" 2>&1 || true
+
+python3 - "$tmp" "$SINCE" "$TOP_LIMIT" "$SLOW_LIMIT" "$CONTAINER" "$RESOLVED_CONTAINER" "$RESOLUTION_NOTES" <<'PY'
 import json
 import re
 import sys
 from collections import Counter, defaultdict
 from urllib.parse import urlsplit
 
-log_path, since, top_limit_s, slow_limit_s, container = sys.argv[1:6]
+log_path, since, top_limit_s, slow_limit_s, container_input, container, resolution_notes = sys.argv[1:8]
 top_limit = int(top_limit_s)
 slow_limit = int(slow_limit_s)
 
@@ -141,7 +187,9 @@ slow_assets = sorted(asset_rows, key=lambda r: r["latency_ms"], reverse=True)[:s
 
 print(json.dumps({
     "meta": {
+        "container_input": container_input,
         "container": container,
+        "container_resolution": [p for p in resolution_notes.split(",") if p],
         "since": since,
         "admin_rows": len(rows),
         "frontend_rows": len(asset_rows),

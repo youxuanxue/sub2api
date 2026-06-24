@@ -273,6 +273,12 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		billingType = &bt
 	}
 
+	endpointStatsSource := strings.TrimSpace(c.Query("endpoint_source"))
+	if endpointStatsSource != "" && !usagestats.IsValidEndpointSource(endpointStatsSource) {
+		response.BadRequest(c, "Invalid endpoint_source, use inbound, upstream, or path")
+		return
+	}
+
 	// Parse date range
 	userTZ := c.Query("timezone")
 	now := timezone.NowInUserLocation(userTZ)
@@ -312,19 +318,20 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 
 	// Build filters and call GetStatsWithFilters
 	filters := usagestats.UsageLogFilters{
-		UserID:            userID,
-		APIKeyID:          apiKeyID,
-		AccountID:         accountID,
-		GroupID:           groupID,
-		Model:             model,
-		RequestType:       requestType,
-		Stream:            stream,
-		BillingType:       billingType,
-		BillingMode:       billingMode,
-		StartTime:         &startTime,
-		EndTime:           &endTime,
-		SkipSummary:       !parseBoolQueryWithDefault(c.Query("include_summary"), true),
-		SkipEndpointStats: !parseBoolQueryWithDefault(c.Query("include_endpoints"), true),
+		UserID:              userID,
+		APIKeyID:            apiKeyID,
+		AccountID:           accountID,
+		GroupID:             groupID,
+		Model:               model,
+		RequestType:         requestType,
+		Stream:              stream,
+		BillingType:         billingType,
+		BillingMode:         billingMode,
+		StartTime:           &startTime,
+		EndTime:             &endTime,
+		SkipSummary:         !parseBoolQueryWithDefault(c.Query("include_summary"), true),
+		SkipEndpointStats:   !parseBoolQueryWithDefault(c.Query("include_endpoints"), true),
+		EndpointStatsSource: endpointStatsSource,
 	}
 
 	var stats *usagestats.UsageStats

@@ -153,3 +153,27 @@ func TestAdminUsageStatsIncludeToggles(t *testing.T) {
 	require.True(t, repo.statsFilters.SkipSummary)
 	require.True(t, repo.statsFilters.SkipEndpointStats)
 }
+
+func TestAdminUsageStatsEndpointSource(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?include_summary=0&include_endpoints=1&endpoint_source=upstream", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.False(t, repo.statsFilters.SkipEndpointStats)
+	require.Equal(t, usagestats.EndpointSourceUpstream, repo.statsFilters.EndpointStatsSource)
+}
+
+func TestAdminUsageStatsInvalidEndpointSource(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?endpoint_source=all", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}

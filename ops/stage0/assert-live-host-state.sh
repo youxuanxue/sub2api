@@ -49,9 +49,15 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ssm_region_args=()
 _region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
-[[ -n "${_region}" ]] && ssm_region_args=(--region "${_region}")
+
+aws_ssm() {
+  if [[ -n "${_region}" ]]; then
+    aws --region "${_region}" ssm "$@"
+  else
+    aws ssm "$@"
+  fi
+}
 
 # Read-only remote probe: emit tagged, field-named JSON the verdict parses. Only
 # emits ENV lines for keys actually present, so a missing required key yields no
@@ -84,7 +90,7 @@ REMOTE_B64="$(printf '%s' "${REMOTE_PROBE}" | base64 | tr -d '\n')"
 
 # Guard send-command: an SSM transport failure must NOT make this advisory check
 # exit non-zero (the contract above) — surface it as a ::warning:: and stop.
-if ! cmd_id="$(aws ssm send-command "${ssm_region_args[@]}" \
+if ! cmd_id="$(aws_ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "${COMMENT}" \
@@ -98,7 +104,7 @@ fi
 deadline=$(( $(date +%s) + SSM_TIMEOUT_SECONDS ))
 status="Pending"
 while :; do
-  status="$(aws ssm get-command-invocation "${ssm_region_args[@]}" \
+  status="$(aws_ssm get-command-invocation \
     --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
     --query 'Status' --output text 2>/dev/null || echo Pending)"
   case "${status}" in
@@ -108,7 +114,7 @@ while :; do
   sleep 2
 done
 
-probe_out="$(aws ssm get-command-invocation "${ssm_region_args[@]}" \
+probe_out="$(aws_ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardOutputContent' --output text 2>/dev/null || true)"
 

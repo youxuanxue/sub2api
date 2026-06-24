@@ -193,6 +193,11 @@ const endpointDistributionSource = ref<EndpointSource>('inbound')
 const inboundEndpointStats = ref<EndpointStat[]>([])
 const upstreamEndpointStats = ref<EndpointStat[]>([])
 const endpointPathStats = ref<EndpointStat[]>([])
+const loadedEndpointSources = reactive<Record<EndpointSource, boolean>>({
+  inbound: false,
+  upstream: false,
+  path: false,
+})
 const endpointStatsLoading = ref(false)
 const endpointChartRef = ref<HTMLElement | null>(null)
 const endpointStatsActivated = ref(false)
@@ -361,6 +366,10 @@ const loadEndpointStats = async (force = false) => {
   if (!force && !endpointStatsActivated.value) {
     return
   }
+  const source = endpointDistributionSource.value
+  if (!force && loadedEndpointSources[source]) {
+    return
+  }
   const seq = ++endpointStatsReqSeq
   endpointStatsLoading.value = true
   try {
@@ -371,18 +380,29 @@ const loadEndpointStats = async (force = false) => {
       stream: legacyStream === null ? undefined : legacyStream,
       include_summary: 0,
       include_endpoints: 1,
+      endpoint_source: source,
       ...(force ? { nocache: 1 } : {}),
     })
     if (seq !== endpointStatsReqSeq) return
-    inboundEndpointStats.value = s.endpoints || []
-    upstreamEndpointStats.value = s.upstream_endpoints || []
-    endpointPathStats.value = s.endpoint_paths || []
+    if (source === 'inbound') {
+      inboundEndpointStats.value = s.endpoints || []
+    } else if (source === 'upstream') {
+      upstreamEndpointStats.value = s.upstream_endpoints || []
+    } else {
+      endpointPathStats.value = s.endpoint_paths || []
+    }
+    loadedEndpointSources[source] = true
   } catch (error) {
     if (seq !== endpointStatsReqSeq) return
     console.error('Failed to load endpoint stats:', error)
-    inboundEndpointStats.value = []
-    upstreamEndpointStats.value = []
-    endpointPathStats.value = []
+    if (source === 'inbound') {
+      inboundEndpointStats.value = []
+    } else if (source === 'upstream') {
+      upstreamEndpointStats.value = []
+    } else {
+      endpointPathStats.value = []
+    }
+    loadedEndpointSources[source] = false
   } finally {
     if (seq === endpointStatsReqSeq) endpointStatsLoading.value = false
   }
@@ -401,6 +421,12 @@ const invalidateModelStatsCache = () => {
   loadedModelSources.requested = false
   loadedModelSources.upstream = false
   loadedModelSources.mapping = false
+}
+
+const invalidateEndpointStatsCache = () => {
+  loadedEndpointSources.inbound = false
+  loadedEndpointSources.upstream = false
+  loadedEndpointSources.path = false
 }
 
 const loadModelStats = async (source: ModelDistributionSource, force = false) => {
@@ -515,6 +541,7 @@ const loadChartData = async () => {
 const applyFilters = () => {
   pagination.page = 1
   invalidateModelStatsCache()
+  invalidateEndpointStatsCache()
   loadLogs()
   loadStats()
   if (endpointStatsActivated.value) loadEndpointStats()
@@ -529,6 +556,7 @@ const applyFilters = () => {
 }
 const refreshData = () => {
   invalidateModelStatsCache()
+  invalidateEndpointStatsCache()
   loadLogs()
   loadStats(true)
   if (endpointStatsActivated.value) loadEndpointStats(true)
@@ -770,6 +798,12 @@ onUnmounted(() => { if (initialChartTimer !== null) window.clearTimeout(initialC
 
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)
+})
+
+watch(endpointDistributionSource, () => {
+  if (endpointStatsActivated.value) {
+    void loadEndpointStats()
+  }
 })
 
 defineExpose({ requestedModelStats, refreshData, activateEndpointStats })
