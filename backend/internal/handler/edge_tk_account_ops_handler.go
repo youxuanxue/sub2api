@@ -2,10 +2,13 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -52,6 +55,8 @@ type edgeOpsAdmin interface {
 	ResetAccountQuota(ctx context.Context, id int64) error
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*service.Account, error)
 	GetAccount(ctx context.Context, id int64) (*service.Account, error)
+	GetAllGroups(ctx context.Context) ([]service.Group, error)
+	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error)
 }
 
 // edgeOpsUsage runs the active/passive usage query. *service.AccountUsageService
@@ -201,4 +206,75 @@ func (h *EdgeAccountOpsHandler) GetActiveUsage(c *gin.Context) {
 		return
 	}
 	response.Success(c, usage)
+}
+
+type edgeSyncCallerAPIKeyGroupRequest struct {
+	GroupName string `json:"group_name"`
+}
+
+// SyncCallerAPIKeyGroup handles PUT /api/v1/edge/caller-api-key/group.
+// It updates ONLY the currently-authenticated relay key's group, resolving the
+// target by group name on this edge. Prod calls this after a mirror-stub group
+// edit so the inline by-stub panel keeps filtering the same group on both sides.
+func (h *EdgeAccountOpsHandler) SyncCallerAPIKeyGroup(c *gin.Context) {
+	if h == nil || h.admin == nil {
+		response.Error(c, http.StatusInternalServerError, "edge account ops handler unavailable")
+		return
+	}
+
+	var req edgeSyncCallerAPIKeyGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	groupName := strings.TrimSpace(req.GroupName)
+
+	v, ok := c.Get(middleware.EdgeCallerAPIKeyCtxKey)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, "api key required")
+		return
+	}
+	apiKey, ok := v.(*service.APIKey)
+	if !ok || apiKey == nil || apiKey.ID <= 0 {
+		response.Error(c, http.StatusUnauthorized, "invalid api key")
+		return
+	}
+
+	groupID := int64(0)
+	resolvedName := ""
+	if groupName != "" {
+		groups, err := h.admin.GetAllGroups(c.Request.Context())
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "failed to list groups")
+			return
+		}
+		var target *service.Group
+		for i := range groups {
+			if groups[i].Status == service.StatusActive && groups[i].Name == groupName {
+				target = &groups[i]
+				break
+			}
+		}
+		if target == nil {
+			response.Error(c, http.StatusBadRequest, "target group not found")
+			return
+		}
+		groupID = target.ID
+		resolvedName = target.Name
+	}
+
+	result, err := h.admin.AdminUpdateAPIKeyGroupID(c.Request.Context(), apiKey.ID, &groupID)
+	if err != nil {
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			response.Error(c, http.StatusUnauthorized, "api key not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "failed to update api key group")
+		return
+	}
+	response.Success(c, gin.H{
+		"api_key_id": result.APIKey.ID,
+		"group_id":   groupID,
+		"group_name": resolvedName,
+	})
 }

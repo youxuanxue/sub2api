@@ -577,10 +577,17 @@ type adminServiceImpl struct {
 	// model_availability so the admin selector self-heals (a structurally-gone
 	// model auto-drops). Nil-safe (degrades to no pruning). R-003 / PR #752.
 	availability MePricingAvailability
+	// edgeStubGroupSyncer mirrors prod mirror-stub group edits onto the edge-side
+	// relay API key. Optional: nil keeps non-TokenKey/local tests on the old path.
+	edgeStubGroupSyncer EdgeStubGroupSyncer
 }
 
 type userGroupRateBatchReader interface {
 	GetByUserIDs(ctx context.Context, userIDs []int64) (map[int64]map[int64]float64, error)
+}
+
+type EdgeStubGroupSyncer interface {
+	SyncEdgeStubGroup(ctx context.Context, account *Account) error
 }
 
 // NewAdminService creates a new AdminService
@@ -630,6 +637,16 @@ func NewAdminService(
 		runtimeBlocker:       runtimeBlocker,
 		availability:         avail,
 	}
+}
+
+// SetEdgeStubGroupSyncer installs the optional prod→edge mirror-stub group sync
+// hook. It is post-wired to avoid a service construction cycle: the syncer needs
+// the account repository for edge discovery, while AdminService owns account writes.
+func (s *adminServiceImpl) SetEdgeStubGroupSyncer(syncer EdgeStubGroupSyncer) {
+	if s == nil {
+		return
+	}
+	s.edgeStubGroupSyncer = syncer
 }
 
 func (s *adminServiceImpl) syncAnthropicOperatorConcurrency(ctx context.Context) error {
@@ -3022,6 +3039,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	if input.GroupIDs != nil {
+		s.syncEdgeStubGroupBestEffort(ctx, updated)
+	}
 	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
 		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
@@ -3152,6 +3172,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				result.Results = append(result.Results, entry)
 				continue
 			}
+			s.syncEdgeStubGroupByIDBestEffort(ctx, accountID)
 		}
 
 		entry.Success = true
@@ -3165,6 +3186,31 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	return result, nil
+}
+
+func (s *adminServiceImpl) syncEdgeStubGroupByIDBestEffort(ctx context.Context, accountID int64) {
+	if s == nil || s.edgeStubGroupSyncer == nil || s.accountRepo == nil {
+		return
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		slog.Warn("edge stub group sync: reload account failed", "account_id", accountID, "error", err)
+		return
+	}
+	s.syncEdgeStubGroupBestEffort(ctx, account)
+}
+
+func (s *adminServiceImpl) syncEdgeStubGroupBestEffort(ctx context.Context, account *Account) {
+	if s == nil || s.edgeStubGroupSyncer == nil || account == nil {
+		return
+	}
+	if err := s.edgeStubGroupSyncer.SyncEdgeStubGroup(ctx, account); err != nil {
+		slog.Warn("edge stub group sync failed",
+			"account_id", account.ID,
+			"account_name", account.Name,
+			"edge_id", MirrorStubEdgeID(account),
+			"error", err)
+	}
 }
 
 func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filters *BulkUpdateAccountFilters) ([]int64, error) {

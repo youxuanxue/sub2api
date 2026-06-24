@@ -36,12 +36,20 @@ type fakeEdgeDoer struct {
 	statusByHost map[string]int    // host -> non-200 status
 	keysSeen     map[string]string // host -> x-api-key
 	platformSeen map[string]string // host -> ?platform= query value (last seen)
+	methodSeen   map[string]string // host -> HTTP method (last seen)
+	pathSeen     map[string]string // host -> path (last seen)
+	bodySeen     map[string]string // host -> request body (last seen)
 	calls        atomic.Int64      // total Do invocations across all fan-outs
 }
 
 func (f *fakeEdgeDoer) Do(req *http.Request) (*http.Response, error) {
 	f.calls.Add(1)
 	host := req.URL.Host
+	requestBody := ""
+	if req.Body != nil {
+		raw, _ := io.ReadAll(req.Body)
+		requestBody = string(raw)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.keysSeen == nil {
@@ -52,6 +60,18 @@ func (f *fakeEdgeDoer) Do(req *http.Request) (*http.Response, error) {
 		f.platformSeen = map[string]string{}
 	}
 	f.platformSeen[host] = req.URL.Query().Get("platform")
+	if f.methodSeen == nil {
+		f.methodSeen = map[string]string{}
+	}
+	f.methodSeen[host] = req.Method
+	if f.pathSeen == nil {
+		f.pathSeen = map[string]string{}
+	}
+	f.pathSeen[host] = req.URL.Path
+	if f.bodySeen == nil {
+		f.bodySeen = map[string]string{}
+	}
+	f.bodySeen[host] = requestBody
 
 	if err := f.errByHost[host]; err != nil {
 		return nil, err
@@ -60,10 +80,10 @@ func (f *fakeEdgeDoer) Do(req *http.Request) (*http.Response, error) {
 	if s, ok := f.statusByHost[host]; ok {
 		status = s
 	}
-	body := f.bodyByHost[host]
+	responseBody := f.bodyByHost[host]
 	return &http.Response{
 		StatusCode: status,
-		Body:       io.NopCloser(strings.NewReader(body)),
+		Body:       io.NopCloser(strings.NewReader(responseBody)),
 		Header:     make(http.Header),
 	}, nil
 }
@@ -710,4 +730,43 @@ func TestEdgeStubAPIKey(t *testing.T) {
 			require.Equal(t, tc.want, edgeStubAPIKey(tc.acc))
 		})
 	}
+}
+
+func TestEdgeAccountsAggregator_SyncEdgeStubGroupMirrorsSingleProdGroupByName(t *testing.T) {
+	acct := mirrorStub(70, "https://api-us3.tokenkey.dev", "edge-key-us3")
+	acct.Groups = []*Group{{ID: 42, Name: "claude"}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us3.tokenkey.dev": `{"data":{"api_key_id":5,"group_name":"claude"}}`,
+	}}
+	agg := NewEdgeAccountsAggregator(&edgeAccountsStoreStub{}, doer)
+
+	require.NoError(t, agg.SyncEdgeStubGroup(context.Background(), &acct))
+
+	require.Equal(t, http.MethodPut, doer.methodSeen["api-us3.tokenkey.dev"])
+	require.Equal(t, "/api/v1/edge/caller-api-key/group", doer.pathSeen["api-us3.tokenkey.dev"])
+	require.Equal(t, "edge-key-us3", doer.keysSeen["api-us3.tokenkey.dev"])
+	require.JSONEq(t, `{"group_name":"claude"}`, doer.bodySeen["api-us3.tokenkey.dev"])
+}
+
+func TestEdgeAccountsAggregator_SyncEdgeStubGroupSkipsAmbiguousGroups(t *testing.T) {
+	acct := mirrorStub(70, "https://api-us3.tokenkey.dev", "edge-key-us3")
+	acct.Groups = []*Group{{ID: 1, Name: "claude"}, {ID: 2, Name: "kiro"}}
+	doer := &fakeEdgeDoer{}
+	agg := NewEdgeAccountsAggregator(&edgeAccountsStoreStub{}, doer)
+
+	require.NoError(t, agg.SyncEdgeStubGroup(context.Background(), &acct))
+	require.Equal(t, int64(0), doer.calls.Load())
+}
+
+func TestEdgeAccountsAggregator_SyncEdgeStubGroupUnbindsWhenProdStubUngrouped(t *testing.T) {
+	acct := mirrorStub(70, "https://api-us3.tokenkey.dev", "edge-key-us3")
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us3.tokenkey.dev": `{"data":{"api_key_id":5,"group_name":""}}`,
+	}}
+	agg := NewEdgeAccountsAggregator(&edgeAccountsStoreStub{}, doer)
+
+	require.NoError(t, agg.SyncEdgeStubGroup(context.Background(), &acct))
+
+	require.Equal(t, http.MethodPut, doer.methodSeen["api-us3.tokenkey.dev"])
+	require.JSONEq(t, `{"group_name":""}`, doer.bodySeen["api-us3.tokenkey.dev"])
 }

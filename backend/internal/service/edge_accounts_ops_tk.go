@@ -21,10 +21,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // EdgeAccountOp identifies a whitelisted edge account write/query op. The
@@ -120,4 +122,61 @@ func (a *EdgeAccountsAggregator) ForwardAccountOp(ctx context.Context, edgeID st
 		return resp.StatusCode, nil, errors.New("read body failed")
 	}
 	return resp.StatusCode, respBody, nil
+}
+
+// SyncEdgeStubGroup mirrors a prod mirror-stub account's single group binding to
+// the edge-side relay API key used by that stub. The cross-deployment join key is
+// the group NAME, never the group id (prod and edge DB ids can differ). Best-effort
+// callers should log failures but not roll back the already-saved prod edit.
+func (a *EdgeAccountsAggregator) SyncEdgeStubGroup(ctx context.Context, account *Account) error {
+	if a == nil || account == nil {
+		return nil
+	}
+	targets := discoverStubTargets([]Account{*account}, edgeIDPattern)
+	if len(targets) != 1 {
+		return nil
+	}
+	groupNames := stubGroupNames(account)
+	if len(groupNames) > 1 {
+		return nil
+	}
+	groupName := ""
+	if len(groupNames) == 1 {
+		groupName = groupNames[0]
+	}
+	if a.http == nil {
+		return errors.New("no http client")
+	}
+
+	payload, err := json.Marshal(map[string]string{"group_name": groupName})
+	if err != nil {
+		return err
+	}
+	t := targets[0]
+	endpoint := t.baseURL + "/api/v1/edge/caller-api-key/group"
+
+	reqCtx, cancel := context.WithTimeout(ctx, edgeAccountsHTTPTO)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPut, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return errors.New("build request failed")
+	}
+	req.Header.Set("x-api-key", t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.http.Do(req)
+	if err != nil {
+		return errors.New("request failed: " + err.Error())
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = "edge returned http " + strconv.Itoa(resp.StatusCode)
+		}
+		return errors.New(msg)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return nil
 }

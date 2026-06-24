@@ -1029,9 +1029,11 @@
       "path": "backend/internal/handler/wire.go",
       "must_contain": [
         "NewMePricingCatalogHandler",
-        "MePricingCatalog: mePricingCatalogHandler"
+        "MePricingCatalog: mePricingCatalogHandler",
+        "SetEdgeStubGroupSyncer(syncer service.EdgeStubGroupSyncer)",
+        "s.SetEdgeStubGroupSyncer(agg)"
       ],
-      "rationale": "Handler ProviderSet + ProvideHandlers assignment for the per-user pricing-catalog endpoint. Two lines must both survive: the ProviderSet registration so wire can construct the handler, and the field assignment in ProvideHandlers so the runtime Handlers struct actually carries it (a missing assignment lets wire compile but silently leaves Handlers.MePricingCatalog nil → routes/user_tk_routes.go skips registration via its nil guard)."
+      "rationale": "Handler ProviderSet + ProvideHandlers assignment for the per-user pricing-catalog endpoint. Two lines must both survive: the ProviderSet registration so wire can construct the handler, and the field assignment in ProvideHandlers so the runtime Handlers struct actually carries it (a missing assignment lets wire compile but silently leaves Handlers.MePricingCatalog nil → routes/user_tk_routes.go skips registration via its nil guard). The same upstream-shaped provider file also post-wires AdminService to EdgeAccountsAggregator through SetEdgeStubGroupSyncer; dropping that injection compiles but silently disables prod-stub group edits from mirroring onto the edge relay key, reopening the admin /accounts by-stub group mismatch."
     },
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
@@ -3028,9 +3030,12 @@
       "must_contain": [
         "func (s *adminServiceImpl) grantExclusiveGroupMembership(ctx context.Context, groupID int64, userIDs []int64) error {",
         "TK(exclusive-membership rate-path): keep this hook on upstream merge",
-        "TK(exclusive-membership rpm-path): keep this hook on upstream merge"
+        "TK(exclusive-membership rpm-path): keep this hook on upstream merge",
+        "type EdgeStubGroupSyncer interface",
+        "s.syncEdgeStubGroupBestEffort(ctx, updated)",
+        "s.syncEdgeStubGroupByIDBestEffort(ctx, accountID)"
       ],
-      "rationale": "Groups-page 专属倍率/RPM 'add user' must also grant user_allowed_groups membership for exclusive (non-subscription) standard groups, mirroring upstream's own AdminUpdateAPIKeyGroupID / ReplaceUserGroup pattern (see PR #863). Membership (user_allowed_groups, gated by User.CanBindGroup) and per-user rate (user_group_rate) are SEPARATE stores; the upstream-owned BatchSetGroupRateMultipliers / BatchSetGroupRPMOverrides only wrote the rate row, so a user added via the groups page showed up unchecked on the users page and could not bind the exclusive group. The two grant hooks are small and compile-clean if dropped, and the regression test lives in an upstream-owned file (admin_service_group_rate_test.go) so a merge could revert hook+test together silently. This TK-owned, merge-survivable sentinel pins the helper definition plus both per-path call-site markers, so an upstream merge that rewrites either method FAILS the check instead of silently reintroducing the bug."
+      "rationale": "Groups-page 专属倍率/RPM 'add user' must also grant user_allowed_groups membership for exclusive (non-subscription) standard groups, mirroring upstream's own AdminUpdateAPIKeyGroupID / ReplaceUserGroup pattern (see PR #863). Membership (user_allowed_groups, gated by User.CanBindGroup) and per-user rate (user_group_rate) are SEPARATE stores; the upstream-owned BatchSetGroupRateMultipliers / BatchSetGroupRPMOverrides only wrote the rate row, so a user added via the groups page showed up unchecked on the users page and could not bind the exclusive group. The two grant hooks are small and compile-clean if dropped, and the regression test lives in an upstream-owned file (admin_service_group_rate_test.go) so a merge could revert hook+test together silently. This TK-owned, merge-survivable sentinel pins the helper definition plus both per-path call-site markers, so an upstream merge that rewrites either method FAILS the check instead of silently reintroducing the bug. The same admin write hotspot now also owns the prod→edge mirror-stub group sync trigger: single-account UpdateAccount and BulkUpdateAccounts must call the best-effort sync after group binding so the prod stub's group and the edge relay API key's group stay aligned. Dropping either call silently reopens the /admin/accounts expanded-edge mismatch."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_thin_pool_guard.go",
@@ -3201,9 +3206,20 @@
       "must_contain": [
         "type EdgeAccountOpsHandler struct",
         "func (h *EdgeAccountOpsHandler) GetActiveUsage",
-        "toEdgeAccountDTO(acc)"
+        "toEdgeAccountDTO(acc)",
+        "func (h *EdgeAccountOpsHandler) SyncCallerAPIKeyGroup",
+        "middleware.EdgeCallerAPIKeyCtxKey",
+        "AdminUpdateAPIKeyGroupID"
       ],
-      "rationale": "Edge-side least-privilege account WRITE ops the prod /accounts page proxies to (clear-rate-limit / reset-quota / temp-unschedulable / schedulable / active usage). A WHITELIST of status-class mutations that NEVER touch credentials; each re-emits the same credential-free edgeAccountDTO the read endpoint produces (toEdgeAccountDTO). Mounted behind the active-key middleware PLUS NewEdgeAdminOwnerMiddleware. Guards against silent upstream-merge/refactor deletion of the inline-management write surface."
+      "rationale": "Edge-side least-privilege account WRITE ops the prod /accounts page proxies to (clear-rate-limit / reset-quota / temp-unschedulable / schedulable / active usage). A WHITELIST of status-class mutations that NEVER touch credentials; each re-emits the same credential-free edgeAccountDTO the read endpoint produces (toEdgeAccountDTO). Mounted behind the active-key middleware PLUS NewEdgeAdminOwnerMiddleware. SyncCallerAPIKeyGroup is the narrow prod-stub group mirror endpoint: it updates ONLY the currently authenticated caller API key, resolving the target edge group by name, so prod cannot pass an arbitrary edge key id. Guards against silent upstream-merge/refactor deletion of the inline-management write surface and the prod-stub group-sync boundary."
+    },
+    {
+      "path": "backend/internal/server/routes/edge_tk_routes.go",
+      "must_contain": [
+        "edge.PUT(\"/caller-api-key/group\", h.EdgeAccountOps.SyncCallerAPIKeyGroup)",
+        "edge.Use(middleware2.NewEdgeAdminOwnerMiddleware(apiKeyService, userService))"
+      ],
+      "rationale": "Route wiring for the prod-stub group mirror endpoint. The endpoint must stay under the /edge group that already has lightweight x-api-key auth and, when userService is present in production, the NewEdgeAdminOwnerMiddleware elevation gate; otherwise prod account group edits would save locally but leave the edge relay key bound to the old group, recreating the /admin/accounts by-stub mismatch."
     },
     {
       "path": "backend/internal/server/middleware/edge_admin_owner_tk.go",
@@ -3219,9 +3235,12 @@
       "must_contain": [
         "func (a *EdgeAccountsAggregator) ForwardAccountOp",
         "edgeAccountOpSpecs",
-        "ErrUnsupportedEdgeAccountOp"
+        "ErrUnsupportedEdgeAccountOp",
+        "func (a *EdgeAccountsAggregator) SyncEdgeStubGroup",
+        "\"/api/v1/edge/caller-api-key/group\"",
+        "\"group_name\""
       ],
-      "rationale": "Prod-side WRITE proxy: forwards a WHITELISTED edge account op (edgeAccountOpSpecs — a fixed op->method/path map, never caller free text) to the target edge's least-privilege endpoint using the mirror-stub x-api-key, mirroring the read aggregator's fetchEdgeAccounts fan-out (same discovery, timeout, per-edge isolation). Stateless, credential-free. Guards the prod->edge write path + its op whitelist against silent deletion or an op-allowlist widening."
+      "rationale": "Prod-side WRITE proxy: forwards a WHITELISTED edge account op (edgeAccountOpSpecs — a fixed op->method/path map, never caller free text) to the target edge's least-privilege endpoint using the mirror-stub x-api-key, mirroring the read aggregator's fetchEdgeAccounts fan-out (same discovery, timeout, per-edge isolation). Stateless, credential-free. SyncEdgeStubGroup is the parallel prod→edge mirror for account group edits: it posts the prod stub's single group NAME (not DB id, because prod/edge ids differ) to the caller-key endpoint, or an empty name to unbind. Guards the prod->edge write path + its op whitelist + the stub group mirror against silent deletion or an op-allowlist widening."
     },
     {
       "path": "backend/internal/handler/admin/edge_account_ops_handler_tk.go",

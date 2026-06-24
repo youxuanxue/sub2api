@@ -50,6 +50,7 @@ func TestRegisterTKEdgeRoutes_OpsRegisteredNoConflict(t *testing.T) {
 	for _, want := range []routePath{
 		{"GET", "/api/v1/edge/accounts"},
 		{"POST", "/api/v1/edge/admin-session"},
+		{"PUT", "/api/v1/edge/caller-api-key/group"},
 		{"POST", "/api/v1/edge/accounts/:id/clear-rate-limit"},
 		{"POST", "/api/v1/edge/accounts/:id/reset-quota"},
 		{"DELETE", "/api/v1/edge/accounts/:id/temp-unschedulable"},
