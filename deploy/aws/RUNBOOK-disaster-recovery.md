@@ -3,7 +3,7 @@
 > 适用对象：`api.tokenkey.dev` 的 AWS Stage0 单机栈（`deploy/aws/cloudformation/stage0-single-ec2.yaml`）。
 > 目标：prod 整机 / OS / 数据卷级故障时，用**确定性步骤**把服务在分钟级恢复，而不是临场拼命令。
 > 这是「冷重建」runbook，不是热备。100 用户阶段刻意选它——便宜、够用、零常驻技术债。
-> 真正的零停机发版（蓝绿）见 `docs/deploy/blue-green-zero-downtime-backlog.md`（已封存、阈值触发）。
+> prod 同机双 app 单数据层蓝绿发版见 `docs/deploy/blue-green-zero-downtime-backlog.md`。
 
 ## 恢复资产地图（先看这里——重建/恢复从这里找东西）
 

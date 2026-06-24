@@ -2,7 +2,7 @@
 #
 # Guard: the SSM host command script must parse as shell.
 #
-# deploy_via_ssm.sh and sync_caddyfile_via_ssm.sh build a jq `commands` array
+# deploy_via_ssm*.sh and sync_caddyfile_via_ssm.sh build a jq `commands` array
 # and hand it to AWS-RunShellScript, which JOINS the elements into ONE shell
 # script and runs it on the host. A local "the JSON is valid" check does NOT
 # catch host-shell syntax errors, because the array is never executed locally —
@@ -77,10 +77,19 @@ check_one() {
     rc=1
     return
   fi
+  if [[ -f "${tmp}/${out}/bluegreen-remote.sh" ]]; then
+    if ! bash -n "${tmp}/${out}/bluegreen-remote.sh" 2>"${tmp}/${out}/remote-parse"; then
+      echo "  FAIL: ${label} — decoded remote script has a shell syntax error:" >&2
+      sed 's/^/      /' "${tmp}/${out}/remote-parse" >&2
+      rc=1
+      return
+    fi
+  fi
   echo "  ok: ${label} host script parses"
 }
 
 check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
+check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  bash "${OPS}/deploy_via_ssm_bluegreen.sh" 1.0.0 i-0stub probe
 check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe

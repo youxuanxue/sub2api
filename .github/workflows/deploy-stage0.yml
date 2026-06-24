@@ -46,6 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Validate tag + resolve stack name
@@ -66,7 +67,7 @@ jobs:
       - name: Validate prod smoke secrets (before touching prod)
         # Fail fast BEFORE the SSM image swap: a missing smoke secret is a config
         # error, not a deploy failure. Validating here (instead of inside the
-        # post-deploy smoke step that runs AFTER deploy_via_ssm.sh) means a
+        # post-deploy smoke step that runs AFTER the SSM image swap means a
         # missing secret never leaves a freshly-swapped image live behind a red
         # "smoke" run that actually means "secret not configured".
         env:
@@ -86,6 +87,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+
+      - name: Blue/green migration safety gate
+        # The target app can apply migrations while the old app is still serving
+        # existing requests on the same prod DB. Advisory locks serialize
+        # migration execution, but they do not make destructive schema changes
+        # compatible with old code, so fail closed before touching prod.
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git fetch --tags --force origin "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}" '+refs/tags/v*:refs/tags/v*'
+          TARGET_REF="v${INPUT_TAG}"
+          if git rev-parse --verify "$TARGET_REF" >/dev/null 2>&1; then
+            BASE_REF="$(git tag --merged "$TARGET_REF" --sort=-v:refname -l 'v*' | awk -v target="$TARGET_REF" '$0 != target { print; exit }')"
+            if [ -z "$BASE_REF" ]; then
+              BASE_REF=origin/main
+            fi
+            echo "blue/green migration safety range: ${BASE_REF}..${TARGET_REF}"
+            python3 scripts/checks/bluegreen-migration-safety.py --base "$BASE_REF" --head "$TARGET_REF"
+          else
+            echo "::warning::tag $TARGET_REF not found locally; falling back to origin/main..HEAD"
+            python3 scripts/checks/bluegreen-migration-safety.py --base origin/main --head HEAD
+          fi
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
@@ -120,7 +143,7 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
-        run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod"
+        run: bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
       - name: External health check
         env:
@@ -141,7 +164,7 @@ jobs:
 
       - name: Assert live-host state (drift check)
         # ADVISORY ONLY — never blocks the deploy. Reads (read-only) the running
-        # container image tag + the deploy_via_ssm-injected env (SERVER_FRONTEND_URL,
+        # active app container image tag + the deploy_via_ssm-injected env (SERVER_FRONTEND_URL,
         # QA_CAPTURE_EXPORT_STORAGE_*) and warns if the live host drifted from what
         # this deploy intended (the running tag != the tag we just deployed, or a
         # sed-injection that wrote the wrong content — the 2026-06 "3× repeat" was

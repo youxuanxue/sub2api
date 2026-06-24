@@ -211,7 +211,20 @@ IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-li
 
 升级方式见下方 §升级 SOP（首选 `deploy-stage0.yml` dispatch；底层手工 SSM 路径作备用）。CFN deploy 改 `ImageTag` 现在数据可保留（独立 `DataVolume` detach + 新 instance attach），但实例替换仍有 1–3 min 停机窗口，生产默认走 SSM 原地升级。
 
-> **整机 / OS / 数据卷级灾难恢复**：本节讲常规升级；当 prod 实例彻底损坏、数据卷丢失或 AZ 不可用时的确定性恢复步骤（恢复决策树、CFN 替换实例保留数据卷、从 DLM 快照恢复、DNS 切换、恢复后 smoke + 真空验证）见 **[`RUNBOOK-disaster-recovery.md`](RUNBOOK-disaster-recovery.md)**。发版/修复期的「零停机」诉求（蓝绿，已按阈值封存）见 [`docs/deploy/blue-green-zero-downtime-backlog.md`](../../docs/deploy/blue-green-zero-downtime-backlog.md)。
+> **整机 / OS / 数据卷级灾难恢复**：本节讲常规升级；当 prod 实例彻底损坏、数据卷丢失或 AZ 不可用时的确定性恢复步骤（恢复决策树、CFN 替换实例保留数据卷、从 DLM 快照恢复、DNS 切换、恢复后 smoke + 真空验证）见 **[`RUNBOOK-disaster-recovery.md`](RUNBOOK-disaster-recovery.md)**。prod 发版期的「同机双 app 单数据层」蓝绿路径见 [`docs/deploy/blue-green-zero-downtime-backlog.md`](../../docs/deploy/blue-green-zero-downtime-backlog.md)。
+
+### Prod blue/green deploy path
+
+`deploy-stage0.yml` now uses `ops/stage0/deploy_via_ssm_bluegreen.sh` for prod. The first run is self-migrating: it starts `tokenkey-blue` with the current image, reloads Caddy to that color, drains/removes the legacy `tokenkey` container, then deploys the requested tag to the other color. After that, every deploy alternates `tokenkey-blue` / `tokenkey-green` while Postgres, Redis, Caddy, and `/var/lib/tokenkey/app` remain single shared data layers.
+
+Runtime state on the prod host:
+
+- active color: `/var/lib/tokenkey/active-color`
+- blue/green compose: `/var/lib/tokenkey/docker-compose.bluegreen.yml`
+- active app containers: `tokenkey-blue` or `tokenkey-green`
+- systemd restart policy: `tokenkey.service` starts Postgres/Redis, the active app color, and Caddy; it does not restart the legacy `tokenkey` app.
+
+Rollback is a normal redeploy of the previous known-good image tag through `deploy-stage0.yml`; the script pulls it into the inactive color, switches Caddy after health is green, and drains the current color. Destructive DB migrations remain the main semantic risk: any new/changed SQL migration with `DROP`, `RENAME`, `SET NOT NULL`, or `ALTER ... TYPE` must pass `scripts/checks/bluegreen-migration-safety.py` via `scripts/preflight.sh` before merge, or carry an explicit `bluegreen-safe-destructive-ok` comment after manual expand-contract review.
 
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。

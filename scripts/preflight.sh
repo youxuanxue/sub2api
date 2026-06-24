@@ -1154,35 +1154,39 @@ else
     echo "  ok: live-host state verdict drift fixtures pass"
 fi
 
-# live-host detector ↔ deploy_via_ssm injection sync: the detector asserts the
-# CONTAINER env that deploy_via_ssm.sh sed-injects is present on the host. If a
-# key is added/removed in deploy_via_ssm.sh without updating the detector's
+# live-host detector ↔ deploy injectors sync: the detector asserts the CONTAINER
+# env that the Stage0 deploy primitives inject/map is present on the host. If a
+# key is added/removed in a deploy primitive without updating the detector's
 # DEFAULT_REQUIRED_ENV (or vice versa), the detector would silently check stale
 # keys — the exact "靠自觉 drift" this whole PR exists to kill. The detector is
 # the single source of truth (--print-required); assert each key it requires
-# actually appears in the injector script.
+# actually appears in every prod-capable injector script.
 echo ""
-echo "=== sub2api: live-host detector ↔ deploy_via_ssm env sync ==="
-_lh_injector="ops/stage0/deploy_via_ssm.sh"
+echo "=== sub2api: live-host detector ↔ deploy injector env sync ==="
+_lh_injectors="ops/stage0/deploy_via_ssm.sh ops/stage0/deploy_via_ssm_bluegreen.sh"
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for live-host detector sync check)"
     errors=$((errors + 1))
-elif [ ! -f "${_lh_injector}" ]; then
-    echo "  FAIL: ${_lh_injector} missing (live-host detector sync check)"
-    errors=$((errors + 1))
 else
-    _lh_missing=""
-    while IFS= read -r _lh_key; do
-        [ -z "${_lh_key}" ] && continue
-        grep -q "${_lh_key}" "${_lh_injector}" || _lh_missing="${_lh_missing} ${_lh_key}"
-    done < <(python3 ./ops/stage0/live_host_state_verdict.py --print-required)
-    if [ -n "${_lh_missing}" ]; then
-        echo "  FAIL: detector requires env not injected by deploy_via_ssm.sh:${_lh_missing}"
-        echo "        — reconcile DEFAULT_REQUIRED_ENV (live_host_state_verdict.py) with the injection list in ${_lh_injector}"
-        errors=$((errors + 1))
-    else
-        echo "  ok: every detector-required env key is injected by deploy_via_ssm.sh"
-    fi
+    for _lh_injector in ${_lh_injectors}; do
+        if [ ! -f "${_lh_injector}" ]; then
+            echo "  FAIL: ${_lh_injector} missing (live-host detector sync check)"
+            errors=$((errors + 1))
+            continue
+        fi
+        _lh_missing=""
+        while IFS= read -r _lh_key; do
+            [ -z "${_lh_key}" ] && continue
+            grep -q "${_lh_key}" "${_lh_injector}" || _lh_missing="${_lh_missing} ${_lh_key}"
+        done < <(python3 ./ops/stage0/live_host_state_verdict.py --print-required)
+        if [ -n "${_lh_missing}" ]; then
+            echo "  FAIL: detector requires env not injected/mapped by ${_lh_injector}:${_lh_missing}"
+            echo "        — reconcile DEFAULT_REQUIRED_ENV (live_host_state_verdict.py) with the injection list in ${_lh_injector}"
+            errors=$((errors + 1))
+        else
+            echo "  ok: every detector-required env key is injected/mapped by ${_lh_injector}"
+        fi
+    done
 fi
 
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
@@ -1316,10 +1320,11 @@ fi
 echo ""
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
 # EC2 edge path removed 2026-06-07 (deploy-edge-stage0.yml deleted); edges are
-# Lightsail-only. prod (deploy-stage0.yml) + Lightsail edge (deploy-edge-lightsail-stage0.yml)
-# must share the SSM deploy primitive and never inline the compose deploy command.
-if ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-stage0.yml; then
-    echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
+# Lightsail-only. prod now uses the blue/green SSM primitive; Lightsail edge
+# stays on the legacy single-app primitive because its bootstrap still uses the
+# shared single-app compose. Neither workflow may inline compose deploy commands.
+if ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-stage0.yml; then
+    echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
     errors=$((errors + 1))
 elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-lightsail-stage0.yml; then
     echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
@@ -1328,7 +1333,26 @@ elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/wor
     echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use ops/stage0/deploy_via_ssm.sh"
     errors=$((errors + 1))
 else
-    echo "  ok: prod deploy-stage0 and Lightsail edge workflow share the Stage0 SSM deploy primitive"
+    echo "  ok: prod uses blue/green SSM primitive; Lightsail edge stays on single-app SSM primitive"
+fi
+
+echo ""
+echo "=== sub2api: blue/green migration safety ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for blue/green migration safety)"
+    errors=$((errors + 1))
+else
+    _bgm_base="${PREFLIGHT_BASE:-origin/main}"
+    python3 ./scripts/checks/bluegreen-migration-safety.py --base "${_bgm_base}" --head HEAD --quiet
+    _bgm_rc=$?
+    if [ "$_bgm_rc" -eq 1 ]; then
+        errors=$((errors + 1))
+    elif [ "$_bgm_rc" -eq 2 ]; then
+        echo "  skip: cannot resolve ${_bgm_base}..HEAD (fetch origin/main); the prod deploy workflow enforces this"
+    else
+        echo "  ok: changed SQL migrations are blue/green-safe"
+    fi
+    unset _bgm_base _bgm_rc
 fi
 
 echo ""
