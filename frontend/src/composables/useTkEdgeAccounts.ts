@@ -202,6 +202,10 @@ export function useTkEdgeAccounts(
   const etag = ref<string | null>(null)
   const fetching = ref(false)
 
+  function requestOptions(options: { force?: boolean } = {}) {
+    return { force: options.force === true }
+  }
+
   function persistPrefs() {
     if (typeof localStorage === 'undefined') return
     try {
@@ -223,7 +227,7 @@ export function useTkEdgeAccounts(
     loading.value = true
     error.value = null
     try {
-      const res = await adminAPI.edgeAccounts.listWithEtag(listParams(), { force: options.force === true })
+      const res = await adminAPI.edgeAccounts.listWithEtag(listParams(), requestOptions(options))
       if (!res.notModified && res.data) {
         edges.value = res.data.edges ?? []
       }
@@ -250,7 +254,10 @@ export function useTkEdgeAccounts(
     if (fetching.value || loading.value) return
     fetching.value = true
     try {
-      const res = await adminAPI.edgeAccounts.listWithEtag(listParams(), { etag: etag.value })
+      const res = await adminAPI.edgeAccounts.listWithEtag(listParams(), {
+        etag: etag.value,
+        ...requestOptions()
+      })
       if (res.etag) etag.value = res.etag
       if (!res.notModified && res.data) {
         edges.value = mergeEdges(edges.value, res.data.edges ?? [])
@@ -328,8 +335,18 @@ export function useTkEdgeAccounts(
     }
   }
 
+  function onVisibilityChange() {
+    if (!byStub) return
+    if (!isEnabled()) return
+    if (typeof document !== 'undefined' && document.hidden) return
+    void fetch({ force: true })
+  }
+
   onMounted(() => {
     startIfEnabled()
+    if (byStub && typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
     // React to the gate flipping — e.g. the prod /accounts page being filtered to
     // (or away from) edge-stub rows. Only then do we fan out to the edges; when no
     // stubs are visible we pause entirely (no fetch, no poll).
@@ -341,7 +358,12 @@ export function useTkEdgeAccounts(
       }
     })
   })
-  onBeforeUnmount(() => pause())
+  onBeforeUnmount(() => {
+    pause()
+    if (byStub && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  })
 
   return {
     platform,

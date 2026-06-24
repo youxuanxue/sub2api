@@ -69,7 +69,6 @@ func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyServic
 	// :id used consistently, no static sibling at the :id position, so no
 	// wildcard conflict.
 	if h.EdgeAccountOps != nil && userService != nil {
-		edge.PUT("/caller-api-key/group", h.EdgeAccountOps.SyncCallerAPIKeyGroup)
 		ops := edge.Group("/accounts")
 		ops.Use(middleware2.NewEdgeAdminOwnerMiddleware(apiKeyService, userService))
 		ops.POST("/:id/clear-rate-limit", h.EdgeAccountOps.ClearRateLimit)

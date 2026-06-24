@@ -65,14 +65,14 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 	// view=by-stub → the inline /accounts panel's per-stub inventory: every prod
 	// mirror stub (any platform) fanned out with ITS OWN api-key, so each result is
 	// that key's group-scoped accounts (precise correspondence), keyed by stub id.
-	// Default → the per-edge fleet overview, narrowed by ?platform=.
+	// This path is the prod /accounts embedded view of edge runtime state, so it
+	// always performs a fresh fan-out before ETag comparison; otherwise a changed
+	// edge account can remain hidden behind prod's SWR cache. Default → the
+	// standalone per-edge fleet overview, narrowed by ?platform=, where passive
+	// polling can keep using the SWR cache unless force=true.
 	force := truthyQuery(c.Query("force"))
 	if strings.EqualFold(strings.TrimSpace(c.Query("view")), "by-stub") {
-		if force {
-			agg, err = h.aggregator.AggregateByStubFresh(ctx)
-		} else {
-			agg, err = h.aggregator.AggregateByStub(ctx)
-		}
+		agg, err = h.aggregator.AggregateByStubFresh(ctx)
 	} else {
 		platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "all")))
 		if force {

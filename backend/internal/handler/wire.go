@@ -234,18 +234,9 @@ func ProvideEdgeAccountOpsHandler(
 
 // ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
 // *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
-// interface) to the prod-side cross-edge account overview handler. It also
-// post-wires the optional mirror-stub group sync hook onto AdminService so account
-// group edits can mirror to the edge-side relay key without introducing a service
-// construction cycle. A dedicated provider avoids a wire.Bind for unexported
-// interfaces.
-func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator, adminSvc service.AdminService) *admin.EdgeAccountsHandler {
-	type edgeStubGroupSyncSetter interface {
-		SetEdgeStubGroupSyncer(syncer service.EdgeStubGroupSyncer)
-	}
-	if s, ok := adminSvc.(edgeStubGroupSyncSetter); ok {
-		s.SetEdgeStubGroupSyncer(agg)
-	}
+// interface) to the prod-side cross-edge account overview handler. A dedicated
+// provider avoids a wire.Bind for the unexported interface.
+func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountsHandler {
 	return admin.NewEdgeAccountsHandler(agg)
 }
 

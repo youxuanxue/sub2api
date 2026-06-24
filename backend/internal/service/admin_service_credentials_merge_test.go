@@ -11,9 +11,8 @@ import (
 
 type updateAccountCredsRepoStub struct {
 	mockAccountRepoForGemini
-	account         *Account
-	updateCalls     int
-	bindGroupsCalls []int64
+	account     *Account
+	updateCalls int
 }
 
 func (r *updateAccountCredsRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -23,11 +22,6 @@ func (r *updateAccountCredsRepoStub) GetByID(ctx context.Context, id int64) (*Ac
 func (r *updateAccountCredsRepoStub) Update(ctx context.Context, account *Account) error {
 	r.updateCalls++
 	r.account = account
-	return nil
-}
-
-func (r *updateAccountCredsRepoStub) BindGroups(_ context.Context, accountID int64, _ []int64) error {
-	r.bindGroupsCalls = append(r.bindGroupsCalls, accountID)
 	return nil
 }
 
@@ -120,34 +114,4 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 
 	require.Equal(t, "rt-existing", repo.account.Credentials["refresh_token"], "空 credentials 不应触碰已有 token")
 	require.Equal(t, "renamed", repo.account.Name)
-}
-
-func TestUpdateAccount_GroupBindingSyncsEdgeStubGroup(t *testing.T) {
-	accountID := int64(70)
-	repo := &updateAccountCredsRepoStub{
-		account: &Account{
-			ID:       accountID,
-			Name:     "kiro-us3",
-			Platform: PlatformAnthropic,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
-		},
-	}
-	syncer := &edgeStubGroupSyncRecorder{}
-	svc := &adminServiceImpl{
-		accountRepo: repo,
-		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 42, Name: "claude", Status: StatusActive}},
-	}
-	svc.SetEdgeStubGroupSyncer(syncer)
-
-	groupIDs := []int64{42}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
-		GroupIDs:              &groupIDs,
-		SkipMixedChannelCheck: true,
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, updated)
-	require.Equal(t, []int64{accountID}, repo.bindGroupsCalls)
-	require.Equal(t, []int64{accountID}, syncer.ids)
 }

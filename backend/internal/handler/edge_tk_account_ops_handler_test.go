@@ -4,13 +4,11 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -20,9 +18,9 @@ import (
 // --- stubs for the edge ops handler's narrow dependencies ---
 
 type opsRateLimiterStub struct {
-	clearedRateLimit   []int64
+	clearedRateLimit  []int64
 	clearedTempUnsched []int64
-	err                error
+	err               error
 }
 
 func (s *opsRateLimiterStub) ClearRateLimit(_ context.Context, id int64) error {
@@ -39,9 +37,6 @@ type opsAdminStub struct {
 	resetQuotaIDs  []int64
 	schedulableSet map[int64]bool
 	err            error
-	groups         []service.Group
-	updateKeyID    int64
-	updateGroupID  *int64
 }
 
 func (s *opsAdminStub) ResetAccountQuota(_ context.Context, id int64) error {
@@ -62,17 +57,6 @@ func (s *opsAdminStub) SetAccountSchedulable(_ context.Context, id int64, schedu
 }
 func (s *opsAdminStub) GetAccount(_ context.Context, _ int64) (*service.Account, error) {
 	return s.account, s.err
-}
-func (s *opsAdminStub) GetAllGroups(_ context.Context) ([]service.Group, error) {
-	return s.groups, s.err
-}
-func (s *opsAdminStub) AdminUpdateAPIKeyGroupID(_ context.Context, keyID int64, groupID *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
-	s.updateKeyID = keyID
-	if groupID != nil {
-		gid := *groupID
-		s.updateGroupID = &gid
-	}
-	return &service.AdminUpdateAPIKeyGroupIDResult{APIKey: &service.APIKey{ID: keyID, GroupID: groupID}}, s.err
 }
 
 type opsUsageStub struct {
@@ -173,59 +157,6 @@ func TestEdgeAccountOps_GetActiveUsage_CallsActiveByDefault(t *testing.T) {
 	h.GetActiveUsage(c)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, 1, us.activeCalls)
-}
-
-func TestEdgeAccountOps_SyncCallerAPIKeyGroup_UpdatesAuthenticatedKeyByGroupName(t *testing.T) {
-	ad := &opsAdminStub{
-		groups: []service.Group{
-			{ID: 7, Name: "kiro", Status: service.StatusActive},
-			{ID: 9, Name: "claude", Status: service.StatusActive},
-		},
-	}
-	h := newOpsHandler(&opsRateLimiterStub{}, ad, &opsUsageStub{})
-
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPut, "/x", strings.NewReader(`{"group_name":"claude"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(middleware.EdgeCallerAPIKeyCtxKey, &service.APIKey{ID: 123})
-
-	h.SyncCallerAPIKeyGroup(c)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, int64(123), ad.updateKeyID)
-	require.NotNil(t, ad.updateGroupID)
-	require.Equal(t, int64(9), *ad.updateGroupID)
-	var env struct {
-		Data struct {
-			APIKeyID  int64  `json:"api_key_id"`
-			GroupID   int64  `json:"group_id"`
-			GroupName string `json:"group_name"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	require.Equal(t, int64(123), env.Data.APIKeyID)
-	require.Equal(t, "claude", env.Data.GroupName)
-}
-
-func TestEdgeAccountOps_SyncCallerAPIKeyGroup_EmptyNameUnbindsAuthenticatedKey(t *testing.T) {
-	ad := &opsAdminStub{}
-	h := newOpsHandler(&opsRateLimiterStub{}, ad, &opsUsageStub{})
-
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPut, "/x", strings.NewReader(`{"group_name":""}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set(middleware.EdgeCallerAPIKeyCtxKey, &service.APIKey{ID: 123})
-
-	h.SyncCallerAPIKeyGroup(c)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, int64(123), ad.updateKeyID)
-	require.NotNil(t, ad.updateGroupID)
-	require.Equal(t, int64(0), *ad.updateGroupID)
 }
 
 func TestEdgeAccountOps_BadIdIsBadRequest(t *testing.T) {

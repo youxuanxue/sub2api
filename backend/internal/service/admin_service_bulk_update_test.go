@@ -106,18 +106,6 @@ func (s *accountRepoStubForBulkUpdate) ListWithFilters(_ context.Context, params
 	return s.listData, &pagination.PaginationResult{Total: int64(len(s.listData))}, nil
 }
 
-type edgeStubGroupSyncRecorder struct {
-	ids []int64
-	err error
-}
-
-func (r *edgeStubGroupSyncRecorder) SyncEdgeStubGroup(_ context.Context, account *Account) error {
-	if account != nil {
-		r.ids = append(r.ids, account.ID)
-	}
-	return r.err
-}
-
 // TestAdminService_BulkUpdateAccounts_AllSuccessIDs 验证批量更新成功时返回 success_ids/failed_ids。
 func TestAdminService_BulkUpdateAccounts_AllSuccessIDs(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{}
@@ -306,29 +294,4 @@ func TestBulkUpdateAccounts_SyncAnthropicOperatorConcurrency(t *testing.T) {
 	require.Equal(t, 1, result.Success)
 	require.Equal(t, 24, userRepo.lastVal)
 	require.Equal(t, []int64{AnthropicOperatorConcurrencyUserID}, userRepo.lastIDs)
-}
-
-func TestBulkUpdateAccounts_GroupBindingSyncsEdgeStubGroups(t *testing.T) {
-	repo := &accountRepoStubForBulkUpdate{
-		getByIDAccounts: map[int64]*Account{
-			70: {ID: 70, Name: "kiro-us3", Platform: PlatformAnthropic, Type: AccountTypeAPIKey},
-		},
-	}
-	syncer := &edgeStubGroupSyncRecorder{}
-	svc := &adminServiceImpl{
-		accountRepo: repo,
-		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 42, Name: "claude", Status: StatusActive}},
-	}
-	svc.SetEdgeStubGroupSyncer(syncer)
-
-	groupIDs := []int64{42}
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
-		AccountIDs:            []int64{70},
-		GroupIDs:              &groupIDs,
-		SkipMixedChannelCheck: true,
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, 1, result.Success)
-	require.Equal(t, []int64{70}, syncer.ids)
 }
