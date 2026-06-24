@@ -275,6 +275,14 @@
       "rationale": "Two Kiro account-edit anchors. (1) Surface-C mirror-stub pool selector: the operator's only no-SQL way to set credentials.mirror_platform=kiro on an existing edge stub (e.g. kiro-edge-us1). Losing it strands the live fix: the kiro stub keeps mirroring the anthropic Σ. (2) Kiro OAuth credential edit wiring: AccountKiroPlatformFields + populate/submit bundle let operators rotate access_token/refresh_token, region/auth_method, IdC client_id/client_secret, Profile ARN, and ToS acknowledgement without delete+recreate. An upstream merge that rewrites EditAccountModal must preserve this branch or live Kiro accounts become unrepairable from the UI."
     },
     {
+      "path": "frontend/src/components/admin/account/AccountTableFilters.vue",
+      "must_contain": [
+        "__kiro_stub__",
+        "kiroStubPlatform"
+      ],
+      "rationale": "Admin account platform filtering must keep the first-class Kiro Stub virtual platform. Losing this option removes the no-SQL way to list prod anthropic API-key mirror stubs that target the edge Kiro pool (credentials.mirror_platform=kiro), making the live Kiro relay topology hard to audit after upstream-shaped account-filter UI rewrites."
+    },
+    {
       "path": "frontend/src/constants/mirrorPlatformOptions.tk.ts",
       "must_contain": [
         "MIRROR_PLATFORM_OPTIONS",

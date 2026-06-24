@@ -118,6 +118,16 @@
       "rationale": "The grok credential-rotation wiring in the account-edit modal (re-paste refresh_token, blank=keep). Losing it forces delete+recreate to rotate a dead grok refresh_token (invalid_grant). Paired with the UpdateAccount resolveGrokTokenOnSave gate (admin_service.go)."
     },
     {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": ["!submittedBaseUrl", "admin.accounts.upstream.pleaseEnterBaseUrl", "newCredentials.mirror_platform = 'grok'"],
+      "rationale": "The first-class grok API-key relay stub edit guard. These accounts deliberately do not expose an api_key in admin, so clearing base_url would otherwise write an empty edge target and break relay forwarding. Losing this guard lets an innocuous edit silently disable a prod grok relay stub."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.grok-relay.spec.ts",
+      "must_contain": ["blocks save when the edge base URL is cleared", "expect(updateAccountMock).not.toHaveBeenCalled()"],
+      "rationale": "Focused regression evidence for the grok relay-stub edit guard. It pins the admin behavior that an existing grok+apikey relay stub cannot be saved after its edge base_url is cleared."
+    },
+    {
       "path": "frontend/src/i18n/locales/en.ts",
       "must_contain": ["grokPlatform"],
       "rationale": "English i18n strings for the grok account form. Losing them surfaces raw i18n keys in the UI."

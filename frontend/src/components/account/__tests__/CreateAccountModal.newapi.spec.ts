@@ -15,7 +15,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { defineComponent, nextTick } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 const { listChannelTypesMock, fetchUpstreamModelsMock, createAccountMock } = vi.hoisted(() => {
   return {
@@ -153,6 +153,14 @@ function mountModalWithRealNewApiChildren() {
   })
 }
 
+function clickPlatformByLabel(wrapper: ReturnType<typeof mountModal>, label: string) {
+  const btn = wrapper.findAll('button').find((b) => b.text().trim() === label)
+  if (!btn) {
+    throw new Error(`could not find platform button "${label}". buttons=${wrapper.findAll('button').map((b) => b.text()).join('|')}`)
+  }
+  return btn.trigger('click')
+}
+
 describe('CreateAccountModal — NewAPI (5th platform)', () => {
   beforeEach(() => {
     listChannelTypesMock.mockReset()
@@ -270,5 +278,79 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     // The NewAPI baseUrl label IS expected.
     const newapiBaseUrlOccurrences = (html.match(/admin\.accounts\.newApiPlatform\.baseUrl(?!Hint)/g) ?? []).length
     expect(newapiBaseUrlOccurrences).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('CreateAccountModal — Grok relay stub', () => {
+  beforeEach(() => {
+    listChannelTypesMock.mockReset()
+    fetchUpstreamModelsMock.mockReset()
+    createAccountMock.mockReset()
+    createAccountMock.mockResolvedValue({ id: 953 })
+  })
+
+  it('creates Grok relay stubs as first-class grok apikey accounts', async () => {
+    const wrapper = mountModal()
+    await nextTick()
+
+    await clickPlatformByLabel(wrapper, 'Grok')
+    await nextTick()
+    await nextTick()
+
+    const relayButton = wrapper.findAll('button').find((b) =>
+      b.text().includes('admin.accounts.grokPlatform.relayMode')
+    )
+    expect(relayButton).toBeTruthy()
+    await relayButton!.trigger('click')
+    await nextTick()
+    await nextTick()
+
+    await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-us4')
+    const baseUrlInput = wrapper.find('input[placeholder="https://api-us4.tokenkey.dev"]')
+    const apiKeyInput = wrapper.find('input[placeholder="tk-edge-..."]')
+    expect(baseUrlInput.exists()).toBe(true)
+    expect(apiKeyInput.exists()).toBe(true)
+    await baseUrlInput.setValue('https://api-us4.tokenkey.dev')
+    await apiKeyInput.setValue('edge-tokenkey-key')
+
+    await wrapper.find('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'grok-us4',
+      platform: 'grok',
+      type: 'apikey',
+      credentials: {
+        base_url: 'https://api-us4.tokenkey.dev',
+        api_key: 'edge-tokenkey-key',
+        mirror_platform: 'grok'
+      }
+    }))
+  })
+
+  it('does not create a Grok relay stub without an edge base URL', async () => {
+    const wrapper = mountModal()
+    await nextTick()
+
+    await clickPlatformByLabel(wrapper, 'Grok')
+    await nextTick()
+    await nextTick()
+
+    const relayButton = wrapper.findAll('button').find((b) =>
+      b.text().includes('admin.accounts.grokPlatform.relayMode')
+    )
+    expect(relayButton).toBeTruthy()
+    await relayButton!.trigger('click')
+    await nextTick()
+    await nextTick()
+
+    await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-us4')
+    await wrapper.find('input[placeholder="tk-edge-..."]').setValue('edge-tokenkey-key')
+
+    await wrapper.find('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).not.toHaveBeenCalled()
   })
 })

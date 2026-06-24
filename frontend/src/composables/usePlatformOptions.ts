@@ -1,6 +1,6 @@
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
-import type { AccountPlatform } from '@/types'
+import type { AccountPlatform, AccountPlatformFilterValue } from '@/types'
 
 export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   anthropic: 'Anthropic',
@@ -24,7 +24,7 @@ export interface PlatformOption {
 }
 
 export interface PlatformFilterOption {
-  value: '' | AccountPlatform
+  value: AccountPlatformFilterValue
   label: string
   [key: string]: unknown
 }

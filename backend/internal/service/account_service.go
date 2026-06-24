@@ -17,6 +17,7 @@ var (
 
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
+const AccountListPlatformKiroStubFilter = "__kiro_stub__"
 
 type AccountRepository interface {
 	Create(ctx context.Context, account *Account) error
