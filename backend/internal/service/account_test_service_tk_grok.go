@@ -29,11 +29,15 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 	if strings.TrimSpace(baseURL) == "" {
 		return s.sendErrorAndEnd(c, "No grok base URL available")
 	}
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Invalid base URL: "+err.Error())
+	}
 
 	testModelID := normalizeGrokAdminTestModel(modelID)
 	testModelID = account.GetMappedModel(testModelID)
 
-	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, strings.TrimRight(baseURL, "/"), authToken)
+	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, strings.TrimRight(normalizedBaseURL, "/"), authToken)
 }
 
 func normalizeGrokAdminTestModel(modelID string) string {

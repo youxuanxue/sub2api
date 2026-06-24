@@ -94,6 +94,41 @@ func TestAccountTestService_GrokOAuthRoutesToXAIChatCompletions(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"model":"grok-code-fast-1"`)
 }
 
+func TestAccountTestService_GrokRejectsDisallowedBaseURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &queuedHTTPUpstream{}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/65/test", nil)
+
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:       true,
+			UpstreamHosts: []string{"api-us4.tokenkey.dev", "api.x.ai"},
+		}}},
+	}
+	account := &Account{
+		ID:          65,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "edge-grok-key",
+			"base_url": "https://evil.example.com",
+		},
+	}
+
+	err := svc.testGrokAccountConnection(c, account, "grok-4.3", "hi")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Invalid base URL:")
+	require.Empty(t, upstream.requests, "invalid base_url must be rejected before any upstream request")
+	require.Contains(t, rec.Body.String(), `"type":"error"`)
+	require.Contains(t, rec.Body.String(), "Invalid base URL:")
+}
+
 func TestNormalizeGrokAdminTestModelFallsBackForNonChatModels(t *testing.T) {
 	require.Equal(t, defaultGrokTestModelID, normalizeGrokAdminTestModel(""))
 	require.Equal(t, defaultGrokTestModelID, normalizeGrokAdminTestModel("claude-sonnet-4-6"))
