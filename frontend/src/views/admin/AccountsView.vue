@@ -499,6 +499,7 @@ const ErrorPassthroughRulesModal = defineAsyncComponent(() => import('@/componen
 const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
 const TierTemplatesModal = defineAsyncComponent(() => import('@/components/admin/account/TierTemplatesModal.vue'))
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { accountMatchesPlatformFilter } from '@/utils/accountPlatformFilters'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
@@ -1609,7 +1610,6 @@ const handleBulkUpdated = () => {
 const handleDataImported = () => { showImportData.value = false; reload() }
 const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
-const ACCOUNT_KIRO_STUB_PLATFORM_FILTER = '__kiro_stub__'
 const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
   type: params.type || '',
@@ -1620,24 +1620,6 @@ const buildAccountQueryFilters = () => ({
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
-const ACCOUNT_EDGE_BASE_URL_PATTERN = /^https:\/\/api-[a-z0-9]+\.tokenkey\.dev\/?$/
-const accountMatchesPlatformFilter = (account: Account, platform: string) => {
-  if (!platform) return true
-  if (platform === ACCOUNT_KIRO_STUB_PLATFORM_FILTER) {
-    const baseUrl = typeof account.credentials?.base_url === 'string' ? account.credentials.base_url.trim() : ''
-    const mirrorPlatform =
-      typeof account.credentials?.mirror_platform === 'string'
-        ? account.credentials.mirror_platform.trim().toLowerCase()
-        : ''
-    return (
-      account.platform === 'anthropic' &&
-      account.type === 'apikey' &&
-      mirrorPlatform === 'kiro' &&
-      ACCOUNT_EDGE_BASE_URL_PATTERN.test(baseUrl)
-    )
-  }
-  return account.platform === platform
-}
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (!accountMatchesPlatformFilter(account, filters.platform)) return false

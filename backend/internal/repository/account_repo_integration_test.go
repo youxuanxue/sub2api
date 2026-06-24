@@ -312,6 +312,58 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_kiro_platform_includes_native_and_relay_stubs",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "kiro-stub",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"api_key":         "tk-edge",
+						"base_url":        "https://api-us4.tokenkey.dev",
+						"mirror_platform": " Kiro ",
+					},
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "plain-anthropic-edge",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"api_key":         "tk-edge",
+						"base_url":        "https://api-us4.tokenkey.dev",
+						"mirror_platform": "anthropic",
+					},
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "kiro-oauth",
+					Platform: service.PlatformKiro,
+					Type:     service.AccountTypeOAuth,
+					Credentials: map[string]any{
+						"access_token": "access",
+					},
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "kiro-non-edge",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"api_key":         "key",
+						"base_url":        "https://api.anthropic.com",
+						"mirror_platform": "kiro",
+					},
+				})
+			},
+			platform:  service.PlatformKiro,
+			wantCount: 2,
+			validate: func(accounts []service.Account) {
+				names := make([]string, 0, len(accounts))
+				for _, account := range accounts {
+					names = append(names, account.Name)
+				}
+				s.ElementsMatch([]string{"kiro-oauth", "kiro-stub"}, names)
+			},
+		},
+		{
 			name: "filter_by_type",
 			setup: func(client *dbent.Client) {
 				mustCreateAccount(s.T(), client, &service.Account{Name: "t1", Type: service.AccountTypeOAuth})

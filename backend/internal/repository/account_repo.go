@@ -552,13 +552,13 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 	q := r.client.Account.Query()
 
 	if platform == service.AccountListPlatformKiroStubFilter {
+		q = q.Where(accountKiroRelayStubPredicate())
+	} else if platform == service.PlatformKiro {
 		q = q.Where(
-			dbaccount.PlatformEQ(service.PlatformAnthropic),
-			dbaccount.TypeEQ(service.AccountTypeAPIKey),
-			dbpredicate.Account(func(s *entsql.Selector) {
-				s.Where(entsql.ExprP(fmt.Sprintf("LOWER(TRIM(%s->>'mirror_platform')) = 'kiro'", s.C(dbaccount.FieldCredentials))))
-				s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
-			}),
+			dbaccount.Or(
+				dbaccount.PlatformEQ(service.PlatformKiro),
+				accountKiroRelayStubPredicate(),
+			),
 		)
 	} else if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
@@ -672,6 +672,17 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 		return nil, nil, err
 	}
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+}
+
+func accountKiroRelayStubPredicate() dbpredicate.Account {
+	return dbaccount.And(
+		dbaccount.PlatformEQ(service.PlatformAnthropic),
+		dbaccount.TypeEQ(service.AccountTypeAPIKey),
+		dbpredicate.Account(func(s *entsql.Selector) {
+			s.Where(entsql.ExprP(fmt.Sprintf("LOWER(TRIM(%s->>'mirror_platform')) = 'kiro'", s.C(dbaccount.FieldCredentials))))
+			s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
+		}),
+	)
 }
 
 func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {

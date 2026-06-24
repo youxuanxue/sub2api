@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
+
+const defaultGrokAdminTestModelID = "grok-4.3"
 
 // OAuthHandler handles OAuth-related operations for accounts
 type OAuthHandler struct {
@@ -2124,6 +2127,25 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsGrok() {
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
+			return
+		}
+		models := make([]openai.Model, 0, len(mapping))
+		for requestedModel := range mapping {
+			models = append(models, openai.Model{
+				ID:          requestedModel,
+				Object:      "model",
+				Type:        "model",
+				DisplayName: requestedModel,
+			})
+		}
+		response.Success(c, models)
+		return
+	}
+
 	if account.IsKiro() || account.IsKiroMirrorStub() {
 		response.Success(c, service.KiroAdminTestModels())
 		return
@@ -2179,6 +2201,20 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 // the admin capability view wants servability, not the gateway's priced gate.
 func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
 	return openai.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil))
+}
+
+func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformGrok, nil, nil)
+	sort.SliceStable(ids, func(i, j int) bool {
+		if ids[i] == defaultGrokAdminTestModelID {
+			return true
+		}
+		if ids[j] == defaultGrokAdminTestModelID {
+			return false
+		}
+		return ids[i] < ids[j]
+	})
+	return openai.ModelsForIDs(ids)
 }
 
 func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
