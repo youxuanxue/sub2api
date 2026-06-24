@@ -24,7 +24,9 @@
 #   ops/stage0/assert-live-host-state.sh <instance_id> [expected_tag] [comment]
 # Env:
 #   AWS_REGION / AWS_DEFAULT_REGION   region (else AWS default chain)
-#   APP_CONTAINER                     app container name (default tokenkey)
+#   APP_CONTAINER                     app container name, or auto (default auto:
+#                                     active-color -> tokenkey-blue/green,
+#                                     fallback tokenkey)
 #   REQUIRE_ENV                       override the required-env list (comma-separated)
 #   SSM_TIMEOUT_SECONDS               invocation wait budget (default 120)
 #
@@ -37,7 +39,7 @@ set -euo pipefail
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 EXPECTED_TAG="${2:-${EXPECTED_TAG:-}}"
 COMMENT="${3:-stage0 live-host state assert}"
-APP_CONTAINER="${APP_CONTAINER:-tokenkey}"
+APP_CONTAINER="${APP_CONTAINER:-auto}"
 SSM_TIMEOUT_SECONDS="${SSM_TIMEOUT_SECONDS:-120}"
 
 if [[ -z "${INSTANCE_ID}" ]]; then
@@ -56,9 +58,22 @@ _region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 # line → the verdict flags it. base64-delivered to dodge SSM/JSON quoting.
 read -r -d '' REMOTE_PROBE <<PROBE || true
 set -u
-img=\$(docker inspect ${APP_CONTAINER} --format '{{.Config.Image}}' 2>/dev/null)
+app_container='${APP_CONTAINER}'
+if [ "\$app_container" = auto ]; then
+  if [ -r /var/lib/tokenkey/active-color ]; then
+    color=\$(sed -n '1p' /var/lib/tokenkey/active-color 2>/dev/null | tr -d '[:space:]')
+    case "\$color" in
+      blue|green) app_container="tokenkey-\$color" ;;
+      *) app_container=tokenkey ;;
+    esac
+  else
+    app_container=tokenkey
+  fi
+fi
+printf 'APPCONTAINER {"name":"%s"}\n' "\$app_container"
+img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null)
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
-docker exec ${APP_CONTAINER} printenv 2>/dev/null \
+docker exec "\$app_container" printenv 2>/dev/null \
   | grep -E '^(SERVER_FRONTEND_URL|QA_CAPTURE_EXPORT_STORAGE_(DRIVER|REGION|BUCKET|PREFIX)|QA_CAPTURE_AUTO_EXPORT_ENABLED)=' \
   | while IFS='=' read -r k v; do printf 'ENV {"key":"%s","value":"%s"}\n' "\$k" "\$v"; done
 ret=\$(sed -n 's/^TOKENKEY_QA_STALE_RETENTION_DAYS=//p' /etc/tokenkey/qa-stale-retention.env 2>/dev/null | head -1)
