@@ -32,8 +32,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const defaultGrokAdminTestModelID = "grok-4.3"
-
 // OAuthHandler handles OAuth-related operations for accounts
 type OAuthHandler struct {
 	oauthService *service.OAuthService
@@ -2206,10 +2204,10 @@ func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
 func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
 	ids := service.ServableClientFacingIDs(ctx, service.PlatformGrok, nil, nil)
 	sort.SliceStable(ids, func(i, j int) bool {
-		if ids[i] == defaultGrokAdminTestModelID {
+		if ids[i] == service.GrokDefaultTestModelID {
 			return true
 		}
-		if ids[j] == defaultGrokAdminTestModelID {
+		if ids[j] == service.GrokDefaultTestModelID {
 			return false
 		}
 		return ids[i] < ids[j]

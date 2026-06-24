@@ -36,6 +36,7 @@ const (
 	testClaudeAPIURL       = "https://api.anthropic.com/v1/messages?beta=true"
 	chatgptCodexAPIURL     = "https://chatgpt.com/backend-api/codex/responses"
 	defaultGrokTestModelID = "grok-4.3"
+	GrokDefaultTestModelID = defaultGrokTestModelID
 )
 
 // TestEvent represents a SSE event for account testing
