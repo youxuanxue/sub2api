@@ -108,23 +108,30 @@ func tkIsKiroMirrorStub(account *Account) bool {
 	return strings.EqualFold(strings.TrimSpace(account.GetCredential("mirror_platform")), string(PlatformKiro))
 }
 
-// tkSkipDownstreamKiroOAuth401Penalty identifies a Kiro edge OAuth 401 that
-// crossed the prod mirror boundary as an Anthropic api-key error. The prod stub
-// is only a relay; it has no Kiro OAuth token to refresh. The edge owns recovery
-// via kiro_oauth_401_force_refresh_recovered, so permanently SetError'ing the
-// prod stub would strand a healthy edge behind a stale mirror error.
+// tkSkipDownstreamKiroOAuthAuthRejectPenalty identifies a Kiro edge OAuth auth
+// rejection that crossed the prod mirror boundary as an Anthropic api-key error.
+// The prod stub is only a relay; it has no Kiro OAuth token to refresh. The edge
+// owns recovery via kiro_oauth_auth_reject_force_refresh_recovered, so
+// permanently SetError'ing the prod stub would strand a healthy edge behind a
+// stale mirror error.
 //
-// Scope is intentionally narrow: only Kiro mirror stubs, only 401, and only the
-// TokenKey downstream wrapper / Kiro Invalid bearer shape. Real Anthropic api-key
-// 401s and other mirror platforms keep the existing hard-disable behaviour.
-func tkSkipDownstreamKiroOAuth401Penalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
-	if statusCode != http.StatusUnauthorized || !tkIsKiroMirrorStub(account) {
+// Scope is intentionally narrow: only Kiro mirror stubs and only the TokenKey
+// downstream wrapper / Kiro Invalid bearer shape. 401 keeps the existing wrapper
+// compatibility; 403 mirrors the edge-local #970 force-refresh predicate and
+// requires the invalid-bearer signal. Real Anthropic api-key 401s, generic
+// Anthropic 403s, and other mirror platforms keep the existing hard-disable /
+// ladder behaviour.
+func tkSkipDownstreamKiroOAuthAuthRejectPenalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
+	if (statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden) || !tkIsKiroMirrorStub(account) {
 		return false
 	}
 	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
 	body := strings.ToLower(string(responseBody))
 	if strings.Contains(msg, "invalid bearer token") || strings.Contains(body, "invalid bearer token") {
 		return true
+	}
+	if statusCode == http.StatusForbidden {
+		return false
 	}
 	if strings.Contains(msg, "upstream request failed") || strings.Contains(body, "upstream request failed") {
 		return true

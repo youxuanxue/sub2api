@@ -31,7 +31,7 @@ func TestTkSkipDownstreamNoAvailableAccountsPenalty(t *testing.T) {
 	require.False(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusTooManyRequests, "", []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`)))
 }
 
-func TestTkSkipDownstreamKiroOAuth401Penalty(t *testing.T) {
+func TestTkSkipDownstreamKiroOAuthAuthRejectPenalty(t *testing.T) {
 	stub := &Account{
 		ID:       66,
 		Platform: PlatformAnthropic,
@@ -42,12 +42,15 @@ func TestTkSkipDownstreamKiroOAuth401Penalty(t *testing.T) {
 	}
 	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
 
-	require.True(t, tkSkipDownstreamKiroOAuth401Penalty(stub, http.StatusUnauthorized, "", body))
-	require.True(t, tkSkipDownstreamKiroOAuth401Penalty(stub, http.StatusUnauthorized, "Invalid bearer token", nil))
-	require.False(t, tkSkipDownstreamKiroOAuth401Penalty(stub, http.StatusForbidden, "Invalid bearer token", nil))
+	require.True(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusUnauthorized, "", body))
+	require.True(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusUnauthorized, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusForbidden, "", body))
+	require.True(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusForbidden, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusBadRequest, "Invalid bearer token", nil))
 
 	plainAnthropic := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
-	require.False(t, tkSkipDownstreamKiroOAuth401Penalty(plainAnthropic, http.StatusUnauthorized, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(plainAnthropic, http.StatusUnauthorized, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(plainAnthropic, http.StatusForbidden, "Invalid bearer token", nil))
 
 	openaiMirror := &Account{
 		ID:       68,
@@ -57,7 +60,8 @@ func TestTkSkipDownstreamKiroOAuth401Penalty(t *testing.T) {
 			"mirror_platform": "openai",
 		},
 	}
-	require.False(t, tkSkipDownstreamKiroOAuth401Penalty(openaiMirror, http.StatusUnauthorized, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(openaiMirror, http.StatusUnauthorized, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(openaiMirror, http.StatusForbidden, "Invalid bearer token", nil))
 }
 
 // prod incident 2026-05-31: a downstream edge stub returning 503 "no available
@@ -185,6 +189,61 @@ func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth401_DoesNotSetError
 	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
 }
 
+func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	ladder := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(ladder)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{
+		ID:       66,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "kiro",
+			"pool_mode":       true,
+		},
+	}
+	body := []byte(`{"error":{"message":"Invalid bearer token","type":"upstream_error"},"type":"error"}`)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
+
+	require.True(t, shouldDisable, "in-flight request must fail over / let pool-mode retry, but stub health stays untouched")
+	require.Equal(t, 0, repo.setErrorCalls, "downstream Kiro OAuth 403 must not permanently disable the prod relay stub")
+	require.Equal(t, 0, repo.tempCalls, "downstream Kiro OAuth 403 must not ladder-cool the prod relay stub")
+	require.Equal(t, 0, repo.setRateLimitedCalls)
+	require.Empty(t, ladder.incrementIDs, "downstream Kiro OAuth 403 must not advance the 3/3 ladder")
+	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
+}
+
+func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_StillCounts(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}, tierCounts: []int64{1}}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{
+		ID:       66,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "kiro",
+			"pool_mode":       true,
+		},
+	}
+	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "generic Kiro mirror 403 must not use the invalid-bearer skip")
+	require.Equal(t, 1, repo.tempCalls, "generic Kiro mirror 403 must still enter the upstream-error ladder")
+	require.Equal(t, []int64{66}, counter.incrementIDs)
+	require.Empty(t, sat.incrementIDs, "generic Kiro mirror 403 must not feed auth-reject saturation")
+}
+
 func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -196,6 +255,22 @@ func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsE
 	require.True(t, shouldDisable)
 	require.Equal(t, 1, repo.setErrorCalls, "real Anthropic api-key 401 must keep the permanent-disable guard")
 	require.Contains(t, repo.lastErrorMsg, "Authentication failed (401)")
+}
+
+func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_StillCounts(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}, tierCounts: []int64{1}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	account := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"message":"Invalid bearer token","type":"permission_error"},"type":"error"}`)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "generic Anthropic API-key 403 must not use the Kiro mirror skip")
+	require.Equal(t, 1, repo.tempCalls, "generic Anthropic API-key 403 must still enter the upstream-error ladder")
+	require.Equal(t, []int64{67}, counter.incrementIDs)
 }
 
 // Regression: a genuine Anthropic upstream 503 (no "no available accounts" body)
