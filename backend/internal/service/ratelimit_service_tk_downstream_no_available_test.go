@@ -31,6 +31,35 @@ func TestTkSkipDownstreamNoAvailableAccountsPenalty(t *testing.T) {
 	require.False(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusTooManyRequests, "", []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`)))
 }
 
+func TestTkSkipDownstreamKiroOAuth401Penalty(t *testing.T) {
+	stub := &Account{
+		ID:       66,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "kiro",
+		},
+	}
+	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
+
+	require.True(t, tkSkipDownstreamKiroOAuth401Penalty(stub, http.StatusUnauthorized, "", body))
+	require.True(t, tkSkipDownstreamKiroOAuth401Penalty(stub, http.StatusUnauthorized, "Invalid bearer token", nil))
+	require.False(t, tkSkipDownstreamKiroOAuth401Penalty(stub, http.StatusForbidden, "Invalid bearer token", nil))
+
+	plainAnthropic := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	require.False(t, tkSkipDownstreamKiroOAuth401Penalty(plainAnthropic, http.StatusUnauthorized, "Invalid bearer token", nil))
+
+	openaiMirror := &Account{
+		ID:       68,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "openai",
+		},
+	}
+	require.False(t, tkSkipDownstreamKiroOAuth401Penalty(openaiMirror, http.StatusUnauthorized, "Invalid bearer token", nil))
+}
+
 // prod incident 2026-05-31: a downstream edge stub returning 503 "no available
 // accounts" (a transient edge pool-capacity blip) must fail the request over to
 // the next stub WITHOUT advancing the per-account cooldown counter or cooling the
@@ -129,6 +158,44 @@ func TestRateLimitService_DownstreamNoAvailable_NilSaturationCounterIsInert(t *t
 	noAvail := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
 	require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, noAvail))
 	require.Equal(t, 0, repo.tempCalls)
+}
+
+func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth401_DoesNotSetError(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{
+		ID:       66,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "kiro",
+			"pool_mode":       true,
+		},
+	}
+	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+	require.True(t, shouldDisable, "in-flight request must fail over / let pool-mode retry, but stub health stays untouched")
+	require.Equal(t, 0, repo.setErrorCalls, "downstream Kiro OAuth 401 must not permanently disable the prod relay stub")
+	require.Equal(t, 0, repo.tempCalls, "downstream Kiro OAuth 401 must not ladder-cool the prod relay stub")
+	require.Equal(t, 0, repo.setRateLimitedCalls)
+	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
+}
+
+func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"message":"invalid x-api-key","type":"authentication_error"},"type":"error"}`)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "real Anthropic api-key 401 must keep the permanent-disable guard")
+	require.Contains(t, repo.lastErrorMsg, "Authentication failed (401)")
 }
 
 // Regression: a genuine Anthropic upstream 503 (no "no available accounts" body)
