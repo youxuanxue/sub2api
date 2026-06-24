@@ -71,6 +71,7 @@ func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream servi
 		nil,
 		nil,
 		nil,
+		nil,
 		upstream,
 		&config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 		nil,
@@ -303,6 +304,71 @@ func TestAccountHandlerGetAvailableModels_NewAPI_NoMappingReturnsEmpty(t *testin
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Empty(t, resp.Data, "no mapping → empty list (UI shows configure hint), NOT Claude catalog")
+}
+
+func TestAccountHandlerGetAvailableModels_KiroOAuthUsesShortModelIDs(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       601,
+			Name:     "kiro-us5",
+			Platform: service.PlatformKiro,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/601/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["claude-sonnet-4-5"])
+	require.False(t, ids["claude-sonnet-4-5-20250929"], "Kiro rejects Anthropic dated snapshot IDs")
+}
+
+func TestAccountHandlerGetAvailableModels_KiroMirrorStubUsesKiroCatalog(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       602,
+			Name:     "kiro-us5",
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key":         "edge-key",
+				"base_url":        "https://api-us5.tokenkey.dev",
+				"mirror_platform": "kiro",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/602/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["claude-sonnet-4-5"])
+	require.False(t, ids["claude-sonnet-4-5-20250929"], "prod Kiro mirror stubs must not expose Anthropic dated test IDs")
 }
 
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {

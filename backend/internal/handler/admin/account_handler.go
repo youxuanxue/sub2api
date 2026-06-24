@@ -2124,6 +2124,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsKiro() || account.IsKiroMirrorStub() {
+		response.Success(c, service.KiroAdminTestModels())
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {

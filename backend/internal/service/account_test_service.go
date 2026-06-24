@@ -67,6 +67,7 @@ type AccountTestService struct {
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
+	kiroGatewayService        *KiroGatewayService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
@@ -78,6 +79,7 @@ func NewAccountTestService(
 	geminiTokenProvider *GeminiTokenProvider,
 	claudeTokenProvider *ClaudeTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
+	kiroGatewayService *KiroGatewayService,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
@@ -87,6 +89,7 @@ func NewAccountTestService(
 		geminiTokenProvider:       geminiTokenProvider,
 		claudeTokenProvider:       claudeTokenProvider,
 		antigravityGatewayService: antigravityGatewayService,
+		kiroGatewayService:        kiroGatewayService,
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
@@ -196,11 +199,119 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testNewAPIAccountConnection(c, account, modelID, prompt)
 	}
 
+	if account.IsKiro() {
+		return s.testKiroAccountConnection(c, account, modelID, prompt)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
 func (s *AccountTestService) testNewAPIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	return s.testNewAPIAccountConnectionTK(c, account, modelID, prompt)
+}
+
+func normalizeKiroAdminTestModel(modelID string) string {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return KiroDefaultTestModel
+	}
+	return claude.DenormalizeModelID(modelID)
+}
+
+func createKiroAdminTestPayload(modelID string, prompt string) (map[string]any, error) {
+	sessionID, err := generateSessionString()
+	if err != nil {
+		return nil, err
+	}
+	testPrompt := strings.TrimSpace(prompt)
+	if testPrompt == "" {
+		testPrompt = "hi"
+	}
+
+	return map[string]any{
+		"model": modelID,
+		"messages": []map[string]any{
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{
+						"type": "text",
+						"text": testPrompt,
+					},
+				},
+			},
+		},
+		"metadata": map[string]string{
+			"user_id": sessionID,
+		},
+		"max_tokens":  64,
+		"temperature": 1,
+		"stream":      false,
+	}, nil
+}
+
+func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	ctx := c.Request.Context()
+	if s.kiroGatewayService == nil {
+		return s.sendErrorAndEnd(c, "Kiro gateway service not configured")
+	}
+
+	testModelID := normalizeKiroAdminTestModel(modelID)
+	payload, err := createKiroAdminTestPayload(testModelID, prompt)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create Kiro test payload")
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+
+	rec := httptest.NewRecorder()
+	gatewayCtx, _ := gin.CreateTestContext(rec)
+	gatewayCtx.Request = c.Request.WithContext(ctx)
+	parsed := &ParsedRequest{
+		Body:   NewRequestBodyRef(payloadBytes),
+		Model:  testModelID,
+		Stream: false,
+	}
+
+	if _, err := s.kiroGatewayService.Forward(ctx, gatewayCtx, account, parsed, time.Now()); err != nil {
+		var invalidModelErr *KiroInvalidModelError
+		if errors.As(err, &invalidModelErr) {
+			return s.sendErrorAndEnd(c, invalidModelErr.ClientMessage())
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) {
+			body := strings.TrimSpace(string(failoverErr.ResponseBody))
+			if body == "" {
+				body = failoverErr.Error()
+			}
+			return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", failoverErr.StatusCode, body))
+		}
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	var resp struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		return s.sendErrorAndEnd(c, "Failed to parse Kiro test response")
+	}
+	for _, block := range resp.Content {
+		if block.Type == "text" && block.Text != "" {
+			s.sendEvent(c, TestEvent{Type: "content", Text: block.Text})
+		}
+	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
@@ -212,10 +323,16 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if testModelID == "" {
 		testModelID = claude.DefaultTestModel
 	}
+	if account.IsKiroMirrorStub() {
+		testModelID = normalizeKiroAdminTestModel(testModelID)
+	}
 
 	// API Key 账号测试连接时也需要应用通配符模型映射。
 	if account.Type == "apikey" {
 		testModelID = account.GetMappedModel(testModelID)
+	}
+	if account.IsKiroMirrorStub() {
+		testModelID = normalizeKiroAdminTestModel(testModelID)
 	}
 
 	// Bedrock accounts use a separate test path

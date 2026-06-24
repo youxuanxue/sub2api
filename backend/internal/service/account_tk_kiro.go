@@ -2,9 +2,11 @@ package service
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
 // IsKiro reports whether the account is a Kiro (sixth platform) account.
@@ -14,6 +16,44 @@ import (
 // intentionally NOT an OpenAI-compat member.
 func (a *Account) IsKiro() bool {
 	return a.Platform == PlatformKiro
+}
+
+// IsKiroMirrorStub reports whether this account is a prod Anthropic API-key
+// relay stub that represents a downstream edge Kiro pool.
+func (a *Account) IsKiroMirrorStub() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(a.GetCredential("mirror_platform")), PlatformKiro)
+}
+
+const KiroDefaultTestModel = "claude-sonnet-4-5"
+
+// KiroAdminTestModels returns the safe client-facing model IDs for admin account
+// tests. Kiro rejects dated Anthropic snapshot IDs such as
+// claude-sonnet-4-5-20250929; the Kiro translator accepts the short IDs and
+// normalizes them to the CodeWhisperer wire form.
+func KiroAdminTestModels() []claude.Model {
+	return []claude.Model{
+		{
+			ID:          KiroDefaultTestModel,
+			Type:        "model",
+			DisplayName: "Claude Sonnet 4.5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-sonnet-4-6",
+			Type:        "model",
+			DisplayName: "Claude Sonnet 4.6",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-8",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.8",
+			CreatedAt:   "",
+		},
+	}
 }
 
 // CanonicalKiroTLSProfileName is the name of the TLS fingerprint profile captured
