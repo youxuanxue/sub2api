@@ -185,6 +185,7 @@ requests = [
         "end_date": day(today),
         "include_summary": "0",
         "include_endpoints": "1",
+        "nocache": "1",
         "timezone": "Asia/Shanghai",
     }), None),
     ("usage.stats.endpoint-source.inbound.ui-default-range", "GET", "/admin/usage/stats" + q({
@@ -193,6 +194,7 @@ requests = [
         "include_summary": "0",
         "include_endpoints": "1",
         "endpoint_source": "inbound",
+        "nocache": "1",
         "timezone": "Asia/Shanghai",
     }), None),
     ("usage.stats.endpoint-source.upstream.ui-default-range", "GET", "/admin/usage/stats" + q({
@@ -201,6 +203,7 @@ requests = [
         "include_summary": "0",
         "include_endpoints": "1",
         "endpoint_source": "upstream",
+        "nocache": "1",
         "timezone": "Asia/Shanghai",
     }), None),
     ("usage.stats.endpoint-source.path.ui-default-range", "GET", "/admin/usage/stats" + q({
@@ -209,6 +212,7 @@ requests = [
         "include_summary": "0",
         "include_endpoints": "1",
         "endpoint_source": "path",
+        "nocache": "1",
         "timezone": "Asia/Shanghai",
     }), None),
     ("usage.chart.trend-only.7d", "GET", "/admin/dashboard/snapshot-v2" + q({
