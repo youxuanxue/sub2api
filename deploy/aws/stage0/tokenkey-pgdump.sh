@@ -33,6 +33,8 @@ prune_rolling() {
 
 # Remove bogus sub-kib dumps from failed runs (e.g. disk full).
 find "${DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -size -2k -delete 2>/dev/null || true
+# Remove stale temp files left if the dump process was killed before cleanup.
+find "${DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz.part' -mmin +360 -delete 2>/dev/null || true # preflight-allow: swallow
 # Remove legacy pre-*.dump files left by older manual pre-migration snapshots.
 find "${DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null || true
 # Prune BEFORE dumping so a near-full volume frees space first (dead-lock fix).
@@ -62,9 +64,23 @@ for _g in "${EXCLUDE_DATA_GLOBS[@]}"; do
 done
 
 set -o pipefail
-if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
-    "${exclude_args[@]}" \
-    | gzip -9 > "${PART}"; then
+priority_prefix=()
+if command -v ionice >/dev/null 2>&1; then
+  priority_prefix+=(ionice -c2 -n7)
+fi
+if command -v nice >/dev/null 2>&1; then
+  priority_prefix+=(nice -n 10)
+fi
+if ! docker exec tokenkey-postgres sh -c '
+    if command -v ionice >/dev/null 2>&1 && command -v nice >/dev/null 2>&1; then
+      exec ionice -c2 -n7 nice -n 10 pg_dump "$@"
+    elif command -v nice >/dev/null 2>&1; then
+      exec nice -n 10 pg_dump "$@"
+    else
+      exec pg_dump "$@"
+    fi
+  ' sh -U tokenkey -d tokenkey --format=plain --no-owner "${exclude_args[@]}" \
+    | "${priority_prefix[@]}" gzip -9 > "${PART}"; then
   rm -f "${PART}"
   exit 1
 fi
