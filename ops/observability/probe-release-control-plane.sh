@@ -88,7 +88,7 @@ print(domain)
 PY
 )"
   PROBES+=("edge:${edge_id} health https://${domain}/health")
-done <<< "$(printf '%s\n' "$EDGE_LIST" | tr ',' '\n' | xargs -n1 2>/dev/null || true)"
+done <<< "$(printf '%s\n' "$EDGE_LIST" | tr ',' '\n' | awk '{for (i = 1; i <= NF; i++) print $i}')"
 
 total=0
 ok=0
@@ -100,13 +100,16 @@ for spec in "${PROBES[@]}"; do
   url="$(printf '%s' "$spec" | awk '{print $3}')"
   tmp="$(mktemp /tmp/tk-release-health.XXXXXX)"
   set +e
-  curl_out="$(curl -sS --max-time "$CURL_TIMEOUT_SECONDS" -o "$tmp" -w '%{http_code} %{time_total}' "$url" 2>&1)"
+  curl_out="$(curl -sS --max-time "$CURL_TIMEOUT_SECONDS" -o "$tmp" -w '\n%{http_code} %{time_total}' "$url" 2>&1)"
   curl_rc=$?
   set -e
-  code="$(printf '%s' "$curl_out" | awk '{print $1}')"
-  time_total="$(printf '%s' "$curl_out" | awk '{print $2}')"
+  metrics="$(printf '%s\n' "$curl_out" | tail -n 1)"
+  curl_error="$(printf '%s\n' "$curl_out" | sed '$d' | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  code="$(printf '%s' "$metrics" | awk '{print $1}')"
+  time_total="$(printf '%s' "$metrics" | awk '{print $2}')"
   [ -n "$code" ] || code=000
   [ -n "$time_total" ] || time_total=0
+  case "$code" in *[!0-9]*) code=000 ;; esac
   bytes="$(wc -c < "$tmp" | tr -d ' ')"
   rm -f "$tmp"
   status=fail
@@ -117,19 +120,31 @@ for spec in "${PROBES[@]}"; do
     failures+=("${target}:${check}:${code}:curl_rc=${curl_rc}")
   fi
   total=$((total + 1))
-  python3 - "$target" "$check" "$url" "$status" "$code" "$curl_rc" "$time_total" "$bytes" <<'PY'
+  python3 - "$target" "$check" "$url" "$status" "$code" "$curl_rc" "$time_total" "$bytes" "$curl_error" <<'PY'
 import json, sys
-target, check, url, status, code, curl_rc, time_total, bytes_ = sys.argv[1:]
-print(json.dumps({
+target, check, url, status, code, curl_rc, time_total, bytes_, curl_error = sys.argv[1:]
+
+
+def parse_float(value):
+    try:
+        return float(value)
+    except ValueError:
+        return 0.0
+
+
+row = {
     "target": target,
     "check": check,
     "url": url,
     "status": status,
     "http_code": int(code) if code.isdigit() else code,
     "curl_rc": int(curl_rc),
-    "time_total": float(time_total) if time_total else 0.0,
+    "time_total": parse_float(time_total) if time_total else 0.0,
     "bytes": int(bytes_) if bytes_.isdigit() else bytes_,
-}, sort_keys=True))
+}
+if curl_error:
+    row["curl_error"] = curl_error
+print(json.dumps(row, sort_keys=True))
 PY
 done
 

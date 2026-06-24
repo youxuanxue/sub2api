@@ -238,15 +238,28 @@ flush_batch() {
 
 for EDGE in $EDGES; do
   DISPATCH_RC=0
+  FLUSH_RC=0
   DISPATCH_ROW="$(dispatch_edge "$EDGE")" || DISPATCH_RC=$?
   if [ "$DISPATCH_RC" -ne 0 ]; then
-    [ "${#BATCH_EDGES[@]}" -gt 0 ] && flush_batch || true
+    if [ "${#BATCH_EDGES[@]}" -gt 0 ]; then
+      set +e
+      flush_batch
+      FLUSH_RC=$?
+      set -e
+      [ "$FLUSH_RC" -eq 0 ] || exit "$FLUSH_RC"
+    fi
     exit "$DISPATCH_RC"
   fi
   RUN_ID="$(printf '%s\n' "$DISPATCH_ROW" | awk -F '|' 'NF >= 2 {print $2; exit}')"
   if [ -z "$RUN_ID" ]; then
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (dispatch row malformed)" >&2
-    [ "${#BATCH_EDGES[@]}" -gt 0 ] && flush_batch || true
+    if [ "${#BATCH_EDGES[@]}" -gt 0 ]; then
+      set +e
+      flush_batch
+      FLUSH_RC=$?
+      set -e
+      [ "$FLUSH_RC" -eq 0 ] || exit "$FLUSH_RC"
+    fi
     exit 2
   fi
   BATCH_EDGES+=("$EDGE")

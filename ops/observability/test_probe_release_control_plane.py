@@ -147,6 +147,56 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
             self.assertEqual(summary["ok"], 0)
             self.assertEqual(summary["total"], 1)
 
+    def test_curl_transport_error_still_outputs_structured_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = pathlib.Path(td)
+            fakebin = tmp / "bin"
+            fakebin.mkdir()
+            (fakebin / "curl").write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    out=""
+                    while [ "$#" -gt 0 ]; do
+                      case "$1" in
+                        -o) out="$2"; shift 2 ;;
+                        -w) shift 2 ;;
+                        --max-time) shift 2 ;;
+                        -sS) shift ;;
+                        *) shift ;;
+                      esac
+                    done
+                    [ -n "$out" ] && : > "$out"
+                    echo 'curl: (7) Failed to connect to prod.example.test port 443' >&2
+                    printf '000 0.000'
+                    exit 7
+                    """
+                ),
+            )
+            (fakebin / "curl").chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
+                "EDGE_IDS": "none",
+                "INCLUDE_SETTINGS_PUBLIC": "0",
+                "PROD_BASE_URL": "https://prod.example.test",
+            }
+            proc = subprocess.run(
+                ["bash", str(_SCRIPT)],
+                cwd=_REPO,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 4, msg=proc.stderr + proc.stdout)
+            rows = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith("{")]
+            self.assertEqual(rows[0]["status"], "fail")
+            self.assertEqual(rows[0]["curl_rc"], 7)
+            self.assertEqual(rows[0]["http_code"], 0)
+            self.assertIn("Failed to connect", rows[0]["curl_error"])
+            self.assertEqual(rows[-1]["status"], "fail")
+
 
 if __name__ == "__main__":
     unittest.main()
