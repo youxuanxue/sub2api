@@ -1620,14 +1620,20 @@ const buildAccountQueryFilters = () => ({
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
+const ACCOUNT_EDGE_BASE_URL_PATTERN = /^https:\/\/api-[a-z0-9]+\.tokenkey\.dev\/?$/
 const accountMatchesPlatformFilter = (account: Account, platform: string) => {
   if (!platform) return true
   if (platform === ACCOUNT_KIRO_STUB_PLATFORM_FILTER) {
+    const baseUrl = typeof account.credentials?.base_url === 'string' ? account.credentials.base_url.trim() : ''
+    const mirrorPlatform =
+      typeof account.credentials?.mirror_platform === 'string'
+        ? account.credentials.mirror_platform.trim().toLowerCase()
+        : ''
     return (
       account.platform === 'anthropic' &&
       account.type === 'apikey' &&
-      Boolean(account.edge_id) &&
-      account.credentials?.mirror_platform === 'kiro'
+      mirrorPlatform === 'kiro' &&
+      ACCOUNT_EDGE_BASE_URL_PATTERN.test(baseUrl)
     )
   }
   return account.platform === platform

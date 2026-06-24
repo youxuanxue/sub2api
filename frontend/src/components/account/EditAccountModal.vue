@@ -4079,6 +4079,10 @@ const handleSubmit = async () => {
         updatePayload.channel_type = bundle.channelType
       } else {
         const submittedBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+        if (props.account.platform === 'grok' && !submittedBaseUrl) {
+          appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
+          return
+        }
         newCredentials = { ...currentCredentials, base_url: submittedBaseUrl }
         if (editApiKey.value.trim()) {
           newCredentials.api_key = editApiKey.value.trim()

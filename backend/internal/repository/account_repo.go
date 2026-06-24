@@ -556,7 +556,7 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 			dbaccount.PlatformEQ(service.PlatformAnthropic),
 			dbaccount.TypeEQ(service.AccountTypeAPIKey),
 			dbpredicate.Account(func(s *entsql.Selector) {
-				s.Where(sqljson.ValueEQ(dbaccount.FieldCredentials, "kiro", sqljson.Path("mirror_platform")))
+				s.Where(entsql.ExprP(fmt.Sprintf("LOWER(TRIM(%s->>'mirror_platform')) = 'kiro'", s.C(dbaccount.FieldCredentials))))
 				s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
 			}),
 		)

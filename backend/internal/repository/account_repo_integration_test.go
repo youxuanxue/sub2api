@@ -271,7 +271,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 					Credentials: map[string]any{
 						"api_key":         "tk-edge",
 						"base_url":        "https://api-us4.tokenkey.dev",
-						"mirror_platform": "kiro",
+						"mirror_platform": " Kiro ",
 					},
 				})
 				mustCreateAccount(s.T(), client, &service.Account{
