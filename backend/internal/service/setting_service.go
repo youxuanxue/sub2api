@@ -82,25 +82,13 @@ var versionBoundsSF singleflight.Group
 // versionBoundsCacheTTL 缓存有效期
 const versionBoundsCacheTTL = 60 * time.Second
 
-type cachedOpenAIQuotaAutoPauseSettings struct {
-	settings  OpsOpenAIAccountQuotaAutoPauseSettings
-	expiresAt int64
-}
-
-const openAIQuotaAutoPauseSettingsCacheTTL = 60 * time.Second
-const openAIQuotaAutoPauseSettingsErrorTTL = 5 * time.Second
-const openAIQuotaAutoPauseSettingsDBTimeout = 5 * time.Second
-const openAIQuotaAutoPauseSettingsRefreshKey = "openai_quota_auto_pause_settings"
-
 // versionBoundsErrorTTL DB 错误时的短缓存，快速重试
 const versionBoundsErrorTTL = 5 * time.Second
 
 // versionBoundsDBTimeout singleflight 内 DB 查询超时，独立于请求 context
 const versionBoundsDBTimeout = 5 * time.Second
 
-// cachedBackendMode Backend Mode cache (in-process, 60s TTL).
-// 重新引入：上游 commit 6826149a 加入 Backend Mode 后，TK 默认开启该模式，复用上游能力 +
-// 缓存基础设施，避免每次 upstream 改 auth.go 都触发 conflict。
+// cachedBackendMode Backend Mode cache (in-process, 60s TTL)
 type cachedBackendMode struct {
 	value     bool
 	expiresAt int64 // unix nano
@@ -123,9 +111,6 @@ type cachedGatewayForwardingSettings struct {
 	claudeOAuthSystemPromptBlocks    string
 	anthropicCacheTTL1hInjection     bool
 	rewriteMessageCacheControl       bool
-	anthropicRequestNormalize        bool
-	canonicalIngressStrict           bool
-	canonicalHaikuMimicry            bool
 	expiresAt                        int64 // unix nano
 }
 
@@ -155,26 +140,25 @@ type cachedOpenAICodexUserAgent struct {
 	expiresAt int64 // unix nano
 }
 
+type cachedOpenAIQuotaAutoPauseSettings struct {
+	settings  OpsOpenAIAccountQuotaAutoPauseSettings
+	expiresAt int64
+}
+
 const openAICodexUserAgentCacheTTL = 60 * time.Second
 const openAICodexUserAgentErrorTTL = 5 * time.Second
 const openAICodexUserAgentDBTimeout = 5 * time.Second
 
-// cachedClaudeCodeUserAgentVersion 缓存 Claude Code CLI UA 版本号（进程内缓存，60s TTL）。
-// 与 cachedAntigravityUserAgentVersion 对称：cc CLI UA 高频随上游 patch release 漂移，
-// admin 修改后下次 hit 直达 next request；缓存 TTL 限制 setting read fan-out。
-type cachedClaudeCodeUserAgentVersion struct {
-	version   string
+// cachedOpenAIAllowCodexPlugin Codex 插件放行开关缓存（进程内缓存，60s TTL）。
+// IsOpenAIAllowClaudeCodeCodexPluginEnabled 在每个 codex_cli_only 账号的网关请求热路径上被调用，避免每次访问 DB。
+type cachedOpenAIAllowCodexPlugin struct {
+	value     bool
 	expiresAt int64 // unix nano
 }
 
-const claudeCodeUserAgentVersionCacheTTL = 60 * time.Second
-const claudeCodeUserAgentVersionErrorTTL = 5 * time.Second
-const claudeCodeUserAgentVersionDBTimeout = 5 * time.Second
-
-type cachedClaudeCodeHTTPMimicryManifest struct {
-	manifest  *ClaudeCodeHTTPMimicryManifest
-	expiresAt int64 // unix nano
-}
+const openAIAllowCodexPluginCacheTTL = 60 * time.Second
+const openAIAllowCodexPluginErrorTTL = 5 * time.Second
+const openAIAllowCodexPluginDBTimeout = 5 * time.Second
 
 // cachedCyberSessionBlockRuntime cyber 会话屏蔽开关+TTL 进程内缓存（60s TTL）。
 // GetCyberSessionBlockRuntime 在网关请求热路径上被调用，避免每次访问 DB。
@@ -188,9 +172,11 @@ const cyberSessionBlockRuntimeCacheTTL = 60 * time.Second
 const cyberSessionBlockRuntimeErrorTTL = 5 * time.Second
 const cyberSessionBlockRuntimeDBTimeout = 5 * time.Second
 
-const claudeCodeMimicryManifestCacheTTL = 60 * time.Second
-const claudeCodeMimicryManifestErrorTTL = 5 * time.Second
-const claudeCodeMimicryManifestDBTimeout = 5 * time.Second
+const openAIQuotaAutoPauseSettingsCacheTTL = 60 * time.Second
+const openAIQuotaAutoPauseSettingsErrorTTL = 5 * time.Second
+const openAIQuotaAutoPauseSettingsDBTimeout = 5 * time.Second
+
+const openAIQuotaAutoPauseSettingsRefreshKey = "openai_quota_auto_pause_settings"
 
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
 type DefaultSubscriptionGroupReader interface {
@@ -203,21 +189,19 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
-	settingRepo                    SettingRepository
-	defaultSubGroupReader          DefaultSubscriptionGroupReader
-	proxyRepo                      ProxyRepository // for resolving websearch provider proxy URLs
-	cfg                            *config.Config
-	onUpdate                       func() // Callback when settings are updated (for cache invalidation)
-	version                        string // Application version
-	webSearchManagerBuilder        WebSearchManagerBuilder
-	antigravityUAVersionCache      atomic.Value // *cachedAntigravityUserAgentVersion
-	antigravityUAVersionSF         singleflight.Group
-	openAICodexUACache             atomic.Value // *cachedOpenAICodexUserAgent
-	openAICodexUASF                singleflight.Group
-	claudeCodeUAVersionCache       atomic.Value // *cachedClaudeCodeUserAgentVersion
-	claudeCodeUAVersionSF          singleflight.Group
-	claudeCodeMimicryManifestCache atomic.Value // *cachedClaudeCodeHTTPMimicryManifest
-	claudeCodeMimicryManifestSF    singleflight.Group
+	settingRepo                 SettingRepository
+	defaultSubGroupReader       DefaultSubscriptionGroupReader
+	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs
+	cfg                         *config.Config
+	onUpdate                    func() // Callback when settings are updated (for cache invalidation)
+	version                     string // Application version
+	webSearchManagerBuilder     WebSearchManagerBuilder
+	antigravityUAVersionCache   atomic.Value // *cachedAntigravityUserAgentVersion
+	antigravityUAVersionSF      singleflight.Group
+	openAICodexUACache          atomic.Value // *cachedOpenAICodexUserAgent
+	openAICodexUASF             singleflight.Group
+	openAIAllowCodexPluginCache atomic.Value // *cachedOpenAIAllowCodexPlugin
+	openAIAllowCodexPluginSF    singleflight.Group
 
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group
@@ -230,18 +214,6 @@ type SettingService struct {
 	// instance owns its own cache, no shared package-level state.
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
-
-	// tkAdminComplianceGateCache memoizes the default-off admin compliance gate
-	// flag so it is not re-read from the DB on every admin request (the gate
-	// middleware runs across the whole /api/v1/admin/* surface). Per-instance,
-	// like the caches above, so tests stay isolated. See admin_compliance_tk_gate.go.
-	tkAdminComplianceGateCache atomic.Value // *cachedTkComplianceGate
-	tkAdminComplianceGateSF    singleflight.Group
-
-	// settingsPubSub fans out settings-write events across replicas (TK-only,
-	// see setting_service_tk_pubsub.go). nil when pub/sub is disabled — the
-	// existing 60s per-cache TTL remains the fallback.
-	settingsPubSub *settingsPubSubHub
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）
@@ -355,39 +327,149 @@ const (
 	defaultWeChatConnectMode     = "open"
 	defaultWeChatConnectScopes   = "snsapi_login"
 	defaultWeChatConnectFrontend = "/auth/wechat/callback"
+	defaultGitHubOAuthAuthorize  = "https://github.com/login/oauth/authorize"
+	defaultGitHubOAuthToken      = "https://github.com/login/oauth/access_token"
+	defaultGitHubOAuthUserInfo   = "https://api.github.com/user"
+	defaultGitHubOAuthEmails     = "https://api.github.com/user/emails"
+	defaultGitHubOAuthScopes     = "read:user user:email"
 	defaultGitHubOAuthFrontend   = "/auth/oauth/callback"
+	defaultGoogleOAuthAuthorize  = "https://accounts.google.com/o/oauth2/v2/auth"
+	defaultGoogleOAuthToken      = "https://oauth2.googleapis.com/token"
+	defaultGoogleOAuthUserInfo   = "https://openidconnect.googleapis.com/v1/userinfo"
+	defaultGoogleOAuthScopes     = "openid email profile"
 	defaultGoogleOAuthFrontend   = "/auth/oauth/callback"
 	defaultLoginAgreementMode    = "modal"
 	defaultLoginAgreementDate    = "2026-03-31"
 )
 
-// loginAgreementDocumentsJSON is the seed value persisted into the
-// SettingKeyLoginAgreementDocuments default. Falls back to "[]" when the seed
-// list is empty so we always store valid JSON.
-var loginAgreementDocumentsJSON = func() string {
-	docs := defaultLoginAgreementDocuments()
-	if len(docs) == 0 {
-		return "[]"
+func normalizeLoginAgreementMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "checkbox":
+		return "checkbox"
+	default:
+		return defaultLoginAgreementMode
 	}
-	raw, err := json.Marshal(docs)
-	if err != nil {
-		return "[]"
-	}
-	return string(raw)
-}()
+}
 
-// defaultLoginAgreementDocuments mirrors the upstream seed list so a fresh
-// install ships a stable set of agreement doc slots that admins can later
-// edit. Kept inside service/setting_service.go to match upstream layout.
 func defaultLoginAgreementDocuments() []LoginAgreementDocument {
 	return []LoginAgreementDocument{
-		{ID: "terms", Title: "服务条款", ContentMD: ""},
-		{ID: "usage-policy", Title: "使用政策", ContentMD: ""},
-		{ID: "supported-regions", Title: "支持的国家和地区", ContentMD: ""},
-		{ID: "service-specific-terms", Title: "特定服务条款", ContentMD: ""},
-		{ID: "privacy-policy", Title: "隐私政策", ContentMD: ""},
-		{ID: "cookie-policy", Title: "Cookie 政策", ContentMD: ""},
+		{
+			ID:        "terms",
+			Title:     "服务条款",
+			ContentMD: "",
+		},
+		{
+			ID:        "usage-policy",
+			Title:     "使用政策",
+			ContentMD: "",
+		},
+		{
+			ID:        "supported-regions",
+			Title:     "支持的国家和地区",
+			ContentMD: "",
+		},
+		{
+			ID:        "service-specific-terms",
+			Title:     "服务特定条款",
+			ContentMD: "",
+		},
 	}
+}
+
+func normalizeLoginAgreementDocumentID(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	var b strings.Builder
+	lastSeparator := false
+	for _, r := range raw {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			_, _ = b.WriteRune(r)
+			lastSeparator = false
+			continue
+		}
+		if r == '-' || r == '_' || r == ' ' || r == '.' || r == '/' {
+			if !lastSeparator && b.Len() > 0 {
+				if r == '_' {
+					_, _ = b.WriteRune('_')
+				} else {
+					_, _ = b.WriteRune('-')
+				}
+				lastSeparator = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-_")
+}
+
+func normalizeLoginAgreementDocuments(docs []LoginAgreementDocument) []LoginAgreementDocument {
+	normalized := make([]LoginAgreementDocument, 0, len(docs))
+	seen := make(map[string]int, len(docs))
+	for i, doc := range docs {
+		title := strings.TrimSpace(doc.Title)
+		content := strings.TrimSpace(doc.ContentMD)
+		if title == "" && content == "" {
+			continue
+		}
+		id := normalizeLoginAgreementDocumentID(doc.ID)
+		if id == "" {
+			sum := sha256.Sum256([]byte(fmt.Sprintf("%d:%s:%s", i, title, content)))
+			id = hex.EncodeToString(sum[:])[:12]
+		}
+		baseID := id
+		for suffix := 2; seen[id] > 0; suffix++ {
+			id = fmt.Sprintf("%s-%d", baseID, suffix)
+		}
+		seen[id]++
+		normalized = append(normalized, LoginAgreementDocument{
+			ID:        id,
+			Title:     title,
+			ContentMD: content,
+		})
+	}
+	return normalized
+}
+
+func parseLoginAgreementDocuments(raw string) []LoginAgreementDocument {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultLoginAgreementDocuments()
+	}
+	var docs []LoginAgreementDocument
+	if err := json.Unmarshal([]byte(raw), &docs); err != nil {
+		return defaultLoginAgreementDocuments()
+	}
+	docs = normalizeLoginAgreementDocuments(docs)
+	if len(docs) == 0 {
+		return defaultLoginAgreementDocuments()
+	}
+	return docs
+}
+
+func marshalLoginAgreementDocuments(docs []LoginAgreementDocument) (string, error) {
+	normalized := normalizeLoginAgreementDocuments(docs)
+	if len(normalized) == 0 {
+		normalized = defaultLoginAgreementDocuments()
+	}
+	b, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("marshal login agreement documents: %w", err)
+	}
+	return string(b), nil
+}
+
+func buildLoginAgreementRevision(updatedAt string, docs []LoginAgreementDocument) string {
+	normalized := normalizeLoginAgreementDocuments(docs)
+	payload, err := json.Marshal(struct {
+		UpdatedAt string                   `json:"updated_at"`
+		Documents []LoginAgreementDocument `json:"documents"`
+	}{
+		UpdatedAt: strings.TrimSpace(updatedAt),
+		Documents: normalized,
+	})
+	if err != nil {
+		payload = []byte(strings.TrimSpace(updatedAt))
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 func normalizeWeChatConnectModeSetting(raw string) string {
@@ -695,6 +777,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyPasswordResetEnabled,
 		SettingKeyInvitationCodeEnabled,
 		SettingKeyTotpEnabled,
+		SettingKeyLoginAgreementEnabled,
+		SettingKeyLoginAgreementMode,
+		SettingKeyLoginAgreementUpdatedAt,
+		SettingKeyLoginAgreementDocuments,
 		SettingKeyTurnstileEnabled,
 		SettingKeyTurnstileSiteKey,
 		SettingKeyAPIKeyACLTrustForwardedIP,
@@ -730,24 +816,20 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyWeChatConnectScopes,
 		SettingKeyWeChatConnectRedirectURL,
 		SettingKeyWeChatConnectFrontendRedirectURL,
-		SettingKeyLoginAgreementEnabled,
-		SettingKeyLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt,
-		SettingKeyLoginAgreementDocuments,
 		SettingKeyBackendModeEnabled,
 		SettingPaymentEnabled,
 		SettingKeyOIDCConnectEnabled,
 		SettingKeyOIDCConnectProviderName,
 		SettingKeyGitHubOAuthEnabled,
+		SettingKeyGitHubOAuthClientID,
+		SettingKeyGitHubOAuthClientSecret,
 		SettingKeyGoogleOAuthEnabled,
-		SettingKeyRiskControlEnabled,
+		SettingKeyGoogleOAuthClientID,
+		SettingKeyGoogleOAuthClientSecret,
 		SettingKeyBalanceLowNotifyEnabled,
 		SettingKeyBalanceLowNotifyThreshold,
 		SettingKeyBalanceLowNotifyRechargeURL,
 		SettingKeyAccountQuotaNotifyEnabled,
-		// TK cold-start (US-028): public catalog gate must be readable pre-login
-		// so HomeView / PricingView can hide the entry without authenticating.
-		SettingKeyPricingCatalogPublic,
 		SettingKeyChannelMonitorEnabled,
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyAvailableChannelsEnabled,
@@ -786,6 +868,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if oidcProviderName == "" {
 		oidcProviderName = "OIDC"
 	}
+	gitHubEnabled := s.emailOAuthPublicEnabled(settings, "github")
+	googleEnabled := s.emailOAuthPublicEnabled(settings, "google")
 	weChatEnabled, weChatOpenEnabled, weChatMPEnabled, weChatMobileEnabled := s.weChatOAuthCapabilitiesFromSettings(settings)
 
 	// Password reset requires email verification to be enabled
@@ -798,18 +882,18 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		settings[SettingKeyTableDefaultPageSize],
 		settings[SettingKeyTablePageSizeOptions],
 	)
+	loginAgreementDocuments := parseLoginAgreementDocuments(settings[SettingKeyLoginAgreementDocuments])
+	loginAgreementUpdatedAt := strings.TrimSpace(settings[SettingKeyLoginAgreementUpdatedAt])
+	if loginAgreementUpdatedAt == "" {
+		loginAgreementUpdatedAt = defaultLoginAgreementDate
+	}
 
 	var balanceLowNotifyThreshold float64
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
 		balanceLowNotifyThreshold = v
 	}
 
-	loginAgreementEnabled := settings[SettingKeyLoginAgreementEnabled] == "true"
-	loginAgreementMode := normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode])
-	loginAgreementUpdatedAt := normalizeLoginAgreementUpdatedAt(settings[SettingKeyLoginAgreementUpdatedAt])
-	loginAgreementDocuments := parseLoginAgreementDocumentsJSON(settings[SettingKeyLoginAgreementDocuments])
-
-	pub := &PublicSettings{
+	return &PublicSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		ForceEmailOnThirdPartySignup:     settings[SettingKeyForceEmailOnThirdPartySignup] == "true",
@@ -818,16 +902,16 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		PasswordResetEnabled:             passwordResetEnabled,
 		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
-		LoginAgreementEnabled:            loginAgreementEnabled,
-		LoginAgreementMode:               loginAgreementMode,
+		LoginAgreementEnabled:            settings[SettingKeyLoginAgreementEnabled] == "true" && len(loginAgreementDocuments) > 0,
+		LoginAgreementMode:               normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
 		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
-		LoginAgreementRevision:           computeLoginAgreementRevision(loginAgreementUpdatedAt, loginAgreementDocuments),
+		LoginAgreementRevision:           buildLoginAgreementRevision(loginAgreementUpdatedAt, loginAgreementDocuments),
 		LoginAgreementDocuments:          loginAgreementDocuments,
 		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
-		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "TokenKey"),
+		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
 		SiteLogo:                         settings[SettingKeySiteLogo],
-		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "AI API Gateway Platform"),
+		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
 		APIBaseURL:                       settings[SettingKeyAPIBaseURL],
 		ContactInfo:                      settings[SettingKeyContactInfo],
 		DocURL:                           settings[SettingKeyDocURL],
@@ -849,26 +933,24 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
 		OIDCOAuthEnabled:                 oidcEnabled,
 		OIDCOAuthProviderName:            oidcProviderName,
-		GitHubOAuthEnabled:               settings[SettingKeyGitHubOAuthEnabled] == "true",
-		GoogleOAuthEnabled:               settings[SettingKeyGoogleOAuthEnabled] == "true",
+		GitHubOAuthEnabled:               gitHubEnabled,
+		GoogleOAuthEnabled:               googleEnabled,
 		BalanceLowNotifyEnabled:          settings[SettingKeyBalanceLowNotifyEnabled] == "true",
 		AccountQuotaNotifyEnabled:        settings[SettingKeyAccountQuotaNotifyEnabled] == "true",
 		BalanceLowNotifyThreshold:        balanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings[SettingKeyBalanceLowNotifyRechargeURL],
-		// TK cold-start (US-028): default ON when row missing — matches
-		// setting_service_tk_cold_start.go ColdStartDefaults() so a fresh install
-		// still surfaces the public pricing entry on the landing page.
-		PricingCatalogPublic:                 !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
+
 		ChannelMonitorEnabled:                !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled]),
 		ChannelMonitorDefaultIntervalSeconds: parseChannelMonitorInterval(settings[SettingKeyChannelMonitorDefaultIntervalSeconds]),
-		AvailableChannelsEnabled:             settings[SettingKeyAvailableChannelsEnabled] == "true",
-		AffiliateEnabled:                     settings[SettingKeyAffiliateEnabled] == "true",
-		RiskControlEnabled:                   settings[SettingKeyRiskControlEnabled] == "true",
-		AllowUserViewErrorRequests:           settings[SettingKeyAllowUserViewErrorRequests] == "true",
-	}
-	pub.SignupBonusEnabled = s.IsSignupBonusEnabled(ctx)
-	pub.SignupBonusBalanceDisplayUSD = s.ComputeSignupBonus(ctx)
-	return pub, nil
+
+		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
+
+		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
+
+		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
+
+		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
+	}, nil
 }
 
 // channelMonitorIntervalMin / channelMonitorIntervalMax bound the default interval
@@ -1005,110 +1087,6 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 	return fallback
 }
 
-// GetClaudeCodeUserAgentVersion 返回 Claude Code canonical OAuth 路径使用的
-// CLI User-Agent 版本号（不含 prefix/suffix）。
-// 后台设置优先；为空、缺失或非法时回退到 CLAUDE_CODE_USER_AGENT_VERSION / 内置默认值。
-// 该函数被注入为 ClaudeCodeUserAgentResolver；GetCanonicalUserAgentForContext
-// 会在每次 OAuth 转发时调用它。
-func (s *SettingService) GetClaudeCodeUserAgentVersion(ctx context.Context) string {
-	fallback := GetDefaultClaudeCodeUserAgentVersion()
-	if s == nil || s.settingRepo == nil {
-		return fallback
-	}
-	if cached, ok := s.claudeCodeUAVersionCache.Load().(*cachedClaudeCodeUserAgentVersion); ok && cached != nil {
-		if time.Now().UnixNano() < cached.expiresAt {
-			return cached.version
-		}
-	}
-
-	result, _, _ := s.claudeCodeUAVersionSF.Do("claude_code_user_agent_version", func() (any, error) {
-		if cached, ok := s.claudeCodeUAVersionCache.Load().(*cachedClaudeCodeUserAgentVersion); ok && cached != nil {
-			if time.Now().UnixNano() < cached.expiresAt {
-				return cached.version, nil
-			}
-		}
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claudeCodeUserAgentVersionDBTimeout)
-		defer cancel()
-		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyClaudeCodeUserAgentVersion)
-		if err != nil && !errors.Is(err, ErrSettingNotFound) {
-			slog.Warn("failed to get claude code user agent version setting", "error", err)
-			s.claudeCodeUAVersionCache.Store(&cachedClaudeCodeUserAgentVersion{
-				version:   fallback,
-				expiresAt: time.Now().Add(claudeCodeUserAgentVersionErrorTTL).UnixNano(),
-			})
-			return fallback, nil
-		}
-		version := NormalizeClaudeCodeUserAgentVersion(value)
-		if version == "" {
-			version = fallback
-		}
-		s.claudeCodeUAVersionCache.Store(&cachedClaudeCodeUserAgentVersion{
-			version:   version,
-			expiresAt: time.Now().Add(claudeCodeUserAgentVersionCacheTTL).UnixNano(),
-		})
-		return version, nil
-	})
-	if version, ok := result.(string); ok && version != "" {
-		return version
-	}
-	return fallback
-}
-
-// GetClaudeCodeMimicryBetas returns runtime OAuth mimicry beta lists from
-// settings.claude_code_http_mimicry_manifest. ok=false when unset or invalid.
-func (s *SettingService) GetClaudeCodeMimicryBetas(ctx context.Context) (sonnetOpus, haiku []string, ok bool) {
-	if s == nil || s.settingRepo == nil {
-		return nil, nil, false
-	}
-	if cached, hit := s.claudeCodeMimicryManifestCache.Load().(*cachedClaudeCodeHTTPMimicryManifest); hit && cached != nil {
-		if time.Now().UnixNano() < cached.expiresAt {
-			if cached.manifest != nil {
-				return cached.manifest.SonnetOpus, cached.manifest.Haiku, true
-			}
-			return nil, nil, false
-		}
-	}
-
-	result, _, _ := s.claudeCodeMimicryManifestSF.Do("claude_code_http_mimicry_manifest", func() (any, error) {
-		if cached, hit := s.claudeCodeMimicryManifestCache.Load().(*cachedClaudeCodeHTTPMimicryManifest); hit && cached != nil {
-			if time.Now().UnixNano() < cached.expiresAt {
-				if cached.manifest != nil {
-					return cached.manifest, nil
-				}
-				return (*ClaudeCodeHTTPMimicryManifest)(nil), nil
-			}
-		}
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claudeCodeMimicryManifestDBTimeout)
-		defer cancel()
-		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyClaudeCodeHTTPMimicryManifest)
-		if err != nil && !errors.Is(err, ErrSettingNotFound) {
-			slog.Warn("failed to get claude code http mimicry manifest setting", "error", err)
-			s.claudeCodeMimicryManifestCache.Store(&cachedClaudeCodeHTTPMimicryManifest{
-				manifest:  nil,
-				expiresAt: time.Now().Add(claudeCodeMimicryManifestErrorTTL).UnixNano(),
-			})
-			return (*ClaudeCodeHTTPMimicryManifest)(nil), nil
-		}
-		manifest := ParseClaudeCodeHTTPMimicryManifest(value)
-		s.claudeCodeMimicryManifestCache.Store(&cachedClaudeCodeHTTPMimicryManifest{
-			manifest:  manifest,
-			expiresAt: time.Now().Add(claudeCodeMimicryManifestCacheTTL).UnixNano(),
-		})
-		return manifest, nil
-	})
-	manifest, _ := result.(*ClaudeCodeHTTPMimicryManifest)
-	if manifest == nil {
-		return nil, nil, false
-	}
-	return manifest.SonnetOpus, manifest.Haiku, true
-}
-
 // GetOpenAICodexUserAgent 返回 OpenAI Codex 上游请求使用的 User-Agent。
 // 后台设置优先；为空时回退到内置默认值。
 func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {
@@ -1159,24 +1137,51 @@ func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {
 }
 
 // IsOpenAIAllowClaudeCodeCodexPluginEnabled 全局开关：是否额外放行 Claude Code 的 Codex 插件（默认关闭）。
+// 仅在调用方已确认账号 codex_cli_only 开启时读取，避免对非受限账号产生无谓查询。
+// 使用进程内 atomic.Value 缓存（60s TTL），避免在每个网关请求热路径上访问 DB。
 func (s *SettingService) IsOpenAIAllowClaudeCodeCodexPluginEnabled(ctx context.Context) bool {
-	if s == nil || s.settingRepo == nil {
-		return false
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAIAllowClaudeCodeCodexPlugin)
-	if err != nil {
-		if errors.Is(err, ErrSettingNotFound) {
-			return false
+	if cached, ok := s.openAIAllowCodexPluginCache.Load().(*cachedOpenAIAllowCodexPlugin); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.value
 		}
-		slog.Warn("failed to get openai_allow_claude_code_codex_plugin setting", "error", err)
-		return false
 	}
-	return value == "true"
+	result, _, _ := s.openAIAllowCodexPluginSF.Do("openai_allow_codex_plugin_enabled", func() (any, error) {
+		if cached, ok := s.openAIAllowCodexPluginCache.Load().(*cachedOpenAIAllowCodexPlugin); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.value, nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIAllowCodexPluginDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAIAllowClaudeCodeCodexPlugin)
+		if err != nil {
+			if errors.Is(err, ErrSettingNotFound) {
+				// 设置不存在 → 默认关闭，正常 TTL 缓存
+				s.openAIAllowCodexPluginCache.Store(&cachedOpenAIAllowCodexPlugin{
+					value:     false,
+					expiresAt: time.Now().Add(openAIAllowCodexPluginCacheTTL).UnixNano(),
+				})
+				return false, nil
+			}
+			slog.Warn("failed to get openai_allow_claude_code_codex_plugin setting", "error", err)
+			// DB 错误 → 安全默认关闭，短 TTL 快速重试
+			s.openAIAllowCodexPluginCache.Store(&cachedOpenAIAllowCodexPlugin{
+				value:     false,
+				expiresAt: time.Now().Add(openAIAllowCodexPluginErrorTTL).UnixNano(),
+			})
+			return false, nil
+		}
+		enabled := value == "true"
+		s.openAIAllowCodexPluginCache.Store(&cachedOpenAIAllowCodexPlugin{
+			value:     enabled,
+			expiresAt: time.Now().Add(openAIAllowCodexPluginCacheTTL).UnixNano(),
+		})
+		return enabled, nil
+	})
+	if val, ok := result.(bool); ok {
+		return val
+	}
+	return false
 }
 
 // SetOnUpdateCallback sets a callback function to be called when settings are updated
@@ -1211,6 +1216,11 @@ type PublicSettingsInjectionPayload struct {
 	PasswordResetEnabled             bool                     `json:"password_reset_enabled"`
 	InvitationCodeEnabled            bool                     `json:"invitation_code_enabled"`
 	TotpEnabled                      bool                     `json:"totp_enabled"`
+	LoginAgreementEnabled            bool                     `json:"login_agreement_enabled"`
+	LoginAgreementMode               string                   `json:"login_agreement_mode"`
+	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
+	LoginAgreementRevision           string                   `json:"login_agreement_revision"`
+	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 	TurnstileEnabled                 bool                     `json:"turnstile_enabled"`
 	TurnstileSiteKey                 string                   `json:"turnstile_site_key"`
 	SiteName                         string                   `json:"site_name"`
@@ -1233,11 +1243,6 @@ type PublicSettingsInjectionPayload struct {
 	WeChatOAuthOpenEnabled           bool                     `json:"wechat_oauth_open_enabled"`
 	WeChatOAuthMPEnabled             bool                     `json:"wechat_oauth_mp_enabled"`
 	WeChatOAuthMobileEnabled         bool                     `json:"wechat_oauth_mobile_enabled"`
-	LoginAgreementEnabled            bool                     `json:"login_agreement_enabled"`
-	LoginAgreementMode               string                   `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
-	LoginAgreementRevision           string                   `json:"login_agreement_revision"`
-	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 	OIDCOAuthEnabled                 bool                     `json:"oidc_oauth_enabled"`
 	OIDCOAuthProviderName            string                   `json:"oidc_oauth_provider_name"`
 	GitHubOAuthEnabled               bool                     `json:"github_oauth_enabled"`
@@ -1249,9 +1254,6 @@ type PublicSettingsInjectionPayload struct {
 	AccountQuotaNotifyEnabled        bool                     `json:"account_quota_notify_enabled"`
 	BalanceLowNotifyThreshold        float64                  `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL      string                   `json:"balance_low_notify_recharge_url"`
-	PricingCatalogPublic             bool                     `json:"pricing_catalog_public"`
-	SignupBonusEnabled               bool                     `json:"signup_bonus_enabled"`
-	SignupBonusBalanceDisplayUSD     float64                  `json:"signup_bonus_balance_usd"`
 
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
@@ -1280,6 +1282,11 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		PasswordResetEnabled:             settings.PasswordResetEnabled,
 		InvitationCodeEnabled:            settings.InvitationCodeEnabled,
 		TotpEnabled:                      settings.TotpEnabled,
+		LoginAgreementEnabled:            settings.LoginAgreementEnabled,
+		LoginAgreementMode:               settings.LoginAgreementMode,
+		LoginAgreementUpdatedAt:          settings.LoginAgreementUpdatedAt,
+		LoginAgreementRevision:           settings.LoginAgreementRevision,
+		LoginAgreementDocuments:          settings.LoginAgreementDocuments,
 		TurnstileEnabled:                 settings.TurnstileEnabled,
 		TurnstileSiteKey:                 settings.TurnstileSiteKey,
 		SiteName:                         settings.SiteName,
@@ -1302,11 +1309,6 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		WeChatOAuthOpenEnabled:           settings.WeChatOAuthOpenEnabled,
 		WeChatOAuthMPEnabled:             settings.WeChatOAuthMPEnabled,
 		WeChatOAuthMobileEnabled:         settings.WeChatOAuthMobileEnabled,
-		LoginAgreementEnabled:            settings.LoginAgreementEnabled,
-		LoginAgreementMode:               settings.LoginAgreementMode,
-		LoginAgreementUpdatedAt:          settings.LoginAgreementUpdatedAt,
-		LoginAgreementRevision:           settings.LoginAgreementRevision,
-		LoginAgreementDocuments:          settings.LoginAgreementDocuments,
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
 		OIDCOAuthProviderName:            settings.OIDCOAuthProviderName,
 		GitHubOAuthEnabled:               settings.GitHubOAuthEnabled,
@@ -1318,9 +1320,6 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AccountQuotaNotifyEnabled:        settings.AccountQuotaNotifyEnabled,
 		BalanceLowNotifyThreshold:        settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings.BalanceLowNotifyRechargeURL,
-		PricingCatalogPublic:             settings.PricingCatalogPublic,
-		SignupBonusEnabled:               settings.SignupBonusEnabled,
-		SignupBonusBalanceDisplayUSD:     settings.SignupBonusBalanceDisplayUSD,
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
@@ -1333,58 +1332,6 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 
 func DefaultWeChatConnectScopesForMode(mode string) string {
 	return defaultWeChatConnectScopeForMode(mode)
-}
-
-func normalizeLoginAgreementMode(mode string) string {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	switch mode {
-	case "checkbox":
-		return "checkbox"
-	default:
-		return "modal"
-	}
-}
-
-func normalizeLoginAgreementUpdatedAt(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if t, err := time.Parse(time.RFC3339, value); err == nil {
-		return t.UTC().Format(time.RFC3339)
-	}
-	if t, err := time.Parse("2006-01-02", value); err == nil {
-		return t.Format("2006-01-02")
-	}
-	return value
-}
-
-func parseLoginAgreementDocumentsJSON(raw string) []LoginAgreementDocument {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	var docs []LoginAgreementDocument
-	if err := json.Unmarshal([]byte(raw), &docs); err != nil {
-		return nil
-	}
-	for i := range docs {
-		docs[i].ID = strings.TrimSpace(docs[i].ID)
-		docs[i].Title = strings.TrimSpace(docs[i].Title)
-		docs[i].ContentMD = strings.TrimSpace(docs[i].ContentMD)
-	}
-	return docs
-}
-
-func computeLoginAgreementRevision(updatedAt string, docs []LoginAgreementDocument) string {
-	h := sha256.New()
-	_, _ = h.Write([]byte(strings.TrimSpace(updatedAt)))
-	for _, doc := range docs {
-		_, _ = h.Write([]byte("\n" + strings.TrimSpace(doc.ID)))
-		_, _ = h.Write([]byte("\n" + strings.TrimSpace(doc.Title)))
-		_, _ = h.Write([]byte("\n" + strings.TrimSpace(doc.ContentMD)))
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (s *SettingService) parseWeChatConnectOAuthConfig(settings map[string]string) (WeChatConnectOAuthConfig, error) {
@@ -1439,6 +1386,98 @@ func (s *SettingService) weChatOAuthCapabilitiesFromSettings(settings map[string
 	mobileReady := cfg.MobileEnabled && cfg.AppIDForMode("mobile") != "" && cfg.AppSecretForMode("mobile") != ""
 
 	return openReady || mpReady, openReady, mpReady, mobileReady
+}
+
+func (s *SettingService) emailOAuthBaseConfig(provider string) config.EmailOAuthProviderConfig {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		cfg := config.EmailOAuthProviderConfig{
+			AuthorizeURL:        defaultGitHubOAuthAuthorize,
+			TokenURL:            defaultGitHubOAuthToken,
+			UserInfoURL:         defaultGitHubOAuthUserInfo,
+			EmailsURL:           defaultGitHubOAuthEmails,
+			Scopes:              defaultGitHubOAuthScopes,
+			FrontendRedirectURL: defaultGitHubOAuthFrontend,
+		}
+		if s != nil && s.cfg != nil {
+			cfg = mergeEmailOAuthBaseConfig(cfg, s.cfg.GitHubOAuth)
+		}
+		return cfg
+	case "google":
+		cfg := config.EmailOAuthProviderConfig{
+			AuthorizeURL:        defaultGoogleOAuthAuthorize,
+			TokenURL:            defaultGoogleOAuthToken,
+			UserInfoURL:         defaultGoogleOAuthUserInfo,
+			Scopes:              defaultGoogleOAuthScopes,
+			FrontendRedirectURL: defaultGoogleOAuthFrontend,
+		}
+		if s != nil && s.cfg != nil {
+			cfg = mergeEmailOAuthBaseConfig(cfg, s.cfg.GoogleOAuth)
+		}
+		return cfg
+	default:
+		return config.EmailOAuthProviderConfig{}
+	}
+}
+
+func mergeEmailOAuthBaseConfig(base, override config.EmailOAuthProviderConfig) config.EmailOAuthProviderConfig {
+	base.Enabled = override.Enabled
+	if strings.TrimSpace(override.ClientID) != "" {
+		base.ClientID = strings.TrimSpace(override.ClientID)
+	}
+	if strings.TrimSpace(override.ClientSecret) != "" {
+		base.ClientSecret = strings.TrimSpace(override.ClientSecret)
+	}
+	if strings.TrimSpace(override.AuthorizeURL) != "" {
+		base.AuthorizeURL = strings.TrimSpace(override.AuthorizeURL)
+	}
+	if strings.TrimSpace(override.TokenURL) != "" {
+		base.TokenURL = strings.TrimSpace(override.TokenURL)
+	}
+	if strings.TrimSpace(override.UserInfoURL) != "" {
+		base.UserInfoURL = strings.TrimSpace(override.UserInfoURL)
+	}
+	if strings.TrimSpace(override.EmailsURL) != "" {
+		base.EmailsURL = strings.TrimSpace(override.EmailsURL)
+	}
+	if strings.TrimSpace(override.Scopes) != "" {
+		base.Scopes = strings.TrimSpace(override.Scopes)
+	}
+	if strings.TrimSpace(override.RedirectURL) != "" {
+		base.RedirectURL = strings.TrimSpace(override.RedirectURL)
+	}
+	if strings.TrimSpace(override.FrontendRedirectURL) != "" {
+		base.FrontendRedirectURL = strings.TrimSpace(override.FrontendRedirectURL)
+	}
+	return base
+}
+
+func (s *SettingService) emailOAuthPublicEnabled(settings map[string]string, provider string) bool {
+	cfg := s.effectiveEmailOAuthConfig(settings, provider)
+	return cfg.Enabled && strings.TrimSpace(cfg.ClientID) != "" && strings.TrimSpace(cfg.ClientSecret) != ""
+}
+
+func (s *SettingService) effectiveEmailOAuthConfig(settings map[string]string, provider string) config.EmailOAuthProviderConfig {
+	cfg := s.emailOAuthBaseConfig(provider)
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github":
+		if raw, ok := settings[SettingKeyGitHubOAuthEnabled]; ok {
+			cfg.Enabled = raw == "true"
+		}
+		cfg.ClientID = firstNonEmpty(settings[SettingKeyGitHubOAuthClientID], cfg.ClientID)
+		cfg.ClientSecret = firstNonEmpty(settings[SettingKeyGitHubOAuthClientSecret], cfg.ClientSecret)
+		cfg.RedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthRedirectURL], cfg.RedirectURL)
+		cfg.FrontendRedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthFrontendRedirectURL], cfg.FrontendRedirectURL, defaultGitHubOAuthFrontend)
+	case "google":
+		if raw, ok := settings[SettingKeyGoogleOAuthEnabled]; ok {
+			cfg.Enabled = raw == "true"
+		}
+		cfg.ClientID = firstNonEmpty(settings[SettingKeyGoogleOAuthClientID], cfg.ClientID)
+		cfg.ClientSecret = firstNonEmpty(settings[SettingKeyGoogleOAuthClientSecret], cfg.ClientSecret)
+		cfg.RedirectURL = firstNonEmpty(settings[SettingKeyGoogleOAuthRedirectURL], cfg.RedirectURL)
+		cfg.FrontendRedirectURL = firstNonEmpty(settings[SettingKeyGoogleOAuthFrontendRedirectURL], cfg.FrontendRedirectURL, defaultGoogleOAuthFrontend)
+	}
+	return cfg
 }
 
 // filterUserVisibleMenuItems filters out admin-only menu items from a raw JSON
@@ -1687,6 +1726,16 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.WeChatConnectFrontendRedirectURL == "" {
 		settings.WeChatConnectFrontendRedirectURL = defaultWeChatConnectFrontend
 	}
+	settings.GitHubOAuthRedirectURL = strings.TrimSpace(settings.GitHubOAuthRedirectURL)
+	settings.GitHubOAuthFrontendRedirectURL = strings.TrimSpace(settings.GitHubOAuthFrontendRedirectURL)
+	if settings.GitHubOAuthFrontendRedirectURL == "" {
+		settings.GitHubOAuthFrontendRedirectURL = defaultGitHubOAuthFrontend
+	}
+	settings.GoogleOAuthRedirectURL = strings.TrimSpace(settings.GoogleOAuthRedirectURL)
+	settings.GoogleOAuthFrontendRedirectURL = strings.TrimSpace(settings.GoogleOAuthFrontendRedirectURL)
+	if settings.GoogleOAuthFrontendRedirectURL == "" {
+		settings.GoogleOAuthFrontendRedirectURL = defaultGoogleOAuthFrontend
+	}
 
 	updates := make(map[string]string)
 
@@ -1699,12 +1748,23 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyRegistrationEmailSuffixWhitelist] = string(registrationEmailSuffixWhitelistJSON)
 	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
-	updates[SettingKeyAnthropicCanonicalIngressStrictEnabled] = strconv.FormatBool(settings.AnthropicCanonicalIngressStrictEnabled)
-	updates[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] = strconv.FormatBool(settings.AnthropicCanonicalHaikuMimicryEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
 	updates[SettingKeyFrontendURL] = settings.FrontendURL
 	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
 	updates[SettingKeyTotpEnabled] = strconv.FormatBool(settings.TotpEnabled)
+	settings.LoginAgreementMode = normalizeLoginAgreementMode(settings.LoginAgreementMode)
+	settings.LoginAgreementUpdatedAt = strings.TrimSpace(settings.LoginAgreementUpdatedAt)
+	if settings.LoginAgreementUpdatedAt == "" {
+		settings.LoginAgreementUpdatedAt = defaultLoginAgreementDate
+	}
+	loginAgreementDocumentsJSON, err := marshalLoginAgreementDocuments(settings.LoginAgreementDocuments)
+	if err != nil {
+		return nil, err
+	}
+	updates[SettingKeyLoginAgreementEnabled] = strconv.FormatBool(settings.LoginAgreementEnabled)
+	updates[SettingKeyLoginAgreementMode] = settings.LoginAgreementMode
+	updates[SettingKeyLoginAgreementUpdatedAt] = settings.LoginAgreementUpdatedAt
+	updates[SettingKeyLoginAgreementDocuments] = loginAgreementDocumentsJSON
 
 	// 邮件服务设置（只有非空才更新密码）
 	updates[SettingKeySMTPHost] = settings.SMTPHost
@@ -1777,6 +1837,22 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOIDCConnectUserInfoUsernamePath] = settings.OIDCConnectUserInfoUsernamePath
 	if settings.OIDCConnectClientSecret != "" {
 		updates[SettingKeyOIDCConnectClientSecret] = settings.OIDCConnectClientSecret
+	}
+
+	// GitHub / Google 邮箱快捷登录
+	updates[SettingKeyGitHubOAuthEnabled] = strconv.FormatBool(settings.GitHubOAuthEnabled)
+	updates[SettingKeyGitHubOAuthClientID] = strings.TrimSpace(settings.GitHubOAuthClientID)
+	updates[SettingKeyGitHubOAuthRedirectURL] = settings.GitHubOAuthRedirectURL
+	updates[SettingKeyGitHubOAuthFrontendRedirectURL] = settings.GitHubOAuthFrontendRedirectURL
+	if settings.GitHubOAuthClientSecret != "" {
+		updates[SettingKeyGitHubOAuthClientSecret] = strings.TrimSpace(settings.GitHubOAuthClientSecret)
+	}
+	updates[SettingKeyGoogleOAuthEnabled] = strconv.FormatBool(settings.GoogleOAuthEnabled)
+	updates[SettingKeyGoogleOAuthClientID] = strings.TrimSpace(settings.GoogleOAuthClientID)
+	updates[SettingKeyGoogleOAuthRedirectURL] = settings.GoogleOAuthRedirectURL
+	updates[SettingKeyGoogleOAuthFrontendRedirectURL] = settings.GoogleOAuthFrontendRedirectURL
+	if settings.GoogleOAuthClientSecret != "" {
+		updates[SettingKeyGoogleOAuthClientSecret] = strings.TrimSpace(settings.GoogleOAuthClientSecret)
 	}
 
 	// WeChat Connect OAuth 登录
@@ -1913,7 +1989,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
-	updates[SettingKeyStickyRoutingEnabled] = strconv.FormatBool(settings.StickyRoutingEnabled)
 	updates[SettingKeyEnableClaudeOAuthSystemPromptInjection] = strconv.FormatBool(settings.EnableClaudeOAuthSystemPromptInjection)
 	updates[SettingKeyClaudeOAuthSystemPrompt] = settings.ClaudeOAuthSystemPrompt
 	if err := ValidateClaudeOAuthSystemPromptBlocksConfig(settings.ClaudeOAuthSystemPromptBlocks); err != nil {
@@ -1923,8 +1998,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableAnthropicCacheTTL1hInjection] = strconv.FormatBool(settings.EnableAnthropicCacheTTL1hInjection)
 	updates[SettingKeyRewriteMessageCacheControl] = strconv.FormatBool(settings.RewriteMessageCacheControl)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
-	updates[SettingKeyClaudeCodeUserAgentVersion] = NormalizeClaudeCodeUserAgentVersion(settings.ClaudeCodeUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
+	updates[SettingKeyOpenAIAllowClaudeCodeCodexPlugin] = strconv.FormatBool(settings.OpenAIAllowClaudeCodeCodexPlugin)
 	updates[SettingPaymentVisibleMethodAlipaySource] = settings.PaymentVisibleMethodAlipaySource
 	updates[SettingPaymentVisibleMethodWxpaySource] = settings.PaymentVisibleMethodWxpaySource
 	updates[SettingPaymentVisibleMethodAlipayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodAlipayEnabled)
@@ -1938,9 +2013,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySubscriptionExpiryNotifyEnabled] = strconv.FormatBool(settings.SubscriptionExpiryNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
-	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
-	s.tkAppendAnthropicNormalizeSettingUpdates(updates, settings)
-	s.tkAppendColdStartSettingUpdates(updates, settings)
 
 	// 系统全局 platform quota：整体替换语义（null/缺省 = 不限制）。
 	if settings.DefaultPlatformQuotas != nil {
@@ -1956,8 +2028,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
 
-	// Do not persist here: callers (UpdateSettings / UpdateSettingsWithAuthSourceDefaults)
-	// must perform a single SetMultiple so auth-source merges stay atomic with system keys.
 	return updates, nil
 }
 
@@ -2044,17 +2114,6 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		max:       settings.MaxClaudeCodeVersion,
 		expiresAt: time.Now().Add(versionBoundsCacheTTL).UnixNano(),
 	})
-	// Invalidate the quota auto-pause cache and let the next read trigger a fresh load.
-	// We can't know from here whether ops_advanced_settings was also touched, so be
-	// defensive: store an expired entry — GetOpenAIQuotaAutoPauseSettings will serve
-	// stale and kick off an async refresh, never blocking the request that follows.
-	s.openAIQuotaAutoPauseSettingsSF.Forget(openAIQuotaAutoPauseSettingsRefreshKey)
-	if cached, _ := s.openAIQuotaAutoPauseSettingsCache.Load().(*cachedOpenAIQuotaAutoPauseSettings); cached != nil {
-		s.openAIQuotaAutoPauseSettingsCache.Store(&cachedOpenAIQuotaAutoPauseSettings{
-			settings:  cached.settings,
-			expiresAt: 0,
-		})
-	}
 	backendModeSF.Forget("backend_mode")
 	backendModeCache.Store(&cachedBackendMode{
 		value:     settings.BackendModeEnabled,
@@ -2070,9 +2129,6 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		claudeOAuthSystemPromptBlocks:    settings.ClaudeOAuthSystemPromptBlocks,
 		anthropicCacheTTL1hInjection:     settings.EnableAnthropicCacheTTL1hInjection,
 		rewriteMessageCacheControl:       settings.RewriteMessageCacheControl,
-		anthropicRequestNormalize:        settings.AnthropicRequestNormalizeEnabled,
-		canonicalIngressStrict:           settings.AnthropicCanonicalIngressStrictEnabled,
-		canonicalHaikuMimicry:            settings.AnthropicCanonicalHaikuMimicryEnabled,
 		expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
@@ -2084,16 +2140,6 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		version:   antigravityUserAgentVersion,
 		expiresAt: time.Now().Add(antigravityUserAgentVersionCacheTTL).UnixNano(),
 	})
-	s.claudeCodeUAVersionSF.Forget("claude_code_user_agent_version")
-	claudeCodeUserAgentVersion := NormalizeClaudeCodeUserAgentVersion(settings.ClaudeCodeUserAgentVersion)
-	if claudeCodeUserAgentVersion == "" {
-		claudeCodeUserAgentVersion = GetDefaultClaudeCodeUserAgentVersion()
-	}
-	s.claudeCodeUAVersionCache.Store(&cachedClaudeCodeUserAgentVersion{
-		version:   claudeCodeUserAgentVersion,
-		expiresAt: time.Now().Add(claudeCodeUserAgentVersionCacheTTL).UnixNano(),
-	})
-	s.claudeCodeMimicryManifestSF.Forget("claude_code_http_mimicry_manifest")
 	s.openAICodexUASF.Forget("openai_codex_user_agent")
 	codexUA := strings.TrimSpace(settings.OpenAICodexUserAgent)
 	if codexUA == "" {
@@ -2108,16 +2154,28 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		enabled:   settings.OpenAIAdvancedSchedulerEnabled,
 		expiresAt: time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
 	})
+	// Invalidate the quota auto-pause cache and let the next read trigger a fresh load.
+	// We can't know from here whether ops_advanced_settings was also touched, so be
+	// defensive: store an expired entry — GetOpenAIQuotaAutoPauseSettings will serve
+	// stale and kick off an async refresh, never blocking the request that follows.
+	s.openAIQuotaAutoPauseSettingsSF.Forget(openAIQuotaAutoPauseSettingsRefreshKey)
+	if cached, _ := s.openAIQuotaAutoPauseSettingsCache.Load().(*cachedOpenAIQuotaAutoPauseSettings); cached != nil {
+		s.openAIQuotaAutoPauseSettingsCache.Store(&cachedOpenAIQuotaAutoPauseSettings{
+			settings:  cached.settings,
+			expiresAt: 0,
+		})
+	}
 	if s.cfg != nil {
 		s.cfg.SetTrustForwardedIPForAPIKeyACL(settings.APIKeyACLTrustForwardedIP)
 	}
+	s.openAIAllowCodexPluginSF.Forget("openai_allow_codex_plugin_enabled")
+	s.openAIAllowCodexPluginCache.Store(&cachedOpenAIAllowCodexPlugin{
+		value:     settings.OpenAIAllowClaudeCodeCodexPlugin,
+		expiresAt: time.Now().Add(openAIAllowCodexPluginCacheTTL).UnixNano(),
+	})
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}
-	// TK: fan out to peer replicas so a UA (or any SystemSettings) edit invalidates
-	// their in-process caches within seconds. No-op when pub/sub is disabled or while
-	// applying a remote refresh (loop guard). See setting_service_tk_pubsub.go.
-	s.notifySettingsPubSub()
 }
 
 func (s *SettingService) defaultRewriteMessageCacheControl() bool {
@@ -2163,6 +2221,61 @@ func (s *SettingService) validateDefaultSubscriptionGroups(ctx context.Context, 
 	return nil
 }
 
+func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provider string) (config.EmailOAuthProviderConfig, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider != "github" && provider != "google" {
+		return config.EmailOAuthProviderConfig{}, infraerrors.NotFound("OAUTH_PROVIDER_NOT_FOUND", "oauth provider not found")
+	}
+	keys := []string{
+		SettingKeyGitHubOAuthEnabled,
+		SettingKeyGitHubOAuthClientID,
+		SettingKeyGitHubOAuthClientSecret,
+		SettingKeyGitHubOAuthRedirectURL,
+		SettingKeyGitHubOAuthFrontendRedirectURL,
+		SettingKeyGoogleOAuthEnabled,
+		SettingKeyGoogleOAuthClientID,
+		SettingKeyGoogleOAuthClientSecret,
+		SettingKeyGoogleOAuthRedirectURL,
+		SettingKeyGoogleOAuthFrontendRedirectURL,
+	}
+	settings, err := s.settingRepo.GetMultiple(ctx, keys)
+	if err != nil {
+		return config.EmailOAuthProviderConfig{}, fmt.Errorf("get email oauth settings: %w", err)
+	}
+	cfg := s.effectiveEmailOAuthConfig(settings, provider)
+	if !cfg.Enabled {
+		return config.EmailOAuthProviderConfig{}, infraerrors.NotFound("OAUTH_DISABLED", "oauth login is disabled")
+	}
+	if strings.TrimSpace(cfg.ClientID) == "" {
+		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth client id not configured")
+	}
+	if strings.TrimSpace(cfg.ClientSecret) == "" {
+		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth client secret not configured")
+	}
+	for label, rawURL := range map[string]string{
+		"authorize": cfg.AuthorizeURL,
+		"token":     cfg.TokenURL,
+		"userinfo":  cfg.UserInfoURL,
+		"redirect":  cfg.RedirectURL,
+	} {
+		if strings.TrimSpace(rawURL) == "" {
+			return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth "+label+" url not configured")
+		}
+		if err := config.ValidateAbsoluteHTTPURL(rawURL); err != nil {
+			return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth "+label+" url invalid")
+		}
+	}
+	if strings.TrimSpace(cfg.EmailsURL) != "" {
+		if err := config.ValidateAbsoluteHTTPURL(cfg.EmailsURL); err != nil {
+			return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth emails url invalid")
+		}
+	}
+	if err := config.ValidateFrontendRedirectURL(cfg.FrontendRedirectURL); err != nil {
+		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url invalid")
+	}
+	return cfg, nil
+}
+
 // IsRegistrationEnabled 检查是否开放注册
 func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
@@ -2173,14 +2286,8 @@ func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
-// IsBackendModeEnabled checks if backend mode is enabled (in-process atomic.Value
-// cache with 60s TTL, zero-lock hot path).
-//
-// Behavior matches upstream commit 6826149a exactly: default false on missing/error.
-// TokenKey's "default true on fresh install" semantic comes from the migration
-// (tk_003_default_backend_mode_enabled.sql) injecting the row at provisioning,
-// NOT from a code-side override — keeping this method byte-for-byte compatible
-// with upstream tests (rule CLAUDE.md §5: minimal-invasion).
+// IsBackendModeEnabled checks if backend mode is enabled
+// Uses in-process atomic.Value cache with 60s TTL, zero-lock hot path
 func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 	if cached, ok := backendModeCache.Load().(*cachedBackendMode); ok && cached != nil {
 		if time.Now().UnixNano() < cached.expiresAt {
@@ -2198,6 +2305,7 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyBackendModeEnabled)
 		if err != nil {
 			if errors.Is(err, ErrSettingNotFound) {
+				// Setting not yet created (fresh install) - default to disabled with full TTL
 				backendModeCache.Store(&cachedBackendMode{
 					value:     false,
 					expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
@@ -2225,10 +2333,8 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 }
 
 type gatewayForwardingSettingsResult struct {
-	fp, mp, cch, claudeOAuthSystemPromptInjection, cacheTTL1h, rewriteMessageCacheControl, anthropicRequestNormalize bool
-	claudeOAuthSystemPrompt, claudeOAuthSystemPromptBlocks                                                           string
-	canonicalIngressStrict                                                                                           bool
-	canonicalHaikuMimicry                                                                                            bool
+	fp, mp, cch, claudeOAuthSystemPromptInjection, cacheTTL1h, rewriteMessageCacheControl bool
+	claudeOAuthSystemPrompt, claudeOAuthSystemPromptBlocks                                string
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -2243,9 +2349,6 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				claudeOAuthSystemPromptBlocks:    cached.claudeOAuthSystemPromptBlocks,
 				cacheTTL1h:                       cached.anthropicCacheTTL1hInjection,
 				rewriteMessageCacheControl:       cached.rewriteMessageCacheControl,
-				anthropicRequestNormalize:        cached.anthropicRequestNormalize,
-				canonicalIngressStrict:           cached.canonicalIngressStrict,
-				canonicalHaikuMimicry:            cached.canonicalHaikuMimicry,
 			}
 		}
 	}
@@ -2261,9 +2364,6 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					claudeOAuthSystemPromptBlocks:    cached.claudeOAuthSystemPromptBlocks,
 					cacheTTL1h:                       cached.anthropicCacheTTL1hInjection,
 					rewriteMessageCacheControl:       cached.rewriteMessageCacheControl,
-					anthropicRequestNormalize:        cached.anthropicRequestNormalize,
-					canonicalIngressStrict:           cached.canonicalIngressStrict,
-					canonicalHaikuMimicry:            cached.canonicalHaikuMimicry,
 				}, nil
 			}
 		}
@@ -2278,9 +2378,6 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyClaudeOAuthSystemPromptBlocks,
 			SettingKeyEnableAnthropicCacheTTL1hInjection,
 			SettingKeyRewriteMessageCacheControl,
-			SettingKeyAnthropicRequestNormalizeEnabled,
-			SettingKeyAnthropicCanonicalIngressStrictEnabled,
-			SettingKeyAnthropicCanonicalHaikuMimicryEnabled,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -2291,17 +2388,9 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				claudeOAuthSystemPromptInjection: true,
 				anthropicCacheTTL1hInjection:     false,
 				rewriteMessageCacheControl:       s.defaultRewriteMessageCacheControl(),
-				anthropicRequestNormalize:        true,
-				canonicalIngressStrict:           false,
-				canonicalHaikuMimicry:            false,
 				expiresAt:                        time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
-			return gatewayForwardingSettingsResult{
-				fp:                               true,
-				claudeOAuthSystemPromptInjection: true,
-				rewriteMessageCacheControl:       s.defaultRewriteMessageCacheControl(),
-				anthropicRequestNormalize:        true,
-			}, nil
+			return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl()}, nil
 		}
 		fp := true
 		if v, ok := values[SettingKeyEnableFingerprintUnification]; ok && v != "" {
@@ -2320,12 +2409,6 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		if v, ok := values[SettingKeyRewriteMessageCacheControl]; ok && v != "" {
 			rewriteMessageCacheControl = v == "true"
 		}
-		// Default-true: missing / empty value means enabled. Explicit "false" disables.
-		anthropicRequestNormalize := !isFalseSettingValue(values[SettingKeyAnthropicRequestNormalizeEnabled])
-		// Default-false: only explicit "true" enables the canonical-ingress strict gate.
-		canonicalIngressStrict := values[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true"
-		// Default-false: only explicit "true" enables the canonical haiku mimicry completion.
-		canonicalHaikuMimicry := values[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification:           fp,
 			metadataPassthrough:              mp,
@@ -2335,9 +2418,6 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			claudeOAuthSystemPromptBlocks:    systemPromptBlocks,
 			anthropicCacheTTL1hInjection:     cacheTTL1h,
 			rewriteMessageCacheControl:       rewriteMessageCacheControl,
-			anthropicRequestNormalize:        anthropicRequestNormalize,
-			canonicalIngressStrict:           canonicalIngressStrict,
-			canonicalHaikuMimicry:            canonicalHaikuMimicry,
 			expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -2349,15 +2429,12 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			claudeOAuthSystemPromptBlocks:    systemPromptBlocks,
 			cacheTTL1h:                       cacheTTL1h,
 			rewriteMessageCacheControl:       rewriteMessageCacheControl,
-			anthropicRequestNormalize:        anthropicRequestNormalize,
-			canonicalIngressStrict:           canonicalIngressStrict,
-			canonicalHaikuMimicry:            canonicalHaikuMimicry,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
 		return r
 	}
-	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, anthropicRequestNormalize: true}
+	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true}
 }
 
 // GetGatewayForwardingSettings returns cached gateway forwarding settings.
@@ -2371,116 +2448,6 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 // IsAnthropicCacheTTL1hInjectionEnabled 检查是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl。
 func (s *SettingService) IsAnthropicCacheTTL1hInjectionEnabled(ctx context.Context) bool {
 	return s.getGatewayForwardingSettingsCached(ctx).cacheTTL1h
-}
-
-// stickyRoutingCache 缓存 sticky routing 全局开关（进程内 atomic.Value，60s TTL）
-type stickyRoutingCacheEntry struct {
-	enabled   bool
-	expiresAt int64 // unix nano
-}
-
-var stickyRoutingCache atomic.Value // *stickyRoutingCacheEntry
-var stickyRoutingSF singleflight.Group
-
-const stickyRoutingCacheTTL = 60 * time.Second
-const stickyRoutingErrorTTL = 5 * time.Second
-const stickyRoutingDBTimeout = 5 * time.Second
-
-// IsStickyRoutingEnabled returns whether the global prompt-cache sticky routing
-// is enabled. Defaults to true (fail-open) when the setting is missing or DB
-// errors. See docs/approved/sticky-routing.md §3.2.
-func (s *SettingService) IsStickyRoutingEnabled(ctx context.Context) bool {
-	if s == nil || s.settingRepo == nil {
-		// Defensive: tests / setups without a wired SettingService should not
-		// panic on singleflight; assume the global default (enabled).
-		return true
-	}
-	if cached, ok := stickyRoutingCache.Load().(*stickyRoutingCacheEntry); ok && cached != nil {
-		if time.Now().UnixNano() < cached.expiresAt {
-			return cached.enabled
-		}
-	}
-	val, _, _ := stickyRoutingSF.Do("sticky_routing_enabled", func() (any, error) {
-		if cached, ok := stickyRoutingCache.Load().(*stickyRoutingCacheEntry); ok && cached != nil {
-			if time.Now().UnixNano() < cached.expiresAt {
-				return cached.enabled, nil
-			}
-		}
-		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stickyRoutingDBTimeout)
-		defer cancel()
-		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyStickyRoutingEnabled)
-		if err != nil {
-			slog.Warn("failed to get sticky routing setting", "error", err)
-			stickyRoutingCache.Store(&stickyRoutingCacheEntry{
-				enabled:   true,
-				expiresAt: time.Now().Add(stickyRoutingErrorTTL).UnixNano(),
-			})
-			return true, nil
-		}
-		// Empty string => never set => default true (opt-out, not opt-in).
-		enabled := strings.TrimSpace(raw) != "false"
-		stickyRoutingCache.Store(&stickyRoutingCacheEntry{
-			enabled:   enabled,
-			expiresAt: time.Now().Add(stickyRoutingCacheTTL).UnixNano(),
-		})
-		return enabled, nil
-	})
-	if b, ok := val.(bool); ok {
-		return b
-	}
-	return true
-}
-
-// stickySlotFullEscapeCache 缓存 sticky 槽满逃逸开关（进程内 atomic.Value，60s TTL）
-type stickySlotFullEscapeCacheEntry struct {
-	enabled   bool
-	expiresAt int64 // unix nano
-}
-
-var stickySlotFullEscapeCache atomic.Value // *stickySlotFullEscapeCacheEntry
-var stickySlotFullEscapeSF singleflight.Group
-
-// IsStickySlotFullEscapeEnabled 返回 sticky 绑定账号并发槽满时是否先试全池再排队
-// （upstream #2859）。默认 true（fail-open）：setting 缺失或 DB 出错时按默认开。
-// 见 docs/approved/sticky-routing.md §11.5。
-func (s *SettingService) IsStickySlotFullEscapeEnabled(ctx context.Context) bool {
-	if s == nil || s.settingRepo == nil {
-		return true
-	}
-	if cached, ok := stickySlotFullEscapeCache.Load().(*stickySlotFullEscapeCacheEntry); ok && cached != nil {
-		if time.Now().UnixNano() < cached.expiresAt {
-			return cached.enabled
-		}
-	}
-	val, _, _ := stickySlotFullEscapeSF.Do("sticky_slot_full_escape_enabled", func() (any, error) {
-		if cached, ok := stickySlotFullEscapeCache.Load().(*stickySlotFullEscapeCacheEntry); ok && cached != nil {
-			if time.Now().UnixNano() < cached.expiresAt {
-				return cached.enabled, nil
-			}
-		}
-		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stickyRoutingDBTimeout)
-		defer cancel()
-		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyStickySlotFullEscapeEnabled)
-		if err != nil {
-			slog.Warn("failed to get sticky slot-full escape setting", "error", err)
-			stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{
-				enabled:   true,
-				expiresAt: time.Now().Add(stickyRoutingErrorTTL).UnixNano(),
-			})
-			return true, nil
-		}
-		// 空字符串 => 从未设置 => 默认 true（opt-out，不是 opt-in）。
-		enabled := strings.TrimSpace(raw) != "false"
-		stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{
-			enabled:   enabled,
-			expiresAt: time.Now().Add(stickyRoutingCacheTTL).UnixNano(),
-		})
-		return enabled, nil
-	})
-	if b, ok := val.(bool); ok {
-		return b
-	}
-	return true
 }
 
 // IsRewriteMessageCacheControlEnabled 检查是否启用 messages cache_control 改写。
@@ -2530,6 +2497,15 @@ func (s *SettingService) IsInvitationCodeEnabled(ctx context.Context) bool {
 		return false // 默认关闭
 	}
 	return value == "true"
+}
+
+// GetCustomMenuItemsRaw returns the raw JSON string of custom_menu_items setting.
+func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
+	if err != nil {
+		return "[]"
+	}
+	return value
 }
 
 // IsAffiliateEnabled 检查是否启用邀请返利功能（总开关）
@@ -2637,7 +2613,7 @@ func (s *SettingService) IsTotpEncryptionKeyConfigured() bool {
 func (s *SettingService) GetSiteName(ctx context.Context) string {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeySiteName)
 	if err != nil || value == "" {
-		return "TokenKey"
+		return "Sub2API"
 	}
 	return value
 }
@@ -2816,20 +2792,23 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 			oidcValidateIDTokenDefault = s.cfg.OIDC.ValidateIDToken
 		}
 	}
+	loginAgreementDocumentsJSON, err := marshalLoginAgreementDocuments(defaultLoginAgreementDocuments())
+	if err != nil {
+		return err
+	}
 
-	// 初始化默认设置（single map — duplicate keys break Go compilation)
+	// 初始化默认设置
 	defaults := map[string]string{
-		SettingKeyRegistrationEnabled:              "true",
-		SettingKeyEmailVerifyEnabled:               "false",
-		SettingKeyRegistrationEmailSuffixWhitelist: "[]",
-		SettingKeyPromoCodeEnabled:                 "true", // 默认启用优惠码功能
-		SettingKeyLoginAgreementEnabled:            "false",
-		SettingKeyLoginAgreementMode:               defaultLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt:          defaultLoginAgreementDate,
-		SettingKeyLoginAgreementDocuments:          loginAgreementDocumentsJSON,
-		SettingKeyAPIKeyACLTrustForwardedIP:        "false",
-		// TokenKey brand 默认值；保持产品心智一致（rule §5 invariant）。
-		SettingKeySiteName:                                  "TokenKey",
+		SettingKeyRegistrationEnabled:                       "true",
+		SettingKeyEmailVerifyEnabled:                        "false",
+		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
+		SettingKeyPromoCodeEnabled:                          "true", // 默认启用优惠码功能
+		SettingKeyLoginAgreementEnabled:                     "false",
+		SettingKeyLoginAgreementMode:                        defaultLoginAgreementMode,
+		SettingKeyLoginAgreementUpdatedAt:                   defaultLoginAgreementDate,
+		SettingKeyLoginAgreementDocuments:                   loginAgreementDocumentsJSON,
+		SettingKeyAPIKeyACLTrustForwardedIP:                 "false",
+		SettingKeySiteName:                                  "Sub2API",
 		SettingKeySiteLogo:                                  "",
 		SettingKeyPurchaseSubscriptionEnabled:               "false",
 		SettingKeyPurchaseSubscriptionURL:                   "",
@@ -2931,10 +2910,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyForceEmailOnThirdPartySignup:              "false",
 		SettingKeySMTPPort:                                  "587",
 		SettingKeySMTPUseTLS:                                "false",
-		// Model fallback defaults — TokenKey 0.x 已在 PR #329 / models.tk 中迁移
-		// 出 3.5/3.7-sonnet 默认（Anthropic 2026-06-15 退役），保持 4-6 作为默认值。
+		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
-		SettingKeyFallbackModelAnthropic:   "claude-sonnet-4-6",
+		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
 		SettingKeyFallbackModelOpenAI:      "gpt-4o",
 		SettingKeyFallbackModelGemini:      "gemini-2.5-pro",
 		SettingKeyFallbackModelAntigravity: "gemini-2.5-pro",
@@ -2970,13 +2948,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyMaxClaudeCodeVersion: "",
 
 		// 分组隔离（默认不允许未分组 Key 调度）
-		SettingKeyAllowUngroupedKeyScheduling: "false",
-		// Backend Mode：TokenKey 默认开启（管理员发号场景）；migration tk_003 也镜像了这条覆写。
-		SettingKeyBackendModeEnabled:                 "true",
+		SettingKeyAllowUngroupedKeyScheduling:        "false",
 		SettingKeyEnableAnthropicCacheTTL1hInjection: "false",
 		SettingKeyRewriteMessageCacheControl:         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyAntigravityUserAgentVersion:        "",
-		SettingKeyClaudeCodeUserAgentVersion:         "",
 		SettingKeyOpenAICodexUserAgent:               "",
 		SettingPaymentVisibleMethodAlipaySource:      "",
 		SettingPaymentVisibleMethodWxpaySource:       "",
@@ -2986,9 +2961,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		SettingKeyAllowUserViewErrorRequests: "false",
 	}
-	tkMergeDefaultTokenKeyBridgeSettings(defaults)
-	tkMergeDefaultAnthropicNormalizeSettings(defaults)
-	tkMergeDefaultColdStartSettings(defaults)
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
 }
@@ -2996,9 +2968,11 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
-	// Login-agreement fields are parsed in GetPublicSettings (the public
-	// surface that ships them); SystemSettings here is admin-side and
-	// does not carry them.
+	loginAgreementDocuments := parseLoginAgreementDocuments(settings[SettingKeyLoginAgreementDocuments])
+	loginAgreementUpdatedAt := strings.TrimSpace(settings[SettingKeyLoginAgreementUpdatedAt])
+	if loginAgreementUpdatedAt == "" {
+		loginAgreementUpdatedAt = defaultLoginAgreementDate
+	}
 	apiKeyACLTrustForwardedIP := false
 	if value, ok := settings[SettingKeyAPIKeyACLTrustForwardedIP]; ok {
 		apiKeyACLTrustForwardedIP = value == "true"
@@ -3006,43 +2980,42 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		apiKeyACLTrustForwardedIP = s.cfg.Security.TrustForwardedIPForAPIKeyACL
 	}
 	result := &SystemSettings{
-		RegistrationEnabled:                    settings[SettingKeyRegistrationEnabled] == "true",
-		EmailVerifyEnabled:                     emailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false",                      // 默认启用
-		AnthropicCanonicalIngressStrictEnabled: settings[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true", // TK: canonical 入口 UA strict 拒绝（#1#2），默认关闭（零回归）
-		AnthropicCanonicalHaikuMimicryEnabled:  settings[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true",  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3），默认关闭（零回归）
-		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                            settings[SettingKeyFrontendURL],
-		InvitationCodeEnabled:                  settings[SettingKeyInvitationCodeEnabled] == "true",
-		TotpEnabled:                            settings[SettingKeyTotpEnabled] == "true",
-		SMTPHost:                               settings[SettingKeySMTPHost],
-		SMTPUsername:                           settings[SettingKeySMTPUsername],
-		SMTPFrom:                               settings[SettingKeySMTPFrom],
-		SMTPFromName:                           settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
-		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],
-		TurnstileSecretKeyConfigured:           settings[SettingKeyTurnstileSecretKey] != "",
-		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
-		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "TokenKey"),
-		SiteLogo:                               settings[SettingKeySiteLogo],
-		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "AI API Gateway Platform"),
-		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
-		ContactInfo:                            settings[SettingKeyContactInfo],
-		DocURL:                                 settings[SettingKeyDocURL],
-		HomeContent:                            settings[SettingKeyHomeContent],
-		HideCcsImportButton:                    settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:            settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
-		PurchaseSubscriptionURL:                strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
-		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
-		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
+		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
+		EmailVerifyEnabled:               emailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
+		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
+		PasswordResetEnabled:             emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
+		FrontendURL:                      settings[SettingKeyFrontendURL],
+		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
+		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
+		LoginAgreementEnabled:            settings[SettingKeyLoginAgreementEnabled] == "true",
+		LoginAgreementMode:               normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
+		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
+		LoginAgreementDocuments:          loginAgreementDocuments,
+		SMTPHost:                         settings[SettingKeySMTPHost],
+		SMTPUsername:                     settings[SettingKeySMTPUsername],
+		SMTPFrom:                         settings[SettingKeySMTPFrom],
+		SMTPFromName:                     settings[SettingKeySMTPFromName],
+		SMTPUseTLS:                       settings[SettingKeySMTPUseTLS] == "true",
+		SMTPPasswordConfigured:           settings[SettingKeySMTPPassword] != "",
+		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
+		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
+		TurnstileSecretKeyConfigured:     settings[SettingKeyTurnstileSecretKey] != "",
+		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
+		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
+		SiteLogo:                         settings[SettingKeySiteLogo],
+		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		APIBaseURL:                       settings[SettingKeyAPIBaseURL],
+		ContactInfo:                      settings[SettingKeyContactInfo],
+		DocURL:                           settings[SettingKeyDocURL],
+		HomeContent:                      settings[SettingKeyHomeContent],
+		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
+		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
+		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
+		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
+		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
-	tkApplyTokenKeyBridgeParsed(settings, result)
-	tkApplyAnthropicNormalizeParsed(settings, result)
-	tkApplyColdStartParsed(settings, result)
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],
 		settings[SettingKeyTablePageSizeOptions],
@@ -3391,6 +3364,22 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.OIDCConnectClientSecretConfigured = result.OIDCConnectClientSecret != ""
 
+	gitHubEffective := s.effectiveEmailOAuthConfig(settings, "github")
+	result.GitHubOAuthEnabled = gitHubEffective.Enabled
+	result.GitHubOAuthClientID = strings.TrimSpace(gitHubEffective.ClientID)
+	result.GitHubOAuthClientSecret = strings.TrimSpace(gitHubEffective.ClientSecret)
+	result.GitHubOAuthClientSecretConfigured = result.GitHubOAuthClientSecret != ""
+	result.GitHubOAuthRedirectURL = strings.TrimSpace(gitHubEffective.RedirectURL)
+	result.GitHubOAuthFrontendRedirectURL = strings.TrimSpace(gitHubEffective.FrontendRedirectURL)
+
+	googleEffective := s.effectiveEmailOAuthConfig(settings, "google")
+	result.GoogleOAuthEnabled = googleEffective.Enabled
+	result.GoogleOAuthClientID = strings.TrimSpace(googleEffective.ClientID)
+	result.GoogleOAuthClientSecret = strings.TrimSpace(googleEffective.ClientSecret)
+	result.GoogleOAuthClientSecretConfigured = result.GoogleOAuthClientSecret != ""
+	result.GoogleOAuthRedirectURL = strings.TrimSpace(googleEffective.RedirectURL)
+	result.GoogleOAuthFrontendRedirectURL = strings.TrimSpace(googleEffective.FrontendRedirectURL)
+
 	// WeChat Connect 设置：
 	// - 优先读取 DB 系统设置
 	// - 缺失时回退到 config/env，保持升级兼容
@@ -3418,7 +3407,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Model fallback settings
 	result.EnableModelFallback = settings[SettingKeyEnableModelFallback] == "true"
-	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-sonnet-4-6")
+	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
 	result.FallbackModelOpenAI = s.getStringOrDefault(settings, SettingKeyFallbackModelOpenAI, "gpt-4o")
 	result.FallbackModelGemini = s.getStringOrDefault(settings, SettingKeyFallbackModelGemini, "gemini-2.5-pro")
 	result.FallbackModelAntigravity = s.getStringOrDefault(settings, SettingKeyFallbackModelAntigravity, "gemini-2.5-pro")
@@ -3487,12 +3476,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
-	// Sticky routing defaults to true (opt-out): only false when explicitly set to "false".
-	if raw, ok := settings[SettingKeyStickyRoutingEnabled]; ok && strings.TrimSpace(raw) != "" {
-		result.StickyRoutingEnabled = strings.TrimSpace(raw) != "false"
-	} else {
-		result.StickyRoutingEnabled = true
-	}
 	if v, ok := settings[SettingKeyEnableClaudeOAuthSystemPromptInjection]; ok && v != "" {
 		result.EnableClaudeOAuthSystemPromptInjection = v == "true"
 	} else {
@@ -3507,8 +3490,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.RewriteMessageCacheControl = s.defaultRewriteMessageCacheControl()
 	}
 	result.AntigravityUserAgentVersion = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersion])
-	result.ClaudeCodeUserAgentVersion = NormalizeClaudeCodeUserAgentVersion(settings[SettingKeyClaudeCodeUserAgentVersion])
 	result.OpenAICodexUserAgent = strings.TrimSpace(settings[SettingKeyOpenAICodexUserAgent])
+	result.OpenAIAllowClaudeCodeCodexPlugin = settings[SettingKeyOpenAIAllowClaudeCodeCodexPlugin] == "true"
 
 	// Web search emulation: quick enabled check from the JSON config
 	if raw := settings[SettingKeyWebSearchEmulationConfig]; raw != "" {
@@ -3876,7 +3859,7 @@ func (s *SettingService) GetFallbackModel(ctx context.Context, platform string) 
 	switch platform {
 	case PlatformAnthropic:
 		key = SettingKeyFallbackModelAnthropic
-		defaultModel = "claude-sonnet-4-6"
+		defaultModel = "claude-3-5-sonnet-20241022"
 	case PlatformOpenAI:
 		key = SettingKeyFallbackModelOpenAI
 		defaultModel = "gpt-4o"
@@ -4271,159 +4254,6 @@ func (s *SettingService) SetRateLimit429CooldownSettings(ctx context.Context, se
 // 优先级：
 // - 若对应系统设置键存在，则覆盖 config.yaml/env 的值
 // - 否则回退到 config.yaml/env 的值
-func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provider string) (config.EmailOAuthProviderConfig, error) {
-	if s == nil || s.cfg == nil {
-		return config.EmailOAuthProviderConfig{}, infraerrors.ServiceUnavailable("CONFIG_NOT_READY", "config not loaded")
-	}
-
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	var (
-		effective config.EmailOAuthProviderConfig
-		keys      []string
-	)
-
-	switch provider {
-	case "github":
-		effective = s.cfg.GitHubOAuth
-		keys = []string{
-			SettingKeyGitHubOAuthEnabled,
-			SettingKeyGitHubOAuthClientID,
-			SettingKeyGitHubOAuthClientSecret,
-			SettingKeyGitHubOAuthRedirectURL,
-			SettingKeyGitHubOAuthFrontendRedirectURL,
-		}
-	case "google":
-		effective = s.cfg.GoogleOAuth
-		keys = []string{
-			SettingKeyGoogleOAuthEnabled,
-			SettingKeyGoogleOAuthClientID,
-			SettingKeyGoogleOAuthClientSecret,
-			SettingKeyGoogleOAuthRedirectURL,
-			SettingKeyGoogleOAuthFrontendRedirectURL,
-		}
-	default:
-		return config.EmailOAuthProviderConfig{}, infraerrors.BadRequest("OAUTH_PROVIDER_INVALID", "oauth provider is invalid")
-	}
-
-	settings, err := s.settingRepo.GetMultiple(ctx, keys)
-	if err != nil {
-		return config.EmailOAuthProviderConfig{}, fmt.Errorf("get %s oauth settings: %w", provider, err)
-	}
-
-	var (
-		enabledKey          string
-		clientIDKey         string
-		clientSecretKey     string
-		redirectURLKey      string
-		frontendRedirectKey string
-	)
-	if provider == "github" {
-		enabledKey = SettingKeyGitHubOAuthEnabled
-		clientIDKey = SettingKeyGitHubOAuthClientID
-		clientSecretKey = SettingKeyGitHubOAuthClientSecret
-		redirectURLKey = SettingKeyGitHubOAuthRedirectURL
-		frontendRedirectKey = SettingKeyGitHubOAuthFrontendRedirectURL
-		effective.AuthorizeURL = firstNonEmpty(effective.AuthorizeURL, "https://github.com/login/oauth/authorize")
-		effective.TokenURL = firstNonEmpty(effective.TokenURL, "https://github.com/login/oauth/access_token")
-		effective.UserInfoURL = firstNonEmpty(effective.UserInfoURL, "https://api.github.com/user")
-		effective.EmailsURL = firstNonEmpty(effective.EmailsURL, "https://api.github.com/user/emails")
-		effective.Scopes = firstNonEmpty(effective.Scopes, "read:user user:email")
-	} else {
-		enabledKey = SettingKeyGoogleOAuthEnabled
-		clientIDKey = SettingKeyGoogleOAuthClientID
-		clientSecretKey = SettingKeyGoogleOAuthClientSecret
-		redirectURLKey = SettingKeyGoogleOAuthRedirectURL
-		frontendRedirectKey = SettingKeyGoogleOAuthFrontendRedirectURL
-		effective.AuthorizeURL = firstNonEmpty(effective.AuthorizeURL, "https://accounts.google.com/o/oauth2/v2/auth")
-		effective.TokenURL = firstNonEmpty(effective.TokenURL, "https://oauth2.googleapis.com/token")
-		effective.UserInfoURL = firstNonEmpty(effective.UserInfoURL, "https://openidconnect.googleapis.com/v1/userinfo")
-		effective.Scopes = firstNonEmpty(effective.Scopes, "openid email profile")
-	}
-
-	if raw, ok := settings[enabledKey]; ok {
-		effective.Enabled = raw == "true"
-	}
-	if v, ok := settings[clientIDKey]; ok && strings.TrimSpace(v) != "" {
-		effective.ClientID = strings.TrimSpace(v)
-	}
-	if v, ok := settings[clientSecretKey]; ok && strings.TrimSpace(v) != "" {
-		effective.ClientSecret = strings.TrimSpace(v)
-	}
-	if v, ok := settings[redirectURLKey]; ok && strings.TrimSpace(v) != "" {
-		effective.RedirectURL = strings.TrimSpace(v)
-	}
-	if provider == "github" {
-		effective.FrontendRedirectURL = firstNonEmpty(settings[frontendRedirectKey], effective.FrontendRedirectURL, defaultGitHubOAuthFrontend)
-	} else if provider == "google" {
-		effective.FrontendRedirectURL = firstNonEmpty(settings[frontendRedirectKey], effective.FrontendRedirectURL, defaultGoogleOAuthFrontend)
-	} else if v, ok := settings[frontendRedirectKey]; ok && strings.TrimSpace(v) != "" {
-		effective.FrontendRedirectURL = strings.TrimSpace(v)
-	}
-
-	if !effective.Enabled {
-		return config.EmailOAuthProviderConfig{}, infraerrors.NotFound("OAUTH_DISABLED", "oauth login is disabled")
-	}
-	if strings.TrimSpace(effective.ClientID) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth client id not configured")
-	}
-	if strings.TrimSpace(effective.ClientSecret) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth client secret not configured")
-	}
-	if strings.TrimSpace(effective.AuthorizeURL) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth authorize url not configured")
-	}
-	if strings.TrimSpace(effective.TokenURL) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth token url not configured")
-	}
-	if strings.TrimSpace(effective.UserInfoURL) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth userinfo url not configured")
-	}
-	if strings.TrimSpace(effective.RedirectURL) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth redirect url not configured")
-	}
-	if strings.TrimSpace(effective.FrontendRedirectURL) == "" {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url not configured")
-	}
-
-	if err := config.ValidateAbsoluteHTTPURL(effective.AuthorizeURL); err != nil {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth authorize url invalid")
-	}
-	if err := config.ValidateAbsoluteHTTPURL(effective.TokenURL); err != nil {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth token url invalid")
-	}
-	if err := config.ValidateAbsoluteHTTPURL(effective.UserInfoURL); err != nil {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth userinfo url invalid")
-	}
-	if v := strings.TrimSpace(effective.EmailsURL); v != "" {
-		if err := config.ValidateAbsoluteHTTPURL(v); err != nil {
-			return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth emails url invalid")
-		}
-	}
-	if err := config.ValidateAbsoluteHTTPURL(effective.RedirectURL); err != nil {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth redirect url invalid")
-	}
-	if err := config.ValidateFrontendRedirectURL(effective.FrontendRedirectURL); err != nil {
-		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url invalid")
-	}
-
-	return effective, nil
-}
-
-func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
-	if s == nil || s.settingRepo == nil {
-		return "[]"
-	}
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
-	if err != nil {
-		return "[]"
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "[]"
-	}
-	return value
-}
-
 func (s *SettingService) GetOIDCConnectOAuthConfig(ctx context.Context) (config.OIDCConnectConfig, error) {
 	if s == nil || s.cfg == nil {
 		return config.OIDCConnectConfig{}, infraerrors.ServiceUnavailable("CONFIG_NOT_READY", "config not loaded")
@@ -4811,10 +4641,18 @@ func (s *SettingService) GetClaudeCodeVersionBounds(ctx context.Context) (min, m
 	return b.min, b.max
 }
 
-// GetOpenAIQuotaAutoPauseSettings returns the global default 5h/7d quota
-// auto-pause thresholds. Reads the atomic cache on the hot path and never blocks
-// on the DB; a stale/unset entry kicks off a background refresh and serves the
-// prior value (stale-while-revalidate).
+// GetOpenAIQuotaAutoPauseSettings returns the current global default quota auto-pause
+// settings. It is invoked on the OpenAI scheduling hot path (once per request) and is
+// therefore designed to never block on the DB:
+//
+//   - Fresh cached value → returned immediately.
+//   - Stale or empty cache → the last known value is returned, and a background
+//     goroutine refreshes the cache via singleflight (stale-while-revalidate).
+//   - First call with no cache yet → zero defaults are returned and the same async
+//     refresh is kicked off; the next call gets the freshly populated value.
+//
+// Callers that need the freshly persisted value synchronously (tests, post-update
+// confirmation, optional startup warm-up) should call WarmOpenAIQuotaAutoPauseSettings.
 func (s *SettingService) GetOpenAIQuotaAutoPauseSettings(ctx context.Context) OpsOpenAIAccountQuotaAutoPauseSettings {
 	if s == nil {
 		return OpsOpenAIAccountQuotaAutoPauseSettings{}
@@ -4837,8 +4675,10 @@ func (s *SettingService) GetOpenAIQuotaAutoPauseSettings(ctx context.Context) Op
 	return OpsOpenAIAccountQuotaAutoPauseSettings{}
 }
 
-// WarmOpenAIQuotaAutoPauseSettings synchronously refreshes and returns the cached
-// settings. Used at startup and in tests to prime the cache deterministically.
+// WarmOpenAIQuotaAutoPauseSettings synchronously loads the quota auto-pause settings
+// into the in-memory cache. Useful for application startup (so the first request hits
+// a warm cache) and for tests that need deterministic reads immediately after
+// constructing the service.
 func (s *SettingService) WarmOpenAIQuotaAutoPauseSettings(ctx context.Context) OpsOpenAIAccountQuotaAutoPauseSettings {
 	if s == nil {
 		return OpsOpenAIAccountQuotaAutoPauseSettings{}
@@ -4914,12 +4754,12 @@ func (s *SettingService) GetRectifierSettings(ctx context.Context) (*RectifierSe
 		return DefaultRectifierSettings(), nil
 	}
 
-	settings := DefaultRectifierSettings()
-	if err := json.Unmarshal([]byte(value), settings); err != nil {
+	var settings RectifierSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
 		return DefaultRectifierSettings(), nil
 	}
 
-	return settings, nil
+	return &settings, nil
 }
 
 // SetRectifierSettings 设置请求整流器配置

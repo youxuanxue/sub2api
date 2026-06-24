@@ -25,7 +25,7 @@
     <!-- Right: rate pill + checkmark (vertically centered to first row) -->
     <div class="flex shrink-0 items-center gap-2 pt-0.5">
       <!-- Rate pill (platform color) -->
-      <span v-if="rateMultiplier !== undefined && !hideRateValue" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
+      <span v-if="rateMultiplier !== undefined" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
         <template v-if="hasCustomRate">
           <span class="mr-1 line-through opacity-50">{{ rateMultiplier }}x</span>
           <span class="font-bold">{{ userRateMultiplier }}x</span>
@@ -63,19 +63,13 @@ interface Props {
   description?: string | null
   selected?: boolean
   showCheckmark?: boolean
-  /**
-   * TK: 用户级页面隐藏倍率数值。开启后右侧倍率 pill 整体不渲染。运营要求倍率
-   * 仅在管理页可见、用户页一律不可见；调用方在用户视图传入 true。
-   */
-  hideRateValue?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   subscriptionType: 'standard',
   selected: false,
   showCheckmark: true,
-  userRateMultiplier: null,
-  hideRateValue: false
+  userRateMultiplier: null
 })
 
 // Whether user has a custom rate different from default
@@ -97,8 +91,6 @@ const ratePillClass = computed(() => {
       return 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
     case 'gemini':
       return 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-400'
-    case 'newapi':
-      return 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300'
     default: // antigravity and others
       return 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400'
   }

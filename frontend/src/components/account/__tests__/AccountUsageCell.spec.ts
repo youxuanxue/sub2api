@@ -206,7 +206,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2000, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2000)
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
   })
@@ -267,7 +267,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2001, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2001)
     // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
@@ -338,102 +338,9 @@ describe('AccountUsageCell', () => {
 
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenCalledWith(2010, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2010)
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
-  })
-
-  it('OpenAI OAuth 有列表 override 时不自动拉取但手动刷新会拉取', async () => {
-    getUsage.mockResolvedValue({
-      five_hour: {
-        utilization: 21,
-        resets_at: '2099-03-07T12:00:00Z',
-        remaining_seconds: 3600,
-        window_stats: {
-          requests: 3,
-          tokens: 300,
-          cost: 0.03,
-          standard_cost: 0.03,
-          user_cost: 0.03
-        }
-      },
-      seven_day: null
-    })
-
-    const wrapper = mount(AccountUsageCell, {
-      props: {
-        account: makeAccount({
-          id: 2011,
-          platform: 'openai',
-          type: 'oauth',
-          extra: {}
-        }),
-        usageOverride: null,
-        manualRefreshToken: 0
-      },
-      global: {
-        stubs: {
-          UsageProgressBar: {
-            props: ['label', 'utilization', 'windowStats'],
-            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
-          },
-          AccountQuotaInfo: true
-        }
-      }
-    })
-
-    await flushPromises()
-    expect(getUsage).not.toHaveBeenCalled()
-
-    await wrapper.setProps({ manualRefreshToken: 1 })
-    await flushPromises()
-
-    expect(getUsage).toHaveBeenCalledTimes(1)
-    expect(getUsage).toHaveBeenCalledWith(2011, undefined)
-    expect(wrapper.text()).toContain('5h|21|300')
-  })
-
-  it('Anthropic OAuth 有列表 override 时手动刷新不回退为逐行 usage 请求', async () => {
-    getUsage.mockResolvedValue({
-      five_hour: {
-        utilization: 50,
-        resets_at: '2099-03-07T12:00:00Z',
-        remaining_seconds: 3600,
-        window_stats: {
-          requests: 5,
-          tokens: 500,
-          cost: 0.05,
-          standard_cost: 0.05,
-          user_cost: 0.05
-        }
-      },
-      seven_day: null
-    })
-
-    const wrapper = mount(AccountUsageCell, {
-      props: {
-        account: makeAccount({
-          id: 2012,
-          platform: 'anthropic',
-          type: 'oauth',
-          extra: {}
-        }),
-        usageOverride: null,
-        manualRefreshToken: 0
-      },
-      global: {
-        stubs: {
-          UsageProgressBar: true,
-          AccountQuotaInfo: true
-        }
-      }
-    })
-
-    await flushPromises()
-    await wrapper.setProps({ manualRefreshToken: 1 })
-    await flushPromises()
-
-    expect(getUsage).not.toHaveBeenCalled()
   })
 
   it('OpenAI OAuth 在无 codex 快照时会回退显示 usage 接口窗口', async () => {
@@ -486,7 +393,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-	expect(getUsage).toHaveBeenCalledWith(2002, undefined)
+	expect(getUsage).toHaveBeenCalledWith(2002)
 	expect(wrapper.text()).toContain('5h|0|27700')
 	expect(wrapper.text()).toContain('7d|0|27700')
   })
@@ -618,7 +525,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-  expect(getUsage).toHaveBeenCalledWith(2004, undefined)
+  expect(getUsage).toHaveBeenCalledWith(2004)
   expect(wrapper.text()).toContain('5h|100|106540000')
   expect(wrapper.text()).toContain('7d|100|106540000')
   })

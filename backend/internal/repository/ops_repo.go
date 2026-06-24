@@ -21,7 +21,6 @@ const insertOpsErrorLogSQL = `
 INSERT INTO ops_error_logs (
   request_id,
   client_request_id,
-  trajectory_id,
   user_id,
   api_key_id,
   account_id,
@@ -62,7 +61,7 @@ INSERT INTO ops_error_logs (
   deleted_key_name,
   api_key_prefix
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -136,7 +135,6 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 	return []any{
 		opsNullString(input.RequestID),
 		opsNullString(input.ClientRequestID),
-		opsNullString(input.TrajectoryID),
 		opsNullInt64(input.UserID),
 		opsNullInt64(input.APIKeyID),
 		opsNullInt64(input.AccountID),
@@ -230,9 +228,7 @@ SELECT
   COALESCE(e.error_message, ''),
   e.user_id,
   COALESCE(u.email, ''),
-  COALESCE(u.username, ''),
   e.api_key_id,
-  COALESCE(ak.name, ''),
   e.account_id,
   COALESCE(a.name, ''),
   e.group_id,
@@ -276,12 +272,11 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var groupID sql.NullInt64
 		var groupName string
 		var userEmail string
-		var username string
-		var apiKeyName string
 		var resolvedAt sql.NullTime
 		var resolvedBy sql.NullInt64
 		var resolvedByName string
 		var requestType sql.NullInt64
+		var apiKeyName string
 		var apiKeyDeletedAt sql.NullTime
 		var deletedKeyName string
 		if err := rows.Scan(
@@ -304,9 +299,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&item.Message,
 			&userID,
 			&userEmail,
-			&username,
 			&apiKeyID,
-			&apiKeyName,
 			&accountID,
 			&accountName,
 			&groupID,
@@ -344,12 +337,10 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			item.UserID = &v
 		}
 		item.UserEmail = userEmail
-		item.Username = username
 		if apiKeyID.Valid {
 			v := apiKeyID.Int64
 			item.APIKeyID = &v
 		}
-		item.APIKeyName = apiKeyName
 		if accountID.Valid {
 			v := accountID.Int64
 			item.AccountID = &v
@@ -421,9 +412,7 @@ SELECT
   e.is_business_limited,
   e.user_id,
   COALESCE(u.email, ''),
-  COALESCE(u.username, ''),
   e.api_key_id,
-  COALESCE(ak.name, ''),
   e.account_id,
   COALESCE(a.name, ''),
   e.group_id,
@@ -503,9 +492,7 @@ LIMIT 1`
 		&out.IsBusinessLimited,
 		&userID,
 		&out.UserEmail,
-		&out.Username,
 		&apiKeyID,
-		&out.APIKeyName,
 		&accountID,
 		&out.AccountName,
 		&groupID,

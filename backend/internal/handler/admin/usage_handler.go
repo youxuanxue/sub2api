@@ -312,19 +312,17 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 
 	// Build filters and call GetStatsWithFilters
 	filters := usagestats.UsageLogFilters{
-		UserID:            userID,
-		APIKeyID:          apiKeyID,
-		AccountID:         accountID,
-		GroupID:           groupID,
-		Model:             model,
-		RequestType:       requestType,
-		Stream:            stream,
-		BillingType:       billingType,
-		BillingMode:       billingMode,
-		StartTime:         &startTime,
-		EndTime:           &endTime,
-		SkipSummary:       !parseBoolQueryWithDefault(c.Query("include_summary"), true),
-		SkipEndpointStats: !parseBoolQueryWithDefault(c.Query("include_endpoints"), true),
+		UserID:      userID,
+		APIKeyID:    apiKeyID,
+		AccountID:   accountID,
+		GroupID:     groupID,
+		Model:       model,
+		RequestType: requestType,
+		Stream:      stream,
+		BillingType: billingType,
+		BillingMode: billingMode,
+		StartTime:   &startTime,
+		EndTime:     &endTime,
 	}
 
 	var stats *usagestats.UsageStats

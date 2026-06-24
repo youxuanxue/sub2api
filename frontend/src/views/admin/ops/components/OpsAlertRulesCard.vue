@@ -166,23 +166,6 @@ const metricDefinitions = computed(() => {
       recommendedOperator: '>',
       recommendedThreshold: 10
     },
-    {
-      type: 'pool_load_rate',
-      group: 'system',
-      label: t('admin.ops.alertRules.metrics.poolLoadRate'),
-      description: t('admin.ops.alertRules.metricDescriptions.poolLoadRate'),
-      recommendedOperator: '>=',
-      recommendedThreshold: 90,
-      unit: '%'
-    },
-    {
-      type: 'routing_capacity_rejection_count',
-      group: 'system',
-      label: t('admin.ops.alertRules.metrics.routingCapacityRejectionCount'),
-      description: t('admin.ops.alertRules.metricDescriptions.routingCapacityRejectionCount'),
-      recommendedOperator: '>=',
-      recommendedThreshold: 50
-    },
 
     // Group-level metrics (requires group_id filter)
     {

@@ -330,20 +330,6 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
 	if account.CanGetUsage() {
-		// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
-		// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
-		// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
-		// 见 account_usage_service_tk_banned_shortcircuit.go。
-		if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
-			if passive, perr := s.GetPassiveUsage(ctx, accountID); perr == nil && passive != nil {
-				enrichUsageWithAccountError(passive, account)
-				return passive, nil
-			}
-			info := &UsageInfo{Source: "active"}
-			enrichUsageWithAccountError(info, account)
-			return info, nil
-		}
-
 		var apiResp *ClaudeUsageResponse
 
 		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
@@ -351,14 +337,10 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 			if cache, ok := cached.(*apiUsageCache); ok {
 				age := time.Since(cache.timestamp)
 				if cache.err != nil && age < apiErrorCacheTTL {
-					// 负缓存命中：返回缓存的错误，避免重试风暴。
-					// force 也尊重负缓存：上游 usage 端点刚 429 时，手动「查询」
-					// 不应在 1 分钟内反复打它。
+					// 负缓存命中：返回缓存的错误，避免重试风暴
 					return nil, cache.err
 				}
-				// force（手动「查询」）跳过正缓存命中以强制刷新，对齐 41e7ae53
-				// 对 OpenAI manual refresh 的修复；singleflight + jitter + 负缓存仍生效。
-				if !forceProbe && cache.response != nil && age < apiCacheTTL {
+				if cache.response != nil && age < apiCacheTTL {
 					apiResp = cache.response
 				}
 			}
@@ -384,7 +366,7 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 						if cache.err != nil && age < apiErrorCacheTTL {
 							return nil, cache.err
 						}
-						if !forceProbe && cache.response != nil && age < apiCacheTTL {
+						if cache.response != nil && age < apiCacheTTL {
 							return cache.response, nil
 						}
 					}
@@ -437,47 +419,12 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
 }
 
-// buildPassiveWindow 从 Extra 的被动采样键重建一个用量窗口（7d / 7d-Sonnet 同构）。
-// utilKey 存 0-1 小数利用率，resetKey 存 Unix 秒重置时间。两者都缺（≤0）时返回 nil，
-// 让调用方把对应窗口留空而不是渲染一个 0% 空窗。
-func buildPassiveWindow(extra map[string]any, utilKey, resetKey string) *UsageProgress {
-	util := parseExtraFloat64(extra[utilKey])
-	resetRaw := parseExtraFloat64(extra[resetKey])
-	if util <= 0 && resetRaw <= 0 {
-		return nil
-	}
-	var resetAt *time.Time
-	var remaining int
-	if resetRaw > 0 {
-		t := time.Unix(int64(resetRaw), 0)
-		resetAt = &t
-		remaining = int(time.Until(t).Seconds())
-		if remaining < 0 {
-			remaining = 0
-		}
-	}
-	return &UsageProgress{
-		Utilization:      util * 100,
-		ResetsAt:         resetAt,
-		RemainingSeconds: remaining,
-	}
-}
-
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。
 // 仅适用于 Anthropic OAuth / SetupToken 账号。
 func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int64) (*UsageInfo, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account failed: %w", err)
-	}
-
-	// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
-	// 5h/7d 窗口，绝不调用上游 /responses 探测——与 edge 自身 admin 页的「被动」
-	// 读取同源。prod 跨 edge 概览（edge accounts overview）借此渲染 OpenAI 账号的
-	// 用量窗口，与 anthropic 行为一致；在此之前 OpenAI 走到下面的 gate 直接报错，
-	// 概览只能显示「-」。
-	if account.IsOpenAIOAuth() {
-		return s.buildPassiveOpenAIUsage(account), nil
 	}
 
 	if !account.IsAnthropicOAuthOrSetupToken() {
@@ -489,12 +436,34 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 	info.Source = "passive"
 
 	// 设置采样时间
-	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
+	if raw, ok := account.Extra["passive_usage_sampled_at"]; ok {
+		if str, ok := raw.(string); ok {
+			if t, err := time.Parse(time.RFC3339, str); err == nil {
+				info.UpdatedAt = &t
+			}
+		}
+	}
 
-	// 构建 7d 窗口 + 7d Sonnet 子窗口（均从被动采样数据；7d-S 仅由 active 查询回写，
-	// 见 syncActiveToPassive——限流响应头里没有 sonnet 子窗）。
-	info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
-	info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
+	// 构建 7d 窗口（从被动采样数据）
+	util7d := parseExtraFloat64(account.Extra["passive_usage_7d_utilization"])
+	reset7dRaw := parseExtraFloat64(account.Extra["passive_usage_7d_reset"])
+	if util7d > 0 || reset7dRaw > 0 {
+		var resetAt *time.Time
+		var remaining int
+		if reset7dRaw > 0 {
+			t := time.Unix(int64(reset7dRaw), 0)
+			resetAt = &t
+			remaining = int(time.Until(t).Seconds())
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+		info.SevenDay = &UsageProgress{
+			Utilization:      util7d * 100,
+			ResetsAt:         resetAt,
+			RemainingSeconds: remaining,
+		}
+	}
 
 	// 添加窗口统计
 	s.addWindowStats(ctx, account, info)
@@ -502,36 +471,10 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 	return info, nil
 }
 
-// buildPassiveOpenAIUsage 从 OpenAI OAuth（codex）账号 Extra 里的被动采样
-// （codex_5h/7d_used_percent + reset）重建 5h/7d 用量窗口，绝不调用上游
-// /responses 探测——这正是它与 getOpenAIUsage 的区别：后者会按条件主动探测，
-// 而被动列表端点（edge accounts overview）跨全部账号扇出，渲染概览时不能打上游。
-//
-// 刻意不补本地 usage 日志的窗口统计：edge 概览的 DTO（toEdgeUsageWindows）只取
-// utilization + reset，per-window 统计由前端从 today_stats 单独提供；没有任何调用
-// 方会读这里的 WindowStats，补了即死代码。无 codex 采样时窗口留空（cell 显示
-// "-"），与 anthropic 被动路径（buildPassiveWindow 无采样即 nil）同口径。
-func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageInfo {
-	now := time.Now()
-	usage := &UsageInfo{Source: "passive", UpdatedAt: &now}
-	if account == nil {
-		return usage
-	}
-
-	if progress := buildCodexUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
-		usage.FiveHour = progress
-	}
-	if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
-		usage.SevenDay = progress
-	}
-
-	return usage
-}
-
 // syncActiveToPassive 将主动查询的最新数据回写到 Extra 被动缓存，
 // 这样下次被动加载时能看到最新值。
 func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID int64, usage *UsageInfo) {
-	extraUpdates := make(map[string]any, 6)
+	extraUpdates := make(map[string]any, 4)
 
 	if usage.FiveHour != nil {
 		extraUpdates["session_window_utilization"] = usage.FiveHour.Utilization / 100
@@ -540,14 +483,6 @@ func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID
 		extraUpdates["passive_usage_7d_utilization"] = usage.SevenDay.Utilization / 100
 		if usage.SevenDay.ResetsAt != nil {
 			extraUpdates["passive_usage_7d_reset"] = usage.SevenDay.ResetsAt.Unix()
-		}
-	}
-	// 7d Sonnet 子窗口只来自 active /api/oauth/usage（限流响应头没有 sonnet 子窗），
-	// 必须显式回写，否则点击「查询」拿到的 7d-S 在下次 passive 加载时丢失。
-	if usage.SevenDaySonnet != nil {
-		extraUpdates["passive_usage_7d_sonnet_utilization"] = usage.SevenDaySonnet.Utilization / 100
-		if usage.SevenDaySonnet.ResetsAt != nil {
-			extraUpdates["passive_usage_7d_sonnet_reset"] = usage.SevenDaySonnet.ResetsAt.Unix()
 		}
 	}
 
@@ -1363,18 +1298,6 @@ func (s *AccountUsageService) estimateSetupTokenUsage(account *Account) *UsageIn
 			}
 		}
 
-		// 陈旧采样护栏：session_window_utilization 是上次上游响应的被动采样值。
-		// 若它的采样时间早于当前窗口开始（窗口已滚动但尚未被新请求重新采样——
-		// 写入侧的 clear-on-roll 仅在过期驱动的 init 触发，header 驱动的窗口变更
-		// 不触发），它属于上一个窗口，会在刚重置的新窗口上显示误导性高利用率
-		// （线上观察到刚滚动的 5h 窗口显示 99%）。此时丢弃该值，回退状态估算。
-		if found && account.SessionWindowStart != nil {
-			if sampled := parseExtraSampledAt(account.Extra["passive_usage_sampled_at"]); sampled != nil && sampled.Before(*account.SessionWindowStart) {
-				found = false
-				utilization = 0 // clear the stale value; the status fallback below re-derives it
-			}
-		}
-
 		// 如果没有存储的 utilization，回退到状态估算
 		if !found {
 			switch account.SessionWindowStatus {
@@ -1409,21 +1332,6 @@ func (s *AccountUsageService) estimateSetupTokenUsage(account *Account) *UsageIn
 
 	// Setup Token无法获取7d数据
 	return info
-}
-
-// parseExtraSampledAt parses the passive_usage_sampled_at Extra value (an
-// RFC3339 string written by the gateway's passive sampler) into a time, or nil
-// when absent/unparseable.
-func parseExtraSampledAt(raw any) *time.Time {
-	str, ok := raw.(string)
-	if !ok {
-		return nil
-	}
-	t, err := time.Parse(time.RFC3339, str)
-	if err != nil {
-		return nil
-	}
-	return &t
 }
 
 func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64, cost float64, now time.Time) *UsageProgress {

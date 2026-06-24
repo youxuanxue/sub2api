@@ -120,24 +120,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		zap.Bool("stream", clientStream),
 	)
 
-	// 5. Build upstream request.
-	// Grok (seventh platform) reuses this raw CC path. OAuth uses the xAI bearer
-	// and xAI base URL; API-key relay uses the edge key and edge base URL.
-	var apiKey, baseURL string
-	if account.IsGrokOAuth() {
-		apiKey = account.GetGrokAccessToken()
-		baseURL = account.GetGrokBaseURL()
-	} else {
-		apiKey = account.GetOpenAIApiKey()
-		baseURL = account.GetOpenAIBaseURL()
-	}
+	// 5. Build upstream request
+	apiKey := account.GetOpenAIApiKey()
 	if apiKey == "" {
-		return nil, fmt.Errorf("account %d missing credential", account.ID)
+		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
+	baseURL := account.GetOpenAIBaseURL()
 	if baseURL == "" {
-		if account.IsGrokAPIKey() {
-			return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
-		}
 		baseURL = "https://api.openai.com"
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -238,7 +227,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if clientStream {
 		return s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
 	}
-	return s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferRawChatCompletions(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
 // streamRawChatCompletions 透传上游 CC SSE 流到客户端，并提取 usage（包括
@@ -287,11 +276,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var usage OpenAIUsage
 	var firstTokenMs *int
 	clientDisconnected := false
-	// TK silent-refusal observer (post-stream ops event): see Wei-Shaw/sub2api#2556.
-	// Coexists with the upstream pre-stream detector below; observer collects
-	// shape signals for the ops_error categorical event, detector drives the
-	// active buffering / failover decision.
-	var refusalObs chatRawStreamObservations
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
@@ -332,14 +316,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line := scanner.Text()
 		refusalDetector.ObserveSSELine(line)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
-			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty / whitespace-only
-			// `data:` SSE frames before forwarding. The OpenAI Python SDK crashes
-			// on json.loads("") for the chat completions raw passthrough path the
-			// same way it does for /v1/responses. See openAISSEDataPayloadIsEmpty
-			// for the canonical rationale.
-			if openAISSEDataPayloadIsEmpty(payload) {
-				continue
-			}
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
@@ -350,7 +326,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
-				refusalObs.Observe(payload)
 			}
 		}
 
@@ -394,15 +369,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				clientOutputStarted = true
 			}
 		}
-	}
-
-	if refusalObs.IsSilentRefusal(usage) {
-		logger.L().Warn("openai chat_completions raw: silent refusal detected",
-			zap.String("request_id", requestID),
-			zap.Int64("account_id", account.ID),
-			zap.String("upstream_model", upstreamModel),
-		)
-		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
 
 	return &OpenAIForwardResult{
@@ -462,7 +428,6 @@ func extractCCStreamUsage(payload string) *OpenAIUsage {
 func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	c *gin.Context,
 	resp *http.Response,
-	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -490,19 +455,6 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		if ccResp.Usage.PromptTokensDetails != nil {
 			usage.CacheReadInputTokens = ccResp.Usage.PromptTokensDetails.CachedTokens
 		}
-	}
-
-	// Silent-refusal detection on the non-streaming response shape.
-	// See upstream Wei-Shaw/sub2api#2556.
-	var refusalObs chatRawStreamObservations
-	refusalObs.ObserveBufferedResponse(respBody)
-	if refusalObs.IsSilentRefusal(usage) {
-		logger.L().Warn("openai chat_completions raw: silent refusal detected (buffered)",
-			zap.String("request_id", requestID),
-			zap.Int64("account_id", account.ID),
-			zap.String("upstream_model", upstreamModel),
-		)
-		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
 
 	if s.responseHeaderFilter != nil {

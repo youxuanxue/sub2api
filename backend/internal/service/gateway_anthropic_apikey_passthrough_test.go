@@ -28,17 +28,6 @@ type anthropicHTTPUpstreamRecorder struct {
 	err      error
 }
 
-type anthropicHTTPUpstreamSequenceRecorder struct {
-	reqs   []*http.Request
-	bodies [][]byte
-	resps  []*http.Response
-	err    error
-}
-
-type anthropicPassthroughSettingRepoStub struct {
-	values map[string]string
-}
-
 func newAnthropicAPIKeyAccountForTest() *Account {
 	return &Account{
 		ID:          201,
@@ -74,66 +63,6 @@ func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, a
 
 func (u *anthropicHTTPUpstreamRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
-}
-
-func (u *anthropicHTTPUpstreamSequenceRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
-	u.reqs = append(u.reqs, req)
-	if req != nil && req.Body != nil {
-		b, _ := io.ReadAll(req.Body)
-		u.bodies = append(u.bodies, b)
-		_ = req.Body.Close()
-		req.Body = io.NopCloser(bytes.NewReader(b))
-	}
-	if u.err != nil {
-		return nil, u.err
-	}
-	if len(u.resps) == 0 {
-		return nil, nil
-	}
-	resp := u.resps[0]
-	u.resps = u.resps[1:]
-	return resp, nil
-}
-
-func (u *anthropicHTTPUpstreamSequenceRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
-	return u.Do(req, proxyURL, accountID, accountConcurrency)
-}
-
-func (s *anthropicPassthroughSettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
-	panic("unexpected Get call")
-}
-
-func (s *anthropicPassthroughSettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
-	if v, ok := s.values[key]; ok {
-		return v, nil
-	}
-	return "", ErrSettingNotFound
-}
-
-func (s *anthropicPassthroughSettingRepoStub) Set(ctx context.Context, key, value string) error {
-	panic("unexpected Set call")
-}
-
-func (s *anthropicPassthroughSettingRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
-	result := make(map[string]string, len(keys))
-	for _, key := range keys {
-		if v, ok := s.values[key]; ok {
-			result[key] = v
-		}
-	}
-	return result, nil
-}
-
-func (s *anthropicPassthroughSettingRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
-	panic("unexpected SetMultiple call")
-}
-
-func (s *anthropicPassthroughSettingRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
-	panic("unexpected GetAll call")
-}
-
-func (s *anthropicPassthroughSettingRepoStub) Delete(ctx context.Context, key string) error {
-	panic("unexpected Delete call")
 }
 
 type streamReadCloser struct {
@@ -497,11 +426,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
-	// 包含复杂字段的请求体：system、thinking、messages、tool_choice。
-	// `max_tokens` 不是 count_tokens 端点支持的字段（Anthropic 会返回
-	// invalid_request_error），保留它在 body 中以确认 StripCountTokensUnsupportedFields
-	// 会把它剥除，而模型映射只动 model 字段不动其余允许字段。
-	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"tool_choice":{"type":"auto"},"max_tokens":1024}`)
+	// 包含复杂字段的请求体：system、thinking、messages
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"max_tokens":1024}`)
 	parsed := &ParsedRequest{
 		Body:  NewRequestBodyRef(body),
 		Model: "claude-sonnet-4-20250514",
@@ -547,8 +473,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	require.Equal(t, "hello world", gjson.GetBytes(sentBody, "messages.0.content.0.text").String(), "messages 字段不应被修改")
 	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String(), "thinking 字段不应被修改")
 	require.Equal(t, int64(5000), gjson.GetBytes(sentBody, "thinking.budget_tokens").Int(), "thinking.budget_tokens 不应被修改")
-	require.Equal(t, "auto", gjson.GetBytes(sentBody, "tool_choice.type").String(), "tool_choice 不应被修改")
-	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(), "max_tokens 是 count_tokens 端点不允许的字段，应被 StripCountTokensUnsupportedFields 剥除")
+	require.Equal(t, int64(1024), gjson.GetBytes(sentBody, "max_tokens").Int(), "max_tokens 不应被修改")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensFiltersGenerationFields(t *testing.T) {
@@ -607,15 +532,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensFiltersGenerationF
 	require.Equal(t, "sys", gjson.GetBytes(sentBody, "system.0.text").String())
 	require.Equal(t, "hello", gjson.GetBytes(sentBody, "messages.0.content").String())
 	require.Equal(t, "tool", gjson.GetBytes(sentBody, "tools.0.name").String())
-	// max_tokens is a generation-only field the Anthropic count_tokens endpoint REJECTS
-	// with `max_tokens: Extra inputs are not permitted` (HTTP 400) — verified against the
-	// live API + anthropics/claude-code#14156. TokenKey's StripCountTokensUnsupportedFields
-	// strips it proactively (prod incident 2026-05-18 / PR #280: a client schema bug forwarding
-	// generation fields 400'd and tripped the per-account upstream-error breaker). The upstream
-	// fix (#2764) omitted max_tokens from its strip set in error; this assertion reflects the
-	// correct, fingerprint/ops-verified behavior. See the sibling test at ~L551.
-	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(),
-		"max_tokens must be stripped from the count_tokens upstream payload (Anthropic rejects it)")
+	require.Equal(t, int64(1024), gjson.GetBytes(sentBody, "max_tokens").Int())
 	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String())
 }
 
@@ -679,7 +596,6 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 		statusCode      int
 		respBody        string
 		wantPassthrough bool
-		wantFailover    bool
 	}{
 		{
 			name:            "404 endpoint not found passes through as 404",
@@ -706,14 +622,10 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 			wantPassthrough: false,
 		},
 		{
-			// 契约更新（count_tokens failover 修复）：5xx 现在是 failover-eligible，
-			// ForwardCountTokens 返回 *UpstreamFailoverError 且不写客户端响应，
-			// 交由 handler 的 failover loop 换号。
-			name:            "500 internal error triggers failover",
+			name:            "500 internal error does not passthrough",
 			statusCode:      http.StatusInternalServerError,
 			respBody:        `{"error":{"message":"internal error","type":"api_error"}}`,
 			wantPassthrough: false,
-			wantFailover:    true,
 		},
 	}
 
@@ -769,53 +681,12 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 				errObj, ok := errResp["error"].(map[string]any)
 				require.True(t, ok)
 				require.Equal(t, "not_found_error", errObj["type"])
-			} else if tt.wantFailover {
-				// failover-eligible：返回 *UpstreamFailoverError，状态码透传，
-				// 服务层不写客户端响应（默认 200，交由 handler 耗尽时回写）。
-				var fe *UpstreamFailoverError
-				require.ErrorAs(t, err, &fe)
-				require.Equal(t, tt.statusCode, fe.StatusCode)
-				require.Equal(t, http.StatusOK, rec.Code, "failover errors must not write a client response at service layer")
 			} else {
 				require.Error(t, err)
 				require.Equal(t, tt.statusCode, rec.Code)
 			}
 		})
 	}
-}
-
-func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardsClaudeCodeSessionHeader(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	c.Request.Header.Set("X-Claude-Code-Session-Id", "cc-session-1")
-
-	svc := &GatewayService{
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-	account := newAnthropicAPIKeyAccountForTest()
-
-	req, _, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"model":"claude-sonnet-4-20250514","messages":[]}`), "k")
-	require.NoError(t, err)
-	require.Equal(t, "cc-session-1", getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"))
-}
-
-func TestGatewayService_AnthropicAPIKeyPassthrough_SyncsClaudeCodeSessionHeaderFromMetadata(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	svc := &GatewayService{
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-	account := newAnthropicAPIKeyAccountForTest()
-	body := []byte(`{"model":"claude-sonnet-4-20250514","metadata":{"user_id":"{\"device_id\":\"device-1\",\"account_uuid\":\"account-1\",\"session_id\":\"11111111-2222-3333-4444-555555555555\"}"},"messages":[]}`)
-
-	req, _, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, body, "k")
-	require.NoError(t, err)
-	require.Equal(t, "11111111-2222-3333-4444-555555555555", getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"))
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_BuildRequestRejectsInvalidBaseURL(t *testing.T) {
@@ -1140,131 +1011,6 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuc
 	require.Equal(t, 5, result.Usage.CacheCreationInputTokens)
 	require.Equal(t, 4, result.Usage.CacheReadInputTokens)
 	require.Equal(t, upstreamJSON, rec.Body.String())
-}
-
-func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_Signature400RetriesWithFilteredThinking(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	body := []byte(`{"model":"claude-opus-4-7","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":[{"type":"thinking","thinking":"cached thought","signature":"sig_from_previous_group"},{"type":"text","text":"answer"}]},{"role":"user","content":[{"type":"text","text":"continue"}]}]}`)
-	upstreamJSON := `{"id":"msg_retry_ok","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
-	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
-		{
-			StatusCode: http.StatusBadRequest,
-			Header: http.Header{
-				"Content-Type": []string{"application/json"},
-				"x-request-id": []string{"rid-signature-bad"},
-			},
-			Body: io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0: Invalid signature in thinking block"},"request_id":"req_bad_sig"}`)),
-		},
-		{
-			StatusCode: http.StatusOK,
-			Header: http.Header{
-				"Content-Type": []string{"application/json"},
-				"x-request-id": []string{"rid-signature-retry-ok"},
-			},
-			Body: io.NopCloser(strings.NewReader(upstreamJSON)),
-		},
-	}}
-	settingSvc := NewSettingService(&anthropicPassthroughSettingRepoStub{values: map[string]string{}}, &config.Config{})
-	svc := &GatewayService{
-		cfg:              &config.Config{},
-		httpUpstream:     upstream,
-		rateLimitService: &RateLimitService{},
-		settingService:   settingSvc,
-	}
-
-	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-opus-4-7", "claude-opus-4-7", false, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, upstreamJSON, rec.Body.String())
-	require.Len(t, upstream.bodies, 2)
-	require.True(t, gjson.GetBytes(upstream.bodies[0], "thinking").Exists(), "first passthrough attempt should preserve the client body")
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking").Exists(), "signature retry must disable top-level thinking")
-	require.Equal(t, "text", gjson.GetBytes(upstream.bodies[1], "messages.1.content.0.type").String())
-	require.Equal(t, "cached thought", gjson.GetBytes(upstream.bodies[1], "messages.1.content.0.text").String())
-}
-
-// Parity with the main Forward() path: the passthrough path must also self-heal the
-// Opus 4.7+ "thinking.type.enabled is not supported" 400 by retrying with adaptive.
-func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequired400RetriesWithAdaptive(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	body := []byte(`{"model":"claude-opus-4-8","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
-	upstreamJSON := `{"id":"msg_adaptive_ok","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
-	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
-		{
-			StatusCode: http.StatusBadRequest,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-adaptive-bad"}},
-			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`)),
-		},
-		{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-adaptive-ok"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
-		},
-	}}
-	settingSvc := NewSettingService(&anthropicPassthroughSettingRepoStub{values: map[string]string{}}, &config.Config{})
-	svc := &GatewayService{
-		cfg:              &config.Config{},
-		httpUpstream:     upstream,
-		rateLimitService: &RateLimitService{},
-		settingService:   settingSvc,
-	}
-
-	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-opus-4-8", "claude-opus-4-8", false, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, upstreamJSON, rec.Body.String())
-	require.Len(t, upstream.bodies, 2)
-	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
-	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
-}
-
-// Parity with the main Forward() path: the passthrough path must also self-heal a
-// budget_tokens-too-small 400. For a non-opus-4.7 model this rectifies to enabled+32000.
-func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_BudgetConstraint400Retries(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	body := []byte(`{"model":"claude-sonnet-4-5","thinking":{"type":"enabled","budget_tokens":100},"max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
-	upstreamJSON := `{"id":"msg_budget_ok","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
-	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
-		{
-			StatusCode: http.StatusBadRequest,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-budget-bad"}},
-			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"thinking.budget_tokens: Input should be greater than or equal to 1024"}}`)),
-		},
-		{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-budget-ok"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
-		},
-	}}
-	settingSvc := NewSettingService(&anthropicPassthroughSettingRepoStub{values: map[string]string{}}, &config.Config{})
-	svc := &GatewayService{
-		cfg:              &config.Config{},
-		httpUpstream:     upstream,
-		rateLimitService: &RateLimitService{},
-		settingService:   settingSvc,
-	}
-
-	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-sonnet-4-5", "claude-sonnet-4-5", false, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, upstreamJSON, rec.Body.String())
-	require.Len(t, upstream.bodies, 2)
-	require.Equal(t, int64(100), gjson.GetBytes(upstream.bodies[0], "thinking.budget_tokens").Int(), "first attempt preserves client budget")
-	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[1], "thinking.type").String())
-	require.Equal(t, int64(BudgetRectifyBudgetTokens), gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Int(), "retry rectifies budget to 32000")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_InvalidTokenType(t *testing.T) {
@@ -1656,20 +1402,16 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingTimeoutAfterClientDi
 		Body:       pr,
 	}
 
-	releaseUpstream := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		_, _ = pw.Write([]byte(`data: {"type":"message_start","message":{"usage":{"input_tokens":9}}}` + "\n"))
-		// Keep the upstream connection open and silent until the handler
-		// returns. Closing it on a wall-clock sleep races CI scheduling and
-		// can hit the "missing terminal event" branch before the timeout branch.
-		<-releaseUpstream
+		// 保持上游连接静默，触发数据间隔超时分支。
+		time.Sleep(1500 * time.Millisecond)
 		_ = pw.Close()
 	}()
 
 	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 7}, time.Now(), "claude-3-7-sonnet-20250219")
-	close(releaseUpstream)
 	_ = pr.Close()
 	<-done
 

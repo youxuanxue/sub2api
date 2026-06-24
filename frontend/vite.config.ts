@@ -34,19 +34,6 @@ function injectPublicSettings(backendUrl: string): Plugin {
   }
 }
 
-const ENTRY_HTML_PRELOAD_BLOCKLIST = [
-  '/AccountsView-',
-  '/AccountUsageCell-',
-  '/CreateAccountModal-',
-  '/EditAccountModal-',
-  '/BulkEditAccountModal-',
-  '/ModelWhitelistSelector',
-  '/OAuthAuthorizationFlow',
-  '/DashboardView-',
-  '/admin-dashboard-view-',
-  '/vendor-chart-'
-]
-
 export default defineConfig(({ mode }) => {
   // 加载环境变量
   const env = loadEnv(mode, process.cwd(), '')
@@ -74,17 +61,6 @@ export default defineConfig(({ mode }) => {
     __INTLIFY_JIT_COMPILATION__: true
   },
   build: {
-    modulePreload: {
-      resolveDependencies(filename, deps, context) {
-        if (context.hostType !== 'html') return deps
-
-        // TK admin perf: the SPA shell is shared by all routes. Keep route-level
-        // dynamic-import preloads intact; only trim the index.html eager set.
-        if (!filename.startsWith('assets/index-')) return deps
-
-        return deps.filter(dep => !ENTRY_HTML_PRELOAD_BLOCKLIST.some(token => dep.includes(token)))
-      }
-    },
     outDir: '../backend/internal/web/dist',
     emptyOutDir: true,
     rollupOptions: {
@@ -105,20 +81,8 @@ export default defineConfig(({ mode }) => {
               return 'vendor-vue'
             }
 
-            // xlsx 仅 UsageView 导出时动态引入，单独成块，避免被绝大多数后台页面急切下载/解析（~430KB）
-            if (id.includes('/xlsx/')) {
-              return 'vendor-xlsx'
-            }
-
-            // marked + dompurify（~63KB）仅在实际渲染 markdown 时经 useLazyMarkdown
-            // 动态引入（公告弹窗 / 合规弹窗 / 公告详情 / 法务页 / Chat），单独成块，
-            // 避免被根组件 App.vue 急切拉进入口 chunk（含登录页）。见 composables/useLazyMarkdown.ts
-            if (id.includes('/marked/') || id.includes('/dompurify/')) {
-              return 'vendor-markdown'
-            }
-
             // UI 工具库（较大，单独分离）
-            if (id.includes('/@vueuse/')) {
+            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
               return 'vendor-ui'
             }
 
@@ -134,13 +98,6 @@ export default defineConfig(({ mode }) => {
 
             // 其他小型第三方库合并
             return 'vendor-misc'
-          }
-
-          if (id.includes('/views/admin/AdminShellView.vue') ||
-              id.includes('/components/layout/AppLayout.vue') ||
-              id.includes('/components/layout/AppSidebar.vue') ||
-              id.includes('/components/layout/AppHeader.vue')) {
-            return 'admin-shell'
           }
 
           // 应用代码：按入口点自动分包，不手动干预

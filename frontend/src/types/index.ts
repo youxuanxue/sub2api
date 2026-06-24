@@ -1,5 +1,5 @@
 /**
- * Core Type Definitions for TokenKey Frontend
+ * Core Type Definitions for Sub2API Frontend
  */
 
 // ==================== Common Types ====================
@@ -88,16 +88,12 @@ export interface User {
   balance: number // User balance for API usage
   concurrency: number // Allowed concurrent requests
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
-  traj_export_enabled?: boolean // Admin-granted: allow exporting each API key's captured conversation records
-  traj_export_platforms?: string[] // Server-driven allowlist (/auth/me): platforms whose conversation records the traj projector can reconstruct; gates the export chip
   status: 'active' | 'disabled' // Account status
   allowed_groups: number[] | null // Allowed group IDs (null = all non-exclusive groups)
   balance_notify_enabled: boolean
   balance_notify_threshold: number | null
   balance_notify_extra_emails: NotifyEmailEntry[]
   subscriptions?: UserSubscription[] // User's active subscriptions
-  // US-031: ISO8601 timestamp of first onboarding-tour completion (null = never seen → auto-launch).
-  onboarding_tour_seen_at?: string | null
   last_active_at?: string | null
   created_at: string
   updated_at: string
@@ -198,9 +194,8 @@ export interface PublicSettings {
   promo_code_enabled: boolean
   password_reset_enabled: boolean
   invitation_code_enabled: boolean
-  totp_enabled?: boolean
   login_agreement_enabled?: boolean
-  login_agreement_mode?: string
+  login_agreement_mode?: 'modal' | 'checkbox' | string
   login_agreement_updated_at?: string
   login_agreement_revision?: string
   login_agreement_documents?: LoginAgreementDocument[]
@@ -215,7 +210,7 @@ export interface PublicSettings {
   home_content: string
   hide_ccs_import_button: boolean
   payment_enabled: boolean
-  backend_mode_enabled?: boolean
+  risk_control_enabled: boolean
   table_default_page_size: number
   table_page_size_options: number[]
   custom_menu_items: CustomMenuItem[]
@@ -228,20 +223,16 @@ export interface PublicSettings {
   wechat_oauth_mobile_enabled?: boolean
   oidc_oauth_enabled: boolean
   oidc_oauth_provider_name: string
-  github_oauth_enabled?: boolean
-  google_oauth_enabled?: boolean
+  github_oauth_enabled: boolean
+  google_oauth_enabled: boolean
+  backend_mode_enabled: boolean
   version: string
   balance_low_notify_enabled: boolean
   account_quota_notify_enabled: boolean
   balance_low_notify_threshold: number
-  pricing_catalog_public: boolean
-  /** TK cold-start: signup bonus preview for anonymous pages (USD). */
-  signup_bonus_enabled?: boolean
-  signup_bonus_balance_usd?: number
   channel_monitor_enabled: boolean
   channel_monitor_default_interval_seconds: number
   available_channels_enabled: boolean
-  risk_control_enabled?: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
@@ -496,7 +487,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -533,18 +524,10 @@ export interface Group {
   fallback_group_id_on_invalid_request: number | null
   // OpenAI Messages 调度开关（用户侧需要此字段判断是否展示 Claude Code 教程）
   allow_messages_dispatch?: boolean
-  // 支持的模型系列（仅 antigravity 平台使用；用户侧 UseKeyModal 据此决定是否展示
-  // Claude flavor）。后端 keys DTO 会返回此字段。
-  supported_model_scopes?: string[]
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
-  messages_compaction_enabled?: boolean | null
-  messages_compaction_input_tokens_threshold?: number | null
   require_oauth_only: boolean
   require_privacy_set: boolean
-  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
-  // docs/approved/sticky-routing.md
-  sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
   created_at: string
   updated_at: string
 }
@@ -557,7 +540,8 @@ export interface AdminGroup extends Group {
   // MCP XML 协议注入（仅 antigravity 平台使用）
   mcp_xml_inject: boolean
 
-  // supported_model_scopes 已上移到基础 Group（用户侧 keys DTO 也返回）。
+  // 支持的模型系列（仅 antigravity 平台使用）
+  supported_model_scopes?: string[]
 
   // 分组下账号数量（仅管理员可见）
   account_count?: number
@@ -578,16 +562,12 @@ export interface ModelsListConfig {
   models: string[]
 }
 
-// 全能 Key 路由模式：direct 绑定固定分组 | universal 按请求模型实时跨平台解析
-export type KeyRoutingMode = 'direct' | 'universal'
-
 export interface ApiKey {
   id: number
   user_id: number
   key: string
   name: string
   group_id: number | null
-  routing_mode?: KeyRoutingMode
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -615,7 +595,6 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
-  routing_mode?: KeyRoutingMode // 不传:无分组→universal、有分组→direct（后端推断）
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -629,7 +608,6 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
-  routing_mode?: KeyRoutingMode
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -663,8 +641,6 @@ export interface CreateGroupRequest {
   fallback_group_id_on_invalid_request?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
-  messages_compaction_enabled?: boolean | null
-  messages_compaction_input_tokens_threshold?: number | null
   models_list_config?: ModelsListConfig
   allow_messages_dispatch?: boolean
   default_mapped_model?: string
@@ -674,8 +650,6 @@ export interface CreateGroupRequest {
   rpm_limit?: number
   require_oauth_only?: boolean
   require_privacy_set?: boolean
-  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
-  sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[]
 }
@@ -702,8 +676,6 @@ export interface UpdateGroupRequest {
   fallback_group_id_on_invalid_request?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
-  messages_compaction_enabled?: boolean | null
-  messages_compaction_input_tokens_threshold?: number | null
   models_list_config?: ModelsListConfig
   allow_messages_dispatch?: boolean
   default_mapped_model?: string
@@ -713,14 +685,12 @@ export interface UpdateGroupRequest {
   rpm_limit?: number
   require_oauth_only?: boolean
   require_privacy_set?: boolean
-  sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
   copy_accounts_from_group_ids?: number[]
 }
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
-export type AccountPlatformFilterValue = '' | AccountPlatform | '__kiro_stub__'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -852,17 +822,7 @@ export interface Account {
   name: string
   notes?: string | null
   platform: AccountPlatform
-  // Top-level channel_type for the fifth platform `newapi`. Backend
-  // admin_service.go:1565 enforces channel_type > 0 when platform == 'newapi'
-  // and 0 elsewhere; treat as optional on the read path because the four
-  // legacy platforms always serialize 0 and it is meaningless to consume.
-  channel_type?: number
   type: AccountType
-  // TK: when this is a prod→edge mirror-stub of ANY platform (cc-/openai-/grok-/…
-  // <edge>), edge_id is the edge it relays to (api-us1 → "us1"); empty/undefined for
-  // ordinary accounts. Derived server-side (service.MirrorStubEdgeID). Drives the
-  // inline edge-panel expansion in the accounts table — unified prod+edge governance.
-  edge_id?: string
   // 后端响应里 credentials 已脱敏：access_token / refresh_token / id_token /
   // api_key / session_key / cookie / aws_secret_access_key / aws_session_token /
   // service_account_json / service_account / private_key 不会出现，
@@ -1044,51 +1004,6 @@ export interface CodexUsageSnapshot {
   codex_usage_updated_at?: string // Last update timestamp
 }
 
-export interface CodexSessionImportRequest {
-  content?: string
-  contents?: string[]
-  name?: string
-  notes?: string | null
-  group_ids?: number[]
-  proxy_id?: number | null
-  concurrency?: number
-  priority?: number
-  rate_multiplier?: number
-  load_factor?: number
-  expires_at?: number | null
-  auto_pause_on_expired?: boolean
-  credential_extras?: Record<string, unknown>
-  extra?: Record<string, unknown>
-  update_existing?: boolean
-  skip_default_group_bind?: boolean
-  confirm_mixed_channel_risk?: boolean
-}
-
-export interface CodexSessionImportMessage {
-  index: number
-  name?: string
-  message: string
-}
-
-export interface CodexSessionImportItem {
-  index: number
-  name?: string
-  action: string
-  account_id?: number
-  message?: string
-}
-
-export interface CodexSessionImportResult {
-  total: number
-  created: number
-  updated: number
-  skipped: number
-  failed: number
-  items?: CodexSessionImportItem[]
-  warnings?: CodexSessionImportMessage[]
-  errors?: CodexSessionImportMessage[]
-}
-
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
 export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
@@ -1122,10 +1037,6 @@ export interface CreateAccountRequest {
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   confirm_mixed_channel_risk?: boolean
-  // Top-level channel_type for the fifth platform `newapi` (admin_service.go:1565
-  // enforces channel_type > 0 when platform == 'newapi'). Required only on the
-  // newapi branch; ignored by the other 4 platforms.
-  channel_type?: number
 }
 
 export interface UpdateAccountRequest {
@@ -1223,9 +1134,7 @@ export interface AdminDataAccount {
   proxy_key?: string | null
   concurrency: number
   priority: number
-  channel_type?: number
   rate_multiplier?: number | null
-  group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
 }
@@ -1244,6 +1153,51 @@ export interface AdminDataImportResult {
   account_created: number
   account_failed: number
   errors?: AdminDataImportError[]
+}
+
+export interface CodexSessionImportRequest {
+  content?: string
+  contents?: string[]
+  name?: string
+  notes?: string | null
+  group_ids?: number[]
+  proxy_id?: number | null
+  concurrency?: number
+  priority?: number
+  rate_multiplier?: number
+  load_factor?: number | null
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
+  credential_extras?: Record<string, unknown>
+  extra?: Record<string, unknown>
+  update_existing?: boolean
+  skip_default_group_bind?: boolean
+  confirm_mixed_channel_risk?: boolean
+}
+
+export interface CodexSessionImportMessage {
+  index: number
+  name?: string
+  message: string
+}
+
+export interface CodexSessionImportItem {
+  index: number
+  name?: string
+  action: 'created' | 'updated' | 'skipped' | 'failed'
+  account_id?: number
+  message?: string
+}
+
+export interface CodexSessionImportResult {
+  total: number
+  created: number
+  updated: number
+  skipped: number
+  failed: number
+  items?: CodexSessionImportItem[]
+  warnings?: CodexSessionImportMessage[]
+  errors?: CodexSessionImportMessage[]
 }
 
 // ==================== Usage & Redeem Types ====================

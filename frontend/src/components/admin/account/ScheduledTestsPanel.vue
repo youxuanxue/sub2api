@@ -463,7 +463,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -555,14 +555,6 @@ const loadPlans = async () => {
     loading.value = false
   }
 }
-
-// #900 lazy-mount: the modal is created with show already true on first open,
-// so the show-watch (no immediate) never fires. Mirror its true-branch here.
-onMounted(() => {
-  if (props.show && props.accountId) {
-    loadPlans()
-  }
-})
 
 const handleCreate = async () => {
   if (!props.accountId || !newPlan.model_id || !newPlan.cron_expression) return

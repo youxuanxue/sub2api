@@ -103,11 +103,6 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
 
-	// TK: fill interval (tiered) pricing from the curated overlay when channel
-	// pricing did not supply intervals (channel still wins). See
-	// model_pricing_resolver_tk_overlay_intervals.go.
-	tkApplyOverlayIntervals(resolved)
-
 	return resolved
 }
 
@@ -144,15 +139,56 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 	}
 }
 
-// applyTokenOverrides 应用 token 模式的渠道覆盖。
-//
-// TK policy (upstream #2107): operator-configured flat fields always also
-// land on BasePricing as the "out-of-range fallback" — see TK companion
-// tkApplyChannelFlatOverridesAsFallback in
-// model_pricing_resolver_tk_channel_flat_fallback.go.
+// applyTokenOverrides 应用 token 模式的渠道覆盖
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
-	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
-	tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)
+	// 过滤掉所有价格字段都为空的无效 interval
+	validIntervals := filterValidIntervals(chPricing.Intervals)
+
+	// 如果有有效的区间定价，使用区间
+	if len(validIntervals) > 0 {
+		resolved.Intervals = validIntervals
+		// 区间不匹配时回退到 BasePricing，也需要覆盖图片价格
+		if resolved.BasePricing == nil {
+			resolved.BasePricing = &ModelPricing{}
+		}
+		if chPricing.ImageOutputPrice != nil {
+			resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+		} else {
+			resolved.BasePricing.ImageOutputPricePerToken = 0
+		}
+		resolved.BasePricing.ImageOutputPriceExplicit = true
+		return
+	}
+
+	// 否则用 flat 字段覆盖 BasePricing
+	if resolved.BasePricing == nil {
+		resolved.BasePricing = &ModelPricing{}
+	}
+
+	if chPricing.InputPrice != nil {
+		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice
+		resolved.BasePricing.InputPricePerTokenPriority = *chPricing.InputPrice
+	}
+	if chPricing.OutputPrice != nil {
+		resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice
+		resolved.BasePricing.OutputPricePerTokenPriority = *chPricing.OutputPrice
+	}
+	if chPricing.CacheWritePrice != nil {
+		resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
+		resolved.BasePricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
+		resolved.BasePricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
+	}
+	if chPricing.CacheReadPrice != nil {
+		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
+		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
+	}
+	// 渠道定价覆盖一切：显式配置则用配置值，未配置则归零（不回退到 LiteLLM）
+	if chPricing.ImageOutputPrice != nil {
+		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+	} else {
+		resolved.BasePricing.ImageOutputPricePerToken = 0
+	}
+	resolved.BasePricing.ImageOutputPriceExplicit = true
 }
 
 // applyRequestTierOverrides 应用按次/图片模式的渠道覆盖
@@ -179,12 +215,6 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 
 // GetIntervalPricing 根据 context token 数获取区间定价。
 // 如果有区间列表，找到匹配区间并构造 ModelPricing；否则直接返回 BasePricing。
-//
-// TK policy (upstream #2363): matched intervals overlay onto BasePricing so the
-// channel's flat defaults (notably CacheReadPrice) are preserved for any
-// dimension the interval itself does not set. See TK companion
-// tkOverlayIntervalOntoBasePricing in
-// model_pricing_resolver_tk_channel_flat_fallback.go.
 func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, totalContextTokens int) *ModelPricing {
 	if len(resolved.Intervals) == 0 {
 		return resolved.BasePricing
@@ -195,7 +225,39 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 		return resolved.BasePricing
 	}
 
-	return tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)
+	return intervalToModelPricing(iv, resolved.SupportsCacheBreakdown, resolved.channelPricing)
+}
+
+// intervalToModelPricing 将区间定价转换为 ModelPricing
+func intervalToModelPricing(iv *PricingInterval, supportsCacheBreakdown bool, chPricing *ChannelModelPricing) *ModelPricing {
+	pricing := &ModelPricing{
+		SupportsCacheBreakdown: supportsCacheBreakdown,
+	}
+	if iv.InputPrice != nil {
+		pricing.InputPricePerToken = *iv.InputPrice
+		pricing.InputPricePerTokenPriority = *iv.InputPrice
+	}
+	if iv.OutputPrice != nil {
+		pricing.OutputPricePerToken = *iv.OutputPrice
+		pricing.OutputPricePerTokenPriority = *iv.OutputPrice
+	}
+	if iv.CacheWritePrice != nil {
+		pricing.CacheCreationPricePerToken = *iv.CacheWritePrice
+		pricing.CacheCreation5mPrice = *iv.CacheWritePrice
+		pricing.CacheCreation1hPrice = *iv.CacheWritePrice
+	}
+	if iv.CacheReadPrice != nil {
+		pricing.CacheReadPricePerToken = *iv.CacheReadPrice
+		pricing.CacheReadPricePerTokenPriority = *iv.CacheReadPrice
+	}
+	// 渠道定价存在时，ImageOutputPrice 显式覆盖
+	if chPricing != nil {
+		pricing.ImageOutputPriceExplicit = true
+		if chPricing.ImageOutputPrice != nil {
+			pricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+		}
+	}
+	return pricing
 }
 
 // GetRequestTierPrice 根据层级标签获取按次价格

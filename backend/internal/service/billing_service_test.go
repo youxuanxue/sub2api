@@ -84,10 +84,6 @@ func TestGetModelPricing_FallbackMatchesByFamily(t *testing.T) {
 		{"claude-3-5-sonnet-20241022", 3e-6},
 		{"claude-3-5-haiku-20241022", 1e-6},
 		{"claude-3-haiku-20240307", 0.25e-6},
-		// Fable 5 is the tier above Opus ($10/MTok); must NOT fall through to the
-		// generic claude→sonnet ($3) catch-all (would underbill ~3.3x).
-		{"claude-fable-5", 10e-6},
-		{"claude-fable-5[1m]", 10e-6},
 	}
 
 	for _, tt := range tests {
@@ -351,14 +347,8 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "claude opus 4.6", model: "claude-opus-4.6-20260201", expectedInput: 5e-6},
 		{name: "claude opus 4.5 alt separator", model: "claude-opus-4-5-20260101", expectedInput: 5e-6},
 		{name: "claude generic model fallback sonnet", model: "claude-foo-bar", expectedInput: 3e-6},
-		{name: "claude fable 5 (above opus, $10)", model: "claude-fable-5", expectedInput: 10e-6},
-		{name: "claude fable 5 1m alias", model: "claude-fable-5[1m]", expectedInput: 10e-6},
 		{name: "gemini explicit fallback", model: "gemini-3-1-pro", expectedInput: 2e-6},
-		// upstream Wei-Shaw/sub2api#2486: unknown gemini-* must NOT bill $0; falls back to gemini-3.1-pro pricing.
-		{name: "gemini unknown falls back to 3.1-pro", model: "gemini-2.0-pro", expectedInput: 2e-6},
-		{name: "gemini-pro-agent falls back to 3.1-pro", model: "gemini-pro-agent", expectedInput: 2e-6},
-		{name: "models/gemini-pro-agent falls back to 3.1-pro", model: "models/gemini-pro-agent", expectedInput: 2e-6},
-		{name: "gemini-2.5-flash-unknown falls back to 3.1-pro", model: "gemini-2.5-flash-unknown-variant", expectedInput: 2e-6},
+		{name: "gemini unknown no fallback", model: "gemini-2.0-pro", expectNilPricing: true},
 		{name: "openai gpt5.4", model: "gpt-5.4", expectedInput: 2.5e-6},
 		{name: "openai gpt5.4 mini", model: "gpt-5.4-mini", expectedInput: 7.5e-7},
 		{name: "openai gpt5.3 codex", model: "gpt-5.3-codex", expectedInput: 1.5e-6},
@@ -397,13 +387,6 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		},
 
 		// ---- 智谱 GLM（z.ai USD 口径）----
-		{
-			name:              "glm 5.2 flagship",
-			model:             "glm-5.2",
-			expectedInput:     1.4e-6,
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
-		},
 		{
 			name:              "glm 5.1 flagship",
 			model:             "glm-5.1",
@@ -487,14 +470,7 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedInput:  0.1e-6,
 			expectedOutput: floatPtr(0.1e-6),
 		},
-		// 关键：5.2 / 5.1 必须先于 5 匹配（避免被 glm-5 抢走）
-		{
-			name:              "glm 5.2 vs glm 5 ordering",
-			model:             "glm-5.2",
-			expectedInput:     1.4e-6, // = glm-5.2 价格
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
-		},
+		// 关键：5.1 必须先于 5 匹配（避免被 glm-5 抢走）
 		{
 			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
 			model:             "glm-5.1",
@@ -535,31 +511,31 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2-thinking",
 			model:             "kimi-k2-thinking",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     0.56e-6,
+			expectedOutput:    floatPtr(2.24e-6),
+			expectedCacheRead: floatPtr(0.14e-6),
 		},
 		{
 			name:              "kimi k2 base",
 			model:             "kimi-k2",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     0.56e-6,
+			expectedOutput:    floatPtr(2.24e-6),
+			expectedCacheRead: floatPtr(0.14e-6),
 		},
 		// 关键：k2.6 / k2.5 / k2-thinking 必须先于 k2 匹配
 		{
 			name:              "kimi k2.6 vs k2 ordering",
 			model:             "kimi-k2.6",
-			expectedInput:     0.95e-6, // = k2.6 不是 k2 的 0.59701e-6
+			expectedInput:     0.95e-6, // = k2.6 不是 k2 的 0.56e-6
 			expectedOutput:    floatPtr(4e-6),
 			expectedCacheRead: floatPtr(0.15e-6),
 		},
 		{
 			name:              "kimi k2 thinking hyphenated variant",
 			model:             "kimi-k2-thinking-preview",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     0.56e-6,
+			expectedOutput:    floatPtr(2.24e-6),
+			expectedCacheRead: floatPtr(0.14e-6),
 		},
 
 		// ---- MiniMax M 系列 ----
@@ -610,13 +586,13 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:           "doubao embedding vision text rate",
 			model:          "doubao-embedding-vision",
-			expectedInput:  0.10448e-6,
+			expectedInput:  0.098e-6,
 			expectedOutput: floatPtr(0),
 		},
 		{
 			name:          "doubao embedding vision versioned alias",
 			model:         "doubao-embedding-vision-251215",
-			expectedInput: 0.10448e-6,
+			expectedInput: 0.098e-6,
 		},
 
 		// ---- 负向用例 ----
@@ -631,9 +607,9 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2-0905-preview implicit fallback to k2",
 			model:             "kimi-k2-0905-preview",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     0.56e-6,
+			expectedOutput:    floatPtr(2.24e-6),
+			expectedCacheRead: floatPtr(0.14e-6),
 		},
 	}
 
@@ -671,8 +647,8 @@ func TestGetModelPricing_DoubaoEmbeddingVisionImageInputRate(t *testing.T) {
 		pricing, err := svc.GetModelPricing(model)
 		require.NoError(t, err, "model %s should resolve fallback pricing", model)
 		require.NotNil(t, pricing)
-		require.InDelta(t, 0.10448e-6, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
-		require.InDelta(t, 0.26866e-6, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
+		require.InDelta(t, 0.098e-6, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
+		require.InDelta(t, 0.252e-6, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
 		require.Zero(t, pricing.OutputPricePerToken, "embedding has no output cost for %s", model)
 	}
 }
@@ -686,7 +662,7 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	mixed := UsageTokens{InputTokens: 1340, ImageInputTokens: 28}
 	cost, err := svc.CalculateCost("doubao-embedding-vision", mixed, 1.0)
 	require.NoError(t, err)
-	wantMixed := float64(1312)*0.10448e-6 + float64(28)*0.26866e-6
+	wantMixed := float64(1312)*0.098e-6 + float64(28)*0.252e-6
 	require.InDelta(t, wantMixed, cost.InputCost, 1e-15)
 	require.InDelta(t, wantMixed, cost.TotalCost, 1e-15)
 	require.Zero(t, cost.OutputCost)
@@ -695,13 +671,13 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	textOnly := UsageTokens{InputTokens: 1340}
 	costText, err := svc.CalculateCost("doubao-embedding-vision", textOnly, 1.0)
 	require.NoError(t, err)
-	require.InDelta(t, float64(1340)*0.10448e-6, costText.InputCost, 1e-15)
+	require.InDelta(t, float64(1340)*0.098e-6, costText.InputCost, 1e-15)
 
 	// 健壮性：ImageInputTokens 超过 InputTokens 时，文本置 0、计费 token 不超过 InputTokens。
 	weird := UsageTokens{InputTokens: 10, ImageInputTokens: 50}
 	costWeird, err := svc.CalculateCost("doubao-embedding-vision", weird, 1.0)
 	require.NoError(t, err)
-	require.InDelta(t, float64(10)*0.26866e-6, costWeird.InputCost, 1e-15)
+	require.InDelta(t, float64(10)*0.252e-6, costWeird.InputCost, 1e-15)
 }
 func TestCalculateCostWithLongContext_BelowThreshold(t *testing.T) {
 	svc := newTestBillingService()
@@ -1316,7 +1292,7 @@ func TestComputeTokenBreakdown_ExplicitZeroImagePrice_NoFallback(t *testing.T) {
 		OutputTokens:      200,
 		ImageOutputTokens: 50,
 	}
-	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
+	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false)
 
 	// ImageOutputTokens should NOT fall back to outputPrice
 	require.Equal(t, 0.0, bd.ImageOutputCost)
@@ -1338,59 +1314,10 @@ func TestComputeTokenBreakdown_NonExplicitZeroImagePrice_FallsBackToOutput(t *te
 		OutputTokens:      200,
 		ImageOutputTokens: 50,
 	}
-	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
+	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false)
 
 	// Should fall back to outputPrice since not explicit
 	require.InDelta(t, 50*15e-6, bd.ImageOutputCost, 1e-12)
 	// textOutputTokens = 200 - 50 = 150
 	require.InDelta(t, 150*15e-6, bd.OutputCost, 1e-12)
-}
-
-// TestComputeTokenBreakdown_ThinkingOutputPrice mirrors the Alibaba DashScope
-// two-rate model (qwen3-8b/14b/32b: one id, output billed higher in thinking
-// mode). enableThinking selects ThinkingOutputPricePerToken over the
-// non-thinking OutputPricePerToken; with the field unset it must be a no-op.
-func TestComputeTokenBreakdown_ThinkingOutputPrice(t *testing.T) {
-	svc := newTestBillingService()
-
-	// qwen3-8b: out ¥2/M non-thinking, ¥5/M thinking (÷6.7 → USD per token).
-	pricing := &ModelPricing{
-		InputPricePerToken:          0.5 / 6.7e6,
-		OutputPricePerToken:         2.0 / 6.7e6,
-		ThinkingOutputPricePerToken: 5.0 / 6.7e6,
-	}
-	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 1000}
-
-	nonThinking := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
-	thinking := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", true, false)
-
-	require.InDelta(t, 1000*(2.0/6.7e6), nonThinking.OutputCost, 1e-15,
-		"non-thinking must bill the lower output rate")
-	require.InDelta(t, 1000*(5.0/6.7e6), thinking.OutputCost, 1e-15,
-		"thinking must bill the higher output rate")
-	require.Greater(t, thinking.OutputCost, nonThinking.OutputCost,
-		"thinking output cost must exceed non-thinking")
-	// Input is mode-independent.
-	require.InDelta(t, nonThinking.InputCost, thinking.InputCost, 1e-18)
-
-	// No thinking rate configured → enableThinking is a no-op (other models).
-	flat := &ModelPricing{InputPricePerToken: 1e-6, OutputPricePerToken: 3e-6}
-	a := svc.computeTokenBreakdown(flat, tokens, 1.0, "", false, false)
-	b := svc.computeTokenBreakdown(flat, tokens, 1.0, "", true, false)
-	require.InDelta(t, a.OutputCost, b.OutputCost, 1e-18,
-		"models without a thinking rate must be unaffected by enableThinking")
-}
-
-// TestTKPricingOverlay_Qwen3DenseThinkingRate guards that the overlay actually
-// carries a thinking output rate higher than the non-thinking one for the three
-// Qwen3 dense models — the default-mode price (enable_thinking defaults to true).
-func TestTKPricingOverlay_Qwen3DenseThinkingRate(t *testing.T) {
-	overlay := loadTKPricingOverlay()
-	for _, id := range []string{"qwen3-8b", "qwen3-14b", "qwen3-32b"} {
-		p := overlay[id]
-		require.NotNil(t, p, "overlay must carry %s", id)
-		require.Greater(t, p.OutputCostPerToken, 0.0, "%s non-thinking output > 0", id)
-		require.Greater(t, p.ThinkingOutputCostPerToken, p.OutputCostPerToken,
-			"%s thinking output rate must exceed non-thinking", id)
-	}
 }

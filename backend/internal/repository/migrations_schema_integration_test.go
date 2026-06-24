@@ -49,14 +49,6 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "image_output_size", "character varying", 32, true)
 	requireColumn(t, tx, "usage_logs", "image_size_source", "character varying", 16, true)
 	requireColumn(t, tx, "usage_logs", "image_size_breakdown", "jsonb", 0, true)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "total_requests", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "input_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "output_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "cache_creation_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "cache_read_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "total_cost", "numeric", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "actual_cost", "numeric", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "account_cost", "numeric", 0, false)
 	requireConstraintDefinitionContains(
 		t,
 		tx,

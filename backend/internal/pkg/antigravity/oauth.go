@@ -34,10 +34,7 @@ const (
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
 	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
-	// 2026-06-13 真机 on-wire 抓包（真实 Antigravity IDE 2.0.11）对齐：UA 形如
-	// `antigravity/hub/2.0.11 darwin/arm64`，版本即 IDE app 版本（--override_ide_version）。
-	// 随 IDE 自更新而变，运行时可经 admin 设置 antigravity_user_agent_version 热推覆盖。
-	DefaultUserAgentVersion = "2.0.11"
+	DefaultUserAgentVersion = "1.23.2"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"
@@ -124,14 +121,11 @@ func GetUserAgentVersionForContext(ctx context.Context) string {
 }
 
 // BuildUserAgent 使用指定版本号构造 User-Agent；版本为空或非法时回退默认值。
-// 形如 `antigravity/hub/<ver> windows/amd64`：`hub` 是 subclient_type（IDE 用
-// `--subclient_type hub`，CLI 用 cli），真机 on-wire 抓包（2026-06-13，IDE 2.0.11）确认
-// 该 subclient 段必带；os/arch 仍故意钉死 windows/amd64（与宿主无关）。
 func BuildUserAgent(version string) string {
 	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
-		return fmt.Sprintf("antigravity/hub/%s windows/amd64", normalized)
+		return fmt.Sprintf("antigravity/%s windows/amd64", normalized)
 	}
-	return fmt.Sprintf("antigravity/hub/%s windows/amd64", defaultUserAgentVersion)
+	return fmt.Sprintf("antigravity/%s windows/amd64", defaultUserAgentVersion)
 }
 
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。

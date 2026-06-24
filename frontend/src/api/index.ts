@@ -5,15 +5,12 @@
 
 // Re-export the HTTP client
 export { apiClient } from './client'
-export { isBrowserOffline, isNetworkError } from './client.tk'
-export type { ApiNetworkError } from './client.tk'
 
 // Auth API
 export { authAPI, isTotp2FARequired, type LoginResponse } from './auth'
 
 // User APIs
 export { keysAPI } from './keys'
-export { qaTrajAPI, type TrajExportJob, type TrajExportStatus } from './qaTraj'
 export { usageAPI } from './usage'
 export { userAPI } from './user'
 export { redeemAPI, type RedeemHistoryItem } from './redeem'

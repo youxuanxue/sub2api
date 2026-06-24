@@ -75,20 +75,15 @@ type CompiledIPRules struct {
 	PatternCount int
 }
 
-// PrivateCIDRs 是 loopback + RFC1918 私网 + IPv6 ULA 的规范网段集合，作为
-// 单一来源同时服务两处语义：isPrivateIP 的私网判定，以及反代部署里“默认可信
-// 代理”的网段（反向代理必然落在这些网段内）。新增网段只改这一处。
-var PrivateCIDRs = []string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",
-	"::1/128",
-	"fc00::/7",
-}
-
 func init() {
-	for _, cidr := range PrivateCIDRs {
+	for _, cidr := range []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"::1/128",
+		"fc00::/7",
+	} {
 		_, block, err := net.ParseCIDR(cidr)
 		if err != nil {
 			panic("invalid CIDR: " + cidr)

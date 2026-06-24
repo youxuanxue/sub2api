@@ -6,7 +6,6 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
 import { getLocale } from '@/i18n'
-import { createApiError, createNetworkError, isNetworkError, networkErrorFromAxios, requestUrlFromError } from './client.tk'
 
 // ==================== Axios Instance Configuration ====================
 
@@ -26,20 +25,20 @@ export const apiClient: AxiosInstance = axios.create({
 // Track if a token refresh is in progress to prevent multiple simultaneous refresh requests
 let isRefreshing = false
 // Queue of requests waiting for token refresh
-let refreshSubscribers: Array<(token: string, error?: unknown) => void> = []
+let refreshSubscribers: Array<(token: string) => void> = []
 
 /**
  * Subscribe to token refresh completion
  */
-function subscribeTokenRefresh(callback: (token: string, error?: unknown) => void): void {
+function subscribeTokenRefresh(callback: (token: string) => void): void {
   refreshSubscribers.push(callback)
 }
 
 /**
  * Notify all subscribers that token has been refreshed
  */
-function onTokenRefreshed(token: string, error?: unknown): void {
-  refreshSubscribers.forEach((callback) => callback(token, error))
+function onTokenRefreshed(token: string): void {
+  refreshSubscribers.forEach((callback) => callback(token))
   refreshSubscribers = []
 }
 
@@ -95,13 +94,13 @@ apiClient.interceptors.response.use(
       } else {
         // API error
         const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject(createApiError({
+        return Promise.reject({
           status: response.status,
           code: apiResponse.code,
           message: apiResponse.message || 'Unknown error',
-          reason: resp.reason as string | undefined,
-          metadata: resp.metadata as Record<string, unknown> | undefined,
-        }))
+          reason: resp.reason,
+          metadata: resp.metadata,
+        })
       }
     }
     return response
@@ -141,12 +140,12 @@ apiClient.interceptors.response.use(
           window.location.href = '/admin/settings'
         }
 
-        return Promise.reject(createApiError({
+        return Promise.reject({
           status,
           code: 'OPS_DISABLED',
           message: apiData.message || error.message,
           url
-        }))
+        })
       }
 
       if (status === 423 && apiData.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
@@ -158,12 +157,12 @@ apiClient.interceptors.response.use(
           // ignore event failures
         }
 
-        return Promise.reject(createApiError({
+        return Promise.reject({
           status,
           code: apiData.code,
           message: apiData.message || error.message,
           metadata: apiData.metadata,
-        }))
+        })
       }
 
       // 401: Try to refresh the token if we have a refresh token
@@ -178,10 +177,8 @@ apiClient.interceptors.response.use(
           if (isRefreshing) {
             // Wait for the ongoing refresh to complete
             return new Promise((resolve, reject) => {
-              subscribeTokenRefresh((newToken: string, refreshError?: unknown) => {
-                if (refreshError) {
-                  reject(refreshError)
-                } else if (newToken) {
+              subscribeTokenRefresh((newToken: string) => {
+                if (newToken) {
                   // Mark as retried to prevent infinite loop if retry also returns 401
                   originalRequest._retry = true
                   if (originalRequest.headers) {
@@ -190,11 +187,11 @@ apiClient.interceptors.response.use(
                   resolve(apiClient(originalRequest))
                 } else {
                   // Refresh failed, reject with original error
-                  reject(createApiError({
+                  reject({
                     status,
                     code: apiData.code,
                     message: apiData.message || apiData.detail || error.message
-                  }))
+                  })
                 }
               })
             })
@@ -240,16 +237,9 @@ apiClient.interceptors.response.use(
             // Refresh response was not successful, fall through to clear auth
             throw new Error('Token refresh failed')
           } catch (refreshError) {
-            isRefreshing = false
-
-            if (isNetworkError(refreshError)) {
-              const networkError = createNetworkError(requestUrlFromError(refreshError))
-              onTokenRefreshed('', networkError)
-              return Promise.reject(networkError)
-            }
-
             // Refresh failed - notify subscribers with empty token
             onTokenRefreshed('')
+            isRefreshing = false
 
             // Clear tokens and redirect to login
             localStorage.removeItem('auth_token')
@@ -262,11 +252,11 @@ apiClient.interceptors.response.use(
               window.location.href = '/login'
             }
 
-            return Promise.reject(createApiError({
+            return Promise.reject({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
               message: 'Session expired. Please log in again.'
-            }))
+            })
           }
         }
 
@@ -295,18 +285,21 @@ apiClient.interceptors.response.use(
       }
 
       // Return structured error
-      return Promise.reject(createApiError({
+      return Promise.reject({
         status,
         code: apiData.code,
         reason: apiData.reason,
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
-      }))
+      })
     }
 
     // Network error
-    return Promise.reject(networkErrorFromAxios(error))
+    return Promise.reject({
+      status: 0,
+      message: 'Network error. Please check your connection.'
+    })
   }
 )
 

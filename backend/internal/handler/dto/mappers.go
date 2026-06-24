@@ -29,9 +29,7 @@ func UserFromServiceShallow(u *service.User) *User {
 		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
 		BalanceNotifyExtraEmails:   NotifyEmailEntriesFromService(u.BalanceNotifyExtraEmails),
 		TotalRecharged:             u.TotalRecharged,
-		OnboardingTourSeenAt:       u.OnboardingTourSeenAt,
 		RPMLimit:                   u.RPMLimit,
-		TrajExportEnabled:          u.TrajExportEnabled,
 		DeletedAt:                  u.DeletedAt,
 	}
 }
@@ -80,17 +78,12 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 	if k == nil {
 		return nil
 	}
-	routingMode := k.RoutingMode
-	if routingMode == "" {
-		routingMode = service.RoutingModeDirect // 空(老行/未设)统一呈现为 direct
-	}
 	out := &APIKey{
 		ID:            k.ID,
 		UserID:        k.UserID,
 		Key:           k.Key,
 		Name:          k.Name,
 		GroupID:       k.GroupID,
-		RoutingMode:   routingMode,
 		Status:        k.Status,
 		IPWhitelist:   k.IPWhitelist,
 		IPBlacklist:   k.IPBlacklist,
@@ -156,12 +149,11 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		DefaultMappedModel:          g.DefaultMappedModel,
 		MessagesDispatchModelConfig: g.MessagesDispatchModelConfig,
 		ModelsListConfig:            g.ModelsListConfig,
-		// SupportedModelScopes 现由内嵌 Group（groupFromServiceBase）填充。
-		AccountCount:            g.AccountCount,
-		ActiveAccountCount:      g.ActiveAccountCount,
-		RateLimitedAccountCount: g.RateLimitedAccountCount,
-		SortOrder:               g.SortOrder,
-		StickyRoutingMode:       g.StickyRoutingMode,
+		SupportedModelScopes:        g.SupportedModelScopes,
+		AccountCount:                g.AccountCount,
+		ActiveAccountCount:          g.ActiveAccountCount,
+		RateLimitedAccountCount:     g.RateLimitedAccountCount,
+		SortOrder:                   g.SortOrder,
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
@@ -175,35 +167,32 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 
 func groupFromServiceBase(g *service.Group) Group {
 	return Group{
-		ID:                                     g.ID,
-		Name:                                   g.Name,
-		Description:                            g.Description,
-		Platform:                               g.Platform,
-		RateMultiplier:                         g.RateMultiplier,
-		IsExclusive:                            g.IsExclusive,
-		Status:                                 g.Status,
-		SubscriptionType:                       g.SubscriptionType,
-		DailyLimitUSD:                          g.DailyLimitUSD,
-		WeeklyLimitUSD:                         g.WeeklyLimitUSD,
-		MonthlyLimitUSD:                        g.MonthlyLimitUSD,
-		AllowImageGeneration:                   g.AllowImageGeneration,
-		ImageRateIndependent:                   g.ImageRateIndependent,
-		ImageRateMultiplier:                    g.ImageRateMultiplier,
-		ImagePrice1K:                           g.ImagePrice1K,
-		ImagePrice2K:                           g.ImagePrice2K,
-		ImagePrice4K:                           g.ImagePrice4K,
-		ClaudeCodeOnly:                         g.ClaudeCodeOnly,
-		FallbackGroupID:                        g.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest:        g.FallbackGroupIDOnInvalidRequest,
-		AllowMessagesDispatch:                  g.AllowMessagesDispatch,
-		RequireOAuthOnly:                       g.RequireOAuthOnly,
-		RequirePrivacySet:                      g.RequirePrivacySet,
-		RPMLimit:                               g.RPMLimit,
-		MessagesCompactionEnabled:              g.MessagesCompactionEnabled,
-		MessagesCompactionInputTokensThreshold: g.MessagesCompactionInputTokensThreshold,
-		SupportedModelScopes:                   g.SupportedModelScopes,
-		CreatedAt:                              g.CreatedAt,
-		UpdatedAt:                              g.UpdatedAt,
+		ID:                              g.ID,
+		Name:                            g.Name,
+		Description:                     g.Description,
+		Platform:                        g.Platform,
+		RateMultiplier:                  g.RateMultiplier,
+		IsExclusive:                     g.IsExclusive,
+		Status:                          g.Status,
+		SubscriptionType:                g.SubscriptionType,
+		DailyLimitUSD:                   g.DailyLimitUSD,
+		WeeklyLimitUSD:                  g.WeeklyLimitUSD,
+		MonthlyLimitUSD:                 g.MonthlyLimitUSD,
+		AllowImageGeneration:            g.AllowImageGeneration,
+		ImageRateIndependent:            g.ImageRateIndependent,
+		ImageRateMultiplier:             g.ImageRateMultiplier,
+		ImagePrice1K:                    g.ImagePrice1K,
+		ImagePrice2K:                    g.ImagePrice2K,
+		ImagePrice4K:                    g.ImagePrice4K,
+		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
+		FallbackGroupID:                 g.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: g.FallbackGroupIDOnInvalidRequest,
+		AllowMessagesDispatch:           g.AllowMessagesDispatch,
+		RequireOAuthOnly:                g.RequireOAuthOnly,
+		RequirePrivacySet:               g.RequirePrivacySet,
+		RPMLimit:                        g.RPMLimit,
+		CreatedAt:                       g.CreatedAt,
+		UpdatedAt:                       g.UpdatedAt,
 	}
 }
 
@@ -227,7 +216,6 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		Concurrency:             a.Concurrency,
 		LoadFactor:              a.LoadFactor,
 		Priority:                a.Priority,
-		ChannelType:             a.ChannelType,
 		RateMultiplier:          a.BillingRateMultiplier(),
 		Status:                  a.Status,
 		ErrorMessage:            a.ErrorMessage,

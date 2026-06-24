@@ -424,26 +424,11 @@ func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *t
 	if mapping["gemini-3-flash"] != "gemini-3-flash" {
 		t.Fatalf("expected gemini-3-flash passthrough to be auto-filled, got: %q", mapping["gemini-3-flash"])
 	}
-	// gemini-3.1-pro-high 上游已 deprecated（identity 透传会 400），已从 safety-net 移除：
-	// 自定义映射未显式声明时不再被补全（客户端改用 gemini-pro-agent）。
-	if _, exists := mapping["gemini-3.1-pro-high"]; exists {
-		t.Fatalf("did not expect deprecated gemini-3.1-pro-high to be auto-filled, got: %q", mapping["gemini-3.1-pro-high"])
+	if mapping["gemini-3.1-pro-high"] != "gemini-3.1-pro-high" {
+		t.Fatalf("expected gemini-3.1-pro-high passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-high"])
 	}
 	if mapping["gemini-3.1-pro-low"] != "gemini-3.1-pro-low" {
 		t.Fatalf("expected gemini-3.1-pro-low passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-low"])
-	}
-	// 2026-06 实测可服务 wire id：自定义 model_mapping 账号也须经 safety-net 透传，
-	// 否则公共目录 / UseKeyModal 宣告可服务但自定义账号拒绝（三档 thinking budget
-	// 须对称，extra-low 不得遗漏）。
-	for _, id := range []string{
-		"gemini-3.5-flash-low",
-		"gemini-3.5-flash-extra-low",
-		"gemini-3-flash-agent",
-		"gemini-pro-agent",
-	} {
-		if mapping[id] != id {
-			t.Fatalf("expected %q identity passthrough to be auto-filled for custom-mapped antigravity account, got: %q", id, mapping[id])
-		}
 	}
 }
 

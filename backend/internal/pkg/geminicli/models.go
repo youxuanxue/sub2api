@@ -24,23 +24,3 @@ var DefaultModels = []Model{
 
 // DefaultTestModel is the default model to preselect in test flows.
 const DefaultTestModel = "gemini-2.0-flash"
-
-// ModelsForIDs synthesizes a []Model for the given (servable) ids, preferring the
-// canonical DefaultModels entry when present and synthesizing otherwise. Shared by
-// the gateway /v1/models fallback and the admin available-models surface so the
-// two never drift on the synthesized display metadata.
-func ModelsForIDs(ids []string) []Model {
-	byID := make(map[string]Model, len(DefaultModels))
-	for _, m := range DefaultModels {
-		byID[m.ID] = m
-	}
-	out := make([]Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byID[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, Model{ID: id, Type: "model", DisplayName: id})
-	}
-	return out
-}

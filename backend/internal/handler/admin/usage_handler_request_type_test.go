@@ -140,16 +140,3 @@ func TestAdminUsageStatsInvalidStream(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
-
-func TestAdminUsageStatsIncludeToggles(t *testing.T) {
-	repo := &adminUsageRepoCapture{}
-	router := newAdminUsageRequestTypeTestRouter(repo)
-
-	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?include_summary=0&include_endpoints=false", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.True(t, repo.statsFilters.SkipSummary)
-	require.True(t, repo.statsFilters.SkipEndpointStats)
-}

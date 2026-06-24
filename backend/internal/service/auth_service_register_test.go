@@ -253,30 +253,6 @@ func newAuthService(repo *userRepoStub, settings map[string]string, emailCache E
 	)
 }
 
-func TestAuthService_Login_DoesNotRequireTurnstileToken(t *testing.T) {
-	repo := &userRepoStub{}
-	service := newAuthService(repo, map[string]string{
-		SettingKeyTurnstileEnabled:   "true",
-		SettingKeyTurnstileSecretKey: "secret",
-	}, nil, nil)
-
-	passwordHash, err := service.HashPassword("password123")
-	require.NoError(t, err)
-	repo.user = &User{
-		ID:           10,
-		Email:        "user@example.com",
-		PasswordHash: passwordHash,
-		Role:         RoleUser,
-		Status:       StatusActive,
-		TokenVersion: 1,
-	}
-
-	token, user, err := service.Login(context.Background(), "user@example.com", "password123")
-	require.NoError(t, err)
-	require.NotEmpty(t, token)
-	require.Equal(t, int64(10), user.ID)
-}
-
 func TestAuthService_Register_Disabled(t *testing.T) {
 	repo := &userRepoStub{}
 	service := newAuthService(repo, map[string]string{
@@ -490,9 +466,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 	require.Equal(t, "user@test.com", user.Email)
 	require.Equal(t, RoleUser, user.Role)
 	require.Equal(t, StatusActive, user.Status)
-	// US-029: signup bonus is enabled by default at $1.00, baked into the
-	// INSERT on top of cfg.Default.UserBalance (3.5 in this fixture).
-	require.InDelta(t, 4.5, user.Balance, 0.0001)
+	require.Equal(t, 3.5, user.Balance)
 	require.Equal(t, 2, user.Concurrency)
 	require.Len(t, repo.created, 1)
 	require.True(t, user.CheckPassword("password"))
@@ -650,8 +624,6 @@ func TestAuthService_Register_UsesEmailAuthSourceDefaultsWhenGrantEnabled(t *tes
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                 "true",
-		SettingKeySignupBonusEnabled:                  "false",
-		SettingKeySignupBonusBalance:                  "0",
 		SettingKeyDefaultSubscriptions:                `[{"group_id":91,"validity_days":3}]`,
 		SettingKeyAuthSourceDefaultEmailBalance:       "12.5",
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "7",
@@ -675,8 +647,6 @@ func TestAuthService_Register_GrantOnSignupFalseFallsBackToGlobalDefaults(t *tes
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                 "true",
-		SettingKeySignupBonusEnabled:                  "false",
-		SettingKeySignupBonusBalance:                  "0",
 		SettingKeyDefaultSubscriptions:                `[{"group_id":31,"validity_days":5}]`,
 		SettingKeyAuthSourceDefaultEmailBalance:       "99",
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "88",
@@ -700,8 +670,6 @@ func TestAuthService_Register_GrantOnSignupMergesSourceOverridesWithGlobalDefaul
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                 "true",
-		SettingKeySignupBonusEnabled:                  "false",
-		SettingKeySignupBonusBalance:                  "0",
 		SettingKeyDefaultSubscriptions:                `[{"group_id":31,"validity_days":5}]`,
 		SettingKeyAuthSourceDefaultEmailBalance:       "9.5",
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "5",
@@ -725,8 +693,6 @@ func TestAuthService_LoginOrRegisterOAuthWithTokenPair_UsesLinuxDoAuthSourceDefa
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                   "true",
-		SettingKeySignupBonusEnabled:                    "false",
-		SettingKeySignupBonusBalance:                    "0",
 		SettingKeyDefaultSubscriptions:                  `[{"group_id":81,"validity_days":1}]`,
 		SettingKeyAuthSourceDefaultLinuxDoBalance:       "21.75",
 		SettingKeyAuthSourceDefaultLinuxDoConcurrency:   "9",

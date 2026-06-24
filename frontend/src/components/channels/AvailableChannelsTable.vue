@@ -94,7 +94,6 @@
                   :rate-multiplier="g.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[g.id] ?? null"
                   always-show-rate
-                  hide-rate-value
                 />
               </div>
               <div
@@ -117,7 +116,6 @@
                   :rate-multiplier="g.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[g.id] ?? null"
                   always-show-rate
-                  hide-rate-value
                 />
               </div>
               <span v-if="section.groups.length === 0" class="text-xs text-gray-400">-</span>

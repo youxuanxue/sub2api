@@ -16,6 +16,7 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+	_ "modernc.org/sqlite"
 )
 
 type paymentOrderLifecycleQueryProvider struct {

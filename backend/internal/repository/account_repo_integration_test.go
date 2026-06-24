@@ -89,7 +89,7 @@ func (s *AccountRepoSuite) SetupTest() {
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
-	s.repo = newAccountRepositoryWithSQL(s.client, tx, nil, nil)
+	s.repo = newAccountRepositoryWithSQL(s.client, tx, nil)
 }
 
 func TestAccountRepoSuite(t *testing.T) {
@@ -259,56 +259,6 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			wantCount: 1,
 			validate: func(accounts []service.Account) {
 				s.Require().Equal(service.PlatformOpenAI, accounts[0].Platform)
-			},
-		},
-		{
-			name: "filter_by_kiro_stub_virtual_platform",
-			setup: func(client *dbent.Client) {
-				mustCreateAccount(s.T(), client, &service.Account{
-					Name:     "kiro-stub",
-					Platform: service.PlatformAnthropic,
-					Type:     service.AccountTypeAPIKey,
-					Credentials: map[string]any{
-						"api_key":         "tk-edge",
-						"base_url":        "https://api-us4.tokenkey.dev",
-						"mirror_platform": " Kiro ",
-					},
-				})
-				mustCreateAccount(s.T(), client, &service.Account{
-					Name:     "plain-anthropic-edge",
-					Platform: service.PlatformAnthropic,
-					Type:     service.AccountTypeAPIKey,
-					Credentials: map[string]any{
-						"api_key":         "tk-edge",
-						"base_url":        "https://api-us4.tokenkey.dev",
-						"mirror_platform": "anthropic",
-					},
-				})
-				mustCreateAccount(s.T(), client, &service.Account{
-					Name:     "kiro-oauth",
-					Platform: service.PlatformKiro,
-					Type:     service.AccountTypeOAuth,
-					Credentials: map[string]any{
-						"access_token": "access",
-					},
-				})
-				mustCreateAccount(s.T(), client, &service.Account{
-					Name:     "kiro-non-edge",
-					Platform: service.PlatformAnthropic,
-					Type:     service.AccountTypeAPIKey,
-					Credentials: map[string]any{
-						"api_key":         "key",
-						"base_url":        "https://api.anthropic.com",
-						"mirror_platform": "kiro",
-					},
-				})
-			},
-			platform:  service.AccountListPlatformKiroStubFilter,
-			wantCount: 1,
-			validate: func(accounts []service.Account) {
-				s.Require().Equal("kiro-stub", accounts[0].Name)
-				s.Require().Equal(service.PlatformAnthropic, accounts[0].Platform)
-				s.Require().Equal(service.AccountTypeAPIKey, accounts[0].Type)
 			},
 		},
 		{
@@ -490,7 +440,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			// 每个 case 重新获取隔离资源
 			tx := testEntTx(s.T())
 			client := tx.Client()
-			repo := newAccountRepositoryWithSQL(client, tx, nil, nil)
+			repo := newAccountRepositoryWithSQL(client, tx, nil)
 			ctx := context.Background()
 
 			tt.setup(client)
@@ -570,52 +520,6 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Equal(proxy.ID, accounts[0].Proxy.ID)
 	s.Require().Len(accounts[0].GroupIDs, 1, "expected GroupIDs in list")
 	s.Require().Equal(group.ID, accounts[0].GroupIDs[0])
-}
-
-// TestPreload_SkipsDisabledProxy asserts upstream #2159: when an account is
-// bound to a proxy that has been disabled (status != "active"), the proxy
-// must NOT be attached to the account on load. account.Proxy stays nil so
-// outbound forwarding falls back to direct upstream (which is operator intent
-// for "disable this proxy"), rather than continuing to route through a proxy
-// the operator explicitly turned off.
-func (s *AccountRepoSuite) TestPreload_SkipsDisabledProxy() {
-	disabledProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "p-disabled", Status: "disabled"})
-	activeProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "p-active"})
-
-	accDisabled := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name:    "acc-with-disabled-proxy",
-		ProxyID: &disabledProxy.ID,
-	})
-	accActive := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name:    "acc-with-active-proxy",
-		ProxyID: &activeProxy.ID,
-	})
-
-	// Disabled proxy: account.ProxyID still records the binding for admin UI,
-	// but account.Proxy must be nil so callers skip proxy routing at runtime.
-	gotDisabled, err := s.repo.GetByID(s.ctx, accDisabled.ID)
-	s.Require().NoError(err, "GetByID disabled-proxy account")
-	s.Require().NotNil(gotDisabled.ProxyID, "ProxyID binding preserved on the account record")
-	s.Require().Equal(disabledProxy.ID, *gotDisabled.ProxyID)
-	s.Require().Nil(gotDisabled.Proxy, "disabled proxy must not be attached to account at load")
-
-	// Active proxy: normal preload.
-	gotActive, err := s.repo.GetByID(s.ctx, accActive.ID)
-	s.Require().NoError(err, "GetByID active-proxy account")
-	s.Require().NotNil(gotActive.Proxy, "active proxy must be attached as before")
-	s.Require().Equal(activeProxy.ID, gotActive.Proxy.ID)
-
-	// Same behavior on list paths.
-	accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "", 0, "")
-	s.Require().NoError(err, "ListWithFilters")
-	byID := make(map[int64]service.Account, len(accounts))
-	for _, a := range accounts {
-		byID[a.ID] = a
-	}
-	s.Require().Contains(byID, accDisabled.ID)
-	s.Require().Contains(byID, accActive.ID)
-	s.Require().Nil(byID[accDisabled.ID].Proxy, "list path must also skip disabled proxy")
-	s.Require().NotNil(byID[accActive.ID].Proxy, "list path must still attach active proxy")
 }
 
 // --- GroupBinding / AddToGroup / RemoveFromGroup / BindGroups / GetGroups ---
@@ -1190,32 +1094,6 @@ func (s *AccountRepoSuite) TestBulkUpdate_EmptyUpdates() {
 	affected, err := s.repo.BulkUpdate(s.ctx, []int64{a1.ID}, service.AccountBulkUpdate{})
 	s.Require().NoError(err)
 	s.Require().Zero(affected)
-}
-
-func (s *AccountRepoSuite) TestSumConcurrencyAnthropic_FilterByPlatformAndSchedulable() {
-	mustCreateAccount(s.T(), s.client, &service.Account{
-		Name: "sum-auth-4", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Concurrency: 4,
-	})
-	mustCreateAccount(s.T(), s.client, &service.Account{
-		Name: "sum-auth-5", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Concurrency: 5,
-	})
-	mustCreateAccount(s.T(), s.client, &service.Account{
-		Name: "sum-apikey-big", Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Concurrency: 900,
-	})
-	mustCreateAccount(s.T(), s.client, &service.Account{
-		Name: "sum-openai-oauth", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Concurrency: 800,
-	})
-	// Non-schedulable anthropic row must be excluded from the operator-concurrency
-	// sum (mirrors ops/anthropic operator SQL: AND schedulable = true). The fixture
-	// forces schedulable=true, so flip it directly afterwards.
-	unsched := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name: "sum-anthropic-unsched", Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Concurrency: 50,
-	})
-	s.Require().NoError(s.client.Account.UpdateOneID(unsched.ID).SetSchedulable(false).Exec(s.ctx))
-
-	got, err := s.repo.SumConcurrencyAnthropic(s.ctx)
-	s.Require().NoError(err)
-	s.Require().EqualValues(4+5+900, got)
 }
 
 func idsOfAccounts(accounts []service.Account) []int64 {

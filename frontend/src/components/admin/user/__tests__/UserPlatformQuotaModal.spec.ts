@@ -79,19 +79,6 @@ describe('UserPlatformQuotaModal', () => {
     expect(apiMocks.getPlatformQuotas).toHaveBeenCalledWith(99)
   })
 
-  // Regression (#900 lazyMount): UsersView lazy-mounts this modal, so on first open
-  // it is CREATED with show already true. A non-immediate show-watch never fires for
-  // that mount → quotas never load. onMounted must load on the already-shown initial
-  // mount. NOTE: mounted with show:true from the start (NOT toggled via mountAndOpen).
-  it('首开惰性挂载（创建即 show=true）也加载，而不仅在 show 切换时', async () => {
-    const w = mount(UserPlatformQuotaModal, {
-      props: { show: true, user: makeUser() },
-    })
-    await flushPromises()
-    expect(apiMocks.getPlatformQuotas).toHaveBeenCalledWith(99)
-    w.unmount()
-  })
-
   it('空数据渲染 4 个 platform 行', async () => {
     const w = await mountAndOpen()
     const html = w.html()

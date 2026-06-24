@@ -37,14 +37,14 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	require.True(t, pricing.SupportsServiceTier)
 }
 
-func TestGetModelPricing_Gpt53CodexSparkUsesDedicatedSparkPricing(t *testing.T) {
+func TestGetModelPricing_Gpt53CodexSparkUsesGpt51CodexPricing(t *testing.T) {
 	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 1}
 	gpt53Pricing := &LiteLLMModelPricing{InputCostPerToken: 9}
 
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.3-codex-spark": sparkPricing,
-			"gpt-5.3":             gpt53Pricing,
+			"gpt-5.1-codex": sparkPricing,
+			"gpt-5.3":       gpt53Pricing,
 		},
 	}
 
@@ -52,61 +52,42 @@ func TestGetModelPricing_Gpt53CodexSparkUsesDedicatedSparkPricing(t *testing.T) 
 	require.Same(t, sparkPricing, got)
 }
 
-func TestGetModelPricing_Gpt53CodexFallbackUsesGpt52(t *testing.T) {
-	gpt52Pricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+func TestGetModelPricing_Gpt53CodexFallbackStillUsesGpt52Codex(t *testing.T) {
+	gpt52CodexPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.2": gpt52Pricing,
+			"gpt-5.2-codex": gpt52CodexPricing,
 		},
 	}
 
 	got := svc.GetModelPricing("gpt-5.3-codex")
-	require.Same(t, gpt52Pricing, got)
-}
-
-func TestCalculateCost_ClaudeDotFormMatchesDashFormFamilyPricing(t *testing.T) {
-	sonnetPricing := &LiteLLMModelPricing{InputCostPerToken: 3e-6}
-	opusPricing := &LiteLLMModelPricing{InputCostPerToken: 5e-6}
-
-	pricing := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"claude-sonnet-4-5-20250929": sonnetPricing,
-			"claude-opus-4-5-20251101":   opusPricing,
-		},
-	}
-	billing := NewBillingService(nil, pricing)
-
-	sonnetCost, err := billing.CalculateCost("claude-sonnet-4.5", UsageTokens{InputTokens: 1000}, 1.0)
-	require.NoError(t, err)
-	require.InDelta(t, 0.003, sonnetCost.TotalCost, 1e-12)
-
-	opusCost, err := billing.CalculateCost("claude-opus-4.5", UsageTokens{InputTokens: 1000}, 1.0)
-	require.NoError(t, err)
-	require.InDelta(t, 0.005, opusCost.TotalCost, 1e-12)
+	require.Same(t, gpt52CodexPricing, got)
 }
 
 func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
-	gpt52Pricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+	gpt52CodexPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.2": gpt52Pricing,
+			"gpt-5.2-codex": gpt52CodexPricing,
 		},
 	}
 
 	got := svc.GetModelPricing("gpt-5.3-codex")
-	require.Same(t, gpt52Pricing, got)
+	require.Same(t, gpt52CodexPricing, got)
 
-	require.True(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.2", "info"))
-	require.False(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.2", "warn"))
+	require.True(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.2-codex", "info"))
+	require.False(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.2-codex", "warn"))
 }
 
 func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) {
 	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{},
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": &LiteLLMModelPricing{InputCostPerToken: 1.25e-6},
+		},
 	}
 
 	got := svc.GetModelPricing("gpt-5.4")
@@ -150,7 +131,9 @@ func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 
 func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
 	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{},
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
 	}
 
 	got := svc.GetModelPricing("gpt-5.4-mini")
@@ -307,105 +290,4 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	got := svc.ListModelNamesByProvider("openai")
 	require.NotNil(t, got)
 	require.Empty(t, got)
-}
-
-func TestGetModelPricing_BareNameMatchesProviderPrefixedHighestPrice(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gemini/imagen-4.0-generate-001":    {OutputCostPerImage: 0.04, Mode: "image_generation"},
-			"vertex_ai/imagen-4.0-generate-001": {OutputCostPerImage: 0.06, Mode: "image_generation"},
-		},
-	}
-	got := svc.GetModelPricing("imagen-4.0-generate-001")
-	require.NotNil(t, got)
-	// 多 provider 命中取最高价（保守计费）
-	require.InDelta(t, 0.06, got.OutputCostPerImage, 1e-12)
-}
-
-func TestGetModelPricing_BareNameMatchesMultiSegmentPrefix(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"aiml/google/imagen-4.0-ultra-generate-001": {OutputCostPerImage: 0.05, Mode: "image_generation"},
-		},
-	}
-	got := svc.GetModelPricing("imagen-4.0-ultra-generate-001")
-	require.NotNil(t, got)
-	require.InDelta(t, 0.05, got.OutputCostPerImage, 1e-12)
-}
-
-func TestGetModelPricing_VideoBareNameMatchesPerSecondHighestPrice(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gemini/veo-3.1-generate-preview":    {OutputCostPerSecond: 0.40, Mode: "video_generation"},
-			"vertex_ai/veo-3.1-generate-preview": {OutputCostPerSecond: 0.30, Mode: "video_generation"},
-		},
-	}
-	got := svc.GetModelPricing("veo-3.1-generate-preview")
-	require.NotNil(t, got)
-	require.InDelta(t, 0.40, got.OutputCostPerSecond, 1e-12)
-}
-
-func TestGetModelPricing_ProviderPrefixFallbackNoFalseMatch(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gemini/imagen-4.0-generate-001": {OutputCostPerImage: 0.04},
-		},
-	}
-	require.Nil(t, svc.GetModelPricing("nonexistent-model-xyz"))
-}
-
-func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {
-	svc := &PricingService{}
-	data, err := svc.parsePricingData([]byte(`{
-		"gemini/veo-3.1-generate-preview": {
-			"output_cost_per_second": 0.4,
-			"litellm_provider": "gemini",
-			"mode": "video_generation"
-		}
-	}`))
-	require.NoError(t, err)
-	require.NotNil(t, data["gemini/veo-3.1-generate-preview"])
-	require.InDelta(t, 0.4, data["gemini/veo-3.1-generate-preview"].OutputCostPerSecond, 1e-12)
-}
-
-// TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia proves the
-// load-bearing production path: the runtime source (Wei-Shaw mirror) carries NO
-// imagen/veo entries at all — not bare, not provider-prefixed — yet imagen-*/veo-*
-// must still resolve to a real price via the always-merged TK overlay. This is what
-// makes the feature work in prod (matchByProviderPrefix has nothing to match there).
-func TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia(t *testing.T) {
-	svc := &PricingService{}
-	// Wei-Shaw-shaped source: only mainstream token models, no media, no "/" keys.
-	body := []byte(`{
-		"gpt-4o": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.00001, "litellm_provider": "openai"},
-		"claude-3-7-sonnet-20250219": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "anthropic"}
-	}`)
-	pricingData, err := svc.parsePricingData(body)
-	require.NoError(t, err)
-	svc.pricingData = pricingData
-
-	img := svc.GetModelPricing("imagen-4.0-generate-001")
-	require.NotNil(t, img, "overlay must supply imagen even when the source lacks it")
-	require.Equal(t, "image_generation", img.Mode)
-	require.Greater(t, img.OutputCostPerImage, 0.0)
-
-	vid := svc.GetModelPricing("veo-3.1-generate-001")
-	require.NotNil(t, vid, "overlay must supply veo even when the source lacks it")
-	require.Equal(t, "video_generation", vid.Mode)
-	require.Greater(t, vid.OutputCostPerSecond, 0.0)
-}
-
-// TestParsePricingData_TKMediaOverlayIsFillOnly proves the overlay never overwrites
-// the loaded source: the day the source carries a bare media key natively, the source
-// value wins and the overlay entry is ignored (self-deprecating).
-func TestParsePricingData_TKMediaOverlayIsFillOnly(t *testing.T) {
-	svc := &PricingService{}
-	body := []byte(`{
-		"imagen-4.0-generate-001": {"output_cost_per_image": 0.99, "mode": "image_generation", "litellm_provider": "vertex_ai"}
-	}`)
-	pricingData, err := svc.parsePricingData(body)
-	require.NoError(t, err)
-	got := pricingData["imagen-4.0-generate-001"]
-	require.NotNil(t, got)
-	require.InDelta(t, 0.99, got.OutputCostPerImage, 1e-12) // source wins, not the overlay's value
 }

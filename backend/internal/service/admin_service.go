@@ -151,9 +151,6 @@ type UpdateUserInput struct {
 	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
 	Status        string
 	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
-	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。
-	// 指针区分"未提供"（不改动）与显式 true/false。
-	TrajExportEnabled *bool
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64
@@ -230,14 +227,9 @@ type CreateGroupInput struct {
 	RequireOAuthOnly            bool
 	RequirePrivacySet           bool
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
-	// 上游 prompt cache 粘性路由策略 (auto | passthrough | off)；空字符串视为默认 auto。
-	StickyRoutingMode string
-	ModelsListConfig  GroupModelsListConfig
+	ModelsListConfig            GroupModelsListConfig
 	// RPMLimit 分组 RPM 上限（0 = 不限制）
 	RPMLimit int
-	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）
-	MessagesCompactionEnabled              *bool
-	MessagesCompactionInputTokensThreshold *int
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -276,14 +268,9 @@ type UpdateGroupInput struct {
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig
-	// 上游 prompt cache 粘性路由策略 (auto | passthrough | off)；nil = 不修改。
-	StickyRoutingMode *string
-	ModelsListConfig  *GroupModelsListConfig
+	ModelsListConfig            *GroupModelsListConfig
 	// RPMLimit 分组 RPM 上限（0 = 不限制），nil 表示未提供不改动。
 	RPMLimit *int
-	// OpenAI /v1/messages 自动压缩策略（nil = 未提供不改动）
-	MessagesCompactionEnabled              *bool
-	MessagesCompactionInputTokensThreshold *int
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -298,7 +285,6 @@ type CreateAccountInput struct {
 	ProxyID            *int64
 	Concurrency        int
 	Priority           int
-	ChannelType        int
 	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor         *int
 	GroupIDs           []int64
@@ -318,17 +304,15 @@ type UpdateAccountInput struct {
 	Credentials           map[string]any
 	Extra                 map[string]any
 	ProxyID               *int64
-	Concurrency           *int // 使用指针区分"未提供"和"设置为0"
-	Priority              *int // 使用指针区分"未提供"和"设置为0"
-	ChannelType           *int
+	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
+	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor            *int
 	Status                string
 	GroupIDs              *[]int64
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
-	SkipMixedChannelCheck bool   // 跳过混合渠道检查（用户已确认风险）
-	TierID                *int64 // TK: bind anthropic-oauth stability tier (tiers table); 0 clears
+	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
@@ -573,10 +557,6 @@ type adminServiceImpl struct {
 	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
-	// availability gates the model-whitelist candidate list on live
-	// model_availability so the admin selector self-heals (a structurally-gone
-	// model auto-drops). Nil-safe (degrades to no pruning). R-003 / PR #752.
-	availability MePricingAvailability
 }
 
 type userGroupRateBatchReader interface {
@@ -603,12 +583,7 @@ func NewAdminService(
 	userSubRepo UserSubscriptionRepository,
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
-	availability *PricingAvailabilityService,
 ) AdminService {
-	var avail MePricingAvailability
-	if availability != nil {
-		avail = availability
-	}
 	return &adminServiceImpl{
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
@@ -628,21 +603,7 @@ func NewAdminService(
 		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
-		availability:         avail,
 	}
-}
-
-func (s *adminServiceImpl) syncAnthropicOperatorConcurrency(ctx context.Context) error {
-	if s.accountRepo == nil || s.userRepo == nil {
-		return nil
-	}
-	if err := SyncAnthropicOperatorConcurrency(ctx, s.accountRepo, s.userRepo); err != nil {
-		return err
-	}
-	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, AnthropicOperatorConcurrencyUserID)
-	}
-	return nil
 }
 
 // User management implementations
@@ -830,10 +791,6 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	if input.RPMLimit != nil {
 		user.RPMLimit = *input.RPMLimit
-	}
-
-	if input.TrajExportEnabled != nil {
-		user.TrajExportEnabled = *input.TrajExportEnabled
 	}
 
 	if input.AllowedGroups != nil {
@@ -1773,10 +1730,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		platform = PlatformAnthropic
 	}
 
-	// Self-healing source (R-003): empirically-servable allowlist + live
-	// model_availability pruning, instead of the canonical defaults (which still
-	// list retired / access-gated models). per-platform truth is preserved.
-	candidates := tkServableCandidateIDs(ctx, platform, s.availability)
+	candidates := defaultModelsListCandidateIDs(platform)
 	if id <= 0 || s.accountRepo == nil {
 		return candidates, nil
 	}
@@ -1923,38 +1877,35 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	group := &Group{
-		Name:                                   input.Name,
-		Description:                            input.Description,
-		Platform:                               platform,
-		RateMultiplier:                         input.RateMultiplier,
-		IsExclusive:                            input.IsExclusive,
-		Status:                                 StatusActive,
-		SubscriptionType:                       subscriptionType,
-		DailyLimitUSD:                          dailyLimit,
-		WeeklyLimitUSD:                         weeklyLimit,
-		MonthlyLimitUSD:                        monthlyLimit,
-		AllowImageGeneration:                   input.AllowImageGeneration,
-		ImageRateIndependent:                   input.ImageRateIndependent,
-		ImageRateMultiplier:                    imageRateMultiplier,
-		ImagePrice1K:                           imagePrice1K,
-		ImagePrice2K:                           imagePrice2K,
-		ImagePrice4K:                           imagePrice4K,
-		ClaudeCodeOnly:                         input.ClaudeCodeOnly,
-		FallbackGroupID:                        input.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest:        fallbackOnInvalidRequest,
-		ModelRouting:                           input.ModelRouting,
-		MCPXMLInject:                           mcpXMLInject,
-		SupportedModelScopes:                   input.SupportedModelScopes,
-		AllowMessagesDispatch:                  input.AllowMessagesDispatch,
-		RequireOAuthOnly:                       input.RequireOAuthOnly,
-		RequirePrivacySet:                      input.RequirePrivacySet,
-		DefaultMappedModel:                     input.DefaultMappedModel,
-		MessagesDispatchModelConfig:            normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
-		StickyRoutingMode:                      input.StickyRoutingMode,
-		ModelsListConfig:                       normalizeGroupModelsListConfig(input.ModelsListConfig),
-		RPMLimit:                               input.RPMLimit,
-		MessagesCompactionEnabled:              input.MessagesCompactionEnabled,
-		MessagesCompactionInputTokensThreshold: input.MessagesCompactionInputTokensThreshold,
+		Name:                            input.Name,
+		Description:                     input.Description,
+		Platform:                        platform,
+		RateMultiplier:                  input.RateMultiplier,
+		IsExclusive:                     input.IsExclusive,
+		Status:                          StatusActive,
+		SubscriptionType:                subscriptionType,
+		DailyLimitUSD:                   dailyLimit,
+		WeeklyLimitUSD:                  weeklyLimit,
+		MonthlyLimitUSD:                 monthlyLimit,
+		AllowImageGeneration:            input.AllowImageGeneration,
+		ImageRateIndependent:            input.ImageRateIndependent,
+		ImageRateMultiplier:             imageRateMultiplier,
+		ImagePrice1K:                    imagePrice1K,
+		ImagePrice2K:                    imagePrice2K,
+		ImagePrice4K:                    imagePrice4K,
+		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
+		FallbackGroupID:                 input.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
+		ModelRouting:                    input.ModelRouting,
+		MCPXMLInject:                    mcpXMLInject,
+		SupportedModelScopes:            input.SupportedModelScopes,
+		AllowMessagesDispatch:           input.AllowMessagesDispatch,
+		RequireOAuthOnly:                input.RequireOAuthOnly,
+		RequirePrivacySet:               input.RequirePrivacySet,
+		DefaultMappedModel:              input.DefaultMappedModel,
+		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
+		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
+		RPMLimit:                        input.RPMLimit,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 	if err := s.groupRepo.Create(ctx, group); err != nil {
@@ -2201,20 +2152,11 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.MessagesDispatchModelConfig != nil {
 		group.MessagesDispatchModelConfig = normalizeOpenAIMessagesDispatchModelConfig(*input.MessagesDispatchModelConfig)
 	}
-	if input.StickyRoutingMode != nil {
-		group.StickyRoutingMode = *input.StickyRoutingMode
-	}
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit
-	}
-	if input.MessagesCompactionEnabled != nil {
-		group.MessagesCompactionEnabled = input.MessagesCompactionEnabled
-	}
-	if input.MessagesCompactionInputTokensThreshold != nil {
-		group.MessagesCompactionInputTokensThreshold = input.MessagesCompactionInputTokensThreshold
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 
@@ -2366,18 +2308,6 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 			return fmt.Errorf("rate_multiplier must be > 0 (user_id=%d)", e.UserID)
 		}
 	}
-	// 专属分组：先确保 entries 中的用户拥有 allowed_groups 成员资格，再写入专属倍率。
-	// 否则「在分组页通过专属倍率添加用户」只写了 user_group_rate 行、未授予访问权，用户页的
-	// 专属分组复选框仍未勾选（必须重新指定），用户实际也无法绑定该专属分组（CanBindGroup）。
-	// 先授权后写倍率：任一步失败都不会留下「有倍率无访问」的不一致态。
-	userIDs := make([]int64, 0, len(entries))
-	for _, e := range entries {
-		userIDs = append(userIDs, e.UserID)
-	}
-	// TK(exclusive-membership rate-path): keep this hook on upstream merge — pinned by scripts/sentinels/gateway-tk.json
-	if err := s.grantExclusiveGroupMembership(ctx, groupID, userIDs); err != nil {
-		return err
-	}
 	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
 }
 
@@ -2404,19 +2334,6 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupI
 			return infraerrors.BadRequest("INVALID_RPM_OVERRIDE", fmt.Sprintf("rpm_override must be >= 0 (user_id=%d)", e.UserID))
 		}
 	}
-	// 专属分组：为被设置 rpm_override（非清空）的用户补齐 allowed_groups 成员资格，
-	// 与专属倍率保持同一语义——在分组页给某用户设专属配置即视为加入该专属分组。
-	// nil（清空）条目不授权。
-	userIDs := make([]int64, 0, len(entries))
-	for _, e := range entries {
-		if e.RPMOverride != nil {
-			userIDs = append(userIDs, e.UserID)
-		}
-	}
-	// TK(exclusive-membership rpm-path): keep this hook on upstream merge — pinned by scripts/sentinels/gateway-tk.json
-	if err := s.grantExclusiveGroupMembership(ctx, groupID, userIDs); err != nil {
-		return err
-	}
 	if err := s.userGroupRateRepo.SyncGroupRPMOverrides(ctx, groupID, entries); err != nil {
 		return err
 	}
@@ -2427,86 +2344,8 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupI
 	return nil
 }
 
-// grantExclusiveGroupMembership 为指定用户增量授予某专属标准分组的 allowed_groups 成员资格。
-//
-// 背景：分组页的「专属倍率 / RPM 覆盖」弹窗只写 user_group_rate 表，而专属分组的访问权由
-// user_allowed_groups 边（user.AllowedGroups）控制。两者各自独立存储，导致「在分组页通过专属
-// 倍率添加用户」后，用户页的专属分组复选框仍未勾选、用户实际也无法绑定该专属分组。本方法把
-// 「在分组页设置专属配置」与「成为该专属分组成员」对齐，复用 AdminUpdateAPIKeyGroupID /
-// ReplaceUserGroup 既有的授权语义（s.userRepo.AddGroupToAllowedGroups 幂等、冲突忽略）。
-//
-// 仅追加、从不撤销：使用默认倍率的成员在 user_group_rate 中没有行、不会出现在弹窗列表里，
-// 若按列表反向同步成员资格会误删这些成员。成员资格的移除仍由用户页（唯一权威入口）负责。
-// 仅对专属且非订阅型的标准分组生效：公开分组人人可用、订阅型分组走订阅授权。
-// groupRepo / userRepo 为 nil（部分单测仅装配 userGroupRateRepo）时安全降级为 no-op。
-func (s *adminServiceImpl) grantExclusiveGroupMembership(ctx context.Context, groupID int64, userIDs []int64) error {
-	if len(userIDs) == 0 || s.groupRepo == nil || s.userRepo == nil {
-		return nil
-	}
-	group, err := s.groupRepo.GetByID(ctx, groupID)
-	if err != nil {
-		return err
-	}
-	if !group.IsExclusive || group.IsSubscriptionType() {
-		return nil
-	}
-
-	// 去重，避免对同一用户重复 upsert。
-	seen := make(map[int64]struct{}, len(userIDs))
-	uniqueIDs := make([]int64, 0, len(userIDs))
-	for _, uid := range userIDs {
-		if _, ok := seen[uid]; ok {
-			continue
-		}
-		seen[uid] = struct{}{}
-		uniqueIDs = append(uniqueIDs, uid)
-	}
-
-	// 事务保证多用户授权的原子性（与 ReplaceUserGroup 一致；entClient 为 nil 时降级为无事务）。
-	opCtx := ctx
-	var tx *dbent.Tx
-	if s.entClient != nil {
-		var txErr error
-		tx, txErr = s.entClient.Tx(ctx)
-		if txErr != nil {
-			return fmt.Errorf("begin transaction: %w", txErr)
-		}
-		defer func() { _ = tx.Rollback() }()
-		opCtx = dbent.NewTxContext(ctx, tx)
-	}
-	for _, uid := range uniqueIDs {
-		if err := s.userRepo.AddGroupToAllowedGroups(opCtx, uid, groupID); err != nil {
-			return fmt.Errorf("add group %d to user %d allowed groups: %w", groupID, uid, err)
-		}
-	}
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit transaction: %w", err)
-		}
-	}
-
-	// allowed_groups 参与 API Key 鉴权（CanBindGroup），提交后失效受影响用户的鉴权缓存。
-	if s.authCacheInvalidator != nil {
-		for _, uid := range uniqueIDs {
-			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, uid)
-		}
-	}
-	return nil
-}
-
 func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error {
-	if err := s.groupRepo.UpdateSortOrders(ctx, updates); err != nil {
-		return err
-	}
-	if s.authCacheInvalidator != nil {
-		for _, u := range updates {
-			if u.ID <= 0 {
-				continue
-			}
-			s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, u.ID)
-		}
-	}
-	return nil
+	return s.groupRepo.UpdateSortOrders(ctx, updates)
 }
 
 // AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定
@@ -2764,15 +2603,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		ProxyID:     input.ProxyID,
 		Concurrency: input.Concurrency,
 		Priority:    input.Priority,
-		ChannelType: input.ChannelType,
 		Status:      StatusActive,
 		Schedulable: true,
-	}
-	if input.ChannelType < 0 {
-		return nil, errors.New("channel_type must be >= 0")
-	}
-	if input.Platform == PlatformNewAPI && input.ChannelType <= 0 {
-		return nil, errors.New("channel_type must be > 0 for newapi platform")
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
@@ -2802,18 +2634,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			return nil, errors.New("load_factor must be <= 10000")
 		}
 		account.LoadFactor = input.LoadFactor
-	}
-	// Bug B: pin newapi/Moonshot accounts to the regional base URL whose key
-	// actually authenticates, so the relay hot path doesn't need 401 fallback.
-	// See admin_service_tk_newapi_save.go for the full rationale.
-	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
-		return nil, err
-	}
-	// Grok (seventh platform): validate + prime the OAuth token at create time so a
-	// pasted refresh_token "just works" (green check) or is rejected with the exact
-	// xAI reason. See admin_service_tk_grok_save.go.
-	if err := resolveGrokTokenOnSave(ctx, account); err != nil {
-		return nil, err
 	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
@@ -2849,10 +2669,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 				s.EnsureAntigravityPrivacy(context.Background(), account)
 			}()
 		}
-	}
-
-	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
-		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 
 	return account, nil
@@ -2924,28 +2740,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Priority != nil {
 		account.Priority = *input.Priority
 	}
-	if input.ChannelType != nil {
-		if *input.ChannelType < 0 {
-			return nil, errors.New("channel_type must be >= 0")
-		}
-		if account.Platform == PlatformNewAPI && *input.ChannelType <= 0 {
-			return nil, errors.New("channel_type must be > 0 for newapi platform")
-		}
-		account.ChannelType = *input.ChannelType
-	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier < 0 {
 			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		account.RateMultiplier = input.RateMultiplier
-	}
-	if input.TierID != nil {
-		// 0 表示解绑 tier（清空），>0 绑定具体档位。
-		if *input.TierID <= 0 {
-			account.TierID = nil
-		} else {
-			account.TierID = input.TierID
-		}
 	}
 	if input.LoadFactor != nil {
 		if *input.LoadFactor <= 0 {
@@ -2985,27 +2784,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
-	// Bug B (UpdateAccount path): re-resolve Moonshot region whenever the
-	// admin saves credential changes. Two save flows hit this path:
-	//   - admin edits api_key → key may now belong to the other region.
-	//   - admin edits base_url → user may have switched between cn/ai roots.
-	// In both cases we want the persisted base_url to match the region whose
-	// key authenticates, mirroring CreateAccount's behavior. See
-	// admin_service_tk_newapi_save.go for the full rationale.
-	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
-		return nil, err
-	}
-	// Grok (seventh platform): when the admin re-pastes a refresh_token on edit
-	// (credential rotation after invalid_grant), re-validate + re-prime it with a
-	// live xAI refresh, exactly like create. Gated on the refresh_token being
-	// re-provided in THIS update so an unrelated edit (a blank field = "keep
-	// current") isn't blocked by a transient xAI outage. See admin_service_tk_grok_save.go.
-	if account.Platform == PlatformGrok && tkInputHasNonEmptyCredential(input.Credentials, "refresh_token") {
-		if err := resolveGrokTokenOnSave(ctx, account); err != nil {
-			return nil, err
-		}
-	}
-
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, err
 	}
@@ -3021,9 +2799,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
-		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 	return updated, nil
 }
@@ -3160,10 +2935,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		result.Results = append(result.Results, entry)
 	}
 
-	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
-		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
-	}
-
 	return result, nil
 }
 
@@ -3219,9 +2990,6 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 	if err := s.accountRepo.Delete(ctx, id); err != nil {
 		return err
-	}
-	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
-		return fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 	return nil
 }

@@ -8,19 +8,13 @@
       >
         <div class="grid grid-cols-2 gap-1.5">
           <span
-            v-for="model in selectedModels"
+            v-for="model in modelValue"
             :key="model"
             class="inline-flex items-center justify-between gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
           >
             <span class="flex items-center gap-1 truncate">
               <ModelIcon :model="model" size="14px" />
               <span class="truncate">{{ model }}</span>
-              <span
-                v-if="pricingStatusByModel[model]"
-                :class="pricingStatusClass(pricingStatusByModel[model])"
-              >
-                {{ pricingStatusLabel(pricingStatusByModel[model]) }}
-              </span>
             </span>
             <button
               type="button"
@@ -32,7 +26,7 @@
           </span>
         </div>
         <div class="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
-          <span class="text-xs text-gray-400">{{ t('admin.accounts.modelCount', { count: selectedModels.length }) }}</span>
+          <span class="text-xs text-gray-400">{{ t('admin.accounts.modelCount', { count: modelValue.length }) }}</span>
           <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
@@ -63,23 +57,17 @@
             <span
               :class="[
                 'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                selectedModels.includes(model.value)
+                modelValue.includes(model.value)
                   ? 'border-primary-500 bg-primary-500 text-white'
                   : 'border-gray-300 dark:border-dark-500'
               ]"
             >
-              <svg v-if="selectedModels.includes(model.value)" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg v-if="modelValue.includes(model.value)" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
               </svg>
             </span>
             <ModelIcon :model="model.value" size="18px" />
             <span class="truncate text-gray-900 dark:text-white">{{ model.value }}</span>
-            <span
-              v-if="pricingStatusByModel[model.value]"
-              :class="pricingStatusClass(pricingStatusByModel[model.value])"
-            >
-              {{ pricingStatusLabel(pricingStatusByModel[model.value]) }}
-            </span>
           </button>
           <div v-if="filteredModels.length === 0" class="px-3 py-4 text-center text-sm text-gray-500">
             {{ t('admin.accounts.noMatchingModels') }}
@@ -141,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -149,25 +137,21 @@ import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
-import { useServableModels, apiBackedPlatforms } from '@/composables/useServableModels'
 
 const { t } = useI18n()
 
-const props = withDefaults(defineProps<{
-  modelValue: unknown[]
+const props = defineProps<{
+  modelValue: string[]
   platform?: string
   platforms?: string[]
   accountId?: number
-  pricingStatusByModel?: Record<string, 'priced' | 'missing' | undefined>
   syncCredentials?: {
     platform: string
     type: string
     base_url?: string
     api_key: string
   }
-}>(), {
-  pricingStatusByModel: () => ({})
-})
+}>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
@@ -180,27 +164,6 @@ const searchQuery = ref('')
 const customModel = ref('')
 const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
-
-const modelID = (value: unknown): string => {
-  if (typeof value === 'string') return value.trim()
-  if (value && typeof value === 'object') {
-    const raw = (value as Record<string, unknown>).id
-    return typeof raw === 'string' ? raw.trim() : ''
-  }
-  return ''
-}
-
-const selectedModels = computed(() => {
-  const seen = new Set<string>()
-  return (props.modelValue || [])
-    .map(modelID)
-    .filter((model) => {
-      if (!model || seen.has(model)) return false
-      seen.add(model)
-      return true
-    })
-})
-
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
     props.platforms && props.platforms.length > 0
@@ -230,49 +193,19 @@ const canSyncUpstream = computed(() => {
   return false
 })
 
-// Effective platforms to offer candidates for: the selected platform(s), or —
-// when none is specified (e.g. RiskControlView's global model filter) — every
-// API-backed platform, so the no-platform case still shows the main
-// claude/openai/gemini/antigravity models (plus the static long-tail via
-// allModels below), not just the long-tail.
-const effectivePlatforms = computed(() =>
-  normalizedPlatforms.value.length > 0 ? normalizedPlatforms.value : [...apiBackedPlatforms]
-)
-
-// Fetch the self-healing candidate list for each effective API-backed platform;
-// long-tail platforms are a no-op. The reactive cache populated here feeds
-// getModelsByPlatform, so availableOptions re-evaluates when a fetch resolves.
-const { ensureLoaded } = useServableModels()
-watch(
-  effectivePlatforms,
-  (platforms) => platforms.forEach((platform) => { void ensureLoaded(platform) }),
-  { immediate: true }
-)
-
 const availableOptions = computed(() => {
-  // Build directly from the per-platform candidate lists (self-healing for
-  // API-backed platforms, static for the long-tail) — deduped, in platform order.
-  const seen = new Set<string>()
-  const options: { value: string; label: string }[] = []
-  for (const platform of effectivePlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
-      if (model && !seen.has(model)) {
-        seen.add(model)
-        options.push({ value: model, label: model })
-      }
-    }
-  }
-  // No-platform case: also fold in the static long-tail master list so the
-  // global filter sees every known model, not only the API-backed set.
   if (normalizedPlatforms.value.length === 0) {
-    for (const m of allModels) {
-      if (m.value && !seen.has(m.value)) {
-        seen.add(m.value)
-        options.push(m)
-      }
+    return allModels
+  }
+
+  const allowedModels = new Set<string>()
+  for (const platform of normalizedPlatforms.value) {
+    for (const model of getModelsByPlatform(platform)) {
+      allowedModels.add(model)
     }
   }
-  return options
+
+  return allModels.filter(model => allowedModels.has(model.value))
 })
 
 const filteredModels = computed(() => {
@@ -289,25 +222,25 @@ const toggleDropdown = () => {
 }
 
 const removeModel = (model: string) => {
-  emit('update:modelValue', selectedModels.value.filter(m => m !== model))
+  emit('update:modelValue', props.modelValue.filter(m => m !== model))
 }
 
 const toggleModel = (model: string) => {
-  if (selectedModels.value.includes(model)) {
+  if (props.modelValue.includes(model)) {
     removeModel(model)
   } else {
-    emit('update:modelValue', [...selectedModels.value, model])
+    emit('update:modelValue', [...props.modelValue, model])
   }
 }
 
 const addCustom = () => {
   const model = customModel.value.trim()
   if (!model) return
-  if (selectedModels.value.includes(model)) {
+  if (props.modelValue.includes(model)) {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
-  emit('update:modelValue', [...selectedModels.value, model])
+  emit('update:modelValue', [...props.modelValue, model])
   customModel.value = ''
 }
 
@@ -316,7 +249,7 @@ const handleEnter = () => {
 }
 
 const fillRelated = () => {
-  const newModels = [...selectedModels.value]
+  const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {
       if (!newModels.includes(model)) {
@@ -326,21 +259,6 @@ const fillRelated = () => {
   }
   emit('update:modelValue', newModels)
 }
-
-const pricingStatusByModel = computed(() => props.pricingStatusByModel || {})
-
-const pricingStatusLabel = (status: 'priced' | 'missing' | undefined) => {
-  if (status === 'priced') return t('admin.accounts.newApiPlatform.pricingStatusPriced')
-  if (status === 'missing') return t('admin.accounts.newApiPlatform.pricingStatusMissing')
-  return ''
-}
-
-const pricingStatusClass = (status: 'priced' | 'missing' | undefined) => [
-  'shrink-0 rounded px-1 py-0.5 text-[10px] font-medium leading-none',
-  status === 'priced'
-    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-]
 
 const syncUpstreamModels = async () => {
   if (isSyncingUpstream.value) return
@@ -363,7 +281,7 @@ const syncUpstreamModels = async () => {
       return
     }
 
-    const newModels = [...selectedModels.value]
+    const newModels = [...props.modelValue]
     let addedCount = 0
     for (const model of upstreamModels) {
       if (!newModels.includes(model)) {

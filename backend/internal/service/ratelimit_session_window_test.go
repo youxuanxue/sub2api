@@ -159,15 +159,6 @@ func (m *sessionWindowMockRepo) IncrementQuotaUsed(context.Context, int64, float
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) ResetQuotaUsed(context.Context, int64) error { panic("unexpected") }
-func (m *sessionWindowMockRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
-	panic("unexpected")
-}
-func (m *sessionWindowMockRepo) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	panic("unexpected")
-}
-func (m *sessionWindowMockRepo) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
-	panic("unexpected")
-}
 func (m *sessionWindowMockRepo) RevertProxyFallback(context.Context, int64) error {
 	panic("unexpected")
 }
@@ -335,21 +326,6 @@ func TestUpdateSessionWindow_ClearsUtilizationOnWindowReset(t *testing.T) {
 	clearCall := repo.updateExtraCalls[0]
 	if clearCall.Updates["session_window_utilization"] != nil {
 		t.Errorf("expected utilization cleared to nil, got %v", clearCall.Updates["session_window_utilization"])
-	}
-
-	// The 5h roll MUST NOT touch the independent 7d window family — clearing it on
-	// every 5h reset is what made 7d / 7d-S blank ~4-5x/day in the admin UI.
-	if _, ok := clearCall.Updates["passive_usage_7d_utilization"]; ok {
-		t.Errorf("5h roll must not clear passive_usage_7d_utilization")
-	}
-	if _, ok := clearCall.Updates["passive_usage_7d_reset"]; ok {
-		t.Errorf("5h roll must not clear passive_usage_7d_reset")
-	}
-	if _, ok := clearCall.Updates["passive_usage_7d_sonnet_utilization"]; ok {
-		t.Errorf("5h roll must not clear passive_usage_7d_sonnet_utilization")
-	}
-	if len(clearCall.Updates) != 1 {
-		t.Errorf("expected clear call to touch only session_window_utilization, got %v", clearCall.Updates)
 	}
 
 	// Second call: store new utilization

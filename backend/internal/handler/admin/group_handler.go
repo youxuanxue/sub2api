@@ -6,24 +6,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
-
-// groupUsageSummaryCache short-circuits the groups/usage-summary aggregation,
-// which scans usage_logs on every call (~85ms) and was previously the only
-// admin read path with no caching. A 30s TTL keyed by the local day boundary
-// means at most one aggregation per 30s regardless of how often the GroupsView
-// list refreshes (search/sort/paginate). "Today" totals being up to 30s stale
-// is fine for a dashboard summary. Mirrors the dashboard_query_cache pattern.
-var groupUsageSummaryCache = newSnapshotCache(30 * time.Second)
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
@@ -94,7 +84,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity newapi kiro grok"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -123,14 +113,9 @@ type CreateGroupRequest struct {
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
-	// 上游 prompt cache 粘性路由策略：auto | passthrough | off（详见 docs/approved/sticky-routing.md）
-	StickyRoutingMode string                        `json:"sticky_routing_mode" binding:"omitempty,oneof=auto passthrough off"`
-	ModelsListConfig  service.GroupModelsListConfig `json:"models_list_config"`
+	ModelsListConfig            service.GroupModelsListConfig             `json:"models_list_config"`
 	// 分组 RPM 上限（0 = 不限制）
 	RPMLimit int `json:"rpm_limit"`
-	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）
-	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
-	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 	// 从指定分组复制账号（创建后自动绑定）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
@@ -139,7 +124,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity newapi kiro grok"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -169,14 +154,9 @@ type UpdateGroupRequest struct {
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig *service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
-	// 上游 prompt cache 粘性路由策略：auto | passthrough | off（详见 docs/approved/sticky-routing.md）
-	StickyRoutingMode *string                        `json:"sticky_routing_mode" binding:"omitempty,oneof=auto passthrough off"`
-	ModelsListConfig  *service.GroupModelsListConfig `json:"models_list_config"`
+	ModelsListConfig            *service.GroupModelsListConfig             `json:"models_list_config"`
 	// 分组 RPM 上限（0 = 不限制）；nil 表示未提供不改动
 	RPMLimit *int `json:"rpm_limit"`
-	// OpenAI /v1/messages 自动压缩策略（nil = 未提供不改动）
-	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
-	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
@@ -298,39 +278,36 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
-		Name:                                   req.Name,
-		Description:                            req.Description,
-		Platform:                               req.Platform,
-		RateMultiplier:                         req.RateMultiplier,
-		IsExclusive:                            req.IsExclusive,
-		SubscriptionType:                       req.SubscriptionType,
-		DailyLimitUSD:                          req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                         req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                        req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:                   req.AllowImageGeneration,
-		ImageRateIndependent:                   req.ImageRateIndependent,
-		ImageRateMultiplier:                    req.ImageRateMultiplier,
-		ImagePrice1K:                           req.ImagePrice1K,
-		ImagePrice2K:                           req.ImagePrice2K,
-		ImagePrice4K:                           req.ImagePrice4K,
-		ClaudeCodeOnly:                         req.ClaudeCodeOnly,
-		FallbackGroupID:                        req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest:        req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                           req.ModelRouting,
-		ModelRoutingEnabled:                    req.ModelRoutingEnabled,
-		MCPXMLInject:                           req.MCPXMLInject,
-		SupportedModelScopes:                   req.SupportedModelScopes,
-		AllowMessagesDispatch:                  req.AllowMessagesDispatch,
-		RequireOAuthOnly:                       req.RequireOAuthOnly,
-		RequirePrivacySet:                      req.RequirePrivacySet,
-		DefaultMappedModel:                     req.DefaultMappedModel,
-		MessagesDispatchModelConfig:            req.MessagesDispatchModelConfig,
-		StickyRoutingMode:                      req.StickyRoutingMode,
-		ModelsListConfig:                       req.ModelsListConfig,
-		RPMLimit:                               req.RPMLimit,
-		MessagesCompactionEnabled:              req.MessagesCompactionEnabled,
-		MessagesCompactionInputTokensThreshold: req.MessagesCompactionInputTokensThreshold,
-		CopyAccountsFromGroupIDs:               req.CopyAccountsFromGroupIDs,
+		Name:                            req.Name,
+		Description:                     req.Description,
+		Platform:                        req.Platform,
+		RateMultiplier:                  req.RateMultiplier,
+		IsExclusive:                     req.IsExclusive,
+		SubscriptionType:                req.SubscriptionType,
+		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
+		AllowImageGeneration:            req.AllowImageGeneration,
+		ImageRateIndependent:            req.ImageRateIndependent,
+		ImageRateMultiplier:             req.ImageRateMultiplier,
+		ImagePrice1K:                    req.ImagePrice1K,
+		ImagePrice2K:                    req.ImagePrice2K,
+		ImagePrice4K:                    req.ImagePrice4K,
+		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
+		FallbackGroupID:                 req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                    req.ModelRouting,
+		ModelRoutingEnabled:             req.ModelRoutingEnabled,
+		MCPXMLInject:                    req.MCPXMLInject,
+		SupportedModelScopes:            req.SupportedModelScopes,
+		AllowMessagesDispatch:           req.AllowMessagesDispatch,
+		RequireOAuthOnly:                req.RequireOAuthOnly,
+		RequirePrivacySet:               req.RequirePrivacySet,
+		DefaultMappedModel:              req.DefaultMappedModel,
+		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
+		ModelsListConfig:                req.ModelsListConfig,
+		RPMLimit:                        req.RPMLimit,
+		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -356,40 +333,37 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
-		Name:                                   req.Name,
-		Description:                            req.Description,
-		Platform:                               req.Platform,
-		RateMultiplier:                         req.RateMultiplier,
-		IsExclusive:                            req.IsExclusive,
-		Status:                                 req.Status,
-		SubscriptionType:                       req.SubscriptionType,
-		DailyLimitUSD:                          req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                         req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                        req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:                   req.AllowImageGeneration,
-		ImageRateIndependent:                   req.ImageRateIndependent,
-		ImageRateMultiplier:                    req.ImageRateMultiplier,
-		ImagePrice1K:                           req.ImagePrice1K,
-		ImagePrice2K:                           req.ImagePrice2K,
-		ImagePrice4K:                           req.ImagePrice4K,
-		ClaudeCodeOnly:                         req.ClaudeCodeOnly,
-		FallbackGroupID:                        req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest:        req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                           req.ModelRouting,
-		ModelRoutingEnabled:                    req.ModelRoutingEnabled,
-		MCPXMLInject:                           req.MCPXMLInject,
-		SupportedModelScopes:                   req.SupportedModelScopes,
-		AllowMessagesDispatch:                  req.AllowMessagesDispatch,
-		RequireOAuthOnly:                       req.RequireOAuthOnly,
-		RequirePrivacySet:                      req.RequirePrivacySet,
-		DefaultMappedModel:                     req.DefaultMappedModel,
-		MessagesDispatchModelConfig:            req.MessagesDispatchModelConfig,
-		StickyRoutingMode:                      req.StickyRoutingMode,
-		ModelsListConfig:                       req.ModelsListConfig,
-		RPMLimit:                               req.RPMLimit,
-		MessagesCompactionEnabled:              req.MessagesCompactionEnabled,
-		MessagesCompactionInputTokensThreshold: req.MessagesCompactionInputTokensThreshold,
-		CopyAccountsFromGroupIDs:               req.CopyAccountsFromGroupIDs,
+		Name:                            req.Name,
+		Description:                     req.Description,
+		Platform:                        req.Platform,
+		RateMultiplier:                  req.RateMultiplier,
+		IsExclusive:                     req.IsExclusive,
+		Status:                          req.Status,
+		SubscriptionType:                req.SubscriptionType,
+		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
+		AllowImageGeneration:            req.AllowImageGeneration,
+		ImageRateIndependent:            req.ImageRateIndependent,
+		ImageRateMultiplier:             req.ImageRateMultiplier,
+		ImagePrice1K:                    req.ImagePrice1K,
+		ImagePrice2K:                    req.ImagePrice2K,
+		ImagePrice4K:                    req.ImagePrice4K,
+		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
+		FallbackGroupID:                 req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                    req.ModelRouting,
+		ModelRoutingEnabled:             req.ModelRoutingEnabled,
+		MCPXMLInject:                    req.MCPXMLInject,
+		SupportedModelScopes:            req.SupportedModelScopes,
+		AllowMessagesDispatch:           req.AllowMessagesDispatch,
+		RequireOAuthOnly:                req.RequireOAuthOnly,
+		RequirePrivacySet:               req.RequirePrivacySet,
+		DefaultMappedModel:              req.DefaultMappedModel,
+		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
+		ModelsListConfig:                req.ModelsListConfig,
+		RPMLimit:                        req.RPMLimit,
+		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -443,16 +417,7 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 	now := timezone.NowInUserLocation(userTZ)
 	todayStart := timezone.StartOfDayInUserLocation(now, userTZ)
 
-	// Cache by the local day boundary (the only input that affects the result).
-	cacheKey := todayStart.UTC().Format(time.RFC3339)
-	entry, _, err := groupUsageSummaryCache.GetOrLoad(cacheKey, func() (any, error) {
-		return h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
-	})
-	if err != nil {
-		response.Error(c, 500, "Failed to get group usage summary")
-		return
-	}
-	results, err := snapshotPayloadAs[[]usagestats.GroupUsageSummary](entry.Payload)
+	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group usage summary")
 		return

@@ -13,7 +13,6 @@ func RegisterUserRoutes(
 	v1 *gin.RouterGroup,
 	h *handler.Handlers,
 	jwtAuth middleware.JWTAuthMiddleware,
-	eitherAuth middleware.EitherAuthMiddleware,
 	settingService *service.SettingService,
 ) {
 	authenticated := v1.Group("")
@@ -34,8 +33,6 @@ func RegisterUserRoutes(
 			user.POST("/auth-identities/bind/start", h.User.StartIdentityBinding)
 			user.GET("/api-keys/:id/usage/daily", h.Usage.GetMyAPIKeyDailyUsage)
 			user.GET("/platform-quotas", h.User.GetMyPlatformQuotas)
-
-			registerTKUserRoutes(authenticated, user, h)
 
 			// 通知邮箱管理
 			notifyEmail := user.Group("/notify-email")
@@ -126,11 +123,4 @@ func RegisterUserRoutes(
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
 		}
 	}
-
-	// TokenKey-only routes that need to accept BOTH user-scope JWT and
-	// user-scope API key (issue #63 — SDK / CI callers like M0 hold an
-	// API key, not a JWT). Kept out of the JWT-only `authenticated`
-	// group above so the auth shape switch is explicit at the route
-	// site, not buried inside a shared middleware.
-	registerTKUserDualAuthRoutes(v1, h, eitherAuth, settingService)
 }

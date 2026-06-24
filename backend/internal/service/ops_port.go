@@ -26,30 +26,11 @@ type OpsRepository interface {
 	GetRealtimeTrafficSummary(ctx context.Context, filter *OpsDashboardFilter) (*OpsRealtimeTrafficSummary, error)
 
 	GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error)
-	// TK (empty-pool-429 alert blind spot): count of routing/scheduling-phase
-	// capacity rejections (error_phase='routing' — empty-pool fast-fail 429 +
-	// relayed mirror-edge downstream-capacity) over the filter window/scope.
-	// Drives the routing_capacity_rejection_count P0 alert; see
-	// CountRoutingCapacityRejections impl + tk_035 seed.
-	CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error)
-	// TopRoutingCapacityRejectionByPlatform returns, for the top-platformLimit
-	// platforms by routing-phase rejection count over the filter window/scope, each
-	// platform's total rejection count plus its top-usersPerPlatform contributing
-	// users (user id + api-key name + count). This single JOINT breakdown
-	// lets a fired routing_capacity_rejection_count P0 card name WHICH pool(s) ran
-	// out of capacity AND WHO inside each pool is driving it — the platform→user
-	// attribution the old two separate marginal queries could not express.
-	TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error)
 	GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error)
 	GetLatencyHistogram(ctx context.Context, filter *OpsDashboardFilter) (*OpsLatencyHistogramResponse, error)
 	GetErrorTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsErrorTrendResponse, error)
 	GetErrorDistribution(ctx context.Context, filter *OpsDashboardFilter) (*OpsErrorDistributionResponse, error)
-	// TK (us7 P0 2026-06-13): top offending (model, owner, upstream_status) rows
-	// behind a fired error-rate alert, over the same window/scope as the metric.
-	GetTopErrorCause(ctx context.Context, filter *OpsDashboardFilter, upstreamOnly bool, limit int) ([]*OpsTopErrorCause, error)
 	GetOpenAITokenStats(ctx context.Context, filter *OpsOpenAITokenStatsFilter) (*OpsOpenAITokenStatsResponse, error)
-	// TK (PR #899 follow-up): per-account wasted-failover-hop KPI for the GPT line.
-	GetFailoverHopStats(ctx context.Context, filter *OpsFailoverHopStatsFilter) (*OpsFailoverHopStatsResponse, error)
 
 	InsertSystemMetrics(ctx context.Context, input *OpsInsertSystemMetricsInput) error
 	GetLatestSystemMetrics(ctx context.Context, windowMinutes int) (*OpsSystemMetricsSnapshot, error)
@@ -91,7 +72,6 @@ type DeletedKeyAuditResult struct {
 type OpsInsertErrorLogInput struct {
 	RequestID       string
 	ClientRequestID string
-	TrajectoryID    string
 
 	UserID    *int64
 	APIKeyID  *int64

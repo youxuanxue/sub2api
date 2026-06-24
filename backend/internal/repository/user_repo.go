@@ -95,7 +95,6 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetNillableLastLoginAt(userIn.LastLoginAt).
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
-		SetTrajExportEnabled(userIn.TrajExportEnabled).
 		Save(txCtx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
@@ -240,8 +239,7 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetNillableBalanceNotifyThreshold(userIn.BalanceNotifyThreshold).
 		SetBalanceNotifyExtraEmails(marshalExtraEmails(userIn.BalanceNotifyExtraEmails)).
 		SetTotalRecharged(userIn.TotalRecharged).
-		SetRpmLimit(userIn.RPMLimit).
-		SetTrajExportEnabled(userIn.TrajExportEnabled)
+		SetRpmLimit(userIn.RPMLimit)
 	if userIn.SignupSource != "" {
 		updateOp = updateOp.SetSignupSource(userIn.SignupSource)
 	}
@@ -629,24 +627,11 @@ func (r *userRepository) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs [
 		return nil, fmt.Errorf("sql executor is not configured")
 	}
 
-	// TK perf: a single `WHERE user_id = ANY($1) GROUP BY user_id` over usage_logs
-	// makes Postgres Seq Scan the whole table — it does NOT skip-scan the
-	// idx_usage_logs_user_created (user_id, created_at) index for ANY-array
-	// grouping. On prod (~2.4M rows) that was ~1.3s and dominated the /admin/users
-	// page latency. Rewriting it as a per-user LATERAL MAX turns it into N cheap
-	// Index Only Scan Backward probes on that index (~0.4ms for a page of users).
-	// Semantics are identical: the WHERE drops users with no usage_logs (the old
-	// GROUP BY likewise produced no row for them). Keep this shape — do NOT
-	// "simplify" it back to GROUP BY.
 	const query = `
-		SELECT u.uid, m.last_used_at
-		FROM unnest($1::bigint[]) AS u(uid)
-		CROSS JOIN LATERAL (
-			SELECT MAX(created_at) AS last_used_at
-			FROM usage_logs
-			WHERE user_id = u.uid
-		) m
-		WHERE m.last_used_at IS NOT NULL
+		SELECT user_id, MAX(created_at) AS last_used_at
+		FROM usage_logs
+		WHERE user_id = ANY($1)
+		GROUP BY user_id
 	`
 
 	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs))

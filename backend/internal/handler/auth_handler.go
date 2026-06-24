@@ -224,7 +224,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	slog.Info("login_turnstile_skipped", "policy", "login_without_turnstile")
+	// Turnstile 验证
+	if err := h.authService.VerifyTurnstile(c.Request.Context(), req.TurnstileToken, ip.GetClientIP(c)); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	token, user, err := h.authService.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
@@ -420,12 +424,6 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	type UserResponse struct {
 		userProfileResponse
 		RunMode string `json:"run_mode"`
-		// TrajExportPlatforms is the server-driven allowlist of platforms whose
-		// conversation records the traj projector can reconstruct. The frontend
-		// export chip renders only for a key whose group platform is in this list
-		// (single source: engine.TrajProjectablePlatforms via the service layer),
-		// so the UI carries no hardcoded platform list of its own.
-		TrajExportPlatforms []string `json:"traj_export_platforms"`
 	}
 
 	runMode := config.RunModeStandard
@@ -436,7 +434,6 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	response.Success(c, UserResponse{
 		userProfileResponse: userProfileResponseFromService(user, identities),
 		RunMode:             runMode,
-		TrajExportPlatforms: service.TrajProjectablePlatforms(),
 	})
 }
 
@@ -674,6 +671,12 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	result, err := h.authService.RefreshTokenPair(c.Request.Context(), req.RefreshToken)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+
+	// Backend mode: block non-admin token refresh
+	if h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && result.UserRole != "admin" {
+		response.Forbidden(c, "Backend mode is active. Only admin login is allowed.")
 		return
 	}
 

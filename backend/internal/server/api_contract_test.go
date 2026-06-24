@@ -56,7 +56,6 @@ func TestAPIContracts(t *testing.T) {
 					"balance": 12.5,
 					"concurrency": 5,
 					"rpm_limit": 0,
-					"traj_export_enabled": false,
 					"status": "active",
 					"allowed_groups": null,
 					"created_at": "2025-01-02T03:04:05Z",
@@ -66,7 +65,6 @@ func TestAPIContracts(t *testing.T) {
 					"balance_notify_threshold": null,
 					"balance_notify_extra_emails": null,
 					"total_recharged": 0,
-					"onboarding_tour_seen_at": null,
 					"linuxdo_bound": false,
 					"oidc_bound": false,
 					"wechat_bound": false,
@@ -209,8 +207,7 @@ func TestAPIContracts(t *testing.T) {
 							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
-					"run_mode": "standard",
-					"traj_export_platforms": ["anthropic", "kiro", "gemini", "antigravity", "openai", "newapi", "grok"]
+					"run_mode": "standard"
 				}
 			}`,
 		},
@@ -232,7 +229,6 @@ func TestAPIContracts(t *testing.T) {
 					"key": "sk_custom_1234567890",
 					"name": "Key One",
 					"group_id": null,
-					"routing_mode": "universal",
 					"status": "active",
 					"ip_whitelist": null,
 					"ip_blacklist": null,
@@ -282,7 +278,6 @@ func TestAPIContracts(t *testing.T) {
 							"key": "sk_custom_1234567890",
 							"name": "Key One",
 							"group_id": null,
-							"routing_mode": "direct",
 							"status": "active",
 							"ip_whitelist": null,
 							"ip_blacklist": null,
@@ -363,8 +358,6 @@ func TestAPIContracts(t *testing.T) {
 						"image_rate_multiplier": 0,
 						"claude_code_only": false,
 						"allow_messages_dispatch": false,
-						"messages_compaction_enabled": null,
-						"messages_compaction_input_tokens_threshold": null,
 						"fallback_group_id": null,
 						"fallback_group_id_on_invalid_request": null,
 						"require_oauth_only": false,
@@ -622,7 +615,7 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeySMTPUsername: "user",
 					service.SettingKeySMTPPassword: "secret",
 					service.SettingKeySMTPFrom:     "no-reply@example.com",
-					service.SettingKeySMTPFromName: "TokenKey",
+					service.SettingKeySMTPFromName: "Sub2API",
 					service.SettingKeySMTPUseTLS:   "true",
 
 					service.SettingKeyTurnstileEnabled:   "true",
@@ -651,7 +644,7 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyOIDCConnectUserInfoIDPath:       "",
 					service.SettingKeyOIDCConnectUserInfoUsernamePath: "",
 
-					service.SettingKeySiteName:     "TokenKey",
+					service.SettingKeySiteName:     "Sub2API",
 					service.SettingKeySiteLogo:     "",
 					service.SettingKeySiteSubtitle: "Subtitle",
 					service.SettingKeyAPIBaseURL:   "https://api.example.com",
@@ -682,42 +675,28 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"registration_enabled": true,
-					"risk_control_enabled": false,
 					"email_verify_enabled": false,
 					"registration_email_suffix_whitelist": [],
 					"promo_code_enabled": true,
-					"anthropic_canonical_ingress_strict_enabled": false,
-					"anthropic_canonical_haiku_mimicry_enabled": false,
 					"password_reset_enabled": false,
-					"frontend_url": "",
-					"github_oauth_enabled": false,
-					"github_oauth_client_id": "",
-					"github_oauth_client_secret_configured": false,
-					"github_oauth_redirect_url": "",
-					"github_oauth_frontend_redirect_url": "",
-					"google_oauth_enabled": false,
-					"google_oauth_client_id": "",
-					"google_oauth_client_secret_configured": false,
-					"google_oauth_redirect_url": "",
-					"google_oauth_frontend_redirect_url": "",
-					"totp_enabled": false,
-					"totp_encryption_key_configured": false,
-					"login_agreement_enabled": false,
-					"login_agreement_mode": "modal",
-					"login_agreement_updated_at": "2026-03-31",
-					"login_agreement_documents": [
-						{"id": "terms", "title": "服务条款", "content_md": ""},
-						{"id": "usage-policy", "title": "使用政策", "content_md": ""},
-						{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
-						{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
-					],
-					"smtp_host": "smtp.example.com",
-					"smtp_port": 587,
-					"smtp_username": "user",
-					"sticky_routing_enabled": true,
+						"frontend_url": "",
+						"totp_enabled": false,
+						"totp_encryption_key_configured": false,
+						"login_agreement_enabled": false,
+						"login_agreement_mode": "modal",
+						"login_agreement_updated_at": "2026-03-31",
+						"login_agreement_documents": [
+							{"id": "terms", "title": "服务条款", "content_md": ""},
+							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
+							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
+						],
+						"smtp_host": "smtp.example.com",
+						"smtp_port": 587,
+						"smtp_username": "user",
 					"smtp_password_configured": true,
 					"smtp_from_email": "no-reply@example.com",
-					"smtp_from_name": "TokenKey",
+					"smtp_from_name": "Sub2API",
 					"smtp_use_tls": true,
 					"turnstile_enabled": true,
 					"turnstile_site_key": "site-key",
@@ -726,10 +705,6 @@ func TestAPIContracts(t *testing.T) {
 						"linuxdo_connect_client_id": "",
 						"linuxdo_connect_client_secret_configured": false,
 						"linuxdo_connect_redirect_url": "",
-						"login_agreement_enabled": false,
-						"login_agreement_mode": "",
-						"login_agreement_documents": [],
-						"login_agreement_updated_at": "",
 						"dingtalk_connect_enabled": false,
 						"dingtalk_connect_bypass_registration": false,
 						"dingtalk_connect_client_id": "",
@@ -768,11 +743,21 @@ func TestAPIContracts(t *testing.T) {
 						"oidc_connect_userinfo_email_path": "",
 						"oidc_connect_userinfo_id_path": "",
 						"oidc_connect_userinfo_username_path": "",
+						"github_oauth_enabled": false,
+						"github_oauth_client_id": "",
+						"github_oauth_client_secret_configured": false,
+						"github_oauth_redirect_url": "",
+						"github_oauth_frontend_redirect_url": "/auth/oauth/callback",
+						"google_oauth_enabled": false,
+						"google_oauth_client_id": "",
+						"google_oauth_client_secret_configured": false,
+						"google_oauth_redirect_url": "",
+						"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
 						"ops_monitoring_enabled": false,
 						"ops_realtime_monitoring_enabled": true,
 						"ops_query_mode_default": "auto",
 						"ops_metrics_interval_seconds": 60,
-						"site_name": "TokenKey",
+						"site_name": "Sub2API",
 						"site_logo": "",
 						"site_subtitle": "Subtitle",
 						"api_base_url": "https://api.example.com",
@@ -832,7 +817,7 @@ func TestAPIContracts(t *testing.T) {
 					"default_user_rpm_limit": 0,
 					"default_subscriptions": [],
 					"enable_model_fallback": false,
-					"fallback_model_anthropic": "claude-sonnet-4-6",
+					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_antigravity": "gemini-2.5-pro",
 					"fallback_model_gemini": "gemini-2.5-pro",
 						"fallback_model_openai": "gpt-4o",
@@ -849,7 +834,6 @@ func TestAPIContracts(t *testing.T) {
 					"max_claude_code_version": "",
 					"allow_ungrouped_key_scheduling": false,
 					"backend_mode_enabled": false,
-					"newapi_bridge_enabled": true,
 					"enable_cch_signing": false,
 					"enable_claude_oauth_system_prompt_injection": true,
 					"claude_oauth_system_prompt": "",
@@ -857,7 +841,6 @@ func TestAPIContracts(t *testing.T) {
 					"enable_anthropic_cache_ttl_1h_injection": false,
 					"rewrite_message_cache_control": false,
 					"antigravity_user_agent_version": "",
-					"claude_code_user_agent_version": "",
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
 					"web_search_emulation_enabled": false,
@@ -900,11 +883,6 @@ func TestAPIContracts(t *testing.T) {
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
 					"account_quota_notify_emails": [],
-					"signup_bonus_enabled": true,
-					"signup_bonus_balance": 1,
-					"auto_generate_default_token": true,
-					"auto_generate_default_token_name": "trial",
-					"pricing_catalog_public": true,
 					"channel_monitor_enabled": true,
 					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
@@ -974,30 +952,26 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"registration_enabled": true,
-					"risk_control_enabled": false,
 					"email_verify_enabled": false,
 					"registration_email_suffix_whitelist": [],
 					"promo_code_enabled": true,
-					"anthropic_canonical_ingress_strict_enabled": false,
-					"anthropic_canonical_haiku_mimicry_enabled": false,
 					"password_reset_enabled": false,
 					"frontend_url": "",
-					"github_oauth_enabled": false,
-					"github_oauth_client_id": "",
-					"github_oauth_client_secret_configured": false,
-					"github_oauth_redirect_url": "",
-					"github_oauth_frontend_redirect_url": "",
-					"google_oauth_enabled": false,
-					"google_oauth_client_id": "",
-					"google_oauth_client_secret_configured": false,
-					"google_oauth_redirect_url": "",
-					"google_oauth_frontend_redirect_url": "",
-					"invitation_code_enabled": false,
-					"totp_enabled": false,
-					"totp_encryption_key_configured": false,
-					"smtp_host": "",
-					"smtp_port": 587,
-					"smtp_username": "",
+						"invitation_code_enabled": false,
+						"totp_enabled": false,
+						"totp_encryption_key_configured": false,
+						"login_agreement_enabled": false,
+						"login_agreement_mode": "modal",
+						"login_agreement_updated_at": "2026-03-31",
+						"login_agreement_documents": [
+							{"id": "terms", "title": "服务条款", "content_md": ""},
+							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
+							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
+						],
+						"smtp_host": "",
+						"smtp_port": 587,
+						"smtp_username": "",
 					"smtp_password_configured": false,
 					"smtp_from_email": "",
 					"smtp_from_name": "",
@@ -1009,10 +983,6 @@ func TestAPIContracts(t *testing.T) {
 					"linuxdo_connect_client_id": "",
 					"linuxdo_connect_client_secret_configured": false,
 					"linuxdo_connect_redirect_url": "",
-					"login_agreement_enabled": false,
-					"login_agreement_mode": "",
-					"login_agreement_documents": [],
-					"login_agreement_updated_at": "",
 					"dingtalk_connect_enabled": false,
 					"dingtalk_connect_bypass_registration": false,
 					"dingtalk_connect_client_id": "",
@@ -1051,9 +1021,19 @@ func TestAPIContracts(t *testing.T) {
 					"oidc_connect_userinfo_email_path": "",
 					"oidc_connect_userinfo_id_path": "",
 					"oidc_connect_userinfo_username_path": "",
-					"site_name": "TokenKey",
+					"github_oauth_enabled": false,
+					"github_oauth_client_id": "",
+					"github_oauth_client_secret_configured": false,
+					"github_oauth_redirect_url": "",
+					"github_oauth_frontend_redirect_url": "/auth/oauth/callback",
+					"google_oauth_enabled": false,
+					"google_oauth_client_id": "",
+					"google_oauth_client_secret_configured": false,
+					"google_oauth_redirect_url": "",
+					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
+					"site_name": "Sub2API",
 					"site_logo": "",
-					"site_subtitle": "AI API Gateway Platform",
+					"site_subtitle": "Subscription to API Conversion Platform",
 					"api_base_url": "",
 					"api_key_acl_trust_forwarded_ip": false,
 					"contact_info": "",
@@ -1083,7 +1063,7 @@ func TestAPIContracts(t *testing.T) {
 					"default_user_rpm_limit": 0,
 					"default_subscriptions": [],
 					"enable_model_fallback": false,
-					"fallback_model_anthropic": "claude-sonnet-4-6",
+					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_openai": "gpt-4o",
 					"fallback_model_gemini": "gemini-2.5-pro",
 					"fallback_model_antigravity": "gemini-2.5-pro",
@@ -1096,9 +1076,7 @@ func TestAPIContracts(t *testing.T) {
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
 					"allow_ungrouped_key_scheduling": false,
-					"newapi_bridge_enabled": true,
 					"backend_mode_enabled": false,
-					"sticky_routing_enabled": true,
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
 					"enable_cch_signing": false,
@@ -1108,7 +1086,6 @@ func TestAPIContracts(t *testing.T) {
 					"enable_anthropic_cache_ttl_1h_injection": false,
 					"rewrite_message_cache_control": false,
 					"antigravity_user_agent_version": "",
-					"claude_code_user_agent_version": "",
 					"web_search_emulation_enabled": false,
 					"payment_visible_method_alipay_source": "",
 					"payment_visible_method_wxpay_source": "",
@@ -1147,11 +1124,6 @@ func TestAPIContracts(t *testing.T) {
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
 					"account_quota_notify_emails": [],
-					"signup_bonus_enabled": true,
-					"signup_bonus_balance": 1,
-					"auto_generate_default_token": true,
-					"auto_generate_default_token_name": "trial",
-					"pricing_catalog_public": true,
 					"channel_monitor_enabled": true,
 					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
@@ -1320,12 +1292,12 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
-	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{
@@ -1485,13 +1457,8 @@ func (r *stubUserRepo) UpdateConcurrency(ctx context.Context, id int64, amount i
 	return errors.New("not implemented")
 }
 
-func (r *stubUserRepo) BatchAddConcurrency(ctx context.Context, userIDs []int64, amount int) (int, error) {
-	return 0, errors.New("not implemented")
-}
-
-func (r *stubUserRepo) BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error) {
-	return len(userIDs), nil
-}
+func (r *stubUserRepo) BatchSetConcurrency(context.Context, []int64, int) (int, error) { return 0, nil }
+func (r *stubUserRepo) BatchAddConcurrency(context.Context, []int64, int) (int, error) { return 0, nil }
 
 func (r *stubUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error) {
 	return false, errors.New("not implemented")
@@ -1539,10 +1506,6 @@ func (r *stubUserRepo) EnableTotp(ctx context.Context, userID int64) error {
 
 func (r *stubUserRepo) DisableTotp(ctx context.Context, userID int64) error {
 	return errors.New("not implemented")
-}
-
-func (r *stubUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
-	return nil
 }
 
 func (r *stubUserRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
@@ -1845,18 +1808,6 @@ func (s *stubAccountRepo) ResetQuotaUsed(ctx context.Context, id int64) error {
 func (s *stubAccountRepo) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
 	s.bulkUpdateIDs = append([]int64{}, ids...)
 	return int64(len(ids)), nil
-}
-
-func (s *stubAccountRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (s *stubAccountRepo) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
-func (s *stubAccountRepo) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
-	return 0, nil
 }
 
 func (s *stubAccountRepo) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {

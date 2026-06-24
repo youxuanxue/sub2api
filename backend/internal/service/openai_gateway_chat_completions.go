@@ -30,16 +30,13 @@ import (
 // The normal Chat Completions → Responses conversion path is unaffected
 // because ChatCompletionsRequest has no fields for these parameters — unknown
 // fields are dropped naturally by json.Unmarshal. Kept semantically in sync
-// with the unsupportedFields list in openai_gateway_service.go used by the
-// /v1/responses passthrough path. `user` is included per upstream
-// Wei-Shaw/sub2api#1264 — Cursor-like clients that POST Responses-shape bodies
-// to /v1/chat/completions can carry `user`, which the Responses upstream rejects.
+// with the list in openai_gateway_service.go:2034 used by the /v1/responses
+// passthrough path.
 var cursorResponsesUnsupportedFields = []string{
 	"prompt_cache_retention",
 	"safety_identifier",
 	"metadata",
 	"stream_options",
-	"user",
 }
 
 // ForwardAsChatCompletions accepts a Chat Completions request body, converts it
@@ -64,20 +61,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
-	// codex_cli_only 必须在入口处执行，且要早于任何上游转发分支——否则普通客户端
-	// 可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）绕过只在
-	// /responses 生效的限制。见 upstream Wei-Shaw/sub2api#3014。
-	// 对未开启该策略的账号（含 APIKey 账号）是零成本 no-op。
-	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
-		return nil, err
-	}
-
-	// Grok（第七平台）：xAI/edge relay 走标准 OpenAI /v1/chat/completions，绝不经
-	// CC→Responses→Codex 转换（那条路写死 chatgpt.com/codex + chatgpt 专属头）。
-	// Grok OAuth 与 Grok API-key relay 都在 codex transform 之前分流到 raw 直转。
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
-	if account.IsGrok() || (account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
+	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -98,7 +84,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false
-	if promptCacheKey == "" && account.IsOpenAIOAuth() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
+	if promptCacheKey == "" && account.Type == AccountTypeOAuth && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 		promptCacheKey = deriveCompatPromptCacheKey(&chatReq, upstreamModel)
 		compatPromptCacheInjected = promptCacheKey != ""
 	}
@@ -181,7 +167,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	logger.L().Debug("openai chat_completions: model mapping applied", logFields...)
 
-	if account.IsOpenAIOAuth() {
+	if account.Type == AccountTypeOAuth {
 		var reqBody map[string]any
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
@@ -280,7 +266,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 		if account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
-			!openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode) {
+			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
 				zap.Int64("account_id", account.ID),
 				zap.Int("upstream_status", resp.StatusCode),
@@ -348,7 +334,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
-	if handleErr == nil && account.IsOpenAIOAuth() {
+	if handleErr == nil && account.Type == AccountTypeOAuth {
 		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
 		}
@@ -469,8 +455,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// text/event-stream，会经 WriteFilteredHeaders 透传进来；而 c.JSON 走 Gin 的
 	// writeContentType 仅在头不存在时才设置，无法覆盖。这里显式 Set 强制改回 JSON，
 	// 否则下游"看头判流式"的中间层（如 new-api）会把本应聚合的 JSON 当成 SSE 处理。
-	// Wei-Shaw/sub2api#1311
-	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, chatResp)
 
 	return &OpenAIForwardResult{
@@ -580,9 +565,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		}
 		refusalDetector.ObservePayload([]byte(payload))
 
-		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:
-		// upstream's spec puts usage under response.usage; some compat upstreams
-		// duplicate it at the top level. When both are present, nested overrides.
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
 		if isTerminalEvent {
 			if event.Usage != nil {

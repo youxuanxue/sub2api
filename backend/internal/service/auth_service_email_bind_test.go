@@ -21,6 +21,7 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+	_ "modernc.org/sqlite"
 )
 
 type emailBindDefaultSubAssignerStub struct {
@@ -989,8 +990,6 @@ func (s *emailBindUserRepoStub) DisableTotp(context.Context, int64) error       
 func (s *emailBindUserRepoStub) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
 	return s.GetByID(ctx, id)
 }
-
-func (s *emailBindUserRepoStub) MarkOnboardingTourSeen(context.Context, int64) error { return nil }
 
 func cloneEmailBindUser(user *service.User) *service.User {
 	if user == nil {

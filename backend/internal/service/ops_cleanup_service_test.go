@@ -1,89 +1,64 @@
 package service
 
 import (
-	"context"
-	"database/sql/driver"
 	"testing"
 	"time"
-
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-type cutoffDaysArg struct {
-	days int
+func TestOpsCleanupPlan(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name         string
+		days         int
+		wantOK       bool
+		wantTruncate bool
+		wantCutoff   time.Time
+	}{
+		{name: "negative skips", days: -1, wantOK: false},
+		{name: "zero truncates", days: 0, wantOK: true, wantTruncate: true},
+		{name: "positive yields past cutoff", days: 7, wantOK: true, wantCutoff: now.AddDate(0, 0, -7)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cutoff, truncate, ok := opsCleanupPlan(now, tc.days)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if truncate != tc.wantTruncate {
+				t.Fatalf("truncate = %v, want %v", truncate, tc.wantTruncate)
+			}
+			if !tc.wantTruncate && !cutoff.Equal(tc.wantCutoff) {
+				t.Fatalf("cutoff = %v, want %v", cutoff, tc.wantCutoff)
+			}
+		})
+	}
 }
 
-func (a cutoffDaysArg) Match(v driver.Value) bool {
-	t, ok := v.(time.Time)
-	if !ok {
-		return false
+func TestIsMissingRelationError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil is not missing", err: nil, want: false},
+		{name: "match relation does not exist", err: fakeErr(`pq: relation "ops_error_logs" does not exist`), want: true},
+		{name: "match case-insensitive", err: fakeErr(`ERROR: Relation "x" Does Not Exist`), want: true},
+		{name: "non-matching error", err: fakeErr("connection refused"), want: false},
 	}
-	age := time.Since(t)
-	want := time.Duration(a.days) * 24 * time.Hour
-	return age >= want-time.Minute && age <= want+time.Minute
-}
-
-func expectCleanupTable(t *testing.T, mock sqlmock.Sqlmock, table string, cutoffDays int, deleted int64) {
-	t.Helper()
-	// opsCleanupRunOne first checks whether the table is partitioned; a plain table
-	// (false) falls through to the chunked DELETE below. (A partitioned table would
-	// instead ensure future partitions + DROP expired ones — covered by the
-	// pgpartition integration tests.)
-	mock.ExpectQuery("pg_partitioned_table").
-		WithArgs(table).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectExec(table).
-		WithArgs(cutoffDaysArg{days: cutoffDays}, 5000).
-		WillReturnResult(sqlmock.NewResult(0, deleted))
-	mock.ExpectExec(table).
-		WithArgs(cutoffDaysArg{days: cutoffDays}, 5000).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-}
-
-func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	// After upstream refactor (d218b6c2): all log tables (error + system) share
-	// ErrorLogRetentionDays. SystemLogRetentionDays is kept in config for backwards compat
-	// but not used by the cleanup executor. days < 0 → skip (days == 0 → TRUNCATE).
-	cfg := &config.Config{
-		Ops: config.OpsConfig{
-			Cleanup: config.OpsCleanupConfig{
-				ErrorLogRetentionDays:      14,
-				MinuteMetricsRetentionDays: -1,
-				HourlyMetricsRetentionDays: -1,
-			},
-		},
-	}
-	svc := NewOpsCleanupService(&opsRepoMock{}, db, nil, cfg, nil, nil)
-	svc.refreshEffectiveBeforeRun(context.Background())
-
-	// Upstream Wei-Shaw/sub2api commit 2eb622f2 dropped ops_retry_attempts
-	// alongside the retry/replay feature; the cleanup loop no longer touches it.
-	expectCleanupTable(t, mock, "ops_error_logs", 14, 3)
-	expectCleanupTable(t, mock, "ops_alert_events", 14, 1)
-	expectCleanupTable(t, mock, "ops_system_logs", 14, 5)
-	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 14, 4)
-
-	counts, err := svc.runCleanupOnce(context.Background())
-	if err != nil {
-		t.Fatalf("runCleanupOnce() error = %v", err)
-	}
-	if counts.errorLogs != 3 || counts.alertEvents != 1 {
-		t.Fatalf("unexpected error-like cleanup counts: %+v", counts)
-	}
-	if counts.systemLogs != 5 || counts.logAudits != 4 {
-		t.Fatalf("unexpected system cleanup counts: %+v", counts)
-	}
-	if counts.systemMetrics != 0 || counts.hourlyPreagg != 0 || counts.dailyPreagg != 0 {
-		t.Fatalf("metrics cleanup should be disabled in this test: %+v", counts)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("unmet sql expectations: %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isMissingRelationError(tc.err); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
+
+type fakeErr string
+
+func (e fakeErr) Error() string { return string(e) }

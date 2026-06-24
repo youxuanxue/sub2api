@@ -21,31 +21,17 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		return nil, err
 	}
 
-	// NOTE(US-027): Do NOT request `reasoning.encrypted_content`.
-	// When Include=reasoning.encrypted_content is set together with Store=false,
-	// the Codex Responses backend treats every multi-turn request as a stateless
-	// "encrypted reasoning continuation" and expects each prior reasoning item to
-	// be echoed back in the next turn's input. Our Anthropic→Responses conversion
-	// drops thinking blocks (see anthropicAssistantToResponses) and we do not
-	// roundtrip the encrypted state, so the upstream silently returns a
-	// 0-token / empty assistant message on the second turn whenever the history
-	// contains thinking + tool_result. See docs/approved/openai-codex-as-claude-thinking-continuity.md.
-	// TK / US-027: Include must NOT carry "reasoning.encrypted_content" on
-	// Anthropic→Responses. See the comment above the `out :=` literal and
-	// docs/approved/openai-codex-as-claude-thinking-continuity.md for the full
-	// regression: pairing Include=reasoning.encrypted_content with Store=false
-	// yields silent 0-token assistant turns whenever history carries thinking
-	// + tool_result, since Anthropic→Responses drops thinking blocks.
 	out := &ResponsesRequest{
-		Model:  req.Model,
-		Input:  inputJSON,
-		Stream: req.Stream,
+		Model:   req.Model,
+		Input:   inputJSON,
+		Stream:  req.Stream,
+		Include: []string{"reasoning.encrypted_content"},
 	}
 
 	// Reasoning models (gpt-5.x) served via the Responses API do not accept
 	// sampling parameters. Sending temperature or top_p causes a 400
 	// "Unsupported parameter" error, so we only forward them for non-reasoning
-	// models. Upstream Wei-Shaw/sub2api#276b5c77.
+	// models.
 	if !isReasoningModel(req.Model) {
 		out.Temperature = req.Temperature
 		out.TopP = req.TopP
@@ -70,18 +56,9 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	}
 
 	// Determine reasoning effort: only output_config.effort controls the
-	// level; thinking.type is ignored.
+	// level; thinking.type is ignored. Default follows Codex CLI / airgate's
+	// Anthropic bridge shape, which uses medium when unset.
 	// Anthropic levels map 1:1 to OpenAI: low→low, medium→medium, high→high, max→xhigh.
-	//
-	// Why default = medium (not high): Claude Code CLI does not set
-	// output_config.effort, so without an override we send effort=high to the
-	// OpenAI Responses upstream. effort=high spends a large slice of the
-	// shared max_output_tokens budget on reasoning, leaving too few tokens for
-	// the visible output and triggering response.incomplete on multi-tool
-	// agentic turns. The native Anthropic path doesn't share this budget the
-	// same way, which is why the default group "feels" much more complete.
-	// medium preserves reasoning visibility (summary=auto) while leaving room
-	// for the model's actual output.
 	effort := "medium"
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
 		effort = req.OutputConfig.Effort
@@ -91,11 +68,9 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		Summary: "auto",
 	}
 
-	// Convert tool_choice. Pass req.Tools so {type:tool, name:X} can be
-	// classified as a built-in (when the matching tool's type is a server
-	// tool like web_search_*) or as a regular function tool.
+	// Convert tool_choice
 	if len(req.ToolChoice) > 0 {
-		tc, err := convertAnthropicToolChoiceToResponses(req.ToolChoice, req.Tools)
+		tc, err := convertAnthropicToolChoiceToResponses(req.ToolChoice)
 		if err != nil {
 			return nil, fmt.Errorf("convert tool_choice: %w", err)
 		}
@@ -110,8 +85,8 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 //	{"type":"auto"}            → "auto"
 //	{"type":"any"}             → "required"
 //	{"type":"none"}            → "none"
-//	{"type":"tool","name":"X"} → {"type":"function","name":"X"} or built-in tool_choice
-func convertAnthropicToolChoiceToResponses(raw json.RawMessage, tools []AnthropicTool) (json.RawMessage, error) {
+//	{"type":"tool","name":"X"} → {"type":"function","name":"X"}
+func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage, error) {
 	var tc struct {
 		Type string `json:"type"`
 		Name string `json:"name"`
@@ -128,35 +103,14 @@ func convertAnthropicToolChoiceToResponses(raw json.RawMessage, tools []Anthropi
 	case "none":
 		return json.Marshal("none")
 	case "tool":
-		if builtinType, ok := lookupBuiltinForAnthropicToolName(tc.Name, tools); ok {
-			return json.Marshal(map[string]any{
-				"type": builtinType,
-			})
-		}
 		return json.Marshal(map[string]any{
 			"type": "function",
 			"name": tc.Name,
 		})
 	default:
+		// Pass through unknown types as-is
 		return raw, nil
 	}
-}
-
-// lookupBuiltinForAnthropicToolName scans tools for a definition with the
-// given name and, if its Anthropic type maps to a Responses built-in, returns
-// that built-in type. Mirrors convertAnthropicToolsToResponses so the two
-// stay aligned without duplicating a separate name list.
-func lookupBuiltinForAnthropicToolName(name string, tools []AnthropicTool) (string, bool) {
-	for _, t := range tools {
-		if t.Name != name {
-			continue
-		}
-		if strings.HasPrefix(t.Type, "web_search") {
-			return "web_search", true
-		}
-		return "", false
-	}
-	return "", false
 }
 
 // convertAnthropicToResponsesInput builds the Responses API input items array
@@ -341,15 +295,7 @@ func anthropicAssistantToResponses(raw json.RawMessage) ([]ResponsesInputItem, e
 		}
 		args := "{}"
 		if len(b.Input) > 0 {
-			candidate := strings.TrimSpace(string(b.Input))
-			if candidate != "" {
-				var parsed any
-				if err := json.Unmarshal([]byte(candidate), &parsed); err == nil {
-					if _, ok := parsed.(map[string]any); ok {
-						args = candidate
-					}
-				}
-			}
+			args = string(b.Input)
 		}
 		fcID := toResponsesCallID(b.ID)
 		items = append(items, ResponsesInputItem{

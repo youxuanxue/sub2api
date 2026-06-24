@@ -186,18 +186,9 @@ func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 
 	// Emit one function_call item per tool_call.
 	for _, tc := range m.ToolCalls {
-		args := strings.TrimSpace(tc.Function.Arguments)
+		args := tc.Function.Arguments
 		if args == "" {
 			args = "{}"
-		} else {
-			var parsed any
-			if err := json.Unmarshal([]byte(args), &parsed); err != nil {
-				args = "{}"
-			} else {
-				if _, ok := parsed.(map[string]any); !ok {
-					args = "{}"
-				}
-			}
 		}
 		items = append(items, ResponsesInputItem{
 			Type:      "function_call",
@@ -351,14 +342,11 @@ func marshalChatInputContent(content chatMessageContent) (json.RawMessage, error
 	if content.Text != nil {
 		return json.Marshal(*content.Text)
 	}
-	// TK: See upstream Wei-Shaw/sub2api#2515 — when the parts array is empty or
-	// every part was filtered out (e.g. text="" or unsupported part types),
-	// json.Marshal of a nil slice produces JSON `null`. Upstream OpenAI then
-	// rejects with HTTP 400 "Invalid type for 'input[xx].content': expected one
-	// of an array of objects or string, but got null instead". Fall back to an
-	// empty string, which is a valid Responses content shape.
 	parts := convertChatContentPartsToResponses(content.Parts)
 	if len(parts) == 0 {
+		// A nil slice marshals to JSON null, which the upstream Responses API
+		// rejects ("expected an array of objects or string, but got null").
+		// Fall back to an empty string when no usable parts remain.
 		return json.Marshal("")
 	}
 	return json.Marshal(parts)

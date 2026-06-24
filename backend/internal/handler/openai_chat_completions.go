@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -83,14 +82,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
-	setOpsRequestModelAndBody(c, reqModel, reqStream, body)
+	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
-
-	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
-	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformOpenAI, reqModel, len(body)); reject {
-		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
-		return
-	}
 
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && decision.Blocked {
 		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
@@ -108,17 +101,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-
-	// TK: pre-flight balance hold (concurrent-overdraft fix; see
-	// openai_gateway_handler_tk_hold.go). Reserve before forwarding; refund
-	// ownership is handed to the usage-record task at submit time, the deferred
-	// release only covers never-billed paths. Balance users only.
-	hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)
-	if holdReject {
-		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
-		return
-	}
-	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -170,9 +152,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
-				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
-				h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
 				return
 			} else {
 				if lastFailoverErr != nil {
@@ -185,7 +165,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		if selection == nil || selection.Account == nil {
 			markOpsRoutingCapacityLimited(c)
-			h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
+			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
 			return
 		}
 		account := selection.Account
@@ -213,10 +193,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			// TK: claude 系模型名落到 openai 组且账号级映射未命中时，复用
-			// /v1/messages dispatch 的解析链（精确覆盖 > 组级家族覆写 > 代码
-			// 常量默认）作为兜底，代码默认值全网生效、无需节点配置。
-			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel))
+			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
 		cyberBlockKeyChat := ""
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -288,22 +265,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					)
 					continue
 				}
-				// Preserve upstream NewAPIRelayError detail for newapi accounts (mirrors
-				// the /v1/responses handler): without this branch the fallback below
-				// masks the adaptor's structured error (402 insufficient balance,
-				// 429 rate limit, …) as a generic 502 "Upstream request failed" —
-				// the 2026-06-11 DeepSeek prod incident shape. The sibling block
-				// further down (after the else) is only reachable on the
-				// image-partial-result path and never fires for plain chat errors.
-				if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
-					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-					reqLog.Warn("openai_chat_completions.forward_failed",
-						zap.Int64("account_id", account.ID),
-						zap.Bool("fallback_error_response_written", false),
-						zap.Error(err),
-					)
-					return
-				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
@@ -318,31 +279,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				)
 				return
 			}
-			// Preserve upstream NewAPIRelayError detail for newapi accounts (mirrors
-			// embeddings/images): without this branch ensureForwardErrorResponse would
-			// replace the adaptor's structured error with the generic
-			// "Upstream request failed" message and lose the original status / message.
-			if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-				reqLog.Warn("openai_chat_completions.forward_failed",
-					zap.Int64("account_id", account.ID),
-					zap.Bool("fallback_error_response_written", false),
-					zap.Error(err),
-				)
-				return
-			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-			wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
-			reqLog.Warn("openai_chat_completions.forward_failed",
-				zap.Int64("account_id", account.ID),
-				zap.Bool("fallback_error_response_written", wroteFallback),
-				zap.Error(err),
-			)
-			return
 		}
 		if result != nil {
-			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
-			setOpsOpenAIUsageContext(c, result.Usage)
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
@@ -353,7 +291,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account)
 
-		tkHoldRequestID := hold.HandOffToSettlement()
 		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
@@ -367,7 +304,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
-				TkHoldRequestID:    tkHoldRequestID,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 				CyberBlocked:       cyberBlocked,
 			}); err != nil {

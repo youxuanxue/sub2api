@@ -16,11 +16,6 @@ func (s *APIKeyService) InvalidateAuthCacheByUserID(ctx context.Context, userID 
 	if userID <= 0 {
 		return
 	}
-	// 全能 Key 权限跨度随用户授权(allowed_groups/订阅)变化而变;同步失效该用户的跨度缓存,
-	// 使授权变更即时生效(而非等 TTL 过期)。
-	if s.universalResolver != nil {
-		s.universalResolver.Invalidate(userID)
-	}
 	keys, err := s.apiKeyRepo.ListKeysByUserID(ctx, userID)
 	if err != nil {
 		return
@@ -32,10 +27,6 @@ func (s *APIKeyService) InvalidateAuthCacheByUserID(ctx context.Context, userID 
 func (s *APIKeyService) InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64) {
 	if groupID <= 0 {
 		return
-	}
-	// 分组配置/状态变更可能影响任意用户的候选解析;全量失效跨度缓存(条目数小、TTL 短)。
-	if s.universalResolver != nil {
-		s.universalResolver.InvalidateAll()
 	}
 	keys, err := s.apiKeyRepo.ListKeysByGroupID(ctx, groupID)
 	if err != nil {

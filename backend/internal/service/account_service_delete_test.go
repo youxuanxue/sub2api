@@ -211,18 +211,6 @@ func (s *accountRepoStub) ResetQuotaUsed(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *accountRepoStub) SumConcurrencyAnthropic(ctx context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (s *accountRepoStub) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
-func (s *accountRepoStub) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
 func (s *accountRepoStub) RevertProxyFallback(ctx context.Context, accountID int64) error {
 	panic("unexpected RevertProxyFallback call")
 }

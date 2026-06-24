@@ -21,7 +21,7 @@ type openAICompatSessionResponseBinding struct {
 }
 
 func openAICompatContinuationEnabled(account *Account, model string) bool {
-	if !openAICompatContinuationAllowedAccountType(account) {
+	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
 	return shouldAutoInjectPromptCacheKeyForCompat(model)

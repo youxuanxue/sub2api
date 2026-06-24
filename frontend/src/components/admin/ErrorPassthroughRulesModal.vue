@@ -430,7 +430,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -438,7 +438,6 @@ import type { ErrorPassthroughRule } from '@/api/admin/errorPassthrough'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { usePlatformOptions } from '@/composables/usePlatformOptions'
 
 const props = defineProps<{
   show: boolean
@@ -486,12 +485,12 @@ const matchModeOptions = computed(() => [
   { value: 'all', label: t('admin.errorPassthrough.matchMode.all'), description: t('admin.errorPassthrough.matchMode.allHint') }
 ])
 
-// Error-passthrough rules can be scoped to one or more platforms; the choice
-// list comes from the canonical composable so the fifth platform `newapi`
-// shows up automatically and can have its own error-passthrough rules
-// configured (matches the backend MatchRule predicate that already accepts
-// the `newapi` platform string).
-const { options: platformOptions } = usePlatformOptions()
+const platformOptions = [
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'antigravity', label: 'Antigravity' }
+]
 
 // Load rules when dialog opens
 watch(() => props.show, (newVal) => {
@@ -511,15 +510,6 @@ const loadRules = async () => {
     loading.value = false
   }
 }
-
-// Lazy-mount latch (PR #900): when this modal is created already-shown, the
-// show-watch above does NOT fire (it is not { immediate: true }), so mirror the
-// show-became-true branch here for the first-open case (#900).
-onMounted(() => {
-  if (props.show) {
-    loadRules()
-  }
-})
 
 const resetForm = () => {
   form.name = ''

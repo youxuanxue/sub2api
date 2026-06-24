@@ -135,16 +135,6 @@ type NormalizedCodexLimits struct {
 
 // Normalize converts primary/secondary fields to canonical 5h/7d fields.
 // Strategy: Compare window_minutes to determine which is 5h vs 7d.
-//
-// Both the 5h and 7d `x-codex-*-used-percent` headers carry **used** percent
-// (higher = more consumed), matching the literal header name. An earlier change
-// (b65dde63, 2026-05-31) assumed the 5h header was remaining% and applied
-// `100-raw`; that was wrong. Disproved by prod capture on 2026-06-04
-// (GPT-pro1: 5h window=300min raw used=1; GPT-pro2: raw used=0) plus the
-// physical constraint that the 5h window is a sub-interval of 7d — a 5h that is
-// 99% used cannot coexist with a 7d that is 1% used. 5h is now passed through
-// like 7d. Do NOT reintroduce a 100-raw inversion without a fresh raw-header
-// capture proving remaining% semantics.
 // Returns nil if snapshot is nil or has no useful data.
 func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 	if s == nil {
@@ -248,41 +238,20 @@ type OpenAIForwardResult struct {
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ReasoningEffort *string
-	// EnableThinking records whether the request runs in thinking mode (the upstream
-	// enable_thinking parameter, treated as active unless explicitly false — matches
-	// Qwen3 open-source dense defaults). Only changes billing for models that carry a
-	// ThinkingOutputPricePerToken (qwen3-8b/14b/32b); no-op otherwise.
-	EnableThinking   bool
-	Stream           bool
-	OpenAIWSMode     bool
-	ResponseHeaders  http.Header
-	Duration         time.Duration
-	FirstTokenMs     *int
-	ClientDisconnect bool
-	ImageCount       int
-	ImageSize        string
-	ImageInputSize   string
-	ImageOutputSize  string
-	ImageOutputSizes []string
-	ImageSizeSource  string
-	// VideoDurationSeconds, when set (>0), routes cost to per-second video billing
-	// (veo etc.). Handlers populate it from the submit request's duration (default 8s).
-	VideoDurationSeconds *int64
-	ImageSizeBreakdown   map[string]int
-	// StopReason is the Anthropic-shaped stop reason returned to the client
-	// ("end_turn" / "max_tokens" / "tool_use"). Recorded for the access log
-	// so we can verify that "incomplete" upstream responses surface as
-	// "max_tokens" (and not silently as "end_turn", which used to make
-	// Claude Code's agentic loop stop short).
-	StopReason string
-	// IncompleteReason carries the upstream incomplete_details.reason verbatim
-	// when the response terminated as incomplete (max_output_tokens,
-	// content_filter, server_error, …). Empty otherwise. Used only for
-	// observability — does not change response shape.
-	IncompleteReason string
-	ContentTextLen   int
-	CompactCandidate bool
+	ReasoningEffort    *string
+	Stream             bool
+	OpenAIWSMode       bool
+	ResponseHeaders    http.Header
+	Duration           time.Duration
+	FirstTokenMs       *int
+	ClientDisconnect   bool
+	ImageCount         int
+	ImageSize          string
+	ImageInputSize     string
+	ImageOutputSize    string
+	ImageOutputSizes   []string
+	ImageSizeSource    string
+	ImageSizeBreakdown map[string]int
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool
@@ -387,7 +356,6 @@ type OpenAIGatewayService struct {
 	balanceNotifyService  *BalanceNotifyService
 	settingService        *SettingService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
-	mediaStore            MediaStore // TK; wired via SetMediaStore — see openai_images_s3_tk.go. nil ⇒ inline base64 passthrough.
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -408,9 +376,6 @@ type OpenAIGatewayService struct {
 	codexSnapshotThrottle               *accountWriteThrottle
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
-	// TK: pricing-missing → Feishu notifier. Injected via
-	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
-	tkPricingMissingNotifier PricingMissingNotifier
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -479,11 +444,6 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
-}
-
-// SetSettingService injects the SettingService after construction (avoids Wire circular dependency).
-func (s *OpenAIGatewayService) SetSettingService(ss *SettingService) {
-	s.settingService = ss
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
@@ -954,7 +914,7 @@ func SnapshotOpenAICompatibilityFallbackMetrics() OpenAICompatibilityFallbackMet
 
 func (s *OpenAIGatewayService) detectCodexClientRestriction(c *gin.Context, account *Account) CodexClientRestrictionDetectionResult {
 	var globalAllowedClients []string
-	if s != nil && s.settingService != nil {
+	if account != nil && account.IsCodexCLIOnlyEnabled() && s != nil && s.settingService != nil {
 		ctx := context.Background()
 		if c != nil && c.Request != nil {
 			ctx = c.Request.Context()
@@ -964,39 +924,6 @@ func (s *OpenAIGatewayService) detectCodexClientRestriction(c *gin.Context, acco
 		}
 	}
 	return s.getCodexClientRestrictionDetector().Detect(c, account, globalAllowedClients)
-}
-
-// errCodexClientRestricted 标记请求因账号 codex_cli_only 策略被拒绝。
-// 它是普通错误（非 *UpstreamFailoverError），所以网关 handler 不会据此切换账号——
-// 对一个受限账号 failover 到另一个账号会绕过运营对该账号的本地策略预期
-// （见 upstream Wei-Shaw/sub2api#3014 建议修复第 5 点）。
-var errCodexClientRestricted = errors.New("codex_cli_only restriction: only codex official clients are allowed")
-
-// enforceCodexClientRestriction 在 OpenAI 网关任一转发入口执行账号的 codex_cli_only 策略。
-//
-// 当账号开启 codex_cli_only 且请求客户端不在放行名单内时，写出 403 并返回
-// errCodexClientRestricted，调用方据此直接 return，不再转发上游、也不 failover。
-// 请求被放行（或账号未开启该策略）时返回 nil——对未开启策略的账号是零成本 no-op。
-//
-// 该 helper 是 codex_cli_only 在所有 OpenAI 网关入口的单一执行点：/responses
-// (Forward)、/v1/chat/completions (ForwardAsChatCompletions)、图片 OAuth 路径
-// (forwardOpenAIImagesOAuth) 共用同一套检测，避免任何兼容入口绕过限制。
-// 见 upstream Wei-Shaw/sub2api#3014：此前限制只在 /responses 生效，普通客户端
-// 可通过 /v1/chat/completions 兼容入口继续使用受限账号。
-func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
-	restrictionResult := s.detectCodexClientRestriction(c, account)
-	logCodexCLIOnlyDetection(ctx, c, account, getAPIKeyIDFromContext(c), restrictionResult, body)
-	if restrictionResult.Enabled && !restrictionResult.Matched {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": "This account only allows Codex official clients",
-			},
-		})
-		return errCodexClientRestricted
-	}
-	return nil
 }
 
 func getAPIKeyIDFromContext(c *gin.Context) int64 {
@@ -1054,6 +981,7 @@ func logCodexCLIOnlyDetection(ctx context.Context, c *gin.Context, account *Acco
 	}
 	log := logger.FromContext(ctx).With(fields...)
 	if result.Matched {
+		log.Info("OpenAI codex_cli_only 放行请求")
 		return
 	}
 	log.Warn("OpenAI codex_cli_only 拒绝非官方客户端请求")
@@ -1251,7 +1179,17 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 // ExtractSessionID extracts the raw session ID from headers or body without hashing.
 // Used by ForwardAsAnthropic to pass as prompt_cache_key for upstream cache.
 func (s *OpenAIGatewayService) ExtractSessionID(c *gin.Context, body []byte) string {
-	return explicitOpenAISessionID(c, body)
+	if c == nil {
+		return ""
+	}
+	sessionID := strings.TrimSpace(c.GetHeader("session_id"))
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(c.GetHeader("conversation_id"))
+	}
+	if sessionID == "" && len(body) > 0 {
+		sessionID = strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
+	}
+	return sessionID
 }
 
 func explicitOpenAISessionID(c *gin.Context, body []byte) string {
@@ -1262,12 +1200,6 @@ func explicitOpenAISessionID(c *gin.Context, body []byte) string {
 	sessionID := strings.TrimSpace(c.GetHeader("session_id"))
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(c.GetHeader("conversation_id"))
-	}
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(c.GetHeader("X-Claude-Code-Session-Id"))
-	}
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(c.GetHeader("X-Session-Id"))
 	}
 	if sessionID == "" && len(body) > 0 {
 		sessionID = strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
@@ -1370,32 +1302,25 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 // SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, sessionHash, requestedModel, excludedIDs, false, 0)
+	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, sessionHash, requestedModel, excludedIDs, false, 0, "")
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the compact-specific error when applicable.
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, groupPlatform string) error {
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool) error {
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}
-	p := openAICompatErrorPlatformLabel(groupPlatform)
-	display := p
-	if p == "" || p == PlatformOpenAI {
-		display = "OpenAI"
-	}
 	if requestedModel != "" {
-		return fmt.Errorf("no available %s accounts supporting model: %s", display, requestedModel)
+		return fmt.Errorf("no available OpenAI accounts supporting model: %s", requestedModel)
 	}
-	return fmt.Errorf("no available %s accounts", display)
+	return errors.New("no available OpenAI accounts")
 }
 
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
 // 0 = explicitly unsupported, 1 = unknown / not yet probed, 2 = explicitly supported.
 func openAICompactSupportTier(account *Account) int {
-	// Compact probing applies only to OpenAI-compat platforms (native OpenAI + newapi bridge).
-	// Use IsOpenAICompatPlatform — avoid bare IsOpenAI() filters (preflight drift guard).
-	if account == nil || !IsOpenAICompatPlatform(account.Platform) {
+	if account == nil || !account.IsOpenAI() {
 		return 0
 	}
 	supported, known := account.OpenAICompactSupportKnown()
@@ -1408,19 +1333,10 @@ func openAICompactSupportTier(account *Account) int {
 	return 0
 }
 
-// isOpenAIAccountEligibleForRequest centralises schedulable / compat-pool / model /
-// compact-support checks used during OpenAI-compat account selection. The model
-// check is per-model rate-limit aware (IsSchedulableForModelWithContext) so an
-// account cooled on one model (upstream 404 per-model cooldown, commit a31b5074)
-// stays eligible for its other models.
-func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, groupPlatform string, requireCompact bool) bool {
-	if account == nil || !account.IsSchedulable() {
-		return false
-	}
-	if groupPlatform == "" {
-		groupPlatform = PlatformOpenAI
-	}
-	if !account.IsOpenAICompatPoolMember(groupPlatform) {
+// isOpenAIAccountEligibleForRequest centralises the schedulable / OpenAI / model /
+// compact-support checks used during account selection.
+func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
+	if account == nil || !account.IsOpenAI() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
 	if paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
@@ -1434,13 +1350,11 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 		)
 		return false
 	}
-	if requestedModel != "" {
-		if !account.IsModelSupported(requestedModel) {
-			return false
-		}
-		if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
-			return false
-		}
+	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+		return false
+	}
+	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+		return false
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return false
@@ -1448,20 +1362,14 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 	return true
 }
 
+type openAIQuotaAutoPauseDecision struct {
+	window      string
+	threshold   float64
+	utilization float64
+}
+
 func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision) {
-	// TK (PR #899 follow-up): the upstream codex usage-window auto-pause is retired
-	// in favour of the window-sched tri-state guard, the single outward window
-	// mechanism. Short-circuited to a permanent no-op so any leftover thresholds
-	// cannot fire; upstream body below is retained (disabled, not deleted — §5.x)
-	// and the shared codex signal capture the new guard reads stays intact. See
-	// tkOpenAIAutoPauseRetired (openai_account_scheduler_tk_autopause_retired.go).
-	if tkOpenAIAutoPauseRetired() {
-		return false, openAIQuotaAutoPauseDecision{}
-	}
-	// Auto-pause keys off codex 5h/7d usage windows that only exist on `openai`
-	// accounts; this is a usage-window predicate, not a scheduling pool-membership
-	// filter, so newapi accounts are correctly skipped.
-	if account == nil || !account.IsOpenAI() { // compat-pool-exempt: usage-window predicate, not a pool filter
+	if account == nil || !account.IsOpenAI() {
 		return false, openAIQuotaAutoPauseDecision{}
 	}
 	// Per-account explicit-disable flags must take precedence over the global default.
@@ -1652,12 +1560,6 @@ func readOpenAIQuotaUsedPercent(extra map[string]any, window string) float64 {
 	return 0
 }
 
-type openAIQuotaAutoPauseDecision struct {
-	window      string
-	threshold   float64
-	utilization float64
-}
-
 type openAIQuotaAutoPauseCtxKey struct{}
 
 func withOpenAIQuotaAutoPauseSettings(ctx context.Context, settings OpsOpenAIAccountQuotaAutoPauseSettings) context.Context {
@@ -1723,7 +1625,7 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 	return upstreamModel
 }
 
-func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64) (*Account, error) {
+func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) (*Account, error) {
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
@@ -1731,33 +1633,25 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
-	// TK: resolve scheduling-pool platform once per request and thread it
-	// through; see docs/approved/newapi-as-fifth-platform.md §3.1.
-	groupPlatform := s.resolveGroupPlatform(ctx, groupID)
-
 	// 1. 尝试粘性会话命中
 	// Try sticky session hit
-	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, groupPlatform); account != nil {
+	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
 		return account, nil
 	}
 
-	// 2. 获取可调度的 OpenAI-compat 账号（platform 由 group 决定，可能是 openai 或 newapi）
-	// Get schedulable accounts for this group's platform
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, groupPlatform)
+	// 2. 获取可调度的 OpenAI 账号
+	// Get schedulable OpenAI accounts
+	accounts, err := s.listSchedulableAccounts(ctx, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
 
 	// 3. 按优先级 + LRU 选择最佳账号
 	// Select by priority + LRU
-	selected, compactBlocked := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, groupPlatform, requireCompact)
+	selected, compactBlocked := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability)
 
 	if selected == nil {
-		// TK: route through the shared no-candidate classifier so a pool emptied
-		// PURELY by unservable model name surfaces ErrUnsupportedModel (→ HTTP 400),
-		// not an empty-pool 429 — parity with the selectByLoadBalance path so
-		// count_tokens / sticky callers do not misclassify (prod 2026-06-13).
-		return nil, openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs)
+		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked)
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -1779,16 +1673,9 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 //
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
-//
-// groupPlatform validates the sticky-bound account against the scheduling pool
-// (openapi vs newapi). Empty falls back to PlatformOpenAI.
-// See docs/approved/newapi-as-fifth-platform.md §3.1 U5.
-func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, groupPlatform string) *Account {
+func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) *Account {
 	if sessionHash == "" {
 		return nil
-	}
-	if groupPlatform == "" {
-		groupPlatform = PlatformOpenAI
 	}
 
 	accountID := stickyAccountID
@@ -1805,15 +1692,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	}
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
-	if err != nil || account == nil {
-		// US-025: 粘性绑定指向的账号已被管理员删除（ErrAccountNotFound）或快照命中
-		// 但记录已不存在 (account == nil)。原实现直接 return nil，导致 Redis 中的
-		// 旧映射在整个 TTL 内继续指向死 ID，每次同 sessionHash 请求都重走一次
-		// snapshot/DB 查询 → 命中 NotFound → 落到 Layer 2 选号。第五平台 newapi 与
-		// openai 共用本 OpenAI-compat 调度池，账号删除属常规生命周期事件，必须自愈。
-		if errors.Is(err, ErrAccountNotFound) || account == nil {
-			_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		}
+	if err != nil {
 		return nil
 	}
 
@@ -1826,35 +1705,15 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
-	//
-	// P0-2 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
-	// 跨平台 sticky binding 必须主动清理 Redis 映射（与 scheduler 路径对称）。
-	if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
-		if !account.IsOpenAICompatPoolMember(groupPlatform) {
-			_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		}
-		return nil
-	}
-	// TK window guard (isSticky=true): keep serving the sticky session up to
-	// NotSchedulable; only once the bound account is essentially at its codex
-	// window cap do we skip the hit and fall through to load-balance. The binding
-	// is left intact (NOT deleted) so the session resumes after the window resets.
-	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+	if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, false, requiredCapability) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(account) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
-	account = s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, groupPlatform, requireCompact)
-	if account == nil {
-		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-		return nil
-	}
-	// TK (upstream#1934): invalidate sticky bindings whose bound account has
-	// drifted out of this group (group switch / removed from group). See
-	// openaiStickyAccountStillInGroup. The load-balance path is unaffected.
-	if groupID != nil && !openaiStickyAccountStillInGroup(account, *groupID) {
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, requireCompact, requiredCapability)
+	if account == nil || !openAIStickyAccountMatchesGroup(account, groupID) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1877,14 +1736,11 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 // Returns nil if no available account. The second return reports whether at
 // least one candidate was filtered out solely because it lacks compact support
 // (only meaningful when requireCompact=true).
-func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, groupPlatform string, requireCompact bool) (*Account, bool) {
+func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability) (*Account, bool) {
 	var selected *Account
 	selectedCompactTier := -1
 	compactBlocked := false
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
-	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
-	// retained for the never-empty-pool fallback below.
-	var windowDropped []*Account
 
 	for i := range accounts {
 		acc := &accounts[i]
@@ -1895,16 +1751,11 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			continue
 		}
 
-		fresh := s.resolveFreshOpenAICompatAccount(ctx, acc, requestedModel, groupPlatform, requireCompact)
+		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel, false, requiredCapability)
 		if fresh == nil {
-			if requireCompact {
-				if alt := s.resolveFreshOpenAICompatAccount(ctx, acc, requestedModel, groupPlatform, false); alt != nil && openAICompactSupportTier(alt) == 0 {
-					compactBlocked = true
-				}
-			}
 			continue
 		}
-		fresh = s.recheckOpenAICompatAccountFromDB(ctx, fresh, requestedModel, groupPlatform, requireCompact)
+		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, false, requiredCapability)
 		if fresh == nil {
 			continue
 		}
@@ -1918,14 +1769,6 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 				compactBlocked = true
 				continue
 			}
-		}
-
-		// TK window guard (isSticky=false, fresh load-balance): steer new traffic
-		// away from a codex account approaching its 5h/7d window before it 429s.
-		// Applied LAST so windowDropped holds only otherwise-valid candidates.
-		if !s.isAccountSchedulableForOpenAIWindow(ctx, fresh, false) {
-			windowDropped = append(windowDropped, fresh)
-			continue
 		}
 
 		// 选择优先级最高且最久未使用的账号
@@ -1949,13 +1792,6 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			selected = fresh
 			selectedCompactTier = compactTier
 		}
-	}
-
-	// never-empty-pool: the window guard must not turn a non-empty pool into an
-	// empty-pool 429. If every otherwise-valid candidate was dropped purely by the
-	// window guard, re-admit the one with the most headroom.
-	if selected == nil && len(windowDropped) > 0 {
-		selected = leastUtilizedOpenAIAccount(windowDropped, time.Now())
 	}
 
 	return selected, compactBlocked
@@ -1996,20 +1832,16 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
-	return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, sessionHash, requestedModel, excludedIDs, false)
+	return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, sessionHash, requestedModel, excludedIDs, false, "")
 }
 
-func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool) (*AccountSelectionResult, error) {
+func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability) (*AccountSelectionResult, error) {
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
-
-	// TK: resolve scheduling-pool platform once per request and thread it
-	// through; see docs/approved/newapi-as-fifth-platform.md §3.1.
-	groupPlatform := s.resolveGroupPlatform(ctx, groupID)
 
 	cfg := s.schedulingConfig()
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
@@ -2020,7 +1852,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
-		account, err := s.selectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID)
+		account, err := s.selectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability)
 		if err != nil {
 			return nil, err
 		}
@@ -2047,7 +1879,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		})
 	}
 
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, groupPlatform)
+	accounts, err := s.listSchedulableAccounts(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -2068,43 +1900,18 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
-			if err != nil || account == nil {
-				// US-025: 与 tryStickySessionHit 对称——粘性绑定的账号已被删除时，
-				// 必须主动清理 Redis 映射，否则后续同 sessionHash 请求每次都会重做
-				// 一次 NotFound 查询。Layer 2 在成功选号后会重新写入新映射，但仅当
-				// 真的有可用账号时才发生，故清理动作不能依赖 Layer 2。
-				if errors.Is(err, ErrAccountNotFound) || account == nil {
-					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-				}
-			} else {
+			if err == nil {
 				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				// P0-2: 跨平台 sticky 也必须主动清理（与 tryStickySessionHit 对称）。
-				if !clearSticky && !account.IsOpenAICompatPoolMember(groupPlatform) {
-					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-				}
-				// TK window guard (isSticky=true): if the bound account is at its
-				// codex window cap (NotSchedulable), mark it sticky-clear so the hit
-				// is skipped and the request falls through to Layer 2 load-balance.
-				// The binding is NOT deleted here (the delete branches above already
-				// ran for genuine clear-sticky reasons), so the session resumes on
-				// this account after its window resets.
-				if !clearSticky && !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
-					clearSticky = true
-				}
-				if !clearSticky && isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
-					account = s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, groupPlatform, requireCompact)
+				if !clearSticky && isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, false, requiredCapability) {
+					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if !openAIStickyAccountMatchesGroup(account, groupID) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if s.isOpenAIAccountRuntimeBlocked(account) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if groupID != nil && !openaiStickyAccountStillInGroup(account, *groupID) {
-						// TK (upstream#1934): bound account drifted out of this
-						// group — invalidate (symmetric with tryStickySessionHit).
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -2137,9 +1944,6 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	// ============ Layer 2: Load-aware selection ============
 	baseCandidateCount := 0
 	candidates := make([]*Account, 0, len(accounts))
-	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
-	// retained for the never-empty-pool fallback below.
-	var windowDropped []*Account
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
@@ -2148,43 +1952,17 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
-		if !acc.IsSchedulable() {
+		if !isOpenAIAccountEligibleForRequest(ctx, acc, requestedModel, false, requiredCapability) {
 			continue
 		}
 		if s.isOpenAIAccountRuntimeBlocked(acc) {
 			continue
 		}
-		if requestedModel != "" && !acc.IsModelSupported(requestedModel) {
-			continue
-		}
-		// Per-model rate-limit cooldown (upstream 404 per-model cooldown, a31b5074):
-		// skip accounts cooled on this specific model while leaving them eligible
-		// for their other models.
-		if requestedModel != "" && !acc.IsSchedulableForModelWithContext(ctx, requestedModel) {
-			continue
-		}
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
-			continue
-		}
-		// TK window guard (isSticky=false, fresh load-balance): steer new traffic
-		// away from a codex account approaching its 5h/7d window before it 429s.
-		// Applied LAST so windowDropped holds only otherwise-valid candidates.
-		if !s.isAccountSchedulableForOpenAIWindow(ctx, acc, false) {
-			windowDropped = append(windowDropped, acc)
 			continue
 		}
 		baseCandidateCount++
 		candidates = append(candidates, acc)
-	}
-
-	// never-empty-pool: the window guard must not turn a non-empty schedulable
-	// pool into an empty-pool 429. If every otherwise-valid candidate was dropped
-	// purely by the window guard, re-admit the one with the most headroom.
-	if len(candidates) == 0 && len(windowDropped) > 0 {
-		if acc := leastUtilizedOpenAIAccount(windowDropped, time.Now()); acc != nil {
-			baseCandidateCount++
-			candidates = append(candidates, acc)
-		}
 	}
 
 	if len(candidates) == 0 {
@@ -2259,11 +2037,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 
 		for _, item := range selectionOrder {
-			fresh := s.resolveFreshOpenAICompatAccount(ctx, item.account, requestedModel, groupPlatform, requireCompact)
+			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, item.account, requestedModel, false, requiredCapability)
 			if fresh == nil {
 				continue
 			}
-			fresh = s.recheckOpenAICompatAccountFromDB(ctx, fresh, requestedModel, groupPlatform, requireCompact)
+			fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, requireCompact, requiredCapability)
 			if fresh == nil {
 				continue
 			}
@@ -2293,11 +2071,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
 		for _, acc := range ordered {
-			fresh := s.resolveFreshOpenAICompatAccount(ctx, acc, requestedModel, groupPlatform, requireCompact)
+			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel, false, requiredCapability)
 			if fresh == nil {
 				continue
 			}
-			fresh = s.recheckOpenAICompatAccountFromDB(ctx, fresh, requestedModel, groupPlatform, requireCompact)
+			fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, requireCompact, requiredCapability)
 			if fresh == nil {
 				continue
 			}
@@ -2338,11 +2116,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}
 	for _, acc := range candidates {
-		fresh := s.resolveFreshOpenAICompatAccount(ctx, acc, requestedModel, groupPlatform, requireCompact)
+		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel, false, requiredCapability)
 		if fresh == nil {
 			continue
 		}
-		fresh = s.recheckOpenAICompatAccountFromDB(ctx, fresh, requestedModel, groupPlatform, requireCompact)
+		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, requireCompact, requiredCapability)
 		if fresh == nil {
 			continue
 		}
@@ -2363,6 +2141,26 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	return nil, ErrNoAvailableAccounts
 }
 
+func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64) ([]Account, error) {
+	if s.schedulerSnapshot != nil {
+		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, PlatformOpenAI, false)
+		return accounts, err
+	}
+	var accounts []Account
+	var err error
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, PlatformOpenAI)
+	} else if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, PlatformOpenAI)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, PlatformOpenAI)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query accounts failed: %w", err)
+	}
+	return accounts, nil
+}
+
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
@@ -2370,15 +2168,11 @@ func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accoun
 	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
 }
 
-// resolveFreshOpenAICompatAccount re-reads snapshot (when enabled) and validates
-// pool membership for openai vs newapi scheduling buckets.
-func (s *OpenAIGatewayService) resolveFreshOpenAICompatAccount(ctx context.Context, account *Account, requestedModel string, groupPlatform string, requireCompact bool) *Account {
+func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) *Account {
 	if account == nil {
 		return nil
 	}
-	if groupPlatform == "" {
-		groupPlatform = PlatformOpenAI
-	}
+
 	fresh := account
 	if s.schedulerSnapshot != nil {
 		current, err := s.getSchedulableAccount(ctx, account.ID)
@@ -2387,7 +2181,8 @@ func (s *OpenAIGatewayService) resolveFreshOpenAICompatAccount(ctx context.Conte
 		}
 		fresh = current
 	}
-	if !isOpenAIAccountEligibleForRequest(ctx, fresh, requestedModel, groupPlatform, requireCompact) {
+
+	if !isOpenAIAccountEligibleForRequest(ctx, fresh, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(fresh) {
@@ -2396,26 +2191,22 @@ func (s *OpenAIGatewayService) resolveFreshOpenAICompatAccount(ctx context.Conte
 	return fresh
 }
 
-// recheckOpenAICompatAccountFromDB loads the latest row from PG when snapshot is on,
-// then re-validates compat pool + model + compact constraints.
-func (s *OpenAIGatewayService) recheckOpenAICompatAccountFromDB(ctx context.Context, account *Account, requestedModel string, groupPlatform string, requireCompact bool) *Account {
+func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) *Account {
 	if account == nil {
 		return nil
 	}
-	if groupPlatform == "" {
-		groupPlatform = PlatformOpenAI
-	}
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
-		if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
+		if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, requireCompact, requiredCapability) {
 			return nil
 		}
 		return account
 	}
+
 	latest, err := s.accountRepo.GetByID(ctx, account.ID)
 	if err != nil || latest == nil {
 		return nil
 	}
-	if !isOpenAIAccountEligibleForRequest(ctx, latest, requestedModel, groupPlatform, requireCompact) {
+	if !isOpenAIAccountEligibleForRequest(ctx, latest, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(latest) {
@@ -2491,17 +2282,6 @@ func (s *OpenAIGatewayService) schedulingConfig() config.GatewaySchedulingConfig
 
 // GetAccessToken gets the access token for an OpenAI account
 func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
-	// Grok (seventh platform): xAI OAuth issues a plain Bearer to api.x.ai/v1 and
-	// does NOT use the ChatGPT/Codex token provider (which is IsOpenAI-gated). The
-	// background GrokTokenRefresher keeps the stored access token fresh, so return
-	// it directly — same posture as Kiro's GetKiroAccessToken.
-	if account.IsGrokOAuth() {
-		accessToken := account.GetGrokAccessToken()
-		if accessToken == "" {
-			return "", "", errors.New("grok access_token not found in credentials")
-		}
-		return accessToken, "oauth", nil
-	}
 	switch account.Type {
 	case AccountTypeOAuth:
 		// 使用 TokenProvider 获取缓存的 token
@@ -2539,22 +2319,6 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 must NOT
-	// failover. Every account in the pool shares the same missing capability scope,
-	// so failing over just poisons each account in turn (and, with the no-cooldown
-	// guard in HandleUpstreamError, would otherwise loop the whole pool before the
-	// empty-pool 429). Route it straight to the non-failover error handler, which
-	// maps it to a client 400. See ratelimit_service_tk_capability_scope_401.go.
-	if tkIsCapabilityScope401(statusCode, upstreamBody) {
-		return false
-	}
-	// TK (grok seventh platform): a grok entitlement-403 (xAI Heavy-only gate) is
-	// pool-wide — failing over just poisons each grok account then hits the
-	// empty-pool 429. Route it straight to the non-failover error handler, which
-	// maps it to a clean client error. See ratelimit_service_tk_grok_entitlement_403.go.
-	if tkIsGrokEntitlement403(statusCode, upstreamBody) {
-		return false
-	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
@@ -2598,22 +2362,27 @@ func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, requestedModel ...string) {
 	if len(requestedModel) > 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, requestedModel[0])
-	} else {
-		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
+		return
 	}
-	// TK (upstream#2727): opt-in cross-request cooldown for implicitly-throttled
-	// accounts (repeated 5xx / header-timeout with no explicit 429). Default OFF.
-	s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)
+	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
 }
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
-	// codex_cli_only 在所有 OpenAI 网关入口共用 enforceCodexClientRestriction 执行
-	// （/responses、/v1/chat/completions、图片 OAuth），避免兼容入口绕过限制。
-	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
-		return nil, err
+	restrictionResult := s.detectCodexClientRestriction(c, account)
+	apiKeyID := getAPIKeyIDFromContext(c)
+	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
+	if restrictionResult.Enabled && !restrictionResult.Matched {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"type":    "forbidden_error",
+				"message": "This account only allows Codex official clients",
+			},
+		})
+		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
 	originalBody := body
@@ -2833,7 +2602,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	if account.IsOpenAIOAuth() {
+	if account.Type == AccountTypeOAuth {
 		decoded, decodeErr := ensureReqBody()
 		if decodeErr != nil {
 			return nil, decodeErr
@@ -2865,37 +2634,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchDelete("text.verbosity")
 	}
 
-	// Sticky routing: when no prompt_cache_key is present yet (neither client-
-	// supplied nor codex-derived), derive a stable one from
-	// (api_key, system, tools) and inject it. Cascades into session_id /
-	// conversation_id headers via the existing logic at buildUpstreamRequestOpenAIPassthrough.
-	// See docs/approved/sticky-routing.md.
-	if strings.TrimSpace(promptCacheKey) == "" {
-		stickyReq := buildStickyInjectionRequestFromGin(ctx, c, s.settingService, upstreamModel, openAIStickyAccountKind(account), false)
-		if stickyReq.Strategy.AllowsInjection() {
-			// Derive from the current effective body. If a deep transform已经展开 decoded map
-			// (patchesDisabled），原始 body 已陈旧，改用 marshaled reqBody；否则原始 body
-			// 仍准确反映 system/tools（sticky key 不依赖 model 等待应用的 patch 字段）。
-			deriveBody := body
-			if requestView.patchesDisabled && reqBody != nil {
-				if marshaled, mErr := json.Marshal(reqBody); mErr == nil {
-					deriveBody = marshaled
-				}
-			}
-			key := DeriveStickyKey(stickyReq, deriveBody)
-			if key.Value != "" {
-				if existing := strings.TrimSpace(gjson.GetBytes(deriveBody, "prompt_cache_key").String()); existing == "" {
-					markPatchSet("prompt_cache_key", key.Value)
-					promptCacheKey = key.Value
-					logger.LegacyPrintf("service.openai_gateway",
-						"[OpenAI sticky] injected prompt_cache_key source=%s len=%d account=%s model=%s",
-						key.Source, len(key.Value), account.Name, upstreamModel)
-				}
-			}
-		}
-	}
-
-	// Handle max_output_tokens based on platform and account type
 	if !isCodexCLI {
 		maxOutputTokens := gjson.GetBytes(body, "max_output_tokens")
 		if maxOutputTokens.Exists() {
@@ -2923,14 +2661,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if gjson.GetBytes(body, "max_completion_tokens").Exists() && (account.Type == AccountTypeAPIKey || account.Platform != PlatformOpenAI) {
 			markPatchDelete("max_completion_tokens")
 		}
-		// Remove unsupported fields (not supported by upstream OpenAI API).
-		// TK: See upstream Wei-Shaw/sub2api#1264 — the OpenAI Responses API rejects
-		// `user` with "Unsupported parameter: user" (the equivalent field on
-		// Responses is `safety_identifier`, which we also strip). The OAuth path
-		// already filters this through openAIChatGPTInternalUnsupportedFields in
-		// applyCodexOAuthTransform; this list is the catch-all for APIKey accounts
-		// hitting native /v1/responses (LobeHub, etc.).
-		for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier", "user"} {
+		for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier"} {
 			if gjson.GetBytes(body, unsupportedField).Exists() {
 				markPatchDelete(unsupportedField)
 			}
@@ -3354,7 +3085,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		s.bindHTTPResponseAccount(ctx, c, account, responseID)
 
 		// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
-		if account.IsOpenAIOAuth() {
+		if account.Type == AccountTypeOAuth {
 			if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
 				s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
 			}
@@ -3411,7 +3142,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 
-	if account != nil && account.IsOpenAIOAuth() {
+	if account != nil && account.Type == AccountTypeOAuth {
 		if rejectReason := detectOpenAIPassthroughInstructionsRejectReason(reqModel, body); rejectReason != "" {
 			rejectMsg := "OpenAI codex passthrough requires a non-empty instructions field"
 			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
@@ -3443,24 +3174,25 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		body = sanitizedBody
 	}
 
-	// Sticky routing in passthrough mode: only set prompt_cache_key when the
-	// body lacks one (client + minimal touch principle). Header session_id /
-	// conversation_id are derived downstream from the body field by
-	// buildUpstreamRequestOpenAIPassthrough. See docs/approved/sticky-routing.md.
-	{
-		stickyReq := buildStickyInjectionRequestFromGin(ctx, c, s.settingService, reqModel, openAIStickyAccountKind(account), false)
-		if stickyReq.Strategy.AllowsInjection() {
-			key := DeriveStickyKey(stickyReq, body)
-			if key.Value != "" {
-				if injected, mut, ierr := InjectOpenAIResponsesBody(body, key, stickyReq.Strategy); ierr == nil && mut {
-					body = injected
-					logger.LegacyPrintf("service.openai_gateway",
-						"[OpenAI sticky passthrough] injected prompt_cache_key source=%s len=%d account=%s model=%s",
-						key.Source, len(key.Value), account.Name, reqModel)
-				}
-			}
-		}
+	// Apply OpenAI fast policy to the passthrough body (filter/block by service_tier).
+	// 统一使用 upstream 视角的 model：透传路径下 body 已经过 compact 映射 +
+	// OAuth normalize，body 中的 model 字段即上游真正会看到的 slug。
+	// 这样可以与 chat-completions / messages / native /responses 入口的
+	// upstreamModel 保持一致，避免 whitelist 命中差异。当 body 中没有
+	// model 字段时退回 reqModel。
+	policyModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if policyModel == "" {
+		policyModel = reqModel
 	}
+	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, policyModel, body)
+	if policyErr != nil {
+		var blocked *OpenAIFastBlockedError
+		if errors.As(policyErr, &blocked) {
+			writeOpenAIFastPolicyBlockedResponse(c, blocked)
+		}
+		return nil, policyErr
+	}
+	body = updatedBody
 
 	apiKey := getAPIKeyFromContext(c)
 	if IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, body) && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
@@ -3540,15 +3272,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		c.Set("openai_passthrough", true)
 	}
 
-	// 流式请求在等待上游响应头期间发送 SSE keepalive（comment 帧），防止空闲敏感的
-	// 中间层（Cloudflare Tunnel / Caddy / 客户端 SDK）在上游排队/首字节前断开连接
-	// （Wei-Shaw/sub2api#2121）。首个 ping 延迟一个 keepalive 间隔，故快速 failover
-	// 错误在写出任何字节前已返回，handler 的 c.Writer.Size() failover 门禁得以保留。
-	// 详见 gateway_service_tk_header_wait_keepalive.go。
-	hwka := s.beginHeaderWaitKeepalive(c, reqStream)
 	upstreamStart := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	hwka.stop()
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
@@ -3668,20 +3393,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
-		if account.IsGrokOAuth() {
-			validatedURL, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
-			if err != nil {
-				return nil, err
-			}
-			targetURL = buildOpenAIResponsesURL(validatedURL)
-			break
-		}
 		targetURL = chatgptCodexURL
 	case AccountTypeAPIKey:
 		baseURL := account.GetOpenAIBaseURL()
-		if baseURL == "" && account.IsGrokAPIKey() {
-			return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
-		}
 		if baseURL != "" {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
@@ -3719,7 +3433,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	req.Header.Set("authorization", "Bearer "+token)
 
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
-	if account.IsOpenAIOAuth() {
+	if account.Type == AccountTypeOAuth {
 		promptCacheKey := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
 		req.Host = "chatgpt.com"
 		if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
@@ -3770,7 +3484,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
 	// OAuth 安全透传：对非 Codex UA 统一兜底，降低被上游风控拦截概率。
-	if account.IsOpenAIOAuth() && !openai.IsCodexCLIRequest(req.Header.Get("user-agent")) {
+	if account.Type == AccountTypeOAuth && !openai.IsCodexCLIRequest(req.Header.Get("user-agent")) {
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
 
@@ -3871,27 +3585,11 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
-	// TK: See upstream Wei-Shaw/sub2api#1318 — passthrough error handling used to
-	// discard HandleUpstreamError's shouldDisable signal. When the rate-limit
-	// service decided the account must stop scheduling (temp-unsched rule match,
-	// 402 deactivated_workspace, OAuth 401, "organization has been disabled",
-	// etc.) the side effects fired but the current request still returned the
-	// raw upstream error to the client. The result was a half-applied policy:
-	// account got marked, but the in-flight request was not failed over. The
-	// non-passthrough handler at handleErrorResponse already captures this
-	// signal — make passthrough match so the UI-configured temp-unsched rules
-	// actually take effect on the current request.
-	//
 	// 透传模式保留原始上游错误响应，但运行态账号状态仍需更新，
 	// 避免粘性路由继续复用刚被限流的账号。cyber 例外：不冷却账号。
-	shouldDisable := false
-	kind := "http_error"
 	if !cyberHit {
 		reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)
-		if shouldDisable {
-			kind = "failover"
-		}
+		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
@@ -3900,18 +3598,11 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 		UpstreamStatusCode:   resp.StatusCode,
 		UpstreamRequestID:    resp.Header.Get("x-request-id"),
 		Passthrough:          true,
-		Kind:                 kind,
+		Kind:                 "http_error",
 		Message:              upstreamMsg,
 		Detail:               upstreamDetail,
 		UpstreamResponseBody: upstreamDetail,
 	})
-	if shouldDisable {
-		return &UpstreamFailoverError{
-			StatusCode:      resp.StatusCode,
-			ResponseBody:    body,
-			ResponseHeaders: resp.Header.Clone(),
-		}
-	}
 
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := resp.Header.Get("Content-Type")
@@ -4144,41 +3835,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		return true
 	}
 
-	// TK: See upstream Wei-Shaw/sub2api#2245 — optional short-stream buffer. When
-	// gateway.responses_short_stream_buffer_bytes > 0, hold the first body content
-	// in a byte-bounded window before the first flush. If the upstream EOFs inside
-	// that window without a terminal event, the request fails over cleanly instead
-	// of shipping a half-finished HTTP 200 SSE that strict Responses clients reject
-	// with "stream closed before response.completed". Default 0 keeps the prior
-	// behavior: preamble events still buffer, body content still flushes per-line.
-	shortStreamThreshold := 0
-	if s.cfg != nil {
-		shortStreamThreshold = s.cfg.Gateway.ResponsesShortStreamBufferBytes
-	}
-	shortStreamBuffering := shortStreamThreshold > 0
-	shortStreamReleased := false
-	heldContentLines := make([]string, 0, 8)
-	heldContentBytes := 0
-	releaseHeldContent := func() {
-		shortStreamReleased = true
-		if !writePendingLines() {
-			heldContentLines = heldContentLines[:0]
-			return
-		}
-		for _, held := range heldContentLines {
-			if _, err := fmt.Fprintln(w, held); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				break
-			}
-			clientOutputStarted = true
-		}
-		heldContentLines = heldContentLines[:0]
-		if clientOutputStarted && !clientDisconnected {
-			flusher.Flush()
-		}
-	}
-
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -4204,13 +3860,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		lineStartsClientOutput := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
-			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty `data:` SSE
-			// frames before forwarding (OpenAI Python SDK crashes on json.loads("")
-			// on the OAuth /v1/responses passthrough path too). See
-			// openAISSEDataPayloadIsEmpty for the canonical rationale.
-			if openAISSEDataPayloadIsEmpty(data) {
-				continue
-			}
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			if needModelReplace && strings.Contains(data, mappedModel) {
@@ -4264,17 +3913,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if !clientDisconnected {
 			if !clientOutputStarted && !lineStartsClientOutput {
 				pendingLines = append(pendingLines, line)
-				continue
-			}
-			if shortStreamBuffering && !shortStreamReleased {
-				// Hold body content until the window fills or a terminal event
-				// arrives. A stream that dies inside the window leaves nothing
-				// flushed, so the caller can fail over (see scanner-end block).
-				heldContentLines = append(heldContentLines, line)
-				heldContentBytes += len(line)
-				if sawTerminalEvent || sawDone || forceFlushFailedEvent || heldContentBytes >= shortStreamThreshold {
-					releaseHeldContent()
-				}
 				continue
 			}
 			if !clientOutputStarted && len(pendingLines) > 0 {
@@ -4512,23 +4150,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	var targetURL string
 	switch account.Type {
 	case AccountTypeOAuth:
-		if account.IsGrokOAuth() {
-			validatedURL, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
-			if err != nil {
-				return nil, err
-			}
-			targetURL = buildOpenAIResponsesURL(validatedURL)
-			break
-		}
 		// OAuth accounts use ChatGPT internal API
 		targetURL = chatgptCodexURL
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
 		baseURL := account.GetOpenAIBaseURL()
 		if baseURL == "" {
-			if account.IsGrokAPIKey() {
-				return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
-			}
 			targetURL = openaiPlatformAPIURL
 		} else {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -4552,7 +4179,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	req.Header.Set("authorization", "Bearer "+token)
 
 	// Set headers specific to OAuth accounts (ChatGPT internal API)
-	if account.IsOpenAIOAuth() {
+	if account.Type == AccountTypeOAuth {
 		// Required: set Host for ChatGPT API (must use req.Host, not Header.Set)
 		req.Host = "chatgpt.com"
 		// Required: set chatgpt-account-id header
@@ -4571,7 +4198,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			}
 		}
 	}
-	if account.IsOpenAIOAuth() {
+	if account.Type == AccountTypeOAuth {
 		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
 		// 清除客户端透传的 session 头，后续用隔离后的值重新设置，防止跨用户会话碰撞。
 		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
@@ -4637,7 +4264,7 @@ func (s *OpenAIGatewayService) overrideBrowserUserAgent(ctx context.Context, acc
 	if req == nil || account == nil {
 		return
 	}
-	if !account.IsOpenAIOAuth() {
+	if account.Type != AccountTypeOAuth {
 		return
 	}
 	currentUA := req.Header.Get("user-agent")
@@ -4710,14 +4337,9 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		)
 	}
 
-	// Use account.Platform (not the literal PlatformOpenAI) so admin-configured
-	// passthrough rules scoped to `newapi` actually fire on this path; the
-	// sibling handleCompatErrorResponse already does this — both paths now
-	// agree. (Bug fix: previously newapi rules silently never matched here
-	// and openai rules incorrectly matched newapi traffic.)
 	if status, errType, errMsg, matched := applyErrorPassthroughRule(
 		c,
-		account.Platform,
+		PlatformOpenAI,
 		resp.StatusCode,
 		body,
 		http.StatusBadGateway,
@@ -4804,17 +4426,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 
 	switch resp.StatusCode {
 	case 401:
-		// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 is a
-		// per-request capability gap (token missing the scope for this operation,
-		// e.g. image generation), not an account-side auth failure — surface it as a
-		// 400 invalid_request so the caller knows the model/capability is not
-		// available on the serving account. See ratelimit_service_tk_capability_scope_401.go.
-		if tkIsCapabilityScope401(resp.StatusCode, body) {
-			statusCode = http.StatusBadRequest
-			errType = "invalid_request_error"
-			errMsg = tkCapabilityScope401ClientMessage(upstreamMsg)
-			break
-		}
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
 		errMsg = "Upstream authentication failed, please contact administrator"
@@ -4823,44 +4434,13 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		errType = "upstream_error"
 		errMsg = "Upstream payment required: insufficient balance or billing issue"
 	case 403:
-		// TK (grok seventh platform): a grok entitlement-403 (xAI Heavy-only gate)
-		// is per-request/entitlement, not a transient WAF block — surface it as a
-		// clean 403 with the actionable message instead of masking it as a generic
-		// 502. See ratelimit_service_tk_grok_entitlement_403.go.
-		if tkIsGrokEntitlement403(resp.StatusCode, body) {
-			statusCode = http.StatusForbidden
-			errType = "permission_error"
-			errMsg = tkGrokEntitlement403ClientMessage(upstreamMsg)
-			break
-		}
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
-		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
+		errMsg = "Upstream access forbidden, please contact administrator"
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"
 		errMsg = "Upstream rate limit exceeded, please retry later"
-	case 400, 404, 413, 422:
-		// TK (Bug B / prod P0 2026-06-05): a client-induced upstream request
-		// rejection (bad model / params / oversized body, e.g. Codex/ChatGPT-OAuth
-		// "The 'gpt-4o' model is not supported when using Codex with a ChatGPT
-		// account.") must pass through with its REAL status + the actionable
-		// upstream message, not be masked as a generic 502 "Upstream request
-		// failed". This brings the native /v1/responses path (handleErrorResponse)
-		// to parity with handleCompatErrorResponse — which /v1/chat/completions
-		// already uses and which already passes these through — and pairs with the
-		// ops-classification fix keeping these caller-fault 4xx out of
-		// upstream_error_rate. 401/402/403 stay masked as 502 on purpose: they are
-		// account-side (auth/billing/access) and must not leak to the caller.
-		statusCode = resp.StatusCode
-		errType = "invalid_request_error"
-		if resp.StatusCode == 404 {
-			errType = "not_found_error"
-		}
-		errMsg = upstreamMsg
-		if strings.TrimSpace(errMsg) == "" {
-			errMsg = "Upstream rejected the request"
-		}
 	default:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
@@ -5006,15 +4586,6 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 
 	MarkResponseCommitted(c)
 
-	// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 is a
-	// per-request capability gap, not an account-side auth failure — surface it as a
-	// 400 invalid_request (the account stays schedulable for every other model).
-	// See ratelimit_service_tk_capability_scope_401.go.
-	if tkIsCapabilityScope401(resp.StatusCode, body) {
-		writeError(c, http.StatusBadRequest, "invalid_request_error", tkCapabilityScope401ClientMessage(upstreamMsg))
-		return nil, fmt.Errorf("upstream error: %d (capability scope 401) %s", resp.StatusCode, upstreamMsg)
-	}
-
 	// Map status code to error type and write response
 	errType := "api_error"
 	switch {
@@ -5146,13 +4717,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			clientDisconnected = true
 			return
 		}
-		// TK fix for upstream Wei-Shaw/sub2api#1471: prepend a blank line to
-		// terminate any in-flight upstream SSE event whose trailing blank line
-		// has not yet been written. Without this, the unterminated `data:` line
-		// and this synthetic `data:` line merge into a single SSE event whose
-		// payload contains two concatenated JSON objects, breaking downstream
-		// SDK JSON parsers.
-		if _, err := bufferedWriter.WriteString("\ndata: " + payload + "\n\n"); err != nil {
+		if _, err := bufferedWriter.WriteString("data: " + payload + "\n\n"); err != nil {
 			clientDisconnected = true
 			return
 		}
@@ -5247,22 +4812,6 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		}
 		// Extract data from SSE line (supports both "data: " and "data:" formats)
 		if data, ok := extractOpenAISSEDataLine(line); ok {
-			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty / whitespace-only
-			// `data:` SSE frames before forwarding. Upstream gpt-5.5 on `/v1/responses`
-			// occasionally emits bare `data:\n` frames; the OpenAI Python SDK calls
-			// json.loads("") on every data line and crashes, breaking clients with a
-			// 5-10% failure rate. See openAISSEDataPayloadIsEmpty for the canonical
-			// rationale.
-			if openAISSEDataPayloadIsEmpty(data) {
-				return
-			}
-
-			// Replace model in response if needed.
-			// Fast path: most events do not contain model field values.
-			if needModelReplace && mappedModel != "" && strings.Contains(data, mappedModel) {
-				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
-			}
-
 			dataBytes := []byte(data)
 			if openAIStreamEventIsTerminal(data) {
 				sawTerminalEvent = true
@@ -5621,7 +5170,8 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 		return
 	}
 	eventType := gjson.GetBytes(data, "type").String()
-	if !openAIWSEventShouldParseUsage(eventType) {
+	if eventType != "response.completed" && eventType != "response.done" && eventType != "response.failed" &&
+		eventType != "response.incomplete" && eventType != "response.cancelled" && eventType != "response.canceled" {
 		return
 	}
 
@@ -5715,7 +5265,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	// This heuristic is NOT applied to API-key accounts to avoid false
 	// positives on JSON responses that coincidentally contain "data:" or
 	// "event:" in their text content.
-	if account.IsOpenAIOAuth() && bodyLooksLikeSSE {
+	if account.Type == AccountTypeOAuth && bodyLooksLikeSSE {
 		return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
 	}
 
@@ -6273,10 +5823,6 @@ type OpenAIRecordUsageInput struct {
 	IPAddress          string // 请求的客户端 IP 地址
 	RequestPayloadHash string
 	APIKeyService      APIKeyQuotaUpdater
-	// TkHoldRequestID is the pre-flight balance-hold key handed off by the
-	// handler at usage-task submit time; settlement consumes (refunds) it in the
-	// same transaction as the balance deduction (see usage_billing_hold_tk.go).
-	TkHoldRequestID string
 	// CyberBlocked 为 true 时把该用量行标记为 cyber（request_type=cyber），计费逻辑不变。
 	CyberBlocked bool
 	ChannelUsageFields
@@ -6417,7 +5963,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
-	cost, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, tokens, serviceTier, result.EnableThinking)
+	cost, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, tokens, serviceTier)
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
 			return err
@@ -6431,8 +5977,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			zap.Int64("api_key_id", apiKey.ID),
 			zap.Int64("account_id", account.ID),
 		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
-		// TK 根因②：错误侧不再单独 notify——已收敛到记账点的"已服务但零计费"
-		// 统一探针（tkNotifyServedZeroCost，下方），避免一次事件两张卡。日志保留。
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
 
@@ -6446,10 +5990,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Create usage log
 	durationMs := int(result.Duration.Milliseconds())
 	accountRateMultiplier := account.BillingRateMultiplier()
-
-	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
-	s.tkNotifyServedZeroCost(cost, result, apiKey, input, billingModels, actualInputTokens, multiplier, accountRateMultiplier)
-
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
 	if result.OpenAIWSMode {
 		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
@@ -6487,7 +6027,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:     optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:  result.ImageSizeBreakdown,
 	}
-	usageLog.VideoDurationSeconds = result.VideoDurationSeconds
 	if cost != nil {
 		usageLog.InputCost = cost.InputCost
 		usageLog.OutputCost = cost.OutputCost
@@ -6570,7 +6109,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			AccountRateMultiplier: accountRateMultiplier,
 			APIKeyService:         input.APIKeyService,
 			Platform:              PlatformFromAPIKey(apiKey),
-			TkHoldRequestID:       input.TkHoldRequestID,
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()
@@ -6592,12 +6130,8 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	imageMultiplier float64,
 	tokens UsageTokens,
 	serviceTier string,
-	enableThinking bool,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
-	if result != nil && result.VideoDurationSeconds != nil && *result.VideoDurationSeconds > 0 {
-		return s.calculateOpenAIVideoCost(billingModel, *result.VideoDurationSeconds, multiplier), nil
-	}
 	if result != nil && result.ImageCount > 0 {
 		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
@@ -6613,7 +6147,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		if candidate == "" {
 			continue
 		}
-		cost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, multiplier, tokens, serviceTier, enableThinking)
+		cost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, multiplier, tokens, serviceTier)
 		if err == nil {
 			return cost, nil
 		}
@@ -6643,7 +6177,6 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	multiplier float64,
 	tokens UsageTokens,
 	serviceTier string,
-	enableThinking bool,
 ) (*CostBreakdown, error) {
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
@@ -6655,23 +6188,10 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			RequestCount:   1,
 			RateMultiplier: multiplier,
 			ServiceTier:    serviceTier,
-			EnableThinking: enableThinking,
 			Resolver:       s.resolver,
 		})
 	}
 	return s.billingService.CalculateCostWithServiceTier(billingModel, tokens, multiplier, serviceTier)
-}
-
-// calculateOpenAIVideoCost prices async video generation (veo) per second. Duration comes
-// from the submit request (default 8s); the per-second rate is resolved from the LiteLLM
-// table. Mirrors calculateOpenAIImageCost's zero-cost-on-missing-price posture so an
-// unpriced video model never blocks the request.
-func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
-	billingModel string,
-	seconds int64,
-	multiplier float64,
-) *CostBreakdown {
-	return s.billingService.CalculateVideoCost(billingModel, seconds, multiplier)
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIImageCost(
@@ -6750,9 +6270,7 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		return nil
 	}
 
-	// Primary window limits. The 5h/7d window assignment is NOT fixed to
-	// primary/secondary — Normalize() decides it from window_minutes. used-percent
-	// is consumed%. (prod commonly sends primary=5h(300min), secondary=7d(10080min).)
+	// Primary (weekly) limits
 	if v := parseFloat("x-codex-primary-used-percent"); v != nil {
 		snapshot.PrimaryUsedPercent = v
 		hasData = true
@@ -6766,7 +6284,7 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		hasData = true
 	}
 
-	// Secondary window limits (window assignment via Normalize(); used-percent is consumed%).
+	// Secondary (5h) limits
 	if v := parseFloat("x-codex-secondary-used-percent"); v != nil {
 		snapshot.SecondaryUsedPercent = v
 		hasData = true

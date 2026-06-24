@@ -41,9 +41,6 @@ const (
 	PlatformOpenAI      = domain.PlatformOpenAI
 	PlatformGemini      = domain.PlatformGemini
 	PlatformAntigravity = domain.PlatformAntigravity
-	PlatformNewAPI      = domain.PlatformNewAPI
-	PlatformKiro        = domain.PlatformKiro
-	PlatformGrok        = domain.PlatformGrok
 )
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。
@@ -108,95 +105,6 @@ const (
 	SubscriptionStatusActive    = domain.SubscriptionStatusActive
 	SubscriptionStatusExpired   = domain.SubscriptionStatusExpired
 	SubscriptionStatusSuspended = domain.SubscriptionStatusSuspended
-)
-
-// TokenKey bridge setting keys
-const (
-	SettingKeyNewAPIBridgeEnabled = "newapi_bridge_enabled"
-
-	// SettingKeyAnthropicRequestNormalizeEnabled toggles gateway-side
-	// normalization of common client mistakes on the Anthropic native
-	// /v1/messages path (tool_choice string -> object; strip thinking when
-	// tool_choice forces tool use). Defaults to true. See
-	// gateway_anthropic_request_normalize_tk.go for the rules.
-	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
-
-	// The canonical Anthropic OAuth path (accounts bound to the
-	// tk_canonical_cc_oauth TLS profile) has TWO ORTHOGONAL hardening toggles,
-	// deliberately split so an operator can pick the strategy that matches their
-	// cc_only-relax plan. They are NOT redundant and are NOT meant to move
-	// together — see docs/approved/cc-only-disable-prep-decisions.md (D1/D4,
-	// 2026-06-11 direction revision).
-	//
-	// SettingKeyAnthropicCanonicalIngressStrictEnabled = INGRESS strategy "reject
-	// at the door". Defaults to false (keep deny-list / upstream behavior, zero
-	// regression). When "true":
-	//   1. the ingress UA gate flips deny-list -> allow-list — only claude-cli/ or
-	//      claude-code/ UA prefixes pass; empty + unknown UAs reject;
-	//   2. the same allow-list gate runs on the count_tokens path.
-	// Use this when you do NOT want non-CC traffic on canonical accounts at all.
-	// It is INCOMPATIBLE with "relax cc_only and let non-CC clients in", because
-	// it rejects exactly the non-CC clients such a relax aims to admit.
-	SettingKeyAnthropicCanonicalIngressStrictEnabled = "anthropic_canonical_ingress_strict_enabled"
-
-	// SettingKeyAnthropicCanonicalHaikuMimicryEnabled = EGRESS strategy "admit and
-	// launder". Defaults to false (keep the haiku skip, zero regression). When
-	// "true", a non-CC haiku request on a canonical OAuth account also gets the CC
-	// system/billing block injected, closing the "CC headers but no CC billing
-	// block" cohort gap that the default haiku skip leaves open.
-	//
-	// This is the toggle to pair with relaxing a group's cc_only and routing non-CC
-	// traffic to a canonical fallback account: ingress stays OPEN (this switch does
-	// not reject anyone), and the egress mimicry is completed so even non-CC haiku
-	// leaves the edge as a clean CC cohort. It is the missing piece that makes
-	// "admit non-CC, launder on the wire" safe; without it, non-CC haiku (heavy in
-	// Claude Code background traffic) would egress half-disguised and risk the
-	// edge subscription account's standing.
-	//
-	// Both toggles are admin-settable + settings-pubsub hot-updatable (canary a
-	// single edge, roll back in seconds, no deploy). See
-	// setting_service_tk_canonical_ingress.go and
-	// gateway_service_tk_canonical_oauth_guard.go.
-	SettingKeyAnthropicCanonicalHaikuMimicryEnabled = "anthropic_canonical_haiku_mimicry_enabled"
-
-	// SettingKeyOpenAIImplicitThrottleCooldownSeconds enables an opt-in,
-	// cross-request cooldown for OpenAI-compat accounts being implicitly throttled
-	// by the upstream (repeated 5xx / header-timeout with no explicit 429).
-	// Default "" / "0" = disabled (no production behavior change). When set to a
-	// positive integer N, an account that triggers a failover-worthy 5xx is
-	// benched (temp_unschedulable) for N seconds so subsequent requests skip it
-	// instead of repeatedly landing on the same throttled account. See
-	// openai_gateway_service_tk_implicit_throttle.go (upstream Wei-Shaw/sub2api#2727).
-	SettingKeyOpenAIImplicitThrottleCooldownSeconds = "tk_openai_implicit_throttle_cooldown_seconds"
-
-	// SettingKeyOpenAIMaxRateLimitCooldownSeconds caps how long an OpenAI-compat
-	// (OpenAI + NewAPI) account may stay rate-limited from a single upstream
-	// window-exhaustion 429 reset. DEFAULT-ON (ceiling 3600s), in lockstep with
-	// SettingKeyAnthropicMaxRateLimitCooldownSeconds: unset / blank / non-numeric
-	// / negative → 3600; an explicit "0" disables it (trust the upstream reset
-	// verbatim). An upstream reset farther out than the ceiling (e.g. a 7-day
-	// window-exhaustion reset) is clamped to now+ceiling so the account re-enters
-	// the pool and is re-probed by natural request traffic instead of sitting idle
-	// until the full upstream reset; if still limited it simply 429s again and is
-	// re-cooled. See ratelimit_service_tk_openai_reset_clamp.go (upstream
-	// Wei-Shaw/sub2api#1981; default flipped ON for parity with the Anthropic clamp).
-	SettingKeyOpenAIMaxRateLimitCooldownSeconds = "tk_openai_max_rate_limit_cooldown_seconds"
-
-	// SettingKeyAnthropicMaxRateLimitCooldownSeconds caps how long an Anthropic
-	// account may stay rate-limited from a single upstream unified-window (5h/7d)
-	// 429 reset. Unlike its OpenAI twin this is DEFAULT-ON: when unset / blank /
-	// non-numeric / negative it falls back to defaultAnthropicMaxRateLimitCooldownSeconds
-	// (3600s). An explicit "0" disables it (trust the upstream reset verbatim).
-	//
-	// Rationale (prod 2026-06, edge-us6 account oh-3-a): Anthropic's unified 7d
-	// window is rolling — utilization that was >=1.0 at the moment of the 429
-	// decays below the limit hours later as old usage ages out, but the upstream
-	// reset header points at the conservative weekly boundary (days away). Trusting
-	// it verbatim benches a recovered account for days; on a thin/SPOF edge that is
-	// a full anthropic outage. Clamping lets natural traffic re-probe the account
-	// after the ceiling (a still-exhausted window simply 429s again and re-cools).
-	// See ratelimit_service_tk_anthropic_reset_clamp.go.
-	SettingKeyAnthropicMaxRateLimitCooldownSeconds = "tk_anthropic_max_rate_limit_cooldown_seconds"
 )
 
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。
@@ -505,8 +413,7 @@ const (
 	// SettingKeyAllowUngroupedKeyScheduling 允许未分组 API Key 调度（默认 false：未分组 Key 返回 403）
 	SettingKeyAllowUngroupedKeyScheduling = "allow_ungrouped_key_scheduling"
 
-	// SettingKeyBackendModeEnabled Backend 模式：禁用用户注册和自助服务，仅管理员可登录。
-	// TokenKey 默认 true（管理员发号场景），可在后台关闭恢复 sub2api 上游的"用户自助"形态。
+	// SettingKeyBackendModeEnabled Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	SettingKeyBackendModeEnabled = "backend_mode_enabled"
 
 	// Gateway Forwarding Behavior
@@ -518,21 +425,6 @@ const (
 	// 网关随之不再注入/签名 cch（见 buildBillingAttributionText）。保留该 key 仅为向后兼容，
 	// 开关不再产生任何效果。
 	SettingKeyEnableCCHSigning = "enable_cch_signing"
-	// SettingKeyStickyRoutingEnabled 全局 prompt cache 粘性路由总开关（默认 true）
-	// 当为 false 时所有分组一律退化为 passthrough（仅透传客户端已送的 sticky 字段，不派生）。
-	// 详见 docs/approved/sticky-routing.md §3.2。
-	SettingKeyStickyRoutingEnabled = "gateway.sticky_routing.enabled"
-	// SettingKeyStickySlotFullEscapeEnabled 控制 sticky 绑定账号并发槽满时是否先试
-	// 全池再排队（upstream #2859，默认 true）。为 false 时退回今日行为：槽满即在
-	// 原 sticky 账号上排队。详见 docs/approved/sticky-routing.md §11.5。
-	SettingKeyStickySlotFullEscapeEnabled = "gateway.sticky_routing.slot_full_escape_enabled"
-	// SettingKeyAnthropicSaturatedStubDeprioritizeEnabled (TK) 控制是否对持续返回
-	// 下游容量信号（"No available accounts" / "all available accounts exhausted"）
-	// 的 anthropic 镜像 stub 账号施加 BOUNDED 调度去优先级偏好（默认 true）。这是
-	// 一个调度偏好而非冷却：饱和 stub 仍是候选、仍可作为最后兜底被选中；偏好随
-	// Redis 短窗计数 TTL 自行消散。为 false 时退回纯优先级/负载选择（无 saturation 项）。
-	// 详见 backend/internal/service/gateway_service_tk_saturation_penalty.go。
-	SettingKeyAnthropicSaturatedStubDeprioritizeEnabled = "gateway.anthropic_saturated_stub_deprioritize.enabled"
 	// SettingKeyEnableClaudeOAuthSystemPromptInjection 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
 	SettingKeyEnableClaudeOAuthSystemPromptInjection = "enable_claude_oauth_system_prompt_injection"
 	// SettingKeyClaudeOAuthSystemPrompt Claude OAuth mimic 路径注入的通用扩展 system prompt（空值使用内置默认）
@@ -545,23 +437,6 @@ const (
 	SettingKeyRewriteMessageCacheControl = "rewrite_message_cache_control"
 	// SettingKeyAntigravityUserAgentVersion Antigravity 上游 User-Agent 版本号（空值使用环境变量/默认值）
 	SettingKeyAntigravityUserAgentVersion = "antigravity_user_agent_version"
-	// SettingKeyClaudeCodeUserAgentVersion Claude Code CLI canonical OAuth 路径上游 User-Agent
-	// 版本号（空值使用环境变量 CLAUDE_CODE_USER_AGENT_VERSION 或编译期默认）。
-	// 仅 version 字段可配，prefix/suffix（`claude-cli/...(external, sdk-cli)`）固定。
-	SettingKeyClaudeCodeUserAgentVersion = "claude_code_user_agent_version"
-	// SettingKeyClaudeCodeHTTPMimicryManifest JSON manifest for OAuth mimicry
-	// anthropic-beta lists (sonnet_opus + haiku). Empty → compile-time defaults.
-	SettingKeyClaudeCodeHTTPMimicryManifest = "claude_code_http_mimicry_manifest"
-	// SettingKeyTKPricingOverlayRuntime is the runtime hot-pushable copy of
-	// tk_pricing_overlay.json (the same JSON object shape). Empty/absent → the
-	// compile-embedded overlay is used as-is (the floor). When present, its
-	// entries union OVER the embedded overlay (runtime wins on key conflict), so
-	// a new model can be priced + surfaced in /pricing WITHOUT a release. git
-	// (the embedded JSON) stays the single source of truth; ops `sync-runtime`
-	// UPSERTs this key on prod, the next release folds it into the embed (the
-	// floor catches up). Mirrors the claude_code_http_mimicry_manifest blob
-	// pattern. See pricing_service_tk_overlay_runtime.go.
-	SettingKeyTKPricingOverlayRuntime = "tk_pricing_overlay_runtime"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，
 	// 用于避免 Cloudflare 对浏览器型 UA 的质询拦截。
@@ -584,26 +459,6 @@ const (
 
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置
-
-	// =========================
-	// New-User Cold Start (docs/approved/user-cold-start.md)
-	// =========================
-
-	// SettingKeySignupBonusEnabled 注册赠额总开关（默认 true）。关闭后即使 balance > 0 也不发。
-	SettingKeySignupBonusEnabled = "signup_bonus_enabled"
-
-	// SettingKeySignupBonusBalance 注册赠送的 balance 数量（USD，与 users.balance 同口径，默认 1.00）。
-	// 与 promo_code 累加，不互斥。
-	SettingKeySignupBonusBalance = "signup_bonus_balance"
-
-	// SettingKeyAutoGenerateDefaultToken 注册成功后是否自动签发一把 trial API Key（默认 true）。
-	SettingKeyAutoGenerateDefaultToken = "auto_generate_default_token"
-
-	// SettingKeyAutoGenerateDefaultTokenName 自动签发的 Key 名字（默认 "trial"，对用户暗示"试用"）。
-	SettingKeyAutoGenerateDefaultTokenName = "auto_generate_default_token_name"
-
-	// SettingKeyPricingCatalogPublic 公开模型 + 价格目录页是否对外开放（默认 true，关闭后路由 404）。
-	SettingKeyPricingCatalogPublic = "pricing_catalog_public"
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。

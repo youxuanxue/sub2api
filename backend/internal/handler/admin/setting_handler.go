@@ -117,15 +117,12 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	if paymentCfg == nil {
 		paymentCfg = &service.PaymentConfig{}
 	}
-	newAPIBridgeEnabled := tkTokenKeyBridgeSetting(settings)
 
 	payload := dto.SystemSettings{
 		RegistrationEnabled:                    settings.RegistrationEnabled,
 		EmailVerifyEnabled:                     settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       settings.PromoCodeEnabled,
-		AnthropicCanonicalIngressStrictEnabled: settings.AnthropicCanonicalIngressStrictEnabled,
-		AnthropicCanonicalHaikuMimicryEnabled:  settings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   settings.PasswordResetEnabled,
 		FrontendURL:                            settings.FrontendURL,
 		InvitationCodeEnabled:                  settings.InvitationCodeEnabled,
@@ -254,18 +251,15 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   settings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     settings.BackendModeEnabled,
-		NewAPIBridgeEnabled:                    newAPIBridgeEnabled,
 		EnableFingerprintUnification:           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                       settings.EnableCCHSigning,
-		StickyRoutingEnabled:                   settings.StickyRoutingEnabled,
 		EnableClaudeOAuthSystemPromptInjection: settings.EnableClaudeOAuthSystemPromptInjection,
 		ClaudeOAuthSystemPrompt:                settings.ClaudeOAuthSystemPrompt,
 		ClaudeOAuthSystemPromptBlocks:          settings.ClaudeOAuthSystemPromptBlocks,
 		EnableAnthropicCacheTTL1hInjection:     settings.EnableAnthropicCacheTTL1hInjection,
 		RewriteMessageCacheControl:             settings.RewriteMessageCacheControl,
 		AntigravityUserAgentVersion:            settings.AntigravityUserAgentVersion,
-		ClaudeCodeUserAgentVersion:             settings.ClaudeCodeUserAgentVersion,
 		OpenAICodexUserAgent:                   settings.OpenAICodexUserAgent,
 		OpenAIAllowClaudeCodeCodexPlugin:       settings.OpenAIAllowClaudeCodeCodexPlugin,
 		WebSearchEmulationEnabled:              settings.WebSearchEmulationEnabled,
@@ -311,7 +305,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 	}
-	tkAttachColdStartSettings(&payload, settings)
 
 	// OpenAI fast policy (stored under a dedicated setting key)
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
@@ -396,20 +389,18 @@ func loginAgreementDocumentsToService(items []dto.LoginAgreementDocument) []serv
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	// 注册设置
-	RegistrationEnabled                    bool                         `json:"registration_enabled"`
-	EmailVerifyEnabled                     bool                         `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist       []string                     `json:"registration_email_suffix_whitelist"`
-	PromoCodeEnabled                       bool                         `json:"promo_code_enabled"`
-	AnthropicCanonicalIngressStrictEnabled *bool                        `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical 入口 UA strict 拒绝（#1#2，默认 false）；指针 = 缺字段时保留当前值，防旧前端整单保存把 canary 防线静默关回 false
-	AnthropicCanonicalHaikuMimicryEnabled  *bool                        `json:"anthropic_canonical_haiku_mimicry_enabled"`  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3，默认 false）；指针 = 缺字段时保留当前值（同上，独立开关）
-	PasswordResetEnabled                   bool                         `json:"password_reset_enabled"`
-	FrontendURL                            string                       `json:"frontend_url"`
-	InvitationCodeEnabled                  bool                         `json:"invitation_code_enabled"`
-	TotpEnabled                            bool                         `json:"totp_enabled"` // TOTP 双因素认证
-	LoginAgreementEnabled                  bool                         `json:"login_agreement_enabled"`
-	LoginAgreementMode                     string                       `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt                string                       `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments                []dto.LoginAgreementDocument `json:"login_agreement_documents"`
+	RegistrationEnabled              bool                         `json:"registration_enabled"`
+	EmailVerifyEnabled               bool                         `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist []string                     `json:"registration_email_suffix_whitelist"`
+	PromoCodeEnabled                 bool                         `json:"promo_code_enabled"`
+	PasswordResetEnabled             bool                         `json:"password_reset_enabled"`
+	FrontendURL                      string                       `json:"frontend_url"`
+	InvitationCodeEnabled            bool                         `json:"invitation_code_enabled"`
+	TotpEnabled                      bool                         `json:"totp_enabled"` // TOTP 双因素认证
+	LoginAgreementEnabled            bool                         `json:"login_agreement_enabled"`
+	LoginAgreementMode               string                       `json:"login_agreement_mode"`
+	LoginAgreementUpdatedAt          string                       `json:"login_agreement_updated_at"`
+	LoginAgreementDocuments          []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 邮件服务设置
 	SMTPHost     string `json:"smtp_host"`
@@ -590,7 +581,7 @@ type UpdateSettingsRequest struct {
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
 
-	// Backend mode (TokenKey 默认开启)
+	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
@@ -601,14 +592,10 @@ type UpdateSettingsRequest struct {
 	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
 	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
 	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	// Sticky routing kill switch (default true).
-	// docs/approved/sticky-routing.md §3.2.
-	StickyRoutingEnabled             *bool   `json:"sticky_routing_enabled"`
-	RewriteMessageCacheControl       *bool   `json:"rewrite_message_cache_control"`
-	AntigravityUserAgentVersion      *string `json:"antigravity_user_agent_version"`
-	ClaudeCodeUserAgentVersion       *string `json:"claude_code_user_agent_version"`
-	OpenAICodexUserAgent             *string `json:"openai_codex_user_agent"`
-	OpenAIAllowClaudeCodeCodexPlugin *bool   `json:"openai_allow_claude_code_codex_plugin"`
+	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
+	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
+	OpenAIAllowClaudeCodeCodexPlugin       *bool   `json:"openai_allow_claude_code_codex_plugin"`
 
 	// Payment visible method routing
 	PaymentVisibleMethodAlipaySource  *string `json:"payment_visible_method_alipay_source"`
@@ -650,17 +637,6 @@ type UpdateSettingsRequest struct {
 	PaymentCancelRateLimitWindow  *int    `json:"payment_cancel_rate_limit_window"`
 	PaymentCancelRateLimitUnit    *string `json:"payment_cancel_rate_limit_unit"`
 	PaymentCancelRateLimitMode    *string `json:"payment_cancel_rate_limit_window_mode"`
-
-	// TokenKey: bridge toggle (optional pointer: nil = keep previous)
-	NewAPIBridgeEnabled *bool `json:"newapi_bridge_enabled"`
-
-	// New-User Cold Start (docs/approved/user-cold-start.md §5).
-	// Optional pointers: nil = keep previous persisted value.
-	SignupBonusEnabled           *bool    `json:"signup_bonus_enabled"`
-	SignupBonusBalance           *float64 `json:"signup_bonus_balance"`
-	AutoGenerateDefaultToken     *bool    `json:"auto_generate_default_token"`
-	AutoGenerateDefaultTokenName *string  `json:"auto_generate_default_token_name"`
-	PricingCatalogPublic         *bool    `json:"pricing_catalog_public"`
 
 	// Force Alipay mobile clients to use QR code payment instead of mobile redirect
 	PaymentAlipayForceQRCode *bool `json:"payment_alipay_force_qrcode"`
@@ -1480,14 +1456,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	if req.ClaudeCodeUserAgentVersion != nil {
-		normalized := strings.TrimSpace(*req.ClaudeCodeUserAgentVersion)
-		req.ClaudeCodeUserAgentVersion = &normalized
-		if normalized != "" && !semverPattern.MatchString(normalized) {
-			response.Error(c, http.StatusBadRequest, "claude_code_user_agent_version must be empty or a valid semver (e.g. 2.1.152)")
-			return
-		}
-	}
 	if req.OpenAICodexUserAgent != nil {
 		normalized := strings.TrimSpace(*req.OpenAICodexUserAgent)
 		req.OpenAICodexUserAgent = &normalized
@@ -1520,36 +1488,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:               req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
-		AnthropicCanonicalIngressStrictEnabled: func() bool {
-			if req.AnthropicCanonicalIngressStrictEnabled != nil {
-				return *req.AnthropicCanonicalIngressStrictEnabled
-			}
-			return previousSettings.AnthropicCanonicalIngressStrictEnabled
-		}(),
-		AnthropicCanonicalHaikuMimicryEnabled: func() bool {
-			if req.AnthropicCanonicalHaikuMimicryEnabled != nil {
-				return *req.AnthropicCanonicalHaikuMimicryEnabled
-			}
-			return previousSettings.AnthropicCanonicalHaikuMimicryEnabled
-		}(),
-		PasswordResetEnabled:    req.PasswordResetEnabled,
-		FrontendURL:             req.FrontendURL,
-		InvitationCodeEnabled:   req.InvitationCodeEnabled,
-		TotpEnabled:             req.TotpEnabled,
-		LoginAgreementEnabled:   req.LoginAgreementEnabled,
-		LoginAgreementMode:      loginAgreementMode,
-		LoginAgreementUpdatedAt: loginAgreementUpdatedAt,
-		LoginAgreementDocuments: loginAgreementDocuments,
-		SMTPHost:                req.SMTPHost,
-		SMTPPort:                req.SMTPPort,
-		SMTPUsername:            req.SMTPUsername,
-		SMTPPassword:            req.SMTPPassword,
-		SMTPFrom:                req.SMTPFrom,
-		SMTPFromName:            req.SMTPFromName,
-		SMTPUseTLS:              req.SMTPUseTLS,
-		TurnstileEnabled:        req.TurnstileEnabled,
-		TurnstileSiteKey:        req.TurnstileSiteKey,
-		TurnstileSecretKey:      req.TurnstileSecretKey,
+		PasswordResetEnabled:             req.PasswordResetEnabled,
+		FrontendURL:                      req.FrontendURL,
+		InvitationCodeEnabled:            req.InvitationCodeEnabled,
+		TotpEnabled:                      req.TotpEnabled,
+		LoginAgreementEnabled:            req.LoginAgreementEnabled,
+		LoginAgreementMode:               loginAgreementMode,
+		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
+		LoginAgreementDocuments:          loginAgreementDocuments,
+		SMTPHost:                         req.SMTPHost,
+		SMTPPort:                         req.SMTPPort,
+		SMTPUsername:                     req.SMTPUsername,
+		SMTPPassword:                     req.SMTPPassword,
+		SMTPFrom:                         req.SMTPFrom,
+		SMTPFromName:                     req.SMTPFromName,
+		SMTPUseTLS:                       req.SMTPUseTLS,
+		TurnstileEnabled:                 req.TurnstileEnabled,
+		TurnstileSiteKey:                 req.TurnstileSiteKey,
+		TurnstileSecretKey:               req.TurnstileSecretKey,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP
@@ -1705,12 +1661,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableCCHSigning
 		}(),
-		StickyRoutingEnabled: func() bool {
-			if req.StickyRoutingEnabled != nil {
-				return *req.StickyRoutingEnabled
-			}
-			return previousSettings.StickyRoutingEnabled
-		}(),
 		EnableClaudeOAuthSystemPromptInjection: func() bool {
 			if req.EnableClaudeOAuthSystemPromptInjection != nil {
 				return *req.EnableClaudeOAuthSystemPromptInjection
@@ -1746,12 +1696,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AntigravityUserAgentVersion
 			}
 			return previousSettings.AntigravityUserAgentVersion
-		}(),
-		ClaudeCodeUserAgentVersion: func() string {
-			if req.ClaudeCodeUserAgentVersion != nil {
-				return *req.ClaudeCodeUserAgentVersion
-			}
-			return previousSettings.ClaudeCodeUserAgentVersion
 		}(),
 		OpenAICodexUserAgent: func() string {
 			if req.OpenAICodexUserAgent != nil {
@@ -1874,7 +1818,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.CyberSessionBlockTTLSeconds
 		}(),
 	}
-	tkApplyTokenKeySettingsFields(settings, &req, previousSettings)
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
 	// non-nil（含 empty map）表示整体覆盖：empty map = 清空该 source 的所有 quota 配置。
@@ -2016,15 +1959,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if updatedPaymentCfg == nil {
 		updatedPaymentCfg = &service.PaymentConfig{}
 	}
-	updatedNewAPIBridgeEnabled := tkTokenKeyBridgeSetting(updatedSettings)
 
 	payload := dto.SystemSettings{
 		RegistrationEnabled:                    updatedSettings.RegistrationEnabled,
 		EmailVerifyEnabled:                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       updatedSettings.PromoCodeEnabled,
-		AnthropicCanonicalIngressStrictEnabled: updatedSettings.AnthropicCanonicalIngressStrictEnabled,
-		AnthropicCanonicalHaikuMimicryEnabled:  updatedSettings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   updatedSettings.PasswordResetEnabled,
 		FrontendURL:                            updatedSettings.FrontendURL,
 		InvitationCodeEnabled:                  updatedSettings.InvitationCodeEnabled,
@@ -2150,18 +2090,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     updatedSettings.BackendModeEnabled,
-		NewAPIBridgeEnabled:                    updatedNewAPIBridgeEnabled,
 		EnableFingerprintUnification:           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                       updatedSettings.EnableCCHSigning,
-		StickyRoutingEnabled:                   updatedSettings.StickyRoutingEnabled,
 		EnableClaudeOAuthSystemPromptInjection: updatedSettings.EnableClaudeOAuthSystemPromptInjection,
 		ClaudeOAuthSystemPrompt:                updatedSettings.ClaudeOAuthSystemPrompt,
 		ClaudeOAuthSystemPromptBlocks:          updatedSettings.ClaudeOAuthSystemPromptBlocks,
 		EnableAnthropicCacheTTL1hInjection:     updatedSettings.EnableAnthropicCacheTTL1hInjection,
 		RewriteMessageCacheControl:             updatedSettings.RewriteMessageCacheControl,
 		AntigravityUserAgentVersion:            updatedSettings.AntigravityUserAgentVersion,
-		ClaudeCodeUserAgentVersion:             updatedSettings.ClaudeCodeUserAgentVersion,
 		OpenAICodexUserAgent:                   updatedSettings.OpenAICodexUserAgent,
 		OpenAIAllowClaudeCodeCodexPlugin:       updatedSettings.OpenAIAllowClaudeCodeCodexPlugin,
 		PaymentVisibleMethodAlipaySource:       updatedSettings.PaymentVisibleMethodAlipaySource,
@@ -2214,7 +2151,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	} else if fastPolicy != nil {
 		payload.OpenAIFastPolicySettings = openaiFastPolicySettingsToDTO(fastPolicy)
 	}
-	tkAttachColdStartSettings(&payload, updatedSettings)
 
 	// Default platform quotas（JSON map）—— 与 GetSettings 一致，避免保存后响应缺失该字段
 	if platformQuotas, err := h.settingService.GetDefaultPlatformQuotas(c.Request.Context()); err != nil {
@@ -2285,12 +2221,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.PromoCodeEnabled != after.PromoCodeEnabled {
 		changed = append(changed, "promo_code_enabled")
-	}
-	if before.AnthropicCanonicalIngressStrictEnabled != after.AnthropicCanonicalIngressStrictEnabled {
-		changed = append(changed, "anthropic_canonical_ingress_strict_enabled")
-	}
-	if before.AnthropicCanonicalHaikuMimicryEnabled != after.AnthropicCanonicalHaikuMimicryEnabled {
-		changed = append(changed, "anthropic_canonical_haiku_mimicry_enabled")
 	}
 	if before.InvitationCodeEnabled != after.InvitationCodeEnabled {
 		changed = append(changed, "invitation_code_enabled")
@@ -2601,6 +2531,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AllowUngroupedKeyScheduling != after.AllowUngroupedKeyScheduling {
 		changed = append(changed, "allow_ungrouped_key_scheduling")
 	}
+	if before.BackendModeEnabled != after.BackendModeEnabled {
+		changed = append(changed, "backend_mode_enabled")
+	}
 	if before.PurchaseSubscriptionEnabled != after.PurchaseSubscriptionEnabled {
 		changed = append(changed, "purchase_subscription_enabled")
 	}
@@ -2628,9 +2561,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.EnableCCHSigning != after.EnableCCHSigning {
 		changed = append(changed, "enable_cch_signing")
 	}
-	if before.StickyRoutingEnabled != after.StickyRoutingEnabled {
-		changed = append(changed, "sticky_routing_enabled")
-	}
 	if before.EnableClaudeOAuthSystemPromptInjection != after.EnableClaudeOAuthSystemPromptInjection {
 		changed = append(changed, "enable_claude_oauth_system_prompt_injection")
 	}
@@ -2640,8 +2570,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.ClaudeOAuthSystemPromptBlocks != after.ClaudeOAuthSystemPromptBlocks {
 		changed = append(changed, "claude_oauth_system_prompt_blocks")
 	}
-	// TK: New-User Cold Start (docs/approved/user-cold-start.md §5).
-	changed = append(changed, tkDiffColdStartSettings(before, after)...)
 	if before.EnableAnthropicCacheTTL1hInjection != after.EnableAnthropicCacheTTL1hInjection {
 		changed = append(changed, "enable_anthropic_cache_ttl_1h_injection")
 	}
@@ -2650,9 +2578,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AntigravityUserAgentVersion != after.AntigravityUserAgentVersion {
 		changed = append(changed, "antigravity_user_agent_version")
-	}
-	if before.ClaudeCodeUserAgentVersion != after.ClaudeCodeUserAgentVersion {
-		changed = append(changed, "claude_code_user_agent_version")
 	}
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")

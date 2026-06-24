@@ -28,94 +28,6 @@
           {{ platformDescription }}
         </p>
 
-        <!-- Key essentials: model picker + locked base URL + masked key + live test.
-             These are the error-prone fields; here they are picked/locked/verified
-             rather than hand-typed (data-driven redesign — see useTkUseKey.ts). -->
-        <div class="space-y-3 rounded-xl border border-gray-200 dark:border-dark-700 p-4 bg-gray-50/60 dark:bg-dark-800/40">
-          <!-- CC-only group warning -->
-          <div v-if="tkIsCCOnly" class="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-            <Icon name="exclamationCircle" size="sm" class="text-red-500 flex-shrink-0 mt-0.5" />
-            <p class="text-sm text-red-700 dark:text-red-300">{{ t('keys.useKeyModal.ccOnlyWarning') }}</p>
-          </div>
-
-          <!-- Model picker (single-model tabs only) -->
-          <div v-if="activeFlavor" class="flex items-center gap-3 flex-wrap">
-            <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.modelLabel') }}</label>
-            <select
-              :value="selectedModel"
-              @change="onPickModel"
-              :disabled="tkModelsLoading || !pickerModels.length"
-              class="flex-1 min-w-[14rem] rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-900 dark:text-gray-100 disabled:opacity-60"
-            >
-              <option v-if="!pickerModels.length" :value="selectedModel">{{ selectedModel }}</option>
-              <option v-for="m in pickerModels" :key="m.id" :value="m.id">{{ m.id }}</option>
-            </select>
-            <div v-if="currentModelMeta" class="flex items-center gap-1.5 flex-wrap text-xs text-gray-500 dark:text-gray-400">
-              <span v-if="currentModelMeta.contextWindow">{{ formatCtx(currentModelMeta.contextWindow) }}</span>
-              <span
-                v-for="c in currentModelMeta.capabilities"
-                :key="c"
-                class="px-1.5 py-0.5 rounded bg-gray-200 dark:bg-dark-700 text-gray-600 dark:text-gray-300"
-              >{{ capabilityLabel(c) }}</span>
-            </div>
-          </div>
-          <p v-if="activeFlavor && tkModelsLoading" class="text-xs text-gray-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsLoading') }}</p>
-          <p v-else-if="activeFlavor && !pickerModels.length" class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsEmpty') }}</p>
-
-          <!-- Base URL (locked, read-only) -->
-          <div class="flex items-center gap-3">
-            <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.baseUrlLabel') }}</label>
-            <code class="flex-1 truncate rounded-lg border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-gray-200">{{ baseRoot }}</code>
-            <button
-              @click="copyText(baseRoot)"
-              class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-dark-700 transition-colors"
-              :title="t('keys.useKeyModal.copy')"
-            >
-              <Icon name="clipboard" size="sm" />
-            </button>
-          </div>
-
-          <!-- API key (masked + reveal + copy) -->
-          <div class="flex items-center gap-3">
-            <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.keyLabel') }}</label>
-            <code class="flex-1 truncate rounded-lg border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-gray-200">{{ keyRevealed ? apiKey : maskedKey }}</code>
-            <button
-              @click="keyRevealed = !keyRevealed"
-              class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-dark-700 transition-colors"
-              :title="keyRevealed ? t('keys.useKeyModal.hide') : t('keys.useKeyModal.reveal')"
-            >
-              <Icon :name="keyRevealed ? 'eyeOff' : 'eye'" size="sm" />
-            </button>
-            <button
-              @click="copyText(apiKey)"
-              class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-dark-700 transition-colors"
-              :title="t('keys.useKeyModal.copy')"
-            >
-              <Icon name="clipboard" size="sm" />
-            </button>
-          </div>
-
-          <!-- Live test (single-model tabs only) -->
-          <div v-if="activeFlavor" class="flex items-center gap-3 flex-wrap pt-1">
-            <button
-              @click="onTest"
-              :disabled="tkTestState.status === 'running'"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
-            >
-              <Icon v-if="tkTestState.status === 'running'" name="refresh" size="sm" class="animate-spin" />
-              <span>{{ tkTestState.status === 'running' ? t('keys.useKeyModal.testing') : t('keys.useKeyModal.testKey') }}</span>
-            </button>
-            <span v-if="tkTestState.status === 'ok'" class="inline-flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
-              <Icon name="checkCircle" size="sm" />
-              {{ tkTestState.httpStatus }} · {{ tkTestState.latencyMs }}ms · {{ tkTestState.keyOnly ? t('keys.useKeyModal.testKeyValid') : t('keys.useKeyModal.testModelOk') }}
-            </span>
-            <span v-else-if="tkTestState.status === 'error'" class="inline-flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400">
-              <Icon name="exclamationCircle" size="sm" class="flex-shrink-0 mt-0.5" />
-              <span class="break-all"><template v-if="tkTestState.httpStatus">{{ tkTestState.httpStatus }} · </template>{{ tkTestState.message }}</span>
-            </span>
-          </div>
-        </div>
-
         <!-- Client Tabs -->
         <div v-if="clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex space-x-6" aria-label="Client">
@@ -222,17 +134,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, watch, toRef, type Component } from 'vue'
+import { ref, computed, h, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
-import {
-  useTkUseKey,
-  capabilityLabel,
-  anthropicEnvModel,
-  type UseKeyFlavor,
-} from '@/composables/useTkUseKey'
 import type { GroupPlatform } from '@/types'
 
 interface Props {
@@ -240,17 +146,7 @@ interface Props {
   apiKey: string
   baseUrl: string
   platform: GroupPlatform | null
-  /** The api key's numeric id — used to load its live servable model menu. */
-  apiKeyId?: number | null
-  /** anthropic group gated to claude-cli / /v1/messages only (group.claude_code_only). */
-  claudeCodeOnly?: boolean
   allowMessagesDispatch?: boolean
-  // 分组的「支持的模型系列」(claude / gemini_text / gemini_image)。仅 antigravity 用：
-  // 不含 'claude' 时隐藏 Claude flavor（Claude Code tab + OpenCode antigravity-claude
-  // provider）。本指南只按 claude flavor 做粗粒度 gate；gemini_text 与 gemini_image 的
-  // 细分仅后端 /antigravity/v1/models 生效（运营策略下两者总是成对 = gemini-only）。
-  // 空/未传 = 不限制。
-  supportedModelScopes?: string[]
 }
 
 interface Emits {
@@ -279,123 +175,16 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
-const keyRevealed = ref(false)
 
-// Gateway root with any trailing /v1 stripped — single source for the locked
-// base-URL display and the live test request.
-const baseRoot = computed(() =>
-  (props.baseUrl || (typeof window !== 'undefined' ? window.location.origin : ''))
-    .replace(/\/v1\/?$/, '')
-    .replace(/\/+$/, ''),
-)
-
-// The single-model "flavor" the current client tab speaks. opencode is a
-// multi-model catalog (no single pick), so it has no flavor.
-const activeFlavor = computed<UseKeyFlavor | null>(() => {
-  if (activeClientTab.value === 'opencode') return null
-  if (activeClientTab.value === 'claude') return 'anthropic'
-  switch (props.platform) {
-    case 'gemini':
-      return 'gemini'
-    case 'antigravity':
-      return 'gemini' // claude flavor already handled by the 'claude' tab above
-    case 'openai':
-    case 'newapi':
-      return 'openai'
-    case 'anthropic':
-      return 'anthropic'
-    default:
-      return 'anthropic'
-  }
-})
-
-const tk = useTkUseKey({
-  apiKeyId: toRef(props, 'apiKeyId'),
-  apiKey: toRef(props, 'apiKey'),
-  platform: toRef(props, 'platform'),
-  claudeCodeOnly: toRef(props, 'claudeCodeOnly'),
-  baseRoot,
-})
-
-// (Re)load the live servable model menu whenever the modal opens for a key, and
-// reset per-key view state so a previous key's revealed secret / test verdict
-// never bleed into the next one.
-watch(
-  () => [props.show, props.apiKeyId] as const,
-  ([show]) => {
-    if (!show) return
-    keyRevealed.value = false
-    tk.testState.value = { status: 'idle' }
-    void tk.loadModels()
-  },
-  { immediate: true },
-)
-
-// Models offered in the picker for the current flavor.
-const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
-const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
-const currentModelMeta = computed(() =>
-  pickerModels.value.find((m) => m.id === selectedModel.value),
-)
-function onPickModel(e: Event): void {
-  const id = (e.target as HTMLSelectElement).value
-  if (activeFlavor.value) tk.setModel(activeFlavor.value, id)
-}
-
-// Template-facing refs (top-level so they auto-unwrap in the template).
-const tkModelsLoading = tk.modelsLoading
-const tkTestState = tk.testState
-const tkIsCCOnly = tk.isClaudeCodeOnly
-
-const maskedKey = computed(() => {
-  const k = props.apiKey || ''
-  if (k.length <= 14) return k
-  return `${k.slice(0, 6)}${'•'.repeat(16)}${k.slice(-4)}`
-})
-
-function copyText(text: string): void {
-  void clipboardCopy(text)
-}
-
-function onTest(): void {
-  if (activeFlavor.value) void tk.runTest(activeFlavor.value)
-}
-
-function formatCtx(n?: number): string {
-  if (!n) return ''
-  if (n >= 1024 * 1024) return `${Math.round(n / (1024 * 1024))}M ctx`
-  if (n >= 1000) return `${Math.round(n / 1000)}k ctx`
-  return `${n} ctx`
-}
-
-// Reset tabs when platform changes.
-// `newapi` (the fifth platform) is an OpenAI-compatible HTTP gateway: the
-// upstream speaks OpenAI's /v1/chat/completions shape but does not expose
-// ChatGPT WebSocket auth, so codex (HTTP) is the right default — same as
-// `openai` minus codex-ws.
-// antigravity 的 Claude flavor 是否对当前分组开放：分组 supported_model_scopes 含
-// 'claude' 才显示。这是 claude 维度上与后端 /antigravity/v1/models scope 过滤的一致点；
-// 本指南不做 gemini_text/gemini_image 的逐模型细分（那只在后端 /models 生效）。
-// 空/未传 = 不限制（向后兼容旧分组）。非 antigravity 平台不受影响。
-const antigravityClaudeAllowed = computed(() => {
-  if (props.platform !== 'antigravity') return true
-  const scopes = props.supportedModelScopes
-  if (!scopes || scopes.length === 0) return true
-  return scopes.includes('claude')
-})
-
+// Reset tabs when platform changes
 const defaultClientTab = computed(() => {
   switch (props.platform) {
     case 'openai':
       return 'codex'
-    case 'newapi':
-      return 'codex'
-    case 'grok':
-      return 'codex'
     case 'gemini':
       return 'gemini'
     case 'antigravity':
-      return antigravityClaudeAllowed.value ? 'claude' : 'gemini'
+      return 'claude'
     default:
       return 'claude'
   }
@@ -474,14 +263,6 @@ const SparkleIcon = {
   }
 }
 
-// Raw-protocol tabs (cURL + Python). Data-driven: a large share of #1 auth,
-// #4 malformed-body and #5 wrong-endpoint errors come from Python/curl callers
-// hand-building requests — give them a fully-injected, correct example.
-const rawProtoTabs = (): TabConfig[] => [
-  { id: 'curl', label: t('keys.useKeyModal.cliTabs.curl'), icon: TerminalIcon },
-  { id: 'python', label: t('keys.useKeyModal.cliTabs.python'), icon: TerminalIcon },
-]
-
 const clientTabs = computed((): TabConfig[] => {
   if (!props.platform) return []
   switch (props.platform) {
@@ -493,52 +274,23 @@ const clientTabs = computed((): TabConfig[] => {
       if (props.allowMessagesDispatch) {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
       }
-      tabs.push(...rawProtoTabs())
       tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
       return tabs
     }
     case 'gemini':
       return [
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
-        ...rawProtoTabs(),
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
-    case 'antigravity': {
-      const tabs: TabConfig[] = []
-      // gemini-only 分组（supported_model_scopes 不含 claude）隐藏 Claude Code tab。
-      if (antigravityClaudeAllowed.value) {
-        tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
-      }
-      tabs.push({ id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon })
-      tabs.push(...rawProtoTabs()) // gemini-flavor raw calls (/antigravity/v1beta)
-      tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
-      return tabs
-    }
-    case 'newapi':
-    case 'grok': {
-      // OpenAI-compat HTTP only; no codex-ws. Optionally claude tab when the
-      // group enables messages dispatch (mirrors the openai branch). grok (xAI)
-      // shares this flavor: api.x.ai is OpenAI-compatible.
-      const tabs: TabConfig[] = [
-        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
-      ]
-      if (props.allowMessagesDispatch) {
-        tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
-      }
-      tabs.push(...rawProtoTabs())
-      tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
-      return tabs
-    }
-    default:
-      // anthropic. CC-only groups (group.claude_code_only) reject curl/python/
-      // opencode at the gateway with a 403 ("use claude-cli") — the #3 error
-      // bucket (~414/wk). So we offer ONLY Claude Code there, no foot-guns.
-      if (tk.isClaudeCodeOnly.value) {
-        return [{ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon }]
-      }
+    case 'antigravity':
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
-        ...rawProtoTabs(),
+        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+    default:
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
   }
@@ -557,10 +309,7 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-// opencode (single JSON file) and the raw-protocol tabs (one cross-platform
-// snippet) have no OS/shell sub-tabs.
-const RAW_PROTO_TABS = ['opencode', 'curl', 'python']
-const showShellTabs = computed(() => !RAW_PROTO_TABS.includes(activeClientTab.value))
+const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
 
 const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
@@ -570,21 +319,13 @@ const currentTabs = computed(() => {
   return shellTabs
 })
 
-// Treat newapi as openai for description / note copy: the user-facing client
-// instructions are identical (codex CLI + opencode), and our gateway already
-// routes both platforms through the OpenAI-compat handlers.
-const isOpenAICompatPlatform = computed(
-  () => props.platform === 'openai' || props.platform === 'newapi' || props.platform === 'grok',
-)
-
 const platformDescription = computed(() => {
-  if (isOpenAICompatPlatform.value) {
-    if (activeClientTab.value === 'claude') {
-      return t('keys.useKeyModal.description')
-    }
-    return t('keys.useKeyModal.openai.description')
-  }
   switch (props.platform) {
+    case 'openai':
+      if (activeClientTab.value === 'claude') {
+        return t('keys.useKeyModal.description')
+      }
+      return t('keys.useKeyModal.openai.description')
     case 'gemini':
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
@@ -595,15 +336,14 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
-  if (isOpenAICompatPlatform.value) {
-    if (activeClientTab.value === 'claude') {
-      return t('keys.useKeyModal.note')
-    }
-    return activeTab.value === 'windows'
-      ? t('keys.useKeyModal.openai.noteWindows')
-      : t('keys.useKeyModal.openai.note')
-  }
   switch (props.platform) {
+    case 'openai':
+      if (activeClientTab.value === 'claude') {
+        return t('keys.useKeyModal.note')
+      }
+      return activeTab.value === 'windows'
+        ? t('keys.useKeyModal.openai.noteWindows')
+        : t('keys.useKeyModal.openai.note')
     case 'gemini':
       return t('keys.useKeyModal.gemini.note')
     case 'antigravity':
@@ -631,6 +371,7 @@ const keyword = (value: string) => wrapToken('text-emerald-300', value)
 const variable = (value: string) => wrapToken('text-sky-200', value)
 const operator = (value: string) => wrapToken('text-slate-400', value)
 const string = (value: string) => wrapToken('text-amber-200', value)
+const comment = (value: string) => wrapToken('text-slate-500', value)
 
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
@@ -653,95 +394,46 @@ const currentFiles = computed((): FileConfig[] => {
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
 
-  // The picker-selected model for the active flavor — injected into every
-  // single-model snippet so a real, servable id replaces the old hardcoded
-  // literal / free-text hint.
-  const model = selectedModel.value
-
   if (activeClientTab.value === 'opencode') {
     switch (props.platform) {
       case 'anthropic':
         return [generateOpenCodeConfig('anthropic', apiBase, apiKey)]
       case 'openai':
-      case 'newapi':
-      case 'grok':
-        // newapi/grok share the OpenAI-compat HTTP shape: codex CLI / opencode
-        // use identical config (provider=openai, baseURL=apiBase). Sticking
-        // these branches together avoids a parallel catalog that would drift
-        // from openai's.
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       case 'gemini':
         return [generateOpenCodeConfig('gemini', geminiBase, apiKey)]
-      case 'antigravity': {
-        const configs: FileConfig[] = []
-        // gemini-only 分组隐藏 antigravity-claude provider，只给 gemini 配置。
-        if (antigravityClaudeAllowed.value) {
-          configs.push(generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'))
-        }
-        configs.push(generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)'))
-        return configs
-      }
+      case 'antigravity':
+        return [
+          generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
+          generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
+        ]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
   }
 
-  // Raw protocol (cURL / Python): one fully-injected, correct example per
-  // flavor. base / auth / endpoint / body shape are all correct-by-construction.
-  if (activeClientTab.value === 'curl' || activeClientTab.value === 'python') {
-    const flavor = activeFlavor.value ?? 'anthropic'
-    const isAntigravity = props.platform === 'antigravity'
-    return activeClientTab.value === 'curl'
-      ? [generateCurl(flavor, baseRoot, apiKey, model, isAntigravity)]
-      : [generatePython(flavor, baseRoot, apiKey, model, isAntigravity)]
-  }
-
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey, model)
+        return generateAnthropicFiles(baseUrl, apiKey)
       }
       if (activeClientTab.value === 'codex-ws') {
-        return generateOpenAIWsFiles(baseUrl, apiKey, model)
+        return generateOpenAIWsFiles(baseUrl, apiKey)
       }
-      return generateOpenAIFiles(baseUrl, apiKey, model)
-    case 'newapi':
-    case 'grok':
-      // newapi/grok: OpenAI-compat HTTP, no OAuth WS path (codex-ws not offered
-      // in their tabs). claude tab only appears when the group enables messages
-      // dispatch. grok (xAI) is OpenAI-compatible, so it shares the openai files.
-      if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey, model)
-      }
-      return generateOpenAIFiles(baseUrl, apiKey, model)
+      return generateOpenAIFiles(baseUrl, apiKey)
     case 'gemini':
-      return [generateGeminiCliContent(baseUrl, apiKey, model)]
+      return [generateGeminiCliContent(baseUrl, apiKey)]
     case 'antigravity':
       if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey, model)]
+        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
       }
-      return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey, model)
+      return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
     default:
-      return generateAnthropicFiles(baseUrl, apiKey, model)
+      return generateAnthropicFiles(baseUrl, apiKey)
   }
 })
 
-function generateAnthropicFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
-  // Picker-injected model, with the 1M-window [1m] alias re-applied for opus.
-  const envModel = anthropicEnvModel(model)
-  // Recommended defaults (TokenKey + Claude Code; see code.claude.com env docs):
-  //   - model claude-opus-4-8[1m] + DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 稳定思考预算
-  //     NOTE: the model id MUST be a real, empirically-servable Anthropic id
-  //     (see backend supportedAnthropicCatalogModels, regenerated from a live
-  //     prod probe). A bare alias like `opus` is NOT servable: the gateway
-  //     strips the trailing `[1m]` context-window suffix (gateway_anthropic_
-  //     context_window_alias_tk.go) so `opus[1m]` collapses to `opus`, which is
-  //     rejected upstream as model-not-found and surfaced as 400 invalid_request
-  //     (PR #617). `claude-opus-4-8[1m]` collapses to the servable
-  //     `claude-opus-4-8` while the separate `context-1m-2025-08-07` beta header
-  //     still activates the 1M window.
-  //   - CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60: 约 60% 上下文占用时触发自动压缩（1M 窗口下更稳）
-  //   - 不默认开 DISABLE_NONESSENTIAL_TRAFFIC: 直连 Anthropic 时它会把 cache TTL 从 1h 砍到 5min
+function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   let path: string
   let content: string
 
@@ -750,47 +442,19 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string, model: string):
       path = 'Terminal'
       content = `export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
-export ANTHROPIC_MODEL="${envModel}"
-
-# 防降智 + 控成本（详见 hint）
-export CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
-export MAX_THINKING_TOKENS=31999
-export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60
-
-# 仅当上游为 Anthropic OAuth 且确实不想上传 telemetry 时再开（会损害 cache TTL）：
-# export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-# 谨慎模式（部分场景慢 30%）：
-# export CLAUDE_CODE_MAKE_NO_MISTAKES=1`
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'cmd':
       path = 'Command Prompt'
       content = `set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
-set ANTHROPIC_MODEL=${envModel}
-
-set CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
-set MAX_THINKING_TOKENS=31999
-set CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60
-
-REM 仅当上游为 Anthropic OAuth 时再开（会损害 cache TTL）：
-REM set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-REM 谨慎模式：
-REM set CLAUDE_CODE_MAKE_NO_MISTAKES=1`
+set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'powershell':
       path = 'PowerShell'
       content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
-$env:ANTHROPIC_MODEL="${envModel}"
-
-$env:CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1"
-$env:MAX_THINKING_TOKENS="31999"
-$env:CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="60"
-
-# 仅当上游为 Anthropic OAuth 时再开（会损害 cache TTL）：
-# $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
-# 谨慎模式：
-# $env:CLAUDE_CODE_MAKE_NO_MISTAKES="1"`
+$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     default:
       path = 'Terminal'
@@ -802,25 +466,23 @@ $env:CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="60"
     : '%userprofile%\\.claude\\settings.json'
 
   const vscodeContent = `{
-  "model": "${envModel}",
-  "effortLevel": "high",
   "env": {
     "ANTHROPIC_BASE_URL": "${baseUrl}",
     "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
-    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-    "MAX_THINKING_TOKENS": "31999",
-    "CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE": "60",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
 }`
 
   return [
-    { path, content, hint: t('keys.useKeyModal.claudeCode.envHint') },
-    { path: vscodeSettingsPath, content: vscodeContent, hint: t('keys.useKeyModal.claudeCode.vscodeHint') }
+    { path, content },
+    { path: vscodeSettingsPath, content: vscodeContent, hint: 'VSCode Claude Code' }
   ]
 }
 
-function generateGeminiCliContent(baseUrl: string, apiKey: string, model: string): FileConfig {
+function generateGeminiCliContent(baseUrl: string, apiKey: string): FileConfig {
+  const model = 'gemini-2.0-flash'
+  const modelComment = t('keys.useKeyModal.gemini.modelComment')
   let path: string
   let content: string
   let highlighted: string
@@ -830,10 +492,10 @@ function generateGeminiCliContent(baseUrl: string, apiKey: string, model: string
       path = 'Terminal'
       content = `export GOOGLE_GEMINI_BASE_URL="${baseUrl}"
 export GEMINI_API_KEY="${apiKey}"
-export GEMINI_MODEL="${model}"`
+export GEMINI_MODEL="${model}"  # ${modelComment}`
       highlighted = `${keyword('export')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
 ${keyword('export')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
-${keyword('export')} ${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}`
+${keyword('export')} ${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}  ${comment(`# ${modelComment}`)}`
       break
     case 'cmd':
       path = 'Command Prompt'
@@ -842,16 +504,17 @@ set GEMINI_API_KEY=${apiKey}
 set GEMINI_MODEL=${model}`
       highlighted = `${keyword('set')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(baseUrl)}
 ${keyword('set')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(apiKey)}
-${keyword('set')} ${variable('GEMINI_MODEL')}${operator('=')}${string(model)}`
+${keyword('set')} ${variable('GEMINI_MODEL')}${operator('=')}${string(model)}
+${comment(`REM ${modelComment}`)}`
       break
     case 'powershell':
       path = 'PowerShell'
       content = `$env:GOOGLE_GEMINI_BASE_URL="${baseUrl}"
 $env:GEMINI_API_KEY="${apiKey}"
-$env:GEMINI_MODEL="${model}"`
+$env:GEMINI_MODEL="${model}"  # ${modelComment}`
       highlighted = `${keyword('$env:')}${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
 ${keyword('$env:')}${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
-${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}`
+${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}  ${comment(`# ${modelComment}`)}`
       break
     default:
       path = 'Terminal'
@@ -862,14 +525,14 @@ ${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model
   return { path, content, highlighted }
 }
 
-function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
+function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
 
   // config.toml content
   const configContent = `model_provider = "OpenAI"
-model = "${model}"
-review_model = "${model}"
+model = "gpt-5.5"
+review_model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
@@ -902,14 +565,14 @@ goals = true`
   ]
 }
 
-function generateOpenAIWsFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
+function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
 
   // config.toml content with WebSocket v2
   const configContent = `model_provider = "OpenAI"
-model = "${model}"
-review_model = "${model}"
+model = "gpt-5.5"
+review_model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
@@ -944,107 +607,6 @@ goals = true`
   ]
 }
 
-// Raw-protocol snippets: a complete, runnable request with model / base_url /
-// auth-header / body all injected correct-by-construction. Targets the
-// Python/curl callers that dominate the auth (#1), malformed-body (#4) and
-// wrong-endpoint (#5) error buckets.
-function generateCurl(
-  flavor: UseKeyFlavor,
-  baseRoot: string,
-  apiKey: string,
-  model: string,
-  isAntigravity: boolean,
-): FileConfig {
-  const agPrefix = isAntigravity ? '/antigravity' : ''
-  if (flavor === 'anthropic') {
-    const envModel = anthropicEnvModel(model)
-    return {
-      path: 'cURL',
-      content: `curl ${baseRoot}${agPrefix}/v1/messages \\
-  -H "x-api-key: ${apiKey}" \\
-  -H "anthropic-version: 2023-06-01" \\
-  -H "content-type: application/json" \\
-  -d '{
-    "model": "${envModel}",
-    "max_tokens": 64,
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'`,
-    }
-  }
-  if (flavor === 'gemini') {
-    return {
-      path: 'cURL',
-      content: `curl "${baseRoot}${agPrefix}/v1beta/models/${model}:generateContent" \\
-  -H "x-goog-api-key: ${apiKey}" \\
-  -H "content-type: application/json" \\
-  -d '{
-    "contents": [{"role": "user", "parts": [{"text": "Hello"}]}]
-  }'`,
-    }
-  }
-  return {
-    path: 'cURL',
-    content: `curl ${baseRoot}/v1/chat/completions \\
-  -H "Authorization: Bearer ${apiKey}" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "${model}",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "max_tokens": 64
-  }'`,
-  }
-}
-
-function generatePython(
-  flavor: UseKeyFlavor,
-  baseRoot: string,
-  apiKey: string,
-  model: string,
-  isAntigravity: boolean,
-): FileConfig {
-  const agPrefix = isAntigravity ? '/antigravity' : ''
-  if (flavor === 'anthropic') {
-    const envModel = anthropicEnvModel(model)
-    return {
-      path: 'Python (anthropic SDK)',
-      content: `from anthropic import Anthropic
-
-client = Anthropic(api_key="${apiKey}", base_url="${baseRoot}${agPrefix}")
-msg = client.messages.create(
-    model="${envModel}",
-    max_tokens=64,
-    messages=[{"role": "user", "content": "Hello"}],
-)
-print(msg.content[0].text)`,
-    }
-  }
-  if (flavor === 'gemini') {
-    return {
-      path: 'Python (requests)',
-      content: `import requests
-
-resp = requests.post(
-    "${baseRoot}${agPrefix}/v1beta/models/${model}:generateContent",
-    headers={"x-goog-api-key": "${apiKey}", "Content-Type": "application/json"},
-    json={"contents": [{"role": "user", "parts": [{"text": "Hello"}]}]},
-)
-print(resp.json())`,
-    }
-  }
-  return {
-    path: 'Python (openai SDK)',
-    content: `from openai import OpenAI
-
-client = OpenAI(api_key="${apiKey}", base_url="${baseRoot}/v1")   # <- 改这两行
-resp = client.chat.completions.create(
-    model="${model}",
-    messages=[{"role": "user", "content": "Hello"}],
-    max_tokens=64,
-)
-print(resp.choices[0].message.content)`,
-  }
-}
-
 function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: string, pathLabel?: string): FileConfig {
   const provider: Record<string, any> = {
     [platform]: {
@@ -1054,16 +616,23 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       }
     }
   }
-  // NOTE: keep this catalog aligned with the empirically-servable OpenAI set
-  // (backend supportedOpenAICatalogModels, regenerated from a live prod probe —
-  // PR #608). gpt-5.2 was dropped here because the probe returned 502 on the
-  // chat/completions path opencode uses and it is retired from the servable
-  // allowlist + public catalog + Your Menu. gpt-5.3-codex / codex-mini-latest
-  // are intentionally LEFT for now: they 502 on the API-key chat/completions
-  // path but carry a codex-ws ChatGPT-OAuth reverse-mapping
-  // (normalizeOpenAIModelForUpstream, scripts/sentinels/gateway-tk.json), so
-  // their true servability needs a codex-ws probe before removal.
   const openaiModels = {
+    'gpt-5.2': {
+      name: 'GPT-5.2',
+      limit: {
+        context: 400000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {}
+      }
+    },
     'gpt-5.5': {
       name: 'GPT-5.5',
       limit: {
@@ -1259,31 +828,6 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
   }
 
   const antigravityGeminiModels = {
-    // 2026-06 实测 /v1internal:fetchAvailableModels 的当前 user-facing wire id（app 下拉显示名见 name）
-    'gemini-3.5-flash-low': {
-      name: 'Gemini 3.5 Flash (Medium)',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 4000, type: 'enabled' } }
-    },
-    'gemini-3-flash-agent': {
-      name: 'Gemini 3.5 Flash (High)',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 10000, type: 'enabled' } }
-    },
-    'gemini-3.5-flash-extra-low': {
-      name: 'Gemini 3.5 Flash (Low)',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 1000, type: 'enabled' } }
-    },
-    'gemini-pro-agent': {
-      name: 'Gemini 3.1 Pro (High)',
-      limit: { context: 1048576, output: 65536 },
-      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 10001, type: 'enabled' } }
-    },
     'gemini-2.5-flash': {
       name: 'Gemini 2.5 Flash',
       limit: {

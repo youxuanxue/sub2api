@@ -113,36 +113,6 @@ func TestChatCompletionsToResponses_ToolCalls(t *testing.T) {
 	assert.Equal(t, "ping", resp.Tools[0].Name)
 }
 
-func TestChatCompletionsToResponses_ToolCallArgumentsInvalidFallbackToEmptyObject(t *testing.T) {
-	req := &ChatCompletionsRequest{
-		Model: "gpt-4o",
-		Messages: []ChatMessage{
-			{Role: "user", Content: json.RawMessage(`"Call tool"`)},
-			{
-				Role: "assistant",
-				ToolCalls: []ChatToolCall{
-					{ID: "call_bad", Type: "function", Function: ChatFunctionCall{Name: "ping", Arguments: "not-json"}},
-					{ID: "call_arr", Type: "function", Function: ChatFunctionCall{Name: "ping", Arguments: "[1,2]"}},
-					{ID: "call_ok", Type: "function", Function: ChatFunctionCall{Name: "ping", Arguments: `{"host":"example.com"}`}},
-				},
-			},
-		},
-	}
-
-	resp, err := ChatCompletionsToResponses(req)
-	require.NoError(t, err)
-	var items []ResponsesInputItem
-	require.NoError(t, json.Unmarshal(resp.Input, &items))
-	require.Len(t, items, 4)
-
-	require.Equal(t, "function_call", items[1].Type)
-	require.Equal(t, "{}", items[1].Arguments)
-	require.Equal(t, "function_call", items[2].Type)
-	require.Equal(t, "{}", items[2].Arguments)
-	require.Equal(t, "function_call", items[3].Type)
-	require.JSONEq(t, `{"host":"example.com"}`, items[3].Arguments)
-}
-
 func TestChatCompletionsToResponses_ToolStrict(t *testing.T) {
 	strictTrue := true
 	strictFalse := false
@@ -485,12 +455,7 @@ func TestChatCompletionsToResponses_LegacyFunctions(t *testing.T) {
 	assert.Equal(t, "function", resp.Tools[0].Type)
 	assert.Equal(t, "get_weather", resp.Tools[0].Name)
 
-	// tool_choice should be converted to the Responses API FLAT shape:
-	//   {"type":"function","name":"X"}
-	// NOT the legacy Chat-Completions nested {"type":"function","function":{"name":"X"}}
-	// shape, which produces upstream `400 Unknown parameter: 'tool_choice.function'`
-	// (same failure mode fixed for the Anthropic path — see
-	// TestAnthropicToResponses_ToolChoiceBuiltinWebSearch).
+	// tool_choice should be converted
 	require.NotNil(t, resp.ToolChoice)
 	var tc map[string]any
 	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
@@ -840,33 +805,33 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 	require.NotNil(t, chat.Usage)
 	require.NotNil(t, chat.Usage.PromptTokensDetails)
 	assert.Equal(t, 80, chat.Usage.PromptTokensDetails.CachedTokens)
-	assert.Nil(t, chat.Usage.CompletionTokensDetails, "no reasoning tokens upstream → omit details")
 }
 
 func TestResponsesToChatCompletions_ReasoningTokens(t *testing.T) {
 	resp := &ResponsesResponse{
-		ID:     "resp_reasoning_usage",
+		ID:     "resp_reasoning",
 		Status: "completed",
 		Output: []ResponsesOutput{
 			{
 				Type:    "message",
-				Content: []ResponsesContentPart{{Type: "output_text", Text: "answer"}},
+				Content: []ResponsesContentPart{{Type: "output_text", Text: "ping"}},
 			},
 		},
 		Usage: &ResponsesUsage{
-			InputTokens:  20,
-			OutputTokens: 200,
-			TotalTokens:  220,
+			InputTokens:  24,
+			OutputTokens: 33,
+			TotalTokens:  57,
 			OutputTokensDetails: &ResponsesOutputTokensDetails{
-				ReasoningTokens: 150,
+				ReasoningTokens: 32,
 			},
 		},
 	}
 
-	chat := ResponsesToChatCompletions(resp, "gpt-5.4")
+	chat := ResponsesToChatCompletions(resp, "gpt-5.5")
 	require.NotNil(t, chat.Usage)
+	assert.Equal(t, 33, chat.Usage.CompletionTokens)
 	require.NotNil(t, chat.Usage.CompletionTokensDetails)
-	assert.Equal(t, 150, chat.Usage.CompletionTokensDetails.ReasoningTokens)
+	assert.Equal(t, 32, chat.Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
 func TestResponsesToChatCompletions_AllTokenDetailsPassThrough(t *testing.T) {
@@ -1111,12 +1076,11 @@ func TestResponsesEventToChatChunks_Completed(t *testing.T) {
 	assert.Equal(t, 70, chunks[1].Usage.TotalTokens)
 	require.NotNil(t, chunks[1].Usage.PromptTokensDetails)
 	assert.Equal(t, 30, chunks[1].Usage.PromptTokensDetails.CachedTokens)
-	assert.Nil(t, chunks[1].Usage.CompletionTokensDetails, "no reasoning tokens upstream → omit details")
 }
 
 func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
 	state := NewResponsesEventToChatState()
-	state.Model = "gpt-5.4"
+	state.Model = "gpt-5.5"
 	state.IncludeUsage = true
 
 	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
@@ -1124,11 +1088,11 @@ func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
 		Response: &ResponsesResponse{
 			Status: "completed",
 			Usage: &ResponsesUsage{
-				InputTokens:  10,
-				OutputTokens: 300,
-				TotalTokens:  310,
+				InputTokens:  24,
+				OutputTokens: 33,
+				TotalTokens:  57,
 				OutputTokensDetails: &ResponsesOutputTokensDetails{
-					ReasoningTokens: 256,
+					ReasoningTokens: 32,
 				},
 			},
 		},
@@ -1137,7 +1101,7 @@ func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
 
 	require.NotNil(t, chunks[1].Usage)
 	require.NotNil(t, chunks[1].Usage.CompletionTokensDetails)
-	assert.Equal(t, 256, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
+	assert.Equal(t, 32, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
 func TestResponsesEventToChatChunks_ResponseDone(t *testing.T) {
@@ -1186,35 +1150,6 @@ func TestResponsesEventToChatChunks_TopLevelTerminalUsage(t *testing.T) {
 	assert.Equal(t, 9, chunks[1].Usage.CompletionTokens)
 	require.NotNil(t, chunks[1].Usage.PromptTokensDetails)
 	assert.Equal(t, 4, chunks[1].Usage.PromptTokensDetails.CachedTokens)
-}
-
-// Top-level evt.Usage path must preserve OutputTokensDetails.ReasoningTokens —
-// some compat upstreams put usage at the top level of the terminal event
-// rather than nested under response.usage, and clients still need
-// completion_tokens_details.reasoning_tokens for transparency.
-func TestResponsesEventToChatChunks_TopLevelTerminalUsageReasoningTokens(t *testing.T) {
-	state := NewResponsesEventToChatState()
-	state.Model = "gpt-5.4"
-	state.IncludeUsage = true
-
-	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
-		Type: "response.completed",
-		Response: &ResponsesResponse{
-			Status: "completed",
-		},
-		Usage: &ResponsesUsage{
-			InputTokens:  10,
-			OutputTokens: 300,
-			TotalTokens:  310,
-			OutputTokensDetails: &ResponsesOutputTokensDetails{
-				ReasoningTokens: 256,
-			},
-		},
-	}, state)
-	require.Len(t, chunks, 2)
-	require.NotNil(t, chunks[1].Usage)
-	require.NotNil(t, chunks[1].Usage.CompletionTokensDetails)
-	assert.Equal(t, 256, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
 func TestResponsesEventToChatChunks_ResponseDoneIncomplete(t *testing.T) {
@@ -1619,48 +1554,4 @@ func TestBufferedResponseAccumulator_IgnoresNonFunctionCallItems(t *testing.T) {
 	})
 
 	assert.False(t, acc.HasContent())
-}
-
-// TestChatCompletionsToResponses_EmptyContentArrayDoesNotProduceNull is a
-// regression test for upstream Wei-Shaw/sub2api#2515 — gpt-5.5 (and any model
-// using the chat-completions → responses transform) was producing
-// `"content":null` in the converted input items whenever the source content
-// array was empty or contained only filtered parts (e.g. text="" or unknown
-// types). Upstream OpenAI rejected the request with HTTP 400 "Invalid type
-// for 'input[xx].content': expected one of an array of objects or string, but
-// got null instead". Content must fall back to an empty string in that case.
-func TestChatCompletionsToResponses_EmptyContentArrayDoesNotProduceNull(t *testing.T) {
-	cases := []struct {
-		name    string
-		content string
-	}{
-		{"empty parts array", `[]`},
-		{"parts with empty text", `[{"type":"text","text":""}]`},
-		{"parts with null text", `[{"type":"text","text":null}]`},
-		{"parts with unsupported type only", `[{"type":"refusal","refusal":"sorry"}]`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := &ChatCompletionsRequest{
-				Model: "gpt-5.5",
-				Messages: []ChatMessage{
-					{Role: "user", Content: json.RawMessage(tc.content)},
-				},
-			}
-			resp, err := ChatCompletionsToResponses(req)
-			require.NoError(t, err)
-
-			var items []ResponsesInputItem
-			require.NoError(t, json.Unmarshal(resp.Input, &items))
-			require.Len(t, items, 1)
-
-			// The critical invariant: content must NEVER be the JSON null literal,
-			// since OpenAI Responses upstream rejects it with HTTP 400.
-			assert.NotEqual(t, "null", string(items[0].Content),
-				"converted content must not be null literal (would cause upstream 400)")
-			assert.Equal(t, `""`, string(items[0].Content),
-				"empty/filtered parts must serialize as empty string per upstream #2515")
-		})
-	}
 }

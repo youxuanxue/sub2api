@@ -98,7 +98,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useLazyMarkdown } from '@/composables/useLazyMarkdown'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
@@ -114,6 +115,11 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 const typedPhrase = ref('')
 const attemptedSubmit = ref(false)
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
 
 const visible = computed(() => authStore.isAuthenticated && authStore.isAdmin && complianceStore.shouldShow)
 const expectedPhrase = computed(() => complianceStore.expectedPhrase)
@@ -131,7 +137,10 @@ const inputError = computed(() => {
   }
   return t('adminCompliance.inputMismatch')
 })
-const renderedDocument = useLazyMarkdown(() => currentDocument.value)
+const renderedDocument = computed(() => {
+  const html = marked.parse(currentDocument.value) as string
+  return DOMPurify.sanitize(html)
+})
 
 watch(expectedPhrase, () => {
   typedPhrase.value = ''

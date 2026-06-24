@@ -3,14 +3,12 @@ package service
 import (
 	"context"
 	"database/sql"
-	"net/http"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -247,93 +245,6 @@ func ProvideSchedulerSnapshotService(
 	return svc
 }
 
-// ProvideSchedulerRateLimitReaper creates and starts the TK rate-limit reaper.
-// See scheduler_rate_limit_reaper.go for the upstream-issue context
-// (Wei-Shaw/sub2api#2538): without this reaper, accounts whose rate-limit
-// cooldown elapses stay invisible to the scheduler until the next
-// full_rebuild_interval_seconds tick.
-func ProvideSchedulerRateLimitReaper(
-	repo RateLimitExpiryRepository,
-	cfg *config.Config,
-) *SchedulerRateLimitReaper {
-	svc := NewSchedulerRateLimitReaper(repo, cfg)
-	svc.Start()
-	return svc
-}
-
-// ProvideAnthropicConfigReconciler creates and starts the TK per-node anthropic
-// config self-healer. Adapts the wire-provided concrete repos / admin service
-// (which satisfy the reconciler's narrow interfaces) and Start()s the ticker.
-// See anthropic_config_reconciler.go for the boundary doctrine (writes ONLY this
-// deployment's DB; tier drift is report-only).
-func ProvideAnthropicConfigReconciler(
-	accountRepo AccountRepository,
-	userRepo UserRepository,
-	adminSvc AdminService,
-	tierSvc *TierService,
-	tierApplier *AccountTierService,
-	tlsSvc *TLSFingerprintProfileService,
-	settingSvc *SettingService,
-	cfg *config.Config,
-	redisClient *redis.Client,
-) *AnthropicConfigReconciler {
-	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, tierApplier, tlsSvc, settingSvc, cfg, redisClient)
-	rec.Start()
-	return rec
-}
-
-// ProvideAntigravityConfigReconciler creates and starts the TK per-node
-// antigravity config self-healer (enforces gemini-only model_mapping on every
-// antigravity account in the local DB). Adapts the wire-provided concrete
-// account repo (which satisfies the reconciler's narrow store interface) and
-// Start()s the ticker. See antigravity_config_reconciler.go for the doctrine.
-func ProvideAntigravityConfigReconciler(
-	accountRepo AccountRepository,
-	groupRepo GroupRepository,
-	cfg *config.Config,
-	redisClient *redis.Client,
-) *AntigravityConfigReconciler {
-	rec := NewAntigravityConfigReconciler(accountRepo, groupRepo, cfg, redisClient)
-	rec.Start()
-	return rec
-}
-
-// ProvideUpstreamBalanceSentinel creates and starts the TK per-node upstream
-// low-balance sentinel. It polls newapi channel accounts that expose a public
-// balance API (currently DeepSeek) and fires a pre-emptive Feishu warning before
-// an account's balance hits zero. accountRepo/opsRepo satisfy the narrow
-// dependencies; ops provides the threshold + Feishu-enabled read; settingSvc
-// supplies the recharge link. Read-only against upstream; never writes accounts.
-func ProvideUpstreamBalanceSentinel(
-	accountRepo AccountRepository,
-	httpUpstream HTTPUpstream,
-	notifier *TKAccountIncidentNotifier,
-	ops *OpsService,
-	settingRepo SettingRepository,
-	opsRepo OpsRepository,
-	redisClient *redis.Client,
-) *UpstreamBalanceSentinel {
-	var cfgProvider opsFeishuConfigProvider
-	if ops != nil {
-		cfgProvider = ops
-	}
-	var recharge rechargeURLResolver
-	if settingRepo != nil {
-		recharge = settingRepo
-	}
-	s := NewUpstreamBalanceSentinel(accountRepo, httpUpstream, notifier, cfgProvider, recharge, opsRepo, redisClient)
-	s.Start()
-	return s
-}
-
-// ProvideEdgeAccountsAggregator creates the prod-side cross-edge read-only
-// account aggregator. It owns its own short-timeout HTTP client (constructed
-// here rather than wired) to avoid colliding with other *http.Client providers
-// in the type graph. accountRepo satisfies the narrow edgeAccountsStore.
-func ProvideEdgeAccountsAggregator(accountRepo AccountRepository) *EdgeAccountsAggregator {
-	return NewEdgeAccountsAggregator(accountRepo, &http.Client{Timeout: edgeAccountsHTTPTO})
-}
-
 // ProvideRateLimitService creates RateLimitService with optional dependencies.
 func ProvideRateLimitService(
 	accountRepo AccountRepository,
@@ -343,18 +254,14 @@ func ProvideRateLimitService(
 	tempUnschedCache TempUnschedCache,
 	timeoutCounterCache TimeoutCounterCache,
 	openAI403CounterCache OpenAI403CounterCache,
-	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
-	refreshAPI *OAuthRefreshAPI,
 ) *RateLimitService {
 	svc := NewRateLimitService(accountRepo, usageRepo, cfg, geminiQuotaService, tempUnschedCache)
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
-	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)
-	svc.SetOAuthRefreshAPI(refreshAPI)
 	return svc
 }
 
@@ -387,12 +294,6 @@ func ProvideOpsAggregationService(
 }
 
 // ProvideOpsAlertEvaluatorService creates and starts OpsAlertEvaluatorService.
-// The anthropic upstream-error counter cache is injected so the
-// anthropic_cooldown_tier_escalation_count metric path reads through the
-// same interface the ratelimit writer side uses (single Redis-backed
-// counter behind one canonical key). Without this injection the metric
-// would silently work via a redundant raw redisClient.Get path and the
-// cache interface would be dead code in production.
 func ProvideOpsAlertEvaluatorService(
 	opsService *OpsService,
 	opsRepo OpsRepository,
@@ -400,10 +301,8 @@ func ProvideOpsAlertEvaluatorService(
 	redisClient *redis.Client,
 	cfg *config.Config,
 	proxyRepo ProxyRepository,
-	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
 ) *OpsAlertEvaluatorService {
 	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, emailService, redisClient, cfg, proxyRepo)
-	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
 	svc.Start()
 	return svc
 }
@@ -476,16 +375,6 @@ func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Co
 	return svc
 }
 
-// ProvideHoldReconcilerService builds and starts the pre-flight balance-hold
-// reconciler (crash-recovery for the overdraft fix; see
-// hold_reconciler_service.go). No-op when the repository lacks the hold
-// capability.
-func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {
-	svc := NewHoldReconcilerService(repo)
-	svc.Start()
-	return svc
-}
-
 // ProvideScheduledTestService creates ScheduledTestService.
 func ProvideScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
@@ -540,20 +429,55 @@ func ProvideBackupService(
 	return svc
 }
 
+// ProvideOpsService constructs OpsService and wires the SettingService-backed quota
+// auto-pause cache sink. Mirrors the SetCleanupReloader pattern: OpsService doesn't
+// hold a *SettingService reference, but wire injects a tiny callback so writes to
+// ops_advanced_settings immediately propagate into the scheduler hot-path cache.
+func ProvideOpsService(
+	opsRepo OpsRepository,
+	settingRepo SettingRepository,
+	cfg *config.Config,
+	accountRepo AccountRepository,
+	userRepo UserRepository,
+	concurrencyService *ConcurrencyService,
+	gatewayService *GatewayService,
+	openAIGatewayService *OpenAIGatewayService,
+	geminiCompatService *GeminiMessagesCompatService,
+	antigravityGatewayService *AntigravityGatewayService,
+	systemLogSink *OpsSystemLogSink,
+	settingService *SettingService,
+) *OpsService {
+	svc := NewOpsService(
+		opsRepo,
+		settingRepo,
+		cfg,
+		accountRepo,
+		userRepo,
+		concurrencyService,
+		gatewayService,
+		openAIGatewayService,
+		geminiCompatService,
+		antigravityGatewayService,
+		systemLogSink,
+	)
+	if settingService != nil {
+		svc.SetOpenAIQuotaAutoPauseSettingsSink(settingService.SetOpenAIQuotaAutoPauseSettings)
+		// Optional warm-up so the first scheduled request after process start observes
+		// a populated cache rather than zero defaults. Best-effort, sync-bounded.
+		settingService.WarmOpenAIQuotaAutoPauseSettings(context.Background())
+	}
+	return svc
+}
+
 // ProvideSettingService wires SettingService with group reader and proxy repo.
-func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, pubsub SettingPubSub, cfg *config.Config) *SettingService {
+func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
 	if err := svc.LoadAPIKeyACLTrustForwardedIPSetting(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load api key acl forwarded ip setting failed: %v", err)
 	}
-	// TK: fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
-	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
-	svc.EnableSettingsPubSub(context.Background(), pubsub)
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
-	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
-	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
 	return svc
 }
 
@@ -602,15 +526,11 @@ var ProviderSet = wire.NewSet(
 	NewUsageService,
 	NewDashboardService,
 	ProvidePricingService,
-	NewPricingCatalogService,
-	// TK: per-user pricing catalog ("Your Menu") — see me_pricing_catalog_tk.go
-	NewMePricingCatalogService,
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewAdminService,
 	NewGatewayService,
-	NewKiroGatewayService,
 	NewOpenAIGatewayService,
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
@@ -635,7 +555,7 @@ var ProviderSet = wire.NewSet(
 	NewDataManagementService,
 	ProvideBackupService,
 	ProvideOpsSystemLogSink,
-	NewOpsService,
+	ProvideOpsService,
 	ProvideOpsMetricsCollector,
 	ProvideOpsAggregationService,
 	ProvideOpsAlertEvaluatorService,
@@ -651,14 +571,6 @@ var ProviderSet = wire.NewSet(
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
-	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
-	// scheduler_rate_limit_reaper.go.
-	ProvideSchedulerRateLimitReaper,
-	ProvideAnthropicConfigReconciler,
-	ProvideAntigravityConfigReconciler,
-	ProvideUpstreamBalanceSentinel,
-	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
-	ProvideEdgeAccountsAggregator,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,
@@ -676,15 +588,10 @@ var ProviderSet = wire.NewSet(
 	NewTotpService,
 	NewErrorPassthroughService,
 	NewTLSFingerprintProfileService,
-	// TK: anthropic-oauth stability tier reference service (CRUD + pub/sub + resolver).
-	NewTierService,
-	wire.Bind(new(TierExtraResolver), new(*TierService)),
-	NewAccountTierService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
-	ProvideHoldReconcilerService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
@@ -699,177 +606,20 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
-	// TokenKey: cold-start binding (US-029 / US-030) — wires the trial-key
-	// issuer onto AuthService post-construction. The returned sentinel is
-	// consumed by provideCleanup (cmd/server/wire.go) so wire forces evaluation.
-	ProvideTKAuthServiceColdStart,
-	// TokenKey: pricing-availability single-source-of-truth (R-001 of
-	// docs/approved/pricing-availability-source-of-truth.md). Builds the
-	// availability service and wires it onto GatewayService post-construction.
-	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
-	ProvidePricingAvailabilityService,
-	ProvideTKGatewayPricingAvailability,
-	// TokenKey: wires GatewayService.GetAvailableModels onto the universal-key
-	// resolver (APIKeyService) post-construction so resolution filters candidate
-	// groups by the models they actually serve. Consumed by provideCleanup.
-	ProvideTKUniversalModelsProvider,
-	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
-	// getter + catalog-cache invalidator onto PricingService, does the initial
-	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
-	// new model be priced + surfaced in /pricing without a release. Consumed by
-	// provideCleanup so wire forces evaluation.
-	ProvideTKPricingOverlayRuntime,
-	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
-	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
-	NewModelListFilter,
-	// TokenKey: Anthropic signature_error preempt — wires the per-account
-	// thinking-block preempt cache onto GatewayService post-construction.
-	// Same shape as ProvideTKGatewayPricingAvailability; consumed by
-	// provideCleanup in cmd/server/wire.go so wire forces evaluation.
-	ProvideTKGatewayAnthropicSigPreempt,
-	// TokenKey: anthropic saturated mirror-stub de-prioritization — wires the
-	// Redis saturation counter onto GatewayService (scheduler read) and
-	// RateLimitService (skip-penalty write). Consumed by provideCleanup so wire
-	// forces evaluation.
-	ProvideTKAnthropicSaturation,
-	// TokenKey: account-incident → Feishu notifier. Builds the notifier, starts
-	// its digest ticker, and wires it onto RateLimitService post-construction.
-	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the
-	// ticker at shutdown — same lifecycle shape as ChannelMonitorRunner.
-	ProvideTKAccountIncidentNotifier,
-	// TokenKey: pricing-missing → Feishu notifier. Builds the notifier, starts
-	// its digest ticker, and wires it onto GatewayService + OpenAIGatewayService
-	// post-construction. Returns the instance so provideCleanup
-	// (cmd/server/wire.go) can Stop() the ticker at shutdown.
-	ProvideTKPricingMissingNotifier,
+	ProvideUserPlatformQuotaUsageFlusher,
 )
 
-// TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
-// AuthService has had its trial-key issuer wired. provideCleanup takes this
-// type as a parameter purely to force wire to evaluate the side-effect; the
-// value itself carries no runtime data.
-type TKAuthServiceColdStartReady struct{}
-
-// ProvideTKAuthServiceColdStart wires the trial-key issuer onto AuthService
-// after both services are constructed, then returns the sentinel.
-//
-// This wrapper-style provider mirrors the pattern used by
-// ProvideTokenRefreshService / ProvideClaudeTokenProvider in this file —
-// build the underlying service, attach setter-injected deps, return.
-func ProvideTKAuthServiceColdStart(
-	auth *AuthService,
-	api *APIKeyService,
-	settings *SettingService,
-) TKAuthServiceColdStartReady {
-	if auth != nil {
-		auth.SetTrialKeyIssuer(NewTrialKeyIssuer(api, settings))
-	}
-	return TKAuthServiceColdStartReady{}
+// ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
+func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, quotaRepo UserPlatformQuotaRepository, tw *TimingWheelService) *UserPlatformQuotaUsageFlusher {
+	svc := NewUserPlatformQuotaUsageFlusher(cfg, cache, quotaRepo, tw)
+	svc.Start()
+	return svc
 }
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.
 func ProvidePaymentConfigService(entClient *dbent.Client, settingRepo SettingRepository, key payment.EncryptionKey) *PaymentConfigService {
 	return NewPaymentConfigService(entClient, settingRepo, []byte(key))
-}
-
-// ProvidePricingAvailabilityService wraps NewPricingAvailabilityService for
-// wire — the production binding pins clock to time.Now (tests inject their own
-// clock via NewPricingAvailabilityService directly). The repository comes from
-// repository.NewModelAvailabilityRepository, registered in repository/wire.go.
-func ProvidePricingAvailabilityService(repo ModelAvailabilityRepository) *PricingAvailabilityService {
-	return NewPricingAvailabilityService(repo, time.Now)
-}
-
-// TKGatewayPricingAvailabilityReady is a wire sentinel: holding it proves
-// GatewayService.SetPricingAvailabilityService has been called with the
-// production availability service. provideCleanup (cmd/server/wire.go) takes
-// this type as an unused parameter to force wire to evaluate the side-effect.
-type TKGatewayPricingAvailabilityReady struct{}
-
-// ProvideTKGatewayPricingAvailability wires the availability service onto
-// GatewayService post-construction. Mirrors ProvideTKAuthServiceColdStart in
-// shape — keep upstream NewGatewayService signature stable, attach setter-only
-// dependencies in TK companion glue.
-//
-// Setter is nil-safe; if avail is nil (e.g. degraded test wiring) the service
-// remains in feature-flag-off state.
-func ProvideTKGatewayPricingAvailability(
-	gw *GatewayService,
-	avail *PricingAvailabilityService,
-) TKGatewayPricingAvailabilityReady {
-	if gw != nil {
-		gw.SetPricingAvailabilityService(avail)
-	}
-	return TKGatewayPricingAvailabilityReady{}
-}
-
-// TKUniversalModelsProviderReady is a wire sentinel: holding it proves
-// APIKeyService.SetUniversalAvailableModelsProvider has been called with
-// GatewayService.GetAvailableModels, so the universal-key resolver can filter
-// candidate groups by which models they actually serve. provideCleanup
-// (cmd/server/wire.go) consumes this type as an unused parameter to force wire
-// to evaluate the side-effect.
-type TKUniversalModelsProviderReady struct{}
-
-// ProvideTKUniversalModelsProvider wires the "group served-model set" truth
-// source (GatewayService.GetAvailableModels — the same source /v1/models uses)
-// onto the universal-key resolver post-construction. APIKeyService constructs
-// the resolver before GatewayService exists, so this late binding avoids the
-// construction cycle. Mirrors ProvideTKGatewayPricingAvailability in shape.
-//
-// Setter is nil-safe; if either dep is nil the resolver keeps its safe
-// platform-level fallback. See docs/approved/universal-key-routing.md.
-func ProvideTKUniversalModelsProvider(
-	api *APIKeyService,
-	gw *GatewayService,
-) TKUniversalModelsProviderReady {
-	if api != nil && gw != nil {
-		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
-	}
-	return TKUniversalModelsProviderReady{}
-}
-
-// TKPricingOverlayRuntimeReady is a wire sentinel: holding it proves the runtime
-// hot-pushable TK pricing overlay has been wired onto PricingService
-// (SetOverlayRuntimeDeps + initial reload + pub/sub subscribe). provideCleanup
-// (cmd/server/wire.go) consumes this type as an unused parameter to force wire to
-// evaluate the side-effect.
-type TKPricingOverlayRuntimeReady struct{}
-
-// ProvideTKPricingOverlayRuntime wires the runtime overlay (settings-blob getter
-// + public-catalog cache invalidator) onto PricingService post-construction, does
-// the initial load so an already-present runtime blob is honored at boot, and
-// subscribes to the settings pub/sub so a hot-push reloads immediately across
-// replicas. Mirrors ProvideTKGatewayPricingAvailability in shape — keep upstream
-// NewPricingService signature stable, attach setter-only deps in TK companion glue.
-//
-// All setters are nil-safe: with a nil settingService/catalog/pubsub the service
-// serves the embedded overlay floor exactly as before.
-func ProvideTKPricingOverlayRuntime(
-	ps *PricingService,
-	settingService *SettingService,
-	catalog *PricingCatalogService,
-	pubsub SettingPubSub,
-) TKPricingOverlayRuntimeReady {
-	if ps != nil {
-		var invalidator func()
-		if catalog != nil {
-			invalidator = catalog.InvalidateCache
-		}
-		var getter func(ctx context.Context) (string, bool)
-		if settingService != nil {
-			getter = func(ctx context.Context) (string, bool) {
-				return settingService.GetRawSettingValue(ctx, SettingKeyTKPricingOverlayRuntime)
-			}
-		}
-		ps.SetOverlayRuntimeDeps(getter, invalidator)
-		if _, err := ps.reloadTKOverlayRuntime(context.Background()); err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] runtime overlay initial load failed: %v", err)
-		}
-		ps.SubscribeOverlayRuntime(context.Background(), pubsub)
-	}
-	return TKPricingOverlayRuntimeReady{}
 }
 
 // ProvideBalanceNotifyService creates BalanceNotifyService
@@ -912,126 +662,4 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 	svc.SetScheduler(r)
 	r.Start()
 	return r
-}
-
-// TKGatewayAnthropicSigPreemptReady is a wire sentinel: holding it proves that
-// GatewayService.SetAnthropicSigPreemptCache has been called. provideCleanup
-// (cmd/server/wire.go) consumes this type as an unused parameter so wire forces
-// evaluation of the side-effect.
-type TKGatewayAnthropicSigPreemptReady struct{}
-
-// ProvideTKGatewayAnthropicSigPreempt wires the Anthropic signature_error
-// preempt cache onto GatewayService post-construction. Mirrors
-// ProvideTKGatewayPricingAvailability in shape — keep upstream
-// NewGatewayService signature stable, attach setter-only dependencies in TK
-// companion glue.
-//
-// Setter is nil-safe; if cache is nil (e.g. degraded test wiring) the gateway
-// remains in feature-disabled state and applySigPreemptIfArmed / armSigPreemptOnError
-// become no-ops.
-func ProvideTKGatewayAnthropicSigPreempt(
-	gw *GatewayService,
-	cache AnthropicSignaturePreemptCache,
-) TKGatewayAnthropicSigPreemptReady {
-	if gw != nil {
-		gw.SetAnthropicSigPreemptCache(cache)
-	}
-	return TKGatewayAnthropicSigPreemptReady{}
-}
-
-// TKAnthropicSaturationReady is a wire sentinel proving that the anthropic
-// saturation counter has been wired onto BOTH GatewayService (read side, the
-// scheduler penalty) and RateLimitService (write side, the skip-penalty
-// increments). provideCleanup (cmd/server/wire.go) consumes it as an unused
-// parameter so wire forces evaluation of the side-effect.
-type TKAnthropicSaturationReady struct{}
-
-// ProvideTKAnthropicSaturation wires the Redis-backed anthropic saturation
-// counter into the gateway scheduler (read) and the rate-limit skip-penalty
-// path (write). One provider, two setters — both nil-safe; if cache is nil the
-// feature is inert (no penalty, no increments). See
-// gateway_service_tk_saturation_penalty.go / ratelimit_service_tk_saturation.go.
-func ProvideTKAnthropicSaturation(
-	gw *GatewayService,
-	rl *RateLimitService,
-	cache AnthropicSaturationCounterCache,
-) TKAnthropicSaturationReady {
-	if gw != nil {
-		gw.SetAnthropicSaturationCounter(cache)
-	}
-	if rl != nil {
-		rl.SetAnthropicSaturationCounter(cache)
-	}
-	return TKAnthropicSaturationReady{}
-}
-
-// ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,
-// starts its background digest ticker, and wires it onto RateLimitService
-// post-construction. It returns the concrete instance (not a sentinel) so
-// provideCleanup can Stop() the ticker at shutdown — mirroring the
-// ChannelMonitorRunner lifecycle shape rather than the setter-only sentinel
-// pattern.
-//
-// Node identity (prod / edge-<id>) is derived from server.frontend_url so no new
-// env / deploy-template change is needed. Setter is nil-safe; if rl is nil the
-// notifier is still returned (and Stopped) without being attached.
-func ProvideTKAccountIncidentNotifier(
-	rl *RateLimitService,
-	ops *OpsService,
-	cfg *config.Config,
-) *TKAccountIncidentNotifier {
-	site := "unknown"
-	if cfg != nil {
-		site = siteFromFrontendURL(cfg.Server.FrontendURL)
-	}
-	// Pass a nil interface (not a typed-nil *OpsService) when ops is absent so the
-	// notifier's `cfgProvider != nil` guards short-circuit cleanly.
-	var provider opsFeishuConfigProvider
-	if ops != nil {
-		provider = ops
-	}
-	n := newTKAccountIncidentNotifier(provider, site)
-	// 注入可调度账号计数,让 notifier 的池恢复轮询能把空池火警闭环成「池已恢复」绿卡。
-	// 必须在 Start() 前设好(虽然轮询每拍重读,设早一拍更稳)。rl 为 nil 时轮询自动 no-op。
-	if rl != nil {
-		n.SetPoolSchedulableCounter(rl.countSchedulableByPlatform)
-	}
-	n.Start()
-	if rl != nil {
-		rl.SetAccountIncidentNotifier(n)
-	}
-	SetClaudeAPIStatusNotifier(n)
-	return n
-}
-
-// ProvideTKPricingMissingNotifier builds the pricing-missing Feishu notifier,
-// starts its background digest ticker, and wires it onto both billing funnels
-// (GatewayService + OpenAIGatewayService) post-construction. Same lifecycle
-// shape as ProvideTKAccountIncidentNotifier: returns the concrete instance so
-// provideCleanup can Stop() the ticker at shutdown. Setters are nil-safe.
-func ProvideTKPricingMissingNotifier(
-	gw *GatewayService,
-	openaiGw *OpenAIGatewayService,
-	ops *OpsService,
-	cfg *config.Config,
-) *TKPricingMissingNotifier {
-	site := "unknown"
-	if cfg != nil {
-		site = siteFromFrontendURL(cfg.Server.FrontendURL)
-	}
-	// Pass a nil interface (not a typed-nil *OpsService) when ops is absent so the
-	// notifier's `cfgProvider != nil` guards short-circuit cleanly.
-	var provider opsFeishuConfigProvider
-	if ops != nil {
-		provider = ops
-	}
-	n := newTKPricingMissingNotifier(provider, site)
-	n.Start()
-	if gw != nil {
-		gw.SetPricingMissingNotifier(n)
-	}
-	if openaiGw != nil {
-		openaiGw.SetPricingMissingNotifier(n)
-	}
-	return n
 }

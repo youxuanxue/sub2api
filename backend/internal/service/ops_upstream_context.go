@@ -5,42 +5,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 )
 
 // Gin context keys used by Ops error logger for capturing upstream error details.
 // These keys are set by gateway services and consumed by handler/ops_error_logger.go.
 const (
-	// OpsModelKey / OpsRequestBodyKey mirror the unexported constants in
-	// handler/ops_error_logger.go ("ops_model" / "ops_request_body"). They are
-	// re-declared here so service-layer code (gateway_service_tk_upstream_error_msg.go
-	// and friends) can read the request body size + model that setOpsRequestContext
-	// stashed at handler entry, without creating a service→handler import cycle.
-	// Keep the literal string values in sync with handler.opsModelKey /
-	// handler.opsRequestBodyKey — they are a cross-package wire contract.
-	OpsModelKey       = "ops_model"
-	OpsRequestBodyKey = "ops_request_body"
-
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
-
-	// OpsInternalErrorDetailKey carries a sanitized, truncated detail string for
-	// internal-phase errors (cache/redis/db/context failures) that bubble up as
-	// 5xx from middleware. Distinct from upstream-* keys so dashboards don't
-	// confuse internal infra failures with provider errors. Consumed by
-	// handler/ops_error_logger.go which appends it to ops_error_logs.error_body.
-	OpsInternalErrorDetailKey = "ops_internal_error_detail"
-
-	// Best-effort capture of the current upstream request body so ops can
-	// retry the specific upstream attempt (not just the client request).
-	// This value is sanitized+trimmed before being persisted.
-	OpsUpstreamRequestBodyKey = "ops_upstream_request_body"
-
-	OpsTLSFingerprintProfileIDKey   = "ops_tls_fingerprint_profile_id"
-	OpsTLSFingerprintProfileNameKey = "ops_tls_fingerprint_profile_name"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
@@ -89,35 +63,6 @@ func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
 		return
 	}
 	c.Set(key, value)
-}
-
-func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {
-	if c == nil || len(body) == 0 {
-		return
-	}
-	// 热路径避免 string(body) 额外分配，按需在落库前再转换。
-	c.Set(OpsUpstreamRequestBodyKey, body)
-}
-
-func setOpsTLSFingerprintProfile(c *gin.Context, account *Account, profile *tlsfingerprint.Profile) {
-	if c == nil || account == nil || profile == nil {
-		return
-	}
-	if id := account.GetTLSFingerprintProfileID(); id > 0 {
-		c.Set(OpsTLSFingerprintProfileIDKey, id)
-	}
-	if name := strings.TrimSpace(profile.Name); name != "" {
-		c.Set(OpsTLSFingerprintProfileNameKey, name)
-	}
-}
-
-func resolveOpsTLSFingerprintProfile(c *gin.Context, svc *TLSFingerprintProfileService, account *Account) *tlsfingerprint.Profile {
-	if svc == nil {
-		return nil
-	}
-	profile := svc.ResolveTLSProfile(account)
-	setOpsTLSFingerprintProfile(c, account, profile)
-	return profile
 }
 
 func MarkOpsClientBusinessLimited(c *gin.Context, reason string) {
@@ -174,11 +119,9 @@ type OpsUpstreamErrorEvent struct {
 	Passthrough bool `json:"passthrough,omitempty"`
 
 	// Context
-	Platform                  string `json:"platform,omitempty"`
-	AccountID                 int64  `json:"account_id,omitempty"`
-	AccountName               string `json:"account_name,omitempty"`
-	TLSFingerprintProfileID   int64  `json:"tls_fingerprint_profile_id,omitempty"`
-	TLSFingerprintProfileName string `json:"tls_fingerprint_profile_name,omitempty"`
+	Platform    string `json:"platform,omitempty"`
+	AccountID   int64  `json:"account_id,omitempty"`
+	AccountName string `json:"account_name,omitempty"`
 
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
@@ -188,29 +131,10 @@ type OpsUpstreamErrorEvent struct {
 	// Helps debug 404/routing errors by showing which endpoint was targeted.
 	UpstreamURL string `json:"upstream_url,omitempty"`
 
-	// Best-effort upstream request capture (sanitized+trimmed).
-	// Required for retrying a specific upstream attempt.
-	UpstreamRequestBody string `json:"upstream_request_body,omitempty"`
-
-	// RequestBodyTruncated indicates UpstreamRequestBody was truncated for
-	// storage (the stored value is smaller than the original upstream body).
-	// Kept separate from Kind so the latter stays a clean categorical enum.
-	RequestBodyTruncated bool `json:"request_body_truncated,omitempty"`
-
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
-	// Kind is a short categorical label set by gateway services on each
-	// upstream attempt. Common values currently emitted include:
-	// http_error, request_error, retry, retry_exhausted,
-	// retry_exhausted_failover, failover, failover_on_400, signature_error,
-	// signature_retry, signature_retry_thinking,
-	// signature_retry_tools_request_error, signature_retry_request_error,
-	// budget_constraint_error, prompt_too_long, ws_error. Storage and
-	// downstream aggregation treat it as an opaque short string; the
-	// gateway emit sites are the authoritative source. Storage metadata
-	// (e.g. body truncation) must NOT be appended onto this field — it has
-	// its own dedicated columns/booleans.
+	// Kind: http_error | request_error | retry_exhausted | failover
 	Kind string `json:"kind,omitempty"`
 
 	Message string `json:"message,omitempty"`
@@ -225,28 +149,7 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 		ev.AtUnixMs = time.Now().UnixMilli()
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
-	ev.TLSFingerprintProfileName = strings.TrimSpace(ev.TLSFingerprintProfileName)
-	if ev.TLSFingerprintProfileID <= 0 {
-		if v, ok := c.Get(OpsTLSFingerprintProfileIDKey); ok {
-			switch t := v.(type) {
-			case int64:
-				ev.TLSFingerprintProfileID = t
-			case int:
-				ev.TLSFingerprintProfileID = int64(t)
-			case float64:
-				ev.TLSFingerprintProfileID = int64(t)
-			}
-		}
-	}
-	if ev.TLSFingerprintProfileName == "" {
-		if v, ok := c.Get(OpsTLSFingerprintProfileNameKey); ok {
-			if s, ok := v.(string); ok {
-				ev.TLSFingerprintProfileName = strings.TrimSpace(s)
-			}
-		}
-	}
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
-	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	ev.UpstreamURL = strings.TrimSpace(ev.UpstreamURL)
@@ -254,20 +157,6 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.Detail = strings.TrimSpace(ev.Detail)
 	if ev.Message != "" {
 		ev.Message = sanitizeUpstreamErrorMessage(ev.Message)
-	}
-
-	// If the caller didn't explicitly pass upstream request body but the gateway
-	// stashed it on the context via setOpsUpstreamRequestBody, attach it so
-	// downstream ops_error_logs JSON can carry per-attempt body context.
-	if ev.UpstreamRequestBody == "" {
-		if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
-			switch raw := v.(type) {
-			case string:
-				ev.UpstreamRequestBody = strings.TrimSpace(raw)
-			case []byte:
-				ev.UpstreamRequestBody = strings.TrimSpace(string(raw))
-			}
-		}
 	}
 
 	var existing []*OpsUpstreamErrorEvent

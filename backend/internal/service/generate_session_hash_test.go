@@ -185,49 +185,6 @@ func TestGenerateSessionHash_MetadataJSON_HasHighestPriority(t *testing.T) {
 	require.Equal(t, "c72554f2-1234-5678-abcd-123456789abc", hash, "JSON format metadata session_id should have highest priority")
 }
 
-func TestGenerateSessionHash_ExplicitStickyKeyStableAcrossMessages(t *testing.T) {
-	svc := &GatewayService{}
-
-	mk := func(content string) *ParsedRequest {
-		parsed := mustParseSessionHashRequest(t, anthropicSessionBody(nil, []any{msg("user", content)}, ""), nil)
-		parsed.ExplicitStickyKey = StickyKey{Value: "edge-session-1", Source: StickyKeySourceClientXSessionID}
-		return parsed
-	}
-
-	h1 := svc.GenerateSessionHash(mk("first turn"))
-	h2 := svc.GenerateSessionHash(mk("second turn with different content"))
-	require.NotEmpty(t, h1)
-	require.Equal(t, h1, h2)
-	require.Equal(t, DeriveSessionHashFromSeed("edge-session-1"), h1)
-}
-
-func TestGenerateSessionHash_MetadataOverridesExplicitStickyKey(t *testing.T) {
-	svc := &GatewayService{}
-
-	parsed := mustParseSessionHashRequest(t, anthropicSessionBody(nil, []any{msg("user", "hello")}, ""), nil)
-	parsed.MetadataUserID = "user_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2_account__session_123e4567-e89b-12d3-a456-426614174000"
-	parsed.ExplicitStickyKey = StickyKey{Value: "edge-session-1", Source: StickyKeySourceClientXSessionID}
-
-	hash := svc.GenerateSessionHash(parsed)
-	require.Equal(t, "123e4567-e89b-12d3-a456-426614174000", hash)
-}
-
-func TestGenerateSessionHash_PromptCacheKeyStableAcrossMessages(t *testing.T) {
-	svc := &GatewayService{}
-
-	mk := func(content string) *ParsedRequest {
-		parsed := mustParseSessionHashRequest(t, anthropicSessionBody(nil, []any{msg("user", content)}, ""), nil)
-		parsed.PromptCacheKey = "pcache-edge-session-1"
-		return parsed
-	}
-
-	h1 := svc.GenerateSessionHash(mk("first turn"))
-	h2 := svc.GenerateSessionHash(mk("second turn with different content"))
-	require.NotEmpty(t, h1)
-	require.Equal(t, h1, h2)
-	require.Equal(t, DeriveSessionHashFromSeed("pcache-edge-session-1"), h1)
-}
-
 func TestGenerateSessionHash_NilSessionContextBackwardCompatible(t *testing.T) {
 	svc := &GatewayService{}
 	body := anthropicSessionBody(nil, []any{msg("user", "hello")}, "")

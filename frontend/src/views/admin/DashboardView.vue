@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <div class="space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
@@ -215,65 +216,6 @@
           </div>
         </div>
 
-        <!-- Row 3: Prompt Cache Hit Rate (sticky-routing observability) -->
-        <!-- See docs/approved/sticky-routing.md §6 (success metric). -->
-        <div class="card p-4">
-          <div class="flex items-start gap-3">
-            <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
-              <Icon
-                name="bolt"
-                size="md"
-                class="text-cyan-600 dark:text-cyan-400"
-                :stroke-width="2"
-              />
-            </div>
-            <div class="flex-1">
-              <div class="flex items-baseline justify-between">
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.promptCacheHitRate') }}
-                </p>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500">
-                  {{ t('admin.dashboard.promptCacheHitRateHint') }}
-                </p>
-              </div>
-              <div class="mt-2 grid grid-cols-2 gap-4">
-                <!-- Today -->
-                <div>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.promptCacheToday') }}
-                  </p>
-                  <p class="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
-                    {{ formatPercent(promptCacheHitRateToday) }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.cacheReadTokens') }}:
-                    {{ formatTokens(stats.today_cache_read_tokens) }}
-                    ·
-                    {{ t('admin.dashboard.cacheCreateTokens') }}:
-                    {{ formatTokens(stats.today_cache_creation_tokens) }}
-                  </p>
-                </div>
-                <!-- Total -->
-                <div>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.promptCacheTotal') }}
-                  </p>
-                  <p class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ formatPercent(promptCacheHitRateTotal) }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.cacheReadTokens') }}:
-                    {{ formatTokens(stats.total_cache_read_tokens) }}
-                    ·
-                    {{ t('admin.dashboard.cacheCreateTokens') }}:
-                    {{ formatTokens(stats.total_cache_creation_tokens) }}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Charts Section -->
         <div class="space-y-6">
           <!-- Date Range Filter -->
@@ -289,7 +231,7 @@
                   @change="onDateRangeChange"
                 />
               </div>
-              <button @click="loadDashboardStats" :disabled="dashboardChartsLoading" class="btn btn-secondary">
+              <button @click="loadDashboardStats" :disabled="chartsLoading" class="btn btn-secondary">
                 {{ t('common.refresh') }}
               </button>
               <div class="ml-auto flex items-center gap-2">
@@ -316,7 +258,7 @@
               :ranking-total-actual-cost="rankingTotalActualCost"
               :ranking-total-requests="rankingTotalRequests"
               :ranking-total-tokens="rankingTotalTokens"
-              :loading="modelStatsLoading"
+              :loading="chartsLoading"
               :ranking-loading="rankingLoading"
               :ranking-error="rankingError"
               :start-date="startDate"
@@ -347,10 +289,11 @@
         </div>
       </template>
     </div>
-  </template>
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -364,13 +307,13 @@ import type {
   UserUsageTrendPoint,
   UserSpendingRankingItem
 } from '@/types'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
-import { rollingWindowTs } from '@/utils/dashboardWindow.tk'
 
 import {
   Chart as ChartJS,
@@ -400,11 +343,9 @@ const router = useRouter()
 const stats = ref<DashboardStats | null>(null)
 const loading = ref(false)
 const chartsLoading = ref(false)
-const modelStatsLoading = ref(false)
 const userTrendLoading = ref(false)
 const rankingLoading = ref(false)
 const rankingError = ref(false)
-const dashboardChartsLoading = computed(() => chartsLoading.value || modelStatsLoading.value)
 
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])
@@ -414,12 +355,10 @@ const rankingItems = ref<UserSpendingRankingItem[]>([])
 const rankingTotalActualCost = ref(0)
 const rankingTotalRequests = ref(0)
 const rankingTotalTokens = ref(0)
-let statsLoadSeq = 0
 let chartLoadSeq = 0
-let userTrendLoadSeq = 0
+let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
-let initialChartTimer: number | null = null
 
 // Helper function to format date in local timezone
 const formatLocalDate = (date: Date): string => {
@@ -440,10 +379,6 @@ const granularity = ref<'day' | 'hour'>('hour')
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start)
 const endDate = ref(defaultRange.end)
-// TK: tracks the active DateRangePicker preset so rolling presets can be sent
-// as an absolute (timezone-independent) epoch-ms window. Defaults to
-// 'last24Hours' to match the default range above. See utils/dashboardWindow.tk.ts.
-const activePreset = ref<string | null>('last24Hours')
 
 // Granularity options for Select component
 const granularityOptions = computed(() => [
@@ -620,43 +555,6 @@ const formatDuration = (ms: number): string => {
   return `${Math.round(ms)}ms`
 }
 
-// Prompt cache hit-rate (sticky-routing observability).
-// Definition: cache_read / (cache_read + input + cache_create).
-// Returns null when the denominator is 0 so the UI can render a "—" placeholder.
-const computeHitRate = (
-  cacheRead: number | undefined,
-  input: number | undefined,
-  cacheCreate: number | undefined
-): number | null => {
-  const r = cacheRead ?? 0
-  const i = input ?? 0
-  const c = cacheCreate ?? 0
-  const denom = r + i + c
-  if (denom <= 0) return null
-  return r / denom
-}
-
-const promptCacheHitRateToday = computed(() =>
-  computeHitRate(
-    stats.value?.today_cache_read_tokens,
-    stats.value?.today_input_tokens,
-    stats.value?.today_cache_creation_tokens
-  )
-)
-
-const promptCacheHitRateTotal = computed(() =>
-  computeHitRate(
-    stats.value?.total_cache_read_tokens,
-    stats.value?.total_input_tokens,
-    stats.value?.total_cache_creation_tokens
-  )
-)
-
-const formatPercent = (rate: number | null): string => {
-  if (rate === null) return '—'
-  return `${(rate * 100).toFixed(1)}%`
-}
-
 const goToUserUsage = (item: UserSpendingRankingItem) => {
   void router.push({
     path: '/admin/usage',
@@ -674,8 +572,6 @@ const onDateRangeChange = (range: {
   endDate: string
   preset: string | null
 }) => {
-  // TK: remember the preset so rolling windows go out as absolute epoch-ms.
-  activePreset.value = range.preset
   // Auto-select granularity based on date range
   const start = new Date(range.startDate)
   const end = new Date(range.endDate)
@@ -692,114 +588,61 @@ const onDateRangeChange = (range: {
 }
 
 // Load data
-const loadDashboardStatsSnapshot = async () => {
-  const currentSeq = ++statsLoadSeq
-  if (!stats.value) loading.value = true
-  try {
-    const response = await adminAPI.dashboard.getSnapshotV2({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
-      granularity: granularity.value,
-      include_stats: true,
-      include_trend: false,
-      include_model_stats: false,
-      include_group_stats: false,
-      include_users_trend: false
-    })
-    if (currentSeq !== statsLoadSeq) return
-    if (response.stats) stats.value = response.stats
-  } catch (error) {
-    if (currentSeq !== statsLoadSeq) return
-    appStore.showError(t('admin.dashboard.failedToLoad'))
-    console.error('Error loading dashboard stats snapshot:', error)
-  } finally {
-    if (currentSeq === statsLoadSeq) loading.value = false
+const loadDashboardSnapshot = async (includeStats: boolean) => {
+  const currentSeq = ++chartLoadSeq
+  if (includeStats && !stats.value) {
+    loading.value = true
   }
-}
-
-const loadDashboardTrendSnapshot = async (currentSeq: number) => {
   chartsLoading.value = true
   try {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
       granularity: granularity.value,
-      include_stats: false,
+      include_stats: includeStats,
       include_trend: true,
-      include_model_stats: false,
-      include_group_stats: false,
-      include_users_trend: false
-    })
-    if (currentSeq !== chartLoadSeq) return
-    trendData.value = response.trend || []
-  } catch (error) {
-    if (currentSeq !== chartLoadSeq) return
-    trendData.value = []
-    console.error('Error loading dashboard trend snapshot:', error)
-  } finally {
-    if (currentSeq === chartLoadSeq) chartsLoading.value = false
-  }
-}
-
-const loadDashboardModelStatsSnapshot = async (currentSeq: number) => {
-  modelStatsLoading.value = true
-  try {
-    const response = await adminAPI.dashboard.getSnapshotV2({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
-      granularity: granularity.value,
-      include_stats: false,
-      include_trend: false,
       include_model_stats: true,
       include_group_stats: false,
       include_users_trend: false
     })
     if (currentSeq !== chartLoadSeq) return
+    if (includeStats && response.stats) {
+      stats.value = response.stats
+    }
+    trendData.value = response.trend || []
     modelStats.value = response.models || []
   } catch (error) {
     if (currentSeq !== chartLoadSeq) return
-    modelStats.value = []
-    console.error('Error loading dashboard model snapshot:', error)
+    appStore.showError(t('admin.dashboard.failedToLoad'))
+    console.error('Error loading dashboard snapshot:', error)
   } finally {
-    if (currentSeq === chartLoadSeq) modelStatsLoading.value = false
+    if (currentSeq === chartLoadSeq) {
+      loading.value = false
+      chartsLoading.value = false
+    }
   }
 }
 
-const loadDashboardChartsSnapshot = async () => {
-  const currentSeq = ++chartLoadSeq
-  await Promise.allSettled([
-    loadDashboardTrendSnapshot(currentSeq),
-    loadDashboardModelStatsSnapshot(currentSeq),
-  ])
-}
-
-const loadUserUsageTrend = async () => {
-  const currentSeq = ++userTrendLoadSeq
+const loadUsersTrend = async () => {
+  const currentSeq = ++usersTrendLoadSeq
   userTrendLoading.value = true
   try {
-    const response = await adminAPI.dashboard.getSnapshotV2({
+    const response = await adminAPI.dashboard.getUserUsageTrend({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
       granularity: granularity.value,
-      include_stats: false,
-      include_trend: false,
-      include_model_stats: false,
-      include_group_stats: false,
-      include_users_trend: true,
-      users_trend_limit: 12
+      limit: 12
     })
-    if (currentSeq !== userTrendLoadSeq) return
-    userTrend.value = response.users_trend || []
+    if (currentSeq !== usersTrendLoadSeq) return
+    userTrend.value = response.trend || []
   } catch (error) {
-    if (currentSeq !== userTrendLoadSeq) return
+    if (currentSeq !== usersTrendLoadSeq) return
+    console.error('Error loading users trend:', error)
     userTrend.value = []
-    console.error('Error loading user usage trend:', error)
   } finally {
-    if (currentSeq === userTrendLoadSeq) userTrendLoading.value = false
+    if (currentSeq === usersTrendLoadSeq) {
+      userTrendLoading.value = false
+    }
   }
 }
 
@@ -811,7 +654,6 @@ const loadUserSpendingRanking = async () => {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
       limit: rankingLimit
     })
     if (currentSeq !== rankingLoadSeq) return
@@ -835,35 +677,23 @@ const loadUserSpendingRanking = async () => {
 }
 
 const loadDashboardStats = async () => {
-  await loadDashboardStatsSnapshot()
-  void loadChartData()
+  await Promise.all([
+    loadDashboardSnapshot(true),
+    loadUsersTrend(),
+    loadUserSpendingRanking()
+  ])
 }
 
 const loadChartData = async () => {
   await Promise.all([
-    loadDashboardChartsSnapshot(),
-    loadUserUsageTrend(),
+    loadDashboardSnapshot(false),
+    loadUsersTrend(),
     loadUserSpendingRanking()
   ])
 }
 
 onMounted(() => {
-  chartsLoading.value = true
-  modelStatsLoading.value = true
-  userTrendLoading.value = true
-  rankingLoading.value = true
-  void loadDashboardStatsSnapshot()
-  initialChartTimer = window.setTimeout(() => {
-    void loadChartData()
-    initialChartTimer = null
-  }, 120)
-})
-
-onUnmounted(() => {
-  if (initialChartTimer !== null) {
-    window.clearTimeout(initialChartTimer)
-    initialChartTimer = null
-  }
+  loadDashboardStats()
 })
 </script>
 

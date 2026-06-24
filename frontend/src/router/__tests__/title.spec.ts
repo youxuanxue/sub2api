@@ -1,13 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('@/i18n', () => ({
-  i18n: {
-    global: {
-      t: (key: string) => key,
-    },
-  },
-}))
-
+import { describe, expect, it } from 'vitest'
 import { resolveDocumentTitle, resolveRouteDocumentTitle } from '@/router/title'
 
 describe('resolveDocumentTitle', () => {
@@ -19,11 +10,9 @@ describe('resolveDocumentTitle', () => {
     expect(resolveDocumentTitle(undefined, 'My Site')).toBe('My Site')
   })
 
-  it('站点名为空或上游默认名时，回退默认站点名', () => {
-    expect(resolveDocumentTitle('Dashboard', '')).toBe('Dashboard - TokenKey')
-    expect(resolveDocumentTitle(undefined, '   ')).toBe('TokenKey')
-    expect(resolveDocumentTitle('Dashboard', 'Sub2API')).toBe('Dashboard - TokenKey')
-    expect(resolveDocumentTitle(undefined, 'Sub2api')).toBe('TokenKey')
+  it('站点名为空时，回退默认站点名', () => {
+    expect(resolveDocumentTitle('Dashboard', '')).toBe('Dashboard - Sub2API')
+    expect(resolveDocumentTitle(undefined, '   ')).toBe('Sub2API')
   })
 
   it('站点名变更时仅影响后续路由标题计算', () => {

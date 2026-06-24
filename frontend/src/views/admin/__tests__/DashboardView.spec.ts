@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import type { DashboardStats } from '@/types'
@@ -71,7 +71,6 @@ const createDashboardStats = (): DashboardStats => ({
   total_tokens: 0,
   total_cost: 0,
   total_actual_cost: 0,
-  total_account_cost: 0,
   today_requests: 0,
   today_input_tokens: 0,
   today_output_tokens: 0,
@@ -80,7 +79,6 @@ const createDashboardStats = (): DashboardStats => ({
   today_tokens: 0,
   today_cost: 0,
   today_actual_cost: 0,
-  today_account_cost: 0,
   average_duration_ms: 0,
   uptime: 0,
   rpm: 0,
@@ -89,7 +87,6 @@ const createDashboardStats = (): DashboardStats => ({
 
 describe('admin DashboardView', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
     getSnapshotV2.mockReset()
     getUserUsageTrend.mockReset()
     getUserSpendingRanking.mockReset()
@@ -113,10 +110,6 @@ describe('admin DashboardView', () => {
       start_date: '',
       end_date: ''
     })
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
   })
 
   it('uses last 24 hours as default dashboard range', async () => {
@@ -144,35 +137,7 @@ describe('admin DashboardView', () => {
     expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
       start_date: formatLocalDate(yesterday),
       end_date: formatLocalDate(now),
-      granularity: 'hour',
-      include_stats: true,
-      include_trend: false,
-      include_model_stats: false,
-      include_users_trend: false
+      granularity: 'hour'
     }))
-
-    vi.advanceTimersByTime(120)
-    await flushPromises()
-
-    expect(getSnapshotV2).toHaveBeenCalledTimes(4)
-    expect(getSnapshotV2).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      include_stats: false,
-      include_trend: true,
-      include_model_stats: false,
-      include_users_trend: false
-    }))
-    expect(getSnapshotV2).toHaveBeenNthCalledWith(3, expect.objectContaining({
-      include_stats: false,
-      include_trend: false,
-      include_model_stats: true,
-      include_users_trend: false
-    }))
-    expect(getSnapshotV2).toHaveBeenNthCalledWith(4, expect.objectContaining({
-      include_stats: false,
-      include_trend: false,
-      include_model_stats: false,
-      include_users_trend: true
-    }))
-    expect(getUserSpendingRanking).toHaveBeenCalledTimes(1)
   })
 })

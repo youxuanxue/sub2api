@@ -65,15 +65,10 @@ export async function create(
   ipBlacklist?: string[],
   quota?: number,
   expiresInDays?: number,
-  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
-  routingMode?: 'direct' | 'universal'
+  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
-  if (routingMode) {
-    payload.routing_mode = routingMode
-  }
-  // 全能 Key 不绑定分组：仅在 direct 模式下传 group_id。
-  if (groupId !== undefined && routingMode !== 'universal') {
+  if (groupId !== undefined) {
     payload.group_id = groupId
   }
   if (customKey) {

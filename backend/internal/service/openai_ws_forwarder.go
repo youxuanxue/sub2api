@@ -2691,11 +2691,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		// single integration point for all WS ingress turns (first + follow-up
 		// frames flow through here).
 		//
-		// Model fallback: parseClientPayload above rejects any frame whose
-		// "model" field is missing (line ~2493-2500), so by the time we
-		// reach this point upstreamModel is always derived from a non-empty
-		// per-frame model. The capturedSessionModel fallback used in the
-		// passthrough adapter is therefore not needed in this path.
+		// Model fallback: first turn still requires model at the handler layer；
+		// follow-up response.create frames may omit it and then reuse
+		// ingressSessionOriginalModel. We always write a concrete upstream model
+		// before evaluating policy, so whitelist / filter behavior remains stable.
 		policyApplied, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, upstreamModel, normalized)
 		if policyErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", policyErr)
@@ -4244,14 +4243,6 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 	return s.selectAccountByPreviousResponseIDForCapability(ctx, groupID, previousResponseID, requestedModel, excludedIDs, "", requireCompact)
 }
 
-// selectAccountByPreviousResponseIDForCapability is SelectAccountByPreviousResponseID
-// with an added OpenAI-compatible endpoint-capability gate. Following the
-// accountSupportsOpenAICapabilities rationale, the capability filter is applied to
-// native OpenAI accounts only so `newapi` accounts are never fail-closed. A capability
-// mismatch (e.g. an embeddings request landing on a chat-only previous_response
-// account) returns nil WITHOUT clearing the binding: the request falls through to
-// normal scheduling while the sticky chain is preserved (the window/capability may be
-// satisfiable again on a later turn).
 func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 	ctx context.Context,
 	groupID *int64,
@@ -4293,49 +4284,48 @@ func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 	if s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 		return nil, nil
 	}
-	// TK: scheduling-pool platform threading; see
-	// docs/approved/newapi-as-fifth-platform.md §3.1 (extension: design listed
-	// only the openai_gateway_service.go IsOpenAI() filters, but the same
-	// filter exists in this previous_response_id sticky path; both must move
-	// together to preserve the no-mixing guarantee).
-	groupPlatform := s.resolveGroupPlatform(ctx, groupID)
-	if shouldClearStickySession(account, requestedModel) || !account.IsOpenAICompatPoolMember(groupPlatform) || !account.IsSchedulable() {
+	if shouldClearStickySession(account, requestedModel) || !account.IsOpenAI() || !account.IsSchedulable() {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return nil, nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return nil, nil
 	}
-	if account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability(requiredCapability) {
-		// Capability mismatch (e.g. embeddings request on a chat-only sticky account):
-		// keep the binding (transient) and fall through to normal scheduling.
-		return nil, nil
-	}
-	// TK (PR #899 follow-up): the window-sched tri-state guard replaces the retired
-	// auto-pause on this previous_response_id chain too, so the tri-state is the single
-	// window mechanism on every path auto-pause used to cover. isSticky=true: a
-	// StickyOnly account keeps serving its own chain (transient pressure), only a
-	// NotSchedulable account at its window cap yields. Binding preserved (NOT deleted)
-	// so the chain resumes after the window resets.
-	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
 		return nil, nil
 	}
 	// Quota auto-pause must also gate the previous_response_id sticky path; otherwise an
 	// account over its 5h/7d threshold keeps serving the same response chain even though
 	// normal scheduling skips it. Pause is transient, so fall through to normal scheduling
-	// WITHOUT deleting the binding (the window may reset before the next turn). This early
-	// return also pre-empts the DB-recheck below, which would otherwise treat the paused
-	// account as gone and clear the sticky binding. (Retired in #899 follow-up — the
-	// tri-state guard above now carries this; kept as a no-op for §5.x merge-friendliness.)
+	// without deleting the binding (the window may reset before the next turn).
 	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
 		return nil, nil
 	}
-	account = s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, groupPlatform, requireCompact)
-	if account == nil {
-		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
-		return nil, nil
+	if s.schedulerSnapshot != nil && s.accountRepo != nil {
+		latest, latestErr := s.accountRepo.GetByID(ctx, account.ID)
+		if latestErr != nil || latest == nil {
+			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+			return nil, nil
+		}
+		if shouldClearStickySession(latest, requestedModel) || !latest.IsOpenAI() || !latest.IsSchedulable() {
+			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+			return nil, nil
+		}
+		if requestedModel != "" && !latest.IsModelSupported(requestedModel) {
+			return nil, nil
+		}
+		if !latest.SupportsOpenAIEndpointCapability(requiredCapability) {
+			return nil, nil
+		}
+		if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, latest); paused {
+			return nil, nil
+		}
+		if s.isOpenAIAccountRuntimeBlocked(latest) {
+			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+			return nil, nil
+		}
+		account = latest
 	}
-	// 兜底：若上游 compact 能力刚被探测为不支持，但 sticky 还在，需要主动放弃。
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return nil, nil

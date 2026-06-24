@@ -128,21 +128,9 @@ func TestFullClaudeCodeMimicryBetas_DoesNotDefaultRedactThinking(t *testing.T) {
 	required := claude.FullClaudeCodeMimicryBetas()
 
 	require.NotContains(t, required, claude.BetaRedactThinking)
-	require.NotContains(t, required, claude.BetaFineGrainedToolStreaming)
 	require.Contains(t, required, claude.BetaClaudeCode)
 	require.Contains(t, required, claude.BetaOAuth)
 	require.Contains(t, required, claude.BetaInterleavedThinking)
-	require.Contains(t, required, claude.BetaAdvisorTool)
-	require.Contains(t, required, claude.BetaAdvancedToolUse)
-	require.Contains(t, required, claude.BetaCacheDiagnosis)
-	require.NotContains(t, required, claude.BetaEffort)
-}
-
-func TestGatewayService_getBetaHeader_HaikuDefaultMatchesCapture(t *testing.T) {
-	s := &GatewayService{}
-	got := s.getBetaHeader("claude-haiku-4-5-20251001", "")
-	require.Equal(t, claude.HaikuBetaHeader, got)
-	require.Equal(t, claude.JoinBetaHeader(claude.FullClaudeCodeHaikuMimicryBetas()), got)
 }
 
 func TestMergeAnthropicBetaDropping_PreservesIncomingRedactThinking(t *testing.T) {
@@ -240,44 +228,10 @@ func TestIsCountTokensUnsupported404(t *testing.T) {
 			want:       false,
 		},
 		{
-			// TK(#656) 守卫：400 + invalid_request_error 即使 message 含 "Not found" +
-			// count_tokens 路径，也必须返回 false——这是客户端 body schema 错误（如
-			// #2109 的 temperature 字段错误），不能误吞成 "端点不支持" 而短路 404。
-			name:       "non-404 invalid_request not swallowed",
+			name:       "non-404 status",
 			statusCode: 400,
 			body:       `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"invalid_request_error"}}`,
 			want:       false,
-		},
-		{
-			// TK(#656)：国产中转站把 Spring NoResourceFoundException（HTTP 400）当作
-			// count_tokens 不支持返回，应识别为端点不支持。
-			name:       "400 wraps spring NoResourceFoundException",
-			statusCode: 400,
-			body:       `{"error":{"message":"404 NOT_FOUND \"NoResourceFoundException: No static resource v1/messages/count_tokens.\""}}`,
-			want:       true,
-		},
-		{
-			// TK(#656)：包装进 HTTP 500 的同类资源不存在错误也应识别。
-			name:       "500 wraps no static resource",
-			statusCode: 500,
-			body:       `{"message":"No static resource v1/messages/count_tokens."}`,
-			want:       true,
-		},
-		{
-			// TK(#656) 守卫：500 资源不存在但不涉及 count_tokens 端点（如错误 base_url
-			// 的其他路径），不能误吞。
-			name:       "500 no static resource other path not swallowed",
-			statusCode: 500,
-			body:       `{"message":"No static resource v1/foo/bar."}`,
-			want:       false,
-		},
-		{
-			// TK(#656)：非 JSON 的原始 Spring 错误串（extractUpstreamErrorMessage 取不到
-			// 结构化 message）也应通过 raw-body 兜底识别。
-			name:       "non-json raw spring error body",
-			statusCode: 400,
-			body:       `No static resource v1/messages/count_tokens.`,
-			want:       true,
 		},
 	}
 

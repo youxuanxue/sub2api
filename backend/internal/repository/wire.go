@@ -88,8 +88,6 @@ var ProviderSet = wire.NewSet(
 	NewUserGroupRateRepository,
 	NewErrorPassthroughRepository,
 	NewTLSFingerprintProfileRepository,
-	// TK: anthropic-oauth stability tier reference table — see tier_repo.go / tier_service.go.
-	NewTierRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorRequestTemplateRepository,
@@ -97,8 +95,6 @@ var ProviderSet = wire.NewSet(
 	NewAffiliateRepository,
 	NewUserPlatformQuotaRepository,     // T14: user × platform quota
 	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
-	// TK: pricing availability persistence — see docs/approved/pricing-availability-source-of-truth.md
-	NewModelAvailabilityRepository,
 
 	// Cache implementations
 	NewGatewayCache,
@@ -107,9 +103,6 @@ var ProviderSet = wire.NewSet(
 	NewTempUnschedCache,
 	NewTimeoutCounterCache,
 	NewOpenAI403CounterCache,
-	NewAnthropicUpstreamErrorCounterCache,
-	NewAnthropicSignaturePreemptCache,
-	NewAnthropicSaturationCounterCache,
 	NewInternal500CounterCache,
 	ProvideConcurrencyCache,
 	ProvideSessionLimitCache,
@@ -125,17 +118,12 @@ var ProviderSet = wire.NewSet(
 	NewLeaderLockCache,
 	ProvideSchedulerCache,
 	NewSchedulerOutboxRepository,
-	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
-	// account_repo_tk_rate_limit_reaper.go.
-	NewRateLimitExpiryRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
 	NewRefreshTokenCache,
 	NewErrorPassthroughCache,
 	NewTLSFingerprintProfileCache,
-	NewTierCache,
 	NewContentModerationHashCache,
-	NewSettingPubSub,
 
 	// Encryptors
 	NewAESEncryptor,
@@ -156,8 +144,6 @@ var ProviderSet = wire.NewSet(
 	NewGeminiOAuthClient,
 	NewGeminiCliCodeAssistClient,
 	NewGeminiDriveClient,
-	NewVideoTaskCache,
-	NewMediaStore,
 
 	ProvideEnt,
 	ProvideSQLDB,

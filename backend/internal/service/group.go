@@ -64,16 +64,9 @@ type Group struct {
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
 
-	// Upstream prompt-cache sticky routing strategy: "auto" | "passthrough" | "off".
-	// Default empty / "auto" — see docs/approved/sticky-routing.md §3.1.
-	StickyRoutingMode string
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）。
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
 	RPMLimit int
-
-	// OpenAI /v1/messages 兼容路径自动压缩策略（nil = 未配置，不触发）。
-	MessagesCompactionEnabled              *bool
-	MessagesCompactionInputTokensThreshold *int
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

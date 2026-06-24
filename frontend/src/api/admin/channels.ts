@@ -164,82 +164,6 @@ export async function getModelDefaultPricing(model: string): Promise<ModelDefaul
   return data
 }
 
-import type { GroupPlatform } from '@/types'
-
-export interface ChannelTypeInfo {
-  channel_type: number
-  name: string
-  api_type: number
-  has_adaptor: boolean
-  base_url: string
-}
-
-export async function listChannelTypes(): Promise<ChannelTypeInfo[]> {
-  const { data } = await apiClient.get<ChannelTypeInfo[]>('/admin/channel-types')
-  return data
-}
-
-export async function listChannelTypeModels(): Promise<Record<string, string[]>> {
-  const { data } = await apiClient.get<Record<string, string[]>>('/admin/channel-type-models')
-  return data
-}
-
-export interface FetchUpstreamModelsRequest {
-  base_url: string
-  channel_type: number
-  api_key: string
-  account_id?: number
-}
-
-export type FetchedUpstreamModelPricingStatus = 'priced' | 'missing'
-
-export interface FetchedUpstreamModel {
-  id: string
-  pricing_status?: FetchedUpstreamModelPricingStatus
-}
-
-type RawFetchedUpstreamModel = string | Partial<FetchedUpstreamModel> | Record<string, unknown>
-
-function normalizeFetchedUpstreamModel(item: RawFetchedUpstreamModel): FetchedUpstreamModel | null {
-  if (typeof item === 'string') {
-    const id = item.trim()
-    return id ? { id } : null
-  }
-  if (!item || typeof item !== 'object') return null
-  const raw = (item as Record<string, unknown>).id ?? (item as Record<string, unknown>).model_id ?? (item as Record<string, unknown>).model
-  if (typeof raw !== 'string') return null
-  const id = raw.trim()
-  if (!id) return null
-  const pricingStatus = (item as Record<string, unknown>).pricing_status
-  return pricingStatus === 'priced' || pricingStatus === 'missing'
-    ? { id, pricing_status: pricingStatus }
-    : { id }
-}
-
-export async function fetchUpstreamModels(req: FetchUpstreamModelsRequest): Promise<FetchedUpstreamModel[]> {
-  const { data } = await apiClient.post<{ models: RawFetchedUpstreamModel[] }>('/admin/channel-types/fetch-upstream-models', req)
-  if (!Array.isArray(data?.models)) return []
-  const seen = new Set<string>()
-  return data.models
-    .map(normalizeFetchedUpstreamModel)
-    .filter((model): model is FetchedUpstreamModel => {
-      if (!model || seen.has(model.id)) return false
-      seen.add(model.id)
-      return true
-    })
-}
-
-export async function aggregatedGroupModels(params: {
-  group_ids: number[]
-  platform: GroupPlatform
-}): Promise<string[]> {
-  const { data } = await apiClient.post<{ models: string[] }>('/admin/channels/aggregated-group-models', {
-    group_ids: params.group_ids,
-    platform: params.platform
-  })
-  return Array.isArray(data?.models) ? data.models : []
-}
-
 export interface SyncPricingModelsResult {
   models: string[]
 }
@@ -254,9 +178,5 @@ export async function syncPricingModels(platform: string): Promise<SyncPricingMo
   return data
 }
 
-const channelsAPI = {
-  list, getById, create, update, remove, getModelDefaultPricing,
-  listChannelTypes, listChannelTypeModels, fetchUpstreamModels, aggregatedGroupModels,
-  syncPricingModels
-}
+const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing, syncPricingModels }
 export default channelsAPI

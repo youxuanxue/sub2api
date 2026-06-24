@@ -299,17 +299,13 @@ func TestNormalizeClaudeOAuthRequestBody_InjectsContextManagement_ThinkingAdapti
 	require.True(t, gjson.GetBytes(out, "context_management").Exists())
 }
 
-func TestNormalizeClaudeOAuthRequestBody_HaikuDoesNotInjectContextManagement(t *testing.T) {
-	// haiku + thinking=enabled：与 upstream "inject everywhere, strip in sanitize" 不同，
-	// TK 在 normalize 阶段就**不**给 haiku 注入 context_management —— 因为 Anthropic 对
-	// claude-haiku-4-5 的 body.context_management 直接返回 400
-	// ("context_management: Extra inputs are not permitted")，从源头不注入比依赖下游 strip
-	// 覆盖所有路径更稳。haiku 的 context-management **beta header** 仍由 mimicry 单独带上
-	// （指纹对齐，见 TestBuildUpstreamRequest_OAuthMimicHaiku）——header/body 在 haiku 上有意非对称。
+func TestNormalizeClaudeOAuthRequestBody_HaikuStillInjects_StripDeferredToSanitize(t *testing.T) {
+	// haiku + thinking=enabled：normalize 阶段仍按 CLI mimicry 行为补齐字段；
+	// strip 由 buildUpstreamRequest 层的 sanitize 兜底（如果 final beta 不含 token）。
 	body := []byte(`{"model":"claude-haiku-4-5","thinking":{"type":"enabled","budget_tokens":1000},"messages":[]}`)
 	out, _ := normalizeClaudeOAuthRequestBody(body, "claude-haiku-4-5", claudeOAuthNormalizeOptions{})
-	require.False(t, gjson.GetBytes(out, "context_management").Exists(),
-		"normalize 按 model 名短路 haiku：不注入 context_management（Anthropic 对 haiku body 返回 400）")
+	require.True(t, gjson.GetBytes(out, "context_management").Exists(),
+		"normalize 不再按 model 名短路；strip 责任移交 sanitize 层")
 }
 
 func TestNormalizeClaudeOAuthRequestBody_PreservesClientContextManagement(t *testing.T) {
@@ -426,13 +422,8 @@ func TestBuildUpstreamRequest_OAuthMimicHaiku_StripsContextManagementEndToEnd(t 
 		Status:      StatusActive,
 		Schedulable: true,
 	}
-	// haiku + mimic CC：header/body 在 haiku 上是**非对称**的（TK 指纹现实，非 upstream 的对称假设）：
-	//   - body：Anthropic 对 claude-haiku-4-5 的 body.context_management 返回 400
-	//     ("context_management: Extra inputs are not permitted")，所以 body 必须 strip。
-	//     computeFinalAnthropicBeta 的 haiku 分支刻意不含 context-management，正好驱动 strip。
-	//   - header：真实 Claude Code 近期抓包（haiku comprehensive 双峰都含 context-management；
-	//     FullClaudeCodeHaikuMimicryBetas 含 BetaContextManagement）确认 haiku 请求**确实**带
-	//     context-management beta header —— 剥掉它会破指纹、被 Anthropic 判 third-party。
+	// haiku + mimic CC → final beta = HaikuBetaHeader（不含 context-management）→
+	// body 必须 strip。
 	body := []byte(`{"model":"claude-haiku-4-5","context_management":{"edits":[{"type":"clear_thinking_20251015"}]},"messages":[]}`)
 	svc := &GatewayService{cfg: &config.Config{}}
 	req, _, err := svc.buildUpstreamRequest(
@@ -445,9 +436,9 @@ func TestBuildUpstreamRequest_OAuthMimicHaiku_StripsContextManagementEndToEnd(t 
 	outBeta := getHeaderRaw(req.Header, "anthropic-beta")
 
 	require.False(t, gjson.GetBytes(outBody, "context_management").Exists(),
-		"OAuth mimic + haiku 端到端：outgoing body 不应含 context_management（Anthropic 对 haiku 返回 400）")
-	require.True(t, anthropicBetaTokensContains(outBeta, claude.BetaContextManagement),
-		"指纹对齐：outgoing anthropic-beta header 必须带 context-management beta（真实 cc haiku 就带）")
+		"OAuth mimic + haiku 端到端：outgoing body 不应含 context_management")
+	require.False(t, anthropicBetaTokensContains(outBeta, claude.BetaContextManagement),
+		"对称约束：outgoing anthropic-beta header 也不带 context-management beta")
 }
 
 func TestBuildUpstreamRequest_OAuthMimicNonHaiku_PreservesContextManagementEndToEnd(t *testing.T) {

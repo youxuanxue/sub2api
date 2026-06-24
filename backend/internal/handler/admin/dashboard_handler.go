@@ -34,13 +34,6 @@ func NewDashboardHandler(dashboardService *service.DashboardService, aggregation
 // parseTimeRange parses start_date, end_date query parameters
 // Uses user's timezone if provided, otherwise falls back to server timezone
 func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
-	// TK: rolling/duration presets send precise epoch-ms instants so the window
-	// is timezone-independent and identical across viewers. See
-	// dashboard_handler_tk_window.go for the rationale.
-	if s, e, ok := parseAbsoluteRange(c); ok {
-		return s, e
-	}
-
 	userTZ := c.Query("timezone") // Get user's timezone from request
 	now := timezone.NowInUserLocation(userTZ)
 	startDate := c.Query("start_date")

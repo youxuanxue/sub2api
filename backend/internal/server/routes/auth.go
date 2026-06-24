@@ -217,9 +217,6 @@ func RegisterAuthRoutes(
 		settings.GET("/email-unsubscribe", h.Setting.UnsubscribeNotificationEmail)
 	}
 
-	// TokenKey 公开端点（pricing 等）走独立 _tk_ 路由文件，保持 auth.go 与 upstream 同形态。
-	registerTKPublicRoutes(v1, h, rateLimiter)
-
 	// 需要认证的当前用户信息
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))

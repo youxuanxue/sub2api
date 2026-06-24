@@ -39,34 +39,6 @@ func DefaultModelIDs() []string {
 	return ids
 }
 
-// ModelsForIDs synthesizes a []Model for the given (servable) ids, preferring the
-// canonical DefaultModels entry for an id (DisplayName/Created fidelity) and
-// synthesizing a faithful default otherwise. Shared by the gateway /v1/models
-// fallback and the admin available-models surface so the two never drift on the
-// synthesized display metadata.
-func ModelsForIDs(ids []string) []Model {
-	byID := make(map[string]Model, len(DefaultModels))
-	for _, m := range DefaultModels {
-		byID[m.ID] = m
-	}
-	out := make([]Model, 0, len(ids))
-	for _, id := range ids {
-		if m, ok := byID[id]; ok {
-			out = append(out, m)
-			continue
-		}
-		out = append(out, Model{
-			ID:          id,
-			Object:      "model",
-			Created:     1704067200,
-			OwnedBy:     "openai",
-			Type:        "model",
-			DisplayName: id,
-		})
-	}
-	return out
-}
-
 // DefaultTestModel default model for testing OpenAI accounts
 const DefaultTestModel = "gpt-5.4"
 

@@ -66,7 +66,7 @@
                   <div class="mt-1.5 flex items-center gap-3 text-sm">
                     <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
                       <PlatformIcon :platform="config.platform" size="xs" />
-                      <span>{{ getPlatformLabel(config.platform) }}</span>
+                      <span>{{ config.platform }}</span>
                     </span>
                     <span class="text-gray-300 dark:text-dark-500">•</span>
                     <span class="text-gray-500 dark:text-gray-400">
@@ -124,7 +124,7 @@
                   <div class="mt-1.5 flex items-center gap-3 text-sm">
                     <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
                       <PlatformIcon :platform="config.platform" size="xs" />
-                      <span>{{ getPlatformLabel(config.platform) }}</span>
+                      <span>{{ config.platform }}</span>
                     </span>
                     <span class="text-gray-300 dark:text-dark-500">•</span>
                     <span class="text-gray-500 dark:text-gray-400">
@@ -179,9 +179,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, Group, GroupPlatform } from '@/types'
@@ -256,17 +255,6 @@ const load = async () => {
     loading.value = false
   }
 }
-
-// #900: AccountsView/UsersView lazy-mount this modal with show already true on
-// first open. The show-watch is not { immediate: true } (loaders are
-// const-declared after it → TDZ), so mirror its true-branch here for the
-// already-shown initial mount. onMounted fires once at mount only, so reopens
-// (which toggle show → watch fires) do not double-load.
-onMounted(() => {
-  if (props.show && props.user) {
-    load()
-  }
-})
 
 const toggleExclusiveGroup = (groupId: number) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)

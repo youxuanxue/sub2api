@@ -98,18 +98,7 @@
           </template>
 
           <template #cell-group="{ row }">
-            <!-- 全能 Key:展示「全能」徽标,不走改组选择器(它跨所有授权平台) -->
-            <span
-              v-if="row.routing_mode === 'universal'"
-              class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-              :title="t('keys.universalHint')"
-            >
-              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5-2.5 2.5-15.5 0-18m0 18c-2.5-2.5-2.5-15.5 0-18M3 12h18" />
-              </svg>
-              {{ t('keys.universalBadge') }}
-            </span>
-            <div v-else class="group/dropdown relative">
+            <div class="group/dropdown relative">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
@@ -123,7 +112,6 @@
                   :subscription-type="row.group.subscription_type"
                   :rate-multiplier="row.group.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[row.group.id]"
-                  hide-rate-value
                 />
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
@@ -354,16 +342,6 @@
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
               </button>
-              <!-- Export Conversations Button (admin-granted per-user switch; projectable platforms only — server-driven allowlist from /auth/me, no hardcoded platform here) -->
-              <button
-                v-if="canExportTraj && trajExportPlatforms.includes(row.group?.platform ?? '')"
-                @click="openExportPanel(row)"
-                :title="t('keys.exportTooltip')"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
-              >
-                <Icon name="download" size="sm" />
-                <span class="text-xs">{{ t('keys.export') }}</span>
-              </button>
               <!-- Edit Button -->
               <button
                 @click="editKey(row)"
@@ -426,31 +404,7 @@
           />
         </div>
 
-        <!-- 全能 Key 开关：默认开,一把 key 通所有授权平台/模型/模态 -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="input-label mb-0">{{ t('keys.universalLabel') }}</label>
-            <button
-              type="button"
-              @click="formData.universal = !formData.universal"
-              :class="[
-                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.universal ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-              data-tour="key-form-universal"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  formData.universal ? 'translate-x-4' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-          <p class="input-hint">{{ t('keys.universalHint') }}</p>
-        </div>
-
-        <div v-if="!formData.universal">
+        <div>
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
@@ -468,7 +422,6 @@
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
-                hide-rate-value
               />
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
@@ -481,7 +434,6 @@
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
                 :description="(option as unknown as GroupOption).description"
                 :selected="selected"
-                hide-rate-value
               />
             </template>
           </Select>
@@ -972,21 +924,10 @@
     <UseKeyModal
       :show="showUseKeyModal"
       :api-key="selectedKey?.key || ''"
-      :api-key-id="selectedKey?.id ?? null"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
-      :claude-code-only="selectedKey?.group?.claude_code_only || false"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
-      :supported-model-scopes="selectedKey?.group?.supported_model_scopes"
       @close="closeUseKeyModal"
-    />
-
-    <!-- Export Conversations Panel (per-key recent exports + export-now) -->
-    <ExportPanel
-      :show="showExportPanel"
-      :api-key-id="exportPanelKey?.id ?? null"
-      :api-key-name="exportPanelKey?.name"
-      @close="closeExportPanel"
     />
 
     <!-- CCS Client Selection Dialog for Antigravity -->
@@ -1087,7 +1028,6 @@
               :rate-multiplier="option.rate"
               :user-rate-multiplier="option.userRate"
               :description="option.description"
-              hide-rate-value
               :selected="
                 selectedKeyForGroup?.group_id === option.value ||
                 (!selectedKeyForGroup?.group_id && option.value === null)
@@ -1114,7 +1054,6 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
-import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1126,7 +1065,6 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
-	import ExportPanel from '@/components/keys/ExportPanel.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -1158,19 +1096,8 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
-const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
-
-// Admin-granted per-user switch: only then does each key row expose the
-// conversation-record export entry (backend also enforces 403).
-const canExportTraj = computed(() => authStore.user?.traj_export_enabled === true)
-
-// Server-driven allowlist of platforms whose conversation records the traj
-// projector can reconstruct (engine.TrajProjectablePlatforms via /auth/me).
-// The chip renders only for a key whose group platform is in this list — the UI
-// holds no hardcoded platform list of its own (single source = the backend).
-const trajExportPlatforms = computed(() => authStore.user?.traj_export_platforms ?? [])
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
@@ -1220,8 +1147,6 @@ const showCcsClientSelect = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
-const showExportPanel = ref(false)
-const exportPanelKey = ref<ApiKey | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -1245,8 +1170,6 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 const formData = ref({
   name: '',
-  // 全能 Key：默认开启。开 → 不绑分组、跨所有授权平台；关 → 绑定下方所选分组（旧行为）。
-  universal: true,
   group_id: null as number | null,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
@@ -1470,7 +1393,6 @@ const editKey = (key: ApiKey) => {
   const hasExpiration = !!key.expires_at
   formData.value = {
     name: key.name,
-    universal: key.routing_mode === 'universal',
     group_id: key.group_id,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
@@ -1564,10 +1486,8 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
-  // 全能 Key 不绑分组;仅 direct(关闭全能)时才要求选分组。
-  const routingMode: 'direct' | 'universal' = formData.value.universal ? 'universal' : 'direct'
-  const effectiveGroupId = formData.value.universal ? null : formData.value.group_id
-  if (!formData.value.universal && formData.value.group_id === null) {
+  // Validate group_id is required
+  if (formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -1624,8 +1544,7 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
-        routing_mode: routingMode,
-        group_id: effectiveGroupId,
+        group_id: formData.value.group_id,
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
@@ -1640,14 +1559,13 @@ const handleSubmit = async () => {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       await keysAPI.create(
         formData.value.name,
-        effectiveGroupId,
+        formData.value.group_id,
         customKey,
         ipWhitelist,
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData,
-        routingMode
+        rateLimitData
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1692,7 +1610,6 @@ const closeModals = () => {
   selectedKey.value = null
   formData.value = {
     name: '',
-    universal: true,
     group_id: null,
     status: 'active',
     use_custom_key: false,
@@ -1807,7 +1724,7 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
       };
     }
   })`
-  const providerName = (publicSettings.value?.site_name || 'TokenKey').trim() || 'TokenKey'
+  const providerName = (publicSettings.value?.site_name || 'sub2api').trim() || 'sub2api'
   const deeplink = buildCcSwitchImportDeeplink({
     baseUrl,
     platform,
@@ -1838,21 +1755,6 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   }
   showCcsClientSelect.value = false
   pendingCcsRow.value = null
-}
-
-// Export this key's captured conversation records (qa traj v2). The card button
-// now opens the Export Panel modal, which lists the key's recent exports
-// (downloadable within their 24h TTL) and owns the enqueue + poll + download
-// flow (composables/useTkExportPanel.ts) — the panel keeps progress state, not
-// this view.
-const openExportPanel = (row: ApiKey) => {
-  exportPanelKey.value = row
-  showExportPanel.value = true
-}
-
-const closeExportPanel = () => {
-  showExportPanel.value = false
-  exportPanelKey.value = null
 }
 
 const closeCcsClientSelect = () => {

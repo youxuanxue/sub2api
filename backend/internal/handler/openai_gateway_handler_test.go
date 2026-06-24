@@ -423,7 +423,7 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 
 	t.Run("uses_family_default_when_no_override", func(t *testing.T) {
 		apiKey := &service.APIKey{Group: &service.Group{}}
-		require.Equal(t, "gpt-5.5", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
+		require.Equal(t, "gpt-5.4", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
 		require.Equal(t, "gpt-5.3-codex", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
 		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
 	})
@@ -1617,34 +1617,6 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 
 func testStringPtr(v string) *string {
 	return &v
-}
-
-// TestOpenAIGatewayEnsureForwardErrorResponse_SkipsAfterBusinessLimited 回归
-// upstream Wei-Shaw/sub2api#3014 的修复：service 层 codex_cli_only 拒绝已写出干净
-// 403 并打业务限流标记后，handler 兜底不得再追加错误帧，否则 403 body 会被污染成
-// `{"error":...}event: response.failed...`（gin 不阻止 commit 之后的写入）。
-func TestOpenAIGatewayEnsureForwardErrorResponse_SkipsAfterBusinessLimited(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
-	c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
-		"type":    "forbidden_error",
-		"message": "This account only allows Codex official clients",
-	}})
-
-	h := &OpenAIGatewayHandler{}
-	wrote := h.ensureForwardErrorResponse(c, false)
-
-	require.False(t, wrote)
-	require.Equal(t, http.StatusForbidden, w.Code)
-	require.NotContains(t, w.Body.String(), "response.failed")
-	require.NotContains(t, w.Body.String(), "event: error")
-	require.NotContains(t, w.Body.String(), "Upstream request failed")
-	var parsed map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &parsed))
 }
 
 func TestOpenAIForwardErrorAlreadyCommunicated(t *testing.T) {

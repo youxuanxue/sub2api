@@ -43,9 +43,7 @@ func TestAdminService_EnsureOpenAIPrivacy_RetriesNonSuccessModes(t *testing.T) {
 			got := svc.EnsureOpenAIPrivacy(context.Background(), account)
 
 			require.Equal(t, PrivacyModeFailed, got)
-			// read-first calls the factory once (the GET) then disableOpenAITraining
-			// calls it again (the PATCH); both fail here, so the factory is hit twice.
-			require.Equal(t, 2, privacyCalls)
+			require.Equal(t, 1, privacyCalls)
 		})
 	}
 }
@@ -85,9 +83,7 @@ func TestTokenRefreshService_ensureOpenAIPrivacy_RetriesNonSuccessModes(t *testi
 
 			service.ensureOpenAIPrivacy(context.Background(), account)
 
-			// read-first calls the factory once (the GET) then disableOpenAITraining
-			// calls it again (the PATCH); both fail here, so the factory is hit twice.
-			require.Equal(t, 2, privacyCalls)
+			require.Equal(t, 1, privacyCalls)
 		})
 	}
 }

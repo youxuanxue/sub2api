@@ -18,78 +18,14 @@ type rateLimitAccountRepoStub struct {
 	setErrorCalls          int
 	tempCalls              int
 	updateCredentialsCalls int
-	clearErrorCalls        int
-	setSchedulableCalls    int
-	clearTempCalls         int
 	lastCredentials        map[string]any
 	lastErrorMsg           string
-	lastSchedulable        bool
 	lastTempReason         string
-	accountOnGet           *Account
-	getByIDAccounts        []*Account
-
-	// PR #338 (P3): track exact-reset-time writes so tests can assert
-	// handle429 / handle529 ran the upstream-precise path before the
-	// ladder write got suppressed via skipCooldownWrite.
-	setRateLimitedCalls    int
-	setOverloadedCalls     int
-	lastRateLimitedResetAt time.Time
-	lastOverloadedUntil    time.Time
-
-	// PR #338 (P4): seed account state for the 403 second-hit escalation
-	// path. When set, GetByID returns an account whose
-	// TempUnschedulableReason holds the prior 403 TempUnschedState so
-	// wasTempUnschedByStatusCode(reason, 403) returns true.
-	tempReasonOnGet string
-
-	// TK G4: track per-(account × scope) model-rate-limit writes so tests can
-	// assert that an Anthropic unified-window 429 cools the model class scope
-	// instead of the whole account.
-	modelRateLimitCalls []rateLimitStubModelCall
-	modelRateLimitErr   error
-
-	// TK G4: assert the account-global 5h session window is still recorded on
-	// the model-scoped cooldown path (operator usage gauge depends on it).
-	updateSessionWindowCalls int
-	lastSessionWindowStatus  string
-}
-
-type rateLimitStubModelCall struct {
-	accountID int64
-	scope     string
-	resetAt   time.Time
-	reason    string
-}
-
-func (r *rateLimitAccountRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
-	call := rateLimitStubModelCall{accountID: id, scope: scope, resetAt: resetAt}
-	if len(reason) > 0 {
-		call.reason = reason[0]
-	}
-	r.modelRateLimitCalls = append(r.modelRateLimitCalls, call)
-	return r.modelRateLimitErr
-}
-
-func (r *rateLimitAccountRepoStub) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
-	r.updateSessionWindowCalls++
-	r.lastSessionWindowStatus = status
-	return nil
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
 	r.setErrorCalls++
 	r.lastErrorMsg = errorMsg
-	return nil
-}
-
-func (r *rateLimitAccountRepoStub) ClearError(ctx context.Context, id int64) error {
-	r.clearErrorCalls++
-	return nil
-}
-
-func (r *rateLimitAccountRepoStub) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
-	r.setSchedulableCalls++
-	r.lastSchedulable = schedulable
 	return nil
 }
 
@@ -99,45 +35,10 @@ func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id 
 	return nil
 }
 
-func (r *rateLimitAccountRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {
-	r.clearTempCalls++
-	return nil
-}
-
 func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	r.updateCredentialsCalls++
 	r.lastCredentials = cloneCredentials(credentials)
-	if r.accountOnGet != nil && r.accountOnGet.ID == id {
-		r.accountOnGet.Credentials = cloneCredentials(credentials)
-	}
 	return nil
-}
-
-func (r *rateLimitAccountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
-	r.setRateLimitedCalls++
-	r.lastRateLimitedResetAt = resetAt
-	return nil
-}
-
-func (r *rateLimitAccountRepoStub) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
-	r.setOverloadedCalls++
-	r.lastOverloadedUntil = until
-	return nil
-}
-
-func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
-	if len(r.getByIDAccounts) > 0 {
-		account := r.getByIDAccounts[0]
-		r.getByIDAccounts = r.getByIDAccounts[1:]
-		return account, nil
-	}
-	if r.accountOnGet != nil {
-		return r.accountOnGet, nil
-	}
-	if r.tempReasonOnGet == "" {
-		return nil, nil
-	}
-	return &Account{ID: id, TempUnschedulableReason: r.tempReasonOnGet}, nil
 }
 
 type tokenCacheInvalidatorRecorder struct {
@@ -146,16 +47,12 @@ type tokenCacheInvalidatorRecorder struct {
 }
 
 type openAI403CounterCacheStub struct {
-	counts        []int64
-	incrementIDs  []int64
-	windowMinutes []int
-	resetCalls    []int64
-	err           error
+	counts     []int64
+	resetCalls []int64
+	err        error
 }
 
-func (s *openAI403CounterCacheStub) IncrementOpenAI403Count(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
-	s.incrementIDs = append(s.incrementIDs, accountID)
-	s.windowMinutes = append(s.windowMinutes, windowMinutes)
+func (s *openAI403CounterCacheStub) IncrementOpenAI403Count(_ context.Context, _ int64, _ int) (int64, error) {
 	if s.err != nil {
 		return 0, s.err
 	}
@@ -169,134 +66,6 @@ func (s *openAI403CounterCacheStub) IncrementOpenAI403Count(_ context.Context, a
 
 func (s *openAI403CounterCacheStub) ResetOpenAI403Count(_ context.Context, accountID int64) error {
 	s.resetCalls = append(s.resetCalls, accountID)
-	return nil
-}
-
-type anthropicUpstreamErrorCounterCacheStub struct {
-	counts        []int64
-	incrementIDs  []int64
-	windowMinutes []int
-	resetCalls    []int64
-	err           error
-
-	// Bodyless-403 terminal counter (separate namespace from the general
-	// error counter). bodyless403Counts scripts the returned count in order
-	// so a test can drive the threshold; an empty slice returns 1 each call.
-	bodyless403Counts       []int64
-	bodyless403IncrementIDs []int64
-	bodyless403WindowMin    []int
-	bodyless403DebounceSec  []int
-	bodyless403ResetCalls   []int64
-
-	tierCounts       []int64
-	tierIncrementIDs []int64
-	tierTTLMinutes   []int
-	tierResetCalls   []int64
-
-	// Global "tier >= 1" escalation counter (PR #338 follow-up to PR #337).
-	// Increments are recorded so tests can assert that tier escalations
-	// emit the ops_alert_evaluator metric signal. Get returns the running
-	// total of the escalations slice length so reads stay consistent with
-	// writes without a real Redis backend.
-	escalationTTLMinutes []int
-
-	// Per-episode escalation slot guard (issue #623). slotResults scripts the
-	// AcquireAnthropicCooldownEscalationSlot return values in order; an empty
-	// slice means the slot is always free (won=true), preserving the default
-	// "escalate on every threshold trip" behaviour for tests that don't model
-	// bursts. slotErr forces an acquire error to exercise the best-effort
-	// fall-through path.
-	slotResults    []bool
-	slotErr        error
-	slotAcquireIDs []int64
-	slotTTLSeconds []int
-	slotResetCalls []int64
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamErrorCount(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
-	s.incrementIDs = append(s.incrementIDs, accountID)
-	s.windowMinutes = append(s.windowMinutes, windowMinutes)
-	if s.err != nil {
-		return 0, s.err
-	}
-	if len(s.counts) == 0 {
-		return 1, nil
-	}
-	count := s.counts[0]
-	s.counts = s.counts[1:]
-	return count, nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicUpstreamErrorCount(_ context.Context, accountID int64) error {
-	s.resetCalls = append(s.resetCalls, accountID)
-	return nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicBodyless403Count(_ context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error) {
-	s.bodyless403IncrementIDs = append(s.bodyless403IncrementIDs, accountID)
-	s.bodyless403WindowMin = append(s.bodyless403WindowMin, windowMinutes)
-	s.bodyless403DebounceSec = append(s.bodyless403DebounceSec, debounceSeconds)
-	if s.err != nil {
-		return 0, s.err
-	}
-	if len(s.bodyless403Counts) == 0 {
-		return 1, nil
-	}
-	count := s.bodyless403Counts[0]
-	s.bodyless403Counts = s.bodyless403Counts[1:]
-	return count, nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicBodyless403Count(_ context.Context, accountID int64) error {
-	s.bodyless403ResetCalls = append(s.bodyless403ResetCalls, accountID)
-	return nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTier(_ context.Context, accountID int64, ttlMinutes int) (int64, error) {
-	s.tierIncrementIDs = append(s.tierIncrementIDs, accountID)
-	s.tierTTLMinutes = append(s.tierTTLMinutes, ttlMinutes)
-	if len(s.tierCounts) == 0 {
-		return 1, nil
-	}
-	count := s.tierCounts[0]
-	s.tierCounts = s.tierCounts[1:]
-	return count, nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicCooldownTier(_ context.Context, accountID int64) error {
-	s.tierResetCalls = append(s.tierResetCalls, accountID)
-	return nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTierEscalations(_ context.Context, ttlMinutes int) (int64, error) {
-	s.escalationTTLMinutes = append(s.escalationTTLMinutes, ttlMinutes)
-	return int64(len(s.escalationTTLMinutes)), nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) GetAnthropicCooldownTierEscalations(_ context.Context) (int64, error) {
-	return int64(len(s.escalationTTLMinutes)), nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) AcquireAnthropicCooldownEscalationSlot(_ context.Context, accountID int64, _ int) (bool, error) {
-	s.slotAcquireIDs = append(s.slotAcquireIDs, accountID)
-	if s.slotErr != nil {
-		return false, s.slotErr
-	}
-	if len(s.slotResults) == 0 {
-		return true, nil
-	}
-	won := s.slotResults[0]
-	s.slotResults = s.slotResults[1:]
-	return won, nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) SetAnthropicCooldownEscalationSlotTTL(_ context.Context, _ int64, ttlSeconds int) error {
-	s.slotTTLSeconds = append(s.slotTTLSeconds, ttlSeconds)
-	return nil
-}
-
-func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicCooldownEscalationSlot(_ context.Context, accountID int64) error {
-	s.slotResetCalls = append(s.slotResetCalls, accountID)
 	return nil
 }
 

@@ -53,12 +53,6 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetRateLimit1d(key.RateLimit1d).
 		SetRateLimit7d(key.RateLimit7d)
 
-	// routing_mode: empty falls back to the schema default ("direct"); the
-	// service layer sets "universal" for new keys (see APIKeyService.Create).
-	if key.RoutingMode != "" {
-		builder.SetRoutingMode(apikey.RoutingMode(key.RoutingMode))
-	}
-
 	if len(key.IPWhitelist) > 0 {
 		builder.SetIPWhitelist(key.IPWhitelist)
 	}
@@ -138,7 +132,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldGroupID,
 			apikey.FieldName,
 			apikey.FieldStatus,
-			apikey.FieldRoutingMode,
 			apikey.FieldIPWhitelist,
 			apikey.FieldIPBlacklist,
 			apikey.FieldQuota,
@@ -201,8 +194,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldMessagesDispatchModelConfig,
 				group.FieldModelsListConfig,
 				group.FieldRpmLimit,
-				group.FieldMessagesCompactionEnabled,
-				group.FieldMessagesCompactionInputTokensThreshold,
 			)
 		}).
 		Only(ctx)
@@ -236,9 +227,6 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 		SetUsage1d(key.Usage1d).
 		SetUsage7d(key.Usage7d).
 		SetUpdatedAt(now)
-	if key.RoutingMode != "" {
-		builder.SetRoutingMode(apikey.RoutingMode(key.RoutingMode))
-	}
 	if key.GroupID != nil {
 		builder.SetGroupID(*key.GroupID)
 	} else {
@@ -715,7 +703,6 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Key:           m.Key,
 		Name:          m.Name,
 		Status:        m.Status,
-		RoutingMode:   string(m.RoutingMode),
 		IPWhitelist:   m.IPWhitelist,
 		IPBlacklist:   m.IPBlacklist,
 		LastUsedAt:    m.LastUsedAt,
@@ -776,9 +763,7 @@ func userEntityToService(u *dbent.User) *service.User {
 		BalanceNotifyThresholdType: u.BalanceNotifyThresholdType,
 		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
 		TotalRecharged:             u.TotalRecharged,
-		OnboardingTourSeenAt:       u.OnboardingTourSeenAt,
 		RPMLimit:                   u.RpmLimit,
-		TrajExportEnabled:          u.TrajExportEnabled,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
 		DeletedAt:                  u.DeletedAt,
@@ -795,45 +780,42 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		return nil
 	}
 	return &service.Group{
-		ID:                                     g.ID,
-		Name:                                   g.Name,
-		Description:                            derefString(g.Description),
-		Platform:                               g.Platform,
-		RateMultiplier:                         g.RateMultiplier,
-		IsExclusive:                            g.IsExclusive,
-		Status:                                 g.Status,
-		Hydrated:                               true,
-		SubscriptionType:                       g.SubscriptionType,
-		DailyLimitUSD:                          g.DailyLimitUsd,
-		WeeklyLimitUSD:                         g.WeeklyLimitUsd,
-		MonthlyLimitUSD:                        g.MonthlyLimitUsd,
-		AllowImageGeneration:                   g.AllowImageGeneration,
-		ImageRateIndependent:                   g.ImageRateIndependent,
-		ImageRateMultiplier:                    g.ImageRateMultiplier,
-		ImagePrice1K:                           g.ImagePrice1k,
-		ImagePrice2K:                           g.ImagePrice2k,
-		ImagePrice4K:                           g.ImagePrice4k,
-		DefaultValidityDays:                    g.DefaultValidityDays,
-		ClaudeCodeOnly:                         g.ClaudeCodeOnly,
-		FallbackGroupID:                        g.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest:        g.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                           g.ModelRouting,
-		ModelRoutingEnabled:                    g.ModelRoutingEnabled,
-		MCPXMLInject:                           g.McpXMLInject,
-		SupportedModelScopes:                   g.SupportedModelScopes,
-		SortOrder:                              g.SortOrder,
-		AllowMessagesDispatch:                  g.AllowMessagesDispatch,
-		RequireOAuthOnly:                       g.RequireOauthOnly,
-		RequirePrivacySet:                      g.RequirePrivacySet,
-		DefaultMappedModel:                     g.DefaultMappedModel,
-		MessagesDispatchModelConfig:            g.MessagesDispatchModelConfig,
-		StickyRoutingMode:                      string(g.StickyRoutingMode),
-		ModelsListConfig:                       g.ModelsListConfig,
-		RPMLimit:                               g.RpmLimit,
-		MessagesCompactionEnabled:              g.MessagesCompactionEnabled,
-		MessagesCompactionInputTokensThreshold: g.MessagesCompactionInputTokensThreshold,
-		CreatedAt:                              g.CreatedAt,
-		UpdatedAt:                              g.UpdatedAt,
+		ID:                              g.ID,
+		Name:                            g.Name,
+		Description:                     derefString(g.Description),
+		Platform:                        g.Platform,
+		RateMultiplier:                  g.RateMultiplier,
+		IsExclusive:                     g.IsExclusive,
+		Status:                          g.Status,
+		Hydrated:                        true,
+		SubscriptionType:                g.SubscriptionType,
+		DailyLimitUSD:                   g.DailyLimitUsd,
+		WeeklyLimitUSD:                  g.WeeklyLimitUsd,
+		MonthlyLimitUSD:                 g.MonthlyLimitUsd,
+		AllowImageGeneration:            g.AllowImageGeneration,
+		ImageRateIndependent:            g.ImageRateIndependent,
+		ImageRateMultiplier:             g.ImageRateMultiplier,
+		ImagePrice1K:                    g.ImagePrice1k,
+		ImagePrice2K:                    g.ImagePrice2k,
+		ImagePrice4K:                    g.ImagePrice4k,
+		DefaultValidityDays:             g.DefaultValidityDays,
+		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
+		FallbackGroupID:                 g.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: g.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                    g.ModelRouting,
+		ModelRoutingEnabled:             g.ModelRoutingEnabled,
+		MCPXMLInject:                    g.McpXMLInject,
+		SupportedModelScopes:            g.SupportedModelScopes,
+		SortOrder:                       g.SortOrder,
+		AllowMessagesDispatch:           g.AllowMessagesDispatch,
+		RequireOAuthOnly:                g.RequireOauthOnly,
+		RequirePrivacySet:               g.RequirePrivacySet,
+		DefaultMappedModel:              g.DefaultMappedModel,
+		MessagesDispatchModelConfig:     g.MessagesDispatchModelConfig,
+		ModelsListConfig:                g.ModelsListConfig,
+		RPMLimit:                        g.RpmLimit,
+		CreatedAt:                       g.CreatedAt,
+		UpdatedAt:                       g.UpdatedAt,
 	}
 }
 

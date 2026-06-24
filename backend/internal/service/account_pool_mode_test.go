@@ -115,24 +115,3 @@ func TestGetPoolModeRetryCount(t *testing.T) {
 		})
 	}
 }
-
-// isPoolModeRetryableStatus default list covers per-account transient codes only.
-// 502/503/504 are NOT in the default; forwarding-stub topologies targeting another
-// TokenKey / compat gateway pool should configure pool_mode_retry_status_codes
-// per-account to include those codes — the upstream configurable-retry feature
-// (21033dce) enables this without changing the base default.
-//
-// 500/501 are intentionally excluded: 500 typically signals an upstream
-// application bug (retry will fail the same way and 3× the upstream load);
-// 501 is Not Implemented (retry is structurally pointless).
-func TestIsPoolModeRetryableStatus_Coverage(t *testing.T) {
-	retryable := []int{401, 403, 429}
-	notRetryable := []int{200, 400, 402, 404, 408, 422, 500, 501, 502, 503, 504, 505}
-
-	for _, sc := range retryable {
-		require.Truef(t, isPoolModeRetryableStatus(sc), "status %d should be retryable", sc)
-	}
-	for _, sc := range notRetryable {
-		require.Falsef(t, isPoolModeRetryableStatus(sc), "status %d must NOT be retryable", sc)
-	}
-}

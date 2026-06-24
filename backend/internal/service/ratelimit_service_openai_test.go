@@ -51,7 +51,7 @@ func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 	headers.Set("x-codex-primary-used-percent", "50")
 	headers.Set("x-codex-primary-reset-after-seconds", "500000")
 	headers.Set("x-codex-primary-window-minutes", "10080") // 7 days
-	headers.Set("x-codex-secondary-used-percent", "100")   // 5h exhausted (used%)
+	headers.Set("x-codex-secondary-used-percent", "100")
 	headers.Set("x-codex-secondary-reset-after-seconds", "3600") // 1 hour
 	headers.Set("x-codex-secondary-window-minutes", "300")       // 5 hours
 
@@ -73,14 +73,10 @@ func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 	}
 }
 
-func TestCalculateOpenAI429ResetTime_NeitherExhausted_ReturnsNilForBurst(t *testing.T) {
-	// upstream #2258: when neither 5h nor 7d window is at 100% but we still got
-	// a 429, this is a burst/throttle limit — not window exhaustion. The reset
-	// headers describe full-window reset (potentially days), so applying them
-	// would turn a transient burst into a multi-day 503 window. Expect nil so
-	// handle429 falls back to the short configurable cooldown.
+func TestCalculateOpenAI429ResetTime_NeitherExhausted_UsesMax(t *testing.T) {
 	svc := &RateLimitService{}
 
+	// Neither limit at 100%, should use the longer reset time
 	headers := http.Header{}
 	headers.Set("x-codex-primary-used-percent", "80")
 	headers.Set("x-codex-primary-reset-after-seconds", "100000")
@@ -89,10 +85,21 @@ func TestCalculateOpenAI429ResetTime_NeitherExhausted_ReturnsNilForBurst(t *test
 	headers.Set("x-codex-secondary-reset-after-seconds", "5000")
 	headers.Set("x-codex-secondary-window-minutes", "300")
 
+	before := time.Now()
 	resetAt := svc.calculateOpenAI429ResetTime(headers)
+	after := time.Now()
 
-	if resetAt != nil {
-		t.Errorf("expected nil for burst 429 (neither window exhausted), got %v", resetAt)
+	if resetAt == nil {
+		t.Fatal("expected non-nil resetAt")
+	}
+
+	// Should use the max (100000 seconds from 7d window)
+	expectedDuration := 100000 * time.Second
+	minExpected := before.Add(expectedDuration)
+	maxExpected := after.Add(expectedDuration)
+
+	if resetAt.Before(minExpected) || resetAt.After(maxExpected) {
+		t.Errorf("resetAt %v not in expected range [%v, %v]", resetAt, minExpected, maxExpected)
 	}
 }
 
@@ -115,7 +122,7 @@ func TestCalculateOpenAI429ResetTime_ReversedWindowOrder(t *testing.T) {
 
 	// Test when OpenAI sends primary as 5h and secondary as 7d (reversed)
 	headers := http.Header{}
-	headers.Set("x-codex-primary-used-percent", "100")         // This is 5h, exhausted (used%)
+	headers.Set("x-codex-primary-used-percent", "100")         // This is 5h
 	headers.Set("x-codex-primary-reset-after-seconds", "3600") // 1 hour
 	headers.Set("x-codex-primary-window-minutes", "300")       // 5 hours - smaller!
 	headers.Set("x-codex-secondary-used-percent", "50")
@@ -418,7 +425,7 @@ func TestCalculateOpenAI429ResetTime_UserProvidedScenario(t *testing.T) {
 	// This is the exact scenario from the user:
 	// codex_7d_used_percent: 100
 	// codex_7d_reset_after_seconds: 384607 (约4.5天后重置)
-	// codex_5h_used_percent: 3 (current 5h window barely used; 7d累计已满被限)
+	// codex_5h_used_percent: 3
 	// codex_5h_reset_after_seconds: 17369 (约4.8小时后重置)
 
 	svc := &RateLimitService{}

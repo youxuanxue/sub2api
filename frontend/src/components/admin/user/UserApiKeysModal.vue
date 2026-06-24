@@ -138,7 +138,8 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 watch(() => props.show, (v) => {
   if (v && props.user) {
-    onShown()
+    load()
+    loadGroups()
   } else {
     closeGroupSelector()
   }
@@ -166,20 +167,6 @@ const loadGroups = async () => {
     console.error('Failed to load groups:', error)
   }
 }
-
-const onShown = () => {
-  load()
-  loadGroups()
-}
-
-// PR #900 lazy-mount: the modal can be CREATED with show already true, so the
-// show-watch (not { immediate: true } to avoid TDZ on the const loaders) never
-// fires on first open. Mirror the watch's true-branch on mount so data loads.
-onMounted(() => {
-  if (props.show && props.user) {
-    onShown()
-  }
-})
 
 const DROPDOWN_HEIGHT = 272 // max-h-64 = 16rem = 256px + padding
 const DROPDOWN_GAP = 4

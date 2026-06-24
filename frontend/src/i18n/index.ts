@@ -4,8 +4,7 @@ type LocaleCode = 'en' | 'zh'
 
 type LocaleMessages = Record<string, any>
 
-const LOCALE_KEY = 'tokenkey_locale'
-const LEGACY_LOCALE_KEY = 'sub2api_locale'
+const LOCALE_KEY = 'sub2api_locale'
 const DEFAULT_LOCALE: LocaleCode = 'en'
 
 const localeLoaders: Record<LocaleCode, () => Promise<{ default: LocaleMessages }>> = {
@@ -17,25 +16,9 @@ function isLocaleCode(value: string): value is LocaleCode {
   return value === 'en' || value === 'zh'
 }
 
-function getSavedLocale(): LocaleCode | null {
+function getDefaultLocale(): LocaleCode {
   const saved = localStorage.getItem(LOCALE_KEY)
   if (saved && isLocaleCode(saved)) {
-    return saved
-  }
-
-  const legacy = localStorage.getItem(LEGACY_LOCALE_KEY)
-  if (legacy && isLocaleCode(legacy)) {
-    localStorage.setItem(LOCALE_KEY, legacy)
-    localStorage.removeItem(LEGACY_LOCALE_KEY)
-    return legacy
-  }
-
-  return null
-}
-
-function getDefaultLocale(): LocaleCode {
-  const saved = getSavedLocale()
-  if (saved) {
     return saved
   }
 
@@ -67,13 +50,6 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   const loader = localeLoaders[locale]
   const module = await loader()
   i18n.global.setLocaleMessage(locale, module.default)
-  // TK: deep-merge TokenKey-only home/landing strings over the upstream locale.
-  // Keeps locales/{en,zh}.ts near-upstream and merge-safe (CLAUDE.md §5).
-  const tkHome = await import('./tk/home.tk')
-  i18n.global.mergeLocaleMessage(locale, tkHome.default[locale] ?? {})
-  // TK: Invite-to-Trial admin strings (admin.users.inviteTrial.*).
-  const tkInviteTrial = await import('./tk/inviteTrial.tk')
-  i18n.global.mergeLocaleMessage(locale, tkInviteTrial.default[locale] ?? {})
   loadedLocales.add(locale)
 }
 
@@ -91,7 +67,6 @@ export async function setLocale(locale: string): Promise<void> {
   await loadLocaleMessages(locale)
   i18n.global.locale.value = locale
   localStorage.setItem(LOCALE_KEY, locale)
-  localStorage.removeItem(LEGACY_LOCALE_KEY)
   document.documentElement.setAttribute('lang', locale)
 
   // 同步更新浏览器页签标题，使其跟随语言切换

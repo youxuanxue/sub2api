@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newGatewayRoutesTestRouter(platform string) *gin.Engine {
+func newGatewayRoutesTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	groupID := int64(1)
 
 	RegisterGatewayRoutes(
 		router,
@@ -26,12 +25,11 @@ func newGatewayRoutesTestRouter(platform string) *gin.Engine {
 			OpenAIGateway: &handler.OpenAIGatewayHandler{},
 		},
 		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
-				ID:      1,
 				GroupID: &groupID,
-				Group:   &service.Group{ID: groupID, Platform: platform},
+				Group:   &service.Group{Platform: service.PlatformOpenAI},
 			})
-			c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 1})
 			c.Next()
 		}),
 		nil,
@@ -45,7 +43,7 @@ func newGatewayRoutesTestRouter(platform string) *gin.Engine {
 }
 
 func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	router := newGatewayRoutesTestRouter()
 
 	for _, path := range []string{
 		"/v1/responses/compact",
@@ -62,33 +60,8 @@ func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesNewAPICompatPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
-
-	for _, path := range []string{
-		"/v1/messages",
-		"/v1/responses",
-		"/v1/chat/completions",
-		"/v1/embeddings",
-		"/v1/images/generations",
-		"/responses",
-		"/chat/completions",
-		"/embeddings",
-		"/images/generations",
-		"/backend-api/codex/responses",
-		"/backend-api/codex/responses/compact",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should be routed for newapi/openai-compatible groups", path)
-	}
-}
-
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	router := newGatewayRoutesTestRouter()
 
 	for _, path := range []string{
 		"/v1/images/generations",
@@ -102,89 +75,5 @@ func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI images handler", path)
-	}
-}
-
-// TestGatewayRoutesImagePresignPathsAreRegistered protects the image S3-offload
-// re-mint endpoint (Studio reload path). A regression dropping these routes would
-// silently break persisted-image refresh — reopened Studio sessions would show
-// broken thumbnails once the original presigned URL expired.
-func TestGatewayRoutesImagePresignPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
-
-	for _, path := range []string{
-		"/v1/images/presign",
-		"/images/presign",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"key":"media/images/x.png"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit image presign handler", path)
-	}
-}
-
-// TestGatewayRoutesVideoGenerationPathsAreRegistered protects the four async
-// video task routes added for the fifth platform `newapi` (volcengine /
-// doubaovideo). The async task registry is required for the actual handler
-// to do work, but this test only asserts the route table is wired (i.e. the
-// router does NOT return 404). A regression that drops any of these four
-// paths would silently disable all volcengine video generation.
-func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
-
-	postPaths := []string{
-		"/v1/video/generations",
-		"/v1/videos",
-		"/v1/videos/generations", // xAI-shaped alias (grok native arm / prod→edge relay)
-		"/video/generations",
-		"/videos",
-		"/videos/generations",
-	}
-	for _, path := range postPaths {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"doubao-seedance","prompt":"x"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "POST path=%s should be routed for newapi/openai-compatible groups", path)
-	}
-
-	getPaths := []string{
-		"/v1/video/generations/abc",
-		"/v1/videos/abc",
-		"/video/generations/abc",
-		"/videos/abc",
-	}
-	for _, path := range getPaths {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "GET path=%s should be routed for newapi/openai-compatible groups", path)
-	}
-}
-
-// TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform proves the
-// platform gating in tkOpenAICompatVideoSubmitHandler / VideoFetchHandler
-// returns 404 for groups whose platform is NOT in OpenAICompatPlatforms()
-// (e.g. anthropic). This is the inverse safety check — without it an
-// anthropic group would route to OpenAIGateway.VideoSubmit which would
-// crash on a nil group platform during account selection.
-func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformAnthropic)
-
-	for _, path := range []string{
-		"/v1/video/generations",
-		"/v1/videos",
-		"/v1/videos/generations",
-		"/video/generations",
-		"/videos",
-		"/videos/generations",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"any","prompt":"x"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code, "POST path=%s on anthropic group should 404", path)
 	}
 }

@@ -82,27 +82,6 @@ func TestParseSSEUsage_DeltaOverwritesWithNonZero(t *testing.T) {
 	require.Equal(t, 60, usage.CacheReadInputTokens)
 }
 
-// TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator asserts upstream
-// Wei-Shaw/sub2api#2332 hardening: a message_start frame that only carries
-// some usage fields (or a duplicate message_start with a partial usage object)
-// must NOT zero out accumulator dimensions that the parser cannot extract from
-// this specific frame. Earlier code set hasInputTokens/hasCacheCreationInput/
-// hasCacheReadInput=true unconditionally inside message_start, so any later
-// merge would write 0 for the missing dimensions, producing duplicate-billing-
-// shaped usage rows (input_tokens=0 after a real value had landed).
-func TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator(t *testing.T) {
-	svc := newMinimalGatewayService()
-	usage := &ClaudeUsage{InputTokens: 123, CacheCreationInputTokens: 45, CacheReadInputTokens: 67}
-
-	// Frame that includes only output_tokens in the start usage object — the
-	// other dimensions are absent (not zero-valued JSON).
-	svc.parseSSEUsage(`{"type":"message_start","message":{"usage":{"output_tokens":10}}}`, usage)
-
-	require.Equal(t, 123, usage.InputTokens, "absent input_tokens must not zero existing value")
-	require.Equal(t, 45, usage.CacheCreationInputTokens, "absent cache_creation_input_tokens must not zero existing value")
-	require.Equal(t, 67, usage.CacheReadInputTokens, "absent cache_read_input_tokens must not zero existing value")
-}
-
 func TestParseSSEUsage_DeltaDoesNotResetCacheCreationBreakdown(t *testing.T) {
 	svc := newMinimalGatewayService()
 	usage := &ClaudeUsage{}
@@ -553,30 +532,4 @@ func TestHandleStreamingResponse_SSEErrorEvent_NonJSONDataLine(t *testing.T) {
 		_ = ExtractUpstreamErrorMessage([]byte(sseErr.RawData))
 	})
 	require.Equal(t, "", ExtractUpstreamErrorMessage([]byte(sseErr.RawData)))
-}
-
-// TK relay-invariant: 上游 HTTP 200 后 SSE 流内 event:error 必须包成 502（Bad Gateway）
-// 的 UpstreamFailoverError，而非 403。mid-stream 上游挂掉是「上游不可用」语义，403 会把它
-// 塞进 handle403 的封号/WAF/额度判定空间(#810/#831/#832)并曾撞 empty-body-403 fast-fail
-// (commit c7785a7e)。上游新增的类型化检测 + ops 日志 + ResponseBody 仍保留。
-func TestSSEStreamErrorFailover_Returns502NotForbidden(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	svc := newMinimalGatewayService()
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}}
-	raw := `{"type":"error","error":{"type":"overloaded_error","message":"upstream overloaded mid-stream"}}`
-	sseErr := &sseStreamErrorEventError{RawData: raw}
-
-	err := svc.sseStreamErrorFailover(c, &Account{ID: 1, Platform: PlatformAnthropic, Name: "acc1"}, resp, sseErr)
-
-	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr), "SSE event:error 必须包成 UpstreamFailoverError")
-	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode,
-		"stream-error-after-200 必须返回 502，不得回退成 403（会撞 403 封号/WAF 判定 + empty-body 403 fast-fail）")
-	require.Equal(t, raw, string(failoverErr.ResponseBody), "必须透传上游错误体到 ResponseBody（上游 ops 日志增强保留）")
-	require.Contains(t, ExtractUpstreamErrorMessage(failoverErr.ResponseBody), "overloaded mid-stream")
 }

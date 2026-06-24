@@ -97,13 +97,6 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 
-		// Static asset URLs are content-hashed. A missing asset means the client is
-		// running a stale entry/chunk reference, not a SPA route.
-		if isStaticAssetPath(cleanPath) && !s.fileExists(cleanPath) {
-			serveMissingStaticAsset(c)
-			return
-		}
-
 		// For index.html or SPA routes, serve with injected settings
 		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
 			s.serveIndexHTML(c)
@@ -284,11 +277,6 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 			return
 		}
 
-		if isStaticAssetPath(cleanPath) {
-			serveMissingStaticAsset(c)
-			return
-		}
-
 		serveIndexHTML(c, distFS)
 	}
 }
@@ -308,18 +296,6 @@ func tryServeOverrideFile(c *gin.Context, overrideDir, cleanPath string) bool {
 	return true
 }
 
-func serveMissingStaticAsset(c *gin.Context) {
-	c.Header("Cache-Control", "no-store")
-	c.String(http.StatusNotFound, "static asset not found")
-	c.Abort()
-}
-
-func isStaticAssetPath(path string) bool {
-	return path == "favicon.ico" ||
-		path == "logo.png" ||
-		strings.HasPrefix(path, "assets/")
-}
-
 func shouldBypassEmbeddedFrontend(path string) bool {
 	trimmed := strings.TrimSpace(path)
 	return strings.HasPrefix(trimmed, "/api/") ||
@@ -329,11 +305,6 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 		strings.HasPrefix(trimmed, "/antigravity/") ||
 		strings.HasPrefix(trimmed, "/setup/") ||
 		trimmed == "/health" ||
-		// /health/live (docker healthcheck) 与 /health/inflight (deploy drain 轮询)
-		// 是真 JSON 探针端点，必须绕过 SPA fallback——否则被 catch-all 中间件返回
-		// index.html，deploy_via_ssm.sh 的 in_flight=0 等待会空转满 ~76s（已在
-		// prod 1.7.68 实测坐实）。见 internal/server/routes/common.go 的注册。
-		strings.HasPrefix(trimmed, "/health/") ||
 		trimmed == "/responses" ||
 		strings.HasPrefix(trimmed, "/responses/") ||
 		strings.HasPrefix(trimmed, "/images/")

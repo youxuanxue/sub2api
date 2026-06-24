@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -410,30 +408,6 @@ func (s *HTTPUpstreamSuite) TestIdleTTLDoesNotEvictActive() {
 	_, _ = svc.getOrCreateClient("", 2, 1)
 
 	require.True(s.T(), hasEntry(svc, entry1), "有活跃请求时不应回收")
-}
-
-func TestDecompressResponseBody_DecodesZstd(t *testing.T) {
-	t.Parallel()
-	payload := []byte(`{"model":"test-stream"}`)
-	enc, err := zstd.NewWriter(nil)
-	require.NoError(t, err)
-	compressed := enc.EncodeAll(payload, nil)
-	require.NoError(t, enc.Close())
-
-	resp := &http.Response{
-		Header: make(http.Header),
-		Body:   io.NopCloser(bytes.NewReader(compressed)),
-	}
-	resp.Header.Set("Content-Encoding", "zstd")
-
-	decompressResponseBody(resp)
-
-	require.Empty(t, resp.Header.Get("Content-Encoding"))
-
-	got, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, payload, got)
-	require.NoError(t, resp.Body.Close())
 }
 
 // TestHTTPUpstreamSuite 运行测试套件

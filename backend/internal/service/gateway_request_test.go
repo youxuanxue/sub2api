@@ -56,13 +56,6 @@ func TestParseGatewayRequest_MaxTokensNonIntegralIgnored(t *testing.T) {
 	require.Equal(t, 0, parsed.MaxTokens)
 }
 
-func TestParseGatewayRequest_PromptCacheKey(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-5","prompt_cache_key":" pcache-edge-session-1 ","messages":[{"content":"hi"}]}`)
-	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), domain.PlatformAnthropic)
-	require.NoError(t, err)
-	require.Equal(t, "pcache-edge-session-1", parsed.PromptCacheKey)
-}
-
 func TestParseGatewayRequest_SystemNull(t *testing.T) {
 	body := []byte(`{"model":"claude-3","system":null}`)
 	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), "")
@@ -592,69 +585,6 @@ func TestStripEmptyTextBlocks(t *testing.T) {
 		deepContent := inner["content"].([]any)
 		require.Len(t, deepContent, 1)
 		require.Equal(t, "deep", deepContent[0].(map[string]any)["text"])
-	})
-}
-
-func TestStripCountTokensUnsupportedFields(t *testing.T) {
-	t.Run("strips temperature top_p top_k stop_sequences", func(t *testing.T) {
-		input := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"temperature":0.7,"top_p":0.9,"top_k":40,"stop_sequences":["x"]}`)
-		out, stripped := StripCountTokensUnsupportedFields(input)
-		require.ElementsMatch(t, []string{"temperature", "top_p", "top_k", "stop_sequences"}, stripped)
-		var req map[string]any
-		require.NoError(t, json.Unmarshal(out, &req))
-		require.NotContains(t, req, "temperature")
-		require.NotContains(t, req, "top_p")
-		require.NotContains(t, req, "top_k")
-		require.NotContains(t, req, "stop_sequences")
-		// Preserves allowed fields.
-		require.Equal(t, "claude-opus-4-7", req["model"])
-		require.NotNil(t, req["messages"])
-	})
-
-	t.Run("strips max_tokens stream metadata service_tier", func(t *testing.T) {
-		input := []byte(`{"model":"claude-opus-4-7","messages":[],"max_tokens":4096,"stream":true,"metadata":{"user_id":"u1"},"service_tier":"priority"}`)
-		out, stripped := StripCountTokensUnsupportedFields(input)
-		require.ElementsMatch(t, []string{"max_tokens", "stream", "metadata", "service_tier"}, stripped)
-		var req map[string]any
-		require.NoError(t, json.Unmarshal(out, &req))
-		require.NotContains(t, req, "max_tokens")
-		require.NotContains(t, req, "stream")
-		require.NotContains(t, req, "metadata")
-		require.NotContains(t, req, "service_tier")
-	})
-
-	t.Run("preserves allowed fields untouched", func(t *testing.T) {
-		input := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"system":"sys","tools":[{"name":"t"}],"tool_choice":{"type":"auto"},"thinking":{"type":"enabled"},"mcp_servers":[],"betas":["beta-x"]}`)
-		out, stripped := StripCountTokensUnsupportedFields(input)
-		require.Nil(t, stripped)
-		require.Equal(t, input, out)
-	})
-
-	t.Run("no-op when no unsupported fields present", func(t *testing.T) {
-		input := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
-		out, stripped := StripCountTokensUnsupportedFields(input)
-		require.Nil(t, stripped)
-		require.Equal(t, input, out)
-	})
-
-	t.Run("does not strip nested temperature inside tools", func(t *testing.T) {
-		// A `temperature` field nested inside a tool's input_schema must NOT be
-		// stripped — only top-level keys are forbidden by Anthropic's
-		// count_tokens schema.
-		input := []byte(`{"model":"claude-opus-4-7","messages":[],"tools":[{"name":"x","input_schema":{"type":"object","properties":{"temperature":{"type":"number"}}}}]}`)
-		out, stripped := StripCountTokensUnsupportedFields(input)
-		require.Nil(t, stripped)
-		require.Equal(t, input, out)
-	})
-
-	t.Run("empty body is safe", func(t *testing.T) {
-		out, stripped := StripCountTokensUnsupportedFields(nil)
-		require.Nil(t, stripped)
-		require.Nil(t, out)
-
-		out, stripped = StripCountTokensUnsupportedFields([]byte{})
-		require.Nil(t, stripped)
-		require.Len(t, out, 0)
 	})
 }
 

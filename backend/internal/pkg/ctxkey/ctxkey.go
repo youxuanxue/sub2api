@@ -14,9 +14,6 @@ const (
 	// ClientRequestID 客户端请求的唯一标识，用于追踪请求全生命周期（用于 Ops 监控与排障）。
 	ClientRequestID Key = "ctx_client_request_id"
 
-	// TrajectoryID is the stable evidence correlation id shared by QA / Ops capture.
-	TrajectoryID Key = "ctx_trajectory_id"
-
 	// Model 请求模型标识（用于统一请求链路日志字段）。
 	Model Key = "ctx_model"
 
@@ -26,9 +23,6 @@ const (
 	// AccountID 当前请求最终命中的账号 ID（用于统一请求链路日志字段）。
 	AccountID Key = "ctx_account_id"
 
-	// ChannelType 当前请求最终命中的上游 channel_type（用于统一证据/排障链路字段）。
-	ChannelType Key = "ctx_channel_type"
-
 	// RetryCount 表示当前请求在网关层的重试次数（用于 Ops 记录与排障）。
 	RetryCount Key = "ctx_retry_count"
 
@@ -37,9 +31,6 @@ const (
 
 	// IsClaudeCodeClient 标识当前请求是否来自 Claude Code 客户端
 	IsClaudeCodeClient Key = "ctx_is_claude_code_client"
-
-	// IsClaudeDesktopGatewayClient 标识当前请求是否来自 Claude Desktop 自定义推理网关（3p）
-	IsClaudeDesktopGatewayClient Key = "ctx_is_claude_desktop_gateway_client"
 
 	// ThinkingEnabled 标识当前请求是否开启 thinking（用于 Antigravity 最终模型名推导与模型维度限流）
 	ThinkingEnabled Key = "ctx_thinking_enabled"

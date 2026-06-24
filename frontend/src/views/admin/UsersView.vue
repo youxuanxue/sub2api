@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <TablePageLayout>
       <!-- Single Row: Search, Filters, and Actions -->
       <template #filters>
@@ -241,14 +242,8 @@
               </button>
             </div>
 
-            <!-- TK: Invite to Trial — one-step batch provisioning + credential cards -->
-            <button @click="openInviteTrial()" class="btn btn-secondary flex-1 md:flex-initial">
-              <Icon name="gift" size="md" class="mr-2" />
-              {{ t('admin.users.inviteTrial.button') }}
-            </button>
-
             <!-- Create User Button (full width on mobile, auto width on desktop) -->
-            <button data-testid="user-create-btn" @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
+            <button @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.users.createUser') }}
             </button>
@@ -325,12 +320,12 @@
             <div v-if="allGroups.length > 0" class="flex flex-col gap-1">
               <!-- 专属分组行 -->
               <span
-                v-if="userGroupsById[row.id].exclusive.length > 0"
+                v-if="getUserGroups(row).exclusive.length > 0"
                 class="group/ex relative inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-xs"
                 @click.stop="toggleExpandedGroup(row.id)"
               >
                 <Icon name="shield" size="xs" class="h-3.5 w-3.5 text-purple-500 dark:text-purple-400" />
-                <span class="font-medium text-purple-600 dark:text-purple-400">{{ userGroupsById[row.id].exclusive.length }}</span>
+                <span class="font-medium text-purple-600 dark:text-purple-400">{{ getUserGroups(row).exclusive.length }}</span>
                 <span class="text-gray-500 dark:text-dark-400">{{ t('admin.users.exclusiveLabel') }}</span>
                 <!-- Hover tooltip（操作菜单未打开时显示） -->
                 <div
@@ -339,7 +334,7 @@
                 >
                   <div class="absolute left-4 bottom-full border-4 border-transparent border-b-gray-900 dark:border-b-dark-600"></div>
                   <div class="flex flex-col gap-0.5 whitespace-nowrap">
-                    <span v-for="g in userGroupsById[row.id].exclusive" :key="g.id">{{ g.name }}</span>
+                    <span v-for="g in getUserGroups(row).exclusive" :key="g.id">{{ g.name }}</span>
                   </div>
                 </div>
                 <!-- 点击展开分组操作菜单 -->
@@ -351,7 +346,7 @@
                     {{ t('admin.users.clickToReplace') }}
                   </div>
                   <div
-                    v-for="g in userGroupsById[row.id].exclusive"
+                    v-for="g in getUserGroups(row).exclusive"
                     :key="g.id"
                     class="flex cursor-pointer items-center gap-2 px-3 py-2 text-gray-700 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:text-dark-200 dark:hover:bg-primary-900/30 dark:hover:text-primary-400"
                     @click.stop="openGroupReplace(row, g)"
@@ -363,23 +358,23 @@
               </span>
               <!-- 公开分组行 -->
               <span
-                v-if="userGroupsById[row.id].publicGroups.length > 0"
+                v-if="getUserGroups(row).publicGroups.length > 0"
                 class="group/pub relative inline-flex cursor-default items-center gap-1 whitespace-nowrap text-xs"
               >
                 <Icon name="globe" size="xs" class="h-3.5 w-3.5 text-gray-400 dark:text-dark-500" />
-                <span class="font-medium text-gray-600 dark:text-dark-300">{{ userGroupsById[row.id].publicGroups.length }}</span>
+                <span class="font-medium text-gray-600 dark:text-dark-300">{{ getUserGroups(row).publicGroups.length }}</span>
                 <span class="text-gray-400 dark:text-dark-500">{{ t('admin.users.publicLabel') }}</span>
                 <!-- Tooltip: 向下弹出 -->
                 <div class="pointer-events-none absolute left-0 top-full z-50 mt-1.5 rounded bg-gray-900 px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition-opacity duration-75 group-hover/pub:opacity-100 dark:bg-dark-600">
                   <div class="absolute left-4 bottom-full border-4 border-transparent border-b-gray-900 dark:border-b-dark-600"></div>
                   <div class="flex flex-col gap-0.5 whitespace-nowrap">
-                    <span v-for="g in userGroupsById[row.id].publicGroups" :key="g.id">{{ g.name }}</span>
+                    <span v-for="g in getUserGroups(row).publicGroups" :key="g.id">{{ g.name }}</span>
                   </div>
                 </div>
               </span>
               <!-- 都没有 -->
               <span
-                v-if="userGroupsById[row.id].exclusive.length === 0 && userGroupsById[row.id].publicGroups.length === 0"
+                v-if="getUserGroups(row).exclusive.length === 0 && getUserGroups(row).publicGroups.length === 0"
                 class="text-xs text-gray-400 dark:text-dark-500"
               >-</span>
             </div>
@@ -591,7 +586,6 @@
             <div class="flex items-center gap-1">
               <!-- Edit Button -->
               <button
-                data-testid="user-edit-btn"
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
@@ -721,17 +715,6 @@
 
               <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
 
-              <!-- TK: Invite another like this (复制账号 = seed Invite-to-Trial from this user) -->
-              <button
-                @click="openInviteTrial(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-              >
-                <Icon name="gift" size="sm" class="text-gray-400" :stroke-width="2" />
-                {{ t('admin.users.inviteTrial.reinvite') }}
-              </button>
-
-              <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
-
               <!-- Delete (not for admin) -->
               <button
                 v-if="user.role !== 'admin'"
@@ -747,27 +730,26 @@
       </div>
     </Teleport>
 
-    <ConfirmDialog v-if="lazyMount('delete', showDeleteDialog)" :show="showDeleteDialog" :title="t('admin.users.deleteUser')" :message="t('admin.users.deleteConfirm', { email: deletingUser?.email })" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
-    <UserCreateModal v-if="lazyMount('create', showCreateModal)" :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
-    <InviteTrialModal v-if="lazyMount('invite', showInviteTrialModal)" :show="showInviteTrialModal" :seed="inviteSeed" @close="showInviteTrialModal = false" @success="loadUsers" />
-    <UserEditModal v-if="lazyMount('edit', showEditModal)" :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
+    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.users.deleteUser')" :message="t('admin.users.deleteConfirm', { email: deletingUser?.email })" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <UserCreateModal :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
+    <UserEditModal :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
     <UserPlatformQuotaModal
-      v-if="lazyMount('platformQuota', showPlatformQuotaModal)"
       :show="showPlatformQuotaModal"
       :user="platformQuotaUser"
       @close="closePlatformQuotaModal"
       @success="loadUsers"
     />
-    <UserApiKeysModal v-if="lazyMount('apiKeys', showApiKeysModal)" :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
-    <UserAllowedGroupsModal v-if="lazyMount('allowedGroups', showAllowedGroupsModal)" :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
-    <UserBalanceModal v-if="lazyMount('balance', showBalanceModal)" :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
-    <UserBalanceHistoryModal v-if="lazyMount('balanceHistory', showBalanceHistoryModal)" :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
-    <GroupReplaceModal v-if="lazyMount('groupReplace', showGroupReplaceModal)" :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
-    <UserAttributesConfigModal v-if="lazyMount('attributes', showAttributesModal)" :show="showAttributesModal" @close="handleAttributesModalClose" />
-  </template>
+    <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
+    <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
+    <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
+    <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
+    <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
+    <UserAttributesConfigModal :show="showAttributesModal" @close="handleAttributesModalClose" />
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
-import { ref, shallowRef, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -781,6 +763,7 @@ import type { BatchUserUsageStats } from '@/api/admin/dashboard'
 import type { PlatformQuotaItem } from '@/api/admin/users'
 import type { Column } from '@/components/common/types'
 import type { SelectOption } from '@/components/common/Select.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -795,7 +778,6 @@ import PlatformUsageBreakdown from '@/components/user/PlatformUsageBreakdown.vue
 import PlatformCostCell from '@/components/user/PlatformCostCell.vue'
 import UserPlatformQuotaCell from '@/components/user/UserPlatformQuotaCell.vue'
 import UserCreateModal from '@/components/admin/user/UserCreateModal.vue'
-import InviteTrialModal from '@/components/admin/user/InviteTrialModal.vue'
 import UserEditModal from '@/components/admin/user/UserEditModal.vue'
 import UserPlatformQuotaModal from '@/components/admin/user/UserPlatformQuotaModal.vue'
 import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
@@ -1012,10 +994,7 @@ const columns = computed<Column[]>(() =>
   )
 )
 
-// shallowRef: the user list is replaced wholesale on every load (line ~1619) and all per-row
-// derived data (usage/attributes/quota) lives in id-keyed side-maps, never mutated in place —
-// so deep reactivity is pure cost. Any future in-place row edit must reassign users.value.
-const users = shallowRef<AdminUser[]>([])
+const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
@@ -1076,20 +1055,6 @@ const getUserGroups = (user: AdminUser) => {
   }
   return { exclusive, publicGroups }
 }
-
-// Memoized per-user group resolution keyed by user id. The groups cell reads
-// userGroupsById[row.id] instead of calling getUserGroups(row) ~8× per render,
-// so unrelated reactivity (hover/sort/filter/menu-open) no longer re-walks the
-// whole allGroups catalog per row × 8. Recomputes only when allGroups or the
-// visible user list changes; reuses the upstream getUserGroups so the resolved
-// value is byte-identical to the per-call path.
-const userGroupsById = computed<Record<number, ReturnType<typeof getUserGroups>>>(() => {
-  const byId: Record<number, ReturnType<typeof getUserGroups>> = {}
-  for (const user of sortedUsers.value) {
-    byId[user.id] = getUserGroups(user)
-  }
-  return byId
-})
 
 // Group filter options: "All Groups" + active exclusive groups (value = group name for fuzzy match)
 const groupFilterOptions = computed(() => {
@@ -1306,49 +1271,12 @@ const pagination = reactive({
 })
 
 const showCreateModal = ref(false)
-
-// TK: Invite-to-Trial modal. inviteSeed prefills the inline plan from an existing
-// user (= "复制账号 / 再邀请一个"); null = a fresh blank invite.
-const showInviteTrialModal = ref(false)
-const inviteSeed = ref<{
-  groupId?: number | null
-  balance?: number
-  concurrency?: number
-  rpmLimit?: number
-  rate?: number | null
-} | null>(null)
-
-const openInviteTrial = (user?: AdminUser) => {
-  if (user) {
-    const groupId = user.allowed_groups && user.allowed_groups.length > 0 ? user.allowed_groups[0] : null
-    const rate = groupId != null ? user.group_rates?.[groupId] ?? null : null
-    inviteSeed.value = {
-      groupId,
-      balance: user.balance,
-      concurrency: user.concurrency,
-      rpmLimit: user.rpm_limit ?? 0,
-      rate
-    }
-  } else {
-    inviteSeed.value = null
-  }
-  showInviteTrialModal.value = true
-}
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showApiKeysModal = ref(false)
 const showAttributesModal = ref(false)
 const showPlatformQuotaModal = ref(false)
 const editingUser = ref<AdminUser | null>(null)
-
-// Lazy-mount latch for action-triggered modals: a modal mounts the first time its show flag
-// goes true and then stays mounted, keeping first paint free of every modal's setup() while
-// open/close transitions and reopen behavior stay identical to always-mounted.
-const everOpened = reactive(new Set<string>())
-const lazyMount = (key: string, show: boolean): boolean => {
-  if (show) everOpened.add(key)
-  return everOpened.has(key)
-}
 const deletingUser = ref<AdminUser | null>(null)
 const viewingUser = ref<AdminUser | null>(null)
 const platformQuotaUser = ref<AdminUser | null>(null)

@@ -43,12 +43,6 @@ interface Props {
    * 只关心费率、不关心有效期的场景）。
    */
   alwaysShowRate?: boolean
-  /**
-   * TK: 用户级页面隐藏倍率数值。开启后不展示标准倍率标签 `{rate}x` 与删除线
-   * 专属倍率（订阅「订阅/剩余天数」标签仍保留——那不是倍率）。运营要求倍率仅
-   * 在管理页可见、用户页一律不可见；调用方在用户视图传入 true。
-   */
-  hideRateValue?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -56,22 +50,15 @@ const props = withDefaults(defineProps<Props>(), {
   showRate: true,
   daysRemaining: null,
   userRateMultiplier: null,
-  alwaysShowRate: false,
-  hideRateValue: false
+  alwaysShowRate: false
 })
 
 const { t } = useI18n()
 
 const isSubscription = computed(() => props.subscriptionType === 'subscription')
 
-// TK: hideRateValue 时把 always-show-rate 视为关闭，使订阅组回落到「订阅/天数」
-// 标签而非倍率。
-const effectiveAlwaysShowRate = computed(() => props.alwaysShowRate && !props.hideRateValue)
-
-// 是否有专属倍率（且与默认倍率不同）。hideRateValue 时一律视为无，绝不展示
-// 删除线专属倍率。
+// 是否有专属倍率（且与默认倍率不同）
 const hasCustomRate = computed(() => {
-  if (props.hideRateValue) return false
   return (
     props.userRateMultiplier !== null &&
     props.userRateMultiplier !== undefined &&
@@ -83,17 +70,16 @@ const hasCustomRate = computed(() => {
 // 是否显示右侧标签
 const showLabel = computed(() => {
   if (!props.showRate) return false
-  // 订阅类型：显示天数或"订阅"（非倍率，hideRateValue 不影响）
+  // 订阅类型：显示天数或"订阅"
   if (isSubscription.value) return true
-  // 标准类型：显示倍率（包括专属倍率）—— hideRateValue 时整体隐藏
-  if (props.hideRateValue) return false
+  // 标准类型：显示倍率（包括专属倍率）
   return props.rateMultiplier !== undefined || hasCustomRate.value
 })
 
 // Label text
 const labelText = computed(() => {
   const rateLabel = props.rateMultiplier !== undefined ? `${props.rateMultiplier}x` : ''
-  if (isSubscription.value && !effectiveAlwaysShowRate.value) {
+  if (isSubscription.value && !props.alwaysShowRate) {
     // 如果有剩余天数，显示天数
     if (props.daysRemaining !== null && props.daysRemaining !== undefined) {
       if (props.daysRemaining <= 0) {
@@ -138,9 +124,6 @@ const labelClass = computed(() => {
   if (props.platform === 'gemini') {
     return `${base} bg-blue-200/60 text-blue-800 dark:bg-blue-800/40 dark:text-blue-300`
   }
-  if (props.platform === 'newapi') {
-    return `${base} bg-cyan-200/60 text-cyan-800 dark:bg-cyan-800/40 dark:text-cyan-300`
-  }
   return `${base} bg-violet-200/60 text-violet-800 dark:bg-violet-800/40 dark:text-violet-300`
 })
 
@@ -161,11 +144,6 @@ const badgeClass = computed(() => {
     return isSubscription.value
       ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
       : 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-400'
-  }
-  if (props.platform === 'newapi') {
-    return isSubscription.value
-      ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-      : 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300'
   }
   // Fallback: original colors
   return isSubscription.value

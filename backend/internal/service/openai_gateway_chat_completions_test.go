@@ -740,8 +740,6 @@ func TestForwardAsChatCompletions_BufferedTerminalWithoutUpstreamCloseReturns(t 
 }
 
 func TestForwardAsChatCompletions_DoneSentinelWithoutTerminalReturnsError(t *testing.T) {
-	// Upstream PR #2530 changed [DONE]-only streams from finalizeStream to
-	// missingTerminalErr: the terminal must be signalled by a typed event before [DONE].
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -772,7 +770,7 @@ func TestForwardAsChatCompletions_DoneSentinelWithoutTerminalReturnsError(t *tes
 
 	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.1")
 	require.Error(t, err)
-	require.ErrorContains(t, err, "missing terminal event")
+	require.Contains(t, err.Error(), "missing terminal event")
 	require.NotNil(t, result)
 	require.Zero(t, result.Usage.InputTokens)
 	require.Zero(t, result.Usage.OutputTokens)

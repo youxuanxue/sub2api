@@ -81,25 +81,6 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultUpstreamBodyGuards(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	// Default OFF: TK no longer pre-injects an opus-4-7 body guard. Pre-flighting
-	// on client byte count is the wrong proxy (2026-06-13 re-validation: opus-4-7
-	// and opus-4-8 both serve >1 MB with HTTP 200); a returning size cliff is
-	// caught reactively via upstream 403/413 in ops_error_logs. The mechanism is
-	// opt-in — operators add rules via gateway.upstream_body_guards in yaml.
-	if len(cfg.Gateway.UpstreamBodyGuards) != 0 {
-		t.Fatalf("default UpstreamBodyGuards len = %d, want 0 (default off after 2026-06-13 re-validation): %+v",
-			len(cfg.Gateway.UpstreamBodyGuards), cfg.Gateway.UpstreamBodyGuards)
-	}
-}
-
 func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -407,8 +388,8 @@ func TestLoadDefaultJWTAccessTokenExpireMinutes(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.JWT.ExpireHour != 1 {
-		t.Fatalf("JWT.ExpireHour = %d, want 1", cfg.JWT.ExpireHour)
+	if cfg.JWT.ExpireHour != 24 {
+		t.Fatalf("JWT.ExpireHour = %d, want 24", cfg.JWT.ExpireHour)
 	}
 	if cfg.JWT.AccessTokenExpireMinutes != 0 {
 		t.Fatalf("JWT.AccessTokenExpireMinutes = %d, want 0", cfg.JWT.AccessTokenExpireMinutes)
@@ -591,8 +572,8 @@ func TestLoadDefaultDashboardCacheConfig(t *testing.T) {
 	if cfg.Dashboard.StatsFreshTTLSeconds != 15 {
 		t.Fatalf("Dashboard.StatsFreshTTLSeconds = %d, want 15", cfg.Dashboard.StatsFreshTTLSeconds)
 	}
-	if cfg.Dashboard.StatsTTLSeconds != 300 {
-		t.Fatalf("Dashboard.StatsTTLSeconds = %d, want 300", cfg.Dashboard.StatsTTLSeconds)
+	if cfg.Dashboard.StatsTTLSeconds != 30 {
+		t.Fatalf("Dashboard.StatsTTLSeconds = %d, want 30", cfg.Dashboard.StatsTTLSeconds)
 	}
 	if cfg.Dashboard.StatsRefreshTimeoutSeconds != 30 {
 		t.Fatalf("Dashboard.StatsRefreshTimeoutSeconds = %d, want 30", cfg.Dashboard.StatsRefreshTimeoutSeconds)
@@ -942,27 +923,6 @@ func TestValidateOpsCleanupScheduleRequired(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ops.cleanup.schedule") {
 		t.Fatalf("Validate() expected ops.cleanup.schedule error, got: %v", err)
-	}
-}
-
-func TestLoadDefaultOpsCleanupRetentionConfig(t *testing.T) {
-	resetViperWithJWTSecret(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if cfg.Ops.Cleanup.SystemLogRetentionDays != 7 {
-		t.Fatalf("SystemLogRetentionDays = %d, want 7", cfg.Ops.Cleanup.SystemLogRetentionDays)
-	}
-	if cfg.Ops.Cleanup.ErrorLogRetentionDays != 14 {
-		t.Fatalf("ErrorLogRetentionDays = %d, want 14", cfg.Ops.Cleanup.ErrorLogRetentionDays)
-	}
-	if cfg.Ops.Cleanup.MinuteMetricsRetentionDays != 30 {
-		t.Fatalf("MinuteMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.MinuteMetricsRetentionDays)
-	}
-	if cfg.Ops.Cleanup.HourlyMetricsRetentionDays != 30 {
-		t.Fatalf("HourlyMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.HourlyMetricsRetentionDays)
 	}
 }
 
@@ -1329,27 +1289,6 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.max_idle_conns",
 		},
 		{
-			name: "gateway upstream body guards platform required",
-			mutate: func(c *Config) {
-				c.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{{Platform: "", WarnBytes: 1, RejectBytes: 2}}
-			},
-			wantErr: "gateway.upstream_body_guards[0].platform",
-		},
-		{
-			name: "gateway upstream body guards warn negative",
-			mutate: func(c *Config) {
-				c.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{{Platform: "anthropic", WarnBytes: -1}}
-			},
-			wantErr: "gateway.upstream_body_guards[0].warn_bytes",
-		},
-		{
-			name: "gateway upstream body guards reject negative",
-			mutate: func(c *Config) {
-				c.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{{Platform: "anthropic", RejectBytes: -1}}
-			},
-			wantErr: "gateway.upstream_body_guards[0].reject_bytes",
-		},
-		{
 			name:    "gateway max idle conns per host",
 			mutate:  func(c *Config) { c.Gateway.MaxIdleConnsPerHost = 0 },
 			wantErr: "gateway.max_idle_conns_per_host",
@@ -1620,11 +1559,6 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "ops cleanup retention",
 			mutate:  func(c *Config) { c.Ops.Cleanup.ErrorLogRetentionDays = -1 },
 			wantErr: "ops.cleanup.error_log_retention_days",
-		},
-		{
-			name:    "ops cleanup system retention",
-			mutate:  func(c *Config) { c.Ops.Cleanup.SystemLogRetentionDays = -1 },
-			wantErr: "ops.cleanup.system_log_retention_days",
 		},
 		{
 			name:    "ops cleanup minute retention",

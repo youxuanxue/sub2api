@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { useClipboard } from '@/composables/useClipboard'
@@ -147,29 +146,6 @@ const kindBadgeClass = (kind: string) => {
   if (kind === 'error') return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
   return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
 }
-
-// Primary requester identity: prefer email, then username, then a #id fallback.
-// upstream #2410 — let ops see who is calling without a DB lookup.
-function requesterPrimary(row: OpsRequestDetail): string {
-  const email = (row.user_email || '').trim()
-  if (email) return email
-  const name = (row.username || '').trim()
-  if (name) return name
-  if (typeof row.user_id === 'number' && row.user_id > 0) return `#${row.user_id}`
-  return t('admin.ops.requestDetails.requester.anonymous')
-}
-
-// Secondary attribution line: key name, group name, upstream account name.
-function requesterMeta(row: OpsRequestDetail): string {
-  const parts: string[] = []
-  const key = (row.api_key_name || '').trim()
-  if (key) parts.push(`${t('admin.ops.requestDetails.requester.key')}: ${key}`)
-  const group = (row.group_name || '').trim()
-  if (group) parts.push(`${t('admin.ops.requestDetails.requester.group')}: ${group}`)
-  const account = (row.account_name || '').trim()
-  if (account) parts.push(`${t('admin.ops.requestDetails.requester.account')}: ${account}`)
-  return parts.join(' · ')
-}
 </script>
 
 <template>
@@ -235,9 +211,6 @@ function requesterMeta(row: OpsRequestDetail): string {
                     {{ t('admin.ops.requestDetails.table.status') }}
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    {{ t('admin.ops.requestDetails.table.requester') }}
-                  </th>
-                  <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     {{ t('admin.ops.requestDetails.table.requestId') }}
                   </th>
                   <th class="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -256,7 +229,7 @@ function requesterMeta(row: OpsRequestDetail): string {
                     </span>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200">
-                    {{ getPlatformLabel(row.platform) }}
+                    {{ (row.platform || 'unknown').toUpperCase() }}
                   </td>
                   <td class="max-w-[240px] truncate px-4 py-3 text-xs text-gray-600 dark:text-gray-300" :title="row.model || ''">
                     {{ row.model || '-' }}
@@ -266,20 +239,6 @@ function requesterMeta(row: OpsRequestDetail): string {
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                     {{ row.status_code ?? '-' }}
-                  </td>
-                  <td class="max-w-[240px] px-4 py-3">
-                    <div class="flex flex-col gap-0.5">
-                      <span class="truncate text-xs font-medium text-gray-700 dark:text-gray-200" :title="requesterPrimary(row)">
-                        {{ requesterPrimary(row) }}
-                      </span>
-                      <span
-                        v-if="requesterMeta(row)"
-                        class="truncate text-[10px] text-gray-400 dark:text-gray-500"
-                        :title="requesterMeta(row)"
-                      >
-                        {{ requesterMeta(row) }}
-                      </span>
-                    </div>
                   </td>
                   <td class="px-4 py-3">
                     <div v-if="row.request_id" class="flex items-center gap-2">

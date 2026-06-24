@@ -436,7 +436,6 @@ export interface SystemSettings {
   table_default_page_size: number;
   table_page_size_options: number[];
   backend_mode_enabled: boolean;
-  tk_anthropic_request_normalize_enabled: boolean;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
@@ -561,9 +560,6 @@ export interface SystemSettings {
   claude_oauth_system_prompt: string;
   claude_oauth_system_prompt_blocks: string;
   enable_anthropic_cache_ttl_1h_injection: boolean;
-  // Sticky routing kill switch (default true).
-  // See docs/approved/sticky-routing.md.
-  sticky_routing_enabled: boolean;
   rewrite_message_cache_control: boolean;
   antigravity_user_agent_version: string;
   openai_codex_user_agent: string;
@@ -611,13 +607,6 @@ export interface SystemSettings {
   subscription_expiry_notify_enabled: boolean;
   account_quota_notify_enabled: boolean;
   account_quota_notify_emails: NotifyEmailEntry[];
-
-  // New-User Cold Start (docs/approved/user-cold-start.md §5)
-  signup_bonus_enabled: boolean;
-  signup_bonus_balance: number;
-  auto_generate_default_token: boolean;
-  auto_generate_default_token_name: string;
-  pricing_catalog_public: boolean;
 
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
@@ -713,7 +702,6 @@ export interface UpdateSettingsRequest {
   table_default_page_size?: number;
   table_page_size_options?: number[];
   backend_mode_enabled?: boolean;
-  tk_anthropic_request_normalize_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
   smtp_host?: string;
@@ -816,10 +804,8 @@ export interface UpdateSettingsRequest {
   claude_oauth_system_prompt?: string;
   claude_oauth_system_prompt_blocks?: string;
   enable_anthropic_cache_ttl_1h_injection?: boolean;
-  sticky_routing_enabled?: boolean;
   rewrite_message_cache_control?: boolean;
   antigravity_user_agent_version?: string;
-  web_search_emulation_enabled?: boolean;
   openai_codex_user_agent?: string;
   openai_allow_claude_code_codex_plugin?: boolean;
   // Payment configuration
@@ -862,13 +848,6 @@ export interface UpdateSettingsRequest {
   subscription_expiry_notify_enabled?: boolean;
   account_quota_notify_enabled?: boolean;
   account_quota_notify_emails?: NotifyEmailEntry[];
-
-  // New-User Cold Start (docs/approved/user-cold-start.md §5)
-  signup_bonus_enabled?: boolean;
-  signup_bonus_balance?: number;
-  auto_generate_default_token?: boolean;
-  auto_generate_default_token_name?: string;
-  pricing_catalog_public?: boolean;
 
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;

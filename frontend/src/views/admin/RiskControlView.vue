@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <div class="space-y-6">
       <div v-if="loading" class="flex items-center justify-center py-16">
         <div class="h-8 w-8 animate-spin rounded-full border-b-2 border-primary-600"></div>
@@ -1102,11 +1103,13 @@
         </template>
       </BaseDialog>
     </div>
-  </template>
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Select from '@/components/common/Select.vue'
@@ -1131,7 +1134,6 @@ import type { AdminGroup, SelectOption } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime as formatDateTimeValue } from '@/utils/format'
-import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
 
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
 type WorkerSlotState = 'active' | 'idle' | 'disabled'
@@ -1204,6 +1206,7 @@ const moderationTestPrompt = ref('')
 const moderationTestImages = ref<string[]>([])
 const moderationTestResult = ref<ContentModerationTestAuditResult | null>(null)
 const inputDetailRow = ref<ContentModerationLog | null>(null)
+let statusTimer: number | null = null
 
 const configForm = reactive({
   enabled: false,
@@ -1749,11 +1752,7 @@ async function loadStatus(silent = true) {
   try {
     const runtimeStatus = await adminAPI.riskControl.getStatus()
     status.value = runtimeStatus
-    // Never let a background status poll overwrite the editable api_key_statuses
-    // (and prune the user's pending deletes) while the settings dialog is open —
-    // that silently discards in-progress edits. The read-only `status` display
-    // above still refreshes; only the editable form is protected.
-    if (!settingsOpen.value && Array.isArray(runtimeStatus.api_key_statuses)) {
+    if (Array.isArray(runtimeStatus.api_key_statuses)) {
       configForm.api_key_statuses = [...runtimeStatus.api_key_statuses]
       prunePendingDeleteAPIKeyHashes()
     }
@@ -2334,16 +2333,17 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
 }
 
-const statusPoller = useVisibilityAwarePoller(() => {
-  void loadStatus(true)
-}, 15000)
-
 onMounted(() => {
   void loadAll()
-  statusPoller.start()
+  statusTimer = window.setInterval(() => {
+    void loadStatus(true)
+  }, 15000)
 })
 
 onUnmounted(() => {
-  statusPoller.stop()
+  if (statusTimer !== null) {
+    window.clearInterval(statusTimer)
+    statusTimer = null
+  }
 })
 </script>

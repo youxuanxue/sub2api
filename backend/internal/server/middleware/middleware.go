@@ -3,16 +3,12 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
-
-const middlewareInternalErrorDetailMaxLen = 1024
 
 // ContextKey 定义上下文键类型
 type ContextKey string
@@ -84,42 +80,6 @@ func AbortWithError(c *gin.Context, statusCode int, code, message string) {
 	c.Abort()
 }
 
-// AbortWithErrorDetail behaves like AbortWithError but additionally records a
-// sanitized representation of internalErr on the gin context so that
-// OpsErrorLoggerMiddleware can persist it into ops_error_logs.error_body for
-// post-hoc RCA. The client-facing response is identical to AbortWithError —
-// no detail is leaked to callers.
-func AbortWithErrorDetail(c *gin.Context, statusCode int, code, message string, internalErr error) {
-	if c != nil && internalErr != nil {
-		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
-			c.Set(service.OpsInternalErrorDetailKey, detail)
-		}
-	}
-	AbortWithError(c, statusCode, code, message)
-}
-
-// sanitizeMiddlewareInternalErrorDetail trims and length-caps an internal error
-// string so it is safe to persist in ops_error_logs. Internal errors from
-// Postgres/Redis/context cancellation generally do not carry caller secrets,
-// but we still cap length to keep error_body bounded and utf8-safe.
-func sanitizeMiddlewareInternalErrorDetail(err error) string {
-	if err == nil {
-		return ""
-	}
-	s := strings.TrimSpace(err.Error())
-	if s == "" {
-		return ""
-	}
-	if len(s) > middlewareInternalErrorDetailMaxLen {
-		s = s[:middlewareInternalErrorDetailMaxLen]
-		for len(s) > 0 && !utf8.ValidString(s) {
-			s = s[:len(s)-1]
-		}
-		s += "...(truncated)"
-	}
-	return s
-}
-
 // ──────────────────────────────────────────────────────────
 // RequireGroupAssignment — 未分组 Key 拦截中间件
 // ──────────────────────────────────────────────────────────
@@ -151,10 +111,7 @@ func GoogleErrorWriter(c *gin.Context, status int, message string) {
 func RequireGroupAssignment(settingService *service.SettingService, writeError GatewayErrorWriter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {
-			// 全能 Key（universal）授权由请求级解析按权限跨度裁决：可解析端点已在认证内
-			// 替换为后端组（GroupID != nil 自然放行）；元数据端点未替换（GroupID == nil）也放行，
-			// 由 handler 回落默认。两种情况都不应被“未分组拦截”挡住。
+		if !ok || apiKey.GroupID != nil {
 			c.Next()
 			return
 		}

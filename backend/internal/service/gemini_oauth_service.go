@@ -16,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"go.uber.org/zap"
 )
 
 const (
@@ -369,17 +368,13 @@ func (s *GeminiOAuthService) FetchGoogleOneTier(ctx context.Context, accessToken
 
 	storageInfo, err := s.driveClient.GetStorageQuota(ctx, accessToken, proxyURL)
 	if err != nil {
+		// Check if it's a 403 (scope not granted)
 		if strings.Contains(err.Error(), "status 403") {
-			logger.L().With(
-				zap.String("component", "service.gemini_oauth"),
-				zap.Bool("expected_fallback", true),
-			).Warn("gemini.drive_scope_unavailable", zap.Error(err))
+			logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] Drive API scope not available (403): %v", err)
 			return GeminiTierGoogleOneUnknown, nil, err
 		}
-		logger.L().With(
-			zap.String("component", "service.gemini_oauth"),
-			zap.Bool("expected_fallback", false),
-		).Warn("gemini.drive_quota_fetch_failed", zap.Error(err))
+		// Other errors
+		logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] Failed to fetch Drive storage: %v", err)
 		return GeminiTierGoogleOneUnknown, nil, err
 	}
 
@@ -603,10 +598,7 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 		if err != nil {
 			// Log warning but don't block - use fallback
 			fmt.Printf("[GeminiOAuth] Warning: Failed to fetch Drive tier: %v\n", err)
-			logger.L().With(
-				zap.String("component", "service.gemini_oauth"),
-				zap.Bool("expected_fallback", true),
-			).Warn("gemini.drive_tier_fetch_fallback", zap.Error(err))
+			logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] WARNING: Failed to fetch Drive tier: %v", err)
 			tierID = ""
 		} else {
 			logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] Successfully fetched Drive tier: %s", tierID)

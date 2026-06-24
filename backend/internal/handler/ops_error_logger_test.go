@@ -1,20 +1,14 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strconv"
 	"sync"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
-	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,10 +46,8 @@ func resetOpsErrorLoggerStateForTest(t *testing.T) {
 
 func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	resetOpsErrorLoggerStateForTest(t)
-	dataDir := t.TempDir()
-	t.Setenv("DATA_DIR", dataDir)
-	before := trajectory.DLQWrites()
 
+	// 禁止 enqueueOpsErrorLog 触发 workers，使用测试队列验证满队列降级。
 	opsErrorLogOnce.Do(func() {})
 
 	opsErrorLogMu.Lock()
@@ -63,13 +55,7 @@ func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	opsErrorLogMu.Unlock()
 
 	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	entry := &service.OpsInsertErrorLogInput{
-		RequestID:    "req_queue_full",
-		TrajectoryID: "traj_queue_full",
-		ErrorPhase:   "upstream",
-		ErrorType:    "upstream_error",
-		ErrorMessage: "failed",
-	}
+	entry := &service.OpsInsertErrorLogInput{ErrorPhase: "upstream", ErrorType: "upstream_error"}
 
 	enqueueOpsErrorLog(ops, entry)
 	enqueueOpsErrorLog(ops, entry)
@@ -77,87 +63,6 @@ func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
 	require.Equal(t, int64(1), OpsErrorLogDroppedTotal())
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
-	require.Equal(t, before+1, trajectory.DLQWrites())
-
-	payload := readZstdJSONFile(t, filepath.Join(dataDir, "ops_dlq", "req_queue_full.json.zst"))
-	require.Equal(t, "ops_error_fallback", payload["kind"])
-	require.Equal(t, "ops_error_log_queue_full", payload["fallback_for"])
-	entryPayload, ok := payload["entry"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "req_queue_full", entryPayload["RequestID"])
-	require.Equal(t, "traj_queue_full", entryPayload["TrajectoryID"])
-}
-
-func TestAppendOpsInternalErrorDetail_AppendsAndPrependsCorrectly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	t.Run("noop when key absent", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		entry := &service.OpsInsertErrorLogInput{ErrorBody: `{"code":"INTERNAL_ERROR"}`}
-		appendOpsInternalErrorDetail(c, entry)
-		require.Equal(t, `{"code":"INTERNAL_ERROR"}`, entry.ErrorBody)
-	})
-
-	t.Run("noop when value not string", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set(service.OpsInternalErrorDetailKey, 42)
-		entry := &service.OpsInsertErrorLogInput{ErrorBody: "body"}
-		appendOpsInternalErrorDetail(c, entry)
-		require.Equal(t, "body", entry.ErrorBody)
-	})
-
-	t.Run("injects into JSON object body", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set(service.OpsInternalErrorDetailKey, "redis ECONNREFUSED")
-		entry := &service.OpsInsertErrorLogInput{ErrorBody: `{"code":"INTERNAL_ERROR","message":"Failed to validate API key"}`}
-		appendOpsInternalErrorDetail(c, entry)
-
-		// Must remain valid JSON so service.sanitizeErrorBodyForStorage can
-		// still apply redactSensitiveJSON downstream.
-		var decoded map[string]any
-		require.NoError(t, json.Unmarshal([]byte(entry.ErrorBody), &decoded))
-		require.Equal(t, "INTERNAL_ERROR", decoded["code"])
-		require.Equal(t, "Failed to validate API key", decoded["message"])
-		require.Equal(t, "redis ECONNREFUSED", decoded["_internal_detail"])
-	})
-
-	t.Run("falls back to marker on non-JSON body", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set(service.OpsInternalErrorDetailKey, "context deadline exceeded")
-		entry := &service.OpsInsertErrorLogInput{ErrorBody: "plain text body, not json"}
-		appendOpsInternalErrorDetail(c, entry)
-		require.Equal(t, "plain text body, not json\n[internal_detail] context deadline exceeded", entry.ErrorBody)
-	})
-
-	t.Run("falls back to marker on JSON array body", func(t *testing.T) {
-		// JSON arrays have no stable "_internal_detail" insertion shape, so
-		// we expect the marker-append fallback to kick in.
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set(service.OpsInternalErrorDetailKey, "pool exhausted")
-		entry := &service.OpsInsertErrorLogInput{ErrorBody: `["a","b"]`}
-		appendOpsInternalErrorDetail(c, entry)
-		require.Equal(t, `["a","b"]`+"\n[internal_detail] pool exhausted", entry.ErrorBody)
-	})
-
-	t.Run("populates empty body", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set(service.OpsInternalErrorDetailKey, "context deadline exceeded")
-		entry := &service.OpsInsertErrorLogInput{}
-		appendOpsInternalErrorDetail(c, entry)
-		require.Equal(t, "[internal_detail] context deadline exceeded", entry.ErrorBody)
-	})
-
-	t.Run("nil context safe", func(t *testing.T) {
-		entry := &service.OpsInsertErrorLogInput{}
-		appendOpsInternalErrorDetail(nil, entry)
-		require.Empty(t, entry.ErrorBody)
-	})
-
-	t.Run("nil entry safe", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set(service.OpsInternalErrorDetailKey, "x")
-		require.NotPanics(t, func() { appendOpsInternalErrorDetail(c, nil) })
-	})
 }
 
 func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
@@ -192,21 +97,6 @@ func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
 	opsErrorLogMu.Unlock()
 	enqueueOpsErrorLog(ops, entry)
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
-}
-
-func readZstdJSONFile(t *testing.T, path string) map[string]any {
-	t.Helper()
-
-	raw, err := os.ReadFile(path)
-	require.NoError(t, err)
-	dec, err := zstd.NewReader(nil)
-	require.NoError(t, err)
-	decoded, err := dec.DecodeAll(raw, nil)
-	require.NoError(t, err)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(decoded, &payload))
-	return payload
 }
 
 func TestOpsCaptureWriterPool_ResetOnRelease(t *testing.T) {
@@ -969,31 +859,13 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 	}
 }
 
-// POLICY CHANGE (2026-06-06, mirror-edge metric pollution): an upstream verdict
-// carrying a TokenKey "No available accounts" envelope is now owned as routing (out
-// of upstream_error_rate), NOT counted as provider health. This intentionally
-// reverses the original assertion from the 2026-05-18 "SLA 排除逻辑" commit
-// (ae6ee23e), which predates the mirror-edge topology understanding.
-//
-// Why the reversal: prod relays to Edge stacks via cc-<edge> apikey mirror accounts;
-// an empty edge pool returns 429/503 "No available accounts" (tkNoAvailableAccounts,
-// PR #575). The old asymmetry — local empty pool excluded (routingCapacityLimited)
-// but a RELAYED "no available" counted — treated OUR own fleet capacity as Anthropic
-// health. During the yace load test that made upstream_error_rate read ~1300 on a
-// dead single-account edge AND a healthy 3-account edge alike (16x client-cancel +
-// failover smear), so the metric could not tell a dead edge from a healthy one. Edge
-// health now has a dedicated truthful signal (ops/observability/scan-edge-health.sh,
-// #640); upstream_error_rate is reserved for genuine provider health. A real provider
-// 429 (rate_limit_error) / raw 5xx carries no TokenKey phrase and still counts — see
-// TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper.
-// tkUpstreamDownstreamCapacity is the predicate; it folds into routingCapacityLimited.
-func TestClassifyOpsUpstreamNoAvailableTextExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available accounts", "")
 
-	phase, isBusinessLimited, errorOwner, _ := classifyOpsErrorLog(
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -1001,9 +873,10 @@ func TestClassifyOpsUpstreamNoAvailableTextExcludedFromSLA(t *testing.T) {
 		http.StatusServiceUnavailable,
 	)
 
-	require.Equal(t, "routing", phase, "relayed downstream-capacity verdict is routing, not provider health")
-	require.True(t, isBusinessLimited, "TK fleet capacity is a business/capacity limit, like a local empty pool")
-	require.Equal(t, "platform", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
+	require.Equal(t, "upstream", phase)
+	require.False(t, isBusinessLimited)
+	require.Equal(t, "provider", errorOwner)
+	require.Equal(t, "upstream_http", errorSource)
 }
 
 func TestParseOpsErrorResponsePreservesNestedStringCode(t *testing.T) {
@@ -1057,84 +930,6 @@ func TestSetOpsEndpointContext_NilContext(t *testing.T) {
 	require.NotPanics(t, func() {
 		setOpsEndpointContext(nil, "model", int16(1))
 	})
-}
-
-func TestGuessPlatformFromPath(t *testing.T) {
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{
-			name: "antigravity prefix keeps antigravity",
-			path: "/antigravity/v1/messages",
-			want: service.PlatformAntigravity,
-		},
-		{
-			name: "gemini prefix keeps gemini",
-			path: "/v1beta/models/gemini-2.5-pro:generateContent",
-			want: service.PlatformGemini,
-		},
-		{
-			name: "messages path falls back to openai compat bucket",
-			path: "/v1/messages",
-			want: service.PlatformOpenAI,
-		},
-		{
-			name: "responses path falls back to openai compat bucket",
-			path: "/v1/responses",
-			want: service.PlatformOpenAI,
-		},
-		{
-			name: "unknown path returns empty",
-			path: "/healthz",
-			want: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, guessPlatformFromPath(tt.path))
-		})
-	}
-}
-
-// TestOpsKeyContract_HandlerWriteServiceRead is the mechanical guard for R-005:
-// handler.setOpsRequestContext writes model + body via the unexported opsXxxKey
-// constants, and service.TkEnrichForbiddenMessage reads them via the exported
-// service.OpsXxxKey constants. If anyone ever forks these two strings apart
-// (so handler writes "ops_model" but service reads "ops_model_v2"), this test
-// fails — replacing the previous rationale-comment-only sync discipline.
-func TestOpsKeyContract_HandlerWriteServiceRead(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	// Handler-side writer for model (setOpsRequestContext is the production
-	// writer); body is no longer captured by setOpsRequestContext after the
-	// upstream commit 2eb622f2 dropped ops_retry_replay storage. The body-size
-	// branch of TkEnrichForbiddenMessage is now exercised by service-layer
-	// tests that set OpsRequestBodyKey directly via gateway_service.go
-	// `setOpsUpstreamRequestBody`.
-	body := []byte(`{"model":"claude-opus-4-7"}`)
-	setOpsRequestContext(c, "claude-opus-4-7", false)
-	c.Set(opsRequestBodyKey, body)
-
-	// Service-side reader (the actual production consumer of this contract).
-	got := service.TkEnrichForbiddenMessage(c, "default-msg")
-
-	require.Contains(t, got, "claude-opus-4-7",
-		"service.TkEnrichForbiddenMessage must read the model handler.setOpsRequestContext wrote — opsModelKey/OpsModelKey out of sync?")
-	require.Contains(t, got, strconv.Itoa(len(body)),
-		"service.TkEnrichForbiddenMessage must read the body length handler context wrote (%d bytes) — opsRequestBodyKey/OpsRequestBodyKey out of sync?", len(body))
-
-	// Also verify the literal constants agree symbolically (compile-time guard
-	// for the const = service.OpsXxxKey aliasing in ops_error_logger.go).
-	require.Equal(t, service.OpsModelKey, opsModelKey,
-		"opsModelKey must be defined as service.OpsModelKey")
-	require.Equal(t, service.OpsRequestBodyKey, opsRequestBodyKey,
-		"opsRequestBodyKey must be defined as service.OpsRequestBodyKey")
 }
 
 func TestGetOpsAPIKeyFallsBackToOpsFallbackKey(t *testing.T) {

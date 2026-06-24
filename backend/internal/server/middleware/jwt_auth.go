@@ -16,9 +16,7 @@ func NewJWTAuthMiddleware(authService *service.AuthService, userService *service
 }
 
 type jwtUserReader interface {
-	// GetByIDForAuth is the lean auth-path lookup (single users-row query, no
-	// allowed-groups / avatar enrichment). Satisfied by *service.UserService.
-	GetByIDForAuth(ctx context.Context, id int64) (*service.User, error)
+	GetByID(ctx context.Context, id int64) (*service.User, error)
 }
 
 type userActivityToucher interface {
@@ -59,8 +57,8 @@ func jwtAuth(authService *service.AuthService, userService jwtUserReader, activi
 			return
 		}
 
-		// 从数据库获取最新的用户信息（鉴权热路径：精简查询，跳过 allowed-groups / avatar 富化）
-		user, err := userService.GetByIDForAuth(c.Request.Context(), claims.UserID)
+		// 从数据库获取最新的用户信息
+		user, err := userService.GetByID(c.Request.Context(), claims.UserID)
 		if err != nil {
 			AbortWithError(c, 401, "USER_NOT_FOUND", "User not found")
 			return

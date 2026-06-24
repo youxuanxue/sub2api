@@ -5,7 +5,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"testing"
 	"time"
 
@@ -187,21 +186,11 @@ func TestSetOverloadCooldownSettings_AcceptsBoundaries(t *testing.T) {
 
 // ===========================================================================
 // RateLimitService: handle529 behaviour
-//
-// Incident 2026-06-11 16:50 UTC: a single provider-wide 529 used to flat-lock
-// the (often single-account) edge pool for OverloadCooldownMinutes (default 10).
-// New semantics — single/transient 529 gets only the 30s tier-0 floor and the
-// CooldownMinutes duration role is superseded by the tier ladder; the upstream
-// Retry-After is honored when present (clamped to the ladder max). The Enabled
-// toggle is preserved. Sustained 529 escalation (30s→2m→10m) lives in
-// handleAnthropicUpstreamErrorWithOptions, exercised by the 3/3-ladder tests.
 // ===========================================================================
 
-func TestHandle529_NoRetryAfter_ShortFloorNotFlatTenMin(t *testing.T) {
+func TestHandle529_EnabledFromDB_PausesAccount(t *testing.T) {
 	accountRepo := &overloadAccountRepoStub{}
 	settingRepo := newMockSettingRepo()
-	// Even an explicit 15-min setting no longer drives a single-529 cooldown:
-	// the duration is ladder-driven. This is the amplifier removal.
 	data, _ := json.Marshal(OverloadCooldownSettings{Enabled: true, CooldownMinutes: 15})
 	settingRepo.data[SettingKeyOverloadCooldownSettings] = string(data)
 
@@ -211,12 +200,11 @@ func TestHandle529_NoRetryAfter_ShortFloorNotFlatTenMin(t *testing.T) {
 
 	account := &Account{ID: 42, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
 	before := time.Now()
-	owned := svc.handle529(context.Background(), account, http.Header{})
+	svc.handle529(context.Background(), account)
 
-	require.False(t, owned, "no Retry-After → not authoritative → ladder must NOT be suppressed")
 	require.Equal(t, 1, accountRepo.overloadCalls)
 	require.Equal(t, int64(42), accountRepo.lastOverloadID)
-	require.WithinDuration(t, before.Add(anthropicCooldownTierLadder[0]), accountRepo.lastOverloadEnd, 2*time.Second)
+	require.WithinDuration(t, before.Add(15*time.Minute), accountRepo.lastOverloadEnd, 2*time.Second)
 }
 
 func TestHandle529_DisabledFromDB_SkipsAccount(t *testing.T) {
@@ -230,56 +218,55 @@ func TestHandle529_DisabledFromDB_SkipsAccount(t *testing.T) {
 	svc.SetSettingService(settingSvc)
 
 	account := &Account{ID: 42, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
-	owned := svc.handle529(context.Background(), account, http.Header{})
+	svc.handle529(context.Background(), account)
 
-	require.False(t, owned)
 	require.Equal(t, 0, accountRepo.overloadCalls, "should NOT pause when disabled")
 }
 
-func TestHandle529_HonorsUpstreamRetryAfter(t *testing.T) {
-	accountRepo := &overloadAccountRepoStub{}
-	svc := NewRateLimitService(accountRepo, nil, &config.Config{}, nil, nil)
-
-	account := &Account{ID: 77, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
-	headers := http.Header{}
-	headers.Set("Retry-After", "120")
-	before := time.Now()
-	owned := svc.handle529(context.Background(), account, headers)
-
-	require.True(t, owned, "a precise Retry-After is authoritative → suppress the ladder")
-	require.Equal(t, 1, accountRepo.overloadCalls)
-	require.WithinDuration(t, before.Add(120*time.Second), accountRepo.lastOverloadEnd, 2*time.Second)
-}
-
-func TestHandle529_ClampsExcessiveRetryAfter(t *testing.T) {
-	accountRepo := &overloadAccountRepoStub{}
-	svc := NewRateLimitService(accountRepo, nil, &config.Config{}, nil, nil)
-
-	account := &Account{ID: 78, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
-	headers := http.Header{}
-	headers.Set("Retry-After", "3600") // 1h — must clamp to the ladder max (10min)
-	before := time.Now()
-	owned := svc.handle529(context.Background(), account, headers)
-
-	require.True(t, owned)
-	maxCooldown := anthropicCooldownTierLadder[len(anthropicCooldownTierLadder)-1]
-	require.WithinDuration(t, before.Add(maxCooldown), accountRepo.lastOverloadEnd, 2*time.Second)
-}
-
-func TestHandle529_NilSettingService_StillShortFloor(t *testing.T) {
+func TestHandle529_NilSettingService_FallsBackToConfig(t *testing.T) {
 	accountRepo := &overloadAccountRepoStub{}
 	cfg := &config.Config{}
-	cfg.RateLimit.OverloadCooldownMinutes = 20 // legacy flat config no longer drives duration
+	cfg.RateLimit.OverloadCooldownMinutes = 20
 	svc := NewRateLimitService(accountRepo, nil, cfg, nil, nil)
-	// NOT calling SetSettingService — remains nil; fallback keeps Enabled=true.
+	// NOT calling SetSettingService — remains nil
+
+	account := &Account{ID: 77, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+	before := time.Now()
+	svc.handle529(context.Background(), account)
+
+	require.Equal(t, 1, accountRepo.overloadCalls)
+	require.WithinDuration(t, before.Add(20*time.Minute), accountRepo.lastOverloadEnd, 2*time.Second)
+}
+
+func TestHandle529_NilSettingService_ZeroConfig_DefaultsTen(t *testing.T) {
+	accountRepo := &overloadAccountRepoStub{}
+	svc := NewRateLimitService(accountRepo, nil, &config.Config{}, nil, nil)
 
 	account := &Account{ID: 88, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
 	before := time.Now()
-	owned := svc.handle529(context.Background(), account, http.Header{})
+	svc.handle529(context.Background(), account)
 
-	require.False(t, owned)
 	require.Equal(t, 1, accountRepo.overloadCalls)
-	require.WithinDuration(t, before.Add(anthropicCooldownTierLadder[0]), accountRepo.lastOverloadEnd, 2*time.Second)
+	require.WithinDuration(t, before.Add(10*time.Minute), accountRepo.lastOverloadEnd, 2*time.Second)
+}
+
+func TestHandle529_DBReadError_FallsBackToConfig(t *testing.T) {
+	accountRepo := &overloadAccountRepoStub{}
+	errRepo := &errSettingRepo{readErr: context.DeadlineExceeded}
+	errRepo.data = make(map[string]string)
+
+	cfg := &config.Config{}
+	cfg.RateLimit.OverloadCooldownMinutes = 7
+	settingSvc := NewSettingService(errRepo, cfg)
+	svc := NewRateLimitService(accountRepo, nil, cfg, nil, nil)
+	svc.SetSettingService(settingSvc)
+
+	account := &Account{ID: 99, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+	before := time.Now()
+	svc.handle529(context.Background(), account)
+
+	require.Equal(t, 1, accountRepo.overloadCalls)
+	require.WithinDuration(t, before.Add(7*time.Minute), accountRepo.lastOverloadEnd, 2*time.Second)
 }
 
 // ===========================================================================

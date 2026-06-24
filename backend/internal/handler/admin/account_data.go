@@ -51,27 +51,18 @@ type DataProxy struct {
 // Credentials 原文返回。这是"管理员备份"这一显式行为的一部分；如未来需要导出脱敏版本，
 // 应新增独立结构而非修改这里。
 type DataAccount struct {
-	Name           string         `json:"name"`
-	Notes          *string        `json:"notes,omitempty"`
-	Platform       string         `json:"platform"`
-	Type           string         `json:"type"`
-	Credentials    map[string]any `json:"credentials"`
-	Extra          map[string]any `json:"extra,omitempty"`
-	ProxyKey       *string        `json:"proxy_key,omitempty"`
-	Concurrency    int            `json:"concurrency"`
-	Priority       int            `json:"priority"`
-	ChannelType    int            `json:"channel_type"`
-	RateMultiplier *float64       `json:"rate_multiplier,omitempty"`
-	// GroupIDs carries the account → group bindings across export/import.
-	// TK: See upstream Wei-Shaw/sub2api#1170 — without this field the JSON
-	// payload's `group_ids` was silently dropped at unmarshal time and the
-	// importer hard-coded GroupIDs: nil, so newly imported accounts came in
-	// ungrouped even when the operator explicitly listed groups. The exporter
-	// equally omitted the field, so an export → import round trip lost group
-	// membership entirely.
-	GroupIDs           []int64 `json:"group_ids,omitempty"`
-	ExpiresAt          *int64  `json:"expires_at,omitempty"`
-	AutoPauseOnExpired *bool   `json:"auto_pause_on_expired,omitempty"`
+	Name               string         `json:"name"`
+	Notes              *string        `json:"notes,omitempty"`
+	Platform           string         `json:"platform"`
+	Type               string         `json:"type"`
+	Credentials        map[string]any `json:"credentials"`
+	Extra              map[string]any `json:"extra,omitempty"`
+	ProxyKey           *string        `json:"proxy_key,omitempty"`
+	Concurrency        int            `json:"concurrency"`
+	Priority           int            `json:"priority"`
+	RateMultiplier     *float64       `json:"rate_multiplier,omitempty"`
+	ExpiresAt          *int64         `json:"expires_at,omitempty"`
+	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired,omitempty"`
 }
 
 type DataImportRequest struct {
@@ -193,9 +184,7 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			ProxyKey:           proxyKey,
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
-			ChannelType:        acc.ChannelType,
 			RateMultiplier:     acc.RateMultiplier,
-			GroupIDs:           acc.GroupIDs,
 			ExpiresAt:          expiresAt,
 			AutoPauseOnExpired: &acc.AutoPauseOnExpired,
 		})
@@ -414,11 +403,6 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 		enrichCredentialsFromIDToken(&item)
 
-		// TK: See upstream Wei-Shaw/sub2api#1170 — forward GroupIDs from the
-		// import payload to CreateAccount. The original implementation
-		// hard-coded `nil` here, which combined with the default
-		// SkipDefaultGroupBind=true left batch-imported accounts ungrouped
-		// even when the operator explicitly listed group_ids.
 		accountInput := &service.CreateAccountInput{
 			Name:                 item.Name,
 			Notes:                item.Notes,
@@ -429,9 +413,8 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			ProxyID:              proxyID,
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,
-			ChannelType:          item.ChannelType,
 			RateMultiplier:       item.RateMultiplier,
-			GroupIDs:             item.GroupIDs,
+			GroupIDs:             nil,
 			ExpiresAt:            item.ExpiresAt,
 			AutoPauseOnExpired:   item.AutoPauseOnExpired,
 			SkipDefaultGroupBind: skipDefaultGroupBind,
@@ -691,12 +674,6 @@ func validateDataAccount(item DataAccount) error {
 	}
 	if item.Priority < 0 {
 		return errors.New("priority must be >= 0")
-	}
-	if item.ChannelType < 0 {
-		return errors.New("channel_type must be >= 0")
-	}
-	if msg := tkValidateNewAPIAccountCreate(item.Platform, item.ChannelType, item.Credentials); msg != "" {
-		return errors.New(msg)
 	}
 	return nil
 }

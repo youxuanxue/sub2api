@@ -37,15 +37,6 @@ type OpsRequestDetail struct {
 	AccountID *int64 `json:"account_id,omitempty"`
 	GroupID   *int64 `json:"group_id,omitempty"`
 
-	// TK: See upstream Wei-Shaw/sub2api#2410 — human-readable attribution so the
-	// admin request-detail drill-down can identify who is calling without a
-	// separate DB lookup.
-	UserEmail   string `json:"user_email,omitempty"`
-	Username    string `json:"username,omitempty"`
-	APIKeyName  string `json:"api_key_name,omitempty"`
-	AccountName string `json:"account_name,omitempty"`
-	GroupName   string `json:"group_name,omitempty"`
-
 	Stream bool `json:"stream"`
 }
 

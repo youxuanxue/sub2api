@@ -234,8 +234,6 @@ func TestAPIKeyService_GetByKey_UsesL2Cache(t *testing.T) {
 func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t *testing.T) {
 	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
 	groupID := int64(9)
-	enabled := true
-	threshold := 180000
 	apiKey := &APIKey{
 		ID:      1,
 		UserID:  2,
@@ -267,8 +265,6 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 					"claude-sonnet-4.5": "gpt-5.4-nano",
 				},
 			},
-			MessagesCompactionEnabled:              &enabled,
-			MessagesCompactionInputTokensThreshold: &threshold,
 		},
 	}
 
@@ -279,10 +275,6 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 	require.Equal(t, apiKey.Name, roundTrip.Name)
 	require.NotNil(t, roundTrip.Group)
 	require.Equal(t, apiKey.Group.MessagesDispatchModelConfig, roundTrip.Group.MessagesDispatchModelConfig)
-	require.NotNil(t, roundTrip.Group.MessagesCompactionEnabled)
-	require.NotNil(t, roundTrip.Group.MessagesCompactionInputTokensThreshold)
-	require.Equal(t, *apiKey.Group.MessagesCompactionEnabled, *roundTrip.Group.MessagesCompactionEnabled)
-	require.Equal(t, *apiKey.Group.MessagesCompactionInputTokensThreshold, *roundTrip.Group.MessagesCompactionInputTokensThreshold)
 }
 
 func TestAPIKeyService_GetByKey_IgnoresLegacyAuthCacheSnapshotWithoutMessagesDispatchConfig(t *testing.T) {

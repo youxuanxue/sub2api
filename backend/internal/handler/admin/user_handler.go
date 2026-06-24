@@ -70,8 +70,6 @@ type UpdateUserRequest struct {
 	RPMLimit      *int     `json:"rpm_limit"`
 	Status        string   `json:"status" binding:"omitempty,oneof=active disabled"`
 	AllowedGroups *[]int64 `json:"allowed_groups"`
-	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关；nil 表示不改动。
-	TrajExportEnabled *bool `json:"traj_export_enabled"`
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64 `json:"group_rates"`
@@ -300,17 +298,16 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	// 使用指针类型直接传递，nil 表示未提供该字段
 	user, err := h.adminService.UpdateUser(c.Request.Context(), userID, &service.UpdateUserInput{
-		Email:             req.Email,
-		Password:          req.Password,
-		Username:          req.Username,
-		Notes:             req.Notes,
-		Balance:           req.Balance,
-		Concurrency:       req.Concurrency,
-		RPMLimit:          req.RPMLimit,
-		Status:            req.Status,
-		AllowedGroups:     req.AllowedGroups,
-		TrajExportEnabled: req.TrajExportEnabled,
-		GroupRates:        req.GroupRates,
+		Email:         req.Email,
+		Password:      req.Password,
+		Username:      req.Username,
+		Notes:         req.Notes,
+		Balance:       req.Balance,
+		Concurrency:   req.Concurrency,
+		RPMLimit:      req.RPMLimit,
+		Status:        req.Status,
+		AllowedGroups: req.AllowedGroups,
+		GroupRates:    req.GroupRates,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

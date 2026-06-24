@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestOpenAIRequestView_ExtractsRawScalars(t *testing.T) {
@@ -113,15 +112,10 @@ func TestOpenAIGatewayService_Forward_HTTPPatchPathKeepsLargeInputRaw(t *testing
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, upstream.lastReq)
-	// TK: sticky-routing 默认开启，会为无 prompt_cache_key 的请求经 patch 路径
-	// （sjson，不展开大 input map）注入一个派生键。先断言该键存在并剥离，再比对
-	// 上游期望的其余请求体——以此既覆盖上游 patch-path 不变量，又反映 TK 注入行为。
-	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String(), "tk_"))
-	bodyWithoutSticky, _ := sjson.DeleteBytes(append([]byte(nil), upstream.lastBody...), "prompt_cache_key")
 	// 合成路径默认 instructions 现按模型填入真实 Codex base prompt（此处 inbound model=gpt-5）。
 	encodedInstr, _ := json.Marshal(defaultCodexSynthInstructions("gpt-5"))
 	expectedBody := fmt.Sprintf(`{"model":"gpt-5","stream":false,"reasoning":{"effort":"none"},"instructions":%s,"input":[{"type":"message","content":[{"type":"input_text","text":"hi","nonce":9007199254740993}]}]}`, string(encodedInstr))
-	require.JSONEq(t, expectedBody, string(bodyWithoutSticky))
+	require.JSONEq(t, expectedBody, string(upstream.lastBody))
 	require.Equal(t, "9007199254740993", gjson.GetBytes(upstream.lastBody, "input.0.content.0.nonce").Raw)
 }
 

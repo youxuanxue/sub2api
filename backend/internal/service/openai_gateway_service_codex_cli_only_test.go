@@ -284,10 +284,7 @@ func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing
 
 	_, err := svc.Forward(context.Background(), c, account, body)
 	require.Error(t, err)
-	// Bug B: a client-induced upstream 400 invalid_request_error (here a missing
-	// required parameter) now passes its REAL status through to the caller instead
-	// of being masked as a generic 502 "Upstream request failed".
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
 	require.Contains(t, err.Error(), "upstream error: 400")
 
 	require.True(t, logSink.ContainsMessageAtLevel("OpenAI 上游返回 Instructions are required，已记录请求详情用于排查", "warn"))
@@ -396,78 +393,4 @@ func TestOpenAIGatewayService_Forward_ModelCapacityErrorTriggersFailoverAndSameA
 	require.True(t, failoverErr.RetryableOnSameAccount)
 	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
 	require.False(t, c.Writer.Written(), "service 层应返回 failover 错误给上层重试/换号，而不是直接向客户端写响应")
-}
-
-func TestEnforceCodexClientRestriction(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"codex_cli_only": true}}
-
-	newCtx := func() (*gin.Context, *httptest.ResponseRecorder) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		c.Request.Header.Set("User-Agent", "curl/8.7.1")
-		return c, rec
-	}
-
-	t.Run("非官方客户端写出干净 403 并返回 sentinel 错误", func(t *testing.T) {
-		svc := &OpenAIGatewayService{codexDetector: &stubCodexRestrictionDetector{
-			result: CodexClientRestrictionDetectionResult{Enabled: true, Matched: false, Reason: CodexClientRestrictionReasonNotMatchedUA},
-		}}
-		c, rec := newCtx()
-
-		err := svc.enforceCodexClientRestriction(context.Background(), c, account, nil)
-		require.ErrorIs(t, err, errCodexClientRestricted)
-		require.Equal(t, http.StatusForbidden, rec.Code)
-		require.Contains(t, rec.Body.String(), "only allows Codex official clients")
-		require.True(t, HasOpsClientBusinessLimited(c))
-		// 响应体必须是单个干净 JSON，不含被追加的 SSE/error 终止帧。
-		require.NotContains(t, rec.Body.String(), "response.failed")
-		require.NotContains(t, rec.Body.String(), "event: error")
-	})
-
-	t.Run("命中官方客户端时放行且不写响应", func(t *testing.T) {
-		svc := &OpenAIGatewayService{codexDetector: &stubCodexRestrictionDetector{
-			result: CodexClientRestrictionDetectionResult{Enabled: true, Matched: true, Reason: CodexClientRestrictionReasonMatchedUA},
-		}}
-		c, _ := newCtx()
-
-		err := svc.enforceCodexClientRestriction(context.Background(), c, account, nil)
-		require.NoError(t, err)
-		require.False(t, c.Writer.Written())
-	})
-
-	t.Run("账号未开启策略时是零成本 no-op", func(t *testing.T) {
-		svc := &OpenAIGatewayService{codexDetector: &stubCodexRestrictionDetector{
-			result: CodexClientRestrictionDetectionResult{Enabled: false, Matched: false, Reason: CodexClientRestrictionReasonDisabled},
-		}}
-		c, _ := newCtx()
-
-		err := svc.enforceCodexClientRestriction(context.Background(), c, account, nil)
-		require.NoError(t, err)
-		require.False(t, c.Writer.Written())
-	})
-}
-
-// TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry 复刻 upstream
-// Wei-Shaw/sub2api#3014：codex_cli_only 账号经 /v1/chat/completions 兼容入口被
-// 普通客户端调用时，必须在转发上游之前返回 403——此前限制只在 /responses 生效，
-// 该兼容入口可绕过限制。
-func TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	svc := &OpenAIGatewayService{codexDetector: &stubCodexRestrictionDetector{
-		result: CodexClientRestrictionDetectionResult{Enabled: true, Matched: false, Reason: CodexClientRestrictionReasonNotMatchedUA},
-	}}
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	c.Request.Header.Set("User-Agent", "curl/8.7.1")
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"codex_cli_only": true}}
-	body := []byte(`{"model":"gpt-5.1","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":1}`)
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
-	require.Nil(t, result)
-	require.ErrorIs(t, err, errCodexClientRestricted)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "only allows Codex official clients")
 }

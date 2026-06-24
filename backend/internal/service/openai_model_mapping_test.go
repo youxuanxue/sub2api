@@ -268,30 +268,6 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
-			name:    "oauth keeps canonical gpt-5.3-codex unrewritten (ChatGPT backend contract reversed 2026-05-29)",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3-codex",
-			want:    "gpt-5.3-codex",
-		},
-		{
-			name:    "oauth normalizes gpt-5.3 alias to gpt-5.3-codex via codexModelMap",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3",
-			want:    "gpt-5.3-codex",
-		},
-		{
-			name:    "oauth normalizes codex-mini-latest alias to gpt-5.3-codex via codexModelMap",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "codex-mini-latest",
-			want:    "gpt-5.3-codex",
-		},
-		{
-			name:    "oauth spark model not remapped",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3-codex-spark",
-			want:    "gpt-5.3-codex-spark",
-		},
-		{
 			name:    "apikey preserves custom compatible model",
 			account: &Account{Type: AccountTypeAPIKey},
 			model:   "gemini-3-flash-preview",
@@ -311,15 +287,6 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 				t.Fatalf("normalizeOpenAIModelForUpstream(...) = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// The ChatGPT OAuth rewrite table must stay empty until the upstream contract
-// flips again (2026-06-10 prod probe): canonical names go upstream as-is so
-// clients see the real upstream 400 instead of a silently rewritten model.
-func TestChatGPTOAuthUpstreamModelNamesIsEmpty(t *testing.T) {
-	if len(chatGPTOAuthUpstreamModelNames) != 0 {
-		t.Fatalf("chatGPTOAuthUpstreamModelNames = %#v, want empty map (see contract timeline in openai_codex_transform.go)", chatGPTOAuthUpstreamModelNames)
 	}
 }
 

@@ -1,289 +1,4 @@
 export default {
-  // Public Pricing Page (TK cold-start, US-028)
-  pricing: {
-    title: '模型价格',
-    subtitle: '所有支持的模型，按调用量计费',
-    description:
-      '价格以美元 (USD) 计价，单位为每 1,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。',
-    nav: {
-      aria: '离开价格页',
-      home: '首页',
-      console: '控制台',
-      consoleTitleAuthed: '前往您的控制台',
-      consoleTitleGuest: '登录后进入控制台'
-    },
-    columns: {
-      model: '模型',
-      vendor: '厂商',
-      input: '输入',
-      output: '输出',
-      cacheRead: '缓存读取',
-      cacheWrite: '缓存写入',
-      contextWindow: '上下文窗口',
-      maxOutput: '最大输出',
-      capabilities: '能力'
-    },
-    tableHint: '可左右滑动或横向滚动查看全部列；左侧模型名称支持换行显示。',
-    footer: {
-      total: '共 {count} 个模型',
-      filtered: '显示 {shown} / {total} 个模型'
-    },
-    perThousandTokens: '/ 1K tokens',
-    thinkingOutput: '思考',
-    contextTokens: '{count} tokens',
-    updatedAt: '更新于 {time}',
-    empty: {
-      title: '价格目录正在准备中',
-      hint: '暂无模型价格数据，请稍后再来或联系管理员。'
-    },
-    errorTitle: '加载价格失败',
-    errorHint: '请刷新页面或稍后重试。',
-    retry: '重试',
-    search: {
-      placeholder: '按模型名称搜索…',
-      modeLabel: '匹配方式',
-      modeFuzzy: '模糊（包含）',
-      modeExact: '精准（全名）',
-      resultCount: '{count} 个模型',
-      noMatches: '没有匹配的模型。可切换到模糊搜索或缩短关键词。'
-    },
-    filters: {
-      apiKey: 'API Key',
-      keyPlaceholder: '全部 Key',
-      group: 'Group',
-      publicCatalog: '公开目录',
-      search: '搜索',
-      activePublic: '正在查看公开目录',
-      activeGroup: '正在查看 {group} 的分组目录',
-      activeKeyGroup: '正在查看 {key} · {group}'
-    },
-    ctaBonus: '立即注册 · 获赠 {amount} 试用额度',
-    ctaBonusHint: '当本站开启注册赠额时显示此提示。',
-    perRequest: '/ 次',
-    perImage: '/ 张',
-    perSecond: '/ 秒',
-    videoClipExample: '5秒 {five} · 10秒 {ten}',
-    modality: {
-      all: '全部',
-      text: '文本',
-      image: '图片',
-      video: '视频'
-    },
-    // TK: 登录态「分组目录」视图（GET /api/v1/me/pricing-catalog）。价格一律
-    // 展示官方定价，与分组倍率/个人覆写脱钩。
-    my: {
-      tabMy: '分组目录',
-      tabPublic: '所有目录',
-      title: '分组模型目录',
-      subtitle: '当前 API Key 所属分组可调用的模型与官方定价',
-      description:
-        '展示所选分组可调用的模型及其官方定价，单位为每 1,000 tokens。切换 API Key 查看不同 group，或对比其他可用 group。',
-      pickerKey: '当前 Key：',
-      pickerCompare: '对比其他 group：',
-      compareDefault: '保持当前',
-      noKeyHint: '你还没有可用的 API Key，先去控制台创建一个。',
-      columns: {
-        input: '输入（官方单价）',
-        output: '输出（官方单价）'
-      },
-      empty: {
-        noAccess: {
-          title: '暂无可用分组',
-          hint: '没有可访问的 group，请联系管理员或先在订阅页选购。'
-        },
-        noModels: {
-          title: '此分组暂未上架模型',
-          hint: '管理员可能正在配置渠道，请稍后再来或切换到其他 group。'
-        }
-      },
-      exploreBanner: {
-        message: '正在查看 {group} 的目录',
-        cta: '在 {group} 创建 Key'
-      },
-      billingMode: {
-        per_request: '按次',
-        image: '按图'
-      }
-    }
-  },
-
-  // 工作室（对话 / 图片 / 视频）— TK
-  studio: {
-    title: '工作室',
-    subtitle: '你的密钥能做的，都在这里试——对话、图片、视频，一处搞定。',
-    balance: '余额',
-    apiKey: 'API 密钥',
-    pickKeyPlaceholder: '选择一个 API 密钥…',
-    loadingModels: '正在加载模型…',
-    loadFailed: '工作室加载失败。',
-    noApiKey: '没有可用的 API 密钥，请先在「API 密钥」里创建一个。',
-    manageKeys: '管理 API 密钥',
-    defaultGroup: '默认分组',
-    modeChat: '对话',
-    modeImage: '图片',
-    modeVideo: '视频',
-    modeBakeoff: '同台对比',
-    clear: '清空',
-    topUp: '去充值',
-    viewPricing: '查看价格',
-    via: '经 {vendor}',
-    keyNoModality: '此模式无可用模型',
-    needsApikeyAccount: '需要 apikey 类型账号',
-    badge: {
-      draft: '草稿',
-      standard: '标准',
-      ultra: '极致',
-      fast: '快速',
-      cinematic: '电影级'
-    },
-    advanced: {
-      toggle: '高级',
-      negativePrompt: '不要出现',
-      negativePromptHint: '描述要避免的元素（可选）',
-      seed: '随机种子',
-      seedHint: '留空则随机',
-      firstFrame: '首帧图片（URL）',
-      firstFrameHint: '粘贴一张图片 URL，作为视频首帧（可选）'
-    },
-    bakeoff: {
-      hint: '一条 prompt，多个模型并排出片——各自带真实价格和速度。',
-      needTwo: '该分组至少需要两个已定价模型才能对比。',
-      promptPlaceholder: '描述要跨模型生成的内容…',
-      pickModels: '对比：',
-      run: '同台生成 {count} 个',
-      running: '生成中…',
-      totalCost: '合计 ≈ {cost}',
-      cannotAfford: '余额不足以跑这次对比。',
-      generating: '生成中…',
-      failed: '失败'
-    },
-    cost: {
-      thisGeneration: '本次生成',
-      thisVideo: '这个视频',
-      estimate: '预估',
-      balance: '余额',
-      afterGeneration: '生成后'
-    },
-    errors: {
-      insufficient_balance: '余额不足——充值后即可生成。',
-      permission: '该分组未开通此类生成。',
-      unpriced: '该模型当前不可用于生成。',
-      rate_limited: '请求过于频繁，请稍后再试。',
-      unauthorized: 'API 密钥无效或已过期。',
-      generic: '生成失败，请重试。'
-    },
-    image: {
-      modelLabel: '模型',
-      modelEmpty: '当前分组暂无可用的图片模型。',
-      samplePrompt: '东京雨夜的霓虹小巷，电影感，浅景深',
-      perImageUnit: ' /张',
-      promptPlaceholder: '描述你想要的图片…',
-      aspectLabel: '比例',
-      billedAs: '按 {tier} 计费 · ×{mult}',
-      billedFlat: '按张计费（固定单价，每次一张）',
-      count: '数量',
-      resultsTitle: '结果',
-      emptyHint: '选个档位并生成——结果会显示在这里。',
-      download: '下载',
-      downloadAll: '下载全部',
-      usePrompt: '用此 prompt',
-      useAsInput: '用作输入',
-      enlargeHint: '点击放大预览',
-      expiredReload: '预览不会在刷新后保留——用提示词重新生成。',
-      close: '关闭',
-      inputImageLabel: '输入图片（图生图）',
-      inputUpload: '上传图片',
-      inputRemove: '移除',
-      inputHint: '上传或在下方结果里选一张图作为底图，然后在上方描述要修改的地方（仅 Gemini 原生图模型支持）。',
-      reversePrompt: '从图片生成提示词',
-      reversing: '识别中…',
-      reverseEmpty: '未能从图片生成提示词。',
-      generate: '生成 · {cost}',
-      generateTopUp: '生成 · {cost} — 去充值',
-      generating: '生成中…',
-      noResult: '网关未返回图片数据。',
-      formula: '{base} × {tier} ×{mult} × {n}',
-      formulaFlat: '{base} × {n}'
-    },
-    video: {
-      modelLabel: '模型',
-      modelEmpty: '当前分组暂无可用的视频模型。',
-      samplePrompt: '霓虹东京小巷，慢推镜头，雨，反射光，电影感',
-      perSecondUnit: ' /秒',
-      promptPlaceholder: '描述你想要的视频…',
-      duration: '时长',
-      aspect: '宽高比',
-      aspectAuto: '默认',
-      emptyHint: '描述视频并生成——提交后可离开，好了会在这里播放。',
-      statusProcessing: '生成中',
-      statusSucceeded: '就绪',
-      statusRefunded: '失败 — 已退款 {cost}',
-      stepSubmitted: '已提交',
-      stepGenerating: '生成中',
-      stepReady: '就绪',
-      reserved: '已预留 {cost} · 失败则退款',
-      notifyMe: '完成通知我',
-      usuallyTakes: '通常 30–90 秒',
-      noUrlHint: '任务已成功。视频结果不会长期保留，此处无法播放——如需查看请重新生成。',
-      download: '下载',
-      failedRefunded: '生成失败 — 已退你 {cost}。试试更短的片子或别的档位。',
-      techDetails: '技术详情',
-      refundLine: '失败的视频全额退款',
-      generate: '生成视频 · {cost}',
-      generateTopUp: '生成 · {cost} — 去充值',
-      submitting: '提交中…',
-      formula: '{rate}/秒 × {seconds} 秒',
-      noTaskId: '提交未返回任务 id。',
-      notifyTitle: 'TokenKey 工作室',
-      notifyEnabled: '已开启完成通知',
-      notifyDenied: '通知被屏蔽',
-      resultsTitle: '视频',
-      play: '播放',
-      playHint: '点击播放',
-      close: '关闭',
-      loadingPreview: '加载中…',
-      expiredTitle: '预览已过期',
-      expiredHint: '视频链接是上游的临时地址、有效期较短，可能已过期。若是刚生成的请点重试，否则请重新生成。',
-      stalled: '无法继续获取进度（密钥可能已删除）。请重新生成。',
-      retry: '重试',
-      copyLink: '复制链接',
-      copied: '已复制',
-      retentionHint: '上游临时链接 · 请及时下载'
-    },
-    chat: {
-      model: '模型',
-      temperature: '温度',
-      maxTokens: 'Max tokens',
-      pickModelPlaceholder: '请选择模型…',
-      noModels: '该密钥无可用对话模型，请检查分组路由或更换密钥。',
-      systemPrompt: '系统提示词（可选）',
-      inputPlaceholder: '输入消息…（Enter 发送）',
-      send: '发送',
-      sending: '发送中…',
-      cancel: '取消',
-      clear: '清空会话',
-      emptyHint: '发送一条消息，助手回复将显示在此。',
-      roleUser: '你',
-      roleAssistant: '助手',
-      avatarUser: '我',
-      avatarAssistant: 'AI',
-      limitsHint: '浏览器内最多保留 {turns} 轮对话；单次输出上限 {maxTok} tokens；单次请求超时 60 秒。',
-      lastUsage: '上次响应用量',
-      promptTokens: '输入 tokens',
-      completionTokens: '输出 tokens',
-      totalTokens: '总计 tokens',
-      cancelled: '请求已取消。',
-      requestFailed: '请求失败。',
-      integrationsTitle: '一键接入外部客户端',
-      integrationsHint: '将网关地址与当前选中的 API 密钥一键导入客户端。',
-      integrationsAppHint: '需已安装对应客户端（通过自定义 URL Scheme 打开）。',
-      copyBaseUrl: '复制接入地址',
-      copyKey: '复制 API 密钥',
-      baseUrlCopied: '接入地址已复制',
-      keyCopied: 'API 密钥已复制'
-    }
-  },
-
   // Home Page
   home: {
     viewOnGithub: '在 GitHub 上查看',
@@ -382,7 +97,6 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
-      newapi: '扩展引擎',
       more: '更多'
     },
     // CTA 区块
@@ -473,8 +187,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: 'TokenKey 安装向导',
-    description: '配置您的 TokenKey 实例',
+    title: 'Sub2API 安装向导',
+    description: '配置您的 Sub2API 实例',
     database: {
       title: '数据库配置',
       description: '连接到您的 PostgreSQL 数据库',
@@ -599,7 +313,6 @@ export default {
     saving: '保存中...',
     selectedCount: '（已选 {count} 个）',
     refresh: '刷新',
-    chunkLoadFailed: '页面资源刷新后仍然过期，请清理浏览器缓存后重新加载本页面。',
     autoRefresh: {
       title: '自动刷新',
       enable: '启用自动刷新',
@@ -667,6 +380,10 @@ export default {
     usage: '使用记录',
     redeem: '兑换',
     affiliate: '邀请返利',
+    affiliateManagement: '邀请返利',
+    affiliateInviteRecords: '邀请记录',
+    affiliateRebateRecords: '返利记录',
+    affiliateTransferRecords: '提取记录',
     profile: '个人资料',
     users: '用户管理',
     groups: '分组管理',
@@ -674,7 +391,6 @@ export default {
     availableChannels: '可用渠道',
     subscriptions: '订阅管理',
     accounts: '账号管理',
-    edgeAccounts: 'Edge 账号',
     proxies: 'IP管理',
     redeemCodes: '兑换码',
     ops: '运维监控',
@@ -695,7 +411,6 @@ export default {
     paymentDashboard: '支付概览',
     paymentConfig: '支付配置',
     paymentPlans: '订阅套餐',
-    studio: '工作室',
     channelManagement: '渠道管理',
     channelPricing: '渠道定价',
     channelMonitor: '渠道监控',
@@ -741,8 +456,6 @@ export default {
     reloginRequired: '会话已过期，请重新登录。',
     turnstileExpired: '验证已过期，请重试',
     turnstileFailed: '验证失败，请重试',
-    turnstileFailedRefresh:
-      '验证 token 已失效（通常是页面停留过久）—— 请刷新本页后重试。',
     completeVerification: '请完成验证',
     verifyYourEmail: '验证您的邮箱',
     sessionExpired: '会话已过期',
@@ -965,6 +678,7 @@ export default {
     requests: '请求',
     tokens: 'Token',
     actual: '实际',
+    standard: '标准',
     input: '输入',
     output: '输出',
     cache: '缓存',
@@ -1015,32 +729,6 @@ export default {
     copyToClipboard: '复制到剪贴板',
     copied: '已复制！',
     importToCcSwitch: '导入到 CCS',
-    export: '导出',
-    exporting: '导出中…',
-    exportTooltip: '导出该 Key 的对话记录（训练就绪 JSONL）',
-    exportSuccess: '已导出 {count} 条对话记录',
-    exportEmpty: '该 Key 暂无可导出的对话记录',
-    exportFailed: '导出失败，请重试',
-    exportPanel: {
-      title: '导出对话',
-      exportNow: '立即导出',
-      exporting: '导出中…',
-      lastExport: '上次导出：{time}',
-      noExports: '暂无导出记录',
-      download: '下载',
-      expired: '已过期',
-      recordCount: '{count} 条',
-      kindManual: '立即',
-      kindAuto: '自动',
-      status: '状态',
-      statusValue: {
-        pending: '排队中',
-        running: '处理中',
-        done: '已就绪',
-        failed: '失败'
-      },
-      close: '关闭'
-    },
     enable: '启用',
     disable: '禁用',
     nameLabel: '名称',
@@ -1065,9 +753,6 @@ export default {
     groupChangedSuccess: '分组更换成功',
     failedToChangeGroup: '更换分组失败',
     groupRequired: '请选择分组',
-    universalLabel: '全能 Key（全平台）',
-    universalHint: '一把 key 通你被授权的所有平台、模型与模态。关闭则把这把 key 锁定到单个分组。',
-    universalBadge: '全能',
     usage: '用量',
     today: '今日',
     total: '近30天',
@@ -1080,19 +765,6 @@ export default {
       copy: '复制',
       copied: '已复制',
       note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。',
-      modelLabel: '模型',
-      baseUrlLabel: '地址',
-      keyLabel: '密钥',
-      reveal: '显示',
-      hide: '隐藏',
-      testKey: '测试密钥',
-      testing: '测试中…',
-      testModelOk: '模型可用，配置正确',
-      testKeyValid: '密钥有效（请在 Claude Code 内使用）',
-      modelsLoading: '正在加载该密钥可服务的模型…',
-      modelsEmpty: '未能加载可服务模型清单，可在下方配置中手动填写模型名',
-      ccOnlyWarning:
-        '此分组仅允许 Claude Code 客户端（claude-cli），且仅 /v1/messages。curl / Python / OpenCode 等会被网关以 403 拒绝。',
       noGroupTitle: '请先分配分组',
       noGroupDescription:
         '此 API 密钥尚未分配分组，请先在密钥列表中点击分组列进行分配，然后才能查看使用配置。',
@@ -1108,15 +780,7 @@ export default {
         geminiCli: 'Gemini CLI',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
-        curl: 'cURL',
-        python: 'Python',
         opencode: 'OpenCode'
-      },
-      claudeCode: {
-        envHint:
-          '推荐配置：模型 claude-opus-4-8[1m]；禁用动态思考(防降智)；固定 31999 tokens 思考预算；约 60% 上下文占用时自动压缩（CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE）。注释掉的 NONESSENTIAL_TRAFFIC 标志仅在直连 Anthropic OAuth 时才考虑开启，否则会让上游 prompt cache TTL 从 1h 降到 5min，token 消耗暴涨。',
-        vscodeHint:
-          'Claude Code settings.json：包含 effortLevel=high 与全部推荐 env，覆盖即可生效。'
       },
       antigravity: {
         description: '为 Antigravity 分组配置 API 访问。请根据您使用的客户端选择对应的配置方式。',
@@ -1130,6 +794,7 @@ export default {
       gemini: {
         description:
           '将以下环境变量添加到您的终端配置文件或直接在终端中运行，以配置 Gemini CLI 访问。',
+        modelComment: '如果你有 Gemini 3 权限可以填：gemini-3-pro-preview',
         note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
       },
       opencode: {
@@ -1223,6 +888,7 @@ export default {
     cacheReadTokensLabel: '缓存读取',
     totalCost: '总消费',
     standardCost: '标准',
+    actualCost: '实际',
     accountCost: '成本',
     userBilled: '用户扣费',
     accountBilled: '账号计费',
@@ -1835,14 +1501,7 @@ export default {
       configureAiAccounts: '配置 AI 平台账号',
       systemSettings: '系统设置',
       configureSystem: '配置系统设置',
-      failedToLoad: '加载仪表盘数据失败',
-      promptCacheHitRate: 'Prompt Cache 命中率',
-      promptCacheHitRateHint:
-        '命中率 = cache_read / (cache_read + input + cache_create)。值越高越好。粘性路由的目标就是把这一项尽量推高。',
-      cacheReadTokens: '命中缓存',
-      cacheCreateTokens: '写入缓存',
-      promptCacheToday: '今日',
-      promptCacheTotal: '累计'
+      failedToLoad: '加载仪表盘数据失败'
     },
 
     backup: {
@@ -1933,7 +1592,7 @@ export default {
         step1: {
           title: '创建 R2 存储桶',
           line1: '登录 Cloudflare Dashboard (dash.cloudflare.com)，左侧菜单选择「R2 对象存储」',
-          line2: '点击「创建存储桶」，输入名称（如 tokenkey-backups），选择区域',
+          line2: '点击「创建存储桶」，输入名称（如 sub2api-backups），选择区域',
           line3: '点击创建完成'
         },
         step2: {
@@ -2307,9 +1966,7 @@ export default {
         selectStatus: '选择状态',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
-        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效',
-        trajExport: '允许导出对话记录',
-        trajExportHint: '开启后，该用户每个 API Key 可单独导出其捕获的对话记录'
+        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效'
       },
       adjustBalance: '调整余额',
       adjustConcurrency: '调整并发数',
@@ -2590,7 +2247,6 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
-        newapi: '扩展引擎',
       },
       saving: '保存中...',
       noGroups: '暂无分组',
@@ -2699,7 +2355,7 @@ export default {
         familyMappingTitle: '系列默认映射',
         familyMappingHint: '当请求命中 Opus、Sonnet、Haiku 系列时，会优先使用这里配置的目标模型。',
         opusModel: 'Opus 映射模型',
-        opusModelPlaceholder: '例如: gpt-5.5',
+        opusModelPlaceholder: '例如: gpt-5.4',
         sonnetModel: 'Sonnet 映射模型',
         sonnetModelPlaceholder: '例如: gpt-5.3-codex',
         haikuModel: 'Haiku 映射模型',
@@ -2712,13 +2368,7 @@ export default {
         claudeModelPlaceholder: '例如: claude-sonnet-4-5-20250929',
         targetModel: '目标模型',
         targetModelPlaceholder: '例如: gpt-5.4',
-        removeExactMapping: '删除精确映射',
-        compactionEnabled: '启用自动压缩',
-        compactionEnabledHint: '输入 token 估算超过阈值时，自动触发 /v1/messages 压缩。',
-        compactionThreshold: '输入 token 阈值',
-        compactionThresholdPlaceholder: '例如: 900000',
-        compactionThresholdHint: '必须大于等于 1，建议按模型上下文窗口设置。',
-        compactionThresholdRequired: '请填写有效的压缩阈值（>= 1）'
+        removeExactMapping: '删除精确映射'
       },
       invalidRequestFallback: {
         title: '无效请求兜底分组',
@@ -3453,59 +3103,6 @@ export default {
     },
 
     // Accounts Management
-    edgeAccounts: {
-      title: 'Edge 账号',
-      description: '只读查看各 edge 部署下的账号情况',
-      refresh: '刷新',
-      lastFetched: '最近拉取',
-      platformFilter: '平台',
-      allPlatforms: '全部平台',
-      statusFilter: '状态',
-      allStatus: '全部状态',
-      statusFilterHint: '正常 = prod stub 与 edge 账号都正常；其余状态为「或」关系——prod stub 或 edge 账号任一命中即显示。',
-      groupFilter: '分组',
-      allGroups: '全部分组',
-      ungroupedGroup: '未分配分组',
-      groupFilterHint: '按 prod 侧 stub 账号所属分组筛选（即 prod 如何编排该 edge），而非 edge 内部账号的分组。',
-      noMatch: '没有符合当前筛选条件的账号。',
-      manageAccounts: '管理账号',
-      manageFailed: '打开该 edge 管理页失败',
-      loadFailed: '加载 edge 账号失败',
-      handoff: {
-        signingIn: '正在登录该 edge…',
-        failed: '登录失败或链接已过期。',
-        goLogin: '去登录'
-      },
-      noEdges: '未发现任何 edge（本部署未配置 anthropic mirror stub）。',
-      edgeEmpty: '该 edge 下没有账号。',
-      summaryEdges: '{ok}/{total} 个 edge 可达',
-      summaryAccounts: '共 {count} 个账号',
-      summaryFailed: '{count} 个不可达',
-      summaryConfigLabel: '可调度账号当前/容量合计（{count} 个可调度）',
-      summaryConcurrency: '并发 {current}/{value}',
-      summaryBaseRpm: 'base RPM {current}/{base}（粘性 {sticky}）',
-      summarySessions: '会话 {current}/{value}',
-      accountCount: '{count} 个账号',
-      schedulableCount: '{count} 个可调度',
-      stubPaused: '调度已关闭',
-      stubPausedHint: '该 edge 在 prod 侧的 stub 已关调度——prod 不再向其调度流量，但该 edge 本身仍可达。',
-      stubRateLimited: 'stub 限流中',
-      stubRateLimitedHint: '该 edge 在 prod 侧的 stub 正处于限流冷却中——prod 到该 edge 的中继被限流（即使 edge 内部账号正常）。这也是按「限流中」筛选时该 edge 仍出现的原因。',
-      stubTempUnsched: 'stub 临时不可调度',
-      stubTempUnschedHint: '该 edge 在 prod 侧的 stub 正处于临时不可调度冷却中。这也是按「临时不可调度」筛选时该 edge 仍出现的原因。',
-      cooldownRecovered: '已恢复',
-      accountIdHint: '该 edge 上账号的 ID（edge 本地数据库主键），排查问题时用于精确定位',
-      columns: {
-        name: '名称',
-        platformType: '平台 / 类型',
-        capacity: '容量',
-        usageWindows: '用量窗口',
-        state: '状态',
-        priority: '优先级',
-        groups: '分组',
-        lastUsed: '最近使用'
-      }
-    },
     accounts: {
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
@@ -3589,7 +3186,6 @@ export default {
       notesHint: '备注可选',
       // Filter options
       allPlatforms: '全部平台',
-      kiroStubPlatform: 'Kiro Stub',
       allTypes: '全部类型',
       allStatus: '全部状态',
       allGroups: '全部分组',
@@ -3600,33 +3196,6 @@ export default {
       schedulableHint: '开启后账号参与API请求调度',
       schedulableEnabled: '调度已开启',
       schedulableDisabled: '调度已关闭',
-      // TK: inline edge-account panels (cc-<edge> 行二级展开,统一治理 prod+edge 账号)
-      edgePanel: {
-        actions: '操作',
-        expandAll: '展开全部',
-        collapseAll: '折叠全部',
-        expandHint: '展开/折叠该 stub 背后调度的 edge 账号（默认全部展开，可手动折叠）',
-        expandOne: '展开此 stub',
-        collapseOne: '折叠此 stub',
-        summary: '{total} 账号 · {schedulable} 可调度',
-        summaryLoading: '加载中…',
-        scopeGroup: '调度自 {group} 组 · 共 {count} 个',
-        scopePool: '{platform} 全池 · 共 {count} 个',
-        scopeHint: '这把 stub api key 在该 edge 上实际调度的账号范围',
-        retry: '重试',
-        groupEmpty: '该 stub 的分组在此 edge 上暂无账号',
-        queryUsage: '查询用量',
-        clearRateLimit: '清除限流',
-        clearTempUnsched: '重置临时不可调度',
-        resetQuota: '重置配额',
-        manageOnEdge: '在 edge 后台管理 ↗',
-        manageWholeEdge: '管理该 edge 全部账号 ↗',
-        opSuccess: '操作成功',
-        opFailed: '操作失败，请稍后重试',
-        queryFailed: '用量查询失败',
-        notDiscovered: '该 edge 暂未被发现（其 prod stub 可能已禁用）'
-      },
-      accountIdHint: '账号 ID（数据库主键），排查问题时用于精确定位该账号',
       failedToToggleSchedulable: '切换调度状态失败',
       groupCountTotal: '共 {count} 个分组',
       columns: {
@@ -3660,15 +3229,6 @@ export default {
       privacyAntigravitySet: '已关闭遥测和营销邮件',
       privacyAntigravityFailed: '隐私设置失败',
       setPrivacy: '设置隐私',
-      setTierDialog: {
-        menuItem: '设置 Tier',
-        title: '设置账号 Tier',
-        selectLabel: '选择 Tier 档位',
-        applyButton: '应用',
-        applySuccess: 'Tier 已应用（仅当前部署生效）',
-        applyFailed: 'Tier 应用失败',
-        localScopeWarning: '仅对当前部署的数据库生效；其它 edge / prod 仍需通过 ops/anthropic 流水线扇出。'
-      },
       subscriptionAbnormal: '异常',
       subscriptionExpires: '到期',
       // 容量状态提示
@@ -3692,15 +3252,11 @@ export default {
           tieredBlocked: 'RPM 限制 (三区模型) - 已阻塞 | 缓冲区: {buffer}',
           stickyExemptNormal: 'RPM 限制 (粘性豁免) - 正常',
           stickyExemptWarning: 'RPM 限制 (粘性豁免) - 接近阈值',
-          stickyExemptOver: 'RPM 限制 (粘性豁免) - 超限，仅粘性会话',
-          stickyBufferSuffix: '(+{buffer} 粘性)'
+          stickyExemptOver: 'RPM 限制 (粘性豁免) - 超限，仅粘性会话'
         },
         quota: {
           exceeded: '配额已用完，账号暂停调度',
           normal: '配额正常'
-        },
-        today: {
-          tooltip: '今日用量：{requests} 次请求 · 计费 {cost}'
         },
       },
       clearRateLimit: '清除速率限制',
@@ -3759,7 +3315,6 @@ export default {
         anthropic: 'Anthropic',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
-        newapi: '扩展引擎',
       },
       types: {
         oauth: 'OAuth',
@@ -3859,8 +3414,9 @@ export default {
         resetTooltipNeedQuery: '先点击「次数」加载剩余重置次数',
         resetTooltipNoCredits: '没有可用的重置次数',
         noCreditsAvailable: '没有可用的重置次数',
-        additionalLimitsTitle: '分模型限额',
-        resetSuccess: '已重置 {windows} 个窗口'
+        resetSuccess: '已重置 {windows} 个窗口',
+        confirmTitle: '确认重置周限',
+        confirmMessage: '将消耗 1 次重置次数立即恢复当前窗口，剩余 {count} 次。此操作不可撤销，确定继续吗？'
       },
       tier: {
         free: 'Free',
@@ -3991,8 +3547,6 @@ export default {
       vertexSaJsonSelectBtn: '选择 JSON',
       vertexSaJsonUploadHint: '上传或拖入 JSON 后会自动读取 project_id，密钥内容仅用于创建账号提交。',
       vertexSaJsonEditHint: 'Service Account JSON 不在编辑页显示；需要更换 JSON 时请删除账号后重新创建。',
-      vertexSaJsonNewapiEditHint: '留空则保留当前 Service Account JSON；粘贴新的 JSON 可轮换密钥，project_id 会自动重新解析。',
-      vertexSaJsonNewapiEditPlaceholder: '留空保留当前；或粘贴新的 Service Account JSON 以替换',
       vertexProjectIdPlaceholder: '从 JSON 自动读取',
       vertexLocationHint: '不同 Vertex 模型可用 location 可能不同，这里选择账号默认 endpoint location。',
       vertexLocationRequired: '请填写 Vertex location',
@@ -4075,13 +3629,6 @@ export default {
         compactMode: 'Compact 模式',
         compactModeDesc:
           '控制本账号在 /responses/compact 调度中的参与方式。Auto 跟随探测结果，Force On 强制允许，Force Off 强制排除。',
-        messagesCompactionEnabled: '启用账号级 /v1/messages 自动压缩',
-        messagesCompactionEnabledDesc:
-          '开启后，当前账号可单独设置输入 token 压缩阈值；关闭则回退到分组策略。',
-        messagesCompactionThreshold: '账号级输入 token 阈值',
-        messagesCompactionThresholdPlaceholder: '例如: 900000',
-        messagesCompactionThresholdHint: '必须大于等于 1，超过阈值后自动执行压缩。',
-        messagesCompactionThresholdRequired: '请填写有效的账号级压缩阈值（>= 1）',
         compactModeAuto: '自动',
         compactModeForceOn: '强制开启',
         compactModeForceOff: '强制关闭',
@@ -4102,9 +3649,6 @@ export default {
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
           '仅对 Anthropic API Key 生效。开启后，messages/count_tokens 请求将透传上游并仅替换认证，保留计费/并发/审计及必要安全过滤；关闭即可回滚到现有兼容链路。',
-        mirrorPlatform: '镜像平台',
-        mirrorPlatformHint:
-          '仅用于对接 edge 的「镜像 stub」账号（base URL 指向内部 api-<edge>.tokenkey.dev）。声明该 stub 从 edge 的哪个池镜像并发：Anthropic（默认）或 Kiro。普通 API Key 账号保持 Anthropic 即可。',
         webSearchEmulation: 'Web Search 模拟',
         webSearchEmulationDesc:
           '为该 API Key 账号启用 web search 模拟。客户端发送纯 web_search 请求时，由网关调用第三方搜索 API 并构造响应返回。默认跟随渠道配置。',
@@ -4142,11 +3686,11 @@ export default {
       modelExists: '该模型已存在',
       modelCount: '{count} 个模型',
       poolMode: '池模式',
-      poolModeHint: '上游为账号池时启用，上游错误先原地重试若干次（默认 3）以触发池内轮换',
+      poolModeHint: '上游为账号池时启用，错误不标记本地账号状态',
       poolModeInfo:
-        '启用后，上游 401 / 403 / 429 / 502 / 503 / 504 错误先在同账号原地重试 N 次（N=下方"同账号重试次数"，默认 3），让上游池有机会自我轮换到下一个成员；耗尽后自然 failover 到下一个本地账号。Anthropic 账号继续受 3/3 短窗保护，但 cooldown 改为指数退避：首次 30 秒、第二次 2 分钟、第三次起 10 分钟，避免单次抖动导致 10 分钟整组不可用，同时持续故障仍能升级到长冷却。适用于上游指向另一套 TokenKey / 兼容网关账号池的场景。',
+        '启用后，上游 429/403/401 错误将自动重试而不标记账号限流或错误，适用于上游指向另一个 sub2api 实例的场景。',
       poolModeRetryCount: '同账号重试次数',
-      poolModeRetryCountHint: '池模式下对所有平台生效（含 Anthropic）。1 = 同账号试 1 次再切下一账号；0 = 完全不原地重试，立即 failover；默认 {default}，最大 {max}。次数越多对真实上游的压力越大，根据上游池每次 retry 是否真的会轮换成员来调。',
+      poolModeRetryCountHint: '仅在池模式下生效。0 表示不原地重试；默认 {default}，最大 {max}。',
       poolModeRetryStatusCodes: '同账号重试状态码',
       poolModeRetryStatusCodesHint: '仅在池模式下生效。以英文逗号分隔的 HTTP 状态码（100-599），命中时触发同账号重试。留空使用默认值（{default}）。',
       customErrorCodes: '自定义错误码',
@@ -4260,7 +3804,6 @@ export default {
       proxy: '代理',
       noProxy: '无代理',
       concurrency: '并发数',
-      concurrencyZeroHint: '0 = 不限制（无并发上限）',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       priority: '优先级',
@@ -4319,82 +3862,6 @@ export default {
         apiKeyHint: '上游服务的 API Key',
         pleaseEnterBaseUrl: '请输入上游 Base URL',
         pleaseEnterApiKey: '请输入上游 API Key'
-      },
-      newApiPlatform: {
-        channelType: '渠道类型',
-        channelTypePlaceholder: '请选择扩展引擎渠道类型',
-        channelTypeLoadFailed: '加载渠道类型失败，请重试',
-        baseUrl: 'Base URL',
-        baseUrlHint: '上游服务地址，例如 https://api.deepseek.com',
-        apiKey: 'API Key',
-        apiKeyPlaceholder: 'sk-...',
-        apiKeyEditHint: '留空表示保留当前密钥',
-        pleaseSelectChannelType: '请选择扩展引擎渠道类型',
-        pleaseEnterBaseUrl: '请输入上游 Base URL',
-        pleaseEnterApiKey: '请输入上游 API Key',
-        models: '模型',
-        modelsHint: '允许该账号转发的模型；留空表示允许所有。',
-        fetchUpstreamModels: '获取模型列表',
-        fetchUpstreamModelsHint: '从上游 /v1/models（或对等接口）拉取真实模型列表，覆盖当前白名单。',
-        fetchUpstreamModelsNeedUrlKey: '请先填入 Base URL 与 API Key',
-        fetchUpstreamModelsEmpty: '上游未返回任何模型',
-        fetchUpstreamModelsSuccess: '已获取 {count} 个上游模型',
-        fetchUpstreamModelsFailed: '获取上游模型列表失败',
-        pricingStatusPriced: '已定价',
-        pricingStatusMissing: '缺定价',
-        statusCodeMapping: '状态码映射（JSON，可选）',
-        statusCodeMappingHint: '将上游 HTTP 状态码改写为另一个值，例如 404 改为 500。留空则透传。',
-        openaiOrganization: 'OpenAI Organization（可选）',
-        openaiOrganizationHint: '在出站请求上设置 OpenAI-Organization 请求头。留空则不发送。',
-        jsonInvalid: '不是合法 JSON',
-        jsonObjectRequired: '必须是 JSON 对象'
-      },
-      // Kiro（第六平台）账号凭证字段
-      kiroPlatform: {
-        accessToken: 'Access Token',
-        accessTokenPlaceholder: 'Kiro OAuth access token',
-        refreshToken: 'Refresh Token',
-        refreshTokenPlaceholder: 'Kiro OAuth refresh token',
-        tokenEditHint: '留空表示保留当前值',
-        region: 'Region',
-        regionHint: 'Kiro 使用的 AWS region，默认 us-east-1。',
-        authMethod: '认证方式',
-        authMethodSocial: 'Social（社交登录）',
-        authMethodIdc: 'IdC（IAM Identity Center）',
-        authMethodHint: 'IdC 方式需填写下方 Client ID 与 Client Secret。',
-        machineId: 'Machine ID（可选）',
-        machineIdPlaceholder: '设备指纹标识',
-        machineIdHint: '可选的设备指纹，随请求一起发送。',
-        clientId: 'Client ID',
-        clientIdPlaceholder: 'IdC OAuth client ID',
-        clientSecret: 'Client Secret',
-        clientSecretPlaceholder: 'IdC OAuth client secret',
-        profileArn: 'Profile ARN（可选）',
-        profileArnPlaceholder: 'arn:aws:codewhisperer:...',
-        profileArnHint: '留空则由后端自动获取。',
-        tosAcknowledge: '我已确认阅读并接受 Kiro 服务条款，并知悉使用该账号的合规风险。',
-        pleaseEnterAccessToken: '请输入 Kiro access token',
-        pleaseEnterRefreshToken: '请输入 Kiro refresh token',
-        pleaseEnterClientId: '请输入 IdC Client ID',
-        pleaseEnterClientSecret: '请输入 IdC Client Secret',
-        pleaseAcknowledgeTos: '创建账号前请先勾选确认 Kiro 服务条款'
-      },
-      grokPlatform: {
-        oauthMode: 'OAuth',
-        oauthModeHint: 'xAI refresh token',
-        relayMode: 'Relay Stub',
-        relayModeHint: 'Edge API key',
-        refreshToken: 'Refresh Token',
-        refreshTokenPlaceholder: 'xAI Grok OAuth refresh token',
-        refreshTokenHint: '创建时 TokenKey 会立刻用它换取 access token —— 这里若失败，说明 token 无效或该账号不是 SuperGrok Heavy。',
-        refreshTokenHowTo: '在本机运行 xAI Grok CLI 登录（loopback OAuth）拿到 refresh_token 后粘贴到这里。xAI 公共 client 无服务端 redirect / device-code 流程，故 token 须在本机铸取。',
-        baseUrl: 'Base URL（可选）',
-        baseUrlHint: '默认 https://api.x.ai/v1，仅自建反代时覆盖。',
-        relayBaseUrlHint: '使用 edge 网关地址，例如 https://api-us4.tokenkey.dev。',
-        relayApiKeyHint: '填写该 relay stub 访问 edge 的 TokenKey API key。',
-        tokenEditHint: '留空表示保留当前值',
-        heavyNote: 'xAI 把 OAuth API 面限定给 SuperGrok Heavy；标准 / 过期订阅会在请求时返回 HTTP 403。',
-        pleaseEnterRefreshToken: '请输入 Grok refresh token'
       },
       // OAuth flow
       oauth: {
@@ -4733,9 +4200,6 @@ export default {
       startingTestForAccount: '开始测试账号：{name}',
       testAccountTypeLabel: '账号类型：{type}',
       selectTestModel: '选择测试模型',
-      loadModelsUnavailable: '无法加载该账号的模型——账号当前不可用（可能已被删除或正在重新授权）。请刷新账号列表后重试。',
-      loadModelsAuthExpired: '无法加载模型——管理会话已过期，请重新登录后重试。',
-      loadModelsFailed: '加载该账号的模型失败，请重试。',
       testModel: '测试模型',
       testPrompt: '提示词："hi"',
       imagePromptLabel: '生图提示词',
@@ -5483,21 +4947,6 @@ export default {
           requestsWithFirstToken: '首 Token 样本数'
         }
       },
-      failoverHopStats: {
-        title: 'Failover 跳数统计（按账号）',
-        hint: '每个恢复成功的请求绕了几跳 = 浪费的上游往返；用于观测 #899 窗口调度的减跳效果。',
-        failedToLoad: '加载 Failover 跳数统计失败',
-        empty: '当前筛选条件下暂无 failover 跳数数据',
-        totalAccounts: '账号总数：{total}',
-        table: {
-          account: '账号',
-          platform: '平台',
-          recoveredCount: '恢复成功请求数',
-          totalFailoverHops: 'Failover 跳数合计',
-          totalWastedAttempts: '浪费上游尝试合计',
-          avgHopsPerRecovered: '每成功请求平均跳数'
-        }
-      },
       customTimeRange: {
         startTime: '开始时间',
         endTime: '结束时间'
@@ -5672,8 +5121,6 @@ export default {
         group: '分组',
         user: '用户',
         account: '账号',
-        apiKey: 'API Key',
-        clientIp: '客户端 IP',
         latency: '请求时长',
         businessLimited: '业务限制',
         requestPath: '请求路径',
@@ -5738,15 +5185,8 @@ export default {
           model: '模型',
           duration: '耗时',
           status: '状态码',
-          requester: '请求方',
           requestId: '请求ID',
           actions: '操作'
-        },
-        requester: {
-          anonymous: '匿名',
-          key: 'Key',
-          group: '分组',
-          account: '上游账号'
         }
       },
       alertEvents: {
@@ -5827,8 +5267,6 @@ export default {
           cpu: 'CPU 使用率 (%)',
           memory: '内存使用率 (%)',
           queueDepth: '并发排队深度',
-          poolLoadRate: '账号池负载率 (%)',
-          routingCapacityRejectionCount: '无可用账号拒绝数',
           groupAvailableAccounts: '分组可用账号数',
           groupAvailableRatio: '分组可用比例 (%)',
           groupRateLimitRatio: '分组限流比例 (%)',
@@ -5847,8 +5285,6 @@ export default {
           cpu: '当前实例 CPU 使用率（0~100）。',
           memory: '当前实例内存使用率（0~100）。',
           queueDepth: '统计窗口内并发队列排队深度（等待中的请求数）。',
-          poolLoadRate: '调度池并发负载率：(在途+排队)/总席位。按平台/分组/渠道分池取最饱和值，≥100% 表示已排队。容量触顶前瞻信号，建议 ≥90% 触发补号。',
-          routingCapacityRejectionCount: '统计窗口内"无可用账号"路由拒绝累计次数（空池快速失败 429 + 镜像 edge 下游容量拒绝，error_phase=routing）。这类客户端可见 429 被排除在错误率/成功率之外、也不冷却账号，是唯一能看见薄池瞬时抢空拒绝风暴的信号；为绝对计数（非比率），建议 5 分钟内 ≥50 触发补号/扩容。',
           groupAvailableAccounts: '指定分组中当前可用账号数量（需要 group_id 过滤）。',
           groupAvailableRatio: '指定分组中可用账号占比（0~100，需要 group_id 过滤）。',
           groupRateLimitRatio: '指定分组中账号被限流的比例（0~100，需要 group_id 过滤）。',
@@ -5977,21 +5413,6 @@ export default {
         rateLimitPerHour: '每小时限额',
         batchWindowSeconds: '合并窗口（秒）',
         includeResolved: '包含恢复通知',
-        feishuTitle: '飞书群 P0 告警',
-        feishuP0OnlyHint: '仅发送 P0 firing 事件；不发送 P1/P2/P3，不发送恢复通知，不会 @所有人。',
-        feishuWebhook: '飞书 Bot Webhook',
-        feishuWebhookHint: '仅支持 HTTPS webhook；保存后不会回显。',
-        feishuWebhookKeepPlaceholder: '已配置，留空保留',
-        feishuWebhookConfiguredHint: '已配置，留空保留；输入新值会覆盖。',
-        feishuSigningSecret: '签名密钥',
-        feishuSecretOptional: '可选',
-        feishuSecretKeepPlaceholder: '已配置，留空保留',
-        feishuSecretConfiguredHint: '已配置，留空保留；输入新值会覆盖。',
-        feishuCooldownSeconds: '冷却时间（秒）',
-        feishuUpstreamBalanceLowThreshold: '上游余额告警阈值（元）',
-        feishuUpstreamBalanceLowThresholdHint: '后台定时拉有公开余额接口的上游渠道账号（当前 DeepSeek）余额，低于此值提前发飞书预警，避免归零断供。需启用上方飞书告警。',
-        configured: '已配置',
-        notConfigured: '未配置',
         dailySummary: '每日摘要',
         weeklySummary: '每周摘要',
         errorDigest: '错误摘要',
@@ -6011,12 +5432,7 @@ export default {
           cronRequired: '启用定时任务时必须填写 Cron 表达式',
           cronFormat: 'Cron 表达式格式可能不正确（至少应包含 5 段）',
           digestMinCountRange: '错误摘要最小数量必须为 ≥ 0 的数字',
-          accountHealthThresholdRange: '账号健康错误率阈值必须在 0 到 100 之间',
-          feishuWebhookRequired: '启用飞书 P0 告警时必须配置 Webhook',
-          feishuWebhookHttps: '飞书 Webhook 必须是 HTTPS URL',
-          feishuRateLimitRange: '飞书每小时限额必须在 1 到 24 之间',
-          feishuCooldownRange: '飞书冷却时间必须在 60 到 86400 秒之间',
-          feishuUpstreamBalanceLowThresholdRange: '上游余额告警阈值必须在 1 到 1000000 之间'
+          accountHealthThresholdRange: '账号健康错误率阈值必须在 0 到 100 之间'
         }
       },
       settings: {
@@ -6033,7 +5449,6 @@ export default {
         emailPlaceholder: '输入邮箱地址',
         recipientsHint: '若为空，系统将使用第一个管理员邮箱作为默认收件人',
         minSeverity: '最低级别',
-        feishuEditHint: '请在“邮件通知配置”卡片中编辑飞书 Webhook、签名密钥、限额和冷却时间。',
         reportConfig: '评估报告配置',
         enableReport: '开启评估报告',
         reportRecipients: '评估报告接收邮箱',
@@ -6317,7 +5732,7 @@ export default {
       },
       linuxdo: {
         title: 'LinuxDo Connect 登录',
-        description: '配置 LinuxDo Connect OAuth，用于 TokenKey 用户登录',
+        description: '配置 LinuxDo Connect OAuth，用于 Sub2API 用户登录',
         enable: '启用 LinuxDo 登录',
         enableHint: '在登录/注册页面显示 LinuxDo 登录入口',
         clientId: 'Client ID',
@@ -6454,24 +5869,6 @@ export default {
         monthly:     '月限额 (USD, 30天滚动)',
         placeholder: '不限',
       },
-      coldStart: {
-        title: '新用户冷启动',
-        description:
-          '降低首次使用门槛：可选注册赠额（美元）、自动签发 trial API Key、对外公开模型与价格目录。详见 docs/approved/user-cold-start.md。',
-        signupBonusEnabled: '注册赠额',
-        signupBonusEnabledHint: '为每位新注册用户发放小额美元余额，方便其立即体验付费模型。',
-        signupBonusBalance: '赠额余额（美元）',
-        signupBonusBalanceHint:
-          '注册成功后一次性发放，默认 $1.00。必须 ≥ 0；填 0 表示开启开关但不真正发放。',
-        autoGenerateDefaultToken: '自动签发 Trial API Key',
-        autoGenerateDefaultTokenHint:
-          '注册成功后自动创建一把 API Key，用户无需先打开 Keys 页即可调用网关。',
-        autoGenerateDefaultTokenName: 'Trial Key 名称',
-        autoGenerateDefaultTokenNameHint: '自动签发 Key 的展示名称，默认为 "trial"。',
-        pricingCatalogPublic: '公开价格目录',
-        pricingCatalogPublicHint:
-          '开启后暴露 GET /api/v1/public/pricing 与 /pricing 路由；关闭后接口返回 404，首页入口隐藏。'
-      },
       claudeCode: {
         title: 'Claude Code 设置',
         description: '控制 Claude Code 客户端访问要求',
@@ -6497,9 +5894,6 @@ export default {
         metadataPassthroughHint: '透传客户端原始 metadata.user_id，不进行重写。可能提高上游缓存命中率。',
         cchSigning: 'CCH 签名',
         cchSigningHint: '对转发请求的 billing header 进行 CCH 哈希签名。关闭时保留原始占位符。',
-        stickyRouting: 'Prompt Cache 粘性路由',
-        stickyRoutingHint:
-          '默认开启：网关派生稳定的 prompt_cache_key / metadata.user_id / X-Session-Id 注入到上游，以提高 prompt cache 命中率。关闭后所有分组退化为透传客户端已发送的字段，不再派生。详见 docs/approved/sticky-routing.md。',
         claudeOAuthSystemPromptInjection: 'Claude OAuth System 注入',
         claudeOAuthSystemPromptInjectionHint: '为非 Claude Code 客户端的 Claude OAuth 请求注入 Claude Code 形态的 system blocks。默认开启。',
         claudeOAuthSystemPrompt: 'Claude OAuth 扩展提示词',
@@ -6524,12 +5918,10 @@ export default {
         resetSystemBlocks: '恢复默认',
         cacheTTL5m: '5 分钟',
         cacheTTL1h: '1 小时',
-        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入',
+        anthropicCacheTTL1hInjection: 'Anthropic 缓存 TTL 注入',
         anthropicCacheTTL1hInjectionHint: '开启后，对 Anthropic OAuth/Setup Token 请求体中已有的 ephemeral 缓存块强制写入 1h；响应 usage 默认按 5m 回写计费，账号级 TTL 计费设置优先。',
         rewriteMessageCacheControl: '改写消息缓存断点',
         rewriteMessageCacheControlHint: '默认关闭，保留客户端在 messages 内容块中的 cache_control。开启后会清除客户端断点并注入代理断点，适合不自行管理缓存策略的客户端。',
-        anthropicRequestNormalize: 'Anthropic 请求归一化',
-        anthropicRequestNormalizeHint: '默认开启，在转发前修复客户端的两类常见错误：(1) tool_choice 为 OpenAI 风格字符串（"auto" / "required" / "none"）时改写成 Anthropic 必需的 object 形态；(2) 同时启用 thinking 且 tool_choice 强制工具使用（any / tool）时，删除 thinking 以保留客户端的强制工具使用意图。未知的 tool_choice 字符串保留原样，让上游继续暴露客户端 bug。',
         antigravityUserAgentVersion: 'Antigravity UA 版本',
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',
@@ -6577,12 +5969,15 @@ export default {
       site: {
         title: '站点设置',
         description: '自定义站点品牌',
+        backendMode: 'Backend 模式',
+        backendModeDescription:
+          '禁用用户注册、公开页面和自助服务功能。仅管理员可以登录和管理平台。',
         siteName: '站点名称',
         siteNameHint: '显示在邮件和页面标题中',
-        siteNamePlaceholder: 'TokenKey',
+        siteNamePlaceholder: 'Sub2API',
         siteSubtitle: '站点副标题',
         siteSubtitleHint: '显示在登录和注册页面',
-        siteSubtitlePlaceholder: 'AI API Gateway Platform',
+        siteSubtitlePlaceholder: '订阅转 API 转换平台',
         apiBaseUrl: 'API 端点地址',
         apiBaseUrlHint: '用于"使用密钥"和"导入到 CC Switch"功能，留空则使用当前站点地址',
         apiBaseUrlPlaceholder: 'https://api.example.com',
@@ -6870,7 +6265,7 @@ export default {
         fromEmail: '发件人邮箱',
         fromEmailPlaceholder: "noreply{'@'}example.com",
         fromName: '发件人名称',
-        fromNamePlaceholder: 'TokenKey',
+        fromNamePlaceholder: 'Sub2API',
         useTls: '使用 TLS',
         useTlsHint: '为 SMTP 连接启用 TLS 加密'
       },
@@ -7384,52 +6779,6 @@ export default {
       loadFailed: '加载模板失败',
       saveFailed: '保存模板失败',
       deleteFailed: '删除模板失败'
-    },
-
-    tierTemplates: {
-      title: 'Tier 模板',
-      description: 'Anthropic OAuth 稳定性档位（l1..l5）。账号按 id 引用 tier，per-tier 参数运行时解析。',
-      projectionBanner: 'tier 是 git baseline 的投影。此处编辑会立即生效并 fan-out 到引用账号，但 ops/anthropic 流水线下次运行会从 git 重断言这些行——UI 编辑仅用于应急/本地变更。',
-      createTier: '创建 Tier',
-      editTier: '编辑 Tier',
-      deleteTier: '删除 Tier',
-      noTiers: '暂无 Tier',
-
-      columns: {
-        name: '名称',
-        concurrency: '并发',
-        baseRpm: '基础 RPM',
-        maxSessions: '最大会话',
-        tlsProfile: 'TLS 模板',
-        actions: '操作'
-      },
-
-      form: {
-        name: '名称',
-        description: '描述',
-        concurrency: '并发',
-        priority: '优先级',
-        priorityHint: '仅投影——accounts.priority 由 window 流水线写入',
-        rateMultiplier: '速率倍数',
-        baseRpm: '基础 RPM',
-        maxSessions: '最大会话',
-        rpmStickyBuffer: 'RPM 粘性缓冲',
-        sessionIdleTimeoutMinutes: '会话空闲超时（分钟）',
-        windowCostLimit: '窗口成本上限',
-        windowCostStickyReserve: '窗口成本粘性预留',
-        cacheTtlOverrideEnabled: '缓存 TTL 覆盖',
-        tlsProfileName: 'TLS 模板名称',
-        tlsProfileNameHint: '流水线按名 upsert 模板并回填 id',
-        tlsProfileId: 'TLS 模板 ID'
-      },
-
-      deleteConfirmMessage: '确定要删除 Tier "{name}" 吗？绑定它的账号将回退到其持久化的 extra 值。',
-      createSuccess: 'Tier 创建成功',
-      updateSuccess: 'Tier 更新成功',
-      deleteSuccess: 'Tier 删除成功',
-      loadFailed: '加载 Tier 失败',
-      saveFailed: '保存 Tier 失败',
-      deleteFailed: '删除 Tier 失败'
     }
   },
 
@@ -7562,16 +6911,16 @@ export default {
     // Admin tour steps
     admin: {
       welcome: {
-        title: '👋 欢迎使用 TokenKey',
+        title: '👋 欢迎使用 Sub2API',
         description:
-          '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">TokenKey 是一个强大的 AI 服务中转平台，让您轻松管理和分发 AI 服务。</p><p style="margin-bottom: 12px;"><b>🎯 核心功能：</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>📦 <b>分组管理</b> - 创建不同的服务套餐（VIP、免费试用等）</li><li>🔗 <b>账号池</b> - 连接多个上游 AI 服务商账号</li><li>🔑 <b>密钥分发</b> - 为用户生成独立的 API Key</li><li>💰 <b>计费管理</b> - 灵活的费率和配额控制</li></ul><p style="color: #10b981; font-weight: 600;">接下来，我们将用 3 分钟带您完成首次配置 →</p></div>',
+          '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">Sub2API 是一个强大的 AI 服务中转平台，让您轻松管理和分发 AI 服务。</p><p style="margin-bottom: 12px;"><b>🎯 核心功能：</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>📦 <b>分组管理</b> - 创建不同的服务套餐（VIP、免费试用等）</li><li>🔗 <b>账号池</b> - 连接多个上游 AI 服务商账号</li><li>🔑 <b>密钥分发</b> - 为用户生成独立的 API Key</li><li>💰 <b>计费管理</b> - 灵活的费率和配额控制</li></ul><p style="color: #10b981; font-weight: 600;">接下来，我们将用 3 分钟带您完成首次配置 →</p></div>',
         nextBtn: '开始配置 🚀',
         prevBtn: '跳过'
       },
       groupManage: {
         title: '📦 第一步：分组管理',
         description:
-          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>什么是分组？</b></p><p style="margin-bottom: 12px;">分组是 TokenKey 的核心概念，它就像一个"服务套餐"：</p><ul style="margin-left: 20px; margin-bottom: 12px; font-size: 13px;"><li>🎯 每个分组可以包含多个上游账号</li><li>💰 每个分组有独立的计费倍率</li><li>👥 可以设置为公开或专属分组</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;"><b>💡 示例：</b>您可以创建"VIP专线"（高倍率）和"免费试用"（低倍率）两个分组</p><p style="margin-top: 16px; color: #10b981; font-weight: 600;">👉 点击左侧的"分组管理"开始</p></div>'
+          '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>什么是分组？</b></p><p style="margin-bottom: 12px;">分组是 Sub2API 的核心概念，它就像一个"服务套餐"：</p><ul style="margin-left: 20px; margin-bottom: 12px; font-size: 13px;"><li>🎯 每个分组可以包含多个上游账号</li><li>💰 每个分组有独立的计费倍率</li><li>👥 可以设置为公开或专属分组</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;"><b>💡 示例：</b>您可以创建"VIP专线"（高倍率）和"免费试用"（低倍率）两个分组</p><p style="margin-top: 16px; color: #10b981; font-weight: 600;">👉 点击左侧的"分组管理"开始</p></div>'
       },
       createGroup: {
         title: '➕ 创建新分组',
@@ -7683,9 +7032,9 @@ export default {
     // User tour steps
     user: {
       welcome: {
-        title: '👋 欢迎使用 TokenKey',
+        title: '👋 欢迎使用 Sub2API',
         description:
-          '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">您好！欢迎来到 TokenKey AI 服务平台。</p><p style="margin-bottom: 12px;"><b>🎯 快速开始：</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>🔑 创建 API 密钥</li><li>📋 复制密钥到您的应用</li><li>🚀 开始使用 AI 服务</li></ul><p style="color: #10b981; font-weight: 600;">只需 1 分钟，让我们开始吧 →</p></div>',
+          '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">您好！欢迎来到 Sub2API AI 服务平台。</p><p style="margin-bottom: 12px;"><b>🎯 快速开始：</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>🔑 创建 API 密钥</li><li>📋 复制密钥到您的应用</li><li>🚀 开始使用 AI 服务</li></ul><p style="color: #10b981; font-weight: 600;">只需 1 分钟，让我们开始吧 →</p></div>',
         nextBtn: '开始 🚀',
         prevBtn: '跳过'
       },

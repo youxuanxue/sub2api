@@ -95,11 +95,6 @@ type forceCacheBillingKeyType struct{}
 type accountWithLoad struct {
 	account  *Account
 	loadInfo *AccountLoadInfo
-	// saturationPenalty (TK) 是加到 account.Priority 上的 BOUNDED 去优先级偏好，仅
-	// 对持续返回下游容量信号的 anthropic 镜像 stub 非零。filterByMinPriority 按
-	// effectivePriority()（Priority+saturationPenalty）排序。详见
-	// gateway_service_tk_saturation_penalty.go。
-	saturationPenalty int
 }
 
 var ForceCacheBillingContextKey = forceCacheBillingKeyType{}
@@ -121,11 +116,13 @@ var (
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
 
+	// Deprecated: flusher_enabled=true 后不再增长(仅 flag=false 降级直写路径使用);新主路径见 FlusherMetrics。remove after 2026-09。
 	// userPlatformQuotaDBIncrErrorTotal 统计 finalizePostUsageBilling 异步 goroutine
 	// 中 IncrementUsageWithReset 失败次数。Redis 已成功累加 + DB 写失败意味着
 	// Redis cache TTL 过期或被清后该笔 cost 会丢失（与实际消费偏差）。
 	// oncall 通过 GatewayUserPlatformQuotaIncrStats() 暴露给 ops 面板做阈值告警。
 	userPlatformQuotaDBIncrErrorTotal atomic.Int64
+	// Deprecated: flusher_enabled=true 后不再增长(仅 flag=false 降级直写路径使用);新主路径见 FlusherMetrics。remove after 2026-09。
 	// userPlatformQuotaDBIncrLegacyErrorTotal 统计 legacy postUsageBilling
 	// （applyUsageBilling 在 repo==nil 时 fallback）路径下的失败次数；
 	// 与 DB Incr 失败分开计数，便于区分"主路径暂时故障"vs"基础设施长期未配齐"。
@@ -166,6 +163,23 @@ func GatewayUserPlatformQuotaIncrStats() (mainPathErr, legacyPathErr, sentinelSe
 		userPlatformQuotaSentinelSetCacheErrorTotal.Load()
 }
 
+// GatewayUserPlatformQuotaFlusherStats 暴露 flusher 运行指标供 ops/health 面板查询。
+func GatewayUserPlatformQuotaFlusherStats(f *UserPlatformQuotaUsageFlusher) map[string]int64 {
+	if f == nil || f.metrics == nil {
+		return nil
+	}
+	m := f.metrics
+	return map[string]int64{
+		"flush_success":        m.FlushSuccessTotal.Load(),
+		"flush_error":          m.FlushErrorTotal.Load(),
+		"flush_batch_size":     m.FlushBatchSizeTotal.Load(),
+		"flush_latency_ms_max": m.FlushLatencyMsMax.Load(),
+		"dirty_readd":          m.DirtyReaddTotal.Load(),
+		"dirty_lost":           m.DirtyLostTotal.Load(),
+		"flush_fk_violation":   m.FlushFKViolationTotal.Load(),
+	}
+}
+
 func openAIStreamEventIsTerminal(data string) bool {
 	trimmed := strings.TrimSpace(data)
 	if trimmed == "" {
@@ -175,9 +189,7 @@ func openAIStreamEventIsTerminal(data string) bool {
 		return true
 	}
 	switch gjson.Get(trimmed, "type").String() {
-	case "response.completed", "response.done", "response.failed":
-		return true
-	case "response.incomplete", "response.cancelled", "response.canceled":
+	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 		return true
 	default:
 		return false
@@ -326,6 +338,7 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 		"x-api-key",
 		"content-type",
 		"accept",
+		"x-stainless-helper-method",
 	}
 
 	h := make([]string, 0, len(interesting))
@@ -416,6 +429,7 @@ var allowedHeaders = map[string]bool{
 	"x-stainless-arch":                          true,
 	"x-stainless-runtime":                       true,
 	"x-stainless-runtime-version":               true,
+	"x-stainless-helper-method":                 true,
 	"anthropic-dangerous-direct-browser-access": true,
 	"anthropic-version":                         true,
 	"x-app":                                     true,
@@ -549,12 +563,6 @@ type ForwardResult struct {
 	ClientDisconnect bool // 客户端是否在流式传输过程中断开
 	ReasoningEffort  *string
 
-	// BillingTier is an optional billing-tier label persisted onto the usage log.
-	// TK: the Kiro (sixth platform) path sets "kiro-estimated" to mark that the
-	// token counts were estimated locally (Kiro upstream reports credits only,
-	// never tokens). Empty means no tier label (the common token-billing case).
-	BillingTier string
-
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount         int    // 生成的图片数量
 	ImageSize          string // 最终计费尺寸 "1K", "2K", "4K"
@@ -589,69 +597,8 @@ type sseStreamErrorEventError struct {
 
 func (e *sseStreamErrorEventError) Error() string { return "have error in stream" }
 
-// sseStreamErrorFailover 把「上游 HTTP 200 + SSE 流体内 event:error 帧」转成一个
-// failover 错误，并补全 ops 上下文。
-//
-// TK: 返回 502（Bad Gateway）而非 403。mid-stream 上游挂掉的语义是「上游服务不可用」，
-// 不是 Forbidden —— 用 403 会把它塞进 handle403 的「封号 / WAF / 额度」判定空间
-// (#810/#831/#832)，并曾与 failover_loop 对 empty-body 403 的 fast-fail 相撞
-// (commit c7785a7e)。502 与 stream-read-error 路径一致、走 TempUnscheduleRetryableError
-// 的 empty-response 钩子。上游新增的类型化检测 + ops 日志 + ResponseBody 一并保留。
-func (s *GatewayService) sseStreamErrorFailover(c *gin.Context, account *Account, resp *http.Response, sseErr *sseStreamErrorEventError) error {
-	body := []byte(sseErr.RawData)
-
-	upstreamMsg := sanitizeUpstreamErrorMessage(
-		strings.TrimSpace(extractUpstreamErrorMessage(body)),
-	)
-
-	upstreamDetail := ""
-	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-		if maxBytes <= 0 {
-			maxBytes = 2048
-		}
-		upstreamDetail = truncateString(sseErr.RawData, maxBytes)
-	}
-
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		Platform:           account.Platform,
-		AccountID:          account.ID,
-		AccountName:        account.Name,
-		UpstreamStatusCode: http.StatusBadGateway,
-		UpstreamRequestID:  resp.Header.Get("x-request-id"),
-		Kind:               "stream_error",
-		Message:            upstreamMsg,
-		Detail:             upstreamDetail,
-	})
-
-	logger.LegacyPrintf("service.gateway",
-		"[Forward] SSE error event in stream: Account=%d(%s) RequestID=%s Body=%s",
-		account.ID, account.Name, resp.Header.Get("x-request-id"),
-		truncateString(sseErr.RawData, 1000),
-	)
-
-	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: body,
-	}
-}
-
 // TempUnscheduleRetryableError 对 RetryableOnSameAccount 类型的 failover 错误触发临时封禁。
 // 由 handler 层在同账号重试全部用尽、切换账号时调用。
-//
-// 池模式账号同样进入此路径（2026-05-21 revision of PR #333）：retry 用尽
-// 才进 TempUnschedule，而 pool_mode 默认 pool_mode_retry_count=3 已经
-// 给了池一次自愈机会；用尽仍失败时不再回避本地状态写入。
-//
-// 本函数只处理 RetryableOnSameAccount 的两个状态码：
-//   - case 400: tempUnscheduleGoogleConfigError —— 1 分钟 cooldown
-//   - case 502: tempUnscheduleEmptyResponse —— 1 分钟 cooldown
-//
-// 其余状态码（401/403/429/503/504）本函数不写 temp_unschedulable_until。
-// Anthropic 平台 4xx/5xx 的 3/3 短窗 + 指数退避 cooldown（30s → 2min → 10min）
-// 由独立路径 HandleUpstreamError → handleAnthropicUpstreamError 维护，与本函数
-// 并行执行同一请求；两路径都写 temp_unschedulable_until 时由 SetTempUnschedulable
-// 后写胜出。
 func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accountID int64, failoverErr *UpstreamFailoverError) {
 	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
 		return
@@ -703,27 +650,6 @@ type GatewayService struct {
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
-	// TK: passive availability observability (see docs/approved/pricing-availability-source-of-truth.md).
-	// Injected via GatewayService.SetPricingAvailabilityService (TK companion) so the upstream
-	// constructor signature stays unchanged. nil = feature disabled / not wired yet.
-	tkPricingAvailability *PricingAvailabilityService
-	// TK: per-account thinking-block signature_error preempt cache. Injected via
-	// SetAnthropicSigPreemptCache (TK companion). nil = feature disabled.
-	tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache
-	// TK: per-stub anthropic downstream-capacity saturation counter. Injected via
-	// SetAnthropicSaturationCounter (TK companion). nil = feature disabled. Read
-	// to apply a bounded de-prioritization preference in load-aware selection.
-	tkAnthropicSaturationCounter AnthropicSaturationCounterCache
-	// TK: pricing-missing → Feishu notifier. Injected via
-	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
-	tkPricingMissingNotifier PricingMissingNotifier
-	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
-	// vendored CodeWhisperer EventStream protocol layer.
-	kiroGateway *KiroGatewayService
-	// TK: per-replica Anthropic model-not-found negative cache — short-circuits a
-	// model name the upstream already confirmed not-found so we stop re-forwarding
-	// it. Always on, in-memory, 60s TTL. See gateway_service_tk_model_notfound_cache.go.
-	tkModelNotFoundCache *tkModelNotFoundNegativeCache
 }
 
 // NewGatewayService creates a new GatewayService
@@ -755,7 +681,6 @@ func NewGatewayService(
 	resolver *ModelPricingResolver,
 	balanceNotifyService *BalanceNotifyService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
-	kiroGateway *KiroGatewayService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -792,8 +717,6 @@ func NewGatewayService(
 		resolver:              resolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
-		kiroGateway:           kiroGateway,
-		tkModelNotFoundCache:  newTkModelNotFoundNegativeCache(),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -816,16 +739,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return ""
 	}
 
-	recordStickyHashSource := func(source string, sessionHash string) {
-		logger.WriteSinkEvent("info", "http.access.sticky", "sticky.hash_source", map[string]any{
-			"request_id":         parsed.RequestID,
-			"client_request_id":  parsed.ClientRequestID,
-			"source":             source,
-			"session_hash_short": shortSessionHash(sessionHash),
-		})
-	}
-
-	// Anthropic ingress keeps real client metadata.user_id above gateway-forwarded sticky headers.
+	// 1. 最高优先级：从 metadata.user_id 提取 session_xxx
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
 		if uid != nil && uid.SessionID != "" {
@@ -835,33 +749,12 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 				"device_id", uid.DeviceID,
 				"is_new_format", uid.IsNewFormat,
 			)
-			recordStickyHashSource("metadata_user_id", uid.SessionID)
 			return uid.SessionID
 		}
 		slog.Info("sticky.hash_metadata_parse_failed",
 			"metadata_user_id", parsed.MetadataUserID,
 			"parsed_nil", uid == nil,
 		)
-	}
-
-	if parsed.ExplicitStickyKey.Value != "" {
-		hash := DeriveSessionHashFromSeed(parsed.ExplicitStickyKey.Value)
-		slog.Info("sticky.hash_source",
-			"source", parsed.ExplicitStickyKey.Source,
-			"hash", hash,
-		)
-		recordStickyHashSource(parsed.ExplicitStickyKey.Source, hash)
-		return hash
-	}
-
-	if parsed.PromptCacheKey != "" {
-		hash := DeriveSessionHashFromSeed(parsed.PromptCacheKey)
-		slog.Info("sticky.hash_source",
-			"source", StickyKeySourceClientPromptCacheKey,
-			"hash", hash,
-		)
-		recordStickyHashSource(StickyKeySourceClientPromptCacheKey, hash)
-		return hash
 	}
 
 	// 2. 提取带 cache_control: {type: "ephemeral"} 的内容
@@ -872,7 +765,6 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"source", "cacheable_content",
 			"hash", hash,
 		)
-		recordStickyHashSource("cacheable_content", hash)
 		return hash
 	}
 
@@ -902,7 +794,6 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"hash", hash,
 			"content_len", combined.Len(),
 		)
-		recordStickyHashSource("message_content_fallback", hash)
 		return hash
 	}
 
@@ -1425,12 +1316,13 @@ func normalizeClaudeOAuthRequestBody(body []byte, modelID string, opts claudeOAu
 	// context_management：thinking.type 为 enabled/adaptive 时，真实 CLI 会自动
 	// 附带 {"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}。
 	// 客户端显式传了就透传；否则按 CLI 行为补齐。
-	// Haiku 4.5 例外：Anthropic /v1/messages 对 claude-haiku-4-5-* 模型返回
-	// HTTP 400 "context_management: Extra inputs are not permitted"，与 anthropic-beta
-	// 处理的 Haiku 例外保持一致（见 FullClaudeCodeMimicryBetas 调用处的 haiku 判定）。
-	// See upstream Wei-Shaw/sub2api#2506.
-	if !gjson.GetBytes(out, "context_management").Exists() &&
-		!strings.Contains(strings.ToLower(modelID), "haiku") {
+	//
+	// 注：本函数不按 model 名决定是否保留 context_management。“最终 beta
+	// header 不含 context-management-2025-06-27 时 strip 字段”的能力维度
+	// 对称约束由 sanitizeAnthropicBodyForBetaTokens 在 buildUpstreamRequest /
+	// buildCountTokensRequest 层统一执行，与 Bedrock 路径的
+	// sanitizeBedrockFieldsForBetaTokens 对称。
+	if !gjson.GetBytes(out, "context_management").Exists() {
 		thinkingType := gjson.GetBytes(out, "thinking.type").String()
 		if thinkingType == "enabled" || thinkingType == "adaptive" {
 			const cmDefault = `{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}`
@@ -1540,7 +1432,7 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
 
 	if s.identityService != nil && c != nil && c.Request != nil {
-		if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header, s.tlsFingerprintProfileNameForAccount(account)); err == nil && fp != nil {
+		if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header); err == nil && fp != nil {
 			mimicMPT := false
 			if s.settingService != nil {
 				_, mimicMPT, _ = s.settingService.GetGatewayForwardingSettings(ctx)
@@ -1993,11 +1885,6 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 									if s.debugModelRoutingEnabled() {
 										logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), stickyAccountID)
 									}
-									if s.cache != nil {
-										// 与 Layer 1.5 无 routing 路径（line ~1905）对称，命中即刷 TTL，
-										// 避免长 session 跨 1h 静默过期导致 prompt cache 击穿。
-										_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
-									}
 									return s.newSelectionResult(ctx, stickyAccount, true, result.ReleaseFunc, nil)
 								}
 							}
@@ -2142,13 +2029,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if accountID > 0 && !isExcluded(accountID) {
 			account, ok := accountByID[accountID]
 			if ok {
-				// 检查账户是否需要清理粘性会话绑定。TK: 额外在「持续饱和」时清除——
-				// 见 gateway_service_tk_sticky_saturation.go。仅接在这一条 Layer-1.5
-				// 路径，因为清除后落到 Layer-2 负载均衡，那里才有 saturation 惩罚
-				// (computeAnthropicSaturationPenalties) 把被清的 stub 排到健康兄弟之后；
-				// legacy selectAccountForModel* 路径无此惩罚，清了可能原地回选同一 stub。
-				clearSticky := shouldClearStickySession(account, requestedModel) ||
-					s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
+				// 检查账户是否需要清理粘性会话绑定
+				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
 					slog.Debug("sticky.layer1_5_no_routing_clear",
 						"account_id", accountID,
@@ -2267,100 +2149,42 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		"total_accounts", len(accounts),
 	)
 	candidates := make([]*Account, 0, len(accounts))
-	// TK: per-filter exclusion counters for the load-balance candidate loop.
-	// Layer 1 (model routing) already logs this breakdown; the Layer 2 path did
-	// not, so an empty load-balance pool surfaced only as a bare
-	// "no available accounts" with no way to tell WHICH gate emptied it. These
-	// counters feed the account_scheduling_loadbalance_no_candidates WARN below.
-	var filteredExcluded, filteredUnsched, filteredPlatform, filteredModelMapping,
-		filteredModelScope, filteredQuota, filteredWindowCost, filteredRPM int
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
-			filteredExcluded++
 			continue
 		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
 		if !s.isAccountSchedulableForSelection(acc) {
-			filteredUnsched++
 			continue
 		}
 		if !s.isAccountAllowedForPlatform(acc, platform, useMixed) {
-			filteredPlatform++
 			continue
 		}
 		if requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel) {
-			filteredModelMapping++
 			continue
 		}
 		if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
-			filteredModelScope++
 			continue
 		}
 		// 配额检查
 		if !s.isAccountSchedulableForQuota(acc) {
-			filteredQuota++
 			continue
 		}
 		// 窗口费用检查（非粘性会话路径）
 		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
-			filteredWindowCost++
 			continue
 		}
 		// RPM 检查（非粘性会话路径）
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
-			filteredRPM++
 			continue
 		}
 		candidates = append(candidates, acc)
 	}
 
 	if len(candidates) == 0 {
-		// TK: emit the per-gate breakdown so an empty load-balance pool is
-		// diagnosable (which filter removed how many accounts) instead of an
-		// opaque "no available accounts". Fires only on the empty-pool error
-		// path, so it is low-volume. Mirrors the Layer 1 routing breakdown.
-		slog.Warn("account_scheduling_loadbalance_no_candidates",
-			"group_id", derefGroupID(groupID),
-			"platform", platform,
-			"model", requestedModel,
-			"session", shortSessionHash(sessionHash),
-			"total_accounts", len(accounts),
-			"filtered_excluded", filteredExcluded,
-			"filtered_unschedulable", filteredUnsched,
-			"filtered_platform", filteredPlatform,
-			"filtered_model_unsupported", filteredModelMapping,
-			"filtered_model_rate_limited", filteredModelScope,
-			"filtered_quota", filteredQuota,
-			"filtered_window_cost", filteredWindowCost,
-			"filtered_rpm", filteredRPM,
-		)
-		// TK thin-pool guard: when a thin pool emptied SOLELY because this
-		// request's failover excluded its account(s) — nothing removed by
-		// cooldown/unschedulable, quota, RPM, window, model, or platform — return
-		// a distinct sentinel so the handler retries the lone account after a
-		// short backoff instead of fast-failing with a synthetic "No available
-		// accounts" 429. See gateway_service_tk_thin_pool_guard.go.
-		// In this empty-candidates branch every account hit exactly one gate
-		// (each loop iteration either incremented one filtered_* counter or
-		// appended to candidates), so the non-exclusion filters always sum to
-		// len(accounts)-filteredExcluded. Deriving it — instead of hand-summing
-		// the individual counters — stays correct if a new gate is ever added to
-		// the candidate loop above.
-		otherFilters := len(accounts) - filteredExcluded
-		if s.tkThinPoolAllExcluded(ctx, len(accounts), filteredExcluded, otherFilters) {
-			slog.Warn("account_scheduling_thin_pool_all_excluded",
-				"group_id", derefGroupID(groupID),
-				"platform", platform,
-				"model", requestedModel,
-				"session", shortSessionHash(sessionHash),
-				"total_accounts", len(accounts),
-				"filtered_excluded", filteredExcluded,
-			)
-			return nil, ErrThinPoolAllExcluded
-		}
 		return nil, ErrNoAvailableAccounts
 	}
 
@@ -2393,11 +2217,6 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				})
 			}
 		}
-
-		// TK: 为持续饱和的 anthropic 镜像 stub 计算 bounded 去优先级偏好，折入
-		// effectivePriority()，使其在下面的分层过滤中排到非饱和 stub 之后但不被
-		// 排除。详见 gateway_service_tk_saturation_penalty.go。
-		s.computeAnthropicSaturationPenalties(ctx, available)
 
 		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
@@ -2573,7 +2392,7 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 			return nil, nil, err
 		}
 
-		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) || IsClaudeDesktopGatewayClient(ctx) {
+		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) {
 			return group, &currentID, nil
 		}
 
@@ -2585,7 +2404,7 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 }
 
 // checkClaudeCodeRestriction 检查分组的 Claude Code 客户端限制
-// 如果分组启用了 claude_code_only 且请求不是来自 Claude Code 或 Claude Desktop 3p 网关客户端：
+// 如果分组启用了 claude_code_only 且请求不是来自 Claude Code 客户端：
 //   - 有降级分组：返回降级分组的 ID
 //   - 无降级分组：返回 ErrClaudeCodeOnly 错误
 func (s *GatewayService) checkClaudeCodeRestriction(ctx context.Context, groupID *int64) (*Group, *int64, error) {
@@ -3128,23 +2947,20 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	}, nil
 }
 
-// filterByMinPriority 过滤出（有效）优先级最小的账号集合。
-// 有效优先级 = account.Priority + saturationPenalty（TK），后者默认 0，仅对持续
-// 饱和的 anthropic 镜像 stub 为正的 BOUNDED 常量，使其排在所有非饱和 stub 之后，
-// 但仍保留在候选集中（不排除）。详见 gateway_service_tk_saturation_penalty.go。
+// filterByMinPriority 过滤出优先级最小的账号集合
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
 		return accounts
 	}
-	minPriority := accounts[0].effectivePriority()
+	minPriority := accounts[0].account.Priority
 	for _, acc := range accounts[1:] {
-		if acc.effectivePriority() < minPriority {
-			minPriority = acc.effectivePriority()
+		if acc.account.Priority < minPriority {
+			minPriority = acc.account.Priority
 		}
 	}
 	result := make([]accountWithLoad, 0, len(accounts))
 	for _, acc := range accounts {
-		if acc.effectivePriority() == minPriority {
+		if acc.account.Priority == minPriority {
 			result = append(result, acc)
 		}
 	}
@@ -3472,8 +3288,6 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 							if s.debugModelRoutingEnabled() {
 								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 							}
-							// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
-							_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 							return account, nil
 						}
 					}
@@ -3590,8 +3404,6 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
-						// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
-						_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 						return account, nil
 					}
 				}
@@ -3681,7 +3493,10 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		if requestedModel != "" {
+			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
+		}
+		return nil, ErrNoAvailableAccounts
 	}
 
 	// 4. 建立粘性绑定
@@ -3732,8 +3547,6 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 								if s.debugModelRoutingEnabled() {
 									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 								}
-								// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
-								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 								return account, nil
 							}
 						}
@@ -3852,8 +3665,6 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 						if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
-							// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
-							_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 							return account, nil
 						}
 					}
@@ -3943,7 +3754,10 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		if requestedModel != "" {
+			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
+		}
+		return nil, ErrNoAvailableAccounts
 	}
 
 	// 4. 建立粘性绑定
@@ -4176,19 +3990,6 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		} else {
 			requestedModel = claude.NormalizeModelID(requestedModel)
 		}
-	}
-	// TK 跨厂商脏模型前置拦截：anthropic 直连账号（OAuth/SetupToken/APIKey，上游确为
-	// api.anthropic.com）的 **passthrough（空 model_mapping）** 会把客户端原样模型名转发上游，而上游只
-	// 服务 claude-*。非 claude-* 名（deepseek-/gpt-/gemini- …）转发必 404，且是滥用风控的指纹异常。此处
-	// 判 false → 选择失败 → ErrUnsupportedModel → Path A 本地 400，永不离开网关。
-	//
-	// 只约束 passthrough：带显式 model_mapping 的账号转发的是 **mapped 后的** 模型名（见
-	// account.GetMappedModel 的转发用法），例如 {gpt-4o→claude-sonnet} 实际发的是 claude-sonnet、不泄漏，
-	// 故交回下方 IsModelSupported 按账号映射裁决，不被本守卫误拦。ServiceAccount(Vertex) 上游不是
-	// anthropic、模型名形态不同，在本条件内用 Type 排除；Bedrock 在函数顶部已 early-return。
-	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount &&
-		len(account.GetModelMapping()) == 0 && !tkIsForwardableAnthropicModelName(requestedModel) {
-		return false
 	}
 	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)
@@ -4839,18 +4640,7 @@ func enforceCacheControlLimit(body []byte) []byte {
 		logger.LegacyPrintf("service.gateway", "%s", item.log)
 	}
 
-	// TK (upstream Wei-Shaw/sub2api#1946 sibling #2013): a top-level
-	// "cache_control" field (non-standard — real Claude Code never sends it, but
-	// some clients do) is forwarded to Anthropic (see forceEphemeralCacheControlTTL)
-	// and counted by the API toward the 4-block limit. The original count omitted
-	// it, so "top-level cache_control + 4 nested blocks" was 5 on the wire while we
-	// only counted 4 → no trimming → Anthropic 400 "max 4 blocks, Found 5".
-	topLevelCacheControl := gjson.GetBytes(out, "cache_control").Exists()
-
 	count := len(messagePaths) + len(toolPaths) + len(systemPaths)
-	if topLevelCacheControl {
-		count++
-	}
 	if count <= maxCacheControlBlocks {
 		if modified {
 			return out
@@ -4858,16 +4648,8 @@ func enforceCacheControlLimit(body []byte) []byte {
 		return body
 	}
 
-	// 超限：优先移除非标准的顶层 cache_control，再从 tools、messages，最后 system 中移除。
+	// 超限：优先从 tools 中移除，再从 messages 中移除，最后才从 system 中移除。
 	remaining := count - maxCacheControlBlocks
-	if topLevelCacheControl && remaining > 0 {
-		if next, ok := deleteJSONPathBytes(out, "cache_control"); ok {
-			out = next
-			modified = true
-			remaining--
-			logger.LegacyPrintf("service.gateway", "[Warning] Removed non-standard top-level cache_control to satisfy %d-block limit", maxCacheControlBlocks)
-		}
-	}
 	for i := len(toolPaths) - 1; i >= 0 && remaining > 0; i-- {
 		path := toolPaths[i]
 		if !gjson.GetBytes(out, path).Exists() {
@@ -5042,15 +4824,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return s.forwardBedrock(ctx, c, account, parsed, startTime)
 	}
 
-	if account != nil && account.IsKiro() {
-		result, err := s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
-		var failoverErr *UpstreamFailoverError
-		if err != nil && s.rateLimitService != nil && errors.As(err, &failoverErr) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody, parsed.Model)
-		}
-		return result, err
-	}
-
 	// Beta policy: evaluate once; block check + cache filter set for buildUpstreamRequest.
 	// Always overwrite the cache to prevent stale values from a previous retry with a different account.
 	if account.Platform == PlatformAnthropic && c != nil {
@@ -5077,67 +4850,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
-	// TK: strip the Claude Code 1M-context model alias suffix (e.g.
-	// "claude-opus-4-8[1m]") that cc serializes verbatim into the model field on
-	// resume/continue/compact. Anthropic rejects it with 404 not_found_error and
-	// the client silently downgrades to the bare 200K model (claude-code #60913).
-	// Done before model mapping / scheduling / pricing so every consumer sees the
-	// bare id. originalModel is stripped too: it feeds the billing/quota key
-	// (ForwardResult.Model -> forwardResultBillingModel) and the response model
-	// echo — the bracketed alias has no pricing entry, so billing on it would
-	// resolve to zero/fallback cost, and the bare id is also what real Anthropic
-	// returns. The context-1m beta header is sent separately and passes through,
-	// so the bare model still gets the 1M window.
-	// See gateway_anthropic_context_window_alias_tk.go.
-	if account.Platform == PlatformAnthropic {
-		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
-			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
-				return nil, err
-			}
-			logger.LegacyPrintf("service.gateway",
-				"TK context-window alias stripped before forward (prevents Anthropic 404 + silent 200K fallback, claude-code #60913): %s -> %s account=%d",
-				reqModel, bare, account.ID)
-			reqModel, parsed.Model, originalModel = bare, bare, bare
-		}
-	}
-
-	// TK canonical-OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go):
-	//   1. reject third-party SDK UAs that would silently drain a personal cc subscription
-	//   2. remap retired opus model ids to the current default so the upstream model mix
-	//      stays consistent with what real claude-cli/2.1.152 produces
-	// Scoped to anthropic OAuth + canonical TLS profile only.
-	//
-	// TK: when the request's group is cc_only=false, the operator has declared this
-	// path admits non-CC traffic. That single switch governs the canonical non-CC
-	// policy — admit at ingress and launder on the wire (egress mimicry below) —
-	// so no separate setting is needed. Computed once, reused at the egress haiku
-	// gate. See tkGroupAdmitsNonCC.
-	groupAdmitsNonCC := s.tkGroupAdmitsNonCC(ctx, parsed)
-	if c != nil && s.isCanonicalAnthropicOAuth(account) {
-		// strict: allow-list UA gate (claude-cli/ | claude-code/ only, reject empty
-		// + unknown). Default false keeps the deny-list gate (zero regression).
-		// See SettingKeyAnthropicCanonicalIngressStrictEnabled.
-		if s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
-			if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
-				return nil, err
-			}
-		} else if !groupAdmitsNonCC {
-			// cc_only=false 分组：放行 deny-list UA（curl/python 等），交给下方 egress
-			// mimicry 把它洗白成 CC cohort。cc_only=true（或分组无法解析）时保留 deny-list
-			// 防护。strict 开关独立生效，仍是"拒绝一切非 CC"的显式 override。
-			if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
-				return nil, err
-			}
-		}
-		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
-			body = s.replaceModelInBody(body, newModel)
-			logger.LegacyPrintf("service.gateway",
-				"Canonical OAuth model remap: %s -> %s (account: %s)",
-				reqModel, newModel, account.Name)
-			reqModel = newModel
-		}
-	}
-
 	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
 	if c != nil {
 		s.debugLogGatewaySnapshot("CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{
@@ -5146,13 +4858,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			"model":        reqModel,
 			"stream":       strconv.FormatBool(reqStream),
 		})
-	}
-
-	// TK: normalize Anthropic native request body (tool_choice string -> object;
-	// strip thinking when tool_choice forces tool use). Runs once per request
-	// before any downstream rewrite. See gateway_anthropic_request_normalize_tk.go.
-	if account.Platform == PlatformAnthropic {
-		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
 	}
 
 	// Claude Code 客户端判定：UA 匹配 claude-cli/* 且携带 metadata.user_id。
@@ -5172,22 +4877,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 检测到"有 CC prompt 但无 billing block"的不一致而判为 third-party。
 		// Parrot 的 transform_request 从不检查客户端 system 内容，直接覆盖。
 		systemRewritten := false
-		// haiku normally skips system rewrite. Under the canonical haiku-mimicry
-		// toggle, rewrite haiku too, so a non-CC haiku request does not carry CC
-		// headers without the matching CC system/billing block (cohort inconsistency)
-		// — the egress "admit and launder" half. This is INDEPENDENT of the ingress
-		// UA strict gate: when an operator relaxes cc_only and routes non-CC traffic
-		// to a canonical fallback account, ingress stays open but this completes the
-		// disguise. Append-only `mimicry ||`: default false keeps the haiku skip
-		// (zero regression). See SettingKeyAnthropicCanonicalHaikuMimicryEnabled.
-		// Complete the haiku disguise when EITHER the explicit haiku-mimicry toggle
-		// is on OR the group admits non-CC (cc_only=false). The latter ensures a
-		// non-CC haiku request admitted at ingress above does not egress with CC
-		// headers but no CC system/billing block (the cohort gap). Same signal,
-		// one switch.
-		canonicalHaikuMimicry := s.isCanonicalAnthropicOAuth(account) &&
-			(s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx) || groupAdmitsNonCC)
-		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalHaikuMimicry) {
+		if !strings.Contains(strings.ToLower(reqModel), "haiku") {
 			systemRaw, _ := parsed.SystemValue()
 			systemPromptInjectionEnabled, systemPrompt, systemPromptBlocks := s.claudeOAuthSystemPromptInjectionSettings(ctx)
 			if systemPromptInjectionEnabled {
@@ -5203,7 +4893,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 两种情况下 enforceCacheControlLimit 都会兜底处理上限。
 		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
 		if s.identityService != nil {
-			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header, s.tlsFingerprintProfileNameForAccount(account))
+			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header)
 			if err == nil && fp != nil {
 				// metadata 透传开启时跳过 metadata 注入
 				_, mimicMPT, _ := s.settingService.GetGatewayForwardingSettings(ctx)
@@ -5285,26 +4975,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		logger.LegacyPrintf("service.gateway", "Model mapping applied: %s -> %s (account: %s, source=%s)", originalModel, mappedModel, account.Name, mappingSource)
 	}
 
-	// TK: friendly 400 for retired / sunset Anthropic model IDs. Runs after
-	// account.GetMappedModel + claude.NormalizeModelID so admin-configured
-	// mappings (e.g. claude-3-5-sonnet-20241022 -> claude-sonnet-4-6) take
-	// precedence — the check fires on the post-mapping model, so an admin
-	// who explicitly rewrote a retired ID into a current one keeps working.
-	// See gateway_anthropic_deprecated_model_tk.go.
-	if account.Platform == PlatformAnthropic {
-		if replacement, deprecated := tkIsDeprecatedAnthropicModel(mappedModel); deprecated {
-			tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
-			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
-		}
-	}
-
-	// TK: if this exact (mapped) Anthropic model name was recently confirmed
-	// not-found upstream, return the same 400 now and skip the wasted upstream
-	// round-trip. See gateway_service_tk_model_notfound_cache.go.
-	if handled, ncErr := s.tkModelNotFoundShortCircuit(c, account, mappedModel); handled {
-		return nil, ncErr
-	}
-
 	if s.shouldInjectAnthropicCacheTTL1h(ctx, account) {
 		if err := replaceBody(injectAnthropicCacheControlTTL1h(body)); err != nil {
 			return nil, err
@@ -5326,19 +4996,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 
 	// 解析 TLS 指纹 profile（同一请求生命周期内不变，避免重试循环中重复解析）
-	tlsProfile := resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)
+	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
 
 	// 调试日志：记录即将转发的账号信息
 	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
 		account.ID, account.Name, account.Platform, account.Type, tlsProfile, proxyURL)
-	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (prevents the
-	// upstream "str is not valid UTF-8: surrogate" 400 — claude-code #60168 /
-	// #63885 / #64777), THEN strip empty text blocks (including nested in
-	// tool_result). Sanitize runs first because StripEmptyTextBlocks parses the
-	// body as JSON; both prevent an upstream 400 before the first call.
-	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
-	// with a 400 (gateway_request_tk_fable.go).
-	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
+	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
+	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
 		return nil, err
 	}
 	// Pre-filter: remove thinking blocks with missing/invalid signatures before forwarding.
@@ -5365,17 +5029,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
-	// TK signature_error preempt: when this account recently exceeded the
-	// signature_error threshold, strip thinking blocks before the first upstream
-	// call to skip the otherwise-guaranteed 400 + signature_error round trip.
-	// gateway_service_tk_signature_preempt.go owns the cache + thresholds.
-	if account.Platform == PlatformAnthropic {
-		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
-	}
-
-	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
-	setOpsUpstreamRequestBody(c, body)
-
 	// 重试循环
 	var resp *http.Response
 	lastWireBody := body
@@ -5391,14 +5044,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 记录本次实际发送的 wire body；只有请求成功后才写回 ParsedRequest，避免 400 retry 基于已签名 CCH 再改写。
 		lastWireBody = wireBody
 
-		// 发送请求。流式请求在等待上游响应头期间发送 SSE keepalive，防止空闲敏感的
-		// 中间层（Cloudflare Tunnel / Caddy / 客户端 SDK）在上游排队/首字节前断开连接
-		// （Wei-Shaw/sub2api#2121）。首个 ping 延迟一个 keepalive 间隔，故快速 failover
-		// 错误（429/503/5xx）在写出任何字节前已返回，handler 的 c.Writer.Written()
-		// failover 门禁得以保留。详见 gateway_service_tk_header_wait_keepalive.go。
-		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
+		// 发送请求
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
-		hwka.stop()
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -5448,9 +5095,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							return ""
 						}(),
 					})
-					// TK: arm per-account signature_error preempt; subsequent
-					// requests within cooldown will pre-filter thinking blocks.
-					s.armSigPreemptOnError(ctx, c, account)
 
 					looksLikeToolSignatureError := func(msg string) bool {
 						m := strings.ToLower(msg)
@@ -5488,7 +5132,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									_ = retryResp.Body.Close()
 									return nil, err
 								}
-								setOpsUpstreamRequestBody(c, retryWireBody)
 								logger.LegacyPrintf("service.gateway", "Account %d: thinking block retry succeeded (blocks downgraded)", account.ID)
 								resp = retryResp
 								break
@@ -5514,16 +5157,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									}(),
 								})
 								msg2 := extractUpstreamErrorMessage(retryRespBody)
-								// FilterThinkingBlocksForRetry now preserves thinking in tool-coupled
-								// assistant turns (contract requirement), so for any request carrying
-								// tool_use a lingering signature error can only be cleared by the
-								// contract-complete downgrade (thinking + dependent tool blocks → text).
-								// Escalate whenever the error looks tool-related OR the request itself
-								// contains tool_use, not just when upstream names a tool in the message.
-								reqHasToolUse := bytes.Contains(body, []byte(`"type":"tool_use"`)) ||
-									bytes.Contains(body, []byte(`"type": "tool_use"`))
-								if (looksLikeToolSignatureError(msg2) || reqHasToolUse) && time.Since(retryStart) < maxRetryElapsed {
-									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing with tool_use present, retrying with tool blocks downgraded", account.ID)
+								if looksLikeToolSignatureError(msg2) && time.Since(retryStart) < maxRetryElapsed {
+									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
 									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body, reqModel)
 									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
 									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
@@ -5538,7 +5173,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 													_ = retryResp2.Body.Close()
 													return nil, err
 												}
-												setOpsUpstreamRequestBody(c, retryWireBody2)
 											}
 											resp = retryResp2
 											break
@@ -5582,63 +5216,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					resp.Body = io.NopCloser(bytes.NewReader(respBody))
 					break
 				}
-
-				// anthropic-beta self-heal: upstream retired/renamed a beta token
-				// we pin for Claude Code mimicry → hard 400 on every request to
-				// this account. Drop the named token(s) and retry once so a beta
-				// retirement degrades gracefully instead of blacking out the
-				// account until the manifest is reshipped. See
-				// gateway_service_tk_beta_selfheal.go and claude-code#53855.
-				if rejected := parseRejectedAnthropicBetas(respBody); len(rejected) > 0 {
-					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-						Platform:           account.Platform,
-						AccountID:          account.ID,
-						AccountName:        account.Name,
-						UpstreamStatusCode: resp.StatusCode,
-						UpstreamRequestID:  resp.Header.Get("x-request-id"),
-						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-						Kind:               "anthropic_beta_rejected",
-						Message:            extractUpstreamErrorMessage(respBody),
-						Detail: func() string {
-							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-							}
-							return ""
-						}(),
-					})
-					if time.Since(retryStart) < maxRetryElapsed {
-						logger.LegacyPrintf("service.gateway", "[warn] Account %d: upstream rejected anthropic-beta token(s) %v; retrying once with them dropped (manifest needs update)", account.ID, rejected)
-						betaRetryCtx, releaseBetaRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
-						betaRetryCtx = withBetaSelfHealDrop(betaRetryCtx, rejected)
-						betaRetryReq, _, buildErr := s.buildUpstreamRequest(betaRetryCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
-						releaseBetaRetryCtx()
-						if buildErr == nil {
-							betaRetryResp, retryErr := s.httpUpstream.DoWithTLS(betaRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
-							if retryErr == nil {
-								if betaRetryResp.StatusCode < 400 {
-									logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal succeeded after dropping %v", account.ID, rejected)
-									resp = betaRetryResp
-									break
-								}
-								if betaRetryResp.Body != nil {
-									_ = betaRetryResp.Body.Close()
-								}
-								logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal retry still failed (status=%d)", account.ID, betaRetryResp.StatusCode)
-							} else {
-								if betaRetryResp != nil && betaRetryResp.Body != nil {
-									_ = betaRetryResp.Body.Close()
-								}
-								logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal retry request failed: %v", account.ID, retryErr)
-							}
-						} else {
-							logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal build request failed: %v", account.ID, buildErr)
-						}
-					}
-					// Self-heal did not produce a success: restore the original
-					// 400 body and fall through to standard error handling.
-					resp.Body = io.NopCloser(bytes.NewReader(respBody))
-				}
-
 				// 不是签名错误（或整流器已关闭），继续检查 budget 约束
 				errMsg := extractUpstreamErrorMessage(respBody)
 				if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
@@ -5659,7 +5236,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						}(),
 					})
 
-					rectifiedBody, applied := RectifyThinkingBudget(body, reqModel)
+					rectifiedBody, applied := RectifyThinkingBudget(body)
 					if applied && time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "Account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
 						budgetRetryCtx, releaseBudgetRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
@@ -5689,78 +5266,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					}
 				}
 
-				// 第 4 级修复：Opus 4.7+ 拒绝手动思考 thinking:{type:"enabled",budget_tokens:N}，
-				// 仅收 {type:"adaptive"}（官方文档 + CC issue #61348）。某些客户端（旧版 cc、
-				// Claude for Mac、第三方 SDK）仍发老格式 → 上游 400 挂会话。反应式自愈：只在上游
-				// 真的回该 400 时把 enabled→adaptive 重试一次，happy path 一字节不碰。复用 budget
-				// 整流总开关（thinking-type 与 thinking-budget 同属思考整流，共用 kill-switch，
-				// 不新增配置面），并硬门控 requiresAdaptiveOnlyThinking(reqModel)（opus-4.7+ / fable）
-				// 防误伤 sonnet / opus-4.6。
-				if isThinkingTypeAdaptiveRequiredError(errMsg) && requiresAdaptiveOnlyThinking(reqModel) && s.settingService.IsBudgetRectifierEnabled(ctx) {
-					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-						Platform:           account.Platform,
-						AccountID:          account.ID,
-						AccountName:        account.Name,
-						UpstreamStatusCode: resp.StatusCode,
-						UpstreamRequestID:  resp.Header.Get("x-request-id"),
-						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-						Kind:               "thinking_type_adaptive_error",
-						Message:            errMsg,
-						Detail: func() string {
-							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-							}
-							return ""
-						}(),
-					})
-
-					adaptiveBody, applied := RectifyThinkingTypeAdaptive(body)
-					if applied && time.Since(retryStart) < maxRetryElapsed {
-						logger.LegacyPrintf("service.gateway", "Account %d: detected thinking.type.enabled-unsupported error on %s, retrying with thinking.type=adaptive", account.ID, reqModel)
-						adaptiveRetryCtx, releaseAdaptiveRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
-						adaptiveRetryReq, adaptiveWireBody, buildErr := s.buildUpstreamRequest(adaptiveRetryCtx, c, account, adaptiveBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
-						releaseAdaptiveRetryCtx()
-						if buildErr == nil {
-							adaptiveRetryResp, retryErr := s.httpUpstream.DoWithTLS(adaptiveRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
-							if retryErr == nil {
-								if adaptiveRetryResp.StatusCode < 400 {
-									// adaptive 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
-									lastWireBody = adaptiveWireBody
-									if err := replaceBody(adaptiveWireBody); err != nil {
-										_ = adaptiveRetryResp.Body.Close()
-										return nil, err
-									}
-								}
-								resp = adaptiveRetryResp
-								break
-							}
-							if adaptiveRetryResp != nil && adaptiveRetryResp.Body != nil {
-								_ = adaptiveRetryResp.Body.Close()
-							}
-							logger.LegacyPrintf("service.gateway", "Account %d: thinking adaptive rectifier retry failed: %v", account.ID, retryErr)
-						} else {
-							logger.LegacyPrintf("service.gateway", "Account %d: thinking adaptive rectifier retry build failed: %v", account.ID, buildErr)
-						}
-					}
-				}
-
 				resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			}
-		}
-
-		// TK (handle403 gap, 2026-06-16 edge us6 后续): account-fatal 403（Anthropic OAuth
-		// org-ban 短语 / 空 body 持续被拒）原地重试必然继续 403、纯属加重上游封禁，跳过原地
-		// 重试直奔下方 retry-exhausted/failover 副作用（HandleUpstreamError → handle403 →
-		// 永久禁用 + failover 到 sibling）。peek body 后必须还原 resp.Body 供下游 5367 读取
-		// （readUpstreamErrorBody 不还原）。见 gateway_service_tk_oauth_fatal_403_skip.go。
-		if resp.StatusCode == http.StatusForbidden && account.IsOAuth() {
-			peekedFatalBody, _ := s.readUpstreamErrorBody(resp)
-			_ = resp.Body.Close()
-			resp.Body = io.NopCloser(bytes.NewReader(peekedFatalBody))
-			if s.tkIsAccountFatal403(account, peekedFatalBody) {
-				logger.LegacyPrintf("service.gateway", "Account %d: account-fatal 403 (org-ban/bodyless), skipping in-place retry, failing over",
-					account.ID)
-				break
 			}
 		}
 
@@ -5832,13 +5338,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-			// TK: request-owned 429 (policy phrase / same-text breaker) — pass the
-			// upstream body through, skip penalty + failover. See
-			// gateway_service_tk_request_owned_429.go.
-			if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
-				return tkResult, tkErr
-			}
-
 			// 调试日志：打印重试耗尽后的错误响应
 			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
@@ -5862,7 +5361,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
+				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		return s.handleRetryExhaustedError(ctx, resp, c, account)
@@ -5873,12 +5372,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
-		// TK: request-owned 429 — same short-circuit as the retry-exhausted
-		// branch above. See gateway_service_tk_request_owned_429.go.
-		if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
-			return tkResult, tkErr
-		}
 
 		// 调试日志：打印上游错误响应
 		logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
@@ -5902,7 +5395,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           respBody,
-			RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
+			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 		}
 	}
 	if resp.StatusCode >= 400 {
@@ -5976,9 +5469,45 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			var sseErr *sseStreamErrorEventError
 			if errors.As(err, &sseErr) {
-				// 上游 HTTP 200 + SSE 流体内出现 event:error 帧 → 502 failover。
-				// 详见 sseStreamErrorFailover 的 TK 说明（为何 502 而非 403）。
-				return nil, s.sseStreamErrorFailover(c, account, resp, sseErr)
+				// 上游 HTTP 200 + SSE 流体内出现 event:error 帧。
+				// 保留 StatusCode=403 以兼容既有 failover/客户端响应语义，
+				// 但补全 ResponseBody 与 ops 上下文，让运维日志能反映上游真实错误。
+				body := []byte(sseErr.RawData)
+
+				upstreamMsg := sanitizeUpstreamErrorMessage(
+					strings.TrimSpace(extractUpstreamErrorMessage(body)),
+				)
+
+				upstreamDetail := ""
+				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+					maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+					if maxBytes <= 0 {
+						maxBytes = 2048
+					}
+					upstreamDetail = truncateString(sseErr.RawData, maxBytes)
+				}
+
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					Platform:           account.Platform,
+					AccountID:          account.ID,
+					AccountName:        account.Name,
+					UpstreamStatusCode: 403,
+					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					Kind:               "stream_error",
+					Message:            upstreamMsg,
+					Detail:             upstreamDetail,
+				})
+
+				logger.LegacyPrintf("service.gateway",
+					"[Forward] SSE error event in stream: Account=%d(%s) RequestID=%s Body=%s",
+					account.ID, account.Name, resp.Header.Get("x-request-id"),
+					truncateString(sseErr.RawData, 1000),
+				)
+
+				return nil, &UpstreamFailoverError{
+					StatusCode:   403,
+					ResponseBody: body,
+				}
 			}
 			return nil, err
 		}
@@ -6057,29 +5586,8 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
 	}
-	// TK: strip the Claude Code 1M-context model alias ("...[1m]") before forward
-	// so the API-key passthrough path does not 404 + silently downgrade to 200K
-	// (claude-code #60913). Mirrors the Forward path; bare ids are a no-op.
-	// input.OriginalModel is stripped too because it is the billing/quota key
-	// (RecordUsageInput.Model below) — the bracketed alias has no pricing entry.
-	// See gateway_anthropic_context_window_alias_tk.go.
-	if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {
-		input.Body = s.replaceModelInBody(input.Body, bare)
-		input.RequestModel = bare
-		input.OriginalModel = bare
-		if input.Parsed != nil {
-			input.Parsed.Model = bare
-		}
-		logger.LegacyPrintf("service.gateway",
-			"TK context-window alias stripped on APIKey passthrough (claude-code #60913): -> %s account=%d", bare, account.ID)
-	}
-	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (claude-code
-	// #60168 / #63885 / #64777), THEN strip empty text blocks (including nested
-	// in tool_result). Sanitize runs first because StripEmptyTextBlocks parses
-	// the body as JSON; both prevent an upstream 400.
-	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
-	// with a 400 (gateway_request_tk_fable.go).
-	input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))
+	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
+	input.Body = StripEmptyTextBlocks(input.Body)
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -6087,41 +5595,8 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		}
 	}
 
-	// Sticky routing: for non-Claude-Code clients hitting Anthropic API Key,
-	// derive + inject metadata.user_id so upstream prompt cache can bucket
-	// repeated requests in the same logical task. Real Claude Code UA is
-	// skipped — it owns its own session identity. See docs/approved/sticky-routing.md.
-	{
-		isClaudeCode := IsClaudeCodeClient(ctx)
-		stickyReq := buildStickyInjectionRequestFromGin(ctx, c, s.settingService, input.RequestModel, anthropicStickyAccountKind(account), isClaudeCode)
-		if stickyReq.Strategy.AllowsInjection() {
-			key := DeriveStickyKey(stickyReq, input.Body)
-			if key.Value != "" {
-				if injected, mut, ierr := InjectAnthropicMessagesBody(input.Body, key, stickyReq); ierr == nil && mut {
-					input.Body = injected
-					logger.LegacyPrintf("service.gateway",
-						"[Anthropic sticky apikey] injected metadata.user_id source=%s len=%d account=%s model=%s",
-						key.Source, len(key.Value), account.Name, input.RequestModel)
-				}
-			}
-		}
-	}
-
-	// TK signature_error preempt (Anthropic API-Key passthrough path): same
-	// rationale as the OAuth path — strip thinking blocks early when the
-	// account has been recently throwing signature_error.
-	if account.Platform == PlatformAnthropic {
-		input.Body = s.applySigPreemptIfArmed(ctx, c, account, input.Body, input.RequestModel)
-	}
-
-	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
-	setOpsUpstreamRequestBody(c, input.Body)
-
 	var resp *http.Response
 	retryStart := time.Now()
-	signatureRetryAttempted := false
-	budgetRetryAttempted := false
-	adaptiveRetryAttempted := false
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
 		upstreamReq, wireBody, err := s.buildUpstreamRequestAnthropicAPIKeyPassthrough(upstreamCtx, c, account, input.Body, token)
@@ -6137,7 +5612,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			input.Body = input.Parsed.Body.Bytes()
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account))
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -6164,108 +5639,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
-		if resp.StatusCode == 400 {
-			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-			if readErr == nil {
-				_ = resp.Body.Close()
-				if !signatureRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed && s.shouldRectifySignatureError(ctx, account, respBody, input.RequestModel) {
-					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-						Platform:           account.Platform,
-						AccountID:          account.ID,
-						AccountName:        account.Name,
-						UpstreamStatusCode: resp.StatusCode,
-						UpstreamRequestID:  resp.Header.Get("x-request-id"),
-						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-						Passthrough:        true,
-						Kind:               "signature_error",
-						Message:            extractUpstreamErrorMessage(respBody),
-						Detail: func() string {
-							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-							}
-							return ""
-						}(),
-					})
-					// TK: arm per-account signature_error preempt for next requests.
-					s.armSigPreemptOnError(ctx, c, account)
-					signatureRetryAttempted = true
-					input.Body = FilterThinkingBlocksForRetry(input.Body, input.RequestModel)
-					setOpsUpstreamRequestBody(c, input.Body)
-					logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: thinking blocks have invalid signature, retrying with filtered blocks", account.ID)
-					continue
-				}
-
-				// Parity with main Forward(): self-heal thinking-shape 400s on the
-				// passthrough path too. Model gate reads the model from the body that
-				// actually 400'd (wireBody = mapped model sent upstream).
-				errMsg := extractUpstreamErrorMessage(respBody)
-				modelForRepair := gjson.GetBytes(wireBody, "model").String()
-
-				// Budget-constraint repair (budget_tokens too small). RectifyThinkingBudget
-				// is model-aware: opus-4.7+ → adaptive (no budget), others → enabled+32000.
-				if !budgetRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed &&
-					isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
-					if rectified, applied := RectifyThinkingBudget(input.Body, modelForRepair); applied {
-						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-							Platform:           account.Platform,
-							AccountID:          account.ID,
-							AccountName:        account.Name,
-							UpstreamStatusCode: resp.StatusCode,
-							UpstreamRequestID:  resp.Header.Get("x-request-id"),
-							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-							Passthrough:        true,
-							Kind:               "budget_constraint_error",
-							Message:            errMsg,
-							Detail: func() string {
-								if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-									return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-								}
-								return ""
-							}(),
-						})
-						budgetRetryAttempted = true
-						input.Body = rectified
-						setOpsUpstreamRequestBody(c, input.Body)
-						logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: budget_tokens constraint, retrying with rectified thinking budget", account.ID)
-						continue
-					}
-				}
-
-				// Opus 4.7+ and Fable reject thinking.type=enabled (only adaptive). Reactive
-				// repair mirrors the main path's 4th priority; hard-gated by requiresAdaptiveOnlyThinking.
-				if !adaptiveRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed &&
-					isThinkingTypeAdaptiveRequiredError(errMsg) && requiresAdaptiveOnlyThinking(modelForRepair) && s.settingService.IsBudgetRectifierEnabled(ctx) {
-					if rectified, applied := RectifyThinkingTypeAdaptive(input.Body); applied {
-						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-							Platform:           account.Platform,
-							AccountID:          account.ID,
-							AccountName:        account.Name,
-							UpstreamStatusCode: resp.StatusCode,
-							UpstreamRequestID:  resp.Header.Get("x-request-id"),
-							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-							Passthrough:        true,
-							Kind:               "thinking_type_adaptive_error",
-							Message:            errMsg,
-							Detail: func() string {
-								if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-									return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-								}
-								return ""
-							}(),
-						})
-						adaptiveRetryAttempted = true
-						input.Body = rectified
-						setOpsUpstreamRequestBody(c, input.Body)
-						logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: thinking.type.enabled unsupported on %s, retrying with thinking.type=adaptive", account.ID, modelForRepair)
-						continue
-					}
-				}
-
-				resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			}
-		}
-
-		// 透传分支禁止普通 400 请求体降级重试（该重试会改写请求体）
+		// 透传分支禁止 400 请求体降级重试（该重试会改写请求体）
 		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
 			if attempt < maxRetryAttempts {
 				elapsed := time.Since(retryStart)
@@ -6324,12 +5698,6 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-			// TK: request-owned 429 — the prod mirror hop sees the edge's relayed
-			// policy 429 here. See gateway_service_tk_request_owned_429.go.
-			if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
-				return tkResult, tkErr
-			}
-
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
@@ -6353,7 +5721,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
+				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		return s.handleRetryExhaustedError(ctx, resp, c, account)
@@ -6363,12 +5731,6 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
-		// TK: request-owned 429 — same short-circuit as the retry-exhausted
-		// branch above. See gateway_service_tk_request_owned_429.go.
-		if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
-			return tkResult, tkErr
-		}
 
 		logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
@@ -6393,7 +5755,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           respBody,
-			RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
+			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 		}
 	}
 
@@ -6452,8 +5814,8 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	}
 
 	// 能力维度 body sanitize：透传路径上 anthropic-beta header 原样透传客户端值，
-	// 依此决定是否保留 body 中的 context_management。避免"客户端 body 带字段但
-	// header 忘记带 beta token"的客户端 bug 在透传场景下让上游 400。
+	// 依此决定是否保留 body 中的 context_management。避免“客户端 body 带字段但
+	// header 忘记带 beta token”的客户端 bug 在透传场景下让上游 400。
 	clientBeta := ""
 	if c != nil && c.Request != nil {
 		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
@@ -6493,7 +5855,6 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
-	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	return req, body, nil
 }
@@ -7210,7 +6571,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
+				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		return s.handleRetryExhaustedError(ctx, resp, c, account)
@@ -7234,7 +6595,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           respBody,
-			RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
+			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 		}
 	}
 
@@ -7361,7 +6722,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 	if account.IsOAuth() && s.identityService != nil {
 		// 1. 获取或创建指纹（包含随机生成的ClientID）
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))
+		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Warning: failed to get fingerprint for account %d: %v", account.ID, err)
 			// 失败时降级为透传原始headers
@@ -7388,21 +6749,29 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if fingerprint != nil {
 		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
 	}
-	// 能力维度 body sanitize（与最终 anthropic-beta header 对称）：最终 beta 不含
-	// context-management 时 strip body.context_management。必须在 NewRequest 之前，
-	// 确保最终转发 body 与 header 能力声明一致。
+
+	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	//
-	// 注意 haiku 的 header/body 非对称：computeFinalAnthropicBeta 的 haiku 分支刻意
-	// 不含 context-management —— 这正是 body 侧需要的（Anthropic 对 haiku 的
-	// body.context_management 返回 400），而下方 inline 块仍按 mimicry 给 header
-	// 带上 haiku 的 context-management beta（指纹对齐）。
-	{
-		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID), betaSelfHealDropTokens(ctx)...)
-		finalBetaForBody, _ := s.computeFinalAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
-		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
-			body = sanitized
-		}
+	// 顺序约束：
+	//   1) 算 finalBeta（纯函数，不依赖 req.Header；mimicry 路径会忽略客户端 beta，
+	//      与原“OAuth + mimicClaudeCode 跳过白名单透传”行为对齐）
+	//   2) 按 finalBeta 做能力维度 body sanitize（如 context-management beta 缺失 →
+	//      strip body.context_management，与 Bedrock 路径对称）
+	//   3) CCH 签名（必须使用 strip 后的 body，否则 hash 与最终 body 不一致 →
+	//      被 Anthropic 判 third-party）
+	//   4) NewRequest（body 至此最终敲定）
+	//   5) 透传白名单 / fingerprint / mimic header / 写入 finalBeta
+	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
+	effectiveDropSet := mergeDropSets(policyFilterSet)
+	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
+	)
+
+	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
+		body = sanitized
 	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
@@ -7448,59 +6817,28 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
-	// Build effective drop set: merge static defaults with dynamic beta policy filter rules,
-	// plus any anthropic-beta self-heal drops injected by a beta-rejection retry (see
-	// gateway_service_tk_beta_selfheal.go).
-	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
-	effectiveDropSet := mergeDropSets(policyFilterSet, betaSelfHealDropTokens(ctx)...)
+	// OAuth + mimic Claude Code：强制注入 CLI 指纹相关 header
+	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
+	if tokenType == "oauth" && mimicClaudeCode {
+		applyClaudeCodeMimicHeaders(req, reqStream)
+	}
 
-	// 处理 anthropic-beta header（OAuth 账号需要包含 oauth beta）
-	if tokenType == "oauth" {
-		if mimicClaudeCode {
-			// 非 Claude Code 客户端：按 opencode 的策略处理：
-			// - 强制 Claude Code 指纹相关请求头（尤其是 user-agent/x-stainless/x-app）
-			// - 保留 incoming beta 的同时，确保 OAuth 所需 beta 存在
-			applyClaudeCodeMimicHeaders(req, reqStream)
+	// 写入最终 anthropic-beta header
+	// 注：透传分支白名单可能写入了客户端 anthropic-beta，无条件 Del 一次再按 finalBeta
+	// 决定是否 set，确保 dropSet 过滤后的结果一定覆盖客户端原始值。
+	deleteHeaderAllForms(req.Header, "anthropic-beta")
+	if finalBetaShouldSet {
+		setHeaderRaw(req.Header, "anthropic-beta", finalBetaHeader)
+	}
 
-			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
-			// Claude Code OAuth credentials are scoped to Claude Code.
-			// Non-haiku models MUST include claude-code beta for Anthropic to recognize
-			// this as a legitimate Claude Code request; without it, the request is
-			// rejected as third-party ("out of extra usage").
-			//
-			// Haiku uses a DISTINCT beta set (FullClaudeCodeHaikuMimicryBetas), captured
-			// from cc 2.1.160 Haiku traffic where the server runs an A/B with
-			// structured-outputs as the majority state (see HaikuBetaHeader /
-			// docs/spec-delta-cc-2.1.160.md). That set deliberately OMITS claude-code beta
-			// and advanced-tool-use, and adds structured-outputs — it is NOT the Sonnet/Opus
-			// token set. Do not "fix" this to add claude-code beta without a fresh Haiku
-			// capture: the runtime claude_code_http_mimicry_manifest setting can override
-			// the list hot if a future cc Haiku build changes the cohort.
-			requiredBetas := claude.GetFullClaudeCodeHaikuMimicryBetasForContext(ctx)
-			if !strings.Contains(strings.ToLower(modelID), "haiku") {
-				requiredBetas = claude.GetFullClaudeCodeMimicryBetasForContext(ctx)
-			}
-			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropSet))
-		} else {
-			// Claude Code 客户端：尽量透传原始 header，仅补齐 oauth beta
-			clientBetaHeader := getHeaderRaw(req.Header, "anthropic-beta")
-			setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBetaHeader), effectiveDropSet))
-		}
-	} else {
-		// API-key accounts: apply beta policy filter to strip controlled tokens
-		if existingBeta := getHeaderRaw(req.Header, "anthropic-beta"); existingBeta != "" {
-			setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(existingBeta, effectiveDropSet))
-		} else if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
-			// API-key：仅在请求显式使用 beta 特性且客户端未提供时，按需补齐（默认关闭）
-			if requestNeedsBetaFeatures(body) {
-				if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-					setHeaderRaw(req.Header, "anthropic-beta", beta)
-				}
+	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
+	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
+		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
+			if parsed := ParseMetadataUserID(uid); parsed != nil {
+				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
 			}
 		}
 	}
-
-	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
@@ -7579,6 +6917,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	if err != nil {
 		return nil, err
 	}
+
 	// 计算最终 outgoing anthropic-beta。Vertex AI 的 Anthropic 端点只接受一小撮
 	// beta token，未知 token 会直接 HTTP 400——近期 Claude Code CLI 透传的
 	// advisor-tool-2026-03-01 / prompt-caching-scope-2026-01-05 /
@@ -7631,16 +6970,12 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	setHeaderRaw(req.Header, "content-type", "application/json")
 
-	// 与 buildUpstreamRequest / API-Key passthrough / count_tokens 路径一致：
-	// 保持多跳 sticky 身份（X-Claude-Code-Session-Id）。即使 Vertex 后端不识别此 header，
-	// 也能让 prod→sibling-gateway 形态下的下一跳保留稳定 sticky key。
 	// 覆盖上面白名单 loop 写入的原始 client anthropic-beta，使用过滤后的最终值。
 	// finalBeta 为空（全部被剥离）时不下发该 header，与 Vertex 无 beta 请求一致。
 	deleteHeaderAllForms(req.Header, "anthropic-beta")
 	if finalBeta != "" {
 		setHeaderRaw(req.Header, "anthropic-beta", finalBeta)
 	}
-	tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)
 
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),
@@ -7650,113 +6985,6 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	})
 
 	return req, nil
-}
-
-// computeFinalAnthropicBeta computes the final anthropic-beta header sent upstream
-// for the Messages path, as a pure (side-effect-free) function for unit coverage.
-//
-// NOTE: the live forwarding path (forwardClaudeRequest) keeps its own inline
-// computation that uses the context-aware claude.GetFullClaudeCodeMimicryBetasForContext(ctx)
-// variant — a TokenKey customization for per-request Claude Code fingerprint alignment
-// that this no-ctx pure function intentionally does not depend on. This mirror uses the
-// static claude.FullClaudeCodeMimicryBetas() and exists so the OAuth/mimic/API-key beta
-// branches stay unit-tested; keep the two in sync when the beta policy changes.
-//
-// (buildUpstreamRequest / buildCountTokensRequest) are the deferred cc-fingerprint
-// reconciliation (PR #456). golangci `unused` analyzes the non-test build, so a
-// test-only-referenced function reads as unused here.
-//
-//nolint:unused // Exercised by gateway_context_management_test.go; the prod call sites
-func (s *GatewayService) computeFinalAnthropicBeta(
-	tokenType string,
-	mimicClaudeCode bool,
-	modelID string,
-	clientHeaders http.Header,
-	body []byte,
-	effectiveDropSet map[string]struct{},
-) (string, bool) {
-	clientBeta := ""
-	if clientHeaders != nil {
-		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
-	}
-
-	if tokenType == "oauth" {
-		if mimicClaudeCode {
-			// mimic 路径：原代码跳过白名单透传，incomingBeta 总是空字符串。
-			// 这里传空 string 以严格对齐原行为。
-			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
-			if !strings.Contains(strings.ToLower(modelID), "haiku") {
-				requiredBetas = claude.FullClaudeCodeMimicryBetas()
-			}
-			return mergeAnthropicBetaDropping(requiredBetas, "", effectiveDropSet), true
-		}
-		// 真 Claude Code 客户端透传路径
-		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true
-	}
-
-	// API-key accounts
-	if clientBeta != "" {
-		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
-	}
-	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
-		if requestNeedsBetaFeatures(body) {
-			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-				return beta, true
-			}
-		}
-	}
-	return "", false
-}
-
-// computeFinalCountTokensAnthropicBeta is the count_tokens-path counterpart of
-// computeFinalAnthropicBeta. Same OAuth/mimic/API-key structure, plus the two
-// count_tokens-specific rules: OAuth mimic always appends BetaTokenCounting (no haiku
-// exclusion), and OAuth passthrough fills in the count-tokens beta. Same pure-function
-// caveat as computeFinalAnthropicBeta re: the live path's context-aware variant.
-//
-// (buildCountTokensRequest) is the deferred cc-fingerprint reconciliation (PR #456).
-//
-//nolint:unused // Exercised by gateway_context_management_test.go; prod wiring
-func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
-	tokenType string,
-	mimicClaudeCode bool,
-	modelID string,
-	clientHeaders http.Header,
-	body []byte,
-	effectiveDropSet map[string]struct{},
-) (string, bool) {
-	clientBeta := ""
-	if clientHeaders != nil {
-		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
-	}
-
-	if tokenType == "oauth" {
-		if mimicClaudeCode {
-			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
-			return mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), true
-		}
-		if clientBeta == "" {
-			return claude.CountTokensBetaHeader, true
-		}
-		beta := s.getBetaHeader(modelID, clientBeta)
-		if !strings.Contains(beta, claude.BetaTokenCounting) {
-			beta = beta + "," + claude.BetaTokenCounting
-		}
-		return stripBetaTokensWithSet(beta, effectiveDropSet), true
-	}
-
-	// API-key accounts
-	if clientBeta != "" {
-		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
-	}
-	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
-		if requestNeedsBetaFeatures(body) {
-			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-				return beta, true
-			}
-		}
-	}
-	return "", false
 }
 
 // getBetaHeader 处理anthropic-beta header
@@ -7797,7 +7025,8 @@ func (s *GatewayService) getBetaHeader(modelID string, clientBetaHeader string) 
 		return claude.BetaOAuth + "," + clientBetaHeader
 	}
 
-	// 客户端没传，根据模型生成（Haiku 使用 capture 顺序的 8-token 集合，含 claude-code beta）
+	// 客户端没传，根据模型生成
+	// haiku 模型不需要 claude-code beta
 	if strings.Contains(strings.ToLower(modelID), "haiku") {
 		return claude.HaikuBetaHeader
 	}
@@ -7884,6 +7113,121 @@ func mergeAnthropicBetaDropping(required []string, incoming string, drop map[str
 		out = append(out, p)
 	}
 	return strings.Join(out, ",")
+}
+
+// computeFinalAnthropicBeta 计算发往上游的最终 anthropic-beta header 值。
+//
+// 设计动机：将原本在 buildUpstreamRequest 内联在一起、依赖 req.Header 的
+// anthropic-beta 计算逻辑抽成纯函数。这样调用方可以在 NewRequest 之前
+// 就提前拿到最终 beta header，进而能按它对 body 做能力维度 sanitize 后再做
+// CCH 签名——一举修复了以下之前由顺序依赖导致的能力维度 sanitize
+// 无法部署的问题（签名与最终 body 不一致可以被判 third-party）。
+//
+// 返回 (value, shouldSet)：
+//   - shouldSet=false 意为“不主动设置 anthropic-beta header”，与原代码“
+//     API-key 账号 + 客户端未传 anthropic-beta + InjectBetaForAPIKey 未开启或
+//     requestNeedsBetaFeatures=false”的行为对齐。
+//   - shouldSet=true 时 value 可能为空字符串（例如客户端透传的 beta 被 dropSet
+//     全部过滤掉），这与原代码中 setHeaderRaw 的结果一致。
+//
+// clientHeaders 是客户端原始 HTTP header（通常为 c.Request.Header）；nil 时按“客户端
+// 未传”处理。body 是已经 metadata 重写 / billing version sync 之后但未 sanitize 上游
+// 不兼容字段之前的版本。
+func (s *GatewayService) computeFinalAnthropicBeta(
+	tokenType string,
+	mimicClaudeCode bool,
+	modelID string,
+	clientHeaders http.Header,
+	body []byte,
+	effectiveDropSet map[string]struct{},
+) (string, bool) {
+	clientBeta := ""
+	if clientHeaders != nil {
+		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
+	}
+
+	if tokenType == "oauth" {
+		if mimicClaudeCode {
+			// mimic 路径：原代码跳过白名单透传，incomingBeta 总是空字符串。
+			// 这里传空 string 以严格对齐原行为。
+			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
+			if !strings.Contains(strings.ToLower(modelID), "haiku") {
+				requiredBetas = claude.FullClaudeCodeMimicryBetas()
+			}
+			return mergeAnthropicBetaDropping(requiredBetas, "", effectiveDropSet), true
+		}
+		// 真 Claude Code 客户端透传路径
+		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true
+	}
+
+	// API-key accounts
+	if clientBeta != "" {
+		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
+	}
+	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
+		if requestNeedsBetaFeatures(body) {
+			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
+				return beta, true
+			}
+		}
+	}
+	return "", false
+}
+
+// computeFinalCountTokensAnthropicBeta 是 count_tokens 路径上 anthropic-beta header 的
+// 计算纯函数。语义与 computeFinalAnthropicBeta 对齐，但备份了 count_tokens 独有的
+// 两条特殊规则：
+//
+//   - OAuth mimic：requiredBetas 为 FullClaudeCodeMimicryBetas + BetaTokenCounting
+//     （与 messages 不同的是：不按 haiku 排除；count_tokens 始终携带 token-counting beta）
+//   - OAuth 透传 + 客户端未传 anthropic-beta：补齐 CountTokensBetaHeader
+//   - OAuth 透传 + 客户端传了：补齐 BetaTokenCounting（如果未含）
+//
+// 返回语义同 computeFinalAnthropicBeta。
+func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
+	tokenType string,
+	mimicClaudeCode bool,
+	modelID string,
+	clientHeaders http.Header,
+	body []byte,
+	effectiveDropSet map[string]struct{},
+) (string, bool) {
+	clientBeta := ""
+	if clientHeaders != nil {
+		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
+	}
+
+	if tokenType == "oauth" {
+		if mimicClaudeCode {
+			// 与原代码严格等价：original buildCountTokensRequest 在 count_tokens mimic
+			// 分支上**不**会跳过白名单透传（与 messages mimic 路径不同），所以
+			// incomingBeta = req.Header[anthropic-beta] = 客户端透传过来的 client beta。
+			// 重构后直接从 clientHeaders 拿同一个值，保持行为一致。
+			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
+			return mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), true
+		}
+		if clientBeta == "" {
+			return claude.CountTokensBetaHeader, true
+		}
+		beta := s.getBetaHeader(modelID, clientBeta)
+		if !strings.Contains(beta, claude.BetaTokenCounting) {
+			beta = beta + "," + claude.BetaTokenCounting
+		}
+		return stripBetaTokensWithSet(beta, effectiveDropSet), true
+	}
+
+	// API-key accounts
+	if clientBeta != "" {
+		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
+	}
+	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
+		if requestNeedsBetaFeatures(body) {
+			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
+				return beta, true
+			}
+		}
+	}
+	return "", false
 }
 
 // stripBetaTokens removes the given beta tokens from a comma-separated header value.
@@ -8155,20 +7499,30 @@ func buildBetaTokenSet(tokens []string) map[string]struct{} {
 
 var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 
-// applyClaudeCodeMimicHeaders forces Claude Code-only headers while preserving
-// previously captured real CLI fingerprint fields.
-func applyClaudeCodeMimicHeaders(req *http.Request, _ bool) {
+// applyClaudeCodeMimicHeaders forces "Claude Code-like" request headers.
+// This mirrors opencode-anthropic-auth behavior: do not trust downstream
+// headers when using Claude Code-scoped OAuth credentials.
+func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 	if req == nil {
 		return
 	}
+	// Start with the standard defaults (fill missing).
 	applyClaudeOAuthHeaderDefaults(req)
+	// Then force key headers to match Claude Code fingerprint regardless of what the client sent.
+	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
 	for key, value := range claude.DefaultHeaders {
-		if value == "" || getHeaderRaw(req.Header, key) != "" {
+		if value == "" {
 			continue
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
 	}
+	// Real Claude CLI uses Accept: application/json (even for streaming).
 	setHeaderRaw(req.Header, "Accept", "application/json")
+	if isStream {
+		setHeaderRaw(req.Header, "x-stainless-helper-method", "stream")
+	}
+	// Real Claude CLI 每个请求都会生成一个新的 UUID 放在 x-client-request-id。
+	// 上游会以此作为会话/请求指纹的一部分，缺失或重复都可能触发第三方判定。
 	if getHeaderRaw(req.Header, "x-client-request-id") == "" {
 		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
 	}
@@ -8200,9 +7554,6 @@ func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, accoun
 	}
 	if account.Type == AccountTypeAPIKey {
 		// API Key 账号：独立开关，一次读取配置
-		if s.settingService == nil {
-			return false
-		}
 		settings, err := s.settingService.GetRectifierSettings(ctx)
 		if err != nil || !settings.Enabled || !settings.APIKeySignatureEnabled {
 			return false
@@ -8224,9 +7575,6 @@ func (s *GatewayService) isSignatureErrorPattern(ctx context.Context, account *A
 		return true
 	}
 	if account.Type == AccountTypeAPIKey {
-		if s.settingService == nil {
-			return false
-		}
 		settings, err := s.settingService.GetRectifierSettings(ctx)
 		if err != nil {
 			return false
@@ -8291,15 +7639,12 @@ func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
 		return true
 	}
 
-	// 检测空 thinking 字段错误（OpenAI-compat 历史回放到 Anthropic 原生路由时会触发）。
-	// 例如:
-	//   "messages.1.content.0.thinking: each thinking block must contain thinking"
-	//   "messages.11.content.0.thinking: each thinking block must contain thinking"
-	// 同时覆盖跨模型切换场景：其他模型回过的 assistant 历史里有 type=thinking
-	// 但没有 thinking 文本，喂给开启 extended thinking 的 claude 时会被拒。
-	if strings.Contains(msg, "must contain thinking") ||
-		strings.Contains(msg, "thinking block must contain") {
-		logger.LegacyPrintf("service.gateway", "[SignatureCheck] Detected empty thinking field error")
+	// 检测 thinking block 缺少 thinking 字段的错误（跨模型切换时常见：
+	// 其他模型回过的 assistant 历史里有 type=thinking 但没有 thinking 文本，
+	// 喂给开启 extended thinking 的 claude 时会被拒）
+	// 例如: "messages.1.content.0.thinking: each thinking block must contain thinking"
+	if strings.Contains(msg, "thinking block must contain") {
+		logger.LegacyPrintf("service.gateway", "[SignatureCheck] Detected thinking block missing content error")
 		return true
 	}
 
@@ -8428,45 +7773,17 @@ func extractUpstreamErrorCode(body []byte) string {
 }
 
 func isCountTokensUnsupported404(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
 	if msg == "" {
-		// 部分中转站返回非 JSON 的 Spring 错误串（extractUpstreamErrorMessage 取不到
-		// 结构化 message），回退到原始 body 扫描。仍受下方 count_tokens 端点特征收窄。
-		msg = strings.ToLower(string(body))
-	}
-	if msg == "" {
 		return false
 	}
-
-	switch statusCode {
-	case http.StatusNotFound:
-		// 标准 404（原行为）：count_tokens 端点路径出现，或 count_tokens + not found。
-		if strings.Contains(msg, "/v1/messages/count_tokens") {
-			return true
-		}
-		return strings.Contains(msg, "count_tokens") && strings.Contains(msg, "not found")
-	case http.StatusBadRequest, http.StatusInternalServerError:
-		// TK(#656): 部分国产 Anthropic 兼容中转站不支持 count_tokens 端点时，把
-		// "NoResourceFoundException / No static resource v1/messages/count_tokens"
-		// 语义包装进非标准的 HTTP 400/500 返回，而非标准 404。
-		//
-		// 收窄到「同时提及 count_tokens 端点 + Spring 风格的资源不存在强信号」：
-		//   - 必须命中 count_tokens（端点特征），避免误吞错误 base_url 的通用 404；
-		//   - 只认 NoResourceFoundException / no static resource / no resource found
-		//     这类强信号，**刻意不认裸 "not found"**——后者可能是上游对真正的
-		//     invalid_request_error 的描述性文案（见单测 "non-404 invalid_request"：
-		//     400 + invalid_request_error + "Not found: /v1/messages/count_tokens"
-		//     必须返回 false，不能误吞客户端 body schema 错误，如 #2109 的
-		//     temperature 字段错误）。
-		if !strings.Contains(msg, "count_tokens") {
-			return false
-		}
-		return strings.Contains(msg, "noresourcefoundexception") ||
-			strings.Contains(msg, "no static resource") ||
-			strings.Contains(msg, "no resource found")
-	default:
-		return false
+	if strings.Contains(msg, "/v1/messages/count_tokens") {
+		return true
 	}
+	return strings.Contains(msg, "count_tokens") && strings.Contains(msg, "not found")
 }
 
 func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, error) {
@@ -8601,7 +7918,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	case 403:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
-		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
+		errMsg = "Upstream access forbidden, please contact administrator"
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"
@@ -8610,36 +7927,6 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		statusCode = http.StatusServiceUnavailable
 		errType = "overloaded_error"
 		errMsg = "Upstream service overloaded, please retry later"
-	case 404:
-		// TK (prod P0 2026-06-06, edge us5): an Anthropic upstream 404
-		// model-not-found is a CLIENT error — the caller requested a model name
-		// nobody serves (e.g. the bare alias "opus"). With the account-cooldown
-		// penalty skipped (HandleUpstreamModelNotFound/handle404 above return false
-		// for Anthropic, so shouldDisable=false and we are NOT wrapped as a
-		// failover error), surface it to the client as the SAME 400
-		// invalid_request_error "Unsupported model: X" contract as the scheduler
-		// path A (service.TkUnsupportedModelMessage). This keeps it client-owned
-		// (phase=request), out of upstream_error_rate, and stops retry storms.
-		// Any other 404 stays the generic upstream failure.
-		if account.Platform == PlatformAnthropic && IsAnthropicModelNotFound404(body, upstreamMsg) {
-			model := ""
-			if len(requestedModel) > 0 {
-				model = requestedModel[0]
-			}
-			if strings.TrimSpace(model) == "" {
-				model = extractAnthropicNotFoundModel(body, upstreamMsg)
-			}
-			statusCode = http.StatusBadRequest
-			errType = TkUnsupportedModelErrType
-			errMsg = TkUnsupportedModelMessage(model)
-			// TK: remember this confirmed upstream model-not-found so identical
-			// requests short-circuit for the next TTL instead of re-forwarding.
-			s.tkModelNotFoundRecordUpstream404(account.Platform, model)
-		} else {
-			statusCode = http.StatusBadGateway
-			errType = "upstream_error"
-			errMsg = "Upstream request failed"
-		}
 	case 500, 502, 503, 504:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
@@ -9228,23 +8515,18 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			return nil
 		}
 
-		// Upstream Wei-Shaw/sub2api#2332 hardening: gate the hasX flags on
-		// actual parse success. Without this, a partial usage object (e.g.
-		// only output_tokens present, or a fragmented/duplicate message_start)
-		// would clobber legitimate accumulator values with 0 because mergeSSEUsagePatch
-		// writes whenever hasX is true regardless of whether the source key existed.
 		patch := &sseUsagePatch{}
+		patch.hasInputTokens = true
 		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok {
 			patch.inputTokens = v
-			patch.hasInputTokens = true
 		}
+		patch.hasCacheCreationInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok {
 			patch.cacheCreationInputTokens = v
-			patch.hasCacheCreationInput = true
 		}
+		patch.hasCacheReadInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
 			patch.cacheReadInputTokens = v
-			patch.hasCacheReadInput = true
 		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
@@ -9572,9 +8854,6 @@ type postUsageBillingParams struct {
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
-	// TK: pre-flight balance-hold key handed off by the handler; consumed in the
-	// settlement transaction (see UsageBillingCommand.TkHoldRequestID).
-	TkHoldRequestID string
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -9657,18 +8936,23 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 		}
 	}
 
-	// Platform quota DB-only 累加（与 finalizePostUsageBilling 行为对齐的兜底）：
-	//   - 仅对 standard（余额）模式生效；订阅模式豁免
-	//   - 直接走 DB，不经 Redis Incr 队列：legacy 路径在 repo==nil（仓库未注入）
-	//     时被触发，此时整套 billing repo 都不可用，没有"双队列"风险
-	//   - 失败仅记 ALERT log + counter，不阻断主扣费流程；与正常路径一致
-	//
-	// 历史背景：原 legacy path 完全跳过此累加，导致部署中如果 repo 偶然为 nil
-	// 时用户消费可绕过 platform quota，存在静默资金风险。
+	// Platform quota 累加（legacy 兜底路径）：仅对 standard（余额）模式生效；订阅模式豁免；仅对有 limit 的用户写
+	//   - HasUserPlatformQuotaLimit 守卫:与正常路径对齐，无 limit 公司跳过
+	//   - 新增 Redis 同步写:enforcement 走 Redis，legacy 路径也必须同步写，否则 preflight 看不到消费
+	//   - flusher_enabled=false（降级）:保留原有同步直写 DB
+	//   - flusher_enabled=true:跳过直写 DB，由 flusher 异步批量刷（markDirty 在 IncrementUserPlatformQuotaUsage 内部完成）
+	//   - 失败仅记 ALERT log + counter，不阻断主扣费流程
 	if !p.IsSubscriptionBill && p.Platform != "" && cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
-		if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, cost.ActualCost, time.Now().UTC()); err != nil {
-			userPlatformQuotaDBIncrLegacyErrorTotal.Add(1)
-			logger.LegacyPrintf("service.gateway", "ALERT: legacy incr user platform quota DB failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, cost.ActualCost, err)
+		if deps.billingCacheService.HasUserPlatformQuotaLimit(billingCtx, p.User.ID, p.Platform) {
+			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, cost.ActualCost)
+			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
+				// 降级路径:flusher 未启用时保留原有同步直写 DB
+				if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, cost.ActualCost, time.Now().UTC()); err != nil {
+					userPlatformQuotaDBIncrLegacyErrorTotal.Add(1)
+					logger.LegacyPrintf("service.gateway", "ALERT: legacy incr user platform quota DB failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, cost.ActualCost, err)
+				}
+			}
+			// flusher_enabled=true:不直写 DB，flusher 异步批量刷
 		}
 	}
 
@@ -9720,7 +9004,6 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		AccountID:          p.Account.ID,
 		AccountType:        p.Account.Type,
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
-		TkHoldRequestID:    strings.TrimSpace(p.TkHoldRequestID),
 	}
 	if usageLog != nil {
 		cmd.Model = usageLog.Model
@@ -9819,31 +9102,38 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 
 	deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
 
-	// Platform quota 累加：仅在 standard（余额）模式生效；订阅模式豁免
-	// Redis 同步写 + DB 异步持久化:
+	// Platform quota 累加：仅在 standard（余额）模式生效；订阅模式豁免；仅对有 limit 的用户写
+	// Redis 同步写 + DB 异步持久化（flag=false 降级）或 flusher 异步刷（flag=true）:
+	//   - HasUserPlatformQuotaLimit 守卫:无 limit 的公司跳过,避免无效写入 + 浪费 Redis 容量
 	//   - Redis 同步:确保下次 preflight 立即看到最新 usage,把 TOCTOU 超支窗口
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
-	//   - DB 异步:在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
-	if !p.IsSubscriptionBill && p.Platform != "" && IsAllowedQuotaPlatform(p.Platform) &&
-		p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
-		deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
-		dbCtx, dbCancel := detachUpstreamContext(ctx)
-		userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.LegacyPrintf("service.gateway", "ALERT: panic in user platform quota incr goroutine user=%d platform=%s: %v", userID, platform, r)
-				}
-			}()
-			defer dbCancel()
-			if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(dbCtx, userID, platform, cost, time.Now().UTC()); err != nil {
-				// 失败计数器:暴露给 GatewayUserPlatformQuotaIncrStats(),由 ops 面板做斜率告警。
-				userPlatformQuotaDBIncrErrorTotal.Add(1)
-				// ALERT 级别:DB 持久化失败意味着 Redis cache 失效后该笔 cost 永久丢失,
-				// 用户配额视图与实际消费会偏差,oncall 需要据此对账或人工补录。
-				logger.LegacyPrintf("service.gateway", "ALERT: incr user platform quota DB failed user=%d platform=%s cost=%f: %v", userID, platform, cost, err)
+	//   - DB 异步(flusher_enabled=false):在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
+	//   - flusher_enabled=true:不直写 DB,由 flusher 异步批量刷（markDirty 已在 IncrementUserPlatformQuotaUsage 内部完成）
+	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
+			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
+			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
+				// 降级路径:flusher 未启用时保留原有异步直写 DB
+				dbCtx, dbCancel := detachUpstreamContext(ctx)
+				userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.LegacyPrintf("service.gateway", "ALERT: panic in user platform quota incr goroutine user=%d platform=%s: %v", userID, platform, r)
+						}
+					}()
+					defer dbCancel()
+					if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(dbCtx, userID, platform, cost, time.Now().UTC()); err != nil {
+						// 失败计数器:暴露给 GatewayUserPlatformQuotaIncrStats(),由 ops 面板做斜率告警。
+						userPlatformQuotaDBIncrErrorTotal.Add(1)
+						// ALERT 级别:DB 持久化失败意味着 Redis cache 失效后该笔 cost 永久丢失,
+						// 用户配额视图与实际消费会偏差,oncall 需要据此对账或人工补录。
+						logger.LegacyPrintf("service.gateway", "ALERT: incr user platform quota DB failed user=%d platform=%s cost=%f: %v", userID, platform, cost, err)
+					}
+				}()
 			}
-		}()
+			// flusher_enabled=true:不直写 DB,flusher 异步批量刷
+		}
 	}
 
 	// Notification checks run async — all parameters are already captured,
@@ -9958,6 +9248,7 @@ type billingDeps struct {
 	deferredService       *DeferredService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	cfg                   *config.Config
 }
 
 func (s *GatewayService) billingDeps() *billingDeps {
@@ -9969,6 +9260,7 @@ func (s *GatewayService) billingDeps() *billingDeps {
 		deferredService:       s.deferredService,
 		balanceNotifyService:  s.balanceNotifyService,
 		userPlatformQuotaRepo: s.userPlatformQuotaRepo,
+		cfg:                   s.cfg,
 	}
 }
 
@@ -10151,10 +9443,6 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 创建使用日志
 	accountRateMultiplier := account.BillingRateMultiplier()
-
-	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
-	s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
-
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
 
@@ -10180,18 +9468,6 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
 		return nil
-	}
-
-	// TK: passive availability observability — record successful forward outcome.
-	// RecordOutcome is nil-safe; absent wiring or disabled feature is no-op.
-	if s.tkPricingAvailability != nil {
-		s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{
-			Platform:           account.Platform,
-			ModelID:            result.UpstreamModel,
-			AccountID:          account.ID,
-			Success:            true,
-			UpstreamStatusCode: 200,
-		})
 	}
 
 	// 配额平台由 handler 在请求 ctx 内经 QuotaPlatform() 算定并通过 input 传入；
@@ -10349,22 +9625,7 @@ func (s *GatewayService) calculateTokenCost(
 		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
 	}
 	if err != nil {
-		// TK (upstream Wei-Shaw/sub2api#1833 / #1544): surface pricing-missing as a
-		// structured, observable zero-cost log instead of a silent ActualCost:0
-		// leak — at parity with the OpenAI record-usage path. The P0 Feishu alert
-		// is no longer fired here: it is consolidated into the result-side
-		// "served but zero cost" probe (tkNotifyServedZeroCost) at the record-usage
-		// site, which catches this error-path zero-cost AND the silent $0 paths
-		// that never error. This call keeps only the grep-able structured log.
-		logTokenCostPricingMissing(billingModel, apiKey, result, err)
-		if isUsagePricingUnavailableError(err) {
-			return &CostBreakdown{BillingMode: string(BillingModeToken)}
-		}
-		// Non-pricing-missing errors deliberately retain upstream gateway's
-		// "swallow and record zero" semantics (the OpenAI record-usage path
-		// instead propagates such errors). We keep the legacy behavior here to
-		// avoid failing usage recording on unexpected cost-calc errors; only the
-		// pricing-missing case above is upgraded to an observable marked record.
+		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
 		return &CostBreakdown{ActualCost: 0}
 	}
 	return cost
@@ -10399,7 +9660,6 @@ func (s *GatewayService) buildRecordUsageLog(
 		RequestedModel:        requestedModel,
 		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
 		ReasoningEffort:       result.ReasoningEffort,
-		BillingTier:           optionalTrimmedStringPtr(result.BillingTier),
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           result.Usage.InputTokens,
@@ -10613,70 +9873,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 	reqModel := parsed.Model
 
-	// TK: strip the Claude Code 1M-context model alias ("...[1m]") before forward
-	// so count_tokens does not 404 on the bracketed id and trip the per-account
-	// upstream-error breaker (claude-code #60913). Mirrors the Forward path; bare
-	// ids are a no-op. See gateway_anthropic_context_window_alias_tk.go.
-	if account != nil && account.Platform == PlatformAnthropic {
-		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
-			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
-				return err
-			}
-			reqModel, parsed.Model = bare, bare
-			logger.LegacyPrintf("service.gateway",
-				"TK context-window alias stripped on count_tokens (claude-code #60913): -> %s account=%d", bare, account.ID)
-		}
-	}
-
-	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (claude-code
-	// #60168 / #63885 / #64777), THEN strip empty text blocks. Sanitize runs
-	// first because StripEmptyTextBlocks parses the body as JSON; both prevent
-	// an upstream 400 (here also guarding the per-account upstream-error breaker).
-	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
-	// with a 400 (gateway_request_tk_fable.go).
-	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
+	// Pre-filter: strip empty text blocks to prevent upstream 400.
+	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
 		return err
-	}
-
-	// TK: normalize Anthropic native request body for count_tokens path
-	// (mirrors the Forward path). Same client request shape lands on both
-	// endpoints; without this, tool_choice="required" / thinking+forces-tool-use
-	// 400s here can trip the per-account upstream-error breaker (see
-	// StripCountTokensUnsupportedFields comment).
-	if account != nil && account.Platform == PlatformAnthropic {
-		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
-	}
-
-	// Pre-filter: strip fields that Anthropic's count_tokens endpoint rejects
-	// with `invalid_request_error: "<field>: Extra inputs are not permitted"`.
-	// Common client bug (observed in claude-cli) — without this strip, 3
-	// consecutive 400s used to trip the per-account upstream-error breaker and
-	// take the account temp_unschedulable for 10 minutes.
-	if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {
-		body = next
-		slog.Info(
-			"count_tokens.stripped_unsupported_fields",
-			"account_id", account.ID,
-			"account_name", account.Name,
-			"fields", stripped,
-		)
-	}
-
-	// TK canonical-OAuth strict ingress UA gate on count_tokens. Without this the
-	// allow-list gate would only cover /v1/messages and a third-party client could
-	// probe/drain a personal subscription via count_tokens (cohort signal bypass).
-	// Scoped to anthropic OAuth + canonical TLS, and only when strict mode is on;
-	// default false leaves count_tokens untouched (zero regression). On reject we
-	// write a 403 and return nil (no failover), mirroring the Antigravity-404 path.
-	if c != nil && s.isCanonicalAnthropicOAuth(account) &&
-		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
-		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
-			// Local policy denial — keep strict-mode reject volume out of
-			// error-rate dashboards (parity with the /v1/messages handler branch).
-			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
-			return nil
-		}
 	}
 
 	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
@@ -10702,18 +9901,6 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 				return err
 			}
 		}
-
-		// Final-strip after OAuth mimic injection: normalizeClaudeOAuthRequestBody
-		// deliberately injects `temperature: 1`, `max_tokens: 128000`, and
-		// `context_management: {...}` to match the real Claude Code CLI fingerprint
-		// on the regular /v1/messages path. None of those are accepted on
-		// /v1/messages/count_tokens (Anthropic returns
-		// `invalid_request_error: <field>: Extra inputs are not permitted`).
-		// Without this second strip the early one above is no-op for the common
-		// case (client body had no unsupported fields), and Anthropic 400s every
-		// count_tokens request. Silent: this strip is an expected internal sanitize
-		// of normalize side effects, not a client schema bug, so it does not log.
-		body, _ = StripCountTokensUnsupportedFields(body)
 	}
 
 	// Antigravity 账户不支持 count_tokens，返回 404 让客户端 fallback 到本地估算。
@@ -10753,29 +9940,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		}
 	}
 
-	// TK: friendly 400 for retired / sunset Anthropic model IDs on the
-	// count_tokens path. Mirrors the Forward path gate so clients get the
-	// same migration signal whether they call /v1/messages or
-	// /v1/messages/count_tokens. Runs after mapping so admin-configured
-	// rewrites take precedence. See gateway_anthropic_deprecated_model_tk.go.
-	if account.Platform == PlatformAnthropic && reqModel != "" {
-		if replacement, deprecated := tkIsDeprecatedAnthropicModel(reqModel); deprecated {
-			tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
-			return fmt.Errorf("anthropic model %q is retired (suggest %q)", reqModel, replacement)
-		}
-	}
-
 	// 获取凭证
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
 		return err
-	}
-
-	// TK signature_error preempt (count_tokens path): pre-filter thinking blocks
-	// when the account is currently in the preempt cooldown window.
-	if account.Platform == PlatformAnthropic {
-		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
 	}
 
 	// 构建上游请求
@@ -10796,7 +9965,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 发送请求
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account))
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
@@ -10819,13 +9988,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
 	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
-		// TK: arm per-account signature_error preempt for subsequent requests.
-		s.armSigPreemptOnError(ctx, c, account)
 
 		filteredBody := FilterThinkingBlocksForRetry(body, reqModel)
 		retryReq, retryWireBody, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
 		if buildErr == nil {
-			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account))
+			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 			if retryErr == nil {
 				if retryResp.StatusCode < 400 {
 					// count_tokens 签名重试成功后记录最终 wire body，错误响应仍保留原 body 便于后续处理。
@@ -10853,25 +10020,8 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
-		// TK(#656): 部分国产 Anthropic 兼容中转站不支持 count_tokens 端点时，把
-		// 404/NoResourceFoundException 语义包装进非标准的 400/500 返回。优先在熔断与
-		// failover 之前短路：返回 404 让 Claude Code fallback 到本地 token 估算（与
-		// passthrough 路径一致），既不罚下账号（500-wrap 不计入熔断），也不浪费
-		// failover 名额（同组其他账号多半同一上游、同样不支持）。
-		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
-			logger.LegacyPrintf("service.gateway",
-				"[count_tokens] Upstream does not support count_tokens (status=%d), returning 404: account=%d name=%s msg=%s",
-				resp.StatusCode, account.ID, account.Name,
-				truncateString(sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(respBody)), 512))
-			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
-			return nil
-		}
-
-		// 标记账号状态。count_tokens 预检端点的 400/429/529 不计入熔断
-		// （tkCountTokensSkipBreaker，见 gateway_service_tk_count_tokens_failover.go）。
-		if !tkCountTokensSkipBreaker(resp.StatusCode) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
+		// 标记账号状态（429/529等）
+		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -10885,30 +10035,19 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		}
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
-		// 记录上游错误摘要便于排障（不回显请求内容）。
-		// 带上 upstream URL（脱敏）以便区分 Anthropic 直连 vs 中继站（后者常
-		// 把 invalid_request_error 包装成通用 upstream_error，原始 message 不
-		// 再可见，从 URL 一眼看出是哪种情况）。
+		// 记录上游错误摘要便于排障（不回显请求内容）
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 			logger.LegacyPrintf("service.gateway",
-				"count_tokens upstream error %d (account=%d platform=%s type=%s url=%s): %s",
+				"count_tokens upstream error %d (account=%d platform=%s type=%s): %s",
 				resp.StatusCode,
 				account.ID,
 				account.Platform,
 				account.Type,
-				safeUpstreamURL(upstreamReq.URL.String()),
 				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
 			)
 		}
 
-		// TK: count_tokens 与 /v1/messages 一致地具备账号 failover。可 failover 的
-		// 状态码返回 *UpstreamFailoverError 且不写客户端响应（此处尚未写入任何字节，
-		// 重试安全），交由 handler 的 failover loop 换号 / 池内轮换 / 耗尽。
-		if fe := s.tkCountTokensFailoverError(account, resp, respBody); fe != nil {
-			return fe
-		}
-
-		// 非 failover 错误（如 400/404/501）：保持原行为，直接写客户端。
+		// 返回简化的错误响应
 		errMsg := "Upstream request failed"
 		switch resp.StatusCode {
 		case 429:
@@ -10939,20 +10078,6 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
 
-	// Pre-filter: strip fields that count_tokens rejects (see comment on the
-	// equivalent call in ForwardCountTokens). Passthrough hits Anthropic
-	// directly so this strict-schema check is even more important here.
-	if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {
-		body = next
-		slog.Info(
-			"count_tokens.stripped_unsupported_fields",
-			"account_id", account.ID,
-			"account_name", account.Name,
-			"passthrough", true,
-			"fields", stripped,
-		)
-	}
-
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
 	if err != nil {
 		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
@@ -10964,7 +10089,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account))
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -10994,9 +10119,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		// 同 ForwardCountTokens：count_tokens 预检端点的 400/429/529 不计入熔断
-		// （tkCountTokensSkipBreaker）。
-		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
+		if s.rateLimitService != nil {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -11035,25 +10158,6 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
 		})
-
-		// 同 ForwardCountTokens：日志带上 upstream URL（脱敏）以便区分直连与中继。
-		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			logger.LegacyPrintf("service.gateway",
-				"count_tokens passthrough upstream error %d (account=%d platform=%s type=%s url=%s): %s",
-				resp.StatusCode,
-				account.ID,
-				account.Platform,
-				account.Type,
-				safeUpstreamURL(upstreamReq.URL.String()),
-				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
-			)
-		}
-
-		// TK: passthrough count_tokens 也具备账号 failover（与 ForwardCountTokens
-		// 一致，共用 tkCountTokensFailoverError）。尚未写入响应体，failover 安全。
-		if fe := s.tkCountTokensFailoverError(account, resp, respBody); fe != nil {
-			return fe
-		}
 
 		errMsg := "Upstream request failed"
 		switch resp.StatusCode {
@@ -11094,9 +10198,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 		}
 		targetURL = validatedURL + "/v1/messages/count_tokens?beta=true"
 	}
+	body = sanitizeCountTokensRequestBody(body)
 
-	// 能力维度 body sanitize：透传路径按客户端 anthropic-beta header 决定是否保留
-	// body 中的 context_management（与 buildUpstreamRequestAnthropicAPIKeyPassthrough 对称）。
+	// 同 buildUpstreamRequestAnthropicAPIKeyPassthrough：能力维度 sanitize。
 	clientBeta := ""
 	if c != nil && c.Request != nil {
 		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
@@ -11177,7 +10281,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 	var ctFingerprint *Fingerprint
 	if account.IsOAuth() && s.identityService != nil {
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))
+		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
 		if err == nil {
 			ctFingerprint = fp
 			if !ctEnableMPT {
@@ -11195,17 +10299,19 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if ctFingerprint != nil && ctEnableFP {
 		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
 	}
-	// 能力维度 body sanitize（与 count_tokens 最终 anthropic-beta header 对称）。注：
-	// count_tokens 路径 ForwardCountTokens 已用 StripCountTokensUnsupportedFields
-	// 无条件剥离 context_management（Anthropic count_tokens 拒收该字段），此处对直接调用方
-	// 与未走 Forward 的入口做能力维度兜底。
-	{
-		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
-		finalBetaForBody, _ := s.computeFinalCountTokensAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
-		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
-			body = sanitized
-		}
+
+	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
+	// 顺序约束同 buildUpstreamRequest。
+	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+	finalBetaHeader, finalBetaShouldSet := s.computeFinalCountTokensAnthropicBeta(
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet,
+	)
+
+	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
+		body = sanitized
 	}
+
 	body = sanitizeCountTokensRequestBody(body)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
@@ -11247,44 +10353,25 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
-	// Build effective drop set for count_tokens: merge static defaults with dynamic beta policy filter rules
-	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header
+	if tokenType == "oauth" && mimicClaudeCode {
+		applyClaudeCodeMimicHeaders(req, false)
+	}
 
-	// OAuth 账号：处理 anthropic-beta header
-	if tokenType == "oauth" {
-		if mimicClaudeCode {
-			applyClaudeCodeMimicHeaders(req, false)
+	// 写入最终 anthropic-beta header（Del 一次避免白名单透传值残留）
+	deleteHeaderAllForms(req.Header, "anthropic-beta")
+	if finalBetaShouldSet {
+		setHeaderRaw(req.Header, "anthropic-beta", finalBetaHeader)
+	}
 
-			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
-			requiredBetas := append(claude.GetFullClaudeCodeMimicryBetasForContext(ctx), claude.BetaTokenCounting)
-			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, ctEffectiveDropSet))
-		} else {
-			clientBetaHeader := getHeaderRaw(req.Header, "anthropic-beta")
-			if clientBetaHeader == "" {
-				setHeaderRaw(req.Header, "anthropic-beta", claude.CountTokensBetaHeader)
-			} else {
-				beta := s.getBetaHeader(modelID, clientBetaHeader)
-				if !strings.Contains(beta, claude.BetaTokenCounting) {
-					beta = beta + "," + claude.BetaTokenCounting
-				}
-				setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(beta, ctEffectiveDropSet))
-			}
-		}
-	} else {
-		// API-key accounts: apply beta policy filter to strip controlled tokens
-		if existingBeta := getHeaderRaw(req.Header, "anthropic-beta"); existingBeta != "" {
-			setHeaderRaw(req.Header, "anthropic-beta", stripBetaTokensWithSet(existingBeta, ctEffectiveDropSet))
-		} else if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
-			// API-key：与 messages 同步的按需 beta 注入（默认关闭）
-			if requestNeedsBetaFeatures(body) {
-				if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-					setHeaderRaw(req.Header, "anthropic-beta", beta)
-				}
+	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
+	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
+		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
+			if parsed := ParseMetadataUserID(uid); parsed != nil {
+				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
 			}
 		}
 	}
-
-	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	if c != nil && tokenType == "oauth" {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))
@@ -11491,31 +10578,23 @@ const debugGatewayBodyDefaultFilename = "gateway_debug.log"
 //   - 已有目录路径        → 该目录下 gateway_debug.log
 //   - 其他               → 视为完整文件路径
 func (s *GatewayService) initDebugGatewayBodyFile(path string) {
-	path = strings.TrimSpace(path)
 	if parseDebugEnvBool(path) {
 		path = debugGatewayBodyDefaultFilename
 	}
-	if path == "" {
-		return
-	}
-	path = filepath.Clean(path)
 
 	// 如果 path 指向一个已存在的目录，自动追加默认文件名
-	// #nosec G703 -- debug log path is operator-controlled local config, then cleaned below.
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, debugGatewayBodyDefaultFilename)
 	}
 
 	// 确保父目录存在
-	if dir := filepath.Clean(filepath.Dir(path)); dir != "." {
-		// #nosec G703 -- directory comes from cleaned operator-configured debug path.
+	if dir := filepath.Dir(path); dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			slog.Error("failed to create gateway debug log directory", "dir", dir, "error", err)
 			return
 		}
 	}
 
-	// #nosec G703 -- file path comes from cleaned operator-configured debug path.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		slog.Error("failed to open gateway debug log file", "path", path, "error", err)

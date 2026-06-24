@@ -249,12 +249,6 @@ const selectPreset = (preset: DatePreset) => {
   localStartDate.value = range.start
   localEndDate.value = range.end
   activePreset.value = preset.value
-  // A quick preset is a complete intent — apply it immediately and close,
-  // matching standard date-picker UX. Otherwise the trigger label flips to the
-  // preset (e.g. 近14天) while the still-unapplied range keeps driving requests,
-  // so the chart silently shows the previous window. Custom date inputs still
-  // require an explicit Apply click.
-  apply()
 }
 
 const onDateChange = () => {

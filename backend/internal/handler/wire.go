@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
@@ -42,11 +40,6 @@ func ProvideAdminHandlers(
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
-	tkChannelHandler *admin.TKChannelAdminHandler,
-	tierHandler *admin.TierHandler,
-	edgeAccountsHandler *admin.EdgeAccountsHandler,
-	edgeAccountOpsHandler *admin.EdgeAccountOpsHandler,
-	trialProvisionHandler *admin.TrialProvisionHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -80,11 +73,6 @@ func ProvideAdminHandlers(
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
-		TKChannel:              tkChannelHandler,
-		Tier:                   tierHandler,
-		EdgeAccounts:           edgeAccountsHandler,
-		EdgeAccountOps:         edgeAccountOpsHandler,
-		TrialProvision:         trialProvisionHandler,
 	}
 }
 
@@ -107,170 +95,6 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 	return h
 }
 
-// TKGatewayHandlerModelListReady is a wire sentinel: holding it proves
-// GatewayHandler.SetModelListFilter has been called with the production
-// ModelListFilter. provideCleanup (cmd/server/wire.go) takes this type as an
-// unused parameter to force wire to evaluate the side-effect.
-type TKGatewayHandlerModelListReady struct{}
-
-// ProvideTKGatewayHandlerModelList wires the model-list filter onto
-// GatewayHandler post-construction. Mirrors ProvideTKGatewayPricingAvailability
-// in shape; SetModelListFilter is nil-safe (degraded → fail-open).
-func ProvideTKGatewayHandlerModelList(
-	h *GatewayHandler,
-	f *service.ModelListFilter,
-) TKGatewayHandlerModelListReady {
-	if h != nil {
-		h.SetModelListFilter(f)
-	}
-	return TKGatewayHandlerModelListReady{}
-}
-
-// ProvideTKPricingCatalogHandler wraps the upstream-shape NewPricingCatalogHandler
-// constructor with TK-only post-construction wiring for the pricing-availability
-// observability service. Keeping NewPricingCatalogHandler's signature stable
-// (CLAUDE.md §5 — minimal injection point) lets upstream merges of the
-// constructor not touch TK extensions, AND the assignment survives `go run wire`
-// regenerations (a manual edit in wire_gen.go would not).
-//
-// Mirrors ProvideOpenAIGatewayHandler in shape.
-func ProvideTKPricingCatalogHandler(
-	catalog *service.PricingCatalogService,
-	gate *service.SettingService,
-	avail *service.PricingAvailabilityService,
-) *PricingCatalogHandler {
-	h := NewPricingCatalogHandler(catalog, gate)
-	h.SetAvailabilityService(avail)
-	return h
-}
-
-// ProvideOpenAIGatewayHandler wraps the upstream-shape NewOpenAIGatewayHandler
-// constructor with TK-only post-construction wiring. Keeping the signature of
-// NewOpenAIGatewayHandler stable (CLAUDE.md §5 — minimal injection point) and
-// doing post-wiring here means upstream merges of the constructor never touch
-// TK extensions, AND the assignment survives `go run wire` regenerations
-// (the manual edit anti-pattern in wire_gen.go would not).
-//
-// Mirrors the existing `ProvideRateLimitService` shape in service/wire.go.
-func ProvideOpenAIGatewayHandler(
-	gatewayService *service.OpenAIGatewayService,
-	concurrencyService *service.ConcurrencyService,
-	billingCacheService *service.BillingCacheService,
-	apiKeyService *service.APIKeyService,
-	usageRecordWorkerPool *service.UsageRecordWorkerPool,
-	errorPassthroughService *service.ErrorPassthroughService,
-	contentModerationService *service.ContentModerationService,
-	opsService *service.OpsService,
-	cfg *config.Config,
-	videoTaskCache service.VideoTaskCache,
-	mediaStore service.MediaStore,
-) *OpenAIGatewayHandler {
-	h := NewOpenAIGatewayHandler(
-		gatewayService,
-		concurrencyService,
-		billingCacheService,
-		apiKeyService,
-		usageRecordWorkerPool,
-		errorPassthroughService,
-		contentModerationService,
-		opsService,
-		cfg,
-	)
-	h.SetVideoTaskCache(videoTaskCache)
-	h.SetMediaStore(mediaStore)
-	// The image offload runs at the service-layer write points (ForwardImages), so
-	// the OpenAI gateway service needs the same store the handler holds for video —
-	// see service/openai_images_s3_tk.go. nil ⇒ inline base64 passthrough.
-	gatewayService.SetMediaStore(mediaStore)
-	return h
-}
-
-// ProvideEdgeCapacityHandler adapts the wire-provided service.AccountRepository
-// (which satisfies the handler's narrow schedulingCapacityReader interface) to
-// the edge capacity handler. A dedicated provider avoids needing a wire.Bind for
-// the unexported interface and keeps NewEdgeCapacityHandler unit-test friendly.
-func ProvideEdgeCapacityHandler(accountRepo service.AccountRepository) *EdgeCapacityHandler {
-	return NewEdgeCapacityHandler(accountRepo)
-}
-
-// ProvideEdgeAccountsHandler adapts the wire-provided account repository plus the
-// live-gauge services (concurrency / session-limit / rpm / usage — the same set
-// admin AccountHandler uses) to the edge accounts read handler. The gauge readers
-// let the edge endpoint surface per-edge capacity/today figures that align with
-// the per-edge admin accounts page. Mirrors ProvideEdgeCapacityHandler in shape.
-func ProvideEdgeAccountsHandler(
-	adminService service.AdminService,
-	concurrencyService *service.ConcurrencyService,
-	sessionLimitCache service.SessionLimitCache,
-	rpmCache service.RPMCache,
-	accountUsageService *service.AccountUsageService,
-) *EdgeAccountsHandler {
-	return NewEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
-}
-
-// ProvideEdgeAdminSessionHandler adapts the wire-provided concrete services
-// (which satisfy the handler's narrow lookup/minter interfaces) to the edge
-// admin-session mint handler. A dedicated provider avoids wire.Bind for the
-// unexported interfaces; mirrors ProvideEdgeAccountsHandler in shape.
-func ProvideEdgeAdminSessionHandler(
-	apiKeyService *service.APIKeyService,
-	userService *service.UserService,
-	authService *service.AuthService,
-) *EdgeAdminSessionHandler {
-	return NewEdgeAdminSessionHandler(apiKeyService, userService, authService)
-}
-
-// ProvideEdgeAccountOpsHandler adapts the wire-provided concrete services (which
-// satisfy the handler's narrow rate-limit / admin / usage interfaces) to the edge
-// account least-privilege WRITE ops handler. A dedicated provider avoids wire.Bind
-// for the unexported interfaces; mirrors ProvideEdgeAdminSessionHandler in shape.
-func ProvideEdgeAccountOpsHandler(
-	rateLimitService *service.RateLimitService,
-	adminService service.AdminService,
-	accountUsageService *service.AccountUsageService,
-) *EdgeAccountOpsHandler {
-	return NewEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
-}
-
-// ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
-// *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
-// interface) to the prod-side cross-edge account overview handler. A dedicated
-// provider avoids a wire.Bind for the unexported interface.
-func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountsHandler {
-	return admin.NewEdgeAccountsHandler(agg)
-}
-
-// ProvideTKEdgeAccountOpsAdminHandler adapts the wire-provided concrete
-// *service.EdgeAccountsAggregator (which satisfies the proxy handler's narrow
-// forwarder interface via ForwardAccountOp) to the prod-side edge account ops
-// proxy. A dedicated provider avoids a wire.Bind for the unexported interface.
-func ProvideTKEdgeAccountOpsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountOpsHandler {
-	return admin.NewEdgeAccountOpsHandler(agg)
-}
-
-// ProvideTrialProvisionHandler constructs the Invite-to-Trial service from
-// already-wired deps and wraps it in the admin handler. Keeping construction in
-// a Provide func (rather than registering a separate service provider) avoids
-// adding the concrete service to the provider set. See user_handler_tk_provision.go.
-func ProvideTrialProvisionHandler(
-	subscriptionService *service.SubscriptionService,
-	apiKeyService *service.APIKeyService,
-	settingService *service.SettingService,
-	userRepo service.UserRepository,
-	userGroupRateRepo service.UserGroupRateRepository,
-	groupRepo service.GroupRepository,
-) *admin.TrialProvisionHandler {
-	svc := service.NewTrialProvisionService(
-		subscriptionService,
-		apiKeyService,
-		settingService,
-		userRepo,
-		userGroupRateRepo,
-		groupRepo,
-	)
-	return admin.NewTrialProvisionHandler(svc)
-}
-
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -289,14 +113,6 @@ func ProvideHandlers(
 	paymentHandler *PaymentHandler,
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
-	qaService *qaobs.Service,
-	pricingCatalogHandler *PricingCatalogHandler,
-	mePricingCatalogHandler *MePricingCatalogHandler,
-	qaHandler *QAHandler,
-	edgeCapacityHandler *EdgeCapacityHandler,
-	edgeAccountsHandler *EdgeAccountsHandler,
-	edgeAdminSessionHandler *EdgeAdminSessionHandler,
-	edgeAccountOpsHandler *EdgeAccountOpsHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -317,14 +133,6 @@ func ProvideHandlers(
 		Payment:          paymentHandler,
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
-		QACapture:        qaService,
-		PricingCatalog:   pricingCatalogHandler,
-		MePricingCatalog: mePricingCatalogHandler,
-		QA:               qaHandler,
-		EdgeCapacity:     edgeCapacityHandler,
-		EdgeAccounts:     edgeAccountsHandler,
-		EdgeAdminSession: edgeAdminSessionHandler,
-		EdgeAccountOps:   edgeAccountOpsHandler,
 	}
 }
 
@@ -340,26 +148,12 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementHandler,
 	NewChannelMonitorUserHandler,
 	NewGatewayHandler,
-	ProvideOpenAIGatewayHandler,
+	NewOpenAIGatewayHandler,
 	NewTotpHandler,
 	ProvideSettingHandler,
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
-	// TK: pricing-availability observability — see docs/approved/pricing-availability-source-of-truth.md
-	ProvideTKPricingCatalogHandler,
-	// TK: per-user pricing catalog ("Your Menu") — see me_pricing_catalog_handler_tk.go
-	NewMePricingCatalogHandler,
-	ProvideTKGatewayHandlerModelList,
-	NewQAHandler,
-	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
-	ProvideEdgeCapacityHandler,
-	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.
-	ProvideEdgeAccountsHandler,
-	// TK: edge admin-session mint for prod→edge "manage accounts" handoff — see edge_tk_admin_session_handler.go.
-	ProvideEdgeAdminSessionHandler,
-	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
-	ProvideEdgeAccountOpsHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -390,18 +184,9 @@ var ProviderSet = wire.NewSet(
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,
 	admin.NewContentModerationHandler,
-	admin.NewTKChannelAdminHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
-	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
-	admin.NewTierHandler,
-	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
-	ProvideTKEdgeAccountsAdminHandler,
-	// TK: prod-side thin proxy for inline edge-account WRITE ops — see edge_account_ops_handler_tk.go.
-	ProvideTKEdgeAccountOpsAdminHandler,
-	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
-	ProvideTrialProvisionHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

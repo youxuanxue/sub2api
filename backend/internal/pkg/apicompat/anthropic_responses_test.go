@@ -414,85 +414,6 @@ func TestResponsesToAnthropic_Incomplete(t *testing.T) {
 	assert.Equal(t, "max_tokens", anth.StopReason)
 }
 
-// TestResponsesToAnthropic_IncompleteNonBudgetReason verifies that any
-// "incomplete" upstream terminal — content_filter, server_error, an empty
-// reason, anything — surfaces as Anthropic stop_reason="max_tokens" instead
-// of "end_turn". Mapping non-budget cutoffs to "end_turn" used to make Claude
-// Code's agentic loop think the task finished naturally and stop.
-func TestResponsesToAnthropic_IncompleteNonBudgetReason(t *testing.T) {
-	cases := []struct {
-		name   string
-		reason string
-	}{
-		{"content_filter", "content_filter"},
-		{"server_error", "server_error"},
-		{"unknown_reason", "something_new_from_upstream"},
-		{"empty_reason", ""},
-		{"nil_details", "<nil>"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp := &ResponsesResponse{
-				ID:     "resp_inc",
-				Model:  "gpt-5.2",
-				Status: "incomplete",
-				Output: []ResponsesOutput{
-					{
-						Type:    "message",
-						Content: []ResponsesContentPart{{Type: "output_text", Text: "Partial..."}},
-					},
-				},
-			}
-			if tc.reason != "<nil>" {
-				resp.IncompleteDetails = &ResponsesIncompleteDetails{Reason: tc.reason}
-			}
-
-			anth := ResponsesToAnthropic(resp, "claude-opus-4-6")
-			assert.Equal(t, "max_tokens", anth.StopReason,
-				"every incomplete reason must map to max_tokens so Claude Code can recover")
-		})
-	}
-}
-
-// TestStreamingIncompleteNonBudgetReason mirrors the non-streaming test for
-// the SSE path. The streaming converter computes stop_reason in
-// resToAnthHandleCompleted and stores it on state so the gateway can record
-// it on the access log.
-func TestStreamingIncompleteNonBudgetReason(t *testing.T) {
-	state := NewResponsesEventToAnthropicState()
-
-	// message_start
-	_ = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:     "response.created",
-		Response: &ResponsesResponse{ID: "resp_inc_stream", Model: "gpt-5.2"},
-	}, state)
-
-	// terminal: incomplete + content_filter
-	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type: "response.incomplete",
-		Response: &ResponsesResponse{
-			ID:                "resp_inc_stream",
-			Status:            "incomplete",
-			IncompleteDetails: &ResponsesIncompleteDetails{Reason: "content_filter"},
-		},
-	}, state)
-
-	// Find the message_delta event with the stop_reason.
-	var stopReason string
-	for _, evt := range events {
-		if evt.Type == "message_delta" && evt.Delta != nil {
-			stopReason = evt.Delta.StopReason
-			break
-		}
-	}
-	assert.Equal(t, "max_tokens", stopReason,
-		"streaming path: content_filter incomplete must surface as max_tokens")
-	assert.Equal(t, "max_tokens", state.StopReason,
-		"state.StopReason must be plumbed for the access log")
-	assert.Equal(t, "content_filter", state.IncompleteReason,
-		"state.IncompleteReason must preserve the upstream reason verbatim")
-}
-
 func TestResponsesToAnthropic_EmptyOutput(t *testing.T) {
 	resp := &ResponsesResponse{
 		ID:     "resp_empty",
@@ -587,14 +508,12 @@ func TestResponsesEventToAnthropicEvents_ResponseDone(t *testing.T) {
 			Usage:  &ResponsesUsage{InputTokens: 12, OutputTokens: 4},
 		},
 	}, state)
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, "end_turn", events[2].Delta.StopReason)
-	assert.Equal(t, 12, events[2].Usage.InputTokens)
-	assert.Equal(t, 4, events[2].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 2)
+	assert.Equal(t, "message_delta", events[0].Type)
+	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
+	assert.Equal(t, 12, events[0].Usage.InputTokens)
+	assert.Equal(t, 4, events[0].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[1].Type)
 	assert.Nil(t, FinalizeResponsesAnthropicStream(state))
 }
 
@@ -616,17 +535,13 @@ func TestResponsesEventToAnthropicEvents_TopLevelTerminalUsage(t *testing.T) {
 		},
 	}, state)
 
-	// TK US-027: terminal events always include an empty content block pair when
-	// no real content was emitted (anthropics/claude-code#24662).
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	require.NotNil(t, events[2].Usage)
-	assert.Equal(t, 15, events[2].Usage.InputTokens)
-	assert.Equal(t, 5, events[2].Usage.CacheReadInputTokens)
-	assert.Equal(t, 6, events[2].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 2)
+	assert.Equal(t, "message_delta", events[0].Type)
+	require.NotNil(t, events[0].Usage)
+	assert.Equal(t, 15, events[0].Usage.InputTokens)
+	assert.Equal(t, 5, events[0].Usage.CacheReadInputTokens)
+	assert.Equal(t, 6, events[0].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[1].Type)
 }
 
 func TestResponsesEventToAnthropicEvents_ResponseDoneIncomplete(t *testing.T) {
@@ -641,12 +556,10 @@ func TestResponsesEventToAnthropicEvents_ResponseDoneIncomplete(t *testing.T) {
 			Usage:             &ResponsesUsage{InputTokens: 12, OutputTokens: 4},
 		},
 	}, state)
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, "max_tokens", events[2].Delta.StopReason)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 2)
+	assert.Equal(t, "message_delta", events[0].Type)
+	assert.Equal(t, "max_tokens", events[0].Delta.StopReason)
+	assert.Equal(t, "message_stop", events[1].Type)
 	assert.Nil(t, FinalizeResponsesAnthropicStream(state))
 }
 
@@ -672,14 +585,12 @@ func TestStreamingCachedTokensUseAnthropicInputSemantics(t *testing.T) {
 		},
 	}, state)
 
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, 3318, events[2].Usage.InputTokens)
-	assert.Equal(t, 50688, events[2].Usage.CacheReadInputTokens)
-	assert.Equal(t, 123, events[2].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 2)
+	assert.Equal(t, "message_delta", events[0].Type)
+	assert.Equal(t, 3318, events[0].Usage.InputTokens)
+	assert.Equal(t, 50688, events[0].Usage.CacheReadInputTokens)
+	assert.Equal(t, 123, events[0].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[1].Type)
 }
 
 func TestStreamingToolCall(t *testing.T) {
@@ -850,109 +761,37 @@ func TestStreamingReasoning(t *testing.T) {
 		Response: &ResponsesResponse{ID: "resp_3", Model: "gpt-5.2"},
 	}, state)
 
+	// reasoning item added
 	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.output_item.added",
 		OutputIndex: 0,
 		Item:        &ResponsesOutput{Type: "reasoning"},
 	}, state)
-	// TK: resToAnthHandleOutputItemAdded for reasoning returns nil (delays
-	// content_block_start until the first non-empty summary delta arrives).
-	// Upstream emits an eager content_block_start with empty thinking content;
-	// see Wei-Shaw/sub2api commit e9a25e7b. TK keeps the deferred-open behavior
-	// to avoid forcing consumers to handle an immediate-empty thinking block.
-	require.Len(t, events, 0)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
 
+	sse, err := ResponsesAnthropicEventToSSE(events[0])
+	require.NoError(t, err)
+	assert.Contains(t, sse, `"content_block":{"thinking":"","type":"thinking"}`)
+
+	// reasoning text delta
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.reasoning_summary_text.delta",
 		OutputIndex: 0,
 		Delta:       "Let me think...",
 	}, state)
-	require.Len(t, events, 2)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
-	assert.Equal(t, "", events[0].ContentBlock.Thinking)
-	assert.Equal(t, "content_block_delta", events[1].Type)
-	assert.Equal(t, "thinking_delta", events[1].Delta.Type)
-	assert.Equal(t, "Let me think...", events[1].Delta.Thinking)
-
-	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.reasoning_summary_text.delta",
-		OutputIndex: 0,
-		Delta:       " more.",
-	}, state)
 	require.Len(t, events, 1)
 	assert.Equal(t, "content_block_delta", events[0].Type)
 	assert.Equal(t, "thinking_delta", events[0].Delta.Type)
-	assert.Equal(t, " more.", events[0].Delta.Thinking)
+	assert.Equal(t, "Let me think...", events[0].Delta.Thinking)
 
+	// reasoning done
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type: "response.reasoning_summary_text.done",
 	}, state)
 	require.Len(t, events, 1)
 	assert.Equal(t, "content_block_stop", events[0].Type)
-}
-
-func TestStreamingReasoning_NoSummaryText(t *testing.T) {
-	state := NewResponsesEventToAnthropicState()
-
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:     "response.created",
-		Response: &ResponsesResponse{ID: "resp_empty_reasoning", Model: "gpt-5.2"},
-	}, state)
-
-	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.output_item.added",
-		OutputIndex: 0,
-		Item:        &ResponsesOutput{Type: "reasoning"},
-	}, state)
-	require.Len(t, events, 0)
-
-	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type: "response.reasoning_summary_text.done",
-	}, state)
-	require.Len(t, events, 0)
-
-	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.output_item.done",
-		OutputIndex: 0,
-		Item:        &ResponsesOutput{Type: "reasoning"},
-	}, state)
-	require.Len(t, events, 0)
-
-	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.output_text.delta",
-		OutputIndex: 1,
-		Delta:       "hello",
-	}, state)
-	require.Len(t, events, 2)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "text", events[0].ContentBlock.Type)
-	assert.Equal(t, 0, *events[0].Index)
-	assert.Equal(t, "content_block_delta", events[1].Type)
-}
-
-func TestStreamingReasoning_EmptyDeltasOnly(t *testing.T) {
-	state := NewResponsesEventToAnthropicState()
-
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:     "response.created",
-		Response: &ResponsesResponse{ID: "resp_empty_deltas", Model: "gpt-5.2"},
-	}, state)
-
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.output_item.added",
-		OutputIndex: 0,
-		Item:        &ResponsesOutput{Type: "reasoning"},
-	}, state)
-
-	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.reasoning_summary_text.delta",
-		OutputIndex: 0,
-		Delta:       "",
-	}, state)
-	require.Len(t, events, 0)
-	assert.False(t, state.ContentBlockOpen)
-	assert.False(t, state.EmittedAnyContentBlock)
 }
 
 func TestStreamingIncomplete(t *testing.T) {
@@ -1059,19 +898,9 @@ func TestStreamingEmptyResponse(t *testing.T) {
 		},
 	}, state)
 
-	// US-027 schema firewall: even when the upstream sends ZERO content events,
-	// we MUST inject one empty-text content_block_start/_stop pair before
-	// message_delta/_stop. Otherwise Claude Code persists a content-less
-	// message into its session JSONL and crashes on reload (claude-code#24662).
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	require.NotNil(t, events[0].ContentBlock)
-	assert.Equal(t, "text", events[0].ContentBlock.Type)
-	assert.Equal(t, "", events[0].ContentBlock.Text)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, "end_turn", events[2].Delta.StopReason)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 2) // message_delta + message_stop
+	assert.Equal(t, "message_delta", events[0].Type)
+	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
 }
 
 func TestResponsesAnthropicEventToSSE(t *testing.T) {
@@ -1148,18 +977,11 @@ func TestStreamingFailedNoOutput(t *testing.T) {
 		},
 	}, state)
 
-	// US-027 schema firewall: response.failed with no prior output still must
-	// emit one empty-text content block before message_delta/_stop, otherwise
-	// Claude Code corrupts its session on the failed turn.
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	require.NotNil(t, events[0].ContentBlock)
-	assert.Equal(t, "text", events[0].ContentBlock.Type)
-	assert.Equal(t, "", events[0].ContentBlock.Text)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, "end_turn", events[2].Delta.StopReason)
-	assert.Equal(t, "message_stop", events[3].Type)
+	// Should emit message_delta + message_stop (no block to close)
+	require.Len(t, events, 2)
+	assert.Equal(t, "message_delta", events[0].Type)
+	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
+	assert.Equal(t, "message_stop", events[1].Type)
 }
 
 func TestResponsesToAnthropic_Failed(t *testing.T) {
@@ -1195,17 +1017,10 @@ func TestAnthropicToResponses_ThinkingEnabled(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; default medium applies.
-	// (Reduced from high to leave more of max_output_tokens for visible
-	// output — see anthropic_to_responses.go for rationale.)
+	// thinking.type is ignored for effort; Codex bridge default medium applies.
 	assert.Equal(t, "medium", resp.Reasoning.Effort)
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
-	// US-027: Include must NOT request reasoning.encrypted_content. Pairing it with
-	// Store=false makes the upstream Codex Responses backend expect each prior
-	// reasoning item to be echoed back, which our converter cannot do — the
-	// upstream then silently returns 0-token assistant messages on follow-up turns.
-	assert.NotContains(t, resp.Include, "reasoning.encrypted_content",
-		"US-027 regression: Include must not contain reasoning.encrypted_content (see docs/approved/openai-codex-as-claude-thinking-continuity.md)")
+	assert.Contains(t, resp.Include, "reasoning.encrypted_content")
 	assert.NotContains(t, resp.Include, "reasoning.summary")
 }
 
@@ -1220,7 +1035,7 @@ func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; default medium applies.
+	// thinking.type is ignored for effort; Codex bridge default medium applies.
 	assert.Equal(t, "medium", resp.Reasoning.Effort)
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
 	assert.NotContains(t, resp.Include, "reasoning.summary")
@@ -1251,7 +1066,6 @@ func TestAnthropicToResponses_NoThinking(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 	// Default effort applies (medium) when no thinking/output_config is set.
-	// This matters most for Claude Code CLI, which never sets output_config.effort.
 	require.NotNil(t, resp.Reasoning)
 	assert.Equal(t, "medium", resp.Reasoning.Effort)
 }
@@ -1403,9 +1217,6 @@ func TestAnthropicToResponses_ToolChoiceSpecific(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 
-	// Responses API uses the FLAT shape: {"type":"function","name":"X"}.
-	// The legacy nested {"type":"function","function":{"name":"X"}} shape
-	// produces upstream `400 Unknown parameter: 'tool_choice.function'.`
 	var tc map[string]any
 	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
 	assert.Equal(t, "function", tc["type"])
@@ -1739,94 +1550,6 @@ func TestAnthropicToResponses_ToolWithNilSchema(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Tools[0].Parameters, &params))
 	assert.JSONEq(t, `"object"`, string(params["type"]))
 	assert.JSONEq(t, `{}`, string(params["properties"]))
-}
-
-// ---------------------------------------------------------------------------
-// US-027: streaming empty-content safety net
-// ---------------------------------------------------------------------------
-
-// TestUS027_StreamingTextFlow_SetsEmittedFlag verifies the positive-emit path:
-// a normal text streaming sequence must set state.EmittedAnyContentBlock true
-// when it emits the first content_block_start, so the safety net knows to
-// skip synthesis at finalize time.
-func TestUS027_StreamingTextFlow_SetsEmittedFlag(t *testing.T) {
-	state := NewResponsesEventToAnthropicState()
-	require.False(t, state.EmittedAnyContentBlock)
-
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:     "response.created",
-		Response: &ResponsesResponse{ID: "resp_x", Model: "gpt-5.2"},
-	}, state)
-	assert.False(t, state.EmittedAnyContentBlock, "message_start alone must not flip the flag")
-
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:  "response.output_text.delta",
-		Delta: "hi",
-	}, state)
-	assert.True(t, state.EmittedAnyContentBlock, "first text content_block_start must flip the flag")
-}
-
-// TestUS027_StreamingFunctionCallFlow_SetsEmittedFlag covers the same positive
-// signal for the function_call branch.
-func TestUS027_StreamingFunctionCallFlow_SetsEmittedFlag(t *testing.T) {
-	state := NewResponsesEventToAnthropicState()
-	require.False(t, state.EmittedAnyContentBlock)
-
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type:        "response.output_item.added",
-		OutputIndex: 0,
-		Item:        &ResponsesOutput{Type: "function_call", CallID: "call_x", Name: "tool"},
-	}, state)
-	assert.True(t, state.EmittedAnyContentBlock)
-}
-
-// TestUS027_AnthropicToResponses_NoEncryptedContentInclude is the regression
-// guard for Part B (root cause fix). When Include=reasoning.encrypted_content
-// is paired with Store=false, the Codex Responses backend silently returns
-// 0-token assistant messages on multi-turn requests whose history contains
-// thinking + tool_result. The Include must be empty for the Anthropic→Responses
-// path. See TestAnthropicToResponses_ThinkingEnabled for the same guard on the
-// thinking-enabled code path; this test covers the default request with no
-// thinking explicitly set.
-func TestUS027_AnthropicToResponses_NoEncryptedContentInclude(t *testing.T) {
-	req := &AnthropicRequest{
-		Model:     "claude-opus-4-6",
-		MaxTokens: 1024,
-		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"ping"`)}},
-	}
-	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	assert.NotContains(t, resp.Include, "reasoning.encrypted_content",
-		"US-027: Anthropic→Responses must not request reasoning.encrypted_content with Store=false")
-	require.NotNil(t, resp.Store)
-	assert.False(t, *resp.Store, "Store must remain false for stateless conversion")
-}
-
-func TestAnthropicToResponses_ToolUseInputMustBeJSONObject(t *testing.T) {
-	req := &AnthropicRequest{
-		Model:     "claude-opus-4-6",
-		MaxTokens: 256,
-		Messages: []AnthropicMessage{
-			{Role: "assistant", Content: json.RawMessage(`[
-				{"type":"tool_use","id":"toolu_bad","name":"Read","input":"not-object"},
-				{"type":"tool_use","id":"toolu_arr","name":"Read","input":[1,2]},
-				{"type":"tool_use","id":"toolu_ok","name":"Read","input":{"file_path":"/tmp/a.txt"}}
-			]`)},
-		},
-	}
-
-	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	var items []ResponsesInputItem
-	require.NoError(t, json.Unmarshal(resp.Input, &items))
-	require.Len(t, items, 3)
-
-	require.Equal(t, "function_call", items[0].Type)
-	require.Equal(t, "{}", items[0].Arguments)
-	require.Equal(t, "function_call", items[1].Type)
-	require.Equal(t, "{}", items[1].Arguments)
-	require.Equal(t, "function_call", items[2].Type)
-	require.JSONEq(t, `{"file_path":"/tmp/a.txt"}`, items[2].Arguments)
 }
 
 // ---------------------------------------------------------------------------

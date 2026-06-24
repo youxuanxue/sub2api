@@ -42,9 +42,6 @@ const (
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
 func NormalizeInboundEndpoint(path string) string {
 	path = strings.TrimSpace(path)
-	if normalized, ok := tkNormalizeTokenKeyInboundAliases(path); ok {
-		return normalized
-	}
 	switch {
 	case strings.Contains(path, EndpointEmbeddings):
 		return EndpointEmbeddings
@@ -80,12 +77,9 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	inbound = strings.TrimSpace(inbound)
 
 	switch platform {
-	case service.PlatformOpenAI, service.PlatformNewAPI:
+	case service.PlatformOpenAI:
 		if inbound == EndpointEmbeddings || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits {
 			return inbound
-		}
-		if upstream, ok := tkDeriveOpenAITokenKeyUpstream(inbound); ok {
-			return upstream
 		}
 		// OpenAI forwards everything to the Responses API.
 		// Preserve subresource suffix (e.g. /v1/responses/compact).

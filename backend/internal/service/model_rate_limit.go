@@ -39,14 +39,6 @@ func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedMo
 			return true
 		}
 	}
-	// TK G4: a unified-window 429 (opus 5h/7d exhausted) is cooled at
-	// (account × model class) scope, not the whole account. Honour the
-	// class-scope key alongside the exact-model-name key so a cooled opus
-	// keeps sibling sonnet/haiku schedulable. See
-	// ratelimit_service_tk_model_cooldown.go.
-	if a.tkAnthropicModelClassRateLimitActive(requestedModel) {
-		return true
-	}
 	return false
 }
 
@@ -63,13 +55,6 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 			remaining = keyRemaining
 		}
 	}
-	// TK G4: surface the longer of the exact-model and model-class cooldowns
-	// so retry/backoff hints reflect the real time-to-availability for an
-	// Anthropic unified-window class cooldown. See
-	// ratelimit_service_tk_model_cooldown.go.
-	if classRemaining := a.tkAnthropicModelClassRateLimitRemaining(requestedModel); classRemaining > remaining {
-		return classRemaining
-	}
 	return remaining
 }
 
@@ -79,11 +64,8 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	}
 
 	modelKey := a.GetMappedModel(requestedModel)
-	switch a.Platform {
-	case PlatformAntigravity:
+	if a.Platform == PlatformAntigravity {
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
-	case PlatformGemini:
-		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {
@@ -99,10 +81,6 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	case PlatformOpenAI:
 		if openAIImageGenerationRateLimitApplies(ctx, requestedModel, modelKey) && modelKey != openAIImageGenerationRateLimitKey {
 			keys = append(keys, openAIImageGenerationRateLimitKey)
-		}
-	case PlatformAnthropic:
-		if classKey := tkAnthropicModelClassScopeKeyForModel(requestedModel); classKey != "" && classKey != modelKey {
-			keys = append(keys, classKey)
 		}
 	}
 	return keys
@@ -138,21 +116,6 @@ func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requ
 	// thinking 会影响 Antigravity 最终模型名（例如 claude-sonnet-4-5 -> claude-sonnet-4-5-thinking）
 	if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
 		modelKey = applyThinkingModelSuffix(modelKey, enabled)
-	}
-	return modelKey
-}
-
-func resolveFinalGeminiModelKey(ctx context.Context, requestedModel string) string {
-	modelKey := strings.TrimSpace(requestedModel)
-	if modelKey == "" {
-		return ""
-	}
-	group, ok := ctx.Value(ctxkey.Group).(*Group)
-	if !ok || !IsGroupContextValid(group) || group.Platform != PlatformGemini {
-		return modelKey
-	}
-	if mapped := group.TKResolveGeminiDispatchModel(modelKey); mapped != "" {
-		return mapped
 	}
 	return modelKey
 }

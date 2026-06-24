@@ -19,7 +19,7 @@ func TestSchedulerSnapshotOutboxReplay(t *testing.T) {
 
 	_, _ = integrationDB.ExecContext(ctx, "TRUNCATE scheduler_outbox")
 
-	accountRepo := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	accountRepo := newAccountRepositoryWithSQL(client, integrationDB, nil)
 	outboxRepo := NewSchedulerOutboxRepository(integrationDB)
 	cache := NewSchedulerCache(rdb)
 
@@ -52,36 +52,6 @@ func TestSchedulerSnapshotOutboxReplay(t *testing.T) {
 	svc.Start()
 	t.Cleanup(svc.Stop)
 
-	// 该断言验证的是 outbox 重放把 last_used 传播进【调度热读快照】（sched:meta
-	// 键，GetSnapshot 读取的就是它）。ungrouped openai 账号属于默认桶
-	// {GroupID:0, openai, single}。
-	//
-	// 注意：不能像旧版那样断言 cache.GetAccount（完整账号键 sched:acc）——
-	// 自 #1723 起 outbox 的 account_last_used 路径只刷 sched:meta，完整键由快照
-	// 重建/账号变更刷新。若仍断言完整键，本测试会改为被 startup rebuild 的副作用
-	// 兜过（名实不符、对 outbox 回归零覆盖）。
-	bucket := service.SchedulerBucket{GroupID: 0, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
-	snapshotHasAccount := func() (*service.Account, bool) {
-		snap, hit, err := cache.GetSnapshot(ctx, bucket)
-		if err != nil || !hit {
-			return nil, false
-		}
-		for _, a := range snap {
-			if a != nil && a.ID == account.ID {
-				return a, true
-			}
-		}
-		return nil, false
-	}
-
-	// 先等 startup rebuild 把账号灌入快照（此时 LastUsedAt 仍为 nil）。rebuild
-	// 只在启动时跑一次（FullRebuildIntervalSeconds=0 已禁用周期重建），过此 gate
-	// 之后唯一能更新快照 meta 的路径就是 outbox 重放本身。
-	require.Eventually(t, func() bool {
-		_, ok := snapshotHasAccount()
-		return ok
-	}, 5*time.Second, 100*time.Millisecond, "startup rebuild 应先把账号写入 openai/0/single 快照")
-
 	require.NoError(t, accountRepo.UpdateLastUsed(ctx, account.ID))
 	updated, err := accountRepo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
@@ -89,10 +59,10 @@ func TestSchedulerSnapshotOutboxReplay(t *testing.T) {
 	expectedUnix := updated.LastUsedAt.Unix()
 
 	require.Eventually(t, func() bool {
-		a, ok := snapshotHasAccount()
-		if !ok || a.LastUsedAt == nil {
+		cached, err := cache.GetAccount(ctx, account.ID)
+		if err != nil || cached == nil || cached.LastUsedAt == nil {
 			return false
 		}
-		return a.LastUsedAt.Unix() == expectedUnix
+		return cached.LastUsedAt.Unix() == expectedUnix
 	}, 5*time.Second, 100*time.Millisecond)
 }

@@ -6,8 +6,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, type LoginResponse } from '@/api'
-import { isBrowserOffline, isNetworkError } from '@/api/client.tk'
-import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
 import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
 
 const AUTH_TOKEN_KEY = 'auth_token'
@@ -17,8 +15,6 @@ const TOKEN_EXPIRES_AT_KEY = 'token_expires_at' // 存储过期时间戳而非�
 const PENDING_AUTH_SESSION_KEY = 'pending_auth_session'
 const AUTO_REFRESH_INTERVAL = 60 * 1000 // 60 seconds for user data refresh
 const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh token
-
-let activeOnlineRefreshHandler: (() => void) | null = null
 
 type PendingAuthTokenField = 'pending_auth_token' | 'pending_oauth_token'
 
@@ -81,19 +77,8 @@ export const useAuthStore = defineStore('auth', () => {
   const tokenExpiresAt = ref<number | null>(null) // 过期时间戳（毫秒）
   const runMode = ref<'standard' | 'simple'>('standard')
   const pendingAuthSession = ref<PendingAuthSessionSummary | null>(null)
+  let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-  // Auto-refresh of user data: only ticks while the tab is visible, and catches
-  // up on return. A backgrounded admin tab no longer hits /auth/me every 60s.
-  const userRefreshPoller = useVisibilityAwarePoller(() => {
-    if (token.value && !isBrowserOffline()) {
-      refreshUser().catch((error) => {
-        if (!isNetworkError(error)) {
-          console.error('Auto-refresh user failed:', error)
-        }
-      })
-    }
-  }, AUTO_REFRESH_INTERVAL)
 
   // ==================== Computed ====================
 
@@ -130,13 +115,9 @@ export const useAuthStore = defineStore('auth', () => {
         tokenExpiresAt.value = savedExpiresAt ? parseInt(savedExpiresAt, 10) : null
 
         // Immediately refresh user data from backend (async, don't block)
-        if (!isBrowserOffline()) {
-          refreshUser().catch((error) => {
-            if (!isNetworkError(error)) {
-              console.error('Failed to refresh user on init:', error)
-            }
-          })
-        }
+        refreshUser().catch((error) => {
+          console.error('Failed to refresh user on init:', error)
+        })
 
         // Start auto-refresh interval for user data
         startAutoRefresh()
@@ -158,16 +139,26 @@ export const useAuthStore = defineStore('auth', () => {
    * Refreshes user data every 60 seconds
    */
   function startAutoRefresh(): void {
-    registerOnlineRefreshHandler()
-    // Idempotent; pauses itself while the tab is hidden (see poller above).
-    userRefreshPoller.start()
+    // Clear existing interval if any
+    stopAutoRefresh()
+
+    refreshIntervalId = setInterval(() => {
+      if (token.value) {
+        refreshUser().catch((error) => {
+          console.error('Auto-refresh user failed:', error)
+        })
+      }
+    }, AUTO_REFRESH_INTERVAL)
   }
 
   /**
    * Stop auto-refresh interval
    */
   function stopAutoRefresh(): void {
-    userRefreshPoller.stop()
+    if (refreshIntervalId) {
+      clearInterval(refreshIntervalId)
+      refreshIntervalId = null
+    }
   }
 
   /**
@@ -180,7 +171,6 @@ export const useAuthStore = defineStore('auth', () => {
       clearTimeout(tokenRefreshTimeoutId)
       tokenRefreshTimeoutId = null
     }
-    registerOnlineRefreshHandler()
 
     // Calculate remaining time until refresh (buffer time before expiry)
     const now = Date.now()
@@ -212,7 +202,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Perform the actual token refresh
    */
   async function performTokenRefresh(): Promise<void> {
-    if (!refreshTokenValue.value || isBrowserOffline()) {
+    if (!refreshTokenValue.value) {
       return
     }
 
@@ -226,42 +216,8 @@ export const useAuthStore = defineStore('auth', () => {
       // Schedule next refresh (this also updates tokenExpiresAt and localStorage)
       scheduleTokenRefresh(response.expires_in)
     } catch (error) {
-      if (!isNetworkError(error)) {
-        console.error('Token refresh failed:', error)
-      }
+      console.error('Token refresh failed:', error)
       // Don't clear auth here - the interceptor will handle 401 errors
-    }
-  }
-
-  function registerOnlineRefreshHandler(): void {
-    if (typeof window === 'undefined') return
-    if (activeOnlineRefreshHandler === handleOnline) return
-    if (activeOnlineRefreshHandler) {
-      window.removeEventListener('online', activeOnlineRefreshHandler)
-    }
-
-    window.addEventListener('online', handleOnline)
-    activeOnlineRefreshHandler = handleOnline
-  }
-
-  function unregisterOnlineRefreshHandler(): void {
-    if (typeof window === 'undefined' || activeOnlineRefreshHandler !== handleOnline) return
-
-    window.removeEventListener('online', handleOnline)
-    activeOnlineRefreshHandler = null
-  }
-
-  function handleOnline(): void {
-    if (!token.value) return
-
-    refreshUser().catch((error) => {
-      if (!isNetworkError(error)) {
-        console.error('Auto-refresh user failed:', error)
-      }
-    })
-
-    if (refreshTokenValue.value && tokenExpiresAt.value !== null && tokenRefreshTimeoutId === null) {
-      scheduleTokenRefreshAt(tokenExpiresAt.value)
     }
   }
 
@@ -489,7 +445,6 @@ export const useAuthStore = defineStore('auth', () => {
     stopAutoRefresh()
     // Stop token refresh
     stopTokenRefresh()
-    unregisterOnlineRefreshHandler()
 
     token.value = null
     refreshTokenValue.value = null

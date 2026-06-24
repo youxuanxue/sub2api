@@ -841,39 +841,9 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 	return modified
 }
 
-// chatGPTOAuthUpstreamModelNames maps internal canonical model names to the
-// identifiers accepted by the ChatGPT OAuth backend (chatgpt.com). The map is
-// deliberately EMPTY — it is NOT dead code: the lookup in
-// normalizeOpenAIModelForUpstream is the zero-cost seam for the next time the
-// ChatGPT OAuth backend flips its model-name contract (it already did once).
-//
-// Contract timeline:
-//   - Until 2026-05-28 the backend rejected bare "gpt-5.3-codex" and required
-//     "codex-mini-latest" — hence the former gpt-5.3-codex → codex-mini-latest
-//     entry here.
-//   - Since 2026-05-29 the contract REVERSED: the backend now rejects the
-//     rewrite target with the prod 400 literal (keep verbatim, grep anchor):
-//     The 'codex-mini-latest' model is not supported when using Codex with a ChatGPT account
-//   - 2026-06-10 prod probe (read-only, exact gateway header shape, OAuth
-//     accounts 9/GPT-pro1 + 48/GPT-pro2): both "gpt-5.3-codex" AND
-//     "codex-mini-latest" return that 400 on both accounts, while control
-//     "gpt-5.3-codex-spark" streams 200 — the OAuth backend currently serves
-//     a narrower model set than the platform API (not enumerated here).
-//
-// Even though bare "gpt-5.3-codex" is also rejected today, dropping the stale
-// rewrite still matters: clients now receive the upstream's real, actionable
-// 400 (passed through by the caller-fault 400 catch-all in
-// openai_gateway_service.go) instead of an error about a model name they
-// never sent because of a silent rewrite.
-var chatGPTOAuthUpstreamModelNames = map[string]string{}
-
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account == nil || account.Type == AccountTypeOAuth {
-		normalized := normalizeCodexModel(model)
-		if upstream, ok := chatGPTOAuthUpstreamModelNames[normalized]; ok {
-			return upstream
-		}
-		return normalized
+		return normalizeCodexModel(model)
 	}
 	return strings.TrimSpace(model)
 }
@@ -1143,13 +1113,6 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 
 		// 仅修正真正的 tool/function call 标识，避免误改普通 message/reasoning id；
 		// 若 item_reference 指向 legacy call_* 标识，则仅修正该引用本身。
-		// fixCallIDPrefix normalizes tool-call ids to codex's `fc_<id>` form.
-		// The "call_" branch previously omitted the underscore, producing
-		// `fc<id>` which the chatgpt.com codex backend rejects with HTTP 400
-		// ("Expected an ID that contains letters, numbers, underscores, or
-		// dashes, but this value contained additional characters"). The
-		// fallback branch already uses `fc_`; this branch is aligned with it.
-		// See upstream Wei-Shaw/sub2api#2500.
 		fixCallIDPrefix := func(id string) string {
 			if opts.PreserveCallIDs {
 				return id

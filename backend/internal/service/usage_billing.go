@@ -39,13 +39,6 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
-
-	// TkHoldRequestID, when non-empty, is the pre-flight balance-hold ledger key
-	// this settlement must consume (refund) in the SAME transaction as the
-	// balance deduction — closing the release-before-settle gap of the overdraft
-	// fix (see usage_billing_hold_tk.go). Deliberately excluded from the billing
-	// fingerprint: a retried apply must dedup identically with or without it.
-	TkHoldRequestID string
 }
 
 func (c *UsageBillingCommand) Normalize() {

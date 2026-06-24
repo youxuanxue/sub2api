@@ -34,31 +34,6 @@ const formatLocalDate = (date: Date): string => {
   return `${year}-${month}-${day}`
 }
 
-let endpointIntersectionCallback: IntersectionObserverCallback | null = null
-
-class MockIntersectionObserver {
-  constructor(callback: IntersectionObserverCallback) {
-    endpointIntersectionCallback = callback
-  }
-
-  observe = vi.fn()
-  unobserve = vi.fn()
-  disconnect = vi.fn()
-  takeRecords = vi.fn(() => [])
-}
-
-const installIntersectionObserver = () => {
-  endpointIntersectionCallback = null
-  vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
-}
-
-const triggerEndpointIntersection = (isIntersecting = true) => {
-  endpointIntersectionCallback?.(
-    [{ isIntersecting } as IntersectionObserverEntry],
-    {} as IntersectionObserver,
-  )
-}
-
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     usage: {
@@ -144,7 +119,6 @@ const GroupDistributionChartStub = {
 describe('admin UsageView distribution metric toggles', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    installIntersectionObserver()
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
@@ -176,43 +150,6 @@ describe('admin UsageView distribution metric toggles', () => {
 
   afterEach(() => {
     vi.useRealTimers()
-  })
-
-  it('loads summary first and endpoint distribution only after the chart enters view', async () => {
-    mount(UsageView, {
-      global: { stubs: {
-        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
-        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
-        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
-        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
-        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
-      } },
-    })
-
-    await flushPromises()
-    expect(getStats).toHaveBeenCalledTimes(1)
-    expect(getStats).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      include_endpoints: 0,
-    }))
-    expect(getStats).not.toHaveBeenNthCalledWith(1, expect.objectContaining({
-      include_summary: 0,
-    }))
-
-    vi.advanceTimersByTime(120)
-    await flushPromises()
-    expect(getStats).toHaveBeenCalledTimes(1)
-    expect(getStats).not.toHaveBeenCalledWith(expect.objectContaining({
-      include_summary: 0,
-      include_endpoints: 1,
-    }))
-
-    triggerEndpointIntersection()
-    await flushPromises()
-    expect(getStats).toHaveBeenCalledTimes(2)
-    expect(getStats).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      include_summary: 0,
-      include_endpoints: 1,
-    }))
   })
 
   it('keeps previous model stats visible during refresh until new data arrives', async () => {
@@ -271,22 +208,13 @@ describe('admin UsageView distribution metric toggles', () => {
     vi.advanceTimersByTime(120)
     await flushPromises()
 
-    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
+    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
     const now = new Date()
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
       start_date: formatLocalDate(yesterday),
       end_date: formatLocalDate(now),
-      granularity: 'hour',
-      include_trend: true,
-      include_group_stats: false,
-    }))
-    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
-      start_date: formatLocalDate(yesterday),
-      end_date: formatLocalDate(now),
-      granularity: 'hour',
-      include_trend: false,
-      include_group_stats: true,
+      granularity: 'hour'
     }))
 
     const modelChart = wrapper.find('[data-test="model-chart"]')
@@ -300,21 +228,20 @@ describe('admin UsageView distribution metric toggles', () => {
 
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('tokens')
-    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
+    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
 
     await groupChart.find('.switch-metric').trigger('click')
     await flushPromises()
 
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('actual_cost')
-    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
+    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('admin UsageView handleUserClick', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    installIntersectionObserver()
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
@@ -371,7 +298,6 @@ describe('admin UsageView handleUserClick', () => {
 describe('admin UsageView errors tab filter forwarding', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    installIntersectionObserver()
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()

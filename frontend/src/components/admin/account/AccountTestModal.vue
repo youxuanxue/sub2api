@@ -46,7 +46,6 @@
           {{ t('admin.accounts.selectTestModel') }}
         </label>
         <Select
-          v-if="!modelsError"
           v-model="selectedModelId"
           :options="availableModels"
           :disabled="loadingModels || status === 'connecting'"
@@ -54,19 +53,6 @@
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
         />
-        <div
-          v-else
-          class="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
-        >
-          <p>{{ modelsError }}</p>
-          <button
-            type="button"
-            class="mt-1.5 font-medium text-primary-600 hover:underline dark:text-primary-400"
-            @click="loadAvailableModels"
-          >
-            {{ t('admin.accounts.retry') }}
-          </button>
-        </div>
       </div>
 
       <div v-if="supportsImageTest" class="space-y-1.5">
@@ -245,7 +231,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -286,9 +272,6 @@ const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
-// Non-empty when GetAvailableModels failed to load, so the UI can show why the
-// model picker is unavailable instead of a misleading empty "no options" box.
-const modelsError = ref('')
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
@@ -308,15 +291,6 @@ const supportsOpenAIImageTest = computed(() => {
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
-const isKiroTestAccount = computed(() => (
-  props.account?.platform === 'kiro' ||
-  (
-    props.account?.platform === 'anthropic' &&
-    props.account?.type === 'apikey' &&
-    String(props.account?.credentials?.mirror_platform || '').trim().toLowerCase() === 'kiro'
-  )
-))
-
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
 
@@ -328,7 +302,7 @@ const sortTestModels = (models: ClaudeModel[]) => {
   })
 }
 
-// Load available models when the modal becomes shown (a reopen toggles show).
+// Load available models when modal opens
 watch(
   () => props.show,
   async (newVal) => {
@@ -342,21 +316,6 @@ watch(
   }
 )
 
-// AccountsView lazy-mounts this modal (lazyMount latch, #900): on first open it is
-// CREATED with `show` already true, so the (non-immediate) watch above never fires
-// for that first open — loadAvailableModels() never ran and the picker stayed empty
-// ("无匹配选项") with no /models request at all (only a reopen, which toggles show,
-// worked). Loading on mount when already shown covers the first-open case. (We use
-// onMounted rather than the watch's `immediate` because loadAvailableModels is a
-// const declared below — an immediate watch would hit it in the temporal dead zone.)
-onMounted(() => {
-  if (props.show && props.account) {
-    testPrompt.value = ''
-    resetState()
-    void loadAvailableModels()
-  }
-})
-
 watch(selectedModelId, () => {
   if (supportsImageTest.value && !testPrompt.value.trim()) {
     testPrompt.value = t('admin.accounts.imagePromptDefault')
@@ -368,7 +327,6 @@ const loadAvailableModels = async () => {
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
-  modelsError.value = ''
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
@@ -378,11 +336,6 @@ const loadAvailableModels = async () => {
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
-      } else if (isKiroTestAccount.value) {
-        selectedModelId.value =
-          availableModels.value.find((m) => m.id === 'claude-sonnet-4-5')?.id ||
-          availableModels.value.find((m) => m.id === 'claude-sonnet-4-6')?.id ||
-          availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model
         const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
@@ -390,23 +343,10 @@ const loadAvailableModels = async () => {
       }
     }
   } catch (error) {
-    // Surface the failure instead of silently showing an empty "no options"
-    // dropdown. For every account type GetAvailableModels returns a non-empty
-    // default/mapped catalog when the account is reachable, so an empty picker
-    // almost always means the request FAILED — the account became unavailable
-    // (404, e.g. deleted / mid-reauth), the admin session expired (401/403), or
-    // a network error. Masking that as "no models" misleads the operator.
     console.error('Failed to load available models:', error)
+    // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
-    const status = (error as { response?: { status?: number } })?.response?.status
-    if (status === 404) {
-      modelsError.value = t('admin.accounts.loadModelsUnavailable')
-    } else if (status === 401 || status === 403) {
-      modelsError.value = t('admin.accounts.loadModelsAuthExpired')
-    } else {
-      modelsError.value = t('admin.accounts.loadModelsFailed')
-    }
   } finally {
     loadingModels.value = false
   }

@@ -65,47 +65,6 @@ func TestGetBaseURL(t *testing.T) {
 			},
 			expected: "",
 		},
-		{
-			// Regression: a blank base_url on a non-anthropic platform must NOT
-			// silently fall back to api.anthropic.com (it would POST a VolcEngine
-			// Ark / newapi request to the Anthropic host and return a baffling 404).
-			name: "newapi apikey without base_url returns empty (no anthropic fallback)",
-			account: Account{
-				Type:        AccountTypeAPIKey,
-				Platform:    PlatformNewAPI,
-				Credentials: map[string]any{},
-			},
-			expected: "",
-		},
-		{
-			name: "openai apikey without base_url returns empty (no anthropic fallback)",
-			account: Account{
-				Type:        AccountTypeAPIKey,
-				Platform:    PlatformOpenAI,
-				Credentials: map[string]any{},
-			},
-			expected: "",
-		},
-		{
-			name: "newapi apikey with custom base_url is returned verbatim",
-			account: Account{
-				Type:        AccountTypeAPIKey,
-				Platform:    PlatformNewAPI,
-				Credentials: map[string]any{"base_url": "https://ark.cn-beijing.volces.com"},
-			},
-			expected: "https://ark.cn-beijing.volces.com",
-		},
-		{
-			// Legacy rows with an empty platform string predate multi-platform
-			// support and were all anthropic — keep the historical default.
-			name: "legacy empty-platform apikey without base_url keeps anthropic default",
-			account: Account{
-				Type:        AccountTypeAPIKey,
-				Platform:    "",
-				Credentials: map[string]any{},
-			},
-			expected: "https://api.anthropic.com",
-		},
 	}
 
 	for _, tt := range tests {

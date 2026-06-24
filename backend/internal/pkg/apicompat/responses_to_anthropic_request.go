@@ -554,6 +554,7 @@ func normalizeAnthropicInputSchema(schema json.RawMessage) json.RawMessage {
 //	{"type":"function","name":"X"}                 → {"type":"tool","name":"X"}
 //	{"type":"function","function":{"name":"X"}}     → {"type":"tool","name":"X"} // legacy
 func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage, error) {
+	// Try as string first
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		switch s {
@@ -568,6 +569,7 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 		}
 	}
 
+	// Try as object with type=function
 	var tc struct {
 		Type     string `json:"type"`
 		Name     string `json:"name"`
@@ -589,5 +591,6 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 		})
 	}
 
+	// Pass through unknown
 	return raw, nil
 }

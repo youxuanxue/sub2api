@@ -42,11 +42,8 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1beta/models/*modelAction", EndpointGeminiModels},
 		{"/v1/responses/*subpath", EndpointResponses},
 
-		// TokenKey OpenAI-compat aliases.
-		{"/v1/embeddings", EndpointEmbeddings},
-		{"/embeddings", EndpointEmbeddings},
-		{"/v1/images/generations", EndpointImagesGenerations},
-		{"/images/generations", EndpointImagesGenerations},
+		// Unknown path is returned as-is.
+		{"/v1/embeddings", "/v1/embeddings"},
 		{"", ""},
 		{"  /v1/messages  ", EndpointMessages},
 	}
@@ -82,8 +79,6 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		{"openai from messages", EndpointMessages, "/v1/messages", service.PlatformOpenAI, EndpointResponses},
 		{"openai from completions", EndpointChatCompletions, "/v1/chat/completions", service.PlatformOpenAI, EndpointResponses},
 		{"openai embeddings", EndpointEmbeddings, "/v1/embeddings", service.PlatformOpenAI, EndpointEmbeddings},
-		{"newapi messages", EndpointMessages, "/v1/messages", service.PlatformNewAPI, EndpointResponses},
-		{"newapi embeddings", EndpointEmbeddings, "/v1/embeddings", service.PlatformNewAPI, EndpointEmbeddings},
 		{"openai image generations", EndpointImagesGenerations, "/v1/images/generations", service.PlatformOpenAI, EndpointImagesGenerations},
 		{"openai image edits", EndpointImagesEdits, "/openai/v1/images/edits", service.PlatformOpenAI, EndpointImagesEdits},
 

@@ -50,10 +50,6 @@ type User struct {
 	BalanceNotifyExtraEmails   []NotifyEmailEntry
 	TotalRecharged             float64
 
-	// OnboardingTourSeenAt: 用户首次完成 Onboarding Tour 的时间戳。
-	// nil = 从未看过，dashboard 应自动启动 Tour（US-031）。
-	// 非 nil = 已看过，不再自动启动（手动 replay 仍可用）。
-	OnboardingTourSeenAt *time.Time
 	// RPMLimit 用户级每分钟请求数上限（0 = 不限制）。仅在所用分组未设置 rpm_limit
 	// 且该 (用户, 分组) 无 rpm_override 时作为全局兜底生效，计数键 rpm:u:{userID}:{min}。
 	RPMLimit int
@@ -62,10 +58,6 @@ type User struct {
 	// nil = 该 API Key 对应的 (user, group) 无 override；非 nil 时 checkRPM 直接使用，
 	// 避免每请求查 DB。字段不持久化到数据库。
 	UserGroupRPMOverride *int
-
-	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。默认 false。
-	// 开启后该用户每个 API Key 可独立导出其捕获的对话轨迹。
-	TrajExportEnabled bool
 
 	APIKeys       []APIKey
 	Subscriptions []UserSubscription

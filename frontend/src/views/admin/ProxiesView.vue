@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">
@@ -416,13 +417,7 @@
             {{ t('admin.proxies.batchAdd') }}
           </button>
         </div>
-        <!-- TK override (upstream-touch-guarded): upstream 04308997 added a
-             third-party affiliate banner here (bestproxy.com link via
-             ProxyAdBanner.vue). TokenKey admin UI must stay vendor-neutral
-             and brand-pure — render the banner is intentionally dropped.
-             Upstream file ProxyAdBanner.vue is left on disk untouched to
-             keep the next upstream merge conflict-free; the import on
-             ProxiesView.vue is the single removed reference. -->
+        <ProxyAdBanner />
       </div>
 
       <!-- Standard Add Form -->
@@ -965,7 +960,8 @@
         </div>
       </template>
     </BaseDialog>
-  </template>
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
@@ -974,6 +970,7 @@ import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { Proxy, ProxyAccountSummary, ProxyProtocol, ProxyQualityCheckResult } from '@/types'
 import type { Column } from '@/components/common/types'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -982,8 +979,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ImportDataModal from '@/components/admin/proxy/ImportDataModal.vue'
 import Select from '@/components/common/Select.vue'
-// TK override (upstream-touch-guarded): ProxyAdBanner import intentionally
-// dropped — see render-site comment near `admin.proxies.standardAdd` tab.
+import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import { useClipboard } from '@/composables/useClipboard'
@@ -1913,7 +1909,7 @@ const handleExportData = async () => {
           }
     )
     const timestamp = formatExportTimestamp()
-    const filename = `tokenkey-proxy-${timestamp}.json`
+    const filename = `sub2api-proxy-${timestamp}.json`
     const blob = new Blob([JSON.stringify(dataPayload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')

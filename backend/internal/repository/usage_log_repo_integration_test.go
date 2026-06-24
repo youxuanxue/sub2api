@@ -135,61 +135,6 @@ func TestUsageLogRepositoryCreate_BatchPathConcurrent(t *testing.T) {
 	require.Equal(t, total, count)
 }
 
-// TestUsageLogRepositoryCreate_BatchPathVideoDurationSeconds covers the batched
-// CTE insert path of video_duration_seconds (tk_025) — its column list is
-// maintained independently from createSingle, so both need a round-trip test:
-// a value written must read back, and an omitted value must read back nil.
-func TestUsageLogRepositoryCreate_BatchPathVideoDurationSeconds(t *testing.T) {
-	ctx := context.Background()
-	client := testEntClient(t)
-	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
-
-	user := mustCreateUser(t, client, &service.User{Email: fmt.Sprintf("usage-video-seconds-%d@example.com", time.Now().UnixNano())})
-	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-usage-video-" + uuid.NewString(), Name: "k"})
-	account := mustCreateAccount(t, client, &service.Account{Name: "acc-usage-video-" + uuid.NewString()})
-
-	seconds := int64(8)
-	videoLog := &service.UsageLog{
-		UserID:               user.ID,
-		APIKeyID:             apiKey.ID,
-		AccountID:            account.ID,
-		RequestID:            uuid.NewString(),
-		Model:                "doubao-seedance-1-0-pro-250528",
-		TotalCost:            1.0,
-		ActualCost:           1.0,
-		VideoDurationSeconds: &seconds,
-		CreatedAt:            time.Now().UTC(),
-	}
-	nonVideoLog := &service.UsageLog{
-		UserID:       user.ID,
-		APIKeyID:     apiKey.ID,
-		AccountID:    account.ID,
-		RequestID:    uuid.NewString(),
-		Model:        "claude-3",
-		InputTokens:  10,
-		OutputTokens: 20,
-		TotalCost:    0.5,
-		ActualCost:   0.5,
-		CreatedAt:    time.Now().UTC(),
-	}
-
-	inserted, err := repo.Create(ctx, videoLog)
-	require.NoError(t, err)
-	require.True(t, inserted)
-	inserted, err = repo.Create(ctx, nonVideoLog)
-	require.NoError(t, err)
-	require.True(t, inserted)
-
-	gotVideo, err := repo.GetByID(ctx, videoLog.ID)
-	require.NoError(t, err)
-	require.NotNil(t, gotVideo.VideoDurationSeconds)
-	require.Equal(t, int64(8), *gotVideo.VideoDurationSeconds)
-
-	gotNonVideo, err := repo.GetByID(ctx, nonVideoLog.ID)
-	require.NoError(t, err)
-	require.Nil(t, gotNonVideo.VideoDurationSeconds)
-}
-
 func TestUsageLogRepositoryCreate_BatchPathDuplicateRequestID(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
@@ -573,42 +518,6 @@ func (s *UsageLogRepoSuite) TestGetByID_ReturnsOpenAIWSMode() {
 	got, err := s.repo.GetByID(s.ctx, log.ID)
 	s.Require().NoError(err)
 	s.Require().True(got.OpenAIWSMode)
-}
-
-// TestGetByID_ReturnsVideoDurationSeconds covers the createSingle path of the
-// video_duration_seconds column (tk_025): a value written at submit time must
-// round-trip, and a non-video row must read back nil (NULL, not 0).
-func (s *UsageLogRepoSuite) TestGetByID_ReturnsVideoDurationSeconds() {
-	user := mustCreateUser(s.T(), s.client, &service.User{Email: "getbyid-video-seconds@test.com"})
-	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-getbyid-video-seconds", Name: "k"})
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-getbyid-video-seconds"})
-
-	seconds := int64(8)
-	videoLog := &service.UsageLog{
-		UserID:               user.ID,
-		APIKeyID:             apiKey.ID,
-		AccountID:            account.ID,
-		RequestID:            uuid.New().String(),
-		Model:                "doubao-seedance-1-0-pro-250528",
-		InputTokens:          0,
-		OutputTokens:         0,
-		TotalCost:            1.0,
-		ActualCost:           1.0,
-		VideoDurationSeconds: &seconds,
-		CreatedAt:            timezone.Today().Add(4 * time.Hour),
-	}
-	_, err := s.repo.Create(s.ctx, videoLog)
-	s.Require().NoError(err)
-
-	got, err := s.repo.GetByID(s.ctx, videoLog.ID)
-	s.Require().NoError(err)
-	s.Require().NotNil(got.VideoDurationSeconds)
-	s.Require().Equal(int64(8), *got.VideoDurationSeconds)
-
-	nonVideoLog := s.createUsageLog(user, apiKey, account, 10, 20, 0.5, time.Now())
-	gotNonVideo, err := s.repo.GetByID(s.ctx, nonVideoLog.ID)
-	s.Require().NoError(err)
-	s.Require().Nil(gotNonVideo.VideoDurationSeconds)
 }
 
 func (s *UsageLogRepoSuite) TestGetByID_ReturnsRequestTypeAndLegacyFallback() {

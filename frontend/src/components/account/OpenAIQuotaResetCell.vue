@@ -43,7 +43,7 @@
         class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-orange-600 transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-orange-400 dark:hover:bg-orange-900/30"
         :disabled="resetting || loading || !canReset"
         :title="resetButtonTitle"
-        @click="handleReset"
+        @click="openResetConfirm"
       >
         <svg
           class="h-2.5 w-2.5"
@@ -78,48 +78,16 @@
       {{ resetMessage }}
     </div>
 
-    <!--
-      Per-model metered windows (e.g. GPT-5.3-Codex-Spark) returned by the quota
-      query (additional_rate_limits). Shown nowhere else: an exhausted per-model
-      window is the usual reason an account is throttled while its account-wide
-      5h/7d bars (owned by AccountUsageCell) still read healthy. Only renders
-      after a query, when at least one per-model window has data.
-    -->
-    <div
-      v-if="additionalLimits.length"
-      class="space-y-1 border-t border-gray-100 pt-1 dark:border-gray-700/60"
-    >
-      <div class="text-[10px] font-medium text-gray-500 dark:text-gray-400">
-        {{ t('admin.accounts.openaiQuotaReset.additionalLimitsTitle') }}
-      </div>
-      <div
-        v-for="(limit, index) in additionalLimits"
-        :key="`${limit.name}-${limit.meteredFeature}-${index}`"
-        class="space-y-0.5"
-      >
-        <div
-          v-if="limit.name"
-          class="truncate text-[10px] font-medium text-gray-600 dark:text-gray-300"
-          :title="limit.name"
-        >
-          {{ limit.name }}
-        </div>
-        <UsageProgressBar
-          v-if="limit.fiveHour"
-          label="5h"
-          :utilization="limit.fiveHour.usedPercent"
-          :resets-at="limit.fiveHour.resetsAtIso"
-          color="purple"
-        />
-        <UsageProgressBar
-          v-if="limit.weekly"
-          label="7d"
-          :utilization="limit.weekly.usedPercent"
-          :resets-at="limit.weekly.resetsAtIso"
-          color="amber"
-        />
-      </div>
-    </div>
+    <ConfirmDialog
+      :show="showResetConfirm"
+      :title="t('admin.accounts.openaiQuotaReset.confirmTitle')"
+      :message="t('admin.accounts.openaiQuotaReset.confirmMessage', { count: availableResetCount })"
+      :confirm-text="t('admin.accounts.openaiQuotaReset.reset')"
+      :cancel-text="t('common.cancel')"
+      danger
+      @confirm="confirmReset"
+      @cancel="showResetConfirm = false"
+    />
   </div>
 </template>
 
@@ -133,8 +101,7 @@ import {
   type OpenAIQuotaUsage,
   type OpenAIQuotaResetResult
 } from '@/api/admin/accounts'
-import UsageProgressBar from './UsageProgressBar.vue'
-import { normalizeCodexAdditionalLimits } from '@/constants/codexRateLimitWindows.tk'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const props = defineProps<{
   account: Account
@@ -150,17 +117,10 @@ const resetting = ref(false)
 const error = ref<string | null>(null)
 const data = ref<OpenAIQuotaUsage | null>(null)
 const resetMessage = ref<string | null>(null)
+const showResetConfirm = ref(false)
 
 const availableResetCount = computed(() => data.value?.rate_limit_reset_credits?.available_count ?? 0)
 const canReset = computed(() => availableResetCount.value > 0)
-
-// Per-model metered windows (e.g. GPT-5.3-Codex-Spark) from /wham/usage. These
-// sub-limits are independent of the account-wide 5h/7d window owned by
-// AccountUsageCell: a spark window at 100% throttles the account while the
-// general gauge still reads ~4%, which is why codex appears unusable despite a
-// healthy-looking card ("刷不出 codex 的额度"). Surface them right under the
-// query button so the real bottleneck is visible after a quota query.
-const additionalLimits = computed(() => normalizeCodexAdditionalLimits(data.value))
 
 const resetButtonTitle = computed(() => {
   if (!data.value) return t('admin.accounts.openaiQuotaReset.resetTooltipNeedQuery')
@@ -214,7 +174,17 @@ const handleQuery = async () => {
   }
 }
 
-const handleReset = async () => {
+const openResetConfirm = () => {
+  if (resetting.value || loading.value) return
+  if (!canReset.value) {
+    error.value = t('admin.accounts.openaiQuotaReset.noCreditsAvailable')
+    return
+  }
+  showResetConfirm.value = true
+}
+
+const confirmReset = async () => {
+  showResetConfirm.value = false
   if (resetting.value) return
   if (!canReset.value) {
     error.value = t('admin.accounts.openaiQuotaReset.noCreditsAvailable')
@@ -248,6 +218,7 @@ watch(
     resetMessage.value = null
     loading.value = false
     resetting.value = false
+    showResetConfirm.value = false
   }
 )
 </script>

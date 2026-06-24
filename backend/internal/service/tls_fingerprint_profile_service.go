@@ -145,22 +145,6 @@ func (s *TLSFingerprintProfileService) GetProfileByID(id int64) *tlsfingerprint.
 	return nil
 }
 
-// GetProfileByName 按名称从本地缓存获取 Profile（用于 Kiro 默认按名解析 canonical
-// 模板）。返回 nil 表示未找到（例如 seed migration 尚未落地），调用方据此安全回退。
-func (s *TLSFingerprintProfileService) GetProfileByName(name string) *tlsfingerprint.Profile {
-	if name == "" {
-		return nil
-	}
-	s.localMu.RLock()
-	defer s.localMu.RUnlock()
-	for _, p := range s.localCache {
-		if p != nil && p.Name == name {
-			return p.ToTLSProfile()
-		}
-	}
-	return nil
-}
-
 // getRandomProfile 从本地缓存中随机选择一个 Profile
 func (s *TLSFingerprintProfileService) getRandomProfile() *tlsfingerprint.Profile {
 	s.localMu.RLock()
@@ -205,12 +189,6 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 		if p := s.getRandomProfile(); p != nil {
 			return p
 		}
-	}
-	// Kiro：无显式 profile_id 时按名解析真实 Kiro IDE canonical 模板，绝不回退到
-	// Node.js 24.x 内置默认值（那是 cc 形态，对 Kiro 是错指纹）。seed migration 尚未
-	// 落地时 GetProfileByName 返回 nil → 退回普通 TLS（安全，等同未开启前的行为）。
-	if account.IsKiro() {
-		return s.GetProfileByName(CanonicalKiroTLSProfileName)
 	}
 	// TLS 启用但无绑定 profile → 空 Profile → dialer 使用内置默认值
 	return &tlsfingerprint.Profile{Name: "Built-in Default (Node.js 24.x)"}

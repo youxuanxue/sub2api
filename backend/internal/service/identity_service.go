@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -25,23 +26,11 @@ var (
 )
 
 // 默认指纹值（当客户端未提供时使用）
-// defaultFingerprint 是 createFingerprintFromHeaders 在客户端头缺失时的兜底身份。
-//
-// 单一真值来源纪律：身份字段（OS/arch/runtime/lang/pkg/UA 后缀）必须与权威的
-// canonicalHTTPObservedStatic（与唯一 TLS ClientHello 同批抓包）逐字节一致。
-// 历史上这里曾是 Linux/v24.13.0/(external, cli) 的第二套真值，与 canonical 的
-// MacOS/v24.3.0/(external, sdk-cli) 冲突——当 fingerprint 走兜底时会发出 TLS 与
-// HTTP 头自相矛盾的指纹（Mac 级 TLS + Linux 头）。现收敛到 canonical 取值。
-//
-// 这里刻意保留显式 struct 字面量（而非 func 派生 canonical）：
-// ops/anthropic/capture_cc_fingerprint.py 通过静态文本抓取本变量的 `UserAgent:`
-// / `StainlessPackageVersion:` 字面量做指纹基线巡检，computed 值会让它失明。
-// 字面量与 canonical 的一致性改由 identity_canonical_consistency_test.go 机械锁死。
 var defaultFingerprint = Fingerprint{
-	UserAgent:               "claude-cli/2.1.179 (external, sdk-cli)",
+	UserAgent:               "claude-cli/" + claude.CLICurrentVersion + " (external, cli)",
 	StainlessLang:           "js",
 	StainlessPackageVersion: "0.94.0",
-	StainlessOS:             "MacOS",
+	StainlessOS:             "Linux",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",
 	StainlessRuntimeVersion: "v24.3.0",
@@ -86,33 +75,21 @@ func NewIdentityService(cache IdentityCache) *IdentityService {
 // GetOrCreateFingerprint 获取或创建账号的指纹
 // 如果缓存存在，检测user-agent版本，新版本则更新
 // 如果缓存不存在，生成随机ClientID并从请求头创建指纹，然后缓存
-//
-// tlsProfileName: 当账号绑定 canonical TLS 模板时传入模板名；HTTP 指纹将钉死在
-// observed 块，ingress User-Agent 不再驱动版本漂移（TokenKey B1）。
-func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID int64, headers http.Header, tlsProfileName string) (*Fingerprint, error) {
-	pinCanonicalHTTP := IsCanonicalTLSProfileName(tlsProfileName)
-
+func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID int64, headers http.Header) (*Fingerprint, error) {
 	// 尝试从缓存获取指纹
 	cached, err := s.cache.GetFingerprint(ctx, accountID)
 	if err == nil && cached != nil {
 		needWrite := false
 
-		if pinCanonicalHTTP {
-			if applyCanonicalHTTPObserved(cached, GetCanonicalUserAgentForContext(ctx)) {
-				needWrite = true
-			}
-		} else {
-			// 检查客户端的user-agent是否是更新版本
-			clientUA := headers.Get("User-Agent")
-			if clientUA != "" && isNewerVersion(clientUA, cached.UserAgent) {
-				// 版本升级：merge 语义 — 仅更新请求中实际携带的字段，保留缓存值
-				// 避免缺失的头被硬编码默认值覆盖（如新 CLI 版本 + 旧 SDK 默认值的不一致）
-				mergeHeadersIntoFingerprint(cached, headers)
-				needWrite = true
-				logger.LegacyPrintf("service.identity", "Updated fingerprint for account %d: %s (merge update)", accountID, clientUA)
-			}
-		}
-		if time.Since(time.Unix(cached.UpdatedAt, 0)) > 24*time.Hour {
+		// 检查客户端的user-agent是否是更新版本
+		clientUA := headers.Get("User-Agent")
+		if clientUA != "" && isNewerVersion(clientUA, cached.UserAgent) {
+			// 版本升级：merge 语义 — 仅更新请求中实际携带的字段，保留缓存值
+			// 避免缺失的头被硬编码默认值覆盖（如新 CLI 版本 + 旧 SDK 默认值的不一致）
+			mergeHeadersIntoFingerprint(cached, headers)
+			needWrite = true
+			logger.LegacyPrintf("service.identity", "Updated fingerprint for account %d: %s (merge update)", accountID, clientUA)
+		} else if time.Since(time.Unix(cached.UpdatedAt, 0)) > 24*time.Hour {
 			// 距上次写入超过24小时，续期TTL
 			needWrite = true
 		}
@@ -127,13 +104,7 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 	}
 
 	// 缓存不存在或解析失败，创建新指纹
-	var fp *Fingerprint
-	if pinCanonicalHTTP {
-		fp = &Fingerprint{}
-		applyCanonicalHTTPObserved(fp, GetCanonicalUserAgentForContext(ctx))
-	} else {
-		fp = s.createFingerprintFromHeaders(headers)
-	}
+	fp := s.createFingerprintFromHeaders(headers)
 
 	// 生成随机ClientID
 	fp.ClientID = generateClientID()

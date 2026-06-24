@@ -84,16 +84,27 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useLazyMarkdown } from '@/composables/useLazyMarkdown'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { useAnnouncementStore } from '@/stores/announcements'
 import { formatRelativeWithDateTime } from '@/utils/format'
 
 const { t } = useI18n()
 const announcementStore = useAnnouncementStore()
 
-const renderedContent = useLazyMarkdown(() => announcementStore.currentPopup?.content)
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
+
+const renderedContent = computed(() => {
+  const content = announcementStore.currentPopup?.content
+  if (!content) return ''
+  const html = marked.parse(content) as string
+  return DOMPurify.sanitize(html)
+})
 
 function handleDismiss() {
   announcementStore.dismissPopup()

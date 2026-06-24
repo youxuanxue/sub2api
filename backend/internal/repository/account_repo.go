@@ -15,7 +15,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -26,8 +25,6 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -52,10 +49,6 @@ type accountRepository struct {
 	// Used to proactively sync account snapshot to cache when status changes,
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
-	// tierResolver overlays per-tier config (base_rpm / max_sessions / ...) onto an
-	// account's in-memory Extra at the load boundary (accountsToService), so the
-	// runtime getters resolve tier values without account writes. nil-safe.
-	tierResolver service.TierExtraResolver
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
@@ -75,14 +68,14 @@ const postgresParameterBatchSize = 50000
 
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
-func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache, tierResolver service.TierExtraResolver) service.AccountRepository {
-	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache, tierResolver)
+func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AccountRepository {
+	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache)
 }
 
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
-func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache, tierResolver service.TierExtraResolver) *accountRepository {
-	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache, tierResolver: tierResolver}
+func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
+	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
@@ -102,8 +95,7 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
 		SetSchedulable(account.Schedulable).
-		SetAutoPauseOnExpired(account.AutoPauseOnExpired).
-		SetChannelType(account.ChannelType)
+		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
@@ -152,63 +144,6 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
 	}
 	return nil
-}
-
-func (r *accountRepository) SumConcurrencyAnthropic(ctx context.Context) (int64, error) {
-	const q = `
-SELECT COALESCE(SUM(concurrency), 0)::bigint
-FROM accounts
-WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
-	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic}, &sum); err != nil {
-		return 0, fmt.Errorf("sum anthropic concurrency: %w", err)
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Int64, nil
-}
-
-// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
-// accounts that belong to the named group (e.g. "default"). Surface-C:
-// the edge capacity endpoint reports only the default-group pool so prod mirrors
-// the right number.
-func (r *accountRepository) SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error) {
-	const q = `
-SELECT COALESCE(SUM(a.concurrency), 0)::bigint
-FROM accounts a
-JOIN account_groups ag ON ag.account_id = a.id
-JOIN groups g ON g.id = ag.group_id
-WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
-  AND g.name = $2 AND g.deleted_at IS NULL`
-	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic, groupName}, &sum); err != nil {
-		return 0, fmt.Errorf("sum anthropic concurrency by group %q: %w", groupName, err)
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Int64, nil
-}
-
-// SumConcurrencyByPlatform returns Σ concurrency for schedulable accounts of the
-// given platform across all groups (no group join). Surface-C uses this for
-// non-anthropic edge pools (e.g. kiro), where every schedulable account of that
-// platform IS the operator pool, so the anthropic "default"-group scoping
-// (SumConcurrencyAnthropicByGroup) does not apply.
-func (r *accountRepository) SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error) {
-	const q = `
-SELECT COALESCE(SUM(concurrency), 0)::bigint
-FROM accounts
-WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
-	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{platform}, &sum); err != nil {
-		return 0, fmt.Errorf("sum concurrency by platform %q: %w", platform, err)
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Int64, nil
 }
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
@@ -280,10 +215,8 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 			continue
 		}
 
-		// Prefer the preloaded proxy edge when available, but only attach an
-		// active proxy — disabled proxies must not surface as account.Proxy so
-		// outbound forwarding skips them. See upstream #2159.
-		if entAcc.Edges.Proxy != nil && entAcc.Edges.Proxy.Status == service.StatusActive {
+		// Prefer the preloaded proxy edge when available.
+		if entAcc.Edges.Proxy != nil {
 			out.Proxy = proxyEntityToService(entAcc.Edges.Proxy)
 		}
 
@@ -391,28 +324,19 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		schedulable = false
 	}
 
-	// TK: strip tier-overlaid extra keys before persisting so the in-memory
-	// runtime overlay (base_rpm / max_sessions / ...) never leaks to the DB
-	// ("零账号写"). No-op for non-tier-managed accounts.
-	extraToPersist := account.Extra
-	if r.tierResolver != nil {
-		extraToPersist = r.tierResolver.TierManagedExtraStripped(account)
-	}
-
 	builder := r.client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
 		SetCredentials(normalizeJSONMap(account.Credentials)).
-		SetExtra(normalizeJSONMap(extraToPersist)).
+		SetExtra(normalizeJSONMap(account.Extra)).
 		SetConcurrency(account.Concurrency).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
 		SetSchedulable(schedulable).
-		SetAutoPauseOnExpired(account.AutoPauseOnExpired).
-		SetChannelType(account.ChannelType)
+		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
@@ -427,11 +351,6 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		builder.SetProxyID(*account.ProxyID)
 	} else {
 		builder.ClearProxyID()
-	}
-	if account.TierID != nil {
-		builder.SetTierID(*account.TierID)
-	} else {
-		builder.ClearTierID()
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -551,16 +470,7 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.client.Account.Query()
 
-	if platform == service.AccountListPlatformKiroStubFilter {
-		q = q.Where(
-			dbaccount.PlatformEQ(service.PlatformAnthropic),
-			dbaccount.TypeEQ(service.AccountTypeAPIKey),
-			dbpredicate.Account(func(s *entsql.Selector) {
-				s.Where(entsql.ExprP(fmt.Sprintf("LOWER(TRIM(%s->>'mirror_platform')) = 'kiro'", s.C(dbaccount.FieldCredentials))))
-				s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
-			}),
-		)
-	} else if platform != "" {
+	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
 	}
 	if accountType != "" {
@@ -747,21 +657,13 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 	// NOT (a AND b) 在 PG 三值逻辑下会把 a 或 b 为 NULL 的行（即绝大多数
 	// 健康账号：temp_unschedulable_until=NULL）也排除，导致后台 token
 	// 刷新工作器漏掉所有正常账号 → access_token 到期后请求开始 401。
-	// TK: 平台过滤改为参数化 `= ANY($1)`，绑定值来自单一真值源
-	// engine.OAuthRefreshPlatforms()（= AllSchedulingPlatforms() 去掉仅用 api key
-	// 的 newapi）。SQL 里不再留任何平台字面量，杜绝 R-001 那类「上游重写本方法时
-	// 把名单重置回上游四平台、静默漏掉 TK 第六/七平台 kiro/grok」的回归——掉平台
-	// 必须改 engine 真值源（TK 持有、sentinel 锚定），且后台刷新器注册集会被
-	// token_refresh_service_candidates_test.go 断言覆盖该名单。kiro/grok 的
-	// OAuth access_token 短寿命（grok 默认 1h）且网关端只读 credentials 不做按需
-	// 刷新，后台刷新是其唯一续期路径，漏掉即 ~1h 后 401 掉出池且无自愈。
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id
 		FROM accounts
 		WHERE deleted_at IS NULL
 			AND status = 'active'
 			AND type = 'oauth'
-			AND platform = ANY($1)
+			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity')
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''
 			AND (
@@ -769,7 +671,7 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 				AND temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'
 			) IS NOT TRUE
 		ORDER BY priority ASC, id ASC
-	`, pq.Array(engine.OAuthRefreshPlatforms()))
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -1799,11 +1701,6 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
 		}
-		// TK: overlay per-tier config (base_rpm / max_sessions / ...) onto the
-		// in-memory Extra so runtime getters resolve tier values; nil-safe.
-		if r.tierResolver != nil {
-			r.tierResolver.ApplyTierExtra(out)
-		}
 		outAccounts = append(outAccounts, *out)
 	}
 
@@ -1828,16 +1725,6 @@ func notExpiredPredicate(now time.Time) dbpredicate.Account {
 	)
 }
 
-// loadProxies attaches proxy records to accounts, but only when the proxy is
-// currently active. Disabled proxies are silently dropped from the returned map,
-// so callers see account.Proxy == nil and skip outbound routing through the
-// disabled proxy (fall back to direct upstream). This matches operator intent
-// when toggling a proxy off — disabled means "stop using this route".
-//
-// Operators that want hard-fail on disabled proxies (instead of fallback to
-// direct) should mark the bound accounts inactive separately.
-//
-// See upstream #2159.
 func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (map[int64]*service.Proxy, error) {
 	proxyMap := make(map[int64]*service.Proxy)
 	proxyIDs = uniquePositiveInt64s(proxyIDs)
@@ -1850,12 +1737,7 @@ func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (
 		if end > len(proxyIDs) {
 			end = len(proxyIDs)
 		}
-		proxies, err := r.client.Proxy.Query().
-			Where(
-				dbproxy.IDIn(proxyIDs[start:end]...),
-				dbproxy.StatusEQ(service.StatusActive),
-			).
-			All(ctx)
+		proxies, err := r.client.Proxy.Query().Where(dbproxy.IDIn(proxyIDs[start:end]...)).All(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -2048,8 +1930,6 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		SessionWindowStart:      m.SessionWindowStart,
 		SessionWindowEnd:        m.SessionWindowEnd,
 		SessionWindowStatus:     derefString(m.SessionWindowStatus),
-		ChannelType:             m.ChannelType,
-		TierID:                  m.TierID,
 	}
 }
 

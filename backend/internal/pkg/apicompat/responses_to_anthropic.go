@@ -112,21 +112,13 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	}
 }
 
-// details is retained in the signature so callers need not change; the reason
-// value no longer drives dispatch — every "incomplete" maps to "max_tokens".
 func responsesStatusToAnthropicStopReason(status string, details *ResponsesIncompleteDetails, blocks []AnthropicContentBlock) string {
 	switch status {
 	case "incomplete":
-		// Any "incomplete" terminal means the upstream cut us off — whether the
-		// reason is max_output_tokens, content_filter, server_error, or anything
-		// else. Mapping the non-budget reasons to "end_turn" used to make Claude
-		// Code's agentic loop think the task finished naturally and stop, even
-		// though there is more work to do. "max_tokens" is the only Anthropic
-		// stop reason that signals "cut off, continue is sensible" — use it for
-		// every incomplete case so the client can recover. The original reason
-		// (content_filter, server_error, …) is surfaced via the gateway's
-		// access log instead.
-		return "max_tokens"
+		if details != nil && details.Reason == "max_output_tokens" {
+			return "max_tokens"
+		}
+		return "end_turn"
 	case "completed":
 		if containsAnthropicToolUseBlock(blocks) {
 			return "tool_use"
@@ -185,9 +177,6 @@ type ResponsesEventToAnthropicState struct {
 	CurrentToolArgs     string
 	CurrentToolHadDelta bool
 	HasToolCall         bool
-	// EmittedAnyContentBlock protects Anthropic SSE clients from streams that
-	// terminate without at least one content block.
-	EmittedAnyContentBlock bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -199,17 +188,6 @@ type ResponsesEventToAnthropicState struct {
 	ResponseID string
 	Model      string
 	Created    int64
-
-	// StopReason is the Anthropic-shaped stop reason emitted by the most recent
-	// terminal event (response.completed / response.incomplete / etc.). The
-	// gateway forwards this value to the access log so we can verify the
-	// stop_reason mapping fix is behaving as designed.
-	StopReason string
-	// IncompleteReason mirrors the upstream incomplete_details.reason verbatim
-	// (max_output_tokens, content_filter, server_error, …) so we can tell
-	// which kind of cutoff produced a "max_tokens" stop_reason. Empty when the
-	// response did not terminate as incomplete.
-	IncompleteReason string
 }
 
 // NewResponsesEventToAnthropicState returns an initialised stream state.
@@ -267,10 +245,6 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 
 	var events []AnthropicStreamEvent
 	events = append(events, closeCurrentBlock(state)...)
-	// US-027: same schema firewall as resToAnthHandleCompleted, but for the
-	// premature-stream-end path (upstream cut us off before sending a terminal
-	// event).
-	events = append(events, ensureContentBlockEmittedAsEmptyText(state)...)
 
 	stopReason := "end_turn"
 	if state.HasToolCall {
@@ -293,33 +267,6 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 	)
 	state.MessageStopSent = true
 	return events
-}
-
-// ensureContentBlockEmittedAsEmptyText injects a single empty-text content block
-// when the streaming state has produced no real content blocks. Used by both
-// terminal handlers (resToAnthHandleCompleted + FinalizeResponsesAnthropicStream)
-// to guarantee the Anthropic SSE stream never closes with zero content blocks
-// — see US-027 / anthropics/claude-code#24662.
-//
-// No-op when state.EmittedAnyContentBlock is true (the normal happy path).
-func ensureContentBlockEmittedAsEmptyText(state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
-	if state.EmittedAnyContentBlock {
-		return nil
-	}
-	idx := state.ContentBlockIndex
-	state.ContentBlockIndex++
-	state.EmittedAnyContentBlock = true
-	return []AnthropicStreamEvent{
-		{
-			Type:         "content_block_start",
-			Index:        &idx,
-			ContentBlock: &AnthropicContentBlock{Type: "text", Text: ""},
-		},
-		{
-			Type:  "content_block_stop",
-			Index: &idx,
-		},
-	}
 }
 
 // ResponsesAnthropicEventToSSE formats an AnthropicStreamEvent as an SSE line pair.
@@ -381,7 +328,6 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.CurrentBlockType = "tool_use"
 		state.CurrentToolName = evt.Item.Name
 		state.CurrentToolArgs = ""
-		state.EmittedAnyContentBlock = true
 		state.CurrentToolHadDelta = false
 		state.HasToolCall = true
 
@@ -398,8 +344,23 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		return events
 
 	case "reasoning":
-		// Open the thinking block only after a non-empty summary delta arrives.
-		return nil
+		var events []AnthropicStreamEvent
+		events = append(events, closeCurrentBlock(state)...)
+
+		idx := state.ContentBlockIndex
+		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
+		state.ContentBlockOpen = true
+		state.CurrentBlockType = "thinking"
+
+		events = append(events, AnthropicStreamEvent{
+			Type:  "content_block_start",
+			Index: &idx,
+			ContentBlock: &AnthropicContentBlock{
+				Type:     "thinking",
+				Thinking: "",
+			},
+		})
+		return events
 
 	case "message":
 		return nil
@@ -421,7 +382,6 @@ func resToAnthHandleTextDelta(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		idx := state.ContentBlockIndex
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "text"
-		state.EmittedAnyContentBlock = true
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -511,38 +471,19 @@ func resToAnthHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEv
 		return nil
 	}
 
-	var events []AnthropicStreamEvent
-
-	// Avoid emitting empty thinking blocks when upstream has no summary text.
 	blockIdx, ok := state.OutputIndexToBlockIdx[evt.OutputIndex]
 	if !ok {
-		events = append(events, closeCurrentBlock(state)...)
-
-		blockIdx = state.ContentBlockIndex
-		state.OutputIndexToBlockIdx[evt.OutputIndex] = blockIdx
-		state.ContentBlockOpen = true
-		state.CurrentBlockType = "thinking"
-		state.EmittedAnyContentBlock = true
-
-		events = append(events, AnthropicStreamEvent{
-			Type:  "content_block_start",
-			Index: &blockIdx,
-			ContentBlock: &AnthropicContentBlock{
-				Type:     "thinking",
-				Thinking: "",
-			},
-		})
+		return nil
 	}
 
-	events = append(events, AnthropicStreamEvent{
+	return []AnthropicStreamEvent{{
 		Type:  "content_block_delta",
 		Index: &blockIdx,
 		Delta: &AnthropicDelta{
 			Type:     "thinking_delta",
 			Thinking: evt.Delta,
 		},
-	})
-	return events
+	}}
 }
 
 func resToAnthHandleBlockDone(state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
@@ -599,7 +540,6 @@ func resToAnthHandleWebSearchDone(evt *ResponsesStreamEvent, state *ResponsesEve
 		Index: &idx1,
 	})
 	state.ContentBlockIndex++
-	state.EmittedAnyContentBlock = true
 
 	// Emit web_search_tool_result block (start + stop).
 	// Content is empty because OpenAI does not expose individual search results;
@@ -631,13 +571,6 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 
 	var events []AnthropicStreamEvent
 	events = append(events, closeCurrentBlock(state)...)
-	// US-027 schema firewall: a terminal event MUST be preceded by at least one
-	// content_block_start/_stop pair. If the upstream stream emitted neither
-	// real content nor a synthesizable delta, inject an empty-text block here so
-	// Claude Code never persists a content-less message into its session JSONL
-	// (anthropics/claude-code#24662). Mirrors the non-streaming fallback in
-	// ResponsesToAnthropic (`if len(blocks) == 0 { append empty text }`).
-	events = append(events, ensureContentBlockEmittedAsEmptyText(state)...)
 
 	stopReason := "end_turn"
 	if evt.Usage != nil {
@@ -655,21 +588,14 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		}
 		switch evt.Response.Status {
 		case "incomplete":
-			// Mirror the non-streaming branch in responsesStatusToAnthropicStopReason:
-			// every "incomplete" terminal is a cutoff (max_output_tokens, content_filter,
-			// server_error, …). All of them map to "max_tokens" so Claude Code's
-			// agentic loop knows the turn was cut short and continuation is sensible.
-			// Returning "end_turn" here used to make CC stop after non-budget cutoffs.
-			stopReason = "max_tokens"
-			if evt.Response.IncompleteDetails != nil {
-				state.IncompleteReason = evt.Response.IncompleteDetails.Reason
+			if evt.Response.IncompleteDetails != nil && evt.Response.IncompleteDetails.Reason == "max_output_tokens" {
+				stopReason = "max_tokens"
 			}
 		case "completed":
 			if state.HasToolCall {
 				stopReason = "tool_use"
 			}
 		}
-		state.StopReason = stopReason
 	}
 
 	events = append(events,

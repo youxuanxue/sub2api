@@ -17,10 +17,6 @@ type RefreshTokenData struct {
 	FamilyID     string    `json:"family_id"`     // Token家族ID，用于防重放攻击
 	CreatedAt    time.Time `json:"created_at"`
 	ExpiresAt    time.Time `json:"expires_at"`
-	// TK: 轮转宽限期标记。非 nil = 该 token 已被轮转，正处于宽限窗口内。
-	// 用于把"并发/多标签页的重复刷新"与"真正的重放攻击"区分开（见
-	// auth_service_tk_refresh_grace.go）。旧记录反序列化时该字段为 nil，向后兼容，无需迁移。
-	RotatedAt *time.Time `json:"rotated_at,omitempty"`
 }
 
 // RefreshTokenCache 管理Refresh Token的Redis缓存

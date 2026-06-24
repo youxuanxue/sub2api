@@ -157,41 +157,6 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	}
 }
 
-// GetPassiveUsage must rebuild OpenAI OAuth (codex) 5h/7d windows from the
-// passive codex_*_used_percent samples in Extra, WITHOUT probing upstream — this
-// is the source the prod cross-edge overview reads to render OpenAI usage windows.
-func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthRebuildsCodexWindows(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-	acct := Account{
-		ID:       55,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeOAuth,
-		Extra: map[string]any{
-			"codex_5h_used_percent": 12.0,
-			"codex_5h_reset_at":     now.Add(2 * time.Hour).UTC().Format(time.RFC3339),
-			"codex_7d_used_percent": 34.0,
-			"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
-		},
-	}
-	svc := &AccountUsageService{accountRepo: stubOpenAIAccountRepo{accounts: []Account{acct}}}
-
-	usage, err := svc.GetPassiveUsage(context.Background(), 55)
-	if err != nil {
-		t.Fatalf("GetPassiveUsage() error = %v", err)
-	}
-	if usage.Source != "passive" {
-		t.Fatalf("Source = %q, want passive", usage.Source)
-	}
-	if usage.FiveHour == nil || usage.FiveHour.Utilization != 12.0 {
-		t.Fatalf("FiveHour = %#v, want util=12", usage.FiveHour)
-	}
-	if usage.SevenDay == nil || usage.SevenDay.Utilization != 34.0 {
-		t.Fatalf("SevenDay = %#v, want util=34", usage.SevenDay)
-	}
-}
-
 func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

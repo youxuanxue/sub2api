@@ -129,13 +129,6 @@ export interface OpsRequestDetail {
   account_id?: number | null
   group_id?: number | null
 
-  // Human-readable request attribution (upstream #2410).
-  user_email?: string
-  username?: string
-  api_key_name?: string
-  account_name?: string
-  group_name?: string
-
   stream?: boolean
 }
 
@@ -248,36 +241,6 @@ export interface OpsOpenAITokenStatsParams {
   group_id?: number | null
   page?: number
   page_size?: number
-  top_n?: number
-}
-
-export type OpsFailoverHopStatsTimeRange = '30m' | '1h' | '1d' | '15d' | '30d'
-
-export interface OpsFailoverHopStatsItem {
-  account_id: number
-  account_name: string
-  platform: string
-  recovered_count: number
-  total_failover_hops: number
-  total_wasted_attempts: number
-  avg_failover_hops_per_recovered?: number | null
-}
-
-export interface OpsFailoverHopStatsResponse {
-  time_range: OpsFailoverHopStatsTimeRange
-  start_time: string
-  end_time: string
-  platform?: string
-  group_id?: number | null
-  items: OpsFailoverHopStatsItem[]
-  total: number
-  top_n: number
-}
-
-export interface OpsFailoverHopStatsParams {
-  time_range?: OpsFailoverHopStatsTimeRange
-  platform?: string
-  group_id?: number | null
   top_n?: number
 }
 
@@ -716,8 +679,6 @@ export type MetricType =
   | 'cpu_usage_percent'
   | 'memory_usage_percent'
   | 'concurrency_queue_depth'
-  | 'pool_load_rate'
-  | 'routing_capacity_rejection_count'
   | 'group_available_accounts'
   | 'group_available_ratio'
   | 'group_rate_limit_ratio'
@@ -785,16 +746,6 @@ export interface EmailNotificationConfig {
     account_health_enabled: boolean
     account_health_schedule: string
     account_health_error_rate_threshold: number
-  }
-  feishu: {
-    enabled: boolean
-    webhook_url?: string
-    webhook_url_configured: boolean
-    signing_secret?: string
-    signing_secret_configured: boolean
-    rate_limit_per_hour: number
-    cooldown_seconds: number
-    upstream_balance_low_threshold_cny: number
   }
 }
 
@@ -956,7 +907,6 @@ export interface OpsErrorLog {
 
   user_id?: number | null
   user_email: string
-  username?: string
   api_key_id?: number | null
   // 关联 api_key 名称（后端 LEFT JOIN api_keys；软删保留 name，故已删 key 仍有原名）。
   api_key_name?: string
@@ -1121,17 +1071,6 @@ export async function getOpenAITokenStats(
   options: OpsRequestOptions = {}
 ): Promise<OpsOpenAITokenStatsResponse> {
   const { data } = await apiClient.get<OpsOpenAITokenStatsResponse>('/admin/ops/dashboard/openai-token-stats', {
-    params,
-    signal: options.signal
-  })
-  return data
-}
-
-export async function getFailoverHopStats(
-  params: OpsFailoverHopStatsParams,
-  options: OpsRequestOptions = {}
-): Promise<OpsFailoverHopStatsResponse> {
-  const { data } = await apiClient.get<OpsFailoverHopStatsResponse>('/admin/ops/dashboard/failover-hop-stats', {
     params,
     signal: options.signal
   })
@@ -1366,7 +1305,6 @@ export const opsAPI = {
   getErrorTrend,
   getErrorDistribution,
   getOpenAITokenStats,
-  getFailoverHopStats,
   getConcurrencyStats,
   getUserConcurrencyStats,
   getAccountAvailabilityStats,

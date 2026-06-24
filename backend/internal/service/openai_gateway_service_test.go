@@ -30,10 +30,6 @@ type stubOpenAIAccountRepo struct {
 	accounts []Account
 }
 
-func (stubOpenAIAccountRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
-	return 0, nil
-}
-
 type snapshotUpdateAccountRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCalls chan map[string]any
@@ -208,9 +204,8 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 		t.Fatalf("expected different hashes for different keys")
 	}
 
-	// 3) X-Claude-Code-Session-Id used when session_id/conversation_id absent
+	// 3) prompt_cache_key used when both headers absent
 	c.Request.Header.Del("conversation_id")
-	c.Request.Header.Set("X-Claude-Code-Session-Id", "cc-789")
 	h3 := svc.GenerateSessionHash(c, bodyWithKey)
 	if h3 == "" {
 		t.Fatalf("expected non-empty hash")
@@ -219,30 +214,9 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 		t.Fatalf("expected different hashes for different keys")
 	}
 
-	// 4) X-Session-Id used when cc header absent
-	c.Request.Header.Del("X-Claude-Code-Session-Id")
-	c.Request.Header.Set("X-Session-Id", "x-999")
-	h4 := svc.GenerateSessionHash(c, bodyWithKey)
-	if h4 == "" {
-		t.Fatalf("expected non-empty hash")
-	}
-	if h3 == h4 {
-		t.Fatalf("expected different hashes for different keys")
-	}
-
-	// 5) prompt_cache_key used when all headers absent
-	c.Request.Header.Del("X-Session-Id")
-	h5 := svc.GenerateSessionHash(c, bodyWithKey)
-	if h5 == "" {
-		t.Fatalf("expected non-empty hash")
-	}
-	if h4 == h5 {
-		t.Fatalf("expected different hashes for different keys")
-	}
-
-	// 6) empty when no signals
-	h6 := svc.GenerateSessionHash(c, []byte(`{}`))
-	if h6 != "" {
+	// 4) empty when no signals
+	h4 := svc.GenerateSessionHash(c, []byte(`{}`))
+	if h4 != "" {
 		t.Fatalf("expected empty hash when no signals")
 	}
 }
@@ -632,11 +606,7 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyOutsideGroupClearsSessi
 	repo := groupAwareStubOpenAIAccountRepo{
 		stubOpenAIAccountRepo{
 			accounts: []Account{
-				// TK conservative sticky-group semantics (openaiStickyAccountStillInGroup):
-				// the stale sticky account must have KNOWN membership excluding the
-				// requested group to be cleared (empty membership is intentionally kept,
-				// US013/US015). Pin it to a concrete foreign group (#1934 reassign case).
-				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: 2002}}},
+				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1},
 				{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: groupID}}},
 			},
 		},
@@ -767,13 +737,8 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 	if acc != nil {
 		t.Fatalf("expected nil account for unsupported model")
 	}
-	// TK 2026-06-13: a model name that NO account in the pool serves is now a
-	// CLIENT error (ErrUnsupportedModel → HTTP 400 invalid_request_error), not the
-	// generic no-available "supporting model" 429 family — so this exact path
-	// (selectBestAccount → nil) stops misclassifying an unservable model id as a
-	// capacity signal. See openAICompatNoCandidateError.
-	if !errors.Is(err, ErrUnsupportedModel) {
-		t.Fatalf("expected ErrUnsupportedModel for unservable model name, got: %v", err)
+	if !strings.Contains(err.Error(), "supporting model") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -2120,7 +2085,7 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughPreservesCompactPath(t *test
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", bytes.NewReader([]byte(`{"model":"gpt-5"}`)))
 
 	svc := &OpenAIGatewayService{}
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	account := &Account{Type: AccountTypeOAuth}
 
 	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token")
 	require.NoError(t, err)
@@ -2139,7 +2104,6 @@ func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T)
 
 	svc := &OpenAIGatewayService{}
 	account := &Account{
-		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
 	}
@@ -2164,7 +2128,6 @@ func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing
 
 	svc := &OpenAIGatewayService{}
 	account := &Account{
-		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
 	}
@@ -2199,27 +2162,6 @@ func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testi
 	require.Equal(t, "https://example.com/v1/responses/compact", req.URL.String())
 }
 
-func TestOpenAIBuildUpstreamRequestGrokAPIKeyRelayRequiresBaseURL(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"grok-4"}`)))
-
-	svc := &OpenAIGatewayService{}
-	account := &Account{
-		ID:       407,
-		Type:     AccountTypeAPIKey,
-		Platform: PlatformGrok,
-		Credentials: map[string]any{
-			"api_key": "edge-grok-key",
-		},
-	}
-
-	_, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"grok-4"}`), "edge-grok-key", false, "", false)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing base_url")
-}
-
 func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -2248,7 +2190,6 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 
 			svc := &OpenAIGatewayService{}
 			account := &Account{
-				Platform:    PlatformOpenAI,
 				Type:        AccountTypeOAuth,
 				Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
 			}

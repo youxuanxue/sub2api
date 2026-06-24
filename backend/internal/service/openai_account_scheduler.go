@@ -39,7 +39,6 @@ var openAIAdvancedSchedulerSettingSF singleflight.Group
 
 type OpenAIAccountScheduleRequest struct {
 	GroupID                 *int64
-	GroupPlatform           string // TK: scheduling pool ("openai" | "newapi"); empty → PlatformOpenAI
 	SessionHash             string
 	StickyAccountID         int64
 	PreserveStickyBinding   bool
@@ -270,15 +269,6 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		s.metrics.recordSelect(decision)
 	}()
 
-	// P0-1 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
-	// 与 selectAccountForModelWithExclusions / SelectAccountWithLoadAwareness
-	// 入口对齐——channel pricing 限制属于 group/channel 治理面，必须在选号
-	// 前置拒绝。两个调度入口语义漂移会让运营在排查时彻底失去对账号选择
-	// 行为的预期。
-	if s != nil && s.service != nil && s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
-		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, req.RequestedModel)
-	}
-
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	if previousResponseID != "" {
 		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
@@ -313,30 +303,16 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	markStickyHit := func(sel *AccountSelectionResult) {
-		decision.Layer = openAIAccountScheduleLayerSessionSticky
-		decision.StickySessionHit = true
-		decision.SelectedAccountID = sel.Account.ID
-		decision.SelectedAccountType = sel.Account.Type
-	}
-
-	stickySel, escapedSticky, err := s.selectBySessionHash(ctx, req)
+	selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
 	if err != nil {
 		return nil, decision, err
 	}
-	// sticky 真拿到并发槽 → 照旧返回（缓存最优 happy path，连开关都不读）。
-	if stickySel != nil && stickySel.Acquired {
-		markStickyHit(stickySel)
-		return stickySel, decision, nil
-	}
-
-	// sticky 没拿到槽：要么槽满只给了 WaitPlan，要么 sticky 未命中（nil）。
-	// upstream #2859：槽满逃逸开启时，先试全池；池里有空账号就去办，避免把用户
-	// 困在堵塞的 sticky 账号上排队。开关关闭时退回今日行为（在 sticky 上排队）。
-	stickyWaitPlan := stickySel != nil && stickySel.Account != nil
-	if stickyWaitPlan && !s.stickySlotFullEscapeEnabled(ctx) {
-		markStickyHit(stickySel)
-		return stickySel, decision, nil
+	if selection != nil && selection.Account != nil {
+		decision.Layer = openAIAccountScheduleLayerSessionSticky
+		decision.StickySessionHit = true
+		decision.SelectedAccountID = selection.Account.ID
+		decision.SelectedAccountType = selection.Account.Type
+		return selection, decision, nil
 	}
 	if escapedSticky {
 		req.PreserveStickyBinding = true
@@ -350,44 +326,11 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	if err != nil {
 		return nil, decision, err
 	}
-	// 池里有空账号 → 逃逸到它（#2859 的修复点）。
-	if selection != nil && selection.Acquired && selection.Account != nil {
-		decision.SelectedAccountID = selection.Account.ID
-		decision.SelectedAccountType = selection.Account.Type
-		return selection, decision, nil
-	}
-	// 全池也满 → 回到 sticky 的 WaitPlan（缓存仍热，不比今天差）。
-	if stickyWaitPlan {
-		markStickyHit(stickySel)
-		return stickySel, decision, nil
-	}
-	// 既无可逃逸的空账号也无 sticky WaitPlan：返回 load-balance 自身结果
-	// （其 WaitPlan 或 nil），保持原行为。
 	if selection != nil && selection.Account != nil {
 		decision.SelectedAccountID = selection.Account.ID
 		decision.SelectedAccountType = selection.Account.Type
 	}
 	return selection, decision, nil
-}
-
-// stickySlotFullEscapeEnabled 报告是否启用 sticky 槽满逃逸（upstream #2859）。
-// fail-open 默认 true：未接 SettingService 的测试/装配按默认开。
-// 当 settingService 为 nil 时，从 cfg 推断：若 StickyEscapeEnabled=false 且至少一个
-// 阈值非零（即明确配置了 opt-out 而非仅使用默认值），则也关闭槽满逃逸。
-func (s *defaultOpenAIAccountScheduler) stickySlotFullEscapeEnabled(ctx context.Context) bool {
-	if s == nil || s.service == nil {
-		return true
-	}
-	if s.service.settingService == nil {
-		if s.service.cfg != nil {
-			cfg := s.service.cfg.Gateway.OpenAIScheduler
-			if !cfg.StickyEscapeEnabled && (cfg.StickyEscapeTTFTMs > 0 || cfg.StickyEscapeErrorRate > 0) {
-				return false
-			}
-		}
-		return true
-	}
-	return s.service.settingService.IsStickySlotFullEscapeEnabled(ctx)
 }
 
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
@@ -421,27 +364,19 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
-	if shouldClearStickySession(account, req.RequestedModel) || !account.IsOpenAICompatPoolMember(req.GroupPlatform) || !account.IsSchedulable() {
+	if shouldClearStickySession(account, req.RequestedModel) || !account.IsOpenAI() || !account.IsSchedulable() {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
 		return nil, false, nil
 	}
-	// TK window guard (isSticky=true): a sticky-bound account keeps serving its
-	// own session up to NotSchedulable; only once it is essentially at its codex
-	// window cap do we skip the sticky hit and fall through to load-balance. The
-	// binding is left intact (NOT deleted) so the session resumes on this account
-	// after its window resets — unlike the hard-invalidation branches around it.
-	if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
-		return nil, false, nil
-	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
-	account = s.service.recheckOpenAICompatAccountFromDB(ctx, account, req.RequestedModel, req.GroupPlatform, req.RequireCompact)
-	if account == nil || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
+	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
+	if account == nil || !openAIStickyAccountMatchesGroup(account, req.GroupID) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
@@ -455,22 +390,6 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		)
 		return nil, true, nil
 	}
-	// TK (upstream#1934): symmetric with tryStickySessionHit — invalidate sticky
-	// bindings whose bound account has drifted out of this group (group switch /
-	// removed from group). See openaiStickyAccountStillInGroup.
-	if req.GroupID != nil && !openaiStickyAccountStillInGroup(account, *req.GroupID) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
-	}
-	// P0-1: 与 tryStickySessionHit 对称——upstream 渠道限制（BillingModelSourceUpstream）
-	// 必须在 sticky HIT 后再校验一次；否则上游已对该模型限流的 sticky-bound 账号
-	// 仍会持续被命中。
-	if req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
-		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
-	}
-
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
 		_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
@@ -484,15 +403,6 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
-		waitPlan := &AccountSelectionResult{
-			Account: account,
-			WaitPlan: &AccountWaitPlan{
-				AccountID:      accountID,
-				MaxConcurrency: account.Concurrency,
-				Timeout:        cfg.StickySessionWaitTimeout,
-				MaxWaiting:     cfg.StickySessionMaxWaiting,
-			},
-		}
 		if escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
 			errorRate, ttft, _ := s.stats.snapshot(accountID)
 			slog.Info("sticky_escape_triggered",
@@ -501,11 +411,17 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				"error_rate", errorRate,
 				"ttft", ttft,
 			)
-			// Return WaitPlan as a fallback in case the pool is also full;
-			// escapedSticky=true signals the outer scheduler to try the pool first.
-			return waitPlan, true, nil
+			return nil, true, nil
 		}
-		return waitPlan, false, nil
+		return &AccountSelectionResult{
+			Account: account,
+			WaitPlan: &AccountWaitPlan{
+				AccountID:      accountID,
+				MaxConcurrency: account.Concurrency,
+				Timeout:        cfg.StickySessionWaitTimeout,
+				MaxWaiting:     cfg.StickySessionMaxWaiting,
+			},
+		}, false, nil
 	}
 	return nil, false, nil
 }
@@ -981,11 +897,11 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrder(
 	compactBlocked := false
 	for i := 0; i < len(selectionOrder); i++ {
 		candidate := selectionOrder[i]
-		fresh := s.service.resolveFreshOpenAICompatAccount(ctx, candidate.account, req.RequestedModel, req.GroupPlatform, req.RequireCompact)
+		fresh := s.service.resolveFreshSchedulableOpenAIAccount(ctx, candidate.account, req.RequestedModel, false, req.RequiredCapability)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 			continue
 		}
-		fresh = s.service.recheckOpenAICompatAccountFromDB(ctx, fresh, req.RequestedModel, req.GroupPlatform, req.RequireCompact)
+		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.RequestedModel, false, req.RequiredCapability)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 			continue
 		}
@@ -1015,15 +931,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, int, int, float64, error) {
-	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.GroupPlatform)
+	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
 	if len(accounts) == 0 {
-		if req.GroupPlatform != "" && req.GroupPlatform != PlatformOpenAI {
-			return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(req.GroupPlatform))
-		}
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform)
+		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false)
 	}
 
 	// require_privacy_set: 获取分组信息
@@ -1032,17 +945,8 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
 	}
 
-	// P0-1: upstream 渠道模型限制（BillingModelSourceUpstream）必须按账号粒度过滤。
-	// 与 SelectAccountWithLoadAwareness 一致：cache 一次 needsUpstreamCheck，
-	// 然后在每个候选过滤循环 + fresh-recheck + WaitPlan 三处都调
-	// isUpstreamModelRestrictedByChannel（见下方对应注释）。
-	needsUpstreamCheck := req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID)
-
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
-	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
-	// retained for the never-empty-pool fallback below.
-	var windowDropped []*Account
 	for i := range accounts {
 		account := &accounts[i]
 		if req.ExcludedIDs != nil {
@@ -1050,7 +954,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 				continue
 			}
 		}
-		if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(req.GroupPlatform) {
+		if !account.IsSchedulable() || !account.IsOpenAI() {
 			continue
 		}
 		if s.service.isOpenAIAccountRuntimeBlocked(account) {
@@ -1069,39 +973,14 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			continue
 		}
-		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
-			continue
-		}
-		// TK window guard (isSticky=false, fresh load-balance): steer new traffic
-		// away from a codex account approaching its 5h/7d window before it 429s.
-		// Applied LAST so windowDropped holds only otherwise-valid candidates.
-		if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false) {
-			windowDropped = append(windowDropped, account)
-			continue
-		}
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
 			MaxConcurrency: account.EffectiveLoadFactor(),
 		})
 	}
-	// never-empty-pool: the window guard must not turn a non-empty schedulable
-	// pool into an empty-pool 429. If every otherwise-valid candidate was dropped
-	// purely by the window guard, re-admit the one with the most headroom.
-	if len(filtered) == 0 && len(windowDropped) > 0 {
-		if acc := leastUtilizedOpenAIAccount(windowDropped, time.Now()); acc != nil {
-			filtered = append(filtered, acc)
-			loadReq = append(loadReq, AccountWithConcurrency{
-				ID:             acc.ID,
-				MaxConcurrency: acc.EffectiveLoadFactor(),
-			})
-		}
-	}
 	if len(filtered) == 0 {
-		// TK: when the schedulable pool was emptied PURELY because no account serves
-		// the requested model name, surface ErrUnsupportedModel (→ HTTP 400) instead
-		// of an empty-pool 429. See openAICompatNoCandidateError (TK companion).
-		return nil, 0, 0, 0, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs)
+		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false)
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -1123,7 +1002,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		return nil, candidateCount, topK, loadSkew, ErrNoAvailableCompactAccounts
 	}
 	if len(selectionOrder) == 0 {
-		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, req.RequireCompact && len(plan.allCandidates) > 0, req.GroupPlatform)
+		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, req.RequireCompact && len(plan.allCandidates) > 0)
 	}
 
 	result, compactBlocked, acquireErr := s.tryAcquireOpenAISelectionOrder(ctx, req, selectionOrder)
@@ -1157,21 +1036,16 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	for _, candidate := range selectionOrder {
-		fresh := s.service.resolveFreshOpenAICompatAccount(ctx, candidate.account, req.RequestedModel, req.GroupPlatform, req.RequireCompact)
+		fresh := s.service.resolveFreshSchedulableOpenAIAccount(ctx, candidate.account, req.RequestedModel, false, req.RequiredCapability)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 			continue
 		}
-		fresh = s.service.recheckOpenAICompatAccountFromDB(ctx, fresh, req.RequestedModel, req.GroupPlatform, req.RequireCompact)
+		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.RequestedModel, false, req.RequiredCapability)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 			continue
 		}
 		if req.RequireCompact && openAICompactSupportTier(fresh) == 0 {
 			compactBlocked = true
-			continue
-		}
-		// P0-1: WaitPlan 也必须遵守 upstream 渠道限制；否则 fallback wait 会
-		// 把客户端 hold 在一个上游已经禁用该模型的账号上，到超时再失败。
-		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, fresh, req.RequestedModel, req.RequireCompact) {
 			continue
 		}
 		return &AccountSelectionResult{
@@ -1185,7 +1059,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}, candidateCount, topK, loadSkew, nil
 	}
 
-	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked, req.GroupPlatform)
+	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {
@@ -1205,10 +1079,10 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRuntimeBlocked(account) {
 		return false
 	}
-	// Quota auto-pause is evaluated during the initial candidate filter so paused
-	// accounts never enter the TopK pool. Without it the pool can fill with paused
-	// accounts and the later fresh/DB rechecks won't reach healthy accounts that fell
-	// outside TopK — surfacing as "no available accounts" even though healthy ones exist.
+	// Quota auto-pause must be evaluated during the initial filter too. Without it the
+	// TopK candidate pool can be filled with paused accounts and the later fresh/DB
+	// rechecks won't reach healthy accounts that fell outside TopK — manifesting as
+	// "no available accounts" even though healthy ones exist.
 	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
 		return false
 	}
@@ -1221,27 +1095,6 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 		return false
 	}
 	return accountSupportsOpenAICapabilities(account, req.RequiredCapability, req.RequiredImageCapability)
-}
-
-// accountSupportsOpenAICapabilities is the central capability predicate shared
-// by the scheduler candidate filter and the no-scheduler fallback loops.
-//
-// TK fifth platform: upstream's Account.SupportsOpenAIEndpointCapability gates
-// on IsOpenAI() and would fail-closed every `newapi` account (platform !=
-// "openai"), taking the entire fifth platform offline for chat/embeddings.
-// Endpoint-capability gating (e.g. embeddings → APIKey accounts configured for
-// embeddings) only describes native OpenAI accounts; `newapi` accounts are
-// governed by the compat-pool / channel-type layer, so the endpoint-capability
-// filter is applied to native OpenAI accounts only. Image capability still
-// applies to all candidates.
-func accountSupportsOpenAICapabilities(account *Account, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability) bool {
-	if account == nil {
-		return false
-	}
-	if account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability(requiredCapability) {
-		return false
-	}
-	return account.SupportsOpenAIImageCapability(requiredImageCapability)
 }
 
 func (s *defaultOpenAIAccountScheduler) ReportResult(accountID int64, success bool, firstTokenMs *int) {
@@ -1367,12 +1220,6 @@ func (s *OpenAIGatewayService) SelectAccountWithScheduler(
 	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, "", "", requireCompact)
 }
 
-// SelectAccountWithSchedulerForCapability gates account selection on an
-// OpenAI-compatible endpoint capability (e.g. embeddings → APIKey accounts
-// configured for embeddings). It preserves TokenKey's pool-partitioning
-// semantics; the endpoint-capability filter is applied to native OpenAI
-// accounts only (see accountSupportsOpenAICapabilities) so `newapi` accounts
-// are never fail-closed.
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 	ctx context.Context,
 	groupID *int64,
@@ -1418,6 +1265,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	requiredImageCapability OpenAIImagesCapability,
 	requireCompact bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	decision := OpenAIAccountScheduleDecision{}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
@@ -1425,7 +1273,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
-				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact)
+				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability)
 				if err != nil {
 					return nil, decision, err
 				}
@@ -1450,7 +1298,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 
 		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 		for {
-			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact)
+			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability)
 			if err != nil {
 				return nil, decision, err
 			}
@@ -1490,7 +1338,6 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 
 	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
-		GroupPlatform:           s.resolveGroupPlatform(ctx, groupID),
 		SessionHash:             sessionHash,
 		StickyAccountID:         stickyAccountID,
 		PreviousResponseID:      previousResponseID,
@@ -1501,6 +1348,14 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		RequireCompact:          requireCompact,
 		ExcludedIDs:             excludedIDs,
 	})
+}
+
+func accountSupportsOpenAICapabilities(account *Account, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability) bool {
+	if account == nil {
+		return false
+	}
+	return account.SupportsOpenAIEndpointCapability(requiredCapability) &&
+		account.SupportsOpenAIImageCapability(requiredImageCapability)
 }
 
 func cloneExcludedAccountIDs(excludedIDs map[int64]struct{}) map[int64]struct{} {

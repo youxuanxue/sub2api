@@ -23,23 +23,13 @@ import (
 )
 
 const (
-	// TK: opsModelKey / opsRequestBodyKey 引用 service 包的 exported 常量作为单一真值源。
-	// service 层的 TkEnrichForbiddenMessage 等 helper 必须用同样的 key 字符串才能读到
-	// handler 在 setOpsRequestContext 写入的 model / body — 之前两边各定义一份相同字面量
-	// 字符串，靠 rationale 注释提醒"keep in sync"，任一处 typo 即让 enrichment 静默失效。
-	// 现在用 const = service.OpsXxxKey 让 service 成为唯一真值，编译期就把同步绑定固化。
-	opsModelKey                  = service.OpsModelKey
+	opsModelKey                  = "ops_model"
 	opsStreamKey                 = "ops_stream"
-	opsRequestBodyKey            = service.OpsRequestBodyKey
 	opsAccountIDKey              = "ops_account_id"
-	opsChannelTypeKey            = "ops_channel_type"
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
-	opsInputTokensKey   = "ops_input_tokens"
-	opsOutputTokensKey  = "ops_output_tokens"
-	opsCachedTokensKey  = "ops_cached_tokens"
 
 	// 错误过滤匹配常量 — shouldSkipOpsErrorLog 和错误分类共用
 	opsErrContextCanceled            = "context canceled"
@@ -262,8 +252,8 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	opsErrorLogOnce.Do(startOpsErrorLogWorkers)
 
 	opsErrorLogMu.RLock()
+	defer opsErrorLogMu.RUnlock()
 	if opsErrorLogStopping || opsErrorLogQueue == nil {
-		opsErrorLogMu.RUnlock()
 		return
 	}
 
@@ -271,14 +261,10 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	case opsErrorLogQueue <- opsErrorLogJob{ops: ops, entry: entry}:
 		opsErrorLogQueueLen.Add(1)
 		opsErrorLogEnqueued.Add(1)
-		opsErrorLogMu.RUnlock()
 	default:
-		opsErrorLogMu.RUnlock()
+		// Queue is full; drop to avoid blocking request handling.
 		opsErrorLogDropped.Add(1)
 		maybeLogOpsErrorLogDrop()
-		ctx, cancel := context.WithTimeout(context.Background(), opsErrorLogTimeout)
-		_ = ops.PrepareErrorFallback(ctx, entry, "ops_error_log_queue_full")
-		cancel()
 	}
 }
 
@@ -418,60 +404,19 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 	if c == nil {
 		return
 	}
-	setOpsUpstreamModelContext(c, upstreamModel)
-	c.Set(opsRequestTypeKey, requestType)
-}
-
-func setOpsUpstreamModelContext(c *gin.Context, upstreamModel string) {
-	if c == nil {
-		return
-	}
 	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
 		c.Set(opsUpstreamModelKey, upstreamModel)
 	}
-}
-
-func setOpsForwardResultContext(c *gin.Context, upstreamModel, requestedModel string) {
-	if strings.TrimSpace(upstreamModel) == "" {
-		upstreamModel = requestedModel
-	}
-	setOpsUpstreamModelContext(c, upstreamModel)
-}
-
-func setOpsTokenUsageContext(c *gin.Context, inputTokens, outputTokens, cachedTokens int) {
-	if c == nil {
-		return
-	}
-	c.Set(opsInputTokensKey, inputTokens)
-	c.Set(opsOutputTokensKey, outputTokens)
-	c.Set(opsCachedTokensKey, cachedTokens)
-}
-
-func setOpsClaudeUsageContext(c *gin.Context, usage service.ClaudeUsage) {
-	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
-}
-
-func setOpsOpenAIUsageContext(c *gin.Context, usage service.OpenAIUsage) {
-	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
+	c.Set(opsRequestTypeKey, requestType)
 }
 
 func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) {
-	setOpsSelectedAccountWithChannelType(c, accountID, 0, platform...)
-}
-
-func setOpsSelectedAccountWithChannelType(c *gin.Context, accountID int64, channelType int, platform ...string) {
 	if c == nil || accountID <= 0 {
 		return
 	}
 	c.Set(opsAccountIDKey, accountID)
-	if channelType > 0 {
-		c.Set(opsChannelTypeKey, channelType)
-	}
 	if c.Request != nil {
 		ctx := context.WithValue(c.Request.Context(), ctxkey.AccountID, accountID)
-		if channelType > 0 {
-			ctx = context.WithValue(ctx, ctxkey.ChannelType, channelType)
-		}
 		if len(platform) > 0 {
 			p := strings.TrimSpace(platform[0])
 			if p != "" {
@@ -650,7 +595,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 			apiKey := getOpsAPIKey(c)
 			clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
-			trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
 
 			model, _ := c.Get(opsModelKey)
 			streamV, _ := c.Get(opsStreamKey)
@@ -763,7 +707,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry := &service.OpsInsertErrorLogInput{
 				RequestID:       requestID,
 				ClientRequestID: clientRequestID,
-				TrajectoryID:    trajectoryID,
 
 				AccountID: accountID,
 				Platform:  platform,
@@ -873,7 +816,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		apiKey := getOpsAPIKey(c)
 
 		clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
-		trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
 
 		model, _ := c.Get(opsModelKey)
 		streamV, _ := c.Get(opsStreamKey)
@@ -907,7 +849,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		entry := &service.OpsInsertErrorLogInput{
 			RequestID:       requestID,
 			ClientRequestID: clientRequestID,
-			TrajectoryID:    trajectoryID,
 
 			AccountID: accountID,
 			Platform:  platform,
@@ -1015,8 +956,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				}
 			}
 		}
-
-		appendOpsInternalErrorDetail(c, entry)
 
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
@@ -1183,13 +1122,6 @@ func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {
 	return fallback
 }
 
-// guessPlatformFromPath is the *fallback* path-based platform heuristic for
-// ops logging when the request never reached a group-aware handler (no
-// resolveOpsPlatform hit). For /v1/messages we intentionally prefer the
-// OpenAI-compat bucket so early failures from openai/newapi do not get
-// silently collapsed into anthropic. Once a group context exists,
-// resolveOpsPlatform always wins and returns the real platform (including
-// newapi).
 func guessPlatformFromPath(path string) string {
 	p := strings.ToLower(path)
 	switch {
@@ -1197,13 +1129,7 @@ func guessPlatformFromPath(path string) string {
 		return service.PlatformAntigravity
 	case strings.HasPrefix(p, "/v1beta/"):
 		return service.PlatformGemini
-	case strings.Contains(p, "/v1/messages"):
-		return service.PlatformOpenAI
-	case strings.Contains(p, "/responses"),
-		strings.Contains(p, "/chat/completions"),
-		strings.Contains(p, "/embeddings"),
-		strings.Contains(p, "/completions"),
-		strings.Contains(p, "/images/"):
+	case strings.Contains(p, "/responses"), strings.Contains(p, "/images/"):
 		return service.PlatformOpenAI
 	default:
 		return ""
@@ -1299,50 +1225,14 @@ func classifyOpsSeverity(errType string, status int) string {
 
 func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status int) (phase string, isBusinessLimited bool, errorOwner string, errorSource string) {
 	phase = classifyOpsPhase(errType, message, code)
-	upstreamError := hasOpsUpstreamErrorContext(c)
-	// TK (mirror-edge metric pollution, 2026-06-06 yace load test): a relayed
-	// downstream-capacity verdict — an upstream (a TokenKey edge reached via a
-	// cc-<edge> apikey mirror account) answered 429/5xx with a "no available
-	// accounts" / "all available accounts exhausted" body — is OUR fleet capacity,
-	// not provider health. Fold it into routingCapacityLimited so it is owned as
-	// routing (out of upstream_error_rate) exactly like a LOCAL empty pool, mirroring
-	// the cooldown-ladder skip in ratelimit_service_tk_downstream_no_available.go.
-	// Boundary (anthropic_amplifier_exemption_boundary): only TokenKey phrases match;
-	// a real provider 429 (rate_limit_error) / raw 5xx still counts. See
-	// tkUpstreamDownstreamCapacity.
-	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
+	routingCapacityLimited := isOpsRoutingCapacityLimited(c)
 	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
-	// TK: an upstream client-induced request rejection (invalid_request_error /
-	// request_too_large / 413 / unsupported-model-for-account) is caller-fault, not
-	// provider health. Own it to the client (request phase) instead of relabeling
-	// it as upstream/provider, so it stays OUT of upstream_error_rate and the
-	// provider-health P0 capacity alert. See tkUpstreamClientInducedRejection
-	// (prod P0 2026-06-05; mirrors the #602 amplifier boundary).
-	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
-	// TK (issue #625): a client/caller disconnect mid-flight surfaces as an upstream
-	// transport error with NO upstream HTTP status (context canceled). It is
-	// caller-fault, not provider health — own it to the client so one canceling
-	// client (and its prod->edge relay fan-out) cannot flood upstream_error_rate.
-	// See tkUpstreamClientCanceled (quad P0 2026-06-06; deadline-exceeded stays
-	// provider-owned).
-	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
-	// TK: a LOCAL pre-forward client request rejection (unservable model NAME →
-	// 400 invalid_request_error, no account selected, no upstream call). Own it to
-	// the client (request phase) regardless of the response envelope, so the
-	// /responses {error:{code}} shape is not mislabeled api_error→internal→platform.
-	// See markOpsClientRequestRejected (ops_error_logger_tk_client_request_rejected.go).
-	clientRequestRejected := hasOpsClientRequestRejected(c)
-	if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {
+	upstreamError := hasOpsUpstreamErrorContext(c)
+	if upstreamError && !routingCapacityLimited {
 		phase = "upstream"
-	}
-	if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {
-		phase = "request"
 	}
 	if clientBusinessLimited && !upstreamError && !routingCapacityLimited {
 		phase = "auth"
-	}
-	if clientRequestRejected && !upstreamError && !routingCapacityLimited {
-		phase = "request"
 	}
 	if routingCapacityLimited {
 		phase = "routing"
@@ -1505,55 +1395,6 @@ func classifyOpsErrorSource(phase string, message string) string {
 			return "upstream_http"
 		}
 		return "gateway"
-	}
-}
-
-// appendOpsInternalErrorDetail consumes a sanitized internal-error detail set
-// by middleware (api_key auth fallbacks etc.) and folds it into the captured
-// error_body so RCA can recover the underlying cache/redis/db error string
-// without needing live docker logs.
-//
-// When error_body is a JSON object, the detail is injected as a top-level
-// "_internal_detail" field so downstream service.sanitizeErrorBodyForStorage
-// still applies JSON-aware redaction (redactSensitiveJSON) to any sensitive
-// fields a future caller might leave in the body. When the body is empty or
-// not a JSON object, fall back to a "[internal_detail] <text>" suffix.
-func appendOpsInternalErrorDetail(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
-	if c == nil || entry == nil {
-		return
-	}
-	v, ok := c.Get(service.OpsInternalErrorDetailKey)
-	if !ok {
-		return
-	}
-	s, ok := v.(string)
-	if !ok {
-		return
-	}
-	detail := strings.TrimSpace(s)
-	if detail == "" {
-		return
-	}
-	detail = truncateString(detail, 1024)
-
-	if trimmed := strings.TrimSpace(entry.ErrorBody); trimmed != "" {
-		var decoded any
-		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
-			if obj, ok := decoded.(map[string]any); ok {
-				obj["_internal_detail"] = detail
-				if encoded, encErr := json.Marshal(obj); encErr == nil {
-					entry.ErrorBody = string(encoded)
-					return
-				}
-			}
-		}
-	}
-
-	const marker = "[internal_detail] "
-	if entry.ErrorBody == "" {
-		entry.ErrorBody = marker + detail
-	} else {
-		entry.ErrorBody = entry.ErrorBody + "\n" + marker + detail
 	}
 }
 

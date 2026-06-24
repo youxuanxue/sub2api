@@ -58,7 +58,6 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
-	accountTierService      *service.AccountTierService
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -76,7 +75,6 @@ func NewAccountHandler(
 	sessionLimitCache service.SessionLimitCache,
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
-	accountTierService *service.AccountTierService,
 ) *AccountHandler {
 	return &AccountHandler{
 		adminService:            adminService,
@@ -92,7 +90,6 @@ func NewAccountHandler(
 		sessionLimitCache:       sessionLimitCache,
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
-		accountTierService:      accountTierService,
 	}
 }
 
@@ -107,7 +104,6 @@ type CreateAccountRequest struct {
 	ProxyID                 *int64         `json:"proxy_id"`
 	Concurrency             int            `json:"concurrency"`
 	Priority                int            `json:"priority"`
-	ChannelType             int            `json:"channel_type"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
 	GroupIDs                []int64        `json:"group_ids"`
@@ -127,7 +123,6 @@ type UpdateAccountRequest struct {
 	ProxyID                 *int64         `json:"proxy_id"`
 	Concurrency             *int           `json:"concurrency"`
 	Priority                *int           `json:"priority"`
-	ChannelType             *int           `json:"channel_type"`
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
 	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
@@ -179,11 +174,6 @@ type AccountWithConcurrency struct {
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
-	// EdgeID is the edge a prod anthropic mirror stub relays to (api-us1 → "us1"),
-	// empty for non-stub accounts. TK: lets the accounts UI expand a stub row into
-	// that edge's accounts inline (unified prod+edge governance). Derived, not
-	// stored — see service.MirrorStubEdgeID.
-	EdgeID string `json:"edge_id,omitempty"`
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -192,8 +182,6 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	item := AccountWithConcurrency{
 		Account:            dto.AccountFromService(account),
 		CurrentConcurrency: 0,
-		// TK: see List — tag mirror-stub rows with their edge id ("" for non-stubs).
-		EdgeID: service.MirrorStubEdgeID(account),
 	}
 	if account == nil {
 		return item
@@ -332,34 +320,40 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	// 始终获取窗口费用（PostgreSQL 聚合查询）
-	// TK: 原实现为每个 Anthropic OAuth/SetupToken 账号单发一条聚合 SQL（errgroup cap 10），
-	// 账号多时形成 N+1。改走 GetAccountWindowCostsBatch：按窗口起点分桶，每个不同起点只跑
-	// 一条 ANY($1) 批量查询（仓储不支持批量或失败时内部回退单查，失败开放，语义不变）。
 	if len(windowCostAccountIDs) > 0 {
-		windowCosts = h.accountUsageService.GetAccountWindowCostsBatch(c.Request.Context(), accounts)
+		windowCosts = make(map[int64]float64)
+		var mu sync.Mutex
+		g, gctx := errgroup.WithContext(c.Request.Context())
+		g.SetLimit(10) // 限制并发数
+
+		for i := range accounts {
+			acc := &accounts[i]
+			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
+				continue
+			}
+			accCopy := acc // 闭包捕获
+			g.Go(func() error {
+				// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
+				startTime := accCopy.GetCurrentWindowStartTime()
+				stats, err := h.accountUsageService.GetAccountWindowStats(gctx, accCopy.ID, startTime)
+				if err == nil && stats != nil {
+					mu.Lock()
+					windowCosts[accCopy.ID] = stats.StandardCost // 使用标准费用
+					mu.Unlock()
+				}
+				return nil // 不返回错误，允许部分失败
+			})
+		}
+		_ = g.Wait()
 	}
 
 	// Build response with concurrency info
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
-		// In lite mode (list view) use the shallow mapper, which keeps GroupIDs but
-		// omits the fully-embedded Groups/AccountGroups objects. Those dominate the
-		// list payload (~3.1KB of ~4.5KB per row — the same group definitions are
-		// duplicated across every account row), and the list resolves group chips
-		// client-side from group_ids + the already-loaded groups list. The full
-		// payload (with embedded Groups) is still served for non-lite callers and
-		// for single-account detail/edit fetches.
-		accountDTO := dto.AccountFromService(acc)
-		if lite {
-			accountDTO = dto.AccountFromServiceShallow(acc)
-		}
 		item := AccountWithConcurrency{
-			Account:            accountDTO,
+			Account:            dto.AccountFromService(acc),
 			CurrentConcurrency: concurrencyCounts[acc.ID],
-			// TK: tag anthropic mirror-stub rows with their edge id so the accounts
-			// UI can expand them into that edge's accounts inline ("" for non-stubs).
-			EdgeID: service.MirrorStubEdgeID(acc),
 		}
 
 		// 添加窗口费用（仅当启用时）
@@ -528,14 +522,6 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
-	if msg := tkValidateNewAPIAccountCreate(req.Platform, req.ChannelType, req.Credentials); msg != "" {
-		response.BadRequest(c, msg)
-		return
-	}
-	if msg := tkValidateKiroAccountCreate(req.Platform, req.Credentials); msg != "" {
-		response.BadRequest(c, msg)
-		return
-	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 
@@ -557,7 +543,6 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			ProxyID:               req.ProxyID,
 			Concurrency:           req.Concurrency,
 			Priority:              req.Priority,
-			ChannelType:           req.ChannelType,
 			RateMultiplier:        req.RateMultiplier,
 			LoadFactor:            req.LoadFactor,
 			GroupIDs:              req.GroupIDs,
@@ -621,10 +606,6 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
-	if msg := tkValidateAccountChannelTypePtr(req.ChannelType); msg != "" {
-		response.BadRequest(c, msg)
-		return
-	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 
@@ -640,7 +621,6 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		ProxyID:               req.ProxyID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
 		Priority:              req.Priority,    // 指针类型，nil 表示未提供
-		ChannelType:           req.ChannelType,
 		RateMultiplier:        req.RateMultiplier,
 		LoadFactor:            req.LoadFactor,
 		Status:                req.Status,
@@ -1358,19 +1338,6 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				})
 				continue
 			}
-			// US-024: 单条 Create 走 tkValidateNewAPIAccountCreate，BatchCreate 此前漏调，
-			// 导致 newapi 行只能在 service 层被 "channel_type must be > 0" 拦截，错误信息
-			// 不一致；同时 channel_type / load_factor 之前未透传，使 newapi 批量创建在
-			// service 层 100% 失败。这里补齐验证 + 字段透传。
-			if msg := tkValidateNewAPIAccountCreate(item.Platform, item.ChannelType, item.Credentials); msg != "" {
-				failed++
-				results = append(results, gin.H{
-					"name":    item.Name,
-					"success": false,
-					"error":   msg,
-				})
-				continue
-			}
 
 			// base_rpm 输入校验：负值归零，超过 10000 截断
 			sanitizeExtraBaseRPM(item.Extra)
@@ -1387,9 +1354,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				ProxyID:               item.ProxyID,
 				Concurrency:           item.Concurrency,
 				Priority:              item.Priority,
-				ChannelType:           item.ChannelType,
 				RateMultiplier:        item.RateMultiplier,
-				LoadFactor:            item.LoadFactor,
 				GroupIDs:              item.GroupIDs,
 				ExpiresAt:             item.ExpiresAt,
 				AutoPauseOnExpired:    item.AutoPauseOnExpired,
@@ -2019,13 +1984,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsOpenAI() {
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
+			response.Success(c, openai.DefaultModels)
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
+			response.Success(c, openai.DefaultModels)
 			return
 		}
 
@@ -2057,14 +2022,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsGemini() {
 		// For OAuth accounts: return default Gemini models
 		if account.IsOAuth() {
-			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
+			response.Success(c, geminicli.DefaultModels)
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
+			response.Success(c, geminicli.DefaultModels)
 			return
 		}
 
@@ -2098,41 +2063,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle fifth platform `newapi` accounts.
-	// newapi accounts route OpenAI-compatible payloads through the new-api adaptor
-	// pool, so the model space is whatever the upstream channel exposes. The admin
-	// UI has a dedicated probe (POST /api/v1/admin/channel-types/fetch-upstream-models)
-	// for live model discovery; this endpoint must NOT fall through to the Claude
-	// catalog. We mirror openai's behavior: prefer model_mapping keys when set,
-	// otherwise return an empty list (the UI shows "configure model_mapping" hint).
-	if account.Platform == service.PlatformNewAPI {
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, []openai.Model{})
-			return
-		}
-		models := make([]openai.Model, 0, len(mapping))
-		for requestedModel := range mapping {
-			models = append(models, openai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				Type:        "model",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
-		return
-	}
-
-	if account.IsKiro() || account.IsKiroMirrorStub() {
-		response.Success(c, service.KiroAdminTestModels())
-		return
-	}
-
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
-		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
+		response.Success(c, claude.DefaultModels)
 		return
 	}
 
@@ -2140,7 +2074,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models
-		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
+		response.Success(c, claude.DefaultModels)
 		return
 	}
 
@@ -2168,25 +2102,6 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
-}
-
-// tk{OpenAI,Gemini,Claude}AdminDefaultModels return the admin available-models
-// fallback for an account with no usable model_mapping, narrowed from the raw
-// canonical *.DefaultModels to the unified servable candidate set (advertised-dead
-// ids drop via the allowlist). They share the per-type synthesizers with the
-// gateway /v1/models fallback (pkg .ModelsForIDs) so the two surfaces never drift
-// on the synthesized display metadata; they pass nil availability/pricing because
-// the admin capability view wants servability, not the gateway's priced gate.
-func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
-	return openai.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil))
-}
-
-func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
-	return geminicli.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil))
-}
-
-func tkClaudeAdminDefaultModels(ctx context.Context) []claude.Model {
-	return claude.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil))
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -107,20 +106,11 @@ func (s *SettingService) loadWebSearchConfigFromDB() (*WebSearchEmulationConfig,
 
 	raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyWebSearchEmulationConfig)
 	if err != nil {
-		// Unset key = feature never configured = empty (disabled) config, not an
-		// error. Without this, a fresh deployment returns 404 on every account
-		// create/edit modal and the channels/settings pages that fetch this
-		// config (the GET handler maps the error straight to 404). Mirrors the
-		// "未配置返回零值 + nil" pattern used elsewhere in SettingService.
-		if errors.Is(err, ErrSettingNotFound) {
-			raw = ""
-		} else {
-			webSearchEmulationCache.Store(&cachedWebSearchEmulationConfig{
-				config:    &WebSearchEmulationConfig{},
-				expiresAt: time.Now().Add(webSearchEmulationErrorTTL).UnixNano(),
-			})
-			return &WebSearchEmulationConfig{}, err
-		}
+		webSearchEmulationCache.Store(&cachedWebSearchEmulationConfig{
+			config:    &WebSearchEmulationConfig{},
+			expiresAt: time.Now().Add(webSearchEmulationErrorTTL).UnixNano(),
+		})
+		return &WebSearchEmulationConfig{}, err
 	}
 	cfg := parseWebSearchConfigJSON(raw)
 	webSearchEmulationCache.Store(&cachedWebSearchEmulationConfig{

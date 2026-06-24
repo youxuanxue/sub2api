@@ -1,4 +1,4 @@
-import { ref, shallowRef, triggerRef, reactive, onUnmounted, toRaw } from 'vue'
+import { ref, reactive, onUnmounted, toRaw } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import type { BasePaginationResponse, FetchOptions } from '@/types'
 import { getPersistedPageSize, setPersistedPageSize } from './usePersistedPageSize'
@@ -24,12 +24,7 @@ interface TableLoaderOptions<T, P> {
 export function useTableLoader<T, P extends Record<string, any>>(options: TableLoaderOptions<T, P>) {
   const { fetchFn, initialParams, pageSize, debounceMs = 300 } = options
 
-  // shallowRef (not ref): list rows are display data assigned wholesale (new array identity)
-  // on every load, and per-row derived data lives in id-keyed side-maps — never mutated in
-  // place — so deep reactivity is pure cost (proxying ~pageSize × dozens-of-fields synchronously
-  // before render). The canonical update is replace-the-array (load / setItems). If a caller
-  // ever must mutate a row in place, it MUST call refreshItems() so consumers re-render.
-  const items = shallowRef<T[]>([])
+  const items = ref<T[]>([])
   const loading = ref(false)
   const params = reactive<P>({ ...(initialParams || {}) } as P)
   const pagination = reactive<PaginationState>({
@@ -81,16 +76,6 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     return load()
   }
 
-  // Canonical row update: replace the array (new identity → shallowRef reactivity fires).
-  const setItems = (next: T[]) => {
-    items.value = next
-  }
-  // Escape hatch for the rare in-place mutation of an existing row (shallowRef does not
-  // track nested writes): call after mutating so consumers re-render.
-  const refreshItems = () => {
-    triggerRef(items)
-  }
-
   const debouncedReload = useDebounceFn(reload, debounceMs)
 
   const handlePageChange = (page: number) => {
@@ -118,8 +103,6 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     pagination,
     load,
     reload,
-    setItems,
-    refreshItems,
     debouncedReload,
     handlePageChange,
     handlePageSizeChange

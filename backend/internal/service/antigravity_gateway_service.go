@@ -2186,13 +2186,6 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
 	}
 
-	// TK: cloudcode-pa (Vertex-side v1internal) requires `role` on every
-	// contents[] entry even for single-turn — unlike the public AI Studio Gemini
-	// API where it is optional. Default a missing role to "user" (what every real
-	// client already sends) so a public-spec body no longer 400s upstream. See
-	// antigravity_gateway_service_tk_role_default.go.
-	injectedBody = tkEnsureGeminiContentRoles(injectedBody)
-
 	// 清理 Schema
 	if cleanedBody, err := cleanGeminiRequest(injectedBody); err == nil {
 		injectedBody = cleanedBody
@@ -3718,7 +3711,7 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 	case 403:
 		statusCode = http.StatusBadGateway
 		errType = "permission_error"
-		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden")
+		errMsg = "Upstream access forbidden"
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"
@@ -4148,16 +4141,23 @@ func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
 	return ""
 }
 
-// isImageGenerationModel 判断模型是否为图片生成模型（gemini-3.1-flash-image,
-// gemini-3-pro-image, gemini-2.5-flash-image, nano-banana 等）。
-//
-// 委托给 antigravity.IsImageModel（单一真值源），消除此前 service 硬编码白名单与
-// antigravity 包谓词的重复维护（xj-review #814 R-002）。两者对所有已有/已测模型结果
-// 一致；canonical 版本以 `gemini-*-image` 子串 + nano-banana 识别，故未来新增的 gemini
-// 图片模型会被自动识别，不再需要手工追加白名单（旧白名单遗漏即静默漏计费）。前端
-// GEMINI_NATIVE_IMAGE_RE 因语言隔离仍为镜像（无法共享 Go 代码）。
+// isImageGenerationModel 判断模型是否为图片生成模型
+// 支持的模型：gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image 等
 func isImageGenerationModel(model string) bool {
-	return antigravity.IsImageModel(model)
+	modelLower := strings.ToLower(model)
+	// 移除 models/ 前缀
+	modelLower = strings.TrimPrefix(modelLower, "models/")
+
+	// 精确匹配或前缀匹配
+	return modelLower == "gemini-3.1-flash-image" ||
+		modelLower == "gemini-3.1-flash-image-preview" ||
+		strings.HasPrefix(modelLower, "gemini-3.1-flash-image-") ||
+		modelLower == "gemini-3-pro-image" ||
+		modelLower == "gemini-3-pro-image-preview" ||
+		strings.HasPrefix(modelLower, "gemini-3-pro-image-") ||
+		modelLower == "gemini-2.5-flash-image" ||
+		modelLower == "gemini-2.5-flash-image-preview" ||
+		strings.HasPrefix(modelLower, "gemini-2.5-flash-image-")
 }
 
 // cleanGeminiRequest 清理 Gemini 请求体中的 Schema

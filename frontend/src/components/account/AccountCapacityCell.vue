@@ -22,7 +22,7 @@
     </CapacityBadge>
 
     <!-- RPM 限制 -->
-    <CapacityBadge v-if="showRpmLimit" :color-class="rpmClass" :tooltip="rpmTooltip" :current="currentRPM" :max="account.base_rpm!" :suffix="rpmSuffix">
+    <CapacityBadge v-if="showRpmLimit" :color-class="rpmClass" :tooltip="rpmTooltip" :current="currentRPM" :max="account.base_rpm!" :suffix="rpmStrategyTag">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
       </svg>
@@ -32,35 +32,18 @@
     <QuotaBadge v-if="showDailyQuota" :used="account.quota_daily_used ?? 0" :limit="account.quota_daily_limit!" label="D" />
     <QuotaBadge v-if="showWeeklyQuota" :used="account.quota_weekly_used ?? 0" :limit="account.quota_weekly_limit!" label="W" />
     <QuotaBadge v-if="showTotalQuota" :used="account.quota_used ?? 0" :limit="account.quota_limit!" />
-
-    <!-- 今日用量（tokens + 计费），全账号类型；数据由父组件注入 -->
-    <span
-      v-if="todayStats"
-      :class="['inline-flex items-center gap-1 rounded-md px-1.5 py-px text-[10px] font-medium leading-tight', todayUsageClass]"
-      :title="todayTooltip"
-    >
-      <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-      </svg>
-      <span class="font-mono">{{ formatTokensK(todayStats.tokens) }}</span>
-      <span class="text-gray-400 dark:text-gray-500">·</span>
-      <span class="font-mono">{{ formatCurrency(todayStats.cost) }}</span>
-    </span>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Account, WindowStats } from '@/types'
-import { formatCurrency, formatTokensK } from '@/utils/format'
+import type { Account } from '@/types'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
 
 const props = defineProps<{
   account: Account
-  // 今日用量（tokens + 计费），由父组件按账号 ID 注入；全账号类型通用。
-  todayStats?: WindowStats | null
 }>()
 
 const { t } = useI18n()
@@ -94,7 +77,7 @@ const windowCostClass = computed(() => {
   if (!showWindowCost.value) return ''
   const current = currentWindowCost.value
   const limit = props.account.window_cost_limit || 0
-  const reserve = props.account.window_cost_sticky_reserve ?? 10
+  const reserve = props.account.window_cost_sticky_reserve || 10
   if (current >= limit + reserve) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
   if (current >= limit) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
   if (current >= limit * 0.8) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
@@ -105,7 +88,7 @@ const windowCostTooltip = computed(() => {
   if (!showWindowCost.value) return ''
   const current = currentWindowCost.value
   const limit = props.account.window_cost_limit || 0
-  const reserve = props.account.window_cost_sticky_reserve ?? 10
+  const reserve = props.account.window_cost_sticky_reserve || 10
   if (current >= limit + reserve) return t('admin.accounts.capacity.windowCost.blocked')
   if (current >= limit) return t('admin.accounts.capacity.windowCost.stickyOnly')
   return t('admin.accounts.capacity.windowCost.normal')
@@ -147,19 +130,12 @@ const showRpmLimit = computed(() =>
 
 const currentRPM = computed(() => props.account.current_rpm ?? 0)
 const rpmStrategy = computed(() => props.account.rpm_strategy || 'tiered')
+const rpmStrategyTag = computed(() => rpmStrategy.value === 'sticky_exempt' ? '[S]' : '[T]')
 
 const rpmBuffer = computed(() => {
   const base = props.account.base_rpm || 0
   return props.account.rpm_sticky_buffer ?? (base > 0 ? Math.max(1, Math.floor(base / 5)) : 0)
 })
-
-// sticky_exempt has no finite sticky buffer (unlimited sticky headroom), so it
-// keeps the bare [S] tag; tiered surfaces the actual buffer count as (+N sticky).
-const rpmSuffix = computed(() =>
-  rpmStrategy.value === 'sticky_exempt'
-    ? '[S]'
-    : t('admin.accounts.capacity.rpm.stickyBufferSuffix', { buffer: rpmBuffer.value })
-)
 
 const rpmClass = computed(() => {
   if (!showRpmLimit.value) return ''
@@ -198,27 +174,6 @@ const formatCost = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '0'
   return value.toFixed(2)
 }
-
-// ====== 今日用量（全账号类型；0 值灰显以暴露异常，如 kiro 当前 0 计费） ======
-const hasTodayUsage = computed(() => {
-  const s = props.todayStats
-  return !!s && ((s.tokens ?? 0) > 0 || (s.cost ?? 0) > 0)
-})
-
-const todayUsageClass = computed(() =>
-  hasTodayUsage.value
-    ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300'
-    : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
-)
-
-const todayTooltip = computed(() => {
-  const s = props.todayStats
-  if (!s) return ''
-  return t('admin.accounts.capacity.today.tooltip', {
-    requests: s.requests ?? 0,
-    cost: formatCurrency(s.cost)
-  })
-})
 
 // ====== 配额 ======
 const isQuotaEligible = computed(() => props.account.type === 'apikey' || props.account.type === 'bedrock')

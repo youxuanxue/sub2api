@@ -15,9 +15,11 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -52,9 +54,6 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
-	// TK: client model-list filter — see gateway_handler_tk_model_list.go.
-	// Injected post-construction via SetModelListFilter; nil = fail-open.
-	tkModelListFilter *service.ModelListFilter
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -163,12 +162,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	reqModel := parsedReq.Model
 	reqStream := parsedReq.Stream
-
-	// TK: bare claude family-name → latest servable full id (see service/gateway_request_tk_bare_model_alias.go).
-	if newBody, resolved := service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq); resolved != "" {
-		body, reqModel = newBody, resolved
-	}
-
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	// 解析渠道级模型映射
@@ -193,18 +186,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
 	c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
 
-	setOpsRequestModelAndBody(c, reqModel, reqStream, body)
+	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	// 验证 model 必填
 	if reqModel == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return
-	}
-
-	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
-	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
-		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
 		return
 	}
 
@@ -248,10 +235,22 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
+	// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
+	parsedReq.GroupID = apiKey.GroupID
 
 	// 计算粘性会话hash
+	parsedReq.SessionContext = &service.SessionContext{
+		ClientIP:  ip.GetClientIP(c),
+		UserAgent: c.GetHeader("User-Agent"),
+		APIKeyID:  apiKey.ID,
+	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+
+	// [DEBUG-STICKY] 打印会话 hash 生成结果
+	reqLog.Info("sticky.session_hash_generated",
+		zap.String("session_hash", sessionHash),
+		zap.String("metadata_user_id_raw", parsedReq.MetadataUserID),
+	)
 
 	// 获取平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则使用分组平台
 	platform := ""
@@ -269,6 +268,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	var sessionBoundAccountID int64
 	if sessionKey != "" {
 		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, sessionKey)
+		// [DEBUG-STICKY] 打印粘性会话查询结果
+		reqLog.Info("sticky.cache_lookup",
+			zap.String("session_key", sessionKey),
+			zap.Int64("bound_account_id", sessionBoundAccountID),
+		)
 		if sessionBoundAccountID > 0 {
 			prefetchedGroupID := int64(0)
 			if apiKey.GroupID != nil {
@@ -277,6 +281,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			ctx := service.WithPrefetchedStickySession(c.Request.Context(), sessionBoundAccountID, prefetchedGroupID, h.metadataBridgeEnabled())
 			c.Request = c.Request.WithContext(ctx)
 		}
+	} else {
+		reqLog.Info("sticky.no_session_key", zap.String("session_hash", sessionHash))
 	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
@@ -295,9 +301,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					if h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog) {
-						return
-					}
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					reqLog.Warn("gateway.select_account_no_available",
 						zap.String("model", reqModel),
@@ -305,10 +308,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("platform", platform),
 						zap.Error(err),
 					)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error(), streamStarted)
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
-				action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
+				action := fs.HandleSelectionExhausted(c.Request.Context())
 				switch action {
 				case FailoverContinue:
 					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
@@ -354,7 +357,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
 					return
 				}
 				accountWaitCounted := false
@@ -423,9 +426,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					service.WithForwardGeminiSession(derefGroupID(apiKey.GroupID), sessionKey),
 				)
 			} else {
-				// TK: 让 GeminiMessagesCompatService.Forward 能拿到 *Group 做
-				// 分组级 Claude→Gemini 映射 (gin_gemini_dispatch_tk.go)。
-				c.Set(service.TKGeminiDispatchGroupContextKey, apiKey.Group)
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			}
 			if accountReleaseFunc != nil {
@@ -439,7 +439,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -474,21 +474,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
-				// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
-				TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 				return
 			}
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if (account.IsAnthropicOAuthOrSetupToken() || account.IsKiro()) && account.GetBaseRPM() > 0 {
+			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
-			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
-			setOpsClaudeUsageContext(c, result.Usage)
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")
@@ -573,12 +569,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// 选择支持该模型的账号
+			reqLog.Info("sticky.selecting_account",
+				zap.String("session_key", sessionKey),
+				zap.Int64("sticky_bound_account_id", sessionBoundAccountID),
+				zap.Bool("has_bound_session", hasBoundSession),
+				zap.Int("failed_account_count", len(fs.FailedAccountIDs)),
+			)
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					if h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog) {
-						return
-					}
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					reqLog.Warn("gateway.select_account_no_available",
 						zap.String("model", reqModel),
@@ -587,10 +586,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Bool("fallback_used", fallbackUsed),
 						zap.Error(err),
 					)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error(), streamStarted)
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
-				action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
+				action := fs.HandleSelectionExhausted(c.Request.Context())
 				switch action {
 				case FailoverContinue:
 					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
@@ -609,6 +608,16 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
+
+			// [DEBUG-STICKY] 打印账号选择结果
+			reqLog.Info("sticky.account_selected",
+				zap.Int64("selected_account_id", account.ID),
+				zap.String("account_name", account.Name),
+				zap.Bool("slot_acquired", selection.Acquired),
+				zap.Bool("has_wait_plan", selection.WaitPlan != nil),
+				zap.Int64("sticky_bound_account_id", sessionBoundAccountID),
+				zap.Bool("sticky_honored", sessionBoundAccountID > 0 && sessionBoundAccountID == account.ID),
+			)
 
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
@@ -636,7 +645,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
 					return
 				}
 				accountWaitCounted := false
@@ -677,6 +686,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				// Slot acquired: no longer waiting in queue.
 				releaseWait()
+				reqLog.Info("sticky.bind_after_wait",
+					zap.String("session_key", sessionKey),
+					zap.Int64("account_id", account.ID),
+				)
 				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
@@ -785,27 +798,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
-				// Kiro upstream rejected the model (HTTP 400 INVALID_MODEL_ID):
-				// return 400 immediately with a clear message, no failover (every
-				// Kiro account rejects the same unknown model identically).
-				var kiroInvalidModelErr *service.KiroInvalidModelError
-				if errors.As(err, &kiroInvalidModelErr) {
-					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", kiroInvalidModelErr.ClientMessage())
-					return
-				}
-
-				// TK canonical-OAuth ingress UA reject: 403 immediately, no failover.
-				// Local policy denial, not account/provider health — mark it
-				// business-limited so strict-mode canary reject volume stays out of
-				// error-rate dashboards (mirrors the BetaBlockedError branch above).
-				// See gateway_service_tk_canonical_oauth_guard.go.
-				var canonicalUARejectErr *service.CanonicalIngressUARejectedError
-				if errors.As(err, &canonicalUARejectErr) {
-					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
-					h.errorResponse(c, http.StatusForbidden, "permission_error", canonicalUARejectErr.Error())
-					return
-				}
-
 				var promptTooLongErr *service.PromptTooLongError
 				if errors.As(err, &promptTooLongErr) {
 					reqLog.Warn("gateway.prompt_too_long_from_antigravity",
@@ -859,7 +851,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -894,21 +886,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
-				// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
-				TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 				return
 			}
 
 			// RPM 计数递增（Forward 成功后）
 			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if (account.IsAnthropicOAuthOrSetupToken() || account.IsKiro()) && account.GetBaseRPM() > 0 {
+			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
-			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
-			setOpsClaudeUsageContext(c, result.Usage)
 
 			// 绑定粘性会话（成功转发后绑定/刷新）
 			// - 无现有绑定（首次请求）：创建绑定
@@ -998,14 +986,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	// Get available models from account configurations, filtered to the
-	// selected group platform so cross-platform model_mapping entries on
-	// sibling accounts in the same group don't leak through.
+	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
-	// TK: filter to priced ∩ ¬unreachable (Goal 2, R-003). Nil-safe fail-open.
-	availableModels = h.tkFilterModelIDs(c.Request.Context(), platform, availableModels)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		availableModels = filterModelsByCustomList(availableModels, h.servableIDs(c.Request.Context(), platform), apiKey.Group.ModelsListConfig.Models)
+		availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
 		return
 	}
@@ -1015,36 +999,26 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	// Fallback to default models.
-	//
-	// Group platforms participating in the OpenAI-compat pool (today: openai,
-	// newapi — see service.OpenAICompatPlatforms) speak the OpenAI HTTP
-	// protocol and therefore expect openai.DefaultModels. Without this
-	// branch, newapi groups whose accounts have empty model_mapping would
-	// silently get Claude default models via the catch-all below — wrong
-	// shape for OpenAI-compat clients.
-	if service.IsOpenAICompatPlatform(platform) {
+	// Fallback to default models
+	if platform == service.PlatformOpenAI {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   h.tkOpenAIDefaultModelIDs(c.Request.Context(), platform),
+			"data":   openai.DefaultModels,
 		})
 		return
 	}
 
 	if platform == service.PlatformGemini {
-		// TK: converge to the unified servable truth (servableIDs) so the gemini
-		// /v1/models fallback matches /pricing + Your-Menu — drops advertised_dead
-		// (e.g. gemini-2.0-flash) instead of returning the raw geminicli.DefaultModels.
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   h.tkGeminiDefaultModelsList(c.Request.Context()),
+			"data":   geminicli.DefaultModels,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   h.tkClaudeDefaultModelIDs(c.Request.Context(), platform),
+		"data":   claude.DefaultModels,
 	})
 }
 
@@ -1150,23 +1124,38 @@ func customModelsListAllowsModel(availablePatterns []string, model string) bool 
 	return false
 }
 
+func defaultModelIDsForPlatform(platform string) []string {
+	switch platform {
+	case service.PlatformOpenAI:
+		return openai.DefaultModelIDs()
+	case service.PlatformGemini:
+		ids := make([]string, 0, len(geminicli.DefaultModels))
+		for _, model := range geminicli.DefaultModels {
+			ids = append(ids, model.ID)
+		}
+		return ids
+	case service.PlatformAntigravity:
+		models := antigravity.DefaultModels()
+		ids := make([]string, 0, len(models))
+		for _, model := range models {
+			ids = append(ids, model.ID)
+		}
+		return ids
+	default:
+		ids := make([]string, 0, len(claude.DefaultModels))
+		for _, model := range claude.DefaultModels {
+			ids = append(ids, model.ID)
+		}
+		return ids
+	}
+}
+
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	// TK: §5.x override-default — filter antigravity.DefaultModels() by pricing +
-	// availability. Candidate set is always the antigravity-specific list (not the
-	// full cross-platform catalog). Response shape is always []antigravity.ClaudeModel.
-	// Goal 2 / R-003; shape/scope regression fix from review-20260507 R-001/R-002.
-	models := h.tkAntigravityDefaultModels(c.Request.Context())
-	// TK: enforce the group's supported_model_scopes on the advertised list, so a
-	// gemini-only antigravity group ([gemini_text, gemini_image]) hides claude here —
-	// matching the per-account gemini-only model_mapping. Empty scopes = unrestricted.
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
-		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   models,
+		"data":   antigravity.DefaultModels(),
 	})
 }
 
@@ -1554,24 +1543,12 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
-	if statusCode == http.StatusForbidden {
-		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
-	}
-	if platform == service.PlatformAnthropic {
-		if msg := service.ExtractUpstreamErrorMessage(responseBody); msg != "" {
-			errMsg = msg
-		}
-		errMsg = service.TkEnrichClaudeIncidentMessage(errMsg, statusCode)
-	}
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
-	if statusCode == http.StatusForbidden {
-		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
-	}
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
@@ -1767,11 +1744,6 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
-	// TK: bare claude family-name → latest servable full id (see service/gateway_request_tk_bare_model_alias.go).
-	if newBody, resolved := service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq); resolved != "" {
-		body = newBody
-	}
-
 	// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
 	SetClaudeCodeClientContext(c, body, parsedReq)
 	reqLog = reqLog.With(zap.String("model", parsedReq.Model), zap.Bool("stream", parsedReq.Stream))
@@ -1784,14 +1756,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
-	setOpsRequestModelAndBody(c, parsedReq.Model, parsedReq.Stream, body)
+	setOpsRequestContext(c, parsedReq.Model, parsedReq.Stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
-
-	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
-	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, parsedReq.Model, len(body)); reject {
-		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
-		return
-	}
 
 	// 获取订阅信息（可能为nil）
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
@@ -1808,12 +1774,29 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	}
 
 	// 计算粘性会话 hash
-	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
+	parsedReq.SessionContext = &service.SessionContext{
+		ClientIP:  ip.GetClientIP(c),
+		UserAgent: c.GetHeader("User-Agent"),
+		APIKeyID:  apiKey.ID,
+	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
-	// 选号 + 转发，带账号 failover（与 /v1/messages 一致；pool_mode stub 自动走
-	// 池内轮换）。见 gateway_handler_tk_count_tokens_failover.go。
-	h.forwardCountTokensWithFailover(c, reqLog, apiKey, sessionHash, parsedReq)
+	// 选择支持该模型的账号
+	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
+	if err != nil {
+		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
+		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+		return
+	}
+	setOpsSelectedAccount(c, account.ID, account.Platform)
+
+	// 转发请求（不记录使用量）
+	if err := h.gatewayService.ForwardCountTokens(c.Request.Context(), c, account, parsedReq); err != nil {
+		reqLog.Error("gateway.count_tokens_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		// 错误响应已在 ForwardCountTokens 中处理
+		return
+	}
 }
 
 // InterceptType 表示请求拦截类型

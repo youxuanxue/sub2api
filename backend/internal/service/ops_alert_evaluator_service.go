@@ -50,29 +50,11 @@ type OpsAlertEvaluatorService struct {
 	ruleStates map[int64]*opsAlertRuleState
 
 	emailLimiter *slidingWindowLimiter
-	feishuState  *opsFeishuNotificationState
 
 	skipLogMu sync.Mutex
 	skipLogAt time.Time
 
 	warnNoRedisOnce sync.Once
-
-	// Optional cache injection for anthropic cooldown-tier escalation counter.
-	// When unset the metric path falls back to redisClient.Get on the
-	// canonical key (AnthropicCooldownTierEscalationsKey). Wired via
-	// SetAnthropicUpstreamErrorCounterCache so unit tests can drive the
-	// metric without spinning up Redis.
-	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
-}
-
-// SetAnthropicUpstreamErrorCounterCache attaches the anthropic upstream-error
-// counter cache for read-side use by the anthropic_cooldown_tier_escalation_
-// count metric. Idempotent and intended for Wire DI / tests.
-func (s *OpsAlertEvaluatorService) SetAnthropicUpstreamErrorCounterCache(cache AnthropicUpstreamErrorCounterCache) {
-	if s == nil {
-		return
-	}
-	s.anthropicUpstreamErrorCounterCache = cache
 }
 
 type opsAlertRuleState struct {
@@ -98,7 +80,6 @@ func NewOpsAlertEvaluatorService(
 		instanceID:   uuid.NewString(),
 		ruleStates:   map[int64]*opsAlertRuleState{},
 		emailLimiter: newSlidingWindowLimiter(0, time.Hour),
-		feishuState:  newOpsFeishuNotificationState(),
 	}
 }
 
@@ -218,7 +199,6 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 	eventsCreated := 0
 	eventsResolved := 0
 	emailsSent := 0
-	feishuSent := 0
 
 	now := time.Now().UTC()
 	safeEnd := now.Truncate(time.Minute)
@@ -246,7 +226,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		windowStart := safeEnd.Add(-time.Duration(windowMinutes) * time.Minute)
 		windowEnd := safeEnd
 
-		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID, runtimeCfg.RateRuleMinSamples)
+		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID)
 		if !ok {
 			s.resetRuleState(rule.ID, now)
 			continue
@@ -291,22 +271,6 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				}
 			}
 
-			dimensions := buildOpsAlertDimensions(scopePlatform, scopeGroupID)
-			// TK (us7 P0 2026-06-13): attach the top offending model/reason so the
-			// notification card is self-diagnosing (real fire vs client noise)
-			// without an SSH/dashboard drill. Best-effort — never blocks firing.
-			if cause, users := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" {
-				if dimensions == nil {
-					dimensions = map[string]any{}
-				}
-				if cause != "" {
-					dimensions["top_cause"] = cause
-				}
-				if users != "" {
-					dimensions["top_cause_users"] = users
-				}
-			}
-
 			firedEvent := &OpsAlertEvent{
 				RuleID:         rule.ID,
 				Severity:       strings.TrimSpace(rule.Severity),
@@ -315,7 +279,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				Description:    buildOpsAlertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
 				MetricValue:    float64Ptr(metricValue),
 				ThresholdValue: float64Ptr(rule.Threshold),
-				Dimensions:     dimensions,
+				Dimensions:     buildOpsAlertDimensions(scopePlatform, scopeGroupID),
 				FiredAt:        now,
 				CreatedAt:      now,
 			}
@@ -328,12 +292,8 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 			eventsCreated++
 			if created != nil && created.ID > 0 {
-				notifications := s.maybeSendAlertNotifications(ctx, runtimeCfg, rule, created)
-				if notifications.EmailSent {
+				if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, created) {
 					emailsSent++
-				}
-				if notifications.FeishuSent {
-					feishuSent++
 				}
 			}
 			continue
@@ -350,7 +310,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		}
 	}
 
-	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d feishu_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent, feishuSent), 2048)
+	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
 }
 
@@ -480,19 +440,9 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 	end time.Time,
 	platform string,
 	groupID *int64,
-	rateRuleMinSamples int,
 ) (float64, bool) {
 	if rule == nil {
 		return 0, false
-	}
-	// Sample floor for ratio metrics: a window with fewer than this many
-	// SLA-counted requests is too sparse to yield a trustworthy rate, so the
-	// rule is skipped (ok=false) instead of firing on a misleading 100% (false
-	// P0 on low-traffic edges, 2026-06-06 us2/us5). Always at least 1 so the
-	// >0 denominator guard still holds when the floor is unset.
-	rateSampleFloor := int64(rateRuleMinSamples)
-	if rateSampleFloor < 1 {
-		rateSampleFloor = 1
 	}
 	switch strings.TrimSpace(rule.MetricType) {
 	case "cpu_usage_percent":
@@ -613,30 +563,6 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
 			return acc.IsOverloaded
 		})), true
-	case "anthropic_cooldown_tier_escalation_count":
-		// Aggregate count of "tier >= 1" anthropic cooldown events across all
-		// accounts within the rolling window owned by the writer (default 1h
-		// via anthropicCooldownTierEscalationsWindowMinutes). The metric
-		// drives Feishu/email alerts for the PR #337 ladder follow-up:
-		// tier=0 (30s) is transient jitter and intentionally invisible here;
-		// tier>=1 (≥ 2 min cooldown) is the "real problem starting" signal.
-		// Scope filters (platform/groupID) are ignored — the counter is
-		// global by construction.
-		//
-		// The cache MUST be wired by ProvideOpsAlertEvaluatorService; a nil
-		// cache means the evaluator was constructed without DI (test stub /
-		// shim) and the metric is intentionally unavailable in that mode —
-		// no silent raw-Redis fallback (testing path and production path
-		// must hit the same interface, otherwise the cache interface
-		// would silently disappear from the production graph).
-		if s == nil || s.anthropicUpstreamErrorCounterCache == nil {
-			return 0, false
-		}
-		val, err := s.anthropicUpstreamErrorCounterCache.GetAnthropicCooldownTierEscalations(ctx)
-		if err != nil {
-			return 0, false
-		}
-		return float64(val), true
 	case "proxy_expired_count":
 		if s == nil || s.proxyRepo == nil {
 			return 0, false
@@ -655,50 +581,6 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return 0, false
 		}
 		return float64(n), true
-	case "routing_capacity_rejection_count":
-		// Count of routing/scheduling-phase capacity rejections over the rule
-		// window — the client-visible "no available accounts" empty-pool fast-fail
-		// (429, #575) plus relayed cc-<edge> downstream-capacity rejections,
-		// isolated by error_phase='routing' (set EXCLUSIVELY for these; see
-		// CountRoutingCapacityRejections). This is the ONE signal that sees a
-		// thin-pool-race storm: those rows are is_business_limited=true and so are
-		// excluded from error_rate/upstream_error_rate (numerator AND denominator),
-		// and they cool no account so the account-/pool-level P0 channels never
-		// fire. Queried directly (not via GetDashboardOverview) so it stays out of
-		// the dashboard hot path and needs no overview struct field. NO
-		// rateSampleFloor: a count is self-flooring (low traffic → low count → no
-		// breach), and flooring it would wrongly suppress a real storm on an
-		// otherwise low-success window.
-		if s == nil || s.opsRepo == nil {
-			return 0, false
-		}
-		n, err := s.opsRepo.CountRoutingCapacityRejections(ctx, &OpsDashboardFilter{
-			StartTime: start,
-			EndTime:   end,
-			Platform:  platform,
-			GroupID:   groupID,
-		})
-		if err != nil {
-			return 0, false
-		}
-		return float64(n), true
-	case "pool_load_rate":
-		// 池级并发负载率（在途+排队/席位），"账号池容量触顶"前瞻信号。
-		// 值 = scope 内最饱和调度池的负载率%；newapi 自动按 channel_type 拆子池
-		// （细则见 ops_pool_load_rate_tk.go）。无 scope = 全网最饱和池。
-		if s == nil || s.opsService == nil {
-			return 0, false
-		}
-		pools, err := s.opsService.ComputePoolLoadRates(ctx)
-		if err != nil {
-			return 0, false
-		}
-		rate, found := maxPoolLoadRate(pools, platform, groupID)
-		if !found {
-			// scope 内无合格池（全无界/全单账号）：已评估，不触发。
-			return 0, true
-		}
-		return rate, true
 	}
 
 	overview, err := s.opsRepo.GetDashboardOverview(ctx, &OpsDashboardFilter{
@@ -717,17 +599,17 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 
 	switch strings.TrimSpace(rule.MetricType) {
 	case "success_rate":
-		if overview.RequestCountSLA < rateSampleFloor {
+		if overview.RequestCountSLA <= 0 {
 			return 0, false
 		}
 		return overview.SLA * 100, true
 	case "error_rate":
-		if overview.RequestCountSLA < rateSampleFloor {
+		if overview.RequestCountSLA <= 0 {
 			return 0, false
 		}
 		return overview.ErrorRate * 100, true
 	case "upstream_error_rate":
-		if overview.RequestCountSLA < rateSampleFloor {
+		if overview.RequestCountSLA <= 0 {
 			return 0, false
 		}
 		return overview.UpstreamErrorRate * 100, true

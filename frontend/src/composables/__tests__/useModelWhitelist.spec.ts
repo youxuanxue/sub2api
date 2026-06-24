@@ -3,61 +3,59 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
-vi.mock('@/api/admin/groups', () => ({
-  getModelsListCandidates: vi.fn()
-}))
 
-import {
-  buildModelMappingObject,
-  getModelsByPlatform,
-  getPresetMappingsByPlatform,
-  splitModelMappingObject
-} from '../useModelWhitelist'
+import { buildModelMappingObject, getModelsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
-  // R-003: membership of the API-backed platforms (anthropic/openai/gemini/
-  // antigravity) is no longer pinned here — it is the self-healing backend's
-  // truth, asserted in Go (TestTkServableCandidateIDs). getModelsByPlatform
-  // returns the reactive servable cache for those, which is empty until a fetch
-  // resolves; the custom input is the escape hatch. Only newapi + the long-tail
-  // direct providers keep static frontend lists.
-  it('API-backed platforms read the (empty-until-loaded) servable cache', () => {
-    // No fetch triggered in this unit context → empty, not a stale hardcoded list.
-    expect(getModelsByPlatform('openai')).toEqual([])
-    expect(getModelsByPlatform('claude')).toEqual([])
-    expect(getModelsByPlatform('anthropic')).toEqual([])
-    expect(getModelsByPlatform('gemini')).toEqual([])
-    expect(getModelsByPlatform('antigravity')).toEqual([])
+  it('openai 模型列表包含 GPT-5.4 官方快照', () => {
+    const models = getModelsByPlatform('openai')
+
+    expect(models).toContain('gpt-5.4')
+    expect(models).toContain('gpt-5.4-mini')
+    expect(models).toContain('gpt-5.4-2026-03-05')
+    expect(models).toContain('codex-auto-review')
   })
 
-  it('newapi keeps its own static list (channel-driven, no backend allowlist)', () => {
-    const newapiModels = getModelsByPlatform('newapi')
-    expect(newapiModels).toContain('gpt-5.4')
-    expect(newapiModels).toContain('gpt-5.3-codex-spark')
+  it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
+    const models = getModelsByPlatform('openai')
+
+    expect(models).not.toContain('gpt-5')
+    expect(models).not.toContain('gpt-5.1')
+    expect(models).not.toContain('gpt-5.1-codex')
+    expect(models).not.toContain('gpt-5.1-codex-max')
+    expect(models).not.toContain('gpt-5.1-codex-mini')
+    expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('newapi picker offers the qwen3 dense ids (PR-B: dropdown discoverability)', () => {
-    // The newapi modal hardcodes platform='newapi', so the dropdown reads this
-    // list — before PR-B it was GPT-only and these three dense ids could only
-    // be added via the custom-model input (the drop itself was phantom).
-    // INTERIM truth lives in tk_served_models.json (backend manifest); PR-C
-    // will derive this list from a servable endpoint.
-    const newapiModels = getModelsByPlatform('newapi')
-    expect(newapiModels).toContain('qwen3-8b')
-    expect(newapiModels).toContain('qwen3-14b')
-    expect(newapiModels).toContain('qwen3-32b')
+  it('antigravity 模型列表包含图片模型兼容项', () => {
+    const models = getModelsByPlatform('antigravity')
+
+    expect(models).toContain('gemini-2.5-flash-image')
+    expect(models).toContain('gemini-3.1-flash-image')
+    expect(models).toContain('gemini-3-pro-image')
   })
 
-  it('long-tail direct providers keep static lists', () => {
-    expect(getModelsByPlatform('deepseek').length).toBeGreaterThan(0)
-    const qwen = getModelsByPlatform('qwen')
-    expect(qwen.length).toBeGreaterThan(0)
-    // dense ids are also offered on the direct qwen platform
-    expect(qwen).toContain('qwen3-32b')
+  it('Claude 模型列表包含新发布的 Claude 模型', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
+    expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
   })
 
-  it('unknown platform yields an empty list (custom input is the escape hatch)', () => {
-    expect(getModelsByPlatform('totally-unknown')).toEqual([])
+  it('gemini 模型列表包含原生生图模型', () => {
+    const models = getModelsByPlatform('gemini')
+
+    expect(models).toContain('gemini-2.5-flash-image')
+    expect(models).toContain('gemini-3.1-flash-image')
+    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
+    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+  })
+
+  it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
+    const models = getModelsByPlatform('antigravity')
+
+    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
   })
 
   it('whitelist 模式会忽略通配符条目', () => {
@@ -81,14 +79,6 @@ describe('useModelWhitelist', () => {
     expect(mapping).toEqual({
       'gpt-5.4-mini': 'gpt-5.4-mini'
     })
-  })
-
-  it('newapi 预设映射独立于 openai（不共享对象）', () => {
-    const openaiMappings = getPresetMappingsByPlatform('openai')
-    const newapiMappings = getPresetMappingsByPlatform('newapi')
-
-    expect(newapiMappings).not.toBe(openaiMappings)
-    expect(newapiMappings.some(item => item.from === 'gpt-5.4' && item.to === 'gpt-5.4')).toBe(true)
   })
 
   it('combined 模式会同时保留白名单身份映射和模型映射', () => {

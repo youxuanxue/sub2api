@@ -7,7 +7,6 @@ import (
 	"math"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unsafe"
 
@@ -240,13 +239,6 @@ type ParsedRequest struct {
 	MaxTokens       int             // max_tokens 值（用于探测请求拦截）
 	SessionContext  *SessionContext // 可选：请求上下文区分因子（nil 时行为不变）
 
-	// TK-only：粘性会话亲和与 ops 关联，上游无此特性。
-	// system/messages 内容不再以 any 形式缓存，统一走 SystemRaw()/MessagesRaw() range 访问器。
-	ExplicitStickyKey StickyKey // 显式 header 粘性身份（用于会话亲和），由 handler 注入
-	PromptCacheKey    string    // 顶层 prompt_cache_key（用于会话亲和）
-	RequestID         string    // 请求关联 ID（ops 日志）
-	ClientRequestID   string    // 客户端请求关联 ID（ops 日志）
-
 	protocol      string    // 当前 Body 的协议格式，用于 Body 替换后刷新 raw range
 	systemRange   jsonRange // system/systemInstruction.parts 的 raw JSON 范围，绑定 Body 当前内容
 	messagesRange jsonRange // messages/contents 的 raw JSON 范围，绑定 Body 当前内容
@@ -310,11 +302,6 @@ func ParseGatewayRequest(body *RequestBodyRef, protocol string) (*ParsedRequest,
 	parsed := &ParsedRequest{Body: body}
 	if err := parseGatewayRequestCurrentBody(parsed, protocol); err != nil {
 		return nil, err
-	}
-	// TK: 顶层 prompt_cache_key 驱动粘性会话亲和（见 gateway_service.go 会话哈希），
-	// 不属于上游轻量解析；从已校验的 body 中单独提取。
-	if bodyBytes := body.Bytes(); len(bodyBytes) > 0 {
-		parsed.PromptCacheKey = strings.TrimSpace(gjson.GetBytes(bodyBytes, "prompt_cache_key").String())
 	}
 	return parsed, nil
 }
@@ -470,68 +457,6 @@ func stripEmptyTextBlocksFromSlice(blocks []any) ([]any, bool) {
 		return blocks, false
 	}
 	return result, true
-}
-
-// countTokensUnsupportedTopLevelFields lists request fields that the Anthropic
-// /v1/messages/count_tokens endpoint rejects with `invalid_request_error:
-// "<field>: Extra inputs are not permitted"`. The messages endpoint accepts
-// them, but count_tokens only takes: model, system, messages, tools,
-// tool_choice, thinking, mcp_servers, betas.
-//
-// Clients (especially Claude Code CLI / SDKs) frequently forward the full
-// messages body to count_tokens, which trips the validator. We strip these
-// fields defensively on the way out so a client schema bug cannot cascade into
-// repeated 400s and (pre-fix) trigger the per-account upstream-error breaker.
-//
-// `context_management` is in the list because normalizeClaudeOAuthRequestBody
-// (OAuth mimic path on /v1/messages) injects it for Sonnet/Opus thinking
-// requests to match the real Claude Code CLI fingerprint. count_tokens
-// rejects it the same way the messages endpoint does for Haiku 4.5 (see
-// normalizeClaudeOAuthRequestBody comment referencing upstream
-// Wei-Shaw/sub2api#2506). 2026-05-18 09:10:30 prod trace confirmed the gap:
-// temperature / max_tokens / context_management injected by mimic, none
-// accepted by count_tokens.
-var countTokensUnsupportedTopLevelFields = []string{
-	"temperature",
-	"top_p",
-	"top_k",
-	"stop_sequences",
-	"max_tokens",
-	"stream",
-	"metadata",
-	"service_tier",
-	"context_management",
-}
-
-// StripCountTokensUnsupportedFields removes top-level fields that Anthropic's
-// count_tokens endpoint rejects. Returns the (possibly modified) body and the
-// list of field names that were actually removed, so callers can log a single
-// audit line. Body is returned unchanged if none of the unsupported fields are
-// present or if parsing fails (fail-safe — bad sanitize must never break a
-// request that was previously working).
-func StripCountTokensUnsupportedFields(body []byte) ([]byte, []string) {
-	if len(body) == 0 {
-		return body, nil
-	}
-	jsonStr := *(*string)(unsafe.Pointer(&body))
-	var stripped []string
-	out := body
-	for _, field := range countTokensUnsupportedTopLevelFields {
-		if !gjson.Get(jsonStr, field).Exists() {
-			continue
-		}
-		next, err := sjson.DeleteBytes(out, field)
-		if err != nil {
-			continue
-		}
-		out = next
-		stripped = append(stripped, field)
-		jsonStr = *(*string)(unsafe.Pointer(&out))
-	}
-	if len(stripped) == 0 {
-		return body, nil
-	}
-	return out, stripped
 }
 
 // StripEmptyTextBlocks removes empty text blocks from the request body (including nested tool_result content).
@@ -694,20 +619,8 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 
 	modified := false
 
-	// Anthropic tool-use contract: during a tool-use loop you MUST send the thinking
-	// blocks back, unchanged with their signature, for any assistant message that
-	// contains tool_use ("the thinking blocks capture Claude's step-by-step reasoning
-	// that led to tool requests"). Stripping them orphans the tool_use, which breaks
-	// interleaved-thinking clients (Claude Code reports the tool call as malformed) and
-	// can itself trigger upstream 400s. So we only strip thinking from assistant turns
-	// WITHOUT tool_use (earlier pure-reasoning turns, which the API allows omitting),
-	// and we keep top-level thinking enabled whenever any tool-coupled thinking block is
-	// preserved (deleting it while thinking blocks remain is a mid-turn toggle conflict).
-	// The genuinely-unrecoverable case (a bad signature on a tool-coupled thinking block)
-	// is handled by the contract-complete FilterSignatureSensitiveBlocksForRetry, which
-	// downgrades thinking AND its dependent tool blocks together.
-	topLevelThinkingExists := gjson.Get(jsonStr, "thinking").Exists()
-	anyThinkingPreserved := false
+	// Disable top-level thinking mode for retry to avoid structural/signature constraints upstream.
+	deleteTopLevelThinking := gjson.Get(jsonStr, "thinking").Exists()
 
 	for i := 0; i < len(messages); i++ {
 		msgMap, ok := messages[i].(map[string]any)
@@ -720,20 +633,6 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 		if !ok {
 			// String content or other format - keep as is
 			continue
-		}
-
-		// Detect tool_use in this assistant message; if present, its thinking blocks
-		// must be preserved verbatim (signature included) per the contract above.
-		msgHasToolUse := false
-		if role == "assistant" {
-			for _, b := range content {
-				if bm, ok := b.(map[string]any); ok {
-					if t, _ := bm["type"].(string); t == "tool_use" {
-						msgHasToolUse = true
-						break
-					}
-				}
-			}
 		}
 
 		// 延迟分配：只有检测到需要修改的块，才构建新 slice。
@@ -773,38 +672,24 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 			}
 
 			// Convert thinking blocks to text (preserve content) and drop redacted_thinking.
-			// EXCEPT when the assistant message also contains tool_use: there the thinking
-			// blocks are contractually required and must pass through verbatim (signature kept).
 			switch blockType {
-			case "thinking", "redacted_thinking":
-				if msgHasToolUse {
-					anyThinkingPreserved = true
-					if newContent != nil {
-						newContent = append(newContent, block)
-					}
-					continue
-				}
+			case "thinking":
 				modifiedThisMsg = true
 				ensureNewContent(bi)
-				if blockType == "thinking" {
-					thinkingText, _ := blockMap["thinking"].(string)
-					if thinkingText != "" {
-						newContent = append(newContent, map[string]any{"type": "text", "text": thinkingText})
-					}
+				thinkingText, _ := blockMap["thinking"].(string)
+				if thinkingText != "" {
+					newContent = append(newContent, map[string]any{"type": "text", "text": thinkingText})
 				}
+				continue
+			case "redacted_thinking":
+				modifiedThisMsg = true
+				ensureNewContent(bi)
 				continue
 			}
 
 			// Handle blocks without type discriminator but with a "thinking" field.
 			if blockType == "" {
 				if rawThinking, hasThinking := blockMap["thinking"]; hasThinking {
-					if msgHasToolUse {
-						anyThinkingPreserved = true
-						if newContent != nil {
-							newContent = append(newContent, block)
-						}
-						continue
-					}
 					modifiedThisMsg = true
 					ensureNewContent(bi)
 					switch v := rawThinking.(type) {
@@ -871,11 +756,6 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 			msgMap["content"] = newContent
 		}
 	}
-
-	// Only disable top-level thinking when we did NOT preserve any tool-coupled thinking
-	// block. Deleting it while signed thinking blocks remain in the body is a mid-turn
-	// thinking toggle that the API rejects ("thinking blocks present but thinking off").
-	deleteTopLevelThinking := topLevelThinkingExists && !anyThinkingPreserved
 
 	if !modified && !deleteTopLevelThinking {
 		// Avoid rewriting JSON when no changes are needed.
@@ -971,8 +851,8 @@ const anthropicBetaContextManagementToken = "context-management-2025-06-27"
 // context_management 字段：缺 beta token → strip。这将限制完全建立在
 // "能力维度" 上，与 model 名 / token type / mimicry 子路径无关。
 //
-// 调用约束：必须在创建上游请求之前调用，确保最终 body 与最终 header
-// 的 beta 能力声明一致。
+// 调用约束：必须在 CCH 签名之前调用，否则签名 hash 与最终 body
+// 不一致，上游会以 third-party 拒收。
 //
 // 返回 (sanitized, changed)：changed 表示是否发生实际删除，供调用方决定
 // 是否重用原 body 引用。
@@ -1484,29 +1364,11 @@ func isThinkingBudgetConstraintError(errMsg string) bool {
 // It sets thinking.budget_tokens = 32000, thinking.type = "enabled" (unless adaptive),
 // and ensures max_tokens >= 32001.
 // Returns (modified body, true) if changes were applied, or (original body, false) if not.
-//
-// Model-aware: for Opus 4.7+ (isOpus47OrNewer), manual thinking (type "enabled" +
-// budget_tokens) is rejected with a 400 — only "adaptive" is accepted. Forcing "enabled"
-// here would emit a fresh adaptive-required 400. So for those models we produce the
-// adaptive shape (type=adaptive, no budget_tokens) instead, mirroring sanitizeBedrockThinking.
-func RectifyThinkingBudget(body []byte, modelID string) ([]byte, bool) {
+func RectifyThinkingBudget(body []byte) ([]byte, bool) {
 	// If thinking type is "adaptive", skip rectification entirely
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
 	if thinkingType == "adaptive" {
 		return body, false
-	}
-
-	// Opus 4.7+ and Fable only accept adaptive: never force "enabled"/budget_tokens for these models.
-	if requiresAdaptiveOnlyThinking(modelID) {
-		modified, changed := RectifyThinkingTypeAdaptive(body)
-		// Still honor a sane max_tokens floor so a tiny client max_tokens doesn't choke thinking.
-		if maxTokens := gjson.GetBytes(modified, "max_tokens").Int(); maxTokens > 0 && maxTokens < int64(BudgetRectifyMinMaxTokens) {
-			if result, err := sjson.SetBytes(modified, "max_tokens", BudgetRectifyMaxTokens); err == nil {
-				modified = result
-				changed = true
-			}
-		}
-		return modified, changed
 	}
 
 	modified := body
@@ -1539,72 +1401,6 @@ func RectifyThinkingBudget(body []byte, modelID string) ([]byte, bool) {
 	}
 
 	return modified, changed
-}
-
-// =========================
-// Thinking Type Adaptive Rectifier (Opus 4.7+)
-// =========================
-
-// isOpus47OrNewer reports whether modelID is Claude Opus 4.7 or newer. For these models
-// Anthropic rejects manual thinking (`thinking:{type:"enabled",budget_tokens:N}`) with a
-// 400 and only accepts `{type:"adaptive"}` (per docs; CC issue anthropics/claude-code#61348).
-// Opus 4.6 / Sonnet 4.x still accept "enabled" (merely deprecated) — must NOT match here.
-// Reuses the package-level claudeVersionRe (defined in bedrock_request.go) so the version
-// pattern has a single source; this is the platform-neutral sibling of isBedrockOpus47OrNewer.
-func isOpus47OrNewer(modelID string) bool {
-	lower := strings.ToLower(modelID)
-	if !strings.Contains(lower, "opus") {
-		return false
-	}
-	matches := claudeVersionRe.FindStringSubmatch(lower)
-	if matches == nil {
-		return false
-	}
-	major, _ := strconv.Atoi(matches[1])
-	minor, _ := strconv.Atoi(matches[2])
-	return major > 4 || (major == 4 && minor >= 7)
-}
-
-// isThinkingTypeAdaptiveRequiredError detects the Opus 4.7+ upstream 400 whose message is:
-//
-//	"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive"
-//	and "output_config.effort" to control thinking behavior.
-//
-// Anchored on the literal "thinking.type.enabled" (no other Anthropic error carries it),
-// guarded by "not supported" / "adaptive" so it cannot collide with
-// isThinkingBudgetConstraintError (which matches ">= 1024").
-func isThinkingTypeAdaptiveRequiredError(errMsg string) bool {
-	m := strings.ToLower(errMsg)
-	if !strings.Contains(m, "thinking.type.enabled") {
-		return false
-	}
-	return strings.Contains(m, "not supported") || strings.Contains(m, "adaptive")
-}
-
-// RectifyThinkingTypeAdaptive converts a manual thinking request into the adaptive shape
-// required by Opus 4.7+: thinking.type "enabled" -> "adaptive", dropping budget_tokens
-// (adaptive controls depth via the effort parameter, not budget_tokens). Surgical sjson
-// edits preserve every other byte (incl. signed thinking blocks). Returns (body,false)
-// when there is nothing to convert (no thinking, or already adaptive).
-func RectifyThinkingTypeAdaptive(body []byte) ([]byte, bool) {
-	thinking := gjson.GetBytes(body, "thinking")
-	if !thinking.Exists() || !thinking.IsObject() {
-		return body, false
-	}
-	if thinking.Get("type").String() != "enabled" {
-		return body, false
-	}
-
-	modified := body
-	if result, err := sjson.SetBytes(modified, "thinking.type", "adaptive"); err == nil {
-		modified = result
-	} else {
-		return body, false
-	}
-	if result, err := sjson.DeleteBytes(modified, "thinking.budget_tokens"); err == nil {
-		modified = result
-	}
-	return modified, true
 }
 
 // NormalizeChineseLLMThinking rewrites the top-level `thinking` object for Chinese

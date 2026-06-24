@@ -24,16 +24,10 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 	if c == nil || c.Request == nil {
 		return
 	}
-	if parsedReq != nil {
-		c.Set(service.ClaudeCodeParsedRequestGinKey, parsedReq)
-	}
-
 	ua := c.GetHeader("User-Agent")
-	isDesktopGateway := service.IsClaudeDesktopGatewayUserAgent(ua)
 	// Fast path：非 Claude CLI UA 直接判定 false，避免热路径二次 JSON 反序列化。
 	if !claudeCodeValidator.ValidateUserAgent(ua) {
 		ctx := service.SetClaudeCodeClient(c.Request.Context(), false)
-		ctx = service.SetClaudeDesktopGatewayClient(ctx, isDesktopGateway)
 		c.Request = c.Request.WithContext(ctx)
 		return
 	}
@@ -45,9 +39,6 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 	} else {
 		// 仅在确认为 Claude CLI 且 messages 路径时再做 body 解析。
 		bodyMap := claudeCodeBodyMapFromParsedRequest(parsedReq)
-		if bodyMap == nil {
-			bodyMap = claudeCodeBodyMapFromContextCache(c)
-		}
 		if bodyMap == nil && len(body) > 0 {
 			_ = json.Unmarshal(body, &bodyMap)
 		}
@@ -56,7 +47,6 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 
 	// 更新 request context
 	ctx := service.SetClaudeCodeClient(c.Request.Context(), isClaudeCode)
-	ctx = service.SetClaudeDesktopGatewayClient(ctx, isDesktopGateway)
 
 	// 仅在确认为 Claude Code 客户端时提取版本号写入 context
 	if isClaudeCode {
@@ -86,27 +76,6 @@ func claudeCodeBodyMapFromParsedRequest(parsedReq *service.ParsedRequest) map[st
 		bodyMap["metadata"] = map[string]any{"user_id": parsedReq.MetadataUserID}
 	}
 	return bodyMap
-}
-
-// claudeCodeBodyMapFromContextCache 从 Gin context 中恢复已解析的请求体快照，
-// 供 SetClaudeCodeClientContext 在 parsedReq 缺失时回退使用。
-// 必须保留 c.Get(service.ClaudeCodeParsedRequestGinKey) 这一读取点（gateway-tk sentinel
-// 守护）：service 层 tkEnsure 依赖该 canonical key 在出站序列化丢失 metadata.user_id 时
-// 恢复 session UUID。
-// 注：上游 requestView 惰性解码已移除旧的 OpenAIParsedRequestBodyKey body-map 缓存。
-func claudeCodeBodyMapFromContextCache(c *gin.Context) map[string]any {
-	if c == nil {
-		return nil
-	}
-	if cached, ok := c.Get(service.ClaudeCodeParsedRequestGinKey); ok {
-		switch v := cached.(type) {
-		case *service.ParsedRequest:
-			return claudeCodeBodyMapFromParsedRequest(v)
-		case service.ParsedRequest:
-			return claudeCodeBodyMapFromParsedRequest(&v)
-		}
-	}
-	return nil
 }
 
 // 并发槽位等待相关常量

@@ -15,8 +15,7 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	// "sqlite" driver registers via transitive deps (glebarez/go-sqlite → modernc).
-	// Do not import `_ "modernc.org/sqlite"` here — it double-registers and panics.
+	_ "modernc.org/sqlite"
 )
 
 func newUserEntRepo(t *testing.T) (*userRepository, *dbent.Client) {

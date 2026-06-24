@@ -37,31 +37,15 @@
               {{ detail.account_name || (detail.account_id != null ? String(detail.account_id) : '—') }}
             </template>
             <template v-else>
-              {{ detail.user_email || detail.username || (detail.user_id != null ? String(detail.user_id) : '—') }}
-              <span v-if="detail.user_email && detail.username" class="ml-1 text-xs text-gray-400">({{ detail.username }})</span>
+              {{ detail.user_email || (detail.user_id != null ? String(detail.user_id) : '—') }}
             </template>
-          </div>
-        </div>
-
-        <!-- upstream #2410: surface API Key + client IP so ops can identify the caller. -->
-        <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.apiKey') }}</div>
-          <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            {{ detail.api_key_name || (detail.api_key_id != null ? `#${detail.api_key_id}` : '—') }}
-          </div>
-        </div>
-
-        <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.clientIp') }}</div>
-          <div class="mt-1 break-all font-mono text-sm font-medium text-gray-900 dark:text-white">
-            {{ detail.client_ip || '—' }}
           </div>
         </div>
 
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.platform') }}</div>
           <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            {{ getPlatformLabel(detail.platform) }}
+            {{ detail.platform || '—' }}
           </div>
         </div>
 
@@ -231,7 +215,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'

@@ -30,7 +30,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, video_duration_seconds, created_at"
+const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
 
 // usageLogInsertArgTypes must stay in the same order as:
 //  1. prepareUsageLogInsert().args
@@ -89,7 +89,6 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // billing_tier
 	"text",        // billing_mode
 	"numeric",     // account_stats_cost
-	"bigint",      // video_duration_seconds
 	"timestamptz", // created_at
 }
 
@@ -407,7 +406,6 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
-			video_duration_seconds,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
@@ -415,7 +413,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -850,11 +848,10 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
-			video_duration_seconds,
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(keys)*51)
+	args := make([]any, 0, len(keys)*50)
 	argPos := 1
 	for idx, key := range keys {
 		if idx > 0 {
@@ -932,7 +929,6 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				billing_tier,
 				billing_mode,
 				account_stats_cost,
-				video_duration_seconds,
 				created_at
 			)
 			SELECT
@@ -985,7 +981,6 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				billing_tier,
 				billing_mode,
 				account_stats_cost,
-				video_duration_seconds,
 				created_at
 			FROM input
 			ON CONFLICT (request_id, api_key_id) DO NOTHING
@@ -1078,11 +1073,10 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
-			video_duration_seconds,
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(preparedList)*51)
+	args := make([]any, 0, len(preparedList)*50)
 	argPos := 1
 	for idx, prepared := range preparedList {
 		if idx > 0 {
@@ -1157,7 +1151,6 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
-			video_duration_seconds,
 			created_at
 		)
 		SELECT
@@ -1210,7 +1203,6 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
-			video_duration_seconds,
 			created_at
 		FROM input
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
@@ -1271,7 +1263,6 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
-			video_duration_seconds,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
@@ -1279,7 +1270,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1383,8 +1374,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			modelMappingChain,
 			billingTier,
 			billingMode,
-			log.AccountStatsCost,                // account_stats_cost
-			nullInt64(log.VideoDurationSeconds), // video_duration_seconds
+			log.AccountStatsCost, // account_stats_cost
 			createdAt,
 		},
 	}
@@ -2319,13 +2309,6 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 
 // GetUserUsageTrend returns usage trend data grouped by user and date
 func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
-	if granularity == "day" {
-		return r.getUserUsageTrendRollup(ctx, startTime, endTime, granularity, limit)
-	}
-	return r.getUserUsageTrendRaw(ctx, startTime, endTime, granularity, limit)
-}
-
-func (r *usageLogRepository) getUserUsageTrendRaw(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
 	dateFormat := safeDateFormat(granularity)
 
 	query := fmt.Sprintf(`
@@ -2388,13 +2371,78 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 		limit = 12
 	}
 
-	// TK: served from the per-(user, platform, day) rollup for completed days plus
-	// raw usage_logs for the partial/today slices (see
-	// usage_log_repo_tk_user_platform_rollup.go). The legacy CTE scanned the full
-	// created_at window of usage_logs (845K buffers / 1.65s on prod); the rollup
-	// reads ~hundreds of rows. Window totals, top-N ordering, and per-user email
-	// are reconstructed in Go to match the legacy output byte-for-byte.
-	return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)
+	query := `
+		WITH user_spend AS (
+			SELECT
+				u.user_id,
+				COALESCE(us.email, '') as email,
+				COALESCE(SUM(u.actual_cost), 0) as actual_cost,
+				COUNT(*) as requests,
+				COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
+			FROM usage_logs u
+			LEFT JOIN users us ON u.user_id = us.id
+			WHERE u.created_at >= $1 AND u.created_at < $2
+			GROUP BY u.user_id, us.email
+		),
+		ranked AS (
+			SELECT
+				user_id,
+				email,
+				actual_cost,
+				requests,
+				tokens,
+				COALESCE(SUM(actual_cost) OVER (), 0) as total_actual_cost,
+				COALESCE(SUM(requests) OVER (), 0) as total_requests,
+				COALESCE(SUM(tokens) OVER (), 0) as total_tokens
+			FROM user_spend
+			ORDER BY actual_cost DESC, tokens DESC, user_id ASC
+			LIMIT $3
+		)
+		SELECT
+			user_id,
+			email,
+			actual_cost,
+			requests,
+			tokens,
+			total_actual_cost,
+			total_requests,
+			total_tokens
+		FROM ranked
+		ORDER BY actual_cost DESC, tokens DESC, user_id ASC
+	`
+
+	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			result = nil
+		}
+	}()
+
+	ranking := make([]UserSpendingRankingItem, 0)
+	totalActualCost := 0.0
+	totalRequests := int64(0)
+	totalTokens := int64(0)
+	for rows.Next() {
+		var row UserSpendingRankingItem
+		if err = rows.Scan(&row.UserID, &row.Email, &row.ActualCost, &row.Requests, &row.Tokens, &totalActualCost, &totalRequests, &totalTokens); err != nil {
+			return nil, err
+		}
+		ranking = append(ranking, row)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &UserSpendingRankingResponse{
+		Ranking:         ranking,
+		TotalActualCost: totalActualCost,
+		TotalRequests:   totalRequests,
+		TotalTokens:     totalTokens,
+	}, nil
 }
 
 // UserDashboardStats 用户仪表盘统计
@@ -2834,9 +2882,10 @@ func normalizePositiveInt64IDs(ids []int64) []int64 {
 // GetBatchUserUsageStats gets today and total actual_cost for multiple users within a time range.
 // If startTime is zero, defaults to 30 days ago.
 func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*BatchUserUsageStats, error) {
+	result := make(map[int64]*BatchUserUsageStats)
 	normalizedUserIDs := normalizePositiveInt64IDs(userIDs)
 	if len(normalizedUserIDs) == 0 {
-		return make(map[int64]*BatchUserUsageStats), nil
+		return result, nil
 	}
 
 	// 默认最近 30 天
@@ -2847,14 +2896,62 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 		endTime = time.Now()
 	}
 
-	// TK: read completed days from the per-(user, platform, day) rollup and the
-	// partial/today slices from raw usage_logs (see
-	// usage_log_repo_tk_user_platform_rollup.go). The legacy single-query
-	// implementation scanned the full 30-day window of usage_logs (~1.25M rows /
-	// 845K buffers / 2.7s on prod) — a wide-window aggregation no index can serve.
-	// Output is byte-identical to the legacy path; the rollup reader pre-seeds an
-	// entry for every requested user so users with no usage still appear.
-	return r.getBatchUserUsageStatsRollup(ctx, normalizedUserIDs, startTime, endTime)
+	for _, id := range normalizedUserIDs {
+		result[id] = &BatchUserUsageStats{UserID: id}
+	}
+
+	// GROUP BY (user_id, effective_platform) 一次查询同时得到总值与按平台拆分。
+	// 应用层把同一 user_id 的多行累加为总值，并把非空 platform 行收集到 ByPlatform。
+	query := `
+		SELECT
+			ul.user_id,
+			` + usageLogEffectivePlatformExpr + ` as platform,
+			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $2 AND ul.created_at < $3), 0) as total_cost,
+			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $4), 0) as today_cost
+		FROM usage_logs ul
+		LEFT JOIN groups g ON g.id = ul.group_id
+		LEFT JOIN accounts a ON a.id = ul.account_id
+		WHERE ul.user_id = ANY($1)
+		  AND ul.created_at >= LEAST($2, $4)
+		  AND ` + usageLogSuccessFilterUL + `
+		GROUP BY ul.user_id, ` + usageLogEffectivePlatformExpr + `
+	`
+	today := timezone.Today()
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(normalizedUserIDs), startTime, endTime, today)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var userID int64
+		var platform sql.NullString
+		var total float64
+		var todayTotal float64
+		if err := rows.Scan(&userID, &platform, &total, &todayTotal); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		stats, ok := result[userID]
+		if !ok {
+			continue
+		}
+		stats.TotalActualCost += total
+		stats.TodayActualCost += todayTotal
+		if platform.Valid && platform.String != "" {
+			stats.ByPlatform = append(stats.ByPlatform, PlatformUsage{
+				Platform:        platform.String,
+				TotalActualCost: total,
+				TodayActualCost: todayTotal,
+			})
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 // BatchAPIKeyUsageStats represents usage stats for a single API key
@@ -3076,14 +3173,6 @@ func (r *usageLogRepository) GetModelStatsWithFiltersBySource(ctx context.Contex
 }
 
 func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string) (results []ModelStat, err error) {
-	if shouldUseModelDailyRollup(userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source) {
-		aggregated, ok, aggregatedErr := r.getModelStatsFromRollup(ctx, startTime, endTime)
-		if aggregatedErr != nil {
-			logger.LegacyPrintf("repository.usage_log", "getModelStatsFromRollup failed, falling back to usage_logs: %v", aggregatedErr)
-		} else if ok {
-			return aggregated, nil
-		}
-	}
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
@@ -3154,14 +3243,6 @@ func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Contex
 
 // GetGroupStatsWithFilters returns group usage statistics with optional filters
 func (r *usageLogRepository) GetGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) (results []usagestats.GroupStat, err error) {
-	if shouldUseGroupDailyStatsRollup(userID, apiKeyID, accountID, requestType, stream, billingType) {
-		if fast, ok, err := r.getGroupStatsFromRollup(ctx, startTime, endTime, groupID); err != nil {
-			logger.LegacyPrintf("repository.usage_log", "getGroupStatsFromRollup failed, falling back to usage_logs: %v", err)
-		} else if ok {
-			return fast, nil
-		}
-	}
-
 	query := `
 		SELECT
 			COALESCE(ul.group_id, 0) as group_id,
@@ -3328,19 +3409,10 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 
 // GetAllGroupUsageSummary returns today's and cumulative actual_cost for every group.
 // todayStart is the start-of-day in the caller's timezone (UTC-based).
-//
-// TK perf: the legacy query below SUMs total_cost over the ENTIRE usage_logs table
-// on every GroupsView load. It is now served from the per-(group, day) rollup
-// (usage_dashboard_group_daily) — completed days from the rollup, today's partial
-// day from raw — via groupUsageSummaryFromRollup. The raw query below remains as
-// the fallback used until the one-time backfill populates the rollup (see
-// usage_log_repo_tk_group_rollup.go / dashboard_aggregation_repo_tk_group.go).
+// TODO(perf): This query scans ALL usage_logs rows for total_cost aggregation.
+// When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
+// or a materialized view / pre-aggregation table for cumulative costs.
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
-	if rows, ok, err := r.groupUsageSummaryFromRollup(ctx, todayStart); err != nil {
-		return nil, err
-	} else if ok {
-		return rows, nil
-	}
 	query := `
 		SELECT
 			g.id AS group_id,
@@ -3497,22 +3569,6 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 
 	// 汇总查询:失败即致命。
 	runSummary := func(c context.Context) error {
-		if filters.SkipSummary {
-			return nil
-		}
-		if fast, ok, err := r.getStatsWithFiltersFromHourlyRollup(c, filters, start, end); err != nil {
-			logger.LegacyPrintf("repository.usage_log", "getStatsWithFiltersFromHourlyRollup failed, falling back to usage_logs: %v", err)
-		} else if ok {
-			stats.TotalRequests = fast.TotalRequests
-			stats.TotalInputTokens = fast.TotalInputTokens
-			stats.TotalOutputTokens = fast.TotalOutputTokens
-			stats.TotalCacheTokens = fast.TotalCacheTokens
-			stats.TotalCost = fast.TotalCost
-			stats.TotalActualCost = fast.TotalActualCost
-			totalAccountCost = fast.totalAccountCost
-			stats.AverageDurationMs = fast.AverageDurationMs
-			return nil
-		}
 		return scanSingleRow(
 			c, r.sql, query, args,
 			&stats.TotalRequests,
@@ -3527,10 +3583,6 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	}
 	// endpoint 明细:best-effort(失败 log + 返空),不致命。
 	runEndpoints := func(c context.Context) {
-		if filters.SkipEndpointStats {
-			endpoints = []EndpointStat{}
-			return
-		}
 		res, err := r.GetEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -3541,10 +3593,6 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		endpoints = res
 	}
 	runUpstream := func(c context.Context) {
-		if filters.SkipEndpointStats {
-			upstreamEndpoints = []EndpointStat{}
-			return
-		}
 		res, err := r.GetUpstreamEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -3555,10 +3603,6 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		upstreamEndpoints = res
 	}
 	runPaths := func(c context.Context) {
-		if filters.SkipEndpointStats {
-			endpointPaths = []EndpointStat{}
-			return
-		}
 		res, err := r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -4255,7 +4299,6 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		billingTier           sql.NullString
 		billingMode           sql.NullString
 		accountStatsCost      sql.NullFloat64
-		videoDurationSeconds  sql.NullInt64
 		createdAt             time.Time
 	)
 
@@ -4310,7 +4353,6 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&billingTier,
 		&billingMode,
 		&accountStatsCost,
-		&videoDurationSeconds,
 		&createdAt,
 	); err != nil {
 		return nil, err
@@ -4419,10 +4461,6 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	}
 	if accountStatsCost.Valid {
 		log.AccountStatsCost = &accountStatsCost.Float64
-	}
-	if videoDurationSeconds.Valid {
-		value := videoDurationSeconds.Int64
-		log.VideoDurationSeconds = &value
 	}
 
 	return log, nil

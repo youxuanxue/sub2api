@@ -594,19 +594,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	originalModel := req.Model
-	// TK: 分组级 Claude→Gemini 模型映射 (gemini_messages_dispatch_tk.go)。
-	// handler 通过 gin.Context 透传 *Group；resolver 仅当 group 非空且
-	// 配置了映射规则、且 req.Model 不是 gemini-* 形态时才改写 req.Model。
-	if g := tkGroupFromGinContext(c); g != nil {
-		if mapped := g.TKResolveGeminiDispatchModel(req.Model); mapped != "" {
-			req.Model = mapped
-		}
-	}
 	mappedModel := req.Model
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
-	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -844,20 +835,15 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				// 路径说明：本处上游是 Gemini，但被剥离的 body 是 Anthropic 格式。传 originalModel
 				// （客户端原 Anthropic model）而非 mappedModel（上游 Gemini model），让剥离逻辑按
 				// 客户端请求的 Anthropic 子协议族判定（详见 ResolveThinkingProtocol 文档）。
-				// thinkingRefModelForAnthropicCompat names the deliberate choice of
-				// originalModel over mappedModel on this Anthropic-shape→Gemini-backend
-				// path, so an upstream merge cannot silently swap it (see
-				// thinking_ref_model_tk.go).
-				compatRefModel := thinkingRefModelForAnthropicCompat(originalModel)
 				switch signatureRetryStage {
 				case 0:
 					// Stage 1: disable thinking + thinking->text
-					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody, compatRefModel)
+					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking-only"
 					signatureRetryStage = 1
 				default:
 					// Stage 2: additionally downgrade tool_use/tool_result blocks to text
-					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, compatRefModel)
+					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
@@ -1074,12 +1060,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, internalThinkingBlocks, err := collectGeminiSSE(resp.Body, true)
+			collected, usageObj, err := collectGeminiSSE(resp.Body, true)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
-			}
-			if len(internalThinkingBlocks) > 0 {
-				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			collectedBytes, _ := json.Marshal(collected)
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
@@ -1159,7 +1142,6 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
-	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1603,12 +1585,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, internalThinkingBlocks, err := collectGeminiSSE(resp.Body, isOAuth)
+			collected, usageObj, err := collectGeminiSSE(resp.Body, isOAuth)
 			if err != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream stream")
-			}
-			if len(internalThinkingBlocks) > 0 {
-				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			b, _ := json.Marshal(collected)
 			c.Data(http.StatusOK, "application/json", b)
@@ -1817,7 +1796,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 			errType = "permission_error"
 		}
 		if errMsg == "" {
-			errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
+			errMsg = "Upstream access forbidden, please contact administrator"
 		}
 	case 404:
 		if statusCode == 0 {
@@ -1980,10 +1959,6 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
-	internalThinkingBlocks := extractGeminiInternalThinkingBlocks(geminiResp)
-	if len(internalThinkingBlocks) > 0 {
-		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
-	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
 	c.JSON(http.StatusOK, claudeResp)
 
@@ -2035,7 +2010,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	openToolID := ""
 	openToolName := ""
 	seenToolJSON := ""
-	var internalThinkingBlocks []string
 
 	reader := bufio.NewReader(resp.Body)
 	for {
@@ -2075,21 +2049,12 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		parts := extractGeminiParts(geminiResp)
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && text != "" {
-				if shouldDropGeminiInternalText(text) {
-					internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
-					continue
-				}
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
-				if delta == "" {
-					continue
-				}
-
-				// Close an open tool_use block before starting text. HEAD tracks tool
-				// and text blocks separately (openToolIndex vs openBlockIndex), so —
-				// mirroring the functionCall branch that closes the open text block —
-				// the text path must explicitly stop openToolIndex, or a tool→text
-				// turn emits overlapping Anthropic content blocks (SSE contract break).
+				// Close an open tool_use block before starting text, mirroring
+				// the functionCall branch (which closes open text blocks) and
+				// the chat-completions sibling's closeOpenTool(). Otherwise a
+				// tool→text sequence keeps the tool_use block open while the
+				// text block starts, emitting overlapping Anthropic content
+				// blocks that violate the SSE contract.
 				if openToolIndex >= 0 {
 					writeSSE(c.Writer, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
@@ -2098,6 +2063,12 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					openToolIndex = -1
 					openToolName = ""
 					seenToolJSON = ""
+				}
+
+				delta, newSeen := computeGeminiTextDelta(seenText, text)
+				seenText = newSeen
+				if delta == "" {
+					continue
 				}
 
 				if openBlockType != "text" {
@@ -2183,7 +2154,19 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 				}
 
-				argsJSONText := normalizeGeminiFunctionArgsJSON(args)
+				argsJSONText := "{}"
+				switch v := args.(type) {
+				case nil:
+					// keep default "{}"
+				case string:
+					if strings.TrimSpace(v) != "" {
+						argsJSONText = v
+					}
+				default:
+					if b, err := json.Marshal(args); err == nil && len(b) > 0 {
+						argsJSONText = string(b)
+					}
+				}
 
 				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
 				seenToolJSON = newSeen
@@ -2247,9 +2230,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		"type": "message_stop",
 	})
 	flusher.Flush()
-	if len(internalThinkingBlocks) > 0 {
-		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
-	}
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 }
@@ -2300,13 +2280,12 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 	return inner
 }
 
-func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, []string, error) {
+func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
 	reader := bufio.NewReader(body)
 
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedTextParts []string // Collect all text parts for aggregation
-	var internalThinkingBlocks []string
 	usage := &ClaudeUsage{}
 
 	for {
@@ -2318,7 +2297,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, nil
+						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
 					}
 				default:
 					var parsed map[string]any
@@ -2343,10 +2322,6 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 							// Collect text from each part for aggregation
 							for _, part := range parts {
 								if text, ok := part["text"].(string); ok && text != "" {
-									if shouldDropGeminiInternalText(text) {
-										internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
-										continue
-									}
 									collectedTextParts = append(collectedTextParts, text)
 								}
 							}
@@ -2360,11 +2335,11 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 			break
 		}
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, nil
+	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2754,9 +2729,6 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 							continue
 						}
 						if text, ok := pm["text"].(string); ok && text != "" {
-							if shouldDropGeminiInternalText(text) {
-								continue
-							}
 							contentBlocks = append(contentBlocks, map[string]any{
 								"type": "text",
 								"text": text,
@@ -2773,7 +2745,7 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"type":  "tool_use",
 								"id":    "toolu_" + randomHex(8),
 								"name":  name,
-								"input": normalizeGeminiFunctionArgs(args),
+								"input": args,
 							})
 						}
 					}
@@ -2874,36 +2846,27 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	projectID := strings.TrimSpace(account.GetCredential("project_id"))
 	isCodeAssist := account.IsGeminiCodeAssist()
 
-	// TK: per-model rate limit for Code Assist 429s carrying ErrorInfo.metadata.model
-	// (e.g. MODEL_CAPACITY_EXHAUSTED on a single model). See
-	// gemini_messages_compat_service_tk_model_rate_limit.go for rationale.
-	if s.tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body) {
-		return
-	}
-
 	resetAt := ParseGeminiRateLimitResetTime(body)
 	if resetAt == nil {
-		// 根据账号类型使用不同的默认重置时间。
-		//
-		// TK: See upstream Wei-Shaw/sub2api#641 —— 反代 Gemini CLI 的
-		// google_one OAuth 账号收到 429（无 quotaResetDelay/retryDelay）时，
-		// upstream 旧逻辑直接封禁到 PST 午夜，完全忽略 tier 上的 Cooldown
-		// 配置（如 google_ai_pro 的 5min）。所有 OAuth 账号（含 google_one /
-		// aistudio OAuth / code_assist）都应走 tier cooldown；只有非 OAuth
-		// 的 AI Studio API Key 才用 PST 午夜兜底。
+		// 根据账号类型使用不同的默认重置时间
 		var ra time.Time
-		if account.Type == AccountTypeOAuth {
+		if isCodeAssist || oauthType == "google_one" {
+			// Gemini CLI / Google One: fallback cooldown by tier
 			cooldown := geminiCooldownForTier(tierID)
 			if s.rateLimitService != nil {
 				cooldown = s.rateLimitService.GeminiCooldown(ctx, account)
 			}
 			ra = time.Now().Add(cooldown)
-			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (OAuth oauth_type=%s, tier=%s, project=%s, code_assist=%v) rate limited, cooldown=%v", account.ID, oauthType, tierID, projectID, isCodeAssist, time.Until(ra).Truncate(time.Second))
+			if isCodeAssist {
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Code Assist, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
+			} else {
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Google One OAuth, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
+			}
 		} else {
-			// API Key (AI Studio): PST 午夜
+			// API Key / AI Studio OAuth: PST 午夜
 			if ts := nextGeminiDailyResetUnix(); ts != nil {
 				ra = time.Unix(*ts, 0)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key/AI Studio, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
 			} else {
 				// 兜底：5 分钟
 				ra = time.Now().Add(5 * time.Minute)
@@ -2931,29 +2894,19 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 		}
 	}
 
-	// 遍历 error.details 查找 reset delay。
-	// Google 错误体常见两种位置：
-	//  1) ErrorInfo.metadata.quotaResetDelay
-	//  2) RetryInfo.retryDelay（部分代理会放到 metadata.retryDelay）
+	// 遍历 error.details 查找 quotaResetDelay
 	var found *int64
 	gjson.GetBytes(body, "error.details").ForEach(func(_, detail gjson.Result) bool {
-		candidates := []string{
-			detail.Get("metadata.quotaResetDelay").String(),
-			detail.Get("retryDelay").String(),
-			detail.Get("metadata.retryDelay").String(),
+		v := detail.Get("metadata.quotaResetDelay").String()
+		if v == "" {
+			return true
 		}
-		for _, v := range candidates {
-			v = strings.TrimSpace(v)
-			if v == "" {
-				continue
-			}
-			if dur, err := time.ParseDuration(v); err == nil {
-				// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
-				// which can affect scheduling decisions around thresholds (like 10s).
-				ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
-				found = &ts
-				return false
-			}
+		if dur, err := time.ParseDuration(v); err == nil {
+			// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
+			// which can affect scheduling decisions around thresholds (like 10s).
+			ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
+			found = &ts
+			return false
 		}
 		return true
 	})
@@ -3069,95 +3022,6 @@ func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 		}
 	}
 	return nil
-}
-
-func extractGeminiInternalThinkingBlocks(geminiResp map[string]any) []string {
-	parts := extractGeminiParts(geminiResp)
-	if len(parts) == 0 {
-		return nil
-	}
-	blocks := make([]string, 0, len(parts))
-	for _, part := range parts {
-		text, ok := part["text"].(string)
-		if !ok || text == "" {
-			continue
-		}
-		if !shouldDropGeminiInternalText(text) {
-			continue
-		}
-		blocks = append(blocks, strings.TrimSpace(text))
-	}
-	if len(blocks) == 0 {
-		return nil
-	}
-	return blocks
-}
-
-func shouldDropGeminiInternalText(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return false
-	}
-	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
-		return false
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-		return false
-	}
-	typeVal, _ := payload["type"].(string)
-	typeVal = strings.TrimSpace(strings.ToLower(typeVal))
-	if typeVal != "thinking" {
-		return false
-	}
-	_, hasSignature := payload["signature"]
-	return hasSignature
-}
-
-func normalizeGeminiFunctionArgs(args any) map[string]any {
-	switch v := args.(type) {
-	case nil:
-		return map[string]any{}
-	case map[string]any:
-		return v
-	case string:
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
-			return map[string]any{}
-		}
-		var parsed any
-		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
-			return map[string]any{}
-		}
-		obj, ok := parsed.(map[string]any)
-		if !ok {
-			return map[string]any{}
-		}
-		return obj
-	default:
-		b, err := json.Marshal(v)
-		if err != nil || len(b) == 0 {
-			return map[string]any{}
-		}
-		var parsed any
-		if err := json.Unmarshal(b, &parsed); err != nil {
-			return map[string]any{}
-		}
-		obj, ok := parsed.(map[string]any)
-		if !ok {
-			return map[string]any{}
-		}
-		return obj
-	}
-}
-
-func normalizeGeminiFunctionArgsJSON(args any) string {
-	normalized := normalizeGeminiFunctionArgs(args)
-	b, err := json.Marshal(normalized)
-	if err != nil || len(b) == 0 {
-		return "{}"
-	}
-	return string(b)
 }
 
 func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
@@ -3368,11 +3232,6 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 							}
 						}
 					}
-				case "thinking":
-					// Drop Claude thinking blocks — Gemini does not consume Claude's
-					// thinking format. The default: path would serialize them as JSON
-					// text, which Gemini echoes back verbatim in its response, producing
-					// {"type":"thinking","signature":"..."} text visible to the caller.
 				default:
 					// best-effort: preserve unknown blocks as text
 					if b, err := json.Marshal(bm); err == nil {
@@ -3467,7 +3326,7 @@ func convertClaudeToolsToGeminiTools(tools any) []any {
 			}
 		}
 		// 清理 JSON Schema
-		cleanedParams := tkCleanToolSchema(params)
+		cleanedParams := cleanToolSchema(params)
 
 		funcDecls = append(funcDecls, map[string]any{
 			"name":        name,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -13,21 +12,6 @@ import (
 const (
 	opsAlertEvaluatorLeaderLockKeyDefault = "ops:alert:evaluator:leader"
 	opsAlertEvaluatorLeaderLockTTLDefault = 30 * time.Second
-	// opsAlertRateRuleMinSamplesDefault is the default minimum SLA-counted
-	// request count in a rule window below which ratio metrics (success_rate /
-	// error_rate / upstream_error_rate) are not evaluated. See
-	// OpsAlertRuntimeSettings.RateRuleMinSamples.
-	opsAlertRateRuleMinSamplesDefault     = 20
-	opsFeishuAlertRateLimitPerHourDefault = 3
-	opsFeishuAlertCooldownSecondsDefault  = 3600
-	// 账号失效事件「临时冷却」聚合摘要的默认 flush 间隔（秒）。
-	opsFeishuAccountIncidentDigestSecondsDefault = 600
-	// 缺价模型零成本流量聚合摘要的默认 flush 间隔（秒）。运营配置动作级别，
-	// 不是 P0 故障流，默认半小时。
-	opsFeishuPricingMissingDigestSecondsDefault = 1800
-	// 上游账号低余额主动告警的默认触发阈值（人民币）。开箱即可工作；运营可在
-	// ops 通知设置里上调。
-	opsFeishuUpstreamBalanceLowThresholdCNYDefault = 50.0
 )
 
 // =========================
@@ -108,10 +92,6 @@ func (s *OpsService) UpdateEmailNotificationConfig(ctx context.Context, req *Ops
 		cfg.Report.AccountHealthErrorRateThreshold = req.Report.AccountHealthErrorRateThreshold
 	}
 
-	if req.Feishu != nil {
-		updateOpsFeishuAlertConfig(&cfg.Feishu, req.Feishu)
-	}
-
 	if err := validateOpsEmailNotificationConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -151,7 +131,6 @@ func defaultOpsEmailNotificationConfig() *OpsEmailNotificationConfig {
 			AccountHealthSchedule:           "0 9 * * *",
 			AccountHealthErrorRateThreshold: 10.0,
 		},
-		Feishu: defaultOpsFeishuAlertConfig(),
 	}
 }
 
@@ -171,7 +150,6 @@ func normalizeOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) {
 	cfg.Report.WeeklySummarySchedule = strings.TrimSpace(cfg.Report.WeeklySummarySchedule)
 	cfg.Report.ErrorDigestSchedule = strings.TrimSpace(cfg.Report.ErrorDigestSchedule)
 	cfg.Report.AccountHealthSchedule = strings.TrimSpace(cfg.Report.AccountHealthSchedule)
-	normalizeOpsFeishuAlertConfig(&cfg.Feishu)
 
 	// Fill missing schedules with defaults to avoid breaking cron logic if clients send empty strings.
 	if cfg.Report.DailySummarySchedule == "" {
@@ -193,8 +171,6 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 		return errors.New("invalid config")
 	}
 
-	normalizeOpsEmailNotificationConfig(cfg)
-
 	if cfg.Alert.RateLimitPerHour < 0 {
 		return errors.New("alert.rate_limit_per_hour must be >= 0")
 	}
@@ -213,127 +189,7 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 	if cfg.Report.AccountHealthErrorRateThreshold < 0 || cfg.Report.AccountHealthErrorRateThreshold > 100 {
 		return errors.New("report.account_health_error_rate_threshold must be between 0 and 100")
 	}
-	if err := validateOpsFeishuAlertConfig(cfg.Feishu); err != nil {
-		return err
-	}
 	return nil
-}
-
-func defaultOpsFeishuAlertConfig() OpsFeishuAlertConfig {
-	return OpsFeishuAlertConfig{
-		Enabled:                        false,
-		RateLimitPerHour:               opsFeishuAlertRateLimitPerHourDefault,
-		CooldownSeconds:                opsFeishuAlertCooldownSecondsDefault,
-		AccountIncidentDigestSeconds:   opsFeishuAccountIncidentDigestSecondsDefault,
-		PricingMissingDigestSeconds:    opsFeishuPricingMissingDigestSecondsDefault,
-		UpstreamBalanceLowThresholdCNY: opsFeishuUpstreamBalanceLowThresholdCNYDefault,
-	}
-}
-
-func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertConfig) {
-	if dst == nil || req == nil {
-		return
-	}
-	dst.Enabled = req.Enabled
-	if strings.TrimSpace(req.WebhookURL) != "" {
-		dst.WebhookURL = strings.TrimSpace(req.WebhookURL)
-	}
-	if strings.TrimSpace(req.SigningSecret) != "" {
-		dst.SigningSecret = strings.TrimSpace(req.SigningSecret)
-	}
-	dst.RateLimitPerHour = req.RateLimitPerHour
-	dst.CooldownSeconds = req.CooldownSeconds
-	// AccountIncidentDigestEnabled 是自愈摘要的显式开关（默认 false=关）。bool 没有
-	// "0=未提供"的回填歧义——零值 false 正是想要的默认，故无条件拷贝（同 dst.Enabled）。
-	// 旧客户端不发此键时解码为 false，正确落到默认关；这是有意为之，不是被旧 payload 抹掉。
-	dst.AccountIncidentDigestEnabled = req.AccountIncidentDigestEnabled
-	// 两个 digest-seconds 字段晚于原始契约加入：早于它们的客户端发的"完整"
-	// feishu payload 不含这些键（解码为 0），而 validate 先于 normalize 执行——
-	// 无条件拷贝会让 0 覆盖存量值并使整个更新 400。0 对这两个字段本就非法
-	// （下限 30），故按"0=未提供"保留存量值，不破坏既有客户端。
-	if req.AccountIncidentDigestSeconds != 0 {
-		dst.AccountIncidentDigestSeconds = req.AccountIncidentDigestSeconds
-	}
-	if req.PricingMissingDigestSeconds != 0 {
-		dst.PricingMissingDigestSeconds = req.PricingMissingDigestSeconds
-	}
-	// 同上「0=未提供」语义：阈值 0 既是早于本字段的客户端的缺省解码值，也不是合法
-	// 触发级别（normalize 会回填默认 50），故保留存量值，不被旧 payload 抹零。
-	if req.UpstreamBalanceLowThresholdCNY != 0 {
-		dst.UpstreamBalanceLowThresholdCNY = req.UpstreamBalanceLowThresholdCNY
-	}
-}
-
-func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
-	if cfg == nil {
-		return
-	}
-	cfg.WebhookURL = strings.TrimSpace(cfg.WebhookURL)
-	cfg.SigningSecret = strings.TrimSpace(cfg.SigningSecret)
-	cfg.WebhookURLConfigured = cfg.WebhookURL != ""
-	cfg.SigningSecretConfigured = cfg.SigningSecret != ""
-	if cfg.RateLimitPerHour == 0 {
-		cfg.RateLimitPerHour = opsFeishuAlertRateLimitPerHourDefault
-	}
-	if cfg.CooldownSeconds == 0 {
-		cfg.CooldownSeconds = opsFeishuAlertCooldownSecondsDefault
-	}
-	if cfg.AccountIncidentDigestSeconds == 0 {
-		cfg.AccountIncidentDigestSeconds = opsFeishuAccountIncidentDigestSecondsDefault
-	}
-	if cfg.PricingMissingDigestSeconds == 0 {
-		cfg.PricingMissingDigestSeconds = opsFeishuPricingMissingDigestSecondsDefault
-	}
-	if cfg.UpstreamBalanceLowThresholdCNY == 0 {
-		cfg.UpstreamBalanceLowThresholdCNY = opsFeishuUpstreamBalanceLowThresholdCNYDefault
-	}
-}
-
-func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
-	if cfg.Enabled && strings.TrimSpace(cfg.WebhookURL) == "" {
-		return errors.New("feishu.webhook_url must be configured when feishu alerts are enabled")
-	}
-	if cfg.WebhookURL != "" && !isValidOpsFeishuWebhookURL(cfg.WebhookURL) {
-		return errors.New("feishu.webhook_url must be an https URL")
-	}
-	if cfg.RateLimitPerHour < 1 || cfg.RateLimitPerHour > 24 {
-		return errors.New("feishu.rate_limit_per_hour must be between 1 and 24")
-	}
-	if cfg.CooldownSeconds < 60 || cfg.CooldownSeconds > 86400 {
-		return errors.New("feishu.cooldown_seconds must be between 60 and 86400")
-	}
-	if cfg.AccountIncidentDigestSeconds < 30 || cfg.AccountIncidentDigestSeconds > 86400 {
-		return errors.New("feishu.account_incident_digest_seconds must be between 30 and 86400")
-	}
-	if cfg.PricingMissingDigestSeconds < 30 || cfg.PricingMissingDigestSeconds > 86400 {
-		return errors.New("feishu.pricing_missing_digest_seconds must be between 30 and 86400")
-	}
-	// 阈值是正向触发级别（人民币）；normalize 已把 0 回填为默认，故此处不接受非正值。
-	// 上限给一个宽松的现实护栏，挡住明显误填。
-	if cfg.UpstreamBalanceLowThresholdCNY < 1 || cfg.UpstreamBalanceLowThresholdCNY > 1000000 {
-		return errors.New("feishu.upstream_balance_low_threshold_cny must be between 1 and 1000000")
-	}
-	return nil
-}
-
-func isValidOpsFeishuWebhookURL(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return false
-	}
-	return parsed.Scheme == "https" && parsed.Host != ""
-}
-
-func (c *OpsEmailNotificationConfig) ForResponse() *OpsEmailNotificationConfig {
-	if c == nil {
-		return nil
-	}
-	out := *c
-	out.Feishu.WebhookURLConfigured = strings.TrimSpace(out.Feishu.WebhookURL) != "" || out.Feishu.WebhookURLConfigured
-	out.Feishu.SigningSecretConfigured = strings.TrimSpace(out.Feishu.SigningSecret) != "" || out.Feishu.SigningSecretConfigured
-	out.Feishu.WebhookURL = ""
-	out.Feishu.SigningSecret = ""
-	return &out
 }
 
 // =========================
@@ -343,7 +199,6 @@ func (c *OpsEmailNotificationConfig) ForResponse() *OpsEmailNotificationConfig {
 func defaultOpsAlertRuntimeSettings() *OpsAlertRuntimeSettings {
 	return &OpsAlertRuntimeSettings{
 		EvaluationIntervalSeconds: 60,
-		RateRuleMinSamples:        opsAlertRateRuleMinSamplesDefault,
 		DistributedLock: OpsDistributedLockSettings{
 			Enabled:    true,
 			Key:        opsAlertEvaluatorLeaderLockKeyDefault,
@@ -449,11 +304,6 @@ func (s *OpsService) GetOpsAlertRuntimeSettings(ctx context.Context) (*OpsAlertR
 	if cfg.EvaluationIntervalSeconds <= 0 {
 		cfg.EvaluationIntervalSeconds = defaultCfg.EvaluationIntervalSeconds
 	}
-	// 0 / missing on a legacy settings row → fill the default floor so the
-	// false-P0 guard applies without requiring operators to re-save settings.
-	if cfg.RateRuleMinSamples <= 0 {
-		cfg.RateRuleMinSamples = defaultCfg.RateRuleMinSamples
-	}
 	normalizeOpsDistributedLockSettings(&cfg.DistributedLock, opsAlertEvaluatorLeaderLockKeyDefault, defaultCfg.DistributedLock.TTLSeconds)
 	normalizeOpsAlertSilencingSettings(&cfg.Silencing)
 
@@ -474,9 +324,6 @@ func (s *OpsService) UpdateOpsAlertRuntimeSettings(ctx context.Context, cfg *Ops
 	if cfg.EvaluationIntervalSeconds < 1 || cfg.EvaluationIntervalSeconds > int((24*time.Hour).Seconds()) {
 		return nil, errors.New("evaluation_interval_seconds must be between 1 and 86400")
 	}
-	if cfg.RateRuleMinSamples < 0 || cfg.RateRuleMinSamples > 1_000_000 {
-		return nil, errors.New("rate_rule_min_samples must be between 0 and 1000000")
-	}
 	if cfg.DistributedLock.Enabled {
 		if err := validateOpsDistributedLockSettings(cfg.DistributedLock); err != nil {
 			return nil, err
@@ -489,9 +336,6 @@ func (s *OpsService) UpdateOpsAlertRuntimeSettings(ctx context.Context, cfg *Ops
 	}
 
 	defaultCfg := defaultOpsAlertRuntimeSettings()
-	if cfg.RateRuleMinSamples <= 0 {
-		cfg.RateRuleMinSamples = defaultCfg.RateRuleMinSamples
-	}
 	normalizeOpsDistributedLockSettings(&cfg.DistributedLock, opsAlertEvaluatorLeaderLockKeyDefault, defaultCfg.DistributedLock.TTLSeconds)
 	normalizeOpsAlertSilencingSettings(&cfg.Silencing)
 
@@ -543,8 +387,6 @@ func normalizeOpsAdvancedSettings(cfg *OpsAdvancedSettings) {
 	}
 	cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold5h = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold5h)
 	cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold7d = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold7d)
-	cfg.OpenAIAccountQuotaAutoPause.WindowStickyThreshold = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.WindowStickyThreshold)
-	cfg.OpenAIAccountQuotaAutoPause.WindowStickyReserve = clampOpsQuotaAutoPauseThreshold(cfg.OpenAIAccountQuotaAutoPause.WindowStickyReserve)
 	cfg.DataRetention.CleanupSchedule = strings.TrimSpace(cfg.DataRetention.CleanupSchedule)
 	if cfg.DataRetention.CleanupSchedule == "" {
 		cfg.DataRetention.CleanupSchedule = opsCleanupDefaultSchedule

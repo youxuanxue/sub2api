@@ -120,10 +120,6 @@ type UserRepository interface {
 	UpdateTotpSecret(ctx context.Context, userID int64, encryptedSecret *string) error
 	EnableTotp(ctx context.Context, userID int64) error
 	DisableTotp(ctx context.Context, userID int64) error
-
-	// MarkOnboardingTourSeen 写入 users.onboarding_tour_seen_at = NOW() 一次（幂等：
-	// 已设置过的用户不会再被覆盖，避免刷新 dashboard 误以为又看了一次）。见 US-031 AC-007。
-	MarkOnboardingTourSeen(ctx context.Context, userID int64) error
 }
 
 type UserAuthIdentityRecord struct {
@@ -1193,7 +1189,7 @@ func saveNotifyVerifyCode(ctx context.Context, cache EmailCache, email, code str
 
 // sendNotifyVerifyEmail builds and sends the verification email.
 func (s *UserService) sendNotifyVerifyEmail(ctx context.Context, emailService *EmailService, userID int64, email, code, locale string) error {
-	siteName := "TokenKey"
+	siteName := "Sub2API"
 	if s.settingRepo != nil {
 		if name, err := s.settingRepo.GetValue(ctx, SettingKeySiteName); err == nil && name != "" {
 			siteName = name

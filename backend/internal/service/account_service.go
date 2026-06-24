@@ -17,7 +17,6 @@ var (
 
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
-const AccountListPlatformKiroStubFilter = "__kiro_stub__"
 
 type AccountRepository interface {
 	Create(ctx context.Context, account *Account) error
@@ -76,18 +75,6 @@ type AccountRepository interface {
 	UpdateSessionWindowEnd(ctx context.Context, id int64, end time.Time) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
-
-	// SumConcurrencyAnthropic returns Σ concurrency for all anthropic rows (oauth + apikey,
-	// excluding non-Anthropic platforms and soft-deleted accounts). Matches edge apply injection.
-	SumConcurrencyAnthropic(ctx context.Context) (int64, error)
-	// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
-	// accounts in the named group (surface-C: edge capacity counts only the default group).
-	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
-	// SumConcurrencyByPlatform returns Σ concurrency for schedulable accounts of the
-	// given platform across all groups (surface-C: edge capacity for non-anthropic
-	// pools — e.g. kiro — where the edge is single-pool-per-platform and the
-	// anthropic "default"-group scoping does not apply).
-	SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
 	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0
@@ -190,11 +177,6 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		account.AutoPauseOnExpired = true
 	}
 
-	// newapi 多 vendor 平台账号必须声明非空 model_mapping(不变量;见 account_service_tk_newapi_mapping.go)。
-	if err := validateNewapiAccountModelMapping(account.Platform, account.Credentials); err != nil {
-		return nil, err
-	}
-
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("create account: %w", err)
 	}
@@ -258,16 +240,6 @@ func (s *AccountService) ListByGroup(ctx context.Context, groupID int64) ([]Acco
 	return accounts, nil
 }
 
-// ListSchedulableByGroupID 返回分组下当前可被调度的账号（active + schedulable + 未在临时不可调度窗口）。
-// 与 ListByGroup 的区别：后者返回全部状态，前者贴近调度器视角。
-func (s *AccountService) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error) {
-	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, groupID)
-	if err != nil {
-		return nil, fmt.Errorf("list schedulable accounts by group: %w", err)
-	}
-	return accounts, nil
-}
-
 // Update 更新账号
 func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccountRequest) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
@@ -316,15 +288,6 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *req.GroupIDs); err != nil {
-			return nil, err
-		}
-	}
-
-	// newapi 多 vendor 平台账号必须声明非空 model_mapping(不变量;见 account_service_tk_newapi_mapping.go)。
-	// 仅在本次更新**设置了 credentials** 时校验:避免对存量空映射账号(如未修复的 grok 账号 65)
-	// 的无关字段编辑(改 priority/notes 等)误拦——存量违例由 ops 审计 + 路由层兜底。
-	if req.Credentials != nil {
-		if err := validateNewapiAccountModelMapping(account.Platform, account.Credentials); err != nil {
 			return nil, err
 		}
 	}

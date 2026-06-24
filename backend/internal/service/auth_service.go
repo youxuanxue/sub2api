@@ -75,10 +75,6 @@ type AuthService struct {
 	affiliateService      *AffiliateService
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
-	// TokenKey: trial-key issuer is wired post-construction via SetTrialKeyIssuer
-	// to avoid a circular ctor dep with APIKeyService. See
-	// auth_service_tk_trial_key.go and US-030.
-	trialKeyIssuer TrialKeyIssuer
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -213,16 +209,12 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
 	}
 
-	// TokenKey US-029: bake signup bonus into INSERT-time balance.
-	// Returns (default+bonus, bonus); bonus is logged best-effort post-Create.
-	totalBalance, bonusUSD := s.applySignupBonusUSD(ctx, grantPlan.Balance)
-
 	// 创建用户
 	user := &User{
 		Email:        email,
 		PasswordHash: hashedPassword,
 		Role:         RoleUser,
-		Balance:      totalBalance,
+		Balance:      grantPlan.Balance,
 		Concurrency:  grantPlan.Concurrency,
 		RPMLimit:     defaultRPMLimit,
 		Status:       StatusActive,
@@ -251,10 +243,6 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 			}
 		}
 	}
-
-	// TokenKey US-029 / US-030: cold-start post-Create hooks (audit log + trial key).
-	// Best-effort and isolated in a single _tk_ helper to keep this file close to upstream.
-	s.tkApplyColdStartPostCreate(ctx, user.ID, bonusUSD, signupBonusSourceEmail)
 
 	// 标记邀请码为已使用（如果使用了邀请码）
 	if invitationRedeemCode != nil {
@@ -320,7 +308,7 @@ func (s *AuthService) SendVerifyCode(ctx context.Context, email string, locale .
 	}
 
 	// 获取网站名称
-	siteName := "TokenKey"
+	siteName := "Sub2API"
 	if s.settingService != nil {
 		siteName = s.settingService.GetSiteName(ctx)
 	}
@@ -363,7 +351,7 @@ func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, loc
 	}
 
 	// 获取网站名称
-	siteName := "TokenKey"
+	siteName := "Sub2API"
 	if s.settingService != nil {
 		siteName = s.settingService.GetSiteName(ctx)
 	}
@@ -486,14 +474,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 //
 // 注意：该函数用于 LinuxDo OAuth 登录场景（不同于上游账号的 OAuth，例如 Claude/OpenAI/Gemini）。
 // 为了满足现有数据库约束（需要密码哈希），新用户会生成随机密码并进行哈希保存。
-//
-// TK-DEADCODE-NOTE (US-029 / US-030): No active caller — all OAuth handlers
-// (auth_oidc_oauth.go / auth_linuxdo_oauth.go) route through
-// LoginOrRegisterOAuthWithTokenPair, which carries the signup-bonus +
-// trial-key hooks. If you wire this function to a new caller, MUST add the
-// same `applySignupBonusUSD` + `logSignupBonusCredited` +
-// `issueTrialKeyIfEnabled` calls as the WithTokenPair variant, or new users
-// from that path will silently miss bonus + trial key.
 func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username string) (string, *User, error) {
 	email = strings.TrimSpace(email)
 	if email == "" || len(email) > 255 {
@@ -682,15 +662,12 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
 			}
 
-			// TokenKey US-029: bake signup bonus into INSERT-time balance for OAuth path.
-			totalBalance, bonusUSD := s.applySignupBonusUSD(ctx, grantPlan.Balance)
-
 			newUser := &User{
 				Email:        email,
 				Username:     username,
 				PasswordHash: hashedPassword,
 				Role:         RoleUser,
-				Balance:      totalBalance,
+				Balance:      grantPlan.Balance,
 				Concurrency:  grantPlan.Concurrency,
 				RPMLimit:     defaultRPMLimit,
 				Status:       StatusActive,
@@ -759,15 +736,6 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						}
 					}
 				}
-			}
-
-			// TokenKey US-029 / US-030: cold-start post-Create hooks (audit log + trial key).
-			// Fire only when this branch actually inserted the user — `user == newUser`
-			// is the established invariant set by both Tx and non-Tx success paths above;
-			// email-conflict races reassign `user` to the existing row, so the pointer
-			// comparison naturally short-circuits without needing a tracking bool.
-			if user == newUser {
-				s.tkApplyColdStartPostCreate(ctx, user.ID, bonusUSD, signupBonusSourceOAuth)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
@@ -1342,7 +1310,7 @@ func (s *AuthService) preparePasswordReset(ctx context.Context, email, frontendB
 	}
 
 	// Get site name
-	siteName := "TokenKey"
+	siteName := "Sub2API"
 	if s.settingService != nil {
 		siteName = s.settingService.GetSiteName(ctx)
 	}
@@ -1612,16 +1580,11 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrTokenRevoked
 	}
 
-	// TK: 已轮转的 token：宽限窗口内的并发/重复刷新幂等重发，超窗口按真正的重放处理。
-	// 放在 active/version 安全校验之后，确保被禁用/改密的账号仍会在上面被撤销。
-	// 详见 auth_service_tk_refresh_grace.go。
-	if data.RotatedAt != nil {
-		return s.tkRefreshRotatedWithinGrace(ctx, user, data)
+	// Token轮转：立即使旧Token失效
+	if err := s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash); err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] Failed to delete old refresh token: %v", err)
+		// 继续处理，不影响主流程
 	}
-
-	// Token轮转：标记旧Token已轮转并保留极短宽限窗口（替代立即硬删），让宽限期内的
-	// 并发刷新走上面的幂等分支，而非被误判为重放攻击。窗口后由 Redis TTL 自动失效。
-	s.tkMarkRotatedWithGrace(ctx, tokenHash, data)
 
 	// 生成新的Token对，保持同一个家族ID
 	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)

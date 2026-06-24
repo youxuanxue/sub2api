@@ -2,14 +2,11 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -32,6 +29,8 @@ const (
 )
 
 const (
+	// maxSameAccountRetries 同账号重试次数上限（针对 RetryableOnSameAccount 错误）
+	maxSameAccountRetries = 3
 	// sameAccountRetryDelay 同账号重试间隔
 	sameAccountRetryDelay = 500 * time.Millisecond
 	// singleAccountBackoffDelay 单账号分组 503 退避重试固定延时。
@@ -63,23 +62,13 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。
 // 包含：缓存计费判断、同账号重试、临时封禁、切换计数、Antigravity 延时。
-//
-// sameAccountRetryLimit 是本账号的同账号 retry 上限。生产路径应传
-// account.GetPoolModeRetryCount()（pool_mode 账号读 credentials.pool_mode_retry_count，
-// 非 pool_mode 返回 defaultPoolModeRetryCount=3）。传 0 表示"不允许同账号 retry，
-// 立即 failover"——这是 UI hint 承诺的语义（i18n: "0 = 不原地重试"）。负数同样
-// 视为 0；不做隐式升值，避免运维显式禁用 retry 时被悄悄改成 1 次。
 func (s *FailoverState) HandleFailoverError(
 	ctx context.Context,
 	gatewayService TempUnscheduler,
 	accountID int64,
 	platform string,
-	sameAccountRetryLimit int,
 	failoverErr *service.UpstreamFailoverError,
 ) FailoverAction {
-	if sameAccountRetryLimit < 0 {
-		sameAccountRetryLimit = 0
-	}
 	s.LastFailoverErr = failoverErr
 
 	// 缓存计费判断
@@ -87,42 +76,14 @@ func (s *FailoverState) HandleFailoverError(
 		s.ForceCacheBilling = true
 	}
 
-	// TK fail-fast: 上游 403 且响应体不是结构化错误 JSON（任何 platform shape）→
-	// 视为"请求级"失败（典型场景：claude-cli 大 body 被 Cloudflare/WAF 拦截，
-	// 上游边缘网关直接 403 + 空 body 或 HTML 错误页），切账号无用，直接
-	// FailoverExhausted。
-	//
-	// 判定 looksLikeStructuredErrorJSON 兼容三家 shape：
-	//   - anthropic: {"type":"error","error":{...}}
-	//   - openai:    {"error":{"message":"...","type":"...","code":"..."}}
-	//   - gemini:    {"error":{"code":403,"message":"...","status":"..."}}
-	// 任何 platform 的结构化 JSON 错误都视为账号级问题（key 失效 / 账号被封 /
-	// scope 越界），走原 failover 切其他账号。只有非 JSON / 空 body 才视为
-	// 请求级 cloudflare 拦截。
-	//
-	// 不调用 TempUnscheduleRetryableError（403 非 transient），不递增 SwitchCount
-	// （避免日志噪声 + 给 us1 这种单 schedulable 账号场景节省 retry 预算）。
-	// 仍把账号加入 FailedAccountIDs，防止上层 retry loop 立刻再选回同账号。
-	// 详见排查记录：account_id=1 (cc-am-or-ec2-5-1-b) 上 10 次 403 全部 ResponseBody 空。
-	if failoverErr.StatusCode == http.StatusForbidden && !looksLikeStructuredErrorJSON(failoverErr.ResponseBody) {
-		logger.FromContext(ctx).Warn("gateway.failover_forbidden_fail_fast",
-			zap.Int64("account_id", accountID),
-			zap.String("platform", platform),
-			zap.Int("upstream_status", failoverErr.StatusCode),
-			zap.Int("response_body_bytes", len(failoverErr.ResponseBody)),
-		)
-		s.FailedAccountIDs[accountID] = struct{}{}
-		return FailoverExhausted
-	}
-
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
-	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit {
+	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < maxSameAccountRetries {
 		s.SameAccountRetryCount[accountID]++
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
 			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
-			zap.Int("same_account_retry_max", sameAccountRetryLimit),
+			zap.Int("same_account_retry_max", maxSameAccountRetries),
 		)
 		if !sleepWithContext(ctx, sameAccountRetryDelay) {
 			return FailoverCanceled
@@ -164,22 +125,18 @@ func (s *FailoverState) HandleFailoverError(
 }
 
 // HandleSelectionExhausted 处理选号失败（所有候选账号都在排除列表中）时的退避重试决策。
-// 清除排除列表、等待退避后重新选号。两种触发场景：
-//   - Antigravity 单账号分组的 503 (MODEL_CAPACITY_EXHAUSTED)（LastFailoverErr 为 503）。
-//   - thinPoolExcluded：选号返回 service.ErrThinPoolAllExcluded —— 薄池（单账号）仅因
-//     本请求 failover 排除了一个健康账号（上游瞬时抖动，无冷却）而排空。此时退避重试该
-//     唯一账号，而不是把空池暴露成合成的 429。两者都受 MaxSwitches 约束
-//     （HandleFailoverError 每轮递增 SwitchCount），耗尽后调用方 surface LastFailoverErr。
+// 针对 Antigravity 单账号分组的 503 (MODEL_CAPACITY_EXHAUSTED) 场景：
+// 清除排除列表、等待退避后重新选号。
 //
 // 返回 FailoverContinue 时，调用方应设置 SingleAccountRetry context 并 continue。
 // 返回 FailoverExhausted 时，调用方应返回错误响应。
 // 返回 FailoverCanceled 时，调用方应直接 return。
-func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolExcluded bool) FailoverAction {
-	retryable := thinPoolExcluded ||
-		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable)
-	if retryable && s.SwitchCount <= s.MaxSwitches {
+func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAction {
+	if s.LastFailoverErr != nil &&
+		s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable &&
+		s.SwitchCount <= s.MaxSwitches {
+
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_backoff",
-			zap.Bool("thin_pool_excluded", thinPoolExcluded),
 			zap.Duration("backoff_delay", singleAccountBackoffDelay),
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
@@ -188,7 +145,6 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolEx
 			return FailoverCanceled
 		}
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_retry",
-			zap.Bool("thin_pool_excluded", thinPoolExcluded),
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
 		)
@@ -215,35 +171,4 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 	case <-time.After(d):
 		return true
 	}
-}
-
-// looksLikeStructuredErrorJSON 判断上游 ResponseBody 是否为某种 platform 的结构化
-// 错误 JSON（anthropic / openai / gemini / TokenKey middleware 任一）。
-//
-// 兼容的错误 shape:
-//
-//   - anthropic: {"type":"error","error":{"type":"...","message":"..."}}
-//   - openai:    {"error":{"message":"...","type":"...","code":"..."}}
-//   - gemini:    {"error":{"code":403,"message":"...","status":"..."}}
-//   - tokenkey:  {"code":"INSUFFICIENT_BALANCE","message":"Insufficient account balance"}
-//     （prod stub → edge/api 节点 auth middleware 返回；账号级 billing/usage 错误，应 failover）
-//
-// 命中策略：有效 JSON 且顶层有 `error` 字段（object），或同时有非空 `code`+`message`
-// 字符串字段，即视为结构化错误，走原 failover 切账号路径。
-//
-// 任何其他形态（空 body、HTML、Cloudflare 错误页、纯文本、合法 JSON 但无上述字段）
-// 都视为"非结构化错误"，在 403 场景下触发 fail-fast。
-func looksLikeStructuredErrorJSON(body []byte) bool {
-	if len(body) == 0 {
-		return false
-	}
-	if !json.Valid(body) {
-		return false
-	}
-	if gjson.GetBytes(body, "error").IsObject() {
-		return true
-	}
-	code := strings.TrimSpace(gjson.GetBytes(body, "code").String())
-	msg := strings.TrimSpace(gjson.GetBytes(body, "message").String())
-	return code != "" && msg != ""
 }

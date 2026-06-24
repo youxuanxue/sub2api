@@ -237,7 +237,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -401,13 +401,6 @@ const handleDelete = async () => {
 
 watch(() => props.show, (isShow) => {
   if (isShow) {
-    loadAttributes()
-  }
-})
-
-// #900: lazy-mounted shown=true on first open — watch (no immediate) misses initial mount, so load here too.
-onMounted(() => {
-  if (props.show) {
     loadAttributes()
   }
 })

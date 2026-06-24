@@ -93,8 +93,6 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
-	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
-	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 }
 
 type LogConfig struct {
@@ -156,69 +154,6 @@ type UpdateConfig struct {
 	// 支持 http/https/socks5/socks5h 协议
 	// 例如: "http://127.0.0.1:7890", "socks5://127.0.0.1:1080"
 	ProxyURL string `mapstructure:"proxy_url"`
-}
-
-type QACaptureConfig struct {
-	Enabled           bool                   `mapstructure:"enabled"`
-	BodyMaxBytes      int                    `mapstructure:"body_max_bytes"`
-	OptInBodyMaxBytes int                    `mapstructure:"opt_in_body_max_bytes"`
-	RetentionDays     int                    `mapstructure:"retention_days"`
-	WorkerCount       int                    `mapstructure:"worker_count"`
-	QueueSize         int                    `mapstructure:"queue_size"`
-	Storage           QACaptureStorageConfig `mapstructure:"storage"`
-	// ExportStorage, when its driver is set, is a SEPARATE destination for the
-	// finished export ZIP (typically S3) so the large archive leaves the
-	// Postgres-shared data volume. Unset ⇒ exports reuse Storage (localfs). The
-	// daily auto-export cron + on-demand export both write here; capture blobs
-	// always use Storage.
-	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
-	// AutoExportEnabled turns on the daily per-(user,key) archive cron. Off by
-	// default; only meaningful once ExportStorage points at durable S3.
-	AutoExportEnabled bool `mapstructure:"auto_export_enabled"`
-}
-
-type QACaptureStorageConfig struct {
-	Driver          string `mapstructure:"driver"`
-	Endpoint        string `mapstructure:"endpoint"`
-	Region          string `mapstructure:"region"`
-	Bucket          string `mapstructure:"bucket"`
-	AccessKeyID     string `mapstructure:"access_key_id"`
-	SecretAccessKey string `mapstructure:"secret_access_key"`
-	Prefix          string `mapstructure:"prefix"`
-	ForcePathStyle  bool   `mapstructure:"force_path_style"`
-}
-
-// MediaStorageConfig configures the S3-compatible bucket the gateway uses for
-// generated-media offload. By default NEITHER image NOR video rehosts fresh
-// upstream results: results pass through (URLs unchanged, inline base64 delivered
-// once to the client), exactly like #944 made video do. The store stays wired
-// (when Driver+Bucket are set) for the legacy video re-presign fast path and for
-// the OPT-IN image offload below.
-//
-// ImageOffloadEnabled (default false) opts a deployment back into the old image
-// behavior: inline-base64 /v1/images responses are uploaded to S3 and returned as
-// short-lived presigned URLs instead of passing the bytes through. It is a
-// deliberate, explicit opt-in (env MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true) —
-// merely wiring a bucket no longer turns image rehosting on. Trade-off when off:
-// the gateway carries the image bytes inline once and the Studio keeps playback
-// browser-local (it does NOT make TokenKey an image CDN).
-//
-// Credentials: leave AccessKeyID/SecretAccessKey EMPTY on prod to use the
-// default AWS credential chain (the EC2 instance role) — no long-lived key. Set
-// them only for non-AWS / local S3-compatible stores. Driver empty ⇒ the store
-// is nil and all media passes through as inline base64.
-type MediaStorageConfig struct {
-	Driver          string `mapstructure:"driver"`
-	Endpoint        string `mapstructure:"endpoint"`
-	Region          string `mapstructure:"region"`
-	Bucket          string `mapstructure:"bucket"`
-	AccessKeyID     string `mapstructure:"access_key_id"`
-	SecretAccessKey string `mapstructure:"secret_access_key"`
-	Prefix          string `mapstructure:"prefix"`
-	ForcePathStyle  bool   `mapstructure:"force_path_style"`
-	// ImageOffloadEnabled opts back into S3 rehosting for generated images
-	// (default false = pass inline base64 through once, #944 parity with video).
-	ImageOffloadEnabled bool `mapstructure:"image_offload_enabled"`
 }
 
 type IdempotencyConfig struct {
@@ -749,35 +684,6 @@ const (
 	ImageConcurrencyOverflowModeWait   = "wait"
 )
 
-// UpstreamBodyGuardConfig TK: 上游大请求体软门禁规则（按 platform + model_prefix 匹配）。
-//
-// 背景：按客户端字节预拦是错误的代理指标。2026-06-13 复验 opus-4-7 与 opus-4-8 均能正常服务 >1MB 请求
-// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20 edge:us1
-// 单点观测）不再复现；Anthropic 侧超限是 413@32MB、403 属 permission/WAF 类，故旧 403 是 WAF/数据中心 IP
-// 的边缘条件而非稳定尺寸上限。**默认不再预填任何规则**（default off），改为依赖上游真实拒绝码（403/413）的
-// 反应式告警。本机制保留供运维按需配置（opt-in）：在 gateway.upstream_body_guards 显式配规则才生效。
-//
-// 匹配规则：
-//   - Platform 必须等于 account.Platform（如 "anthropic" / "openai" / "gemini"）。
-//   - ModelPrefix 用 strings.HasPrefix 匹配请求 model；空表示匹配该 platform 全部模型。
-//   - 多条规则按定义顺序匹配，**首条命中即生效**（后续规则忽略）。
-//
-// 阈值语义：
-//   - WarnBytes > 0：body 超过则记 INFO 日志（gateway.body_size_warn），不阻断请求。
-//   - RejectBytes > 0：body 超过则直接返回 413 + 可操作 hint，不再 forward。
-//   - 两者都 ≤ 0：该规则被禁用（用于显式覆盖默认）。
-//   - RejectBytes < WarnBytes 不被视为错误（warn 段无效但 reject 段仍生效）。
-type UpstreamBodyGuardConfig struct {
-	// Platform: 平台名（"anthropic" / "openai" / "gemini" 等），与 account.Platform 比较
-	Platform string `mapstructure:"platform"`
-	// ModelPrefix: 模型名前缀（strings.HasPrefix），空表示该 platform 所有模型
-	ModelPrefix string `mapstructure:"model_prefix"`
-	// WarnBytes: 超过则记 INFO 日志，0 或负值表示不 warn
-	WarnBytes int64 `mapstructure:"warn_bytes"`
-	// RejectBytes: 超过则 413 拒绝，0 或负值表示不 reject
-	RejectBytes int64 `mapstructure:"reject_bytes"`
-}
-
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
 	// 等待上游响应头的超时时间（秒），0表示无超时
@@ -819,9 +725,6 @@ type GatewayConfig struct {
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
 	ImageConcurrency ImageConcurrencyConfig `mapstructure:"image_concurrency"`
-	// UpstreamBodyGuards: TK 上游大请求体软门禁规则列表（按 platform + model_prefix 匹配）。
-	// 详见 UpstreamBodyGuardConfig 文档；空列表会在 load() 中填充默认 anthropic+opus-4-7 规则。
-	UpstreamBodyGuards []UpstreamBodyGuardConfig `mapstructure:"upstream_body_guards"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
 	// MaxIdleConns: 所有主机的最大空闲连接总数
@@ -859,15 +762,6 @@ type GatewayConfig struct {
 	ImageStreamKeepaliveInterval int `mapstructure:"image_stream_keepalive_interval"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
 	MaxLineSize int `mapstructure:"max_line_size"`
-
-	// ResponsesShortStreamBufferBytes: OpenAI Responses 透传流式的短流缓冲阈值（字节）。
-	// 见 upstream Wei-Shaw/sub2api#2245 的「可选防御性优化」：上游返回 HTTP 200 +
-	// text/event-stream，却在 response.completed 等终止事件前就 EOF 时，严格客户端会
-	// 报 "stream closed before response.completed"。本配置启用后，透传层会把首批正文
-	// 内容暂存到该字节窗口内再下发；若上游在窗口内提前 EOF 且未见终止事件，则触发
-	// failover（干净重试）而非把残缺的 200 短流下发给客户端。0 表示禁用（默认，保持
-	// 现有 prod 行为：preamble 事件仍会缓冲，正文内容仍逐行立即下发）。
-	ResponsesShortStreamBufferBytes int `mapstructure:"responses_short_stream_buffer_bytes"`
 
 	// 是否记录上游错误响应体摘要（避免输出请求内容）
 	LogUpstreamErrorBody bool `mapstructure:"log_upstream_error_body"`
@@ -1202,44 +1096,6 @@ type GatewaySchedulingConfig struct {
 	// 全量重建周期配置
 	// 全量重建周期（秒），0 表示禁用
 	FullRebuildIntervalSeconds int `mapstructure:"full_rebuild_interval_seconds"`
-
-	// RateLimitReaperIntervalSeconds 限流过期回收 reaper 周期（秒）。
-	// TK fix for upstream Wei-Shaw/sub2api#2538：账号 429 后调度快照会立即剔除该账号，
-	// 但限流过期时没有事件触发重建，账号最长要等到下一个 full_rebuild_interval_seconds tick
-	// 才回到快照（默认 5 分钟）。Reaper 周期性查询刚过期的账号并入 outbox account_changed
-	// 事件，让现有 outbox worker 自然完成重建。<=0 禁用 reaper goroutine（与
-	// FullRebuildIntervalSeconds 同语义）；viper.SetDefault 提供 5 秒默认。
-	RateLimitReaperIntervalSeconds int `mapstructure:"rate_limit_reaper_interval_seconds"`
-
-	// RateLimitReaperLookbackSeconds 限流回收 reaper 单次窗口回看长度（秒）。
-	// 用作首个 tick 之前 / wall-clock 跳跃后的安全窗口；正常运行时 reaper 会维护 lastTick
-	// 状态并使用 (lastTick, now] 精确扫描。0 使用默认 30 秒。
-	RateLimitReaperLookbackSeconds int `mapstructure:"rate_limit_reaper_lookback_seconds"`
-
-	// AnthropicConfigReconcilerIntervalSeconds 本机 Anthropic 配置自愈 reconciler 周期（秒）。
-	// 把 ops/anthropic 流水线的高频「安全项」写入下沉为每节点 in-process 自愈：operator Σ
-	// 并发对齐、prod 镜像 stub 的 pool_mode、edge operator 余额地板、surface-C 并发镜像；
-	// 单账号 tier 漂移仅 slog 上报不重写。<=0 禁用 reconciler goroutine；viper.SetDefault
-	// 提供 300 秒默认。仅写本部署自己的库。
-	AnthropicConfigReconcilerIntervalSeconds int `mapstructure:"anthropic_config_reconciler_interval_seconds"`
-
-	// AntigravityConfigReconcilerIntervalSeconds 本机 Antigravity 配置自愈 reconciler 周期（秒）。
-	// 把「antigravity 只服务 gemini」运营策略下沉为每节点 in-process 自愈：任何还能服务
-	// claude/gpt-oss 的 antigravity 账号（空 model_mapping 会回退到含 claude 的默认映射）会被
-	// 自动改写为 gemini-only model_mapping（claude 路由到 anthropic、gpt-oss 移出）。启动时立即
-	// 跑一次 + 周期自愈，覆盖当前账号/未来新建账号/漂移。<=0 禁用 reconciler goroutine；
-	// viper.SetDefault 提供 300 秒默认。仅写本部署自己的库（不改全局默认映射常量）。
-	AntigravityConfigReconcilerIntervalSeconds int `mapstructure:"antigravity_config_reconciler_interval_seconds"`
-
-	// AnthropicConfigReconcilerConcurrencyMirrorEnabled 开启 surface-C 并发镜像消费端
-	// （prod：经 HTTP 实时拉每个镜像 stub 指向的 edge capacity，把 stub.concurrency 收敛为
-	// edge 的 live Σschedulable）。真实作用于 prod 的镜像 stub；edge 无匹配 stub 时天然空转，
-	// 故作全局默认安全（新 edge 自动继承，无需逐节点配）。默认 true。
-	AnthropicConfigReconcilerConcurrencyMirrorEnabled bool `mapstructure:"anthropic_config_reconciler_concurrency_mirror_enabled"`
-
-	// AnthropicConfigReconcilerBalanceFloorEnabled 开启 edge operator（users.id=1）余额地板
-	// 自愈（余额 < 阈值则重置为默认值）。仅在 edge 部署开启。默认 false。
-	AnthropicConfigReconcilerBalanceFloorEnabled bool `mapstructure:"anthropic_config_reconciler_balance_floor_enabled"`
 }
 
 func (s *ServerConfig) Address() string {
@@ -1356,7 +1212,8 @@ type OpsCleanupConfig struct {
 	Schedule string `mapstructure:"schedule"`
 
 	// Retention days (0 disables that cleanup target).
-	SystemLogRetentionDays     int `mapstructure:"system_log_retention_days"`
+	//
+	// vNext requirement: default 30 days across ops datasets.
 	ErrorLogRetentionDays      int `mapstructure:"error_log_retention_days"`
 	MinuteMetricsRetentionDays int `mapstructure:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
@@ -1410,15 +1267,6 @@ type DefaultConfig struct {
 type RateLimitConfig struct {
 	OverloadCooldownMinutes int `mapstructure:"overload_cooldown_minutes"`  // 529过载冷却时间(分钟)
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
-
-	// AnthropicErrorThreshold 控制 handleAnthropicUpstreamError 的 short-window
-	// 计数阈值（默认 3）。单账号 / 小拼车场景可调到 5–7 减少 Sonnet↔Opus 切换时的
-	// jitter 误触；零值或负值回退到内置默认。
-	AnthropicErrorThreshold int `mapstructure:"anthropic_error_threshold"`
-
-	// AnthropicErrorWindowMinutes 控制阈值短窗口长度（默认 1 分钟）。零值或负值
-	// 回退到内置默认。
-	AnthropicErrorWindowMinutes int `mapstructure:"anthropic_error_window_minutes"`
 }
 
 // APIKeyAuthCacheConfig API Key 认证缓存配置
@@ -1632,17 +1480,6 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 新键未配置（<=0）时回退旧键；新键优先。
 	if cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds <= 0 && cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds > 0 {
 		cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds = cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds
-	}
-
-	// TK: upstream body guards 默认 OFF——不再预填任何规则。
-	// 按客户端字节预拦是错误的代理指标：2026-06-13 复验 opus-4-7 与 opus-4-8 均能正常服务 >1MB 请求
-	// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20
-	// edge:us1 单点观测）不再复现；Anthropic 侧超限是 413@32MB、403 属 permission/WAF 类，故旧 403 是
-	// WAF/数据中心 IP 的边缘条件而非稳定尺寸上限。默认不再预拦，改为依赖上游真实拒绝码（403/413）的反应式
-	// 告警（见 ops_error_logs / edge-health）。机制保留供运维按需在 gateway.upstream_body_guards 配置。
-	for i := range cfg.Gateway.UpstreamBodyGuards {
-		cfg.Gateway.UpstreamBodyGuards[i].Platform = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].Platform)
-		cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix)
 	}
 
 	// Normalize UMQ mode: 白名单校验，非法值在加载时一次性 warn 并清空
@@ -1887,8 +1724,8 @@ func setDefaults() {
 	viper.SetDefault("ops.use_preaggregated_tables", true)
 	viper.SetDefault("ops.cleanup.enabled", true)
 	viper.SetDefault("ops.cleanup.schedule", "0 2 * * *")
-	viper.SetDefault("ops.cleanup.system_log_retention_days", 7)
-	viper.SetDefault("ops.cleanup.error_log_retention_days", 14)
+	// Retention days: vNext defaults to 30 days across ops datasets.
+	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
 	viper.SetDefault("ops.aggregation.enabled", true)
@@ -1898,7 +1735,7 @@ func setDefaults() {
 
 	// JWT
 	viper.SetDefault("jwt.secret", "")
-	viper.SetDefault("jwt.expire_hour", 1)
+	viper.SetDefault("jwt.expire_hour", 24)
 	viper.SetDefault("jwt.access_token_expire_minutes", 0) // 0 表示回退到 expire_hour
 	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
 	viper.SetDefault("jwt.refresh_window_minutes", 2)      // 过期前2分钟开始允许刷新
@@ -1919,8 +1756,6 @@ func setDefaults() {
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
-	viper.SetDefault("rate_limit.anthropic_error_threshold", 3)
-	viper.SetDefault("rate_limit.anthropic_error_window_minutes", 1)
 
 	// Pricing - 从 model-price-repo 同步模型定价和上下文窗口数据（固定到 commit，避免分支漂移）
 	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
@@ -1950,7 +1785,7 @@ func setDefaults() {
 	viper.SetDefault("dashboard_cache.enabled", true)
 	viper.SetDefault("dashboard_cache.key_prefix", "sub2api:")
 	viper.SetDefault("dashboard_cache.stats_fresh_ttl_seconds", 15)
-	viper.SetDefault("dashboard_cache.stats_ttl_seconds", 300)
+	viper.SetDefault("dashboard_cache.stats_ttl_seconds", 30)
 	viper.SetDefault("dashboard_cache.stats_refresh_timeout_seconds", 30)
 
 	// Dashboard aggregation
@@ -1982,51 +1817,6 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_interval_seconds", 60)
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
-	// QA capture
-	viper.SetDefault("qa_capture.enabled", true)
-	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
-	// traj/synth opt-in 记录用更高上限，避免长 thinking 被截断。
-	viper.SetDefault("qa_capture.opt_in_body_max_bytes", 1024*1024)
-	viper.SetDefault("qa_capture.retention_days", 1)
-	viper.SetDefault("qa_capture.worker_count", 8)
-	viper.SetDefault("qa_capture.queue_size", 2048)
-	viper.SetDefault("qa_capture.storage.driver", "localfs")
-	viper.SetDefault("qa_capture.storage.endpoint", "")
-	viper.SetDefault("qa_capture.storage.region", "auto")
-	viper.SetDefault("qa_capture.storage.bucket", "")
-	viper.SetDefault("qa_capture.storage.access_key_id", "")
-	viper.SetDefault("qa_capture.storage.secret_access_key", "")
-	viper.SetDefault("qa_capture.storage.prefix", "qa_blobs")
-	viper.SetDefault("qa_capture.storage.force_path_style", false)
-	// export_storage is the SEPARATE destination for finished export ZIPs
-	// (typically durable S3, so downloads are presigned-direct off the box rather
-	// than streamed through the gateway). These defaults are required so viper's
-	// AutomaticEnv binds the QA_CAPTURE_EXPORT_STORAGE_* env overrides — without a
-	// known key viper never reads the env, and an empty driver keeps the current
-	// behavior (export ZIPs fall back to the capture store / localfs).
-	viper.SetDefault("qa_capture.export_storage.driver", "")
-	viper.SetDefault("qa_capture.export_storage.endpoint", "")
-	viper.SetDefault("qa_capture.export_storage.region", "")
-	viper.SetDefault("qa_capture.export_storage.bucket", "")
-	viper.SetDefault("qa_capture.export_storage.access_key_id", "")
-	viper.SetDefault("qa_capture.export_storage.secret_access_key", "")
-	viper.SetDefault("qa_capture.export_storage.prefix", "")
-	viper.SetDefault("qa_capture.export_storage.force_path_style", false)
-
-	// media_storage.* has no struct default, so pin viper keys here to enable
-	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).
-	viper.SetDefault("media_storage.driver", "")
-	viper.SetDefault("media_storage.endpoint", "")
-	viper.SetDefault("media_storage.region", "")
-	viper.SetDefault("media_storage.bucket", "")
-	viper.SetDefault("media_storage.access_key_id", "")
-	viper.SetDefault("media_storage.secret_access_key", "")
-	viper.SetDefault("media_storage.prefix", "")
-	viper.SetDefault("media_storage.force_path_style", false)
-	// Default false = images pass inline base64 through once (no S3 rehost),
-	// #944 parity with video. Opt back in with MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true.
-	viper.SetDefault("media_storage.image_offload_enabled", false)
-
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
@@ -2038,7 +1828,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
-	viper.SetDefault("gateway.responses_short_stream_buffer_bytes", 0)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2141,13 +1930,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.outbox_lag_rebuild_failures", 3)
 	viper.SetDefault("gateway.scheduling.outbox_backlog_rebuild_rows", 10000)
 	viper.SetDefault("gateway.scheduling.full_rebuild_interval_seconds", 300)
-	// TK fix for upstream Wei-Shaw/sub2api#2538 — see SchedulingConfig.RateLimitReaper* docs.
-	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
-	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
-	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_interval_seconds", 300)
-	viper.SetDefault("gateway.scheduling.antigravity_config_reconciler_interval_seconds", 300)
-	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", true)
-	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_balance_floor_enabled", false)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)
@@ -2662,23 +2444,6 @@ func (c *Config) Validate() error {
 	if c.Idempotency.CleanupBatchSize <= 0 {
 		return fmt.Errorf("idempotency.cleanup_batch_size must be positive")
 	}
-	if c.QACapture.BodyMaxBytes <= 0 {
-		return fmt.Errorf("qa_capture.body_max_bytes must be positive")
-	}
-	if c.QACapture.RetentionDays <= 0 {
-		return fmt.Errorf("qa_capture.retention_days must be positive")
-	}
-	if c.QACapture.WorkerCount <= 0 {
-		return fmt.Errorf("qa_capture.worker_count must be positive")
-	}
-	if c.QACapture.QueueSize <= 0 {
-		return fmt.Errorf("qa_capture.queue_size must be positive")
-	}
-	switch strings.ToLower(strings.TrimSpace(c.QACapture.Storage.Driver)) {
-	case "", "localfs", "s3":
-	default:
-		return fmt.Errorf("qa_capture.storage.driver must be one of: localfs/s3")
-	}
 	if c.Gateway.MaxBodySize <= 0 {
 		return fmt.Errorf("gateway.max_body_size must be positive")
 	}
@@ -2716,17 +2481,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ImageConcurrency.MaxWaitingRequests < 0 {
 		return fmt.Errorf("gateway.image_concurrency.max_waiting_requests must be non-negative")
-	}
-	for i, guard := range c.Gateway.UpstreamBodyGuards {
-		if strings.TrimSpace(guard.Platform) == "" {
-			return fmt.Errorf("gateway.upstream_body_guards[%d].platform is required", i)
-		}
-		if guard.WarnBytes < 0 {
-			return fmt.Errorf("gateway.upstream_body_guards[%d].warn_bytes must be non-negative", i)
-		}
-		if guard.RejectBytes < 0 {
-			return fmt.Errorf("gateway.upstream_body_guards[%d].reject_bytes must be non-negative", i)
-		}
 	}
 	if c.Gateway.MaxIdleConns <= 0 {
 		return fmt.Errorf("gateway.max_idle_conns must be positive")
@@ -3036,13 +2790,6 @@ func (c *Config) Validate() error {
 	if c.Gateway.Scheduling.FullRebuildIntervalSeconds < 0 {
 		return fmt.Errorf("gateway.scheduling.full_rebuild_interval_seconds must be non-negative")
 	}
-	// TK fix for upstream Wei-Shaw/sub2api#2538: validate reaper knobs. Negative
-	// interval explicitly disables the reaper goroutine; negative lookback is a
-	// misconfiguration because the runOnce path treats lookback as a positive
-	// fallback window when wall-clock jumps forward.
-	if c.Gateway.Scheduling.RateLimitReaperLookbackSeconds < 0 {
-		return fmt.Errorf("gateway.scheduling.rate_limit_reaper_lookback_seconds must be non-negative")
-	}
 	if c.Gateway.Scheduling.OutboxLagWarnSeconds > 0 &&
 		c.Gateway.Scheduling.OutboxLagRebuildSeconds > 0 &&
 		c.Gateway.Scheduling.OutboxLagRebuildSeconds < c.Gateway.Scheduling.OutboxLagWarnSeconds {
@@ -3053,9 +2800,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Ops.Cleanup.ErrorLogRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.error_log_retention_days must be non-negative")
-	}
-	if c.Ops.Cleanup.SystemLogRetentionDays < 0 {
-		return fmt.Errorf("ops.cleanup.system_log_retention_days must be non-negative")
 	}
 	if c.Ops.Cleanup.MinuteMetricsRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.minute_metrics_retention_days must be non-negative")

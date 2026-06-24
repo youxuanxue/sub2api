@@ -18,10 +18,7 @@ func RegisterAdminRoutes(
 ) {
 	admin := v1.Group("/admin")
 	admin.Use(gin.HandlerFunc(adminAuth))
-	// TK: compliance gate is setting-gated, default off (CLAUDE.md §5.x — fleet
-	// admin automation has no interactive ack step). Upstream guard runs as-is
-	// once tk_admin_compliance_gate_enabled=true.
-	admin.Use(middleware.TkAdminComplianceGuardIfEnabled(settingService))
+	admin.Use(middleware.AdminComplianceGuard(settingService))
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
@@ -89,20 +86,11 @@ func RegisterAdminRoutes(
 		// TLS 指纹模板管理
 		registerTLSFingerprintProfileRoutes(admin, h)
 
-		// TK: anthropic-oauth 稳定性档位（tier 模板）管理
-		registerTKTierTemplateRoutes(admin, h)
-
-		// TK: 跨 edge 只读账号总览
-		registerTKEdgeAccountsRoutes(admin, h)
-
 		// API Key 管理
 		registerAdminAPIKeyRoutes(admin, h)
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
-
-		// TokenKey New API admin helpers
-		registerTKAdminChannelRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -229,7 +217,6 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/dashboard/error-trend", h.Admin.Ops.GetDashboardErrorTrend)
 		ops.GET("/dashboard/error-distribution", h.Admin.Ops.GetDashboardErrorDistribution)
 		ops.GET("/dashboard/openai-token-stats", h.Admin.Ops.GetDashboardOpenAITokenStats)
-		ops.GET("/dashboard/failover-hop-stats", h.Admin.Ops.GetDashboardFailoverHopStats)
 	}
 }
 
@@ -275,9 +262,6 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// User attribute values
 		users.GET("/:id/attributes", h.Admin.UserAttribute.GetUserAttributes)
 		users.PUT("/:id/attributes", h.Admin.UserAttribute.UpdateUserAttributes)
-
-		// TK: Invite-to-Trial — one-step batch provisioning + 试用方案 presets.
-		registerTKInviteTrialRoutes(users, h)
 	}
 }
 
@@ -355,14 +339,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
-
-		// TK: per-account "Apply Tier" action (local deployment only). Kept in a
-		// *_tk_* companion so this file stays close to upstream shape.
-		registerTKAccountTierRoutes(accounts, h)
-
-		// TK: batch passive-usage endpoint that collapses the per-row /usage
-		// fan-out on the accounts list into a single request (companion file).
-		registerTKAccountUsageBatchRoutes(accounts, h)
 	}
 }
 
@@ -638,7 +614,6 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		channels.GET("", h.Admin.Channel.List)
 		channels.GET("/model-pricing", h.Admin.Channel.GetModelDefaultPricing)
-		registerTKAdminChannelNestedRoutes(channels, h)
 		channels.GET("/pricing/sync-models", h.Admin.Channel.SyncPricingModels)
 		channels.GET("/:id", h.Admin.Channel.GetByID)
 		channels.POST("", h.Admin.Channel.Create)

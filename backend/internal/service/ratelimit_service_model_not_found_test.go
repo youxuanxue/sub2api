@@ -106,30 +106,6 @@ func TestRateLimitService_HandleUpstreamError_Bare404KeepsTempUnschedulablePath(
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
-// TK (prod P0 2026-06-06, edge us5): the same model-not-found path on an
-// Anthropic account (requestedModel present → HandleUpstreamModelNotFound) must
-// NOT cool account×model — Anthropic's catalog is global, so a bad model name
-// 404s on every account and cooling drains the pool. OpenAI/newapi keep the
-// cooldown (TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit).
-func TestRateLimitService_HandleUpstreamError_AnthropicModelNotFoundSkipsModelRateLimit(t *testing.T) {
-	repo := &modelNotFoundAccountRepoStub{}
-	svc := &RateLimitService{accountRepo: repo}
-	account := &Account{ID: 77, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
-
-	handled := svc.HandleUpstreamError(
-		context.Background(),
-		account,
-		http.StatusNotFound,
-		http.Header{},
-		[]byte(`{"type":"error","error":{"type":"not_found_error","message":"model: opus not found"}}`),
-		"opus",
-	)
-
-	require.False(t, handled)
-	require.Empty(t, repo.modelRateLimitCalls)
-	require.Zero(t, repo.tempCalls)
-}
-
 func openAIModelNotFoundTempAccount() *Account {
 	return &Account{
 		ID:          101,

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1826,45 +1825,5 @@ func TestExtractProjectIDFromOnboardResponse(t *testing.T) {
 				t.Fatalf("extractProjectIDFromOnboardResponse() = %q, want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-// captureRT 记录最后一次出站请求并返回固定 200，用于断言隐私端点的出站头（指纹）。
-type captureRT struct{ got *http.Request }
-
-func (rt *captureRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	rt.got = req
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader("{}")),
-		Header:     make(http.Header),
-	}, nil
-}
-
-// 锁定 2026-06-13 on-wire 对齐：setUserSettings/fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，
-// 且 UA 用 `antigravity/hub/...` 形态——防 gl-node 被回填、防 UA 格式退回无 /hub/ 段。
-func TestPrivacyCalls_无GlNode且UA带hub(t *testing.T) {
-	rt := &captureRT{}
-	c := &Client{httpClient: &http.Client{Transport: rt}}
-	ctx := context.Background()
-
-	if _, err := c.SetUserSettings(ctx, "tok"); err != nil {
-		t.Fatalf("SetUserSettings: %v", err)
-	}
-	if v := rt.got.Header.Get("X-Goog-Api-Client"); v != "" {
-		t.Errorf("setUserSettings 不应发 X-Goog-Api-Client(gl-node)，got %q", v)
-	}
-	if ua := rt.got.Header.Get("User-Agent"); ua != GetUserAgent() || !strings.Contains(ua, "antigravity/hub/") {
-		t.Errorf("setUserSettings UA 应为 %q(含 /hub/)，got %q", GetUserAgent(), ua)
-	}
-
-	if _, err := c.FetchUserInfo(ctx, "tok", "proj"); err != nil {
-		t.Fatalf("FetchUserInfo: %v", err)
-	}
-	if v := rt.got.Header.Get("X-Goog-Api-Client"); v != "" {
-		t.Errorf("fetchUserInfo 不应发 X-Goog-Api-Client(gl-node)，got %q", v)
-	}
-	if ua := rt.got.Header.Get("User-Agent"); !strings.Contains(ua, "antigravity/hub/") {
-		t.Errorf("fetchUserInfo UA 应含 /hub/，got %q", ua)
 	}
 }

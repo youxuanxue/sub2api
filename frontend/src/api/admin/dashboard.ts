@@ -47,11 +47,6 @@ export async function getRealtimeMetrics(): Promise<{
 export interface TrendParams {
   start_date?: string
   end_date?: string
-  // TK: absolute epoch-ms window for rolling presets (timezone-independent).
-  // When present, the backend uses these verbatim and ignores the timezone-
-  // derived date expansion. See utils/dashboardWindow.tk.ts.
-  start_ts?: number
-  end_ts?: number
   granularity?: 'day' | 'hour'
   user_id?: number
   api_key_id?: number
@@ -241,7 +236,7 @@ export interface UserTrendResponse {
 }
 
 export interface UserSpendingRankingParams
-  extends Pick<TrendParams, 'start_date' | 'end_date' | 'start_ts' | 'end_ts'> {
+  extends Pick<TrendParams, 'start_date' | 'end_date'> {
   limit?: number
 }
 

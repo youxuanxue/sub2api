@@ -54,12 +54,6 @@ type Account struct {
 	SessionWindowEnd    *time.Time
 	SessionWindowStatus string
 
-	ChannelType int // New API channel type (>0 means use New API adaptor bridge)
-
-	// TierID 绑定的 anthropic-oauth 稳定性档位 id（tiers 表）；nil = 未绑定。
-	// 运行时由 TierExtraResolver 在账号加载边界按此解析 per-tier 配置 overlay 进 Extra。
-	TierID *int64
-
 	Proxy         *Proxy
 	AccountGroups []AccountGroup
 	GroupIDs      []int64
@@ -520,17 +514,8 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		if a.Platform == domain.PlatformAntigravity {
 			ensureAntigravityDefaultPassthroughs(result, []string{
 				"gemini-3-flash",
-				// gemini-3.1-pro-high 上游已 deprecated（直接请求 400，2026-06-15 prod 中继实测）；
-				// safety-net 只能补 identity 透传（→ 400），故不再补全——等价的非弃用档
-				// 走下方 gemini-pro-agent（上游显示名同为 "Gemini 3.1 Pro (High)"）。
+				"gemini-3.1-pro-high",
 				"gemini-3.1-pro-low",
-				// 2026-06 实测新增 user-facing wire id（三档 thinking budget
-				// low/extra-low/high=agent 全部可服务，须对称补全；友好别名
-				// gemini-3.5-flash 不在此列——它须重映到 -low 而非 identity 透传）
-				"gemini-3.5-flash-low",
-				"gemini-3.5-flash-extra-low",
-				"gemini-3-flash-agent",
-				"gemini-pro-agent",
 			})
 		}
 		return result
@@ -751,24 +736,7 @@ func (a *Account) GetBaseURL() string {
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
-		// A blank base_url falls back to the Anthropic endpoint ONLY for accounts
-		// that actually speak it: the anthropic platform (and legacy rows with an
-		// empty platform string, which predate multi-platform support and were
-		// all anthropic). For any OTHER platform (newapi / openai / gemini / grok /
-		// kiro) silently returning the Anthropic host sends the request to the
-		// wrong upstream — e.g. a VolcEngine Ark account (platform=newapi,
-		// channel_type=45) with a blank base_url would POST to api.anthropic.com
-		// and return a baffling Anthropic 404/401. Return empty instead so the
-		// platform-specific resolver (newapi_bridge_usage Ark/OpenAI fallback) or a
-		// clean upstream failure applies. Create-time validation already requires
-		// base_url for newapi; this is the safety net for the update path and any
-		// legacy rows. Anthropic-context callers (gateway_service forward /
-		// count_tokens, upstream_models sync) already re-default empty to
-		// api.anthropic.com at their own call sites, so this is non-regressive.
-		if a.Platform == PlatformAnthropic || a.Platform == "" {
-			return "https://api.anthropic.com"
-		}
-		return ""
+		return "https://api.anthropic.com"
 	}
 	if a.Platform == PlatformAntigravity {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"
@@ -874,22 +842,8 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 	return false
 }
 
-// IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
-// 池模式下：
-//   - 401 / 403 / 429（默认）或 per-account pool_mode_retry_status_codes 配置的
-//     状态码：在同账号 in-place retry N 次
-//     （N = GetPoolModeRetryCount，默认 3，最大 10；见 isPoolModeRetryableStatus）；
-//   - retry 全部用尽后由上层 failover 自然切下一账号。
-//
-// 「不写本地状态」只对**非 Anthropic** 平台成立：HandleUpstreamError 的 pool_mode
-// 跳过短路带 `&& Platform != PlatformAnthropic`（见 ratelimit_service.go），所以
-// **Anthropic 的 pool_mode 账号仍然走 handle429 + 3/3 阶梯冷却**——pool_mode 不豁免
-// anthropic 冷却。anthropic 侧真正的豁免是各 capacity / 非权威信封跳过：
-// tkSkipDownstreamNoAvailableAccountsPenalty / tkSkipDownstreamFailoverExhaustedPenalty /
-// tkIsAnthropicNonAuthoritative429（无 anthropic-ratelimit-* 头）。注意 pool_mode 的
-// 同账号重试此前会逐跳重喂 3/3 阶梯，故 tkRetryableOnSameAccount 对非权威 429 关掉重试。
-//
-// OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。
+// IsPoolMode 检查 API Key 账号是否启用池模式。
+// 池模式下，上游错误不标记本地账号状态，而是在同一账号上重试。
 func (a *Account) IsPoolMode() bool {
 	if !a.IsAPIKeyOrBedrock() || a.Credentials == nil {
 		return false
@@ -903,19 +857,12 @@ func (a *Account) IsPoolMode() bool {
 }
 
 const (
-	// defaultPoolModeRetryCount 默认同账号 retry 次数（每账号可在 UI 覆盖到 0..max）。
-	// 选择 3：与 admin UI 新建默认值一致；转发 stub → 上游账号池时给池内轮换更多机会。
 	defaultPoolModeRetryCount = 3
 	maxPoolModeRetryCount     = 10
 )
 
 // GetPoolModeRetryCount 返回池模式同账号重试次数。
 // 未配置或配置非法时回退为默认值 3；小于 0 按 0 处理；过大则截断到 10。
-//
-// 注意：非 pool_mode 账号也会拿到 defaultPoolModeRetryCount=3，但实际不被消费——
-// 各平台 gateway 路径中 `RetryableOnSameAccount` 都 gated on
-// `account.IsPoolMode()`（见 gateway_service.go / openai_gateway_*.go），
-// 因此非 pool_mode 账号的 same-account retry 不会触发。
 func (a *Account) GetPoolModeRetryCount() int {
 	if a == nil || !a.IsPoolMode() || a.Credentials == nil {
 		return defaultPoolModeRetryCount
@@ -956,17 +903,6 @@ func parsePoolModeRetryCount(value any) int {
 
 // defaultPoolModeRetryableStatusCodes 池模式下默认触发同账号重试的状态码。
 // 未在 Account.Credentials 中显式配置 pool_mode_retry_status_codes 时使用。
-//
-// 401 / 403 / 429: 上游池内当前命中的账号 token 失效 / 被封 / 限流，再打同
-// 一上游 URL 大概率轮换到下个池成员。
-//
-// 502 / 503 / 504 不在默认内：转发型拓扑（指向另一台 TokenKey / 兼容网关）
-// 的前置代理瞬时不可调度可能需要同账号重试，但默认开启会改变所有部署的行为，
-// 因此交由 per-account 的 pool_mode_retry_status_codes 显式配置（上游
-// configurable-retry 特性 21033dce）。
-//
-// 500 / 501 不在内：500 通常是上游业务 bug，501 是 Not Implemented，
-// 两者重试均无意义且会加剧 upstream 压力。
 var defaultPoolModeRetryableStatusCodes = []int{401, 403, 429}
 
 // isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码（默认列表）。
@@ -1037,14 +973,11 @@ func (a *Account) GetPoolModeRetryStatusCodes() []int {
 }
 
 // IsPoolModeRetryableStatus 在账号上下文中判断给定状态码是否应触发同账号重试。
-// 若账号未配置 pool_mode_retry_status_codes，则回退到 TK 默认列表
-// （tkDefaultPoolModeRetryableStatusCodes = {401,403,429,503,529}，见
-// account_tk_pool_retry.go；在 upstream {401,403,429} 上追加转发 stub 需要的
-// 503/529）。显式配置仍然优先覆盖（显式空列表可关闭全部）。
+// 若账号未配置 pool_mode_retry_status_codes，则回退到默认列表。
 func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
 	codes := a.GetPoolModeRetryStatusCodes()
 	if codes == nil {
-		return tkIsPoolModeRetryableStatus(statusCode)
+		return isPoolModeRetryableStatus(statusCode)
 	}
 	for _, c := range codes {
 		if c == statusCode {
@@ -1132,12 +1065,6 @@ func (a *Account) IsOpenAIApiKey() bool {
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
-	if a == nil {
-		return ""
-	}
-	if a.IsGrokAPIKey() {
-		return a.GetCredential("base_url")
-	}
 	if !a.IsOpenAI() {
 		return ""
 	}
@@ -1172,14 +1099,14 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if a == nil || (!a.IsOpenAIApiKey() && !a.IsGrokAPIKey()) {
+	if !a.IsOpenAIApiKey() {
 		return ""
 	}
 	return a.GetCredential("api_key")
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
-	if a == nil || (!a.IsOpenAI() && !a.IsGrok()) {
+	if !a.IsOpenAI() {
 		return ""
 	}
 	return a.GetCredential("user_agent")
@@ -1281,11 +1208,7 @@ func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
 }
 
 func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
-	// openai / newapi / grok 走同一套 OpenAI 协议与 image 能力；用 compat-pool 平台
-	// 谓词作单一真值源（含 grok 第七平台），避免硬编码 openai||newapi 列表漏掉新平台。
-	// 历史 bug：只判 IsOpenAI()||newapi 时 grok 账号被 accountSupportsOpenAICapabilities
-	// 在每个 chat completions 选号上排除，导致 grok 全程 "no available accounts"。
-	if !IsOpenAICompatPlatform(a.Platform) {
+	if !a.IsOpenAI() {
 		return false
 	}
 	switch capability {
@@ -1655,13 +1578,9 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 }
 
 // IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
-// 适用于 Anthropic OAuth/SetupToken 账号（模拟 Claude Code Node.js 握手），
-// 以及 Kiro 账号（模拟真实 Kiro IDE 握手，见 account_tk_kiro.go）
+// 仅适用于 Anthropic OAuth/SetupToken 类型账号
+// 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// Kiro：默认开启，按名解析 tk_canonical_kiro_ide（详见 isKiroTLSFingerprintEnabled）
-	if a.IsKiro() {
-		return a.isKiroTLSFingerprintEnabled()
-	}
 	// 仅支持 Anthropic OAuth/SetupToken 账号
 	if !a.IsAnthropicOAuthOrSetupToken() {
 		return false
@@ -2299,14 +2218,14 @@ func (a *Account) GetWindowCostLimit() float64 {
 }
 
 // GetWindowCostStickyReserve 获取粘性会话预留额度（美元）
-// 默认值为 10；显式配置 0 表示禁用 sticky 成本缓冲。
+// 默认值为 10
 func (a *Account) GetWindowCostStickyReserve() float64 {
 	if a.Extra == nil {
 		return 10.0
 	}
 	if v, ok := a.Extra["window_cost_sticky_reserve"]; ok {
 		val := parseExtraFloat64(v)
-		if val >= 0 {
+		if val > 0 {
 			return val
 		}
 	}

@@ -53,7 +53,7 @@ describe('DateRangePicker', () => {
     expect(wrapper.text()).toContain('Last 24 Hours')
   })
 
-  it('applies a quick preset immediately on click (no separate Apply needed)', async () => {
+  it('emits range updates with last24Hours preset when applied', async () => {
     const now = new Date()
     const today = formatLocalDate(now)
 
@@ -76,9 +76,7 @@ describe('DateRangePicker', () => {
     expect(presetButton).toBeDefined()
 
     await presetButton!.trigger('click')
-
-    // A quick preset is applied on the single click — no separate Apply step.
-    expect(wrapper.emitted('change')).toHaveLength(1)
+    await wrapper.find('.date-picker-apply').trigger('click')
 
     const nowAfterClick = new Date()
     const yesterdayAfterClick = new Date(nowAfterClick.getTime() - 24 * 60 * 60 * 1000)

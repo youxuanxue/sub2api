@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 )
 
 const (
@@ -16,18 +14,6 @@ const (
 	opsCleanupCronStopTimeout  = 3 * time.Second
 	opsCleanupRunTimeout       = 30 * time.Minute
 	opsCleanupHeartbeatTimeout = 2 * time.Second
-	// opsPartitionMonthsAhead is how many future monthly partitions to keep
-	// provisioned for partitioned ops tables (e.g. ops_system_logs after tk_035),
-	// so live inserts always have a home as the calendar rolls forward. The daily
-	// cleanup tick re-ensures these; the conversion migration seeds the first two.
-	opsPartitionMonthsAhead = 3
-	// opsStraddleReclaimMaxRowsPerRun caps how many expired rows the daily cleanup
-	// will chunk-DELETE from a straddling partition (the wide legacy mega-partition
-	// that can't be dropped because it also absorbs current writes) in a single run.
-	// Capping keeps the first reclaim of a large backlog online-safe; the remainder
-	// drains over subsequent daily runs, and steady-state daily volume is far below
-	// the cap.
-	opsStraddleReclaimMaxRowsPerRun = 1_000_000
 )
 
 type opsCleanupTarget struct {
@@ -87,49 +73,7 @@ func opsCleanupRunOne(
 	if truncate {
 		return truncateOpsTable(ctx, db, table)
 	}
-	// Partitioned ops tables (e.g. ops_system_logs once tk_035 has converted it):
-	// retention is instant DROP PARTITION + keeping future months provisioned, not a
-	// bloat-generating chunked DELETE. The branch is keyed on the live partition state
-	// (not a hardcoded table list), so ops_error_logs / usage_logs auto-adopt it when
-	// their own conversion lands. Pre-conversion (plain table) falls through to DELETE.
-	partitioned, err := pgpartition.IsPartitioned(ctx, db, table)
-	if err != nil {
-		return 0, err
-	}
-	if partitioned {
-		if err := pgpartition.EnsureMonthly(ctx, db, table, time.Now().UTC(), opsPartitionMonthsAhead); err != nil {
-			return 0, err
-		}
-		dropped, err := pgpartition.DropExpired(ctx, db, table, timeCol, cutoff)
-		if err != nil {
-			return dropped, err
-		}
-		// Whole-partition DROP cannot reclaim a partition that still holds in-window
-		// rows — notably the wide legacy mega-partition that also absorbs current
-		// writes (its max(timeCol) is always "now"). Left alone it grows unbounded,
-		// which is the prod disk-fill root cause where retention runs daily yet
-		// reclaims 0. Fall back to a capped chunked DELETE of its expired rows so
-		// retention actually bounds it at the configured window.
-		straddling, err := pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)
-		if err != nil {
-			return dropped, err
-		}
-		reclaimed := dropped
-		remaining := opsStraddleReclaimMaxRowsPerRun
-		for _, child := range straddling {
-			if remaining <= 0 {
-				break
-			}
-			n, delErr := deleteOldRowsByID(ctx, db, child, timeCol, cutoff, batchSize, false, remaining)
-			reclaimed += n
-			remaining -= int(n)
-			if delErr != nil {
-				return reclaimed, delErr
-			}
-		}
-		return reclaimed, nil
-	}
-	return deleteOldRowsByID(ctx, db, table, timeCol, cutoff, batchSize, castDate, 0)
+	return deleteOldRowsByID(ctx, db, table, timeCol, cutoff, batchSize, castDate)
 }
 
 func deleteOldRowsByID(
@@ -140,7 +84,6 @@ func deleteOldRowsByID(
 	cutoff time.Time,
 	batchSize int,
 	castCutoffToDate bool,
-	maxRows int,
 ) (int64, error) {
 	if db == nil {
 		return 0, nil
@@ -180,11 +123,6 @@ WHERE id IN (SELECT id FROM batch)
 		}
 		total += affected
 		if affected == 0 {
-			break
-		}
-		// Per-run cap (maxRows <= 0 means unlimited) — keeps a large backlog reclaim
-		// online-safe; the remainder drains over subsequent runs.
-		if maxRows > 0 && total >= int64(maxRows) {
 			break
 		}
 	}

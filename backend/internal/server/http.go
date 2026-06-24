@@ -33,9 +33,7 @@ func ProvideRouter(
 	jwtAuth middleware2.JWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
-	eitherAuth middleware2.EitherAuthMiddleware,
 	apiKeyService *service.APIKeyService,
-	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
@@ -47,11 +45,8 @@ func ProvideRouter(
 
 	r := gin.New()
 	r.Use(middleware2.Recovery())
-	// TK: 未配置 trusted_proxies 时默认信任 loopback + 私网网段，使 c.ClientIP()
-	// 在 Caddy/nginx/Docker 反代后正确解析真实客户端（Wei-Shaw/sub2api#1326 / #2410）。
-	// 详见 http_tk_trusted_proxies.go。
-	if proxies, trust := tkResolveTrustedProxies(cfg.Server.TrustedProxies); trust {
-		if err := r.SetTrustedProxies(proxies); err != nil {
+	if len(cfg.Server.TrustedProxies) > 0 {
+		if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
 			log.Printf("Failed to set trusted proxies: %v", err)
 		}
 	} else {
@@ -59,7 +54,7 @@ func ProvideRouter(
 			log.Printf("Failed to disable trusted proxies: %v", err)
 		}
 		if cfg.Server.Mode == "release" {
-			log.Printf("Warning: server.trusted_proxies opt-out is set in release mode; client IP trust chain is disabled")
+			log.Printf("Warning: server.trusted_proxies is empty in release mode; client IP trust chain is disabled")
 		}
 	}
 
@@ -99,7 +94,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, userService, subscriptionService, opsService, settingService, cfg, redisClient)
+	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器

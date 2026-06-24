@@ -28,7 +28,6 @@ var (
 	ErrAPIKeyInvalidChars = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
 	ErrAPIKeyRateLimited  = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
 	ErrInvalidIPPattern   = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
-	ErrInvalidRoutingMode = infraerrors.BadRequest("INVALID_ROUTING_MODE", "routing_mode must be 'direct' or 'universal'")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -155,7 +154,6 @@ type APIKeyAuthCacheInvalidator interface {
 type CreateAPIKeyRequest struct {
 	Name        string   `json:"name"`
 	GroupID     *int64   `json:"group_id"`
-	RoutingMode *string  `json:"routing_mode"` // "direct" | "universal"; nil = 按默认推断（见 Create）
 	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
 	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
@@ -174,7 +172,6 @@ type CreateAPIKeyRequest struct {
 type UpdateAPIKeyRequest struct {
 	Name        *string  `json:"name"`
 	GroupID     *int64   `json:"group_id"`
-	RoutingMode *string  `json:"routing_mode"` // nil = 不变；"direct" | "universal"
 	Status      *string  `json:"status"`
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
 	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
@@ -212,10 +209,6 @@ type APIKeyService struct {
 	authGroup             singleflight.Group
 	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF       singleflight.Group
-	// universalResolver 是全能 Key 的请求级解析器(含权限跨度缓存)。单实例随服务长存,
-	// 由认证中间件共享(避免多实例缓存碎片),并由本服务的 InvalidateAuthCache* 钩子在
-	// 授权/分组变更时同步失效(避免缓存陈旧)。见 universal_routing_tk_resolver.go。
-	universalResolver *UniversalRoutingResolver
 }
 
 // NewAPIKeyService 创建API Key服务实例
@@ -238,29 +231,7 @@ func NewAPIKeyService(
 		cfg:               cfg,
 	}
 	svc.initAuthCache(cfg)
-	// 全能 Key 解析器以本服务为权限跨度来源(GetAvailableGroups);单实例共享 + 可失效。
-	svc.universalResolver = NewUniversalRoutingResolver(svc)
 	return svc
-}
-
-// UniversalResolver 返回共享的全能 Key 解析器(认证中间件用)。
-// nil-receiver 安全:路由注册测试可能用 nil service 仅校验路由挂载,
-// 此时返回 nil 解析器(MaybeResolveUniversal 对 nil 解析器是 no-op)。
-func (s *APIKeyService) UniversalResolver() *UniversalRoutingResolver {
-	if s == nil {
-		return nil
-	}
-	return s.universalResolver
-}
-
-// SetUniversalAvailableModelsProvider 后期绑定全能 Key 解析器的「组可服务模型集」真值源
-// (GatewayService.GetAvailableModels)。构造期 GatewayService 尚不存在,故经 wire 就绪钩子
-// 在两者构造后注入(见 wire.go ProvideTKUniversalModelsProvider)。nil-safe。
-func (s *APIKeyService) SetUniversalAvailableModelsProvider(p availableModelsProvider) {
-	if s == nil || s.universalResolver == nil {
-		return
-	}
-	s.universalResolver.SetAvailableModelsProvider(p)
 }
 
 // SetRateLimitCacheInvalidator sets the optional rate limit cache invalidator.
@@ -379,27 +350,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
-	// 解析路由模式（全能 Key 默认开启，见 docs/approved/universal-key-routing.md）：
-	// 显式值优先；否则——不带分组创建的 key 默认 universal，绑定了分组的 key 维持
-	// direct（保留 PR2 开关上线前老 UI 的行为）。universal key 不绑死分组，忽略 group_id。
-	routingMode := RoutingModeDirect
-	switch {
-	case req.RoutingMode != nil:
-		routingMode = strings.TrimSpace(*req.RoutingMode)
-	case req.GroupID == nil:
-		routingMode = RoutingModeUniversal
-	}
-	if routingMode != RoutingModeDirect && routingMode != RoutingModeUniversal {
-		return nil, ErrInvalidRoutingMode
-	}
-	effectiveGroupID := req.GroupID
-	if routingMode == RoutingModeUniversal {
-		effectiveGroupID = nil // 全能 Key 跨度由权限决定，不固定分组
-	}
-
-	// 验证分组权限（仅 direct 且指定了分组时）
-	if effectiveGroupID != nil {
-		group, err := s.groupRepo.GetByID(ctx, *effectiveGroupID)
+	// 验证分组权限（如果指定了分组）
+	if req.GroupID != nil {
+		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
 		if err != nil {
 			return nil, fmt.Errorf("get group: %w", err)
 		}
@@ -450,8 +403,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		UserID:      userID,
 		Key:         key,
 		Name:        html.EscapeString(req.Name),
-		GroupID:     effectiveGroupID,
-		RoutingMode: routingMode,
+		GroupID:     req.GroupID,
 		Status:      StatusActive,
 		IPWhitelist: req.IPWhitelist,
 		IPBlacklist: req.IPBlacklist,
@@ -609,18 +561,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		}
 
 		apiKey.GroupID = req.GroupID
-	}
-
-	// 路由模式切换（universal 全能 Key 不固定分组，清空 group_id）。
-	if req.RoutingMode != nil {
-		mode := strings.TrimSpace(*req.RoutingMode)
-		if mode != RoutingModeDirect && mode != RoutingModeUniversal {
-			return nil, ErrInvalidRoutingMode
-		}
-		apiKey.RoutingMode = mode
-		if mode == RoutingModeUniversal {
-			apiKey.GroupID = nil
-		}
 	}
 
 	if req.Status != nil {

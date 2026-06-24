@@ -1,291 +1,4 @@
 export default {
-  // Public Pricing Page (TK cold-start, US-028)
-  pricing: {
-    title: 'Model Pricing',
-    subtitle: 'Pay-as-you-go pricing for every supported model',
-    description:
-      'Prices are per 1,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).',
-    nav: {
-      aria: 'Leave pricing page',
-      home: 'Home',
-      console: 'Console',
-      consoleTitleAuthed: 'Go to your dashboard',
-      consoleTitleGuest: 'Sign in to open the console'
-    },
-    columns: {
-      model: 'Model',
-      vendor: 'Vendor',
-      input: 'Input',
-      output: 'Output',
-      cacheRead: 'Cache Read',
-      cacheWrite: 'Cache Write',
-      contextWindow: 'Context window',
-      maxOutput: 'Max output',
-      capabilities: 'Capabilities'
-    },
-    tableHint:
-      'Swipe horizontally or scroll below to see all columns. Model names wrap in the left column.',
-    footer: {
-      total: '{count} models listed',
-      filtered: 'Showing {shown} of {total} models'
-    },
-    perThousandTokens: '/ 1K tokens',
-    thinkingOutput: 'Thinking',
-    contextTokens: '{count} tokens',
-    updatedAt: 'Last updated {time}',
-    empty: {
-      title: 'Pricing catalog is being prepared',
-      hint: 'No model pricing data is available yet. Please check back later or contact the administrator.'
-    },
-    errorTitle: 'Failed to load pricing',
-    errorHint: 'Please refresh the page or try again later.',
-    retry: 'Retry',
-    search: {
-      placeholder: 'Search by model name…',
-      modeLabel: 'Match mode',
-      modeFuzzy: 'Contains',
-      modeExact: 'Exact name',
-      resultCount: '{count} models',
-      noMatches: 'No models match your search. Try fuzzy mode or a shorter query.'
-    },
-    filters: {
-      apiKey: 'API Key',
-      keyPlaceholder: 'All keys',
-      group: 'Group',
-      publicCatalog: 'Public catalog',
-      search: 'Search',
-      activePublic: 'Viewing the public catalog',
-      activeGroup: 'Viewing {group} group catalog',
-      activeKeyGroup: 'Viewing {key} · {group}'
-    },
-    ctaBonus: 'Register — get {amount} trial credit',
-    ctaBonusHint: 'Shown when signup bonus is enabled for this site.',
-    perRequest: '/ request',
-    perImage: '/ image',
-    perSecond: '/ second',
-    videoClipExample: '5s {five} · 10s {ten}',
-    modality: {
-      all: 'All',
-      text: 'Text',
-      image: 'Image',
-      video: 'Video'
-    },
-    // TK: authenticated "Group Catalog" view (GET /api/v1/me/pricing-catalog).
-    // Prices always show official list pricing, decoupled from group/override
-    // multipliers.
-    my: {
-      tabMy: 'Group Catalog',
-      tabPublic: 'All Catalog',
-      title: 'Group Model Catalog',
-      subtitle: 'Models available to the group of your selected API key, at official pricing',
-      description:
-        'Shows the models available to the selected group and their official pricing, per 1,000 tokens. Switch keys to see another group, or compare other accessible groups.',
-      pickerKey: 'Current key:',
-      pickerCompare: 'Compare group:',
-      compareDefault: 'Keep current',
-      noKeyHint: 'You have no active API keys yet — create one in the console first.',
-      columns: {
-        input: 'Input (official price)',
-        output: 'Output (official price)'
-      },
-      empty: {
-        noAccess: {
-          title: 'No accessible group',
-          hint: 'You have no group you can use yet. Contact the administrator or pick a plan in the subscription page.'
-        },
-        noModels: {
-          title: 'This group has no models yet',
-          hint: 'The administrator may still be configuring channels. Check back later or compare another group.'
-        }
-      },
-      exploreBanner: {
-        message: 'Viewing {group} catalog',
-        cta: 'Create key in {group}'
-      },
-      billingMode: {
-        per_request: 'per call',
-        image: 'per image'
-      }
-    }
-  },
-
-  // Studio (chat / image / video) — TK
-  studio: {
-    title: 'Studio',
-    subtitle: 'Try everything your key can do — chat, images, and video, all in one place.',
-    balance: 'Balance',
-    apiKey: 'API Key',
-    pickKeyPlaceholder: 'Select an API key…',
-    loadingModels: 'Loading models…',
-    loadFailed: 'Could not load Studio.',
-    noApiKey: 'No active API key found. Create one under API Keys.',
-    manageKeys: 'Manage API keys',
-    defaultGroup: 'Default group',
-    modeChat: 'Chat',
-    modeImage: 'Image',
-    modeVideo: 'Video',
-    modeBakeoff: 'Bake-Off',
-    clear: 'Clear',
-    topUp: 'Top up',
-    viewPricing: 'See pricing',
-    via: 'via {vendor}',
-    keyNoModality: 'no models for this mode',
-    needsApikeyAccount: 'Needs an API-key account',
-    badge: {
-      draft: 'Draft',
-      standard: 'Standard',
-      ultra: 'Ultra',
-      fast: 'Fast',
-      cinematic: 'Cinematic'
-    },
-    advanced: {
-      toggle: 'Advanced',
-      negativePrompt: 'Avoid',
-      negativePromptHint: 'Describe what to keep out (optional)',
-      seed: 'Seed',
-      seedHint: 'Leave blank for random',
-      firstFrame: 'First frame image (URL)',
-      firstFrameHint: 'Paste an image URL to use as the first frame (optional)'
-    },
-    bakeoff: {
-      hint: 'One prompt, several models side by side — each with its real price and speed.',
-      needTwo: 'Need at least two priced models in this group to compare.',
-      promptPlaceholder: 'Describe what to generate across models…',
-      pickModels: 'Compare:',
-      run: 'Generate across {count}',
-      running: 'Generating…',
-      totalCost: 'Total ≈ {cost}',
-      cannotAfford: 'Balance too low for this run.',
-      generating: 'Generating…',
-      failed: 'Failed'
-    },
-    cost: {
-      thisGeneration: 'This generation',
-      thisVideo: 'This video',
-      estimate: 'Estimate',
-      balance: 'Balance',
-      afterGeneration: 'After'
-    },
-    errors: {
-      insufficient_balance: 'Insufficient balance — top up to generate.',
-      permission: 'This group is not enabled for this generation type.',
-      unpriced: 'This model is not available for generation right now.',
-      rate_limited: 'Too many requests — slow down and try again shortly.',
-      unauthorized: 'Your API key is invalid or expired.',
-      generic: 'Generation failed. Please try again.'
-    },
-    image: {
-      modelLabel: 'Model',
-      modelEmpty: 'No image models are available for this group yet.',
-      samplePrompt: 'A neon Tokyo alley at night, cinematic, shallow depth of field',
-      perImageUnit: ' /image',
-      promptPlaceholder: 'Describe the image…',
-      aspectLabel: 'Aspect ratio',
-      billedAs: 'Billed as {tier} · ×{mult}',
-      billedFlat: 'Flat per-image price (one image per run)',
-      count: 'Count',
-      resultsTitle: 'Results',
-      emptyHint: 'Pick a tier and generate — results appear here.',
-      download: 'Download',
-      downloadAll: 'Download all',
-      usePrompt: 'Use prompt',
-      useAsInput: 'Use as input',
-      enlargeHint: 'Click to enlarge',
-      expiredReload: 'Preview not kept after reload — use the prompt to make it again.',
-      close: 'Close',
-      inputImageLabel: 'Input image (image-to-image)',
-      inputUpload: 'Upload image',
-      inputRemove: 'Remove',
-      inputHint: 'Upload — or pick a result below — as the base image, then describe your edit above (Gemini-native image models only).',
-      reversePrompt: 'Generate prompt from image',
-      reversing: 'Reading image…',
-      reverseEmpty: 'Could not derive a prompt from the image.',
-      generate: 'Generate · {cost}',
-      generateTopUp: 'Generate · {cost} — top up',
-      generating: 'Generating…',
-      noResult: 'The gateway returned no image data.',
-      formula: '{base} × {tier} ×{mult} × {n}',
-      formulaFlat: '{base} × {n}'
-    },
-    video: {
-      modelLabel: 'Model',
-      modelEmpty: 'No video models are available for this group yet.',
-      samplePrompt: 'A neon Tokyo alley, slow push-in, rain, reflections, cinematic',
-      perSecondUnit: ' /s',
-      promptPlaceholder: 'Describe the video…',
-      duration: 'Duration',
-      aspect: 'Aspect ratio',
-      aspectAuto: 'Auto',
-      emptyHint: 'Describe a video and generate — submit and walk away; it plays here when ready.',
-      statusProcessing: 'Generating',
-      statusSucceeded: 'Ready',
-      statusRefunded: 'Failed — refunded {cost}',
-      stepSubmitted: 'Submitted',
-      stepGenerating: 'Generating',
-      stepReady: 'Ready',
-      reserved: '{cost} reserved · refunded if it fails',
-      notifyMe: 'Notify me when done',
-      usuallyTakes: 'Usually 30–90s',
-      noUrlHint: 'Task succeeded. Video results are not retained long-term, so it cannot be played here — generate again to view it.',
-      download: 'Download',
-      failedRefunded: 'Generation failed — {cost} refunded. Try a shorter clip or another tier.',
-      techDetails: 'Technical details',
-      refundLine: 'Failed videos are refunded in full',
-      generate: 'Generate video · {cost}',
-      generateTopUp: 'Generate · {cost} — top up',
-      submitting: 'Submitting…',
-      formula: '{rate}/s × {seconds}s',
-      noTaskId: 'Submit returned no task id.',
-      notifyTitle: 'TokenKey Studio',
-      notifyEnabled: 'Notifications on',
-      notifyDenied: 'Notifications blocked',
-      resultsTitle: 'Videos',
-      play: 'Play',
-      playHint: 'Click to play',
-      close: 'Close',
-      loadingPreview: 'Loading…',
-      expiredTitle: 'Preview expired',
-      expiredHint: 'The video link is a short-lived upstream URL and may have expired. If you just generated it, tap Retry — otherwise regenerate.',
-      stalled: 'Cannot fetch progress (the API key may have been deleted). Please generate again.',
-      retry: 'Try again',
-      copyLink: 'Copy link',
-      copied: 'Copied',
-      retentionHint: 'Temporary upstream link · download soon'
-    },
-    chat: {
-      model: 'Model',
-      temperature: 'Temperature',
-      maxTokens: 'Max tokens',
-      pickModelPlaceholder: 'Select a model…',
-      noModels: 'No chat models for this key. Check group routing or pick another key.',
-      systemPrompt: 'System prompt (optional)',
-      inputPlaceholder: 'Type a message… (Enter to send)',
-      send: 'Send',
-      sending: 'Sending…',
-      cancel: 'Cancel',
-      clear: 'Clear chat',
-      emptyHint: 'Send a message to see the assistant reply here.',
-      roleUser: 'You',
-      roleAssistant: 'Assistant',
-      avatarUser: 'Me',
-      avatarAssistant: 'AI',
-      limitsHint: 'Up to {turns} turns in memory; max output tokens capped at {maxTok}; 60s timeout per request.',
-      lastUsage: 'Last response usage',
-      promptTokens: 'Prompt tokens',
-      completionTokens: 'Completion tokens',
-      totalTokens: 'Total tokens',
-      cancelled: 'Request cancelled.',
-      requestFailed: 'Request failed.',
-      integrationsTitle: 'Connect external apps',
-      integrationsHint: 'Import the gateway address and the selected API key into a client with one click.',
-      integrationsAppHint: 'Requires the client app installed (opens a custom URL scheme).',
-      copyBaseUrl: 'Copy base URL',
-      copyKey: 'Copy API key',
-      baseUrlCopied: 'Base URL copied',
-      keyCopied: 'API key copied'
-    }
-  },
-
   // Home Page
   home: {
     viewOnGithub: 'View on GitHub',
@@ -384,7 +97,6 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
-      newapi: 'Extension Engine',
       more: 'More'
     },
     // CTA section
@@ -475,8 +187,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: 'TokenKey Setup',
-    description: 'Configure your TokenKey instance',
+    title: 'Sub2API Setup',
+    description: 'Configure your Sub2API instance',
     database: {
       title: 'Database Configuration',
       description: 'Connect to your PostgreSQL database',
@@ -601,7 +313,6 @@ export default {
     saving: 'Saving...',
     selectedCount: '({count} selected)',
     refresh: 'Refresh',
-    chunkLoadFailed: 'The page assets are still out of date after refresh. Please clear the browser cache and reload this page.',
     autoRefresh: {
       title: 'Auto Refresh',
       enable: 'Enable auto refresh',
@@ -669,6 +380,10 @@ export default {
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
+    affiliateManagement: 'Affiliate Rebates',
+    affiliateInviteRecords: 'Invite Records',
+    affiliateRebateRecords: 'Rebate Records',
+    affiliateTransferRecords: 'Transfer Records',
     profile: 'Profile',
     users: 'Users',
     groups: 'Groups',
@@ -676,7 +391,6 @@ export default {
     availableChannels: 'Available Channels',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
-    edgeAccounts: 'Edge Accounts',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
@@ -697,7 +411,6 @@ export default {
     paymentDashboard: 'Payment Dashboard',
     paymentConfig: 'Payment Config',
     paymentPlans: 'Plans',
-    studio: 'Studio',
     channelManagement: 'Channels',
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
@@ -744,8 +457,6 @@ export default {
     reloginRequired: 'Session expired. Please log in again.',
     turnstileExpired: 'Verification expired, please try again',
     turnstileFailed: 'Verification failed, please try again',
-    turnstileFailedRefresh:
-      'Stale verification token — please refresh this page and try again.',
     completeVerification: 'Please complete the verification',
     verifyYourEmail: 'Verify Your Email',
     sessionExpired: 'Session expired',
@@ -968,6 +679,7 @@ export default {
     requests: 'Requests',
     tokens: 'Tokens',
     actual: 'Actual',
+    standard: 'Standard',
     input: 'Input',
     output: 'Output',
     cache: 'Cache',
@@ -1018,32 +730,6 @@ export default {
     copyToClipboard: 'Copy to clipboard',
     copied: 'Copied!',
     importToCcSwitch: 'Import to CCS',
-    export: 'Export',
-    exporting: 'Exporting…',
-    exportTooltip: "Export this key's conversation records (training-ready JSONL)",
-    exportSuccess: 'Exported {count} conversation records',
-    exportEmpty: 'No conversation records captured for this key yet',
-    exportFailed: 'Export failed, please try again',
-    exportPanel: {
-      title: 'Export Conversations',
-      exportNow: 'Export now',
-      exporting: 'Exporting…',
-      lastExport: 'Last export: {time}',
-      noExports: 'No exports yet',
-      download: 'Download',
-      expired: 'Expired',
-      recordCount: '{count} records',
-      kindManual: 'Manual',
-      kindAuto: 'Auto',
-      status: 'Status',
-      statusValue: {
-        pending: 'Pending',
-        running: 'Running',
-        done: 'Ready',
-        failed: 'Failed'
-      },
-      close: 'Close'
-    },
     enable: 'Enable',
     disable: 'Disable',
     nameLabel: 'Name',
@@ -1068,9 +754,6 @@ export default {
     groupChangedSuccess: 'Group changed successfully',
     failedToChangeGroup: 'Failed to change group',
     groupRequired: 'Please select a group',
-    universalLabel: 'Universal key (all platforms)',
-    universalHint: 'One key works across every platform, model and modality you are entitled to. Turn off to lock this key to a single group.',
-    universalBadge: 'Universal',
     usage: 'Usage',
     today: 'Today',
     total: 'Last 30d',
@@ -1084,19 +767,6 @@ export default {
       copy: 'Copy',
       copied: 'Copied',
       note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
-      modelLabel: 'Model',
-      baseUrlLabel: 'Base URL',
-      keyLabel: 'API Key',
-      reveal: 'Show',
-      hide: 'Hide',
-      testKey: 'Test key',
-      testing: 'Testing…',
-      testModelOk: 'Model reachable — config is correct',
-      testKeyValid: 'Key valid (use it inside Claude Code)',
-      modelsLoading: 'Loading the models this key can serve…',
-      modelsEmpty: 'Could not load the servable model list; you can type a model name manually in the config below',
-      ccOnlyWarning:
-        'This group only accepts Claude Code clients (claude-cli) and only /v1/messages. curl / Python / OpenCode and the like are rejected by the gateway with 403.',
       noGroupTitle: 'Please assign a group first',
       noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
       openai: {
@@ -1110,15 +780,7 @@ export default {
         geminiCli: 'Gemini CLI',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
-        curl: 'cURL',
-        python: 'Python',
         opencode: 'OpenCode',
-      },
-      claudeCode: {
-        envHint:
-          'Recommended: model claude-opus-4-8[1m]; disables adaptive thinking (avoids silent down-grading); pins thinking budget to 31999 tokens; triggers auto-compact at ~60% context use (CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE). The commented NONESSENTIAL_TRAFFIC flag should only be enabled when routing directly to Anthropic OAuth — otherwise upstream prompt cache TTL drops from 1h to 5min and token cost spikes.',
-        vscodeHint:
-          'Claude Code settings.json with effortLevel=high and all recommended env vars. Replace the file to apply.',
       },
       antigravity: {
         description: 'Configure API access for Antigravity group. Select the configuration method based on your client.',
@@ -1129,6 +791,7 @@ export default {
       },
       gemini: {
         description: 'Add the following environment variables to your terminal profile or run directly in terminal to configure Gemini CLI access.',
+        modelComment: 'If you have Gemini 3 access, you can use: gemini-3-pro-preview',
         note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
       },
       opencode: {
@@ -1221,6 +884,7 @@ export default {
     cacheReadTokensLabel: 'Cache Read',
     totalCost: 'Total Cost',
     standardCost: 'Standard',
+    actualCost: 'Actual',
     accountCost: 'Cost',
     userBilled: 'User billed',
     accountBilled: 'Account billed',
@@ -1816,14 +1480,7 @@ export default {
       spendShort: 'Spend',
       requestsShort: 'Req',
       tokensShort: 'Tok',
-      failedToLoad: 'Failed to load dashboard statistics',
-      promptCacheHitRate: 'Prompt Cache Hit Rate',
-      promptCacheHitRateHint:
-        'cache_read / (cache_read + input + cache_create). Higher = better. Sticky routing aims to maximize this.',
-      cacheReadTokens: 'Cache Read',
-      cacheCreateTokens: 'Cache Created',
-      promptCacheToday: 'Today',
-      promptCacheTotal: 'Total'
+      failedToLoad: 'Failed to load dashboard statistics'
     },
 
     backup: {
@@ -1914,7 +1571,7 @@ export default {
         step1: {
           title: 'Create an R2 Bucket',
           line1: 'Log in to the Cloudflare Dashboard (dash.cloudflare.com), select "R2 Object Storage" from the sidebar',
-          line2: 'Click "Create bucket", enter a name (e.g. tokenkey-backups), choose a region',
+          line2: 'Click "Create bucket", enter a name (e.g. sub2api-backups), choose a region',
           line3: 'Click create to finish'
         },
         step2: {
@@ -2203,9 +1860,7 @@ export default {
       form: {
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
-        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.',
-        trajExport: 'Allow conversation export',
-        trajExportHint: "When on, the user can export each API key's captured conversation records individually."
+        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.'
       },
       columns: {
         user: 'User',
@@ -2564,7 +2219,6 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
-        newapi: 'Extension Engine',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -2617,7 +2271,7 @@ export default {
         familyMappingTitle: 'Family Default Mapping',
         familyMappingHint: 'Requests that match the Opus, Sonnet, or Haiku families will prefer the target model configured here.',
         opusModel: 'Opus Target Model',
-        opusModelPlaceholder: 'e.g., gpt-5.5',
+        opusModelPlaceholder: 'e.g., gpt-5.4',
         sonnetModel: 'Sonnet Target Model',
         sonnetModelPlaceholder: 'e.g., gpt-5.3-codex',
         haikuModel: 'Haiku Target Model',
@@ -2630,13 +2284,7 @@ export default {
         claudeModelPlaceholder: 'e.g., claude-sonnet-4-5-20250929',
         targetModel: 'Target Model',
         targetModelPlaceholder: 'e.g., gpt-5.4',
-        removeExactMapping: 'Remove Exact Mapping',
-        compactionEnabled: 'Enable auto compaction',
-        compactionEnabledHint: 'When estimated input tokens exceed the threshold, /v1/messages compaction is applied automatically.',
-        compactionThreshold: 'Input token threshold',
-        compactionThresholdPlaceholder: 'e.g., 900000',
-        compactionThresholdHint: 'Must be >= 1. Choose a value based on model context window.',
-        compactionThresholdRequired: 'Please enter a valid compaction threshold (>= 1)'
+        removeExactMapping: 'Remove Exact Mapping'
       },
       invalidRequestFallback: {
         title: 'Invalid Request Fallback Group',
@@ -3379,64 +3027,6 @@ export default {
     },
 
     // Accounts
-    edgeAccounts: {
-      title: 'Edge Accounts',
-      description: 'Read-only overview of accounts on each edge deployment',
-      refresh: 'Refresh',
-      lastFetched: 'Last fetched',
-      platformFilter: 'Platform',
-      allPlatforms: 'All platforms',
-      statusFilter: 'Status',
-      allStatus: 'All statuses',
-      statusFilterHint:
-        'Normal = both the prod stub and the edge account are healthy; every other status is an OR — shown if EITHER the prod stub or the edge account is in that state.',
-      groupFilter: 'Group',
-      allGroups: 'All groups',
-      ungroupedGroup: 'Ungrouped',
-      groupFilterHint:
-        "Filters by the prod-side stub account's group (how prod organizes this edge), not the edge's own internal account groups.",
-      noMatch: 'No accounts match the current filters.',
-      manageAccounts: 'Manage accounts',
-      manageFailed: 'Failed to open this edge for management',
-      loadFailed: 'Failed to load edge accounts',
-      handoff: {
-        signingIn: 'Signing in to this edge…',
-        failed: 'Sign-in failed or the link expired.',
-        goLogin: 'Go to login'
-      },
-      noEdges: 'No edges discovered (no anthropic mirror stubs configured on this deployment).',
-      edgeEmpty: 'No accounts on this edge.',
-      summaryEdges: '{ok}/{total} edges reachable',
-      summaryAccounts: '{count} accounts',
-      summaryFailed: '{count} unreachable',
-      summaryConfigLabel: 'Schedulable current/caps ({count} accounts)',
-      summaryConcurrency: 'Concurrency {current}/{value}',
-      summaryBaseRpm: 'Base RPM {current}/{base} (sticky {sticky})',
-      summarySessions: 'Sessions {current}/{value}',
-      accountCount: '{count} accounts',
-      schedulableCount: '{count} schedulable',
-      stubPaused: 'Scheduling off',
-      stubPausedHint:
-        'The prod-side stub for this edge is paused (关调度) — prod no longer routes traffic here, though the edge itself stays reachable.',
-      stubRateLimited: 'Stub rate-limited',
-      stubRateLimitedHint:
-        "The prod-side stub for this edge is in a rate-limit cooldown — prod's relay to this edge is throttled even if the edge's own accounts are healthy. This is also why the edge still appears under the rate-limited filter.",
-      stubTempUnsched: 'Stub temp-unschedulable',
-      stubTempUnschedHint:
-        'The prod-side stub for this edge is in a temp-unschedulable cooldown. This is also why the edge still appears under the temp-unschedulable filter.',
-      cooldownRecovered: 'Recovered',
-      accountIdHint: "Account ID on this edge (edge-local database primary key), used to pinpoint it when troubleshooting",
-      columns: {
-        name: 'Name',
-        platformType: 'Platform / Type',
-        capacity: 'Capacity',
-        usageWindows: 'Usage Windows',
-        state: 'State',
-        priority: 'Priority',
-        groups: 'Groups',
-        lastUsed: 'Last Used'
-      }
-    },
     accounts: {
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
@@ -3517,7 +3107,6 @@ export default {
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
       allPlatforms: 'All Platforms',
-      kiroStubPlatform: 'Kiro Stub',
       allTypes: 'All Types',
       allStatus: 'All Status',
       allGroups: 'All Groups',
@@ -3530,34 +3119,6 @@ export default {
       schedulableHint: 'Enable to include this account in API request scheduling',
       schedulableEnabled: 'Scheduling enabled',
       schedulableDisabled: 'Scheduling disabled',
-      // TK: inline edge-account panels (the second-level expansion under a
-      // cc-<edge> row — unified prod+edge account governance).
-      edgePanel: {
-        actions: 'Actions',
-        expandAll: 'Expand all',
-        collapseAll: 'Collapse all',
-        expandHint: 'Expand/collapse the edge accounts this stub schedules (all expanded by default; collapse manually)',
-        expandOne: 'Expand this stub',
-        collapseOne: 'Collapse this stub',
-        summary: '{total} accounts · {schedulable} schedulable',
-        summaryLoading: 'Loading…',
-        scopeGroup: 'Scheduled from group {group} · {count} total',
-        scopePool: '{platform} whole pool · {count} total',
-        scopeHint: 'The accounts this stub api key actually schedules on the edge',
-        retry: 'Retry',
-        groupEmpty: "This stub's group has no accounts on the edge yet",
-        queryUsage: 'Query usage',
-        clearRateLimit: 'Clear rate limit',
-        clearTempUnsched: 'Clear temp-unschedulable',
-        resetQuota: 'Reset quota',
-        manageOnEdge: 'Manage on edge ↗',
-        manageWholeEdge: 'Manage all edge accounts ↗',
-        opSuccess: 'Done',
-        opFailed: 'Operation failed, please retry',
-        queryFailed: 'Usage query failed',
-        notDiscovered: 'Edge not discovered yet (its prod stub may be disabled)'
-      },
-      accountIdHint: 'Account ID (database primary key), used to pinpoint this account when troubleshooting',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
@@ -3566,7 +3127,6 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
-        newapi: 'Extension Engine',
       },
       types: {
         oauth: 'OAuth',
@@ -3631,15 +3191,6 @@ export default {
       privacyAntigravitySet: 'Telemetry and marketing emails disabled',
       privacyAntigravityFailed: 'Privacy setting failed',
       setPrivacy: 'Set Privacy',
-      setTierDialog: {
-        menuItem: 'Set Tier',
-        title: 'Set Account Tier',
-        selectLabel: 'Select tier',
-        applyButton: 'Apply',
-        applySuccess: 'Tier applied (this deployment only)',
-        applyFailed: 'Failed to apply tier',
-        localScopeWarning: 'Applies only to this deployment’s database; other edges / prod still need the ops/anthropic pipeline fan-out.'
-      },
       subscriptionAbnormal: 'Abnormal',
       subscriptionExpires: 'Expires',
       // Capacity status tooltips
@@ -3663,15 +3214,11 @@ export default {
           tieredBlocked: 'RPM limit (Tiered) - Blocked | Buffer: {buffer}',
           stickyExemptNormal: 'RPM limit (Sticky Exempt) - Normal',
           stickyExemptWarning: 'RPM limit (Sticky Exempt) - Approaching limit',
-          stickyExemptOver: 'RPM limit (Sticky Exempt) - Over limit, sticky only',
-          stickyBufferSuffix: '(+{buffer} sticky)'
+          stickyExemptOver: 'RPM limit (Sticky Exempt) - Over limit, sticky only'
         },
         quota: {
           exceeded: 'Quota exceeded, account paused',
           normal: 'Quota normal'
-        },
-        today: {
-          tooltip: "Today's usage: {requests} requests · billed {cost}"
         },
       },
       tempUnschedulable: {
@@ -3839,8 +3386,6 @@ export default {
       vertexSaJsonSelectBtn: 'Select JSON',
       vertexSaJsonUploadHint: 'After uploading or dropping a JSON file, the project_id will be auto-extracted. Key content is only used for account creation.',
       vertexSaJsonEditHint: 'Service Account JSON is not shown on the edit page; to change the JSON, delete the account and recreate it.',
-      vertexSaJsonNewapiEditHint: 'Leave empty to keep the current Service Account JSON. Paste a new JSON to rotate the key — the project_id will be re-extracted automatically.',
-      vertexSaJsonNewapiEditPlaceholder: 'Leave empty to keep current — or paste a new Service Account JSON to replace it',
       vertexProjectIdPlaceholder: 'Auto-extracted from JSON',
       vertexLocationHint: 'Available locations vary by Vertex model. Select the default endpoint location for this account.',
       vertexLocationRequired: 'Please enter a Vertex location',
@@ -3928,13 +3473,6 @@ export default {
         compactMode: 'Compact mode',
         compactModeDesc:
           'Controls how this account participates in /responses/compact routing. Auto follows probe results, Force On always allows, Force Off always excludes.',
-        messagesCompactionEnabled: 'Enable account-level /v1/messages auto compaction',
-        messagesCompactionEnabledDesc:
-          'When enabled, this account uses its own input token compaction threshold; when disabled, group policy applies.',
-        messagesCompactionThreshold: 'Account input token threshold',
-        messagesCompactionThresholdPlaceholder: 'e.g., 900000',
-        messagesCompactionThresholdHint: 'Must be >= 1. Compaction runs automatically when threshold is exceeded.',
-        messagesCompactionThresholdRequired: 'Please enter a valid account compaction threshold (>= 1)',
         compactModeAuto: 'Auto',
         compactModeForceOn: 'Force On',
         compactModeForceOff: 'Force Off',
@@ -3955,9 +3493,6 @@ export default {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
         apiKeyPassthroughDesc:
           'Only applies to Anthropic API Key accounts. When enabled, messages/count_tokens are forwarded in passthrough mode with auth replacement only, while billing/concurrency/audit and safety filtering are preserved. Disable to roll back immediately.',
-        mirrorPlatform: 'Mirror platform',
-        mirrorPlatformHint:
-          'Only for edge "mirror stub" accounts (base URL points at an internal api-<edge>.tokenkey.dev host). Declares which edge pool this stub mirrors its concurrency from: Anthropic (default) or Kiro. Leave Anthropic for normal API Key accounts.',
         webSearchEmulation: 'Web Search Emulation',
         webSearchEmulationDesc:
           'Enable web search emulation for this API Key account. When a pure web_search request is detected, the gateway calls a third-party search API and constructs the response locally. Default follows channel config.',
@@ -3996,12 +3531,12 @@ export default {
       modelExists: 'Model already exists',
       modelCount: '{count} models',
       poolMode: 'Pool Mode',
-      poolModeHint: 'Enable when upstream is an account pool; in-place retries (default 3) let the upstream pool rotate to a healthy member',
+      poolModeHint: 'Enable when upstream is an account pool; errors won\'t mark local account status',
       poolModeInfo:
-        'When enabled, upstream 401 / 403 / 429 / 502 / 503 / 504 errors first retry on the same account N times (N = "Same-Account Retries" below, default 3) so the upstream pool gets a chance to rotate to a different backend, then naturally fail over to the next local account. Anthropic accounts still receive the 3/3 short-window protection, but cooldown is now exponential: 30s on the first trip, 2 min on the second, 10 min on the third+ — short enough that a single transient burst no longer takes a single-member group offline for 10 minutes, while persistent failure still escalates to a hard back-off. Suitable when upstream points to another TokenKey / compatible gateway pool.',
+        'When enabled, upstream 429/403/401 errors will auto-retry without marking the account as rate-limited or errored. Suitable for upstream pointing to another sub2api instance.',
       poolModeRetryCount: 'Same-Account Retries',
       poolModeRetryCountHint:
-        'Applies to all pool-mode platforms (including Anthropic). 1 = retry the same account once before failover; 0 = no in-place retry at all, failover immediately; default {default}, maximum {max}. Higher values amplify upstream load — tune based on whether the upstream pool actually rotates members per retry.',
+        'Only applies in pool mode. Use 0 to disable in-place retry. Default {default}, maximum {max}.',
       poolModeRetryStatusCodes: 'Retry Status Codes',
       poolModeRetryStatusCodesHint:
         'Comma-separated HTTP status codes (100-599) that trigger same-account retry in pool mode. Leave blank to use defaults ({default}).',
@@ -4118,7 +3653,6 @@ export default {
       proxy: 'Proxy',
       noProxy: 'No Proxy',
       concurrency: 'Concurrency',
-      concurrencyZeroHint: '0 = unlimited (no concurrency limit)',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       priority: 'Priority',
@@ -4177,82 +3711,6 @@ export default {
         apiKeyHint: 'API Key for the upstream service',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
         pleaseEnterApiKey: 'Please enter upstream API Key'
-      },
-      newApiPlatform: {
-        channelType: 'Channel Type',
-        channelTypePlaceholder: 'Select an Extension Engine channel type',
-        channelTypeLoadFailed: 'Failed to load channel types, please retry',
-        baseUrl: 'Base URL',
-        baseUrlHint: 'Upstream endpoint, e.g. https://api.deepseek.com',
-        apiKey: 'API Key',
-        apiKeyPlaceholder: 'sk-...',
-        apiKeyEditHint: 'Leave empty to keep current key',
-        pleaseSelectChannelType: 'Please select an Extension Engine channel type',
-        pleaseEnterBaseUrl: 'Please enter upstream Base URL',
-        pleaseEnterApiKey: 'Please enter upstream API Key',
-        models: 'Models',
-        modelsHint: 'Models this account is allowed to forward; empty means allow all.',
-        fetchUpstreamModels: 'Fetch model list',
-        fetchUpstreamModelsHint: 'Pull the real model list from upstream /v1/models (or equivalent) and overwrite the current whitelist.',
-        fetchUpstreamModelsNeedUrlKey: 'Please fill in Base URL and API Key first',
-        fetchUpstreamModelsEmpty: 'Upstream returned no models',
-        fetchUpstreamModelsSuccess: 'Fetched {count} models from upstream',
-        fetchUpstreamModelsFailed: 'Failed to fetch upstream model list',
-        pricingStatusPriced: 'Priced',
-        pricingStatusMissing: 'Missing price',
-        statusCodeMapping: 'Status Code Mapping (JSON, optional)',
-        statusCodeMappingHint: 'Remaps upstream HTTP status codes, for example 404 to 500. Leave empty to pass through.',
-        openaiOrganization: 'OpenAI Organization (optional)',
-        openaiOrganizationHint: 'Sent as the OpenAI-Organization header on outbound requests. Leave empty to omit.',
-        jsonInvalid: 'Must be valid JSON',
-        jsonObjectRequired: 'Must be a JSON object'
-      },
-      // Kiro (6th platform) account credential fields
-      kiroPlatform: {
-        accessToken: 'Access Token',
-        accessTokenPlaceholder: 'Kiro OAuth access token',
-        refreshToken: 'Refresh Token',
-        refreshTokenPlaceholder: 'Kiro OAuth refresh token',
-        tokenEditHint: 'Leave empty to keep the current value',
-        region: 'Region',
-        regionHint: 'AWS region for Kiro, defaults to us-east-1.',
-        authMethod: 'Auth Method',
-        authMethodSocial: 'Social (social login)',
-        authMethodIdc: 'IdC (IAM Identity Center)',
-        authMethodHint: 'IdC requires Client ID and Client Secret below.',
-        machineId: 'Machine ID (optional)',
-        machineIdPlaceholder: 'Device fingerprint identifier',
-        machineIdHint: 'Optional device fingerprint sent with requests.',
-        clientId: 'Client ID',
-        clientIdPlaceholder: 'IdC OAuth client ID',
-        clientSecret: 'Client Secret',
-        clientSecretPlaceholder: 'IdC OAuth client secret',
-        profileArn: 'Profile ARN (optional)',
-        profileArnPlaceholder: 'arn:aws:codewhisperer:...',
-        profileArnHint: 'Leave empty to let the backend resolve it automatically.',
-        tosAcknowledge: 'I confirm I have read and accept the Kiro terms of service and the compliance risks of using this account.',
-        pleaseEnterAccessToken: 'Please enter the Kiro access token',
-        pleaseEnterRefreshToken: 'Please enter the Kiro refresh token',
-        pleaseEnterClientId: 'Please enter the IdC Client ID',
-        pleaseEnterClientSecret: 'Please enter the IdC Client Secret',
-        pleaseAcknowledgeTos: 'Please acknowledge the Kiro terms of service before creating the account'
-      },
-      grokPlatform: {
-        oauthMode: 'OAuth',
-        oauthModeHint: 'xAI refresh token',
-        relayMode: 'Relay Stub',
-        relayModeHint: 'Edge API key',
-        refreshToken: 'Refresh Token',
-        refreshTokenPlaceholder: 'xAI Grok OAuth refresh token',
-        refreshTokenHint: 'On create, TokenKey immediately exchanges it for an access token — a failure here means the token is invalid or the account is not SuperGrok Heavy.',
-        refreshTokenHowTo: 'Obtain the refresh_token by running the xAI Grok CLI login on your own machine (loopback OAuth), then paste it here. xAI\'s public client has no server-side redirect / device-code flow, so the token must be minted out-of-band.',
-        baseUrl: 'Base URL (optional)',
-        baseUrlHint: 'Defaults to https://api.x.ai/v1. Override only for a self-hosted reverse proxy.',
-        relayBaseUrlHint: 'Use the edge gateway URL, for example https://api-us4.tokenkey.dev.',
-        relayApiKeyHint: 'Use the TokenKey edge API key for this relay stub.',
-        tokenEditHint: 'Leave empty to keep the current value',
-        heavyNote: 'xAI gates the OAuth API surface to SuperGrok Heavy. A standard / expired subscription returns HTTP 403 at request time.',
-        pleaseEnterRefreshToken: 'Please enter the Grok refresh token'
       },
       // OAuth flow
       oauth: {
@@ -4604,9 +4062,6 @@ export default {
       startingTestForAccount: 'Starting test for account: {name}',
       testAccountTypeLabel: 'Account type: {type}',
       selectTestModel: 'Select Test Model',
-      loadModelsUnavailable: "Couldn't load this account's models — the account is currently unavailable (it may have been deleted or is being re-authorized). Refresh the account list and try again.",
-      loadModelsAuthExpired: "Couldn't load models — your admin session has expired. Sign in again and retry.",
-      loadModelsFailed: "Failed to load this account's models. Please retry.",
       testModel: 'Test model',
       testPrompt: 'Prompt: "hi"',
       imagePromptLabel: 'Image prompt',
@@ -4671,8 +4126,9 @@ export default {
         resetTooltipNeedQuery: 'Click Credits first to load the available count',
         resetTooltipNoCredits: 'No reset credits available',
         noCreditsAvailable: 'No reset credits available',
-        additionalLimitsTitle: 'Per-model limits',
-        resetSuccess: 'Reset {windows} window(s)'
+        resetSuccess: 'Reset {windows} window(s)',
+        confirmTitle: 'Confirm Weekly Limit Reset',
+        confirmMessage: 'This will consume 1 reset credit to immediately restore the current window ({count} remaining). This action cannot be undone. Continue?'
       },
       tier: {
         free: 'Free',
@@ -5336,21 +4792,6 @@ export default {
           requestsWithFirstToken: 'Requests With First Token'
         }
       },
-      failoverHopStats: {
-        title: 'Failover Hop Stats (per account)',
-        hint: 'How many hops each recovered request wasted = wasted upstream round-trips; tracks the hop reduction from the #899 window scheduler.',
-        failedToLoad: 'Failed to load failover hop stats',
-        empty: 'No failover hop stats for the current filters',
-        totalAccounts: 'Total accounts: {total}',
-        table: {
-          account: 'Account',
-          platform: 'Platform',
-          recoveredCount: 'Recovered Requests',
-          totalFailoverHops: 'Total Failover Hops',
-          totalWastedAttempts: 'Total Wasted Attempts',
-          avgHopsPerRecovered: 'Avg Hops / Recovered'
-        }
-      },
       fullscreen: {
         enter: 'Enter Fullscreen'
       },
@@ -5521,8 +4962,6 @@ export default {
         group: 'Group',
         user: 'User',
         account: 'Account',
-        apiKey: 'API Key',
-        clientIp: 'Client IP',
         latency: 'Request Duration',
         businessLimited: 'Business Limited',
         requestPath: 'Request Path',
@@ -5587,15 +5026,8 @@ export default {
           model: 'Model',
           duration: 'Duration',
           status: 'Status',
-          requester: 'Requester',
           requestId: 'Request ID',
           actions: 'Actions'
-        },
-        requester: {
-          anonymous: 'Anonymous',
-          key: 'Key',
-          group: 'Group',
-          account: 'Upstream'
         }
       },
       alertEvents: {
@@ -5676,8 +5108,6 @@ export default {
           cpu: 'CPU Usage (%)',
           memory: 'Memory Usage (%)',
           queueDepth: 'Concurrency Queue Depth',
-          poolLoadRate: 'Account Pool Load Rate (%)',
-          routingCapacityRejectionCount: 'No-Available-Account Rejections',
           groupAvailableAccounts: 'Group Available Accounts',
           groupAvailableRatio: 'Group Available Ratio (%)',
           groupRateLimitRatio: 'Group Rate Limit Ratio (%)',
@@ -5696,8 +5126,6 @@ export default {
           cpu: 'Current instance CPU usage (0-100).',
           memory: 'Current instance memory usage (0-100).',
           queueDepth: 'Concurrency queue depth within the window (queued requests).',
-          poolLoadRate: 'Per-pool concurrency load: (in-flight + queued) / total seats. Pools split by platform/group/channel; the most saturated pool wins. ≥100% means queuing. Leading capacity-ceiling signal; ≥90% recommended to trigger adding accounts.',
-          routingCapacityRejectionCount: 'Count of "no available accounts" routing rejections in the window (empty-pool fast-fail 429 + relayed mirror-edge downstream-capacity rejections, error_phase=routing). These client-visible 429s are excluded from error/success rates and cool no account, so this is the only signal that sees a thin-pool-race rejection storm. An absolute count (not a rate); ≥50 over 5 minutes recommended to trigger adding accounts / scaling.',
           groupAvailableAccounts: 'Number of available accounts in the selected group (requires group_id).',
           groupAvailableRatio: 'Available account ratio in the selected group (0-100, requires group_id).',
           groupRateLimitRatio: 'Rate-limited account ratio in the selected group (0-100, requires group_id).',
@@ -5826,21 +5254,6 @@ export default {
         rateLimitPerHour: 'Rate limit per hour',
         batchWindowSeconds: 'Batch window (seconds)',
         includeResolved: 'Include resolved alerts',
-        feishuTitle: 'Feishu P0 Group Alerts',
-        feishuP0OnlyHint: 'Only P0 firing events are sent; P1/P2/P3 and resolved notifications are never sent, and @all is not used.',
-        feishuWebhook: 'Feishu Bot Webhook',
-        feishuWebhookHint: 'HTTPS webhook only; it will not be returned after saving.',
-        feishuWebhookKeepPlaceholder: 'Configured, leave empty to keep',
-        feishuWebhookConfiguredHint: 'Configured, leave empty to keep; enter a new value to replace it.',
-        feishuSigningSecret: 'Signing secret',
-        feishuSecretOptional: 'Optional',
-        feishuSecretKeepPlaceholder: 'Configured, leave empty to keep',
-        feishuSecretConfiguredHint: 'Configured, leave empty to keep; enter a new value to replace it.',
-        feishuCooldownSeconds: 'Cooldown seconds',
-        feishuUpstreamBalanceLowThreshold: 'Upstream balance alert threshold (CNY)',
-        feishuUpstreamBalanceLowThresholdHint: 'A background sentinel polls upstream channel accounts that expose a public balance API (currently DeepSeek) and sends a pre-emptive Feishu warning when balance drops below this value, before it hits zero. Requires Feishu alerts enabled above.',
-        configured: 'Configured',
-        notConfigured: 'Not configured',
         dailySummary: 'Daily summary',
         weeklySummary: 'Weekly summary',
         errorDigest: 'Error digest',
@@ -5860,12 +5273,7 @@ export default {
           cronRequired: 'A cron expression is required when schedule is enabled',
           cronFormat: 'Cron expression format looks invalid (expected at least 5 parts)',
           digestMinCountRange: 'Min errors for digest must be a number ≥ 0',
-          accountHealthThresholdRange: 'Account health threshold must be between 0 and 100',
-          feishuWebhookRequired: 'Feishu P0 alerts require a configured webhook when enabled',
-          feishuWebhookHttps: 'Feishu webhook must be an HTTPS URL',
-          feishuRateLimitRange: 'Feishu rate limit per hour must be between 1 and 24',
-          feishuCooldownRange: 'Feishu cooldown must be between 60 and 86400 seconds',
-          feishuUpstreamBalanceLowThresholdRange: 'Upstream balance alert threshold must be between 1 and 1000000'
+          accountHealthThresholdRange: 'Account health threshold must be between 0 and 100'
         }
       },
       settings: {
@@ -5882,7 +5290,6 @@ export default {
         emailPlaceholder: 'Enter email address',
         recipientsHint: 'If empty, the system will use the first admin email as default recipient',
         minSeverity: 'Minimum Severity',
-        feishuEditHint: 'Edit the Feishu webhook, signing secret, rate limit, and cooldown in the Email Notification card.',
         reportConfig: 'Report Configuration',
         enableReport: 'Enable Reports',
         reportRecipients: 'Report Recipient Emails',
@@ -6165,7 +5572,7 @@ export default {
       },
       linuxdo: {
         title: 'LinuxDo Connect Login',
-        description: 'Configure LinuxDo Connect OAuth for TokenKey end-user login',
+        description: 'Configure LinuxDo Connect OAuth for Sub2API end-user login',
         enable: 'Enable LinuxDo Login',
         enableHint: 'Show LinuxDo login on the login/register pages',
         clientId: 'Client ID',
@@ -6306,26 +5713,6 @@ export default {
         monthly:     'Monthly (USD, 30d rolling)',
         placeholder: 'Unlimited',
       },
-      coldStart: {
-        title: 'New-User Cold Start',
-        description:
-          'Lower the friction for first-time users: optional signup bonus (USD), auto-issued trial API key, and a public pricing page. See docs/approved/user-cold-start.md.',
-        signupBonusEnabled: 'Signup Bonus',
-        signupBonusEnabledHint:
-          'Credit each newly registered user with a small USD balance so they can try paid models immediately.',
-        signupBonusBalance: 'Bonus Balance (USD)',
-        signupBonusBalanceHint:
-          'Granted once at registration. Default $1.00. Must be ≥ 0; set to 0 to keep the toggle on without crediting.',
-        autoGenerateDefaultToken: 'Auto-Issue Trial API Key',
-        autoGenerateDefaultTokenHint:
-          'Create one API key automatically after registration so the user can call the gateway without first opening the keys page.',
-        autoGenerateDefaultTokenName: 'Trial Key Name',
-        autoGenerateDefaultTokenNameHint:
-          'Display name for the auto-issued key. Defaults to "trial".',
-        pricingCatalogPublic: 'Public Pricing Page',
-        pricingCatalogPublicHint:
-          'Expose GET /api/v1/public/pricing and the /pricing route. Disable to return 404 and hide the entry from the landing page.'
-      },
       claudeCode: {
         title: 'Claude Code Settings',
         description: 'Control Claude Code client access requirements',
@@ -6353,9 +5740,6 @@ export default {
         metadataPassthroughHint: 'Pass through client\'s original metadata.user_id without rewriting. May improve upstream cache hit rates.',
         cchSigning: 'CCH Signing',
         cchSigningHint: 'Sign the billing header in forwarded requests with CCH hash. When disabled, the placeholder is preserved.',
-        stickyRouting: 'Prompt Cache Sticky Routing',
-        stickyRoutingHint:
-          'Enabled by default. Derives stable prompt_cache_key / metadata.user_id / X-Session-Id and injects them upstream to maximize prompt cache hits. When disabled, every group falls back to passthrough — only forwarding sticky fields the client already sent. See docs/approved/sticky-routing.md.',
         claudeOAuthSystemPromptInjection: 'Claude OAuth System Blocks',
         claudeOAuthSystemPromptInjectionHint: 'Inject Claude Code-like system blocks for Claude OAuth requests from non-Claude-Code clients. Enabled by default.',
         claudeOAuthSystemPrompt: 'Claude OAuth Expansion Prompt',
@@ -6380,12 +5764,10 @@ export default {
         resetSystemBlocks: 'Reset defaults',
         cacheTTL5m: '5 minutes',
         cacheTTL1h: '1 hour',
-        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection',
+        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL Injection',
         anthropicCacheTTL1hInjectionHint: 'When enabled, existing ephemeral cache_control blocks in Anthropic OAuth/Setup Token request bodies are forced to 1h; response usage is billed back as 5m by default, with account-level TTL billing override taking priority.',
         rewriteMessageCacheControl: 'Rewrite Message Cache Breakpoints',
         rewriteMessageCacheControlHint: 'Default off: preserve client cache_control on message content blocks. When enabled, client breakpoints are stripped and proxy breakpoints are injected for clients that do not manage caching themselves.',
-        anthropicRequestNormalize: 'Anthropic Request Normalize',
-        anthropicRequestNormalizeHint: 'Default on. Fixes two recurring client mistakes on /v1/messages before forwarding: (1) tool_choice given as an OpenAI-style string ("auto" / "required" / "none") is rewritten to Anthropic\'s required object form; (2) when thinking is enabled together with a tool_choice that forces tool use (any / tool), strips thinking to preserve the forced-tool-use intent. Unknown tool_choice strings are left untouched so the upstream still surfaces the client bug.',
         antigravityUserAgentVersion: 'Antigravity UA Version',
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: 'Leave empty to use ANTIGRAVITY_USER_AGENT_VERSION or the built-in default 1.23.2; when set, the admin setting takes precedence.',
@@ -6433,11 +5815,14 @@ export default {
       site: {
         title: 'Site Settings',
         description: 'Customize site branding',
+        backendMode: 'Backend Mode',
+        backendModeDescription:
+          'Disables user registration, public site, and self-service features. Only admin can log in and manage the platform.',
         siteName: 'Site Name',
-        siteNamePlaceholder: 'TokenKey',
+        siteNamePlaceholder: 'Sub2API',
         siteNameHint: 'Displayed in emails and page titles',
         siteSubtitle: 'Site Subtitle',
-        siteSubtitlePlaceholder: 'AI API Gateway Platform',
+        siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
         siteSubtitleHint: 'Displayed on login and register pages',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',
@@ -6724,7 +6109,7 @@ export default {
         fromEmail: 'From Email',
         fromEmailPlaceholder: "noreply{'@'}example.com",
         fromName: 'From Name',
-        fromNamePlaceholder: 'TokenKey',
+        fromNamePlaceholder: 'Sub2API',
         useTls: 'Use TLS',
         useTlsHint: 'Enable TLS encryption for SMTP connection'
       },
@@ -7239,52 +6624,6 @@ export default {
       loadFailed: 'Failed to load profiles',
       saveFailed: 'Failed to save profile',
       deleteFailed: 'Failed to delete profile'
-    },
-
-    tierTemplates: {
-      title: 'Tier Templates',
-      description: 'Anthropic OAuth stability tiers (l1..l5). Accounts reference a tier by id; per-tier limits resolve at runtime.',
-      projectionBanner: 'Tiers are a projection of the git baseline. Edits here apply immediately and fan out to referencing accounts, but the ops/anthropic pipeline re-asserts these rows from git on its next run — use UI edits for emergency/local changes only.',
-      createTier: 'Create Tier',
-      editTier: 'Edit Tier',
-      deleteTier: 'Delete Tier',
-      noTiers: 'No tiers configured',
-
-      columns: {
-        name: 'Name',
-        concurrency: 'Concurrency',
-        baseRpm: 'Base RPM',
-        maxSessions: 'Max Sessions',
-        tlsProfile: 'TLS Profile',
-        actions: 'Actions'
-      },
-
-      form: {
-        name: 'Name',
-        description: 'Description',
-        concurrency: 'Concurrency',
-        priority: 'Priority',
-        priorityHint: 'Projection only — the window pipeline owns accounts.priority',
-        rateMultiplier: 'Rate Multiplier',
-        baseRpm: 'Base RPM',
-        maxSessions: 'Max Sessions',
-        rpmStickyBuffer: 'RPM Sticky Buffer',
-        sessionIdleTimeoutMinutes: 'Session Idle Timeout (min)',
-        windowCostLimit: 'Window Cost Limit',
-        windowCostStickyReserve: 'Window Cost Sticky Reserve',
-        cacheTtlOverrideEnabled: 'Cache TTL Override',
-        tlsProfileName: 'TLS Profile Name',
-        tlsProfileNameHint: 'Pipeline upserts the profile by name and backfills the id',
-        tlsProfileId: 'TLS Profile ID'
-      },
-
-      deleteConfirmMessage: 'Are you sure you want to delete tier "{name}"? Accounts bound to it will fall back to their persisted extra values.',
-      createSuccess: 'Tier created successfully',
-      updateSuccess: 'Tier updated successfully',
-      deleteSuccess: 'Tier deleted successfully',
-      loadFailed: 'Failed to load tiers',
-      saveFailed: 'Failed to save tier',
-      deleteFailed: 'Failed to delete tier'
     }
   },
 
@@ -7419,14 +6758,14 @@ export default {
     // Admin tour steps
     admin: {
       welcome: {
-        title: '👋 Welcome to TokenKey',
-        description: '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">TokenKey is a powerful AI service gateway platform that helps you easily manage and distribute AI services.</p><p style="margin-bottom: 12px;"><b>🎯 Core Features:</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>📦 <b>Group Management</b> - Create service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - Connect multiple upstream AI service accounts</li><li>🔑 <b>Key Distribution</b> - Generate independent API Keys for users</li><li>💰 <b>Billing Control</b> - Flexible rate and quota management</li></ul><p style="color: #10b981; font-weight: 600;">Let\'s complete the initial setup in 3 minutes →</p></div>',
+        title: '👋 Welcome to Sub2API',
+        description: '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">Sub2API is a powerful AI service gateway platform that helps you easily manage and distribute AI services.</p><p style="margin-bottom: 12px;"><b>🎯 Core Features:</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>📦 <b>Group Management</b> - Create service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - Connect multiple upstream AI service accounts</li><li>🔑 <b>Key Distribution</b> - Generate independent API Keys for users</li><li>💰 <b>Billing Control</b> - Flexible rate and quota management</li></ul><p style="color: #10b981; font-weight: 600;">Let\'s complete the initial setup in 3 minutes →</p></div>',
         nextBtn: 'Start Setup 🚀',
         prevBtn: 'Skip'
       },
       groupManage: {
         title: '📦 Step 1: Group Management',
-        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>What is a Group?</b></p><p style="margin-bottom: 12px;">Groups are the core concept of TokenKey, like a "service package":</p><ul style="margin-left: 20px; margin-bottom: 12px; font-size: 13px;"><li>🎯 Each group can contain multiple upstream accounts</li><li>💰 Each group has independent billing multiplier</li><li>👥 Can be set as public or exclusive</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;"><b>💡 Example:</b> You can create "VIP Premium" (high rate) and "Free Trial" (low rate) groups</p><p style="margin-top: 16px; color: #10b981; font-weight: 600;">👉 Click "Group Management" on the left sidebar</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>What is a Group?</b></p><p style="margin-bottom: 12px;">Groups are the core concept of Sub2API, like a "service package":</p><ul style="margin-left: 20px; margin-bottom: 12px; font-size: 13px;"><li>🎯 Each group can contain multiple upstream accounts</li><li>💰 Each group has independent billing multiplier</li><li>👥 Can be set as public or exclusive</li></ul><p style="margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;"><b>💡 Example:</b> You can create "VIP Premium" (high rate) and "Free Trial" (low rate) groups</p><p style="margin-top: 16px; color: #10b981; font-weight: 600;">👉 Click "Group Management" on the left sidebar</p></div>'
       },
       createGroup: {
         title: '➕ Create New Group',
@@ -7519,8 +6858,8 @@ export default {
     // User tour steps
     user: {
       welcome: {
-        title: '👋 Welcome to TokenKey',
-        description: '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">Hello! Welcome to the TokenKey AI service platform.</p><p style="margin-bottom: 12px;"><b>🎯 Quick Start:</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>🔑 Create API Key</li><li>📋 Copy key to your application</li><li>🚀 Start using AI services</li></ul><p style="color: #10b981; font-weight: 600;">Just 1 minute, let\'s get started →</p></div>',
+        title: '👋 Welcome to Sub2API',
+        description: '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">Hello! Welcome to the Sub2API AI service platform.</p><p style="margin-bottom: 12px;"><b>🎯 Quick Start:</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li>🔑 Create API Key</li><li>📋 Copy key to your application</li><li>🚀 Start using AI services</li></ul><p style="color: #10b981; font-weight: 600;">Just 1 minute, let\'s get started →</p></div>',
         nextBtn: 'Start 🚀',
         prevBtn: 'Skip'
       },

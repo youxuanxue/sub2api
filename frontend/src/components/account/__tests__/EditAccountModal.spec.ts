@@ -1,13 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock } = vi.hoisted(() => ({
+const { updateAccountMock, checkMixedChannelRiskMock } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
-  checkMixedChannelRiskMock: vi.fn(),
-  getWebSearchEmulationConfigMock: vi.fn(),
-  getSettingsMock: vi.fn(),
-  listTLSFingerprintProfilesMock: vi.fn()
+  checkMixedChannelRiskMock: vi.fn()
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -31,11 +28,11 @@ vi.mock('@/api/admin', () => ({
       checkMixedChannelRisk: checkMixedChannelRiskMock
     },
     settings: {
-      getWebSearchEmulationConfig: getWebSearchEmulationConfigMock,
-      getSettings: getSettingsMock
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
+      getSettings: vi.fn().mockResolvedValue({})
     },
     tlsFingerprintProfiles: {
-      list: listTLSFingerprintProfilesMock
+      list: vi.fn().mockResolvedValue([])
     }
   }
 }))
@@ -55,19 +52,6 @@ vi.mock('vue-i18n', async () => {
 })
 
 import EditAccountModal from '../EditAccountModal.vue'
-
-beforeEach(() => {
-  updateAccountMock.mockReset()
-  checkMixedChannelRiskMock.mockReset()
-  getWebSearchEmulationConfigMock.mockReset()
-  getSettingsMock.mockReset()
-  listTLSFingerprintProfilesMock.mockReset()
-
-  checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
-  getWebSearchEmulationConfigMock.mockResolvedValue({ enabled: false, providers: [] })
-  getSettingsMock.mockResolvedValue({ account_quota_notify_enabled: false })
-  listTLSFingerprintProfilesMock.mockResolvedValue([])
-})
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -183,32 +167,6 @@ function buildVertexAccount() {
   } as any
 }
 
-function buildKiroAccount() {
-  return {
-    id: 6,
-    name: 'Kiro Real',
-    notes: '',
-    platform: 'kiro',
-    type: 'oauth',
-    credentials: {
-      region: 'us-east-1',
-      auth_method: 'social',
-      machine_id: 'old-machine',
-      profile_arn: '',
-      tos_acknowledged: true
-    },
-    extra: {},
-    proxy_id: null,
-    concurrency: 30,
-    priority: 10,
-    rate_multiplier: 1,
-    status: 'active',
-    group_ids: [],
-    expires_at: null,
-    auto_pause_on_expired: true
-  } as any
-}
-
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -235,13 +193,7 @@ describe('EditAccountModal', () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
-    getWebSearchEmulationConfigMock.mockReset()
-    getSettingsMock.mockReset()
-    listTLSFingerprintProfilesMock.mockReset()
     checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
-    getWebSearchEmulationConfigMock.mockResolvedValue({ enabled: false, providers: [] })
-    getSettingsMock.mockResolvedValue({ account_quota_notify_enabled: false })
-    listTLSFingerprintProfilesMock.mockResolvedValue([])
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
@@ -378,9 +330,48 @@ describe('EditAccountModal', () => {
     ])
   })
 
-	// NOTE: the per-account OpenAI quota auto-pause threshold/disable controls were
-	// retired in the PR #899 follow-up (superseded by the window-sched tri-state guard)
-	// and their UI is hidden, so the tests that drove those controls were removed.
+	it('submits OpenAI quota auto-pause thresholds in extra', async () => {
+	  const account = buildAccount()
+	  account.extra = {
+		auto_pause_5h_threshold: 0.9,
+		auto_pause_7d_threshold: 0.8
+	  }
+	  updateAccountMock.mockReset()
+	  checkMixedChannelRiskMock.mockReset()
+	  checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+	  updateAccountMock.mockResolvedValue(account)
+
+	  const wrapper = mountModal(account)
+
+	  await wrapper.get('[data-testid="auto-pause-5h-threshold"]').setValue('95')
+	  await wrapper.get('[data-testid="auto-pause-7d-threshold"]').setValue('96')
+	  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+	  expect(updateAccountMock).toHaveBeenCalledTimes(1)
+	  expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_5h_threshold).toBe(0.95)
+	  expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_7d_threshold).toBe(0.96)
+	})
+
+	it('submits OpenAI quota auto-pause disable flag in extra', async () => {
+	  // Toggling the per-account disable flag must persist as auto_pause_5h_disabled
+	  // so an admin can exempt one account from auto-pause even when a global default
+	  // threshold is configured (otherwise leaving the threshold blank would silently
+	  // fall back to the global default).
+	  const account = buildAccount()
+	  updateAccountMock.mockReset()
+	  checkMixedChannelRiskMock.mockReset()
+	  checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+	  updateAccountMock.mockResolvedValue(account)
+
+	  const wrapper = mountModal(account)
+
+	  await wrapper.get('[data-testid="auto-pause-5h-disabled"]').trigger('click')
+	  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+	  expect(updateAccountMock).toHaveBeenCalledTimes(1)
+	  expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_5h_disabled).toBe(true)
+	  expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.auto_pause_7d_disabled).toBeUndefined()
+	})
 
   it('keeps at least one OpenAI APIKey endpoint capability selected', async () => {
     const account = buildAccount()
@@ -587,59 +578,5 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).not.toHaveBeenCalled()
-  })
-
-  it('renders and submits Kiro credential fields in edit mode', async () => {
-    const account = buildKiroAccount()
-    updateAccountMock.mockReset()
-    updateAccountMock.mockResolvedValue(account)
-
-    const wrapper = mountModal(account)
-
-    const accessTokenInput = wrapper.get<HTMLTextAreaElement>(
-      'textarea[placeholder="admin.accounts.kiroPlatform.accessTokenPlaceholder"]'
-    )
-    const refreshTokenInput = wrapper.get<HTMLTextAreaElement>(
-      'textarea[placeholder="admin.accounts.kiroPlatform.refreshTokenPlaceholder"]'
-    )
-    const authMethodSelect = wrapper
-      .findAll<HTMLSelectElement>('select')
-      .find((select) => select.find('option[value="idc"]').exists())
-    expect(authMethodSelect).toBeTruthy()
-    const tosCheckbox = wrapper.get<HTMLInputElement>('input[type="checkbox"]')
-
-    expect(tosCheckbox.element.checked).toBe(true)
-
-    await accessTokenInput.setValue('new-access-token')
-    await refreshTokenInput.setValue('new-refresh-token')
-    await wrapper.get<HTMLInputElement>('input[placeholder="us-east-1"]').setValue('us-west-2')
-    await authMethodSelect!.setValue('idc')
-    await wrapper
-      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.clientIdPlaceholder"]')
-      .setValue('new-client-id')
-    await wrapper
-      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.clientSecretPlaceholder"]')
-      .setValue('new-client-secret')
-    await wrapper
-      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.machineIdPlaceholder"]')
-      .setValue('new-machine-id')
-    await wrapper
-      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.profileArnPlaceholder"]')
-      .setValue('arn:aws:codewhisperer:us-west-2:123456789012:profile/example')
-
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
-      access_token: 'new-access-token',
-      refresh_token: 'new-refresh-token',
-      region: 'us-west-2',
-      auth_method: 'idc',
-      client_id: 'new-client-id',
-      client_secret: 'new-client-secret',
-      machine_id: 'new-machine-id',
-      profile_arn: 'arn:aws:codewhisperer:us-west-2:123456789012:profile/example',
-      tos_acknowledged: true
-    })
   })
 })

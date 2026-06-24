@@ -91,33 +91,6 @@ func (a *Account) VertexLocation(model string) string {
 	return vertexDefaultLocation
 }
 
-// VertexServiceAccountJSON returns the raw service-account JSON string, whether the
-// credential is stored as a JSON string or a nested object. Empty when absent. The
-// newapi bridge forwards this as the channel key so new-api's Vertex adaptor can
-// unmarshal it (project_id is derived from the JSON, not passed separately).
-func (a *Account) VertexServiceAccountJSON() string {
-	if a == nil || a.Credentials == nil {
-		return ""
-	}
-	if raw := strings.TrimSpace(a.GetCredential("service_account_json")); raw != "" {
-		return raw
-	}
-	if raw := strings.TrimSpace(a.GetCredential("service_account")); raw != "" {
-		return raw
-	}
-	if nested, ok := a.Credentials["service_account_json"].(map[string]any); ok {
-		if b, err := json.Marshal(nested); err == nil {
-			return string(b)
-		}
-	}
-	if nested, ok := a.Credentials["service_account"].(map[string]any); ok {
-		if b, err := json.Marshal(nested); err == nil {
-			return string(b)
-		}
-	}
-	return ""
-}
-
 func parseVertexServiceAccountKey(account *Account) (*vertexServiceAccountKey, error) {
 	if account == nil || account.Credentials == nil {
 		return nil, errors.New("service account credentials not configured")

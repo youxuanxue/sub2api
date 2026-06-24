@@ -237,11 +237,6 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	// Wei-Shaw/sub2api#1311: WriteFilteredHeaders may have propagated the
-	// upstream SSE Content-Type; override before c.JSON so OpenAI SDK clients
-	// branching on Content-Type don't misroute the JSON body through an SSE
-	// parser.
-	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, responsesResp)
 
 	return &OpenAIForwardResult{

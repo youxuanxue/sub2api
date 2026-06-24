@@ -14,11 +14,9 @@ import (
 // Injected from repository layer to avoid import cycles.
 type PrivacyClientFactory func(proxyURL string) (*req.Client, error)
 
-// openAISettingsURL is the training-toggle PATCH endpoint. var (not const) only so
-// tests can point it at an httptest server, mirroring openAISettingsUserURL (the read side).
-var openAISettingsURL = "https://chatgpt.com/backend-api/settings/account_user_setting"
-
 const (
+	openAISettingsURL = "https://chatgpt.com/backend-api/settings/account_user_setting"
+
 	PrivacyModeTrainingOff = "training_off"
 	PrivacyModeFailed      = "training_set_failed"
 	PrivacyModeCFBlocked   = "training_set_cf_blocked"
@@ -42,17 +40,6 @@ func shouldSkipOpenAIPrivacyEnsure(extra map[string]any) bool {
 func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL string) string {
 	if accessToken == "" || clientFactory == nil {
 		return ""
-	}
-
-	// TK: read-first. The settings PATCH below is Cloudflare-challenged from a datacenter
-	// egress (-> training_set_cf_blocked) even when training is already disabled. A GET of
-	// the same settings resource is not challenged, so if upstream training_allowed is
-	// already false we record training_off without issuing the (blocked) PATCH. An
-	// inconclusive read (error / non-2xx / unparseable) falls through to the PATCH path
-	// unchanged. Read+parse live in openai_privacy_tk_read.go to keep this a thin call site.
-	if disabled, ok := readOpenAITrainingDisabled(ctx, clientFactory, accessToken, proxyURL); ok && disabled {
-		slog.Info("openai_privacy_read_already_disabled")
-		return PrivacyModeTrainingOff
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -82,23 +69,21 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 		return PrivacyModeFailed
 	}
 
-	// TK: classification (incl. broadened anti-bot/CF-challenge detection) lives in
-	// openai_privacy_tk_classify.go to keep this upstream file a thin call site.
-	switch mode := classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String()); mode {
-	case PrivacyModeCFBlocked:
-		slog.Warn("openai_privacy_cf_blocked", "status", resp.StatusCode, "content_type", resp.GetContentType())
-		return mode
-	case PrivacyModeTrainingOff:
-		slog.Info("openai_privacy_training_disabled")
-		return mode
-	default:
-		// truncate at 2000B (was 200B): OpenAI privacy API failure responses can include
-		// nested HTML/JSON error envelopes, request-id, and rate-limit hints; 200B routinely
-		// cut these off mid-key and forced operators to re-enable debug logging to root-cause
-		// (see prod incident on 2026-04: "Privacy not set" loop on GPT-A1).
-		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "content_type", resp.GetContentType(), "body", truncate(resp.String(), 2000))
-		return mode
+	if resp.StatusCode == 403 || resp.StatusCode == 503 {
+		body := resp.String()
+		if strings.Contains(body, "cloudflare") || strings.Contains(body, "cf-") || strings.Contains(body, "Just a moment") {
+			slog.Warn("openai_privacy_cf_blocked", "status", resp.StatusCode)
+			return PrivacyModeCFBlocked
+		}
 	}
+
+	if !resp.IsSuccessState() {
+		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(resp.String(), 200))
+		return PrivacyModeFailed
+	}
+
+	slog.Info("openai_privacy_training_disabled")
+	return PrivacyModeTrainingOff
 }
 
 // ChatGPTAccountInfo 从 chatgpt.com/backend-api/accounts/check 获取的账号信息

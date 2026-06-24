@@ -450,25 +450,6 @@ export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTod
   return data
 }
 
-export interface BatchPassiveUsageResponse {
-  // Keyed by account ID (string). Accounts that cannot serve passive usage
-  // (e.g. apikey accounts) are omitted, matching the single-fetch fallback.
-  usage: Record<string, AccountUsageInfo>
-}
-
-/**
- * 批量获取多个账号的被动用量窗口（与 GET /:id/usage?source=passive 同源）。
- * 用于账号列表页一次性取回整页账号的用量，消除逐行 /usage 扇出的 N+1。
- * @param accountIds - 账号 ID 列表
- * @returns 以账号 ID（字符串）为键的被动用量映射
- */
-export async function getBatchPassiveUsage(accountIds: number[]): Promise<BatchPassiveUsageResponse> {
-  const { data } = await apiClient.post<BatchPassiveUsageResponse>('/admin/accounts/usage/batch', {
-    account_ids: accountIds
-  })
-  return data
-}
-
 /**
  * Set account schedulable status
  * @param id - Account ID
@@ -725,17 +706,6 @@ export async function setPrivacy(id: number): Promise<Account> {
 }
 
 /**
- * TokenKey-only: apply an embedded stability-tier baseline to a single anthropic
- * account on THIS deployment (concurrency / priority / extra + canonical TLS
- * fingerprint binding + operator-concurrency Σ sync). Does NOT propagate to
- * other edges/prod — fleet fan-out stays with the ops/anthropic pipeline.
- */
-export async function applyAccountTier(id: number, tier: string): Promise<Account> {
-  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/apply-tier`, { tier })
-  return data
-}
-
-/**
  * OpenAI / Codex rate-limit reset feature: query and reset upstream usage.
  */
 export interface OpenAIRateLimitWindow {
@@ -817,13 +787,11 @@ export const accountsAPI = {
   testAccount,
   refreshCredentials,
   applyOAuthCredentials,
-  applyAccountTier,
   getStats,
   clearError,
   getUsage,
   getTodayStats,
   getBatchTodayStats,
-  getBatchPassiveUsage,
   clearRateLimit,
   recoverState,
   resetAccountQuota,

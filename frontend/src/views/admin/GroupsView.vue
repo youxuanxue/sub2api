@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div
@@ -103,11 +104,9 @@
                   ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                   : value === 'openai'
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    : value === 'newapi'
-                      ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-                      : value === 'antigravity'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                    : value === 'antigravity'
+                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
               ]"
             >
               <PlatformIcon :platform="value" size="xs" />
@@ -1061,9 +1060,9 @@
           </div>
         </div>
 
-        <!-- Messages 调度配置（OpenAI-compat: openai / newapi；gemini 复用同一表单做 Claude→Gemini 映射） -->
+        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
-          v-if="hasMessagesDispatchConfig(createForm.platform)"
+          v-if="createForm.platform === 'openai'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1101,59 +1100,6 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
-
-          <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="text-sm text-gray-600 dark:text-gray-400">{{
-                  t("admin.groups.openaiMessages.compactionEnabled")
-                }}</label>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {{ t("admin.groups.openaiMessages.compactionEnabledHint") }}
-                </p>
-              </div>
-              <button
-                type="button"
-                @click="
-                  createForm.messages_compaction_enabled =
-                    !createForm.messages_compaction_enabled
-                "
-                class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                :class="
-                  createForm.messages_compaction_enabled
-                    ? 'bg-primary-500'
-                    : 'bg-gray-300 dark:bg-dark-600'
-                "
-              >
-                <span
-                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                  :class="
-                    createForm.messages_compaction_enabled
-                      ? 'translate-x-6'
-                      : 'translate-x-1'
-                  "
-                />
-              </button>
-            </div>
-            <div v-if="createForm.messages_compaction_enabled" class="mt-3">
-              <label class="input-label">{{
-                t("admin.groups.openaiMessages.compactionThreshold")
-              }}</label>
-              <input
-                v-model.number="createForm.messages_compaction_input_tokens_threshold"
-                type="number"
-                min="1"
-                step="1"
-                class="input"
-                :placeholder="
-                  t('admin.groups.openaiMessages.compactionThresholdPlaceholder')
-                "
-              />
-              <p class="input-hint">
-                {{ t("admin.groups.openaiMessages.compactionThresholdHint") }}
-              </p>
-            </div>
-          </div>
 
           <div v-if="createForm.allow_messages_dispatch" class="mt-3">
             <div
@@ -1341,10 +1287,10 @@
           </div>
         </div>
 
-        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini/NewAPI) -->
+        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini', 'newapi'].includes(
+            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
               createForm.platform,
             )
           "
@@ -1354,8 +1300,8 @@
             账号过滤控制
           </h4>
 
-          <!-- require_oauth_only toggle (newapi 账号始终是 API Key 形态，隐藏) -->
-          <div v-if="createForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <!-- require_oauth_only toggle -->
+          <div class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许 OAuth 账号</label
@@ -1391,8 +1337,8 @@
             </button>
           </div>
 
-          <!-- require_privacy_set toggle (newapi 账号无 OAuth privacy 字段，隐藏) -->
-          <div v-if="createForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <!-- require_privacy_set toggle -->
+          <div class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许隐私保护已设置的账号</label
@@ -1426,23 +1372,6 @@
                 "
               />
             </button>
-          </div>
-
-          <!-- Sticky routing mode (per-group). docs/approved/sticky-routing.md -->
-          <div>
-            <label class="text-sm text-gray-600 dark:text-gray-400">
-              Prompt Cache 粘性路由策略
-            </label>
-            <Select
-              v-model="createForm.sticky_routing_mode"
-              :options="stickyRoutingModeOptions"
-              class="mt-1"
-            />
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              auto：网关派生稳定 prompt_cache_key /
-              metadata.user_id；passthrough：仅在客户端已发送时透传，不主动派生；off：完全关闭。详见
-              docs/approved/sticky-routing.md。
-            </p>
           </div>
         </div>
 
@@ -2415,9 +2344,9 @@
           </div>
         </div>
 
-        <!-- Messages 调度配置（OpenAI-compat: openai / newapi；gemini 复用同一表单做 Claude→Gemini 映射） -->
+        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
-          v-if="hasMessagesDispatchConfig(editForm.platform)"
+          v-if="editForm.platform === 'openai'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2455,59 +2384,6 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
-
-          <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="text-sm text-gray-600 dark:text-gray-400">{{
-                  t("admin.groups.openaiMessages.compactionEnabled")
-                }}</label>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {{ t("admin.groups.openaiMessages.compactionEnabledHint") }}
-                </p>
-              </div>
-              <button
-                type="button"
-                @click="
-                  editForm.messages_compaction_enabled =
-                    !editForm.messages_compaction_enabled
-                "
-                class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                :class="
-                  editForm.messages_compaction_enabled
-                    ? 'bg-primary-500'
-                    : 'bg-gray-300 dark:bg-dark-600'
-                "
-              >
-                <span
-                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                  :class="
-                    editForm.messages_compaction_enabled
-                      ? 'translate-x-6'
-                      : 'translate-x-1'
-                  "
-                />
-              </button>
-            </div>
-            <div v-if="editForm.messages_compaction_enabled" class="mt-3">
-              <label class="input-label">{{
-                t("admin.groups.openaiMessages.compactionThreshold")
-              }}</label>
-              <input
-                v-model.number="editForm.messages_compaction_input_tokens_threshold"
-                type="number"
-                min="1"
-                step="1"
-                class="input"
-                :placeholder="
-                  t('admin.groups.openaiMessages.compactionThresholdPlaceholder')
-                "
-              />
-              <p class="input-hint">
-                {{ t("admin.groups.openaiMessages.compactionThresholdHint") }}
-              </p>
-            </div>
-          </div>
 
           <div v-if="editForm.allow_messages_dispatch" class="mt-3">
             <div
@@ -2695,10 +2571,10 @@
           </div>
         </div>
 
-        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini/NewAPI) -->
+        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini', 'newapi'].includes(
+            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
               editForm.platform,
             )
           "
@@ -2708,8 +2584,8 @@
             账号过滤控制
           </h4>
 
-          <!-- require_oauth_only toggle (newapi 账号始终是 API Key 形态，隐藏) -->
-          <div v-if="editForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <!-- require_oauth_only toggle -->
+          <div class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许 OAuth 账号</label
@@ -2745,8 +2621,8 @@
             </button>
           </div>
 
-          <!-- require_privacy_set toggle (newapi 账号无 OAuth privacy 字段，隐藏) -->
-          <div v-if="editForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <!-- require_privacy_set toggle -->
+          <div class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许隐私保护已设置的账号</label
@@ -2780,23 +2656,6 @@
                 "
               />
             </button>
-          </div>
-
-          <!-- Sticky routing mode (per-group). docs/approved/sticky-routing.md -->
-          <div>
-            <label class="text-sm text-gray-600 dark:text-gray-400">
-              Prompt Cache 粘性路由策略
-            </label>
-            <Select
-              v-model="editForm.sticky_routing_mode"
-              :options="stickyRoutingModeOptions"
-              class="mt-1"
-            />
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              auto：网关派生稳定 prompt_cache_key /
-              metadata.user_id；passthrough：仅在客户端已发送时透传，不主动派生；off：完全关闭。详见
-              docs/approved/sticky-routing.md。
-            </p>
           </div>
         </div>
 
@@ -3105,11 +2964,9 @@
                       ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                       : group.platform === 'openai'
                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : group.platform === 'newapi'
-                          ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-                          : group.platform === 'antigravity'
-                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                        : group.platform === 'antigravity'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
                   ]"
                 >
                   {{ t("admin.groups.platforms." + group.platform) }}
@@ -3176,7 +3033,8 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
-  </template>
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
@@ -3186,6 +3044,7 @@ import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
 import type { AdminGroup, GroupPlatform, SubscriptionType } from "@/types";
 import type { Column } from "@/components/common/types";
+import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import Pagination from "@/components/common/Pagination.vue";
@@ -3202,8 +3061,6 @@ import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
-import { usePlatformOptions } from "@/composables/usePlatformOptions";
-import { isOpenAICompatPlatform, hasMessagesDispatchConfig } from "@/constants/gatewayPlatforms";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
@@ -3276,13 +3133,20 @@ const exclusiveOptions = computed(() => [
   { value: "false", label: t("admin.groups.nonExclusive") },
 ]);
 
-// Platform options derived from canonical GATEWAY_PLATFORMS via usePlatformOptions
-// composable. Adding a 6th platform later requires touching only that composable;
-// this view (and every other admin picker) auto-picks it up. See US-017.
-// Pass `() => t(...)` (not the resolved string) so the "all platforms" sentinel
-// stays reactive on language switch.
-const { options: platformOptions, optionsWithAll } = usePlatformOptions();
-const platformFilterOptions = optionsWithAll(() => t("admin.groups.allPlatforms"));
+const platformOptions = computed(() => [
+  { value: "anthropic", label: "Anthropic" },
+  { value: "openai", label: "OpenAI" },
+  { value: "gemini", label: "Gemini" },
+  { value: "antigravity", label: "Antigravity" },
+]);
+
+const platformFilterOptions = computed(() => [
+  { value: "", label: t("admin.groups.allPlatforms") },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "openai", label: "OpenAI" },
+  { value: "gemini", label: "Gemini" },
+  { value: "antigravity", label: "Antigravity" },
+]);
 
 const editStatusOptions = computed(() => [
   { value: "active", label: t("admin.accounts.status.active") },
@@ -3329,13 +3193,6 @@ const fallbackGroupOptionsForEdit = computed(() => {
   });
   return options;
 });
-
-// Sticky routing 策略选项（详见 docs/approved/sticky-routing.md）。
-const stickyRoutingModeOptions = [
-  { value: "auto", label: "auto — 派生稳定 cache key（默认，推荐）" },
-  { value: "passthrough", label: "passthrough — 仅透传客户端字段，不派生" },
-  { value: "off", label: "off — 关闭粘性路由（清空 sticky 字段）" },
-];
 
 // 无效请求兜底分组选项（创建时）- 仅包含 anthropic 平台、非订阅且未配置兜底的分组
 const invalidRequestFallbackOptions = computed(() => {
@@ -3493,8 +3350,6 @@ const createForm = reactive({
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
-  messages_compaction_enabled: false,
-  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -3504,9 +3359,6 @@ const createForm = reactive({
   supported_model_scopes: ["claude", "gemini_text", "gemini_image"] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
-  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
-  // 详见 docs/approved/sticky-routing.md。
-  sticky_routing_mode: "auto" as "auto" | "passthrough" | "off",
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
@@ -3830,8 +3682,6 @@ const editForm = reactive({
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
-  messages_compaction_enabled: false,
-  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -3841,9 +3691,6 @@ const editForm = reactive({
   supported_model_scopes: ["claude", "gemini_text", "gemini_image"] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
-  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
-  // 详见 docs/approved/sticky-routing.md。
-  sticky_routing_mode: "auto" as "auto" | "passthrough" | "off",
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
@@ -4108,20 +3955,6 @@ const normalizeOptionalLimit = (
   return Number.isFinite(value) && value > 0 ? value : null;
 };
 
-const normalizeCompactionThreshold = (
-  value: number | string | null | undefined,
-): number | null => {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  const normalized = Math.trunc(parsed);
-  return normalized >= 1 ? normalized : null;
-};
-
 const normalizeImageRateMultiplier = (
   value: number | string | null | undefined,
 ): number => {
@@ -4140,14 +3973,6 @@ const handleCreateGroup = async () => {
   submitting.value = true;
   try {
     // 构建请求数据，包含模型路由配置
-    const compactionThreshold = normalizeCompactionThreshold(
-      createForm.messages_compaction_input_tokens_threshold,
-    );
-    if (createForm.messages_compaction_enabled && compactionThreshold === null) {
-      appStore.showError(t("admin.groups.openaiMessages.compactionThresholdRequired"));
-      return;
-    }
-
     const requestData = {
       ...createForm,
       daily_limit_usd: normalizeOptionalLimit(
@@ -4168,7 +3993,7 @@ const handleCreateGroup = async () => {
         createForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        hasMessagesDispatchConfig(createForm.platform)
+        createForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -4177,14 +4002,6 @@ const handleCreateGroup = async () => {
               exact_model_mappings: createForm.exact_model_mappings,
             })
           : undefined,
-      messages_compaction_enabled: hasMessagesDispatchConfig(createForm.platform)
-        ? createForm.messages_compaction_enabled
-        : null,
-      messages_compaction_input_tokens_threshold:
-        hasMessagesDispatchConfig(createForm.platform) &&
-        createForm.messages_compaction_enabled
-          ? compactionThreshold
-          : null,
     };
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
@@ -4241,16 +4058,11 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
-  editForm.default_mapped_model = group.default_mapped_model || "";
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
   editForm.exact_model_mappings =
     messagesDispatchFormState.exact_model_mappings;
-  editForm.messages_compaction_enabled =
-    group.messages_compaction_enabled ?? false;
-  editForm.messages_compaction_input_tokens_threshold =
-    group.messages_compaction_input_tokens_threshold ?? null;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
@@ -4260,7 +4072,6 @@ const handleEdit = async (group: AdminGroup) => {
     "gemini_image",
   ];
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
-  editForm.sticky_routing_mode = (group.sticky_routing_mode as "auto" | "passthrough" | "off") || "auto";
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   editForm.rpm_limit = group.rpm_limit ?? 0;
   resetModelsListState(editModelsListState, group.models_list_config);
@@ -4295,14 +4106,6 @@ const handleUpdateGroup = async () => {
   submitting.value = true;
   try {
     // 转换 fallback_group_id: null -> 0 (后端使用 0 表示清除)
-    const compactionThreshold = normalizeCompactionThreshold(
-      editForm.messages_compaction_input_tokens_threshold,
-    );
-    if (editForm.messages_compaction_enabled && compactionThreshold === null) {
-      appStore.showError(t("admin.groups.openaiMessages.compactionThresholdRequired"));
-      return;
-    }
-
     const payload = {
       ...editForm,
       daily_limit_usd: normalizeOptionalLimit(
@@ -4329,7 +4132,7 @@ const handleUpdateGroup = async () => {
         editForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        hasMessagesDispatchConfig(editForm.platform)
+        editForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -4338,14 +4141,6 @@ const handleUpdateGroup = async () => {
               exact_model_mappings: editForm.exact_model_mappings,
             })
           : undefined,
-      messages_compaction_enabled: hasMessagesDispatchConfig(editForm.platform)
-        ? editForm.messages_compaction_enabled
-        : null,
-      messages_compaction_input_tokens_threshold:
-        hasMessagesDispatchConfig(editForm.platform) &&
-        editForm.messages_compaction_enabled
-          ? compactionThreshold
-          : null,
     };
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
@@ -4442,13 +4237,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (!hasMessagesDispatchConfig(newVal)) {
+    if (newVal !== "openai") {
       resetMessagesDispatchFormState(createForm);
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
-      // require_oauth_only / require_privacy_set are OAuth-credential semantics;
-      // newapi accounts are always API-key-shaped so the toggles are meaningless
-      // there — falling through to the reset path keeps the values cleared.
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
     }
@@ -4463,7 +4255,7 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (!hasMessagesDispatchConfig(newVal)) {
+    if (newVal !== "openai") {
       resetMessagesDispatchFormState(editForm);
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
@@ -4483,7 +4275,7 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (!isOpenAICompatPlatform(newVal)) {
+    if (newVal !== 'openai') {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
     }

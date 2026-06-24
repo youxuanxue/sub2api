@@ -68,18 +68,6 @@ func TestLatestMigrationBaseline(t *testing.T) {
 	})
 }
 
-func TestIsMigrationChecksumCompatible_Tk038UsageDashboardGroupDaily(t *testing.T) {
-	const (
-		appliedV138 = "55d565b2820aa360f3efdeb4186c78548c715bce44b93bc32da3d9946a370793"
-		mistakeV139 = "03b5b2d5a2ab4c714f547ee03eb08076d8ce8ff948e403d0a09dfc5e20cdd913"
-	)
-	name := "tk_038_usage_dashboard_group_daily.sql"
-
-	require.True(t, isMigrationChecksumCompatible(name, appliedV138, appliedV138))
-	require.True(t, isMigrationChecksumCompatible(name, appliedV138, mistakeV139))
-	require.False(t, isMigrationChecksumCompatible(name, "unknown-db-checksum", appliedV138))
-}
-
 func TestIsMigrationChecksumCompatible_AdditionalCases(t *testing.T) {
 	require.False(t, isMigrationChecksumCompatible("unknown.sql", "db", "file"))
 
@@ -116,7 +104,6 @@ func TestMigrationChecksumCompatibilityRules_CoverEditedUpgradeCompatibilityMigr
 		"118_wechat_dual_mode_and_auth_source_defaults.sql",
 		"120_enforce_payment_orders_out_trade_no_unique_notx.sql",
 		"123_fix_legacy_auth_source_grant_on_signup_defaults.sql",
-		"tk_038_usage_dashboard_group_daily.sql",
 	} {
 		rule, ok := migrationChecksumCompatibilityRules[name]
 		require.Truef(t, ok, "missing compatibility rule for %s", name)

@@ -237,10 +237,6 @@ func (s *stubUserRepo) DisableTotp(ctx context.Context, userID int64) error {
 	panic("unexpected DisableTotp call")
 }
 
-func (s *stubUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
-	panic("unexpected MarkOnboardingTourSeen call")
-}
-
 func (s *stubUserRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
 	panic("unexpected GetByIDIncludeDeleted call")
 }

@@ -8,7 +8,6 @@ import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
-import { isNetworkError } from '@/api/client.tk'
 
 const router = useRouter()
 const route = useRoute()
@@ -39,13 +38,7 @@ function updateFavicon(logoUrl: string) {
     link.rel = 'icon'
     document.head.appendChild(link)
   }
-  if (logoUrl.endsWith('.svg')) {
-    link.type = 'image/svg+xml'
-  } else if (logoUrl.endsWith('.png')) {
-    link.type = 'image/png'
-  } else {
-    link.type = 'image/x-icon'
-  }
+  link.type = logoUrl.endsWith('.svg') ? 'image/svg+xml' : 'image/x-icon'
   link.href = logoUrl
 }
 
@@ -53,7 +46,9 @@ function updateFavicon(logoUrl: string) {
 watch(
   () => appStore.siteLogo,
   (newLogo) => {
-    updateFavicon(newLogo || '/favicon.ico')
+    if (newLogo) {
+      updateFavicon(newLogo)
+    }
   },
   { immediate: true }
 )
@@ -96,9 +91,7 @@ watch(
 
       // User logged in: preload subscriptions and start polling
       subscriptionStore.fetchActiveSubscriptions().catch((error) => {
-        if (!isNetworkError(error)) {
-          console.error('Failed to preload subscriptions:', error)
-        }
+        console.error('Failed to preload subscriptions:', error)
       })
       subscriptionStore.startPolling()
 

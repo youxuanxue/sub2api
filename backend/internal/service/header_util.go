@@ -24,6 +24,7 @@ var headerWireCasing = map[string]string{
 	"x-stainless-arch":            "X-Stainless-Arch",
 	"x-stainless-runtime":         "X-Stainless-Runtime",
 	"x-stainless-runtime-version": "X-Stainless-Runtime-Version",
+	"x-stainless-helper-method":   "x-stainless-helper-method",
 
 	// Anthropic SDK 自身设置的 header，全小写
 	"anthropic-dangerous-direct-browser-access": "anthropic-dangerous-direct-browser-access",
@@ -67,6 +68,7 @@ var headerWireOrder = []string{
 	"sec-fetch-mode",
 	"accept-encoding",
 	"content-length",
+	"x-stainless-helper-method",
 }
 
 // headerWireOrderSet 用于快速判断某个 key 是否在 headerWireOrder 中（按 lowercase 匹配）。
@@ -110,12 +112,6 @@ func addHeaderRaw(h http.Header, key, value string) {
 // deleteHeaderAllForms removes a header in all common key forms (raw, wire casing,
 // canonical) so subsequent setHeaderRaw will not coexist with a passthrough value
 // written under a different casing.
-//
-// Its call sites (the buildUpstreamRequest / buildCountTokensRequest final-beta write)
-// are part of the deferred cc-fingerprint reconciliation (PR #456) — kept so that wiring
-// does not have to re-import it.
-//
-//nolint:unused // Imported from upstream's anthropic-beta context_management refactor.
 func deleteHeaderAllForms(h http.Header, key string) {
 	if h == nil || key == "" {
 		return

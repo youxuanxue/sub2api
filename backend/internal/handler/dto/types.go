@@ -29,13 +29,8 @@ type User struct {
 	BalanceNotifyExtraEmails   []NotifyEmailEntry `json:"balance_notify_extra_emails"`
 	TotalRecharged             float64            `json:"total_recharged"`
 
-	// US-031: nil = onboarding tour 未看过，dashboard 自动启动；非 nil = 已看过。
-	OnboardingTourSeenAt *time.Time `json:"onboarding_tour_seen_at"`
 	// RPMLimit 用户级每分钟请求数上限（0 = 不限制），仅在所用分组未设置 rpm_limit 时作为兜底生效。
 	RPMLimit int `json:"rpm_limit"`
-	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。
-	// 前端据此在每个 API Key 行渲染导出入口；后端导出端点亦据此 403 兜底。
-	TrajExportEnabled bool `json:"traj_export_enabled"`
 
 	APIKeys       []APIKey           `json:"api_keys,omitempty"`
 	Subscriptions []UserSubscription `json:"subscriptions,omitempty"`
@@ -59,7 +54,6 @@ type APIKey struct {
 	Key         string     `json:"key"`
 	Name        string     `json:"name"`
 	GroupID     *int64     `json:"group_id"`
-	RoutingMode string     `json:"routing_mode"` // "direct" | "universal"（全能 Key）
 	Status      string     `json:"status"`
 	IPWhitelist []string   `json:"ip_whitelist"`
 	IPBlacklist []string   `json:"ip_blacklist"`
@@ -125,14 +119,6 @@ type Group struct {
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制），设置后覆盖用户级 rpm_limit。
 	RPMLimit int `json:"rpm_limit"`
-	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）。
-	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
-	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
-
-	// 支持的模型系列（仅 antigravity 平台使用）。用户侧 keys 接口也需返回，供
-	// UseKeyModal 使用指南据此隐藏 gemini-only 分组的 Claude flavor（与后端
-	// /antigravity/v1/models 的 scope 过滤同源）。空 = 不限制。
-	SupportedModelScopes []string `json:"supported_model_scopes,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -155,8 +141,8 @@ type AdminGroup struct {
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
 
-	// 注：SupportedModelScopes 已上移到基础 Group（用户侧 keys DTO 也返回），
-	// AdminGroup 经内嵌 Group 继承，无需在此重复声明。
+	// 支持的模型系列（仅 antigravity 平台使用）
+	SupportedModelScopes    []string       `json:"supported_model_scopes"`
 	AccountGroups           []AccountGroup `json:"account_groups,omitempty"`
 	AccountCount            int64          `json:"account_count,omitempty"`
 	ActiveAccountCount      int64          `json:"active_account_count,omitempty"`
@@ -164,10 +150,6 @@ type AdminGroup struct {
 
 	// 分组排序
 	SortOrder int `json:"sort_order"`
-
-	// Upstream prompt-cache 粘性路由策略：auto | passthrough | off
-	// 详见 docs/approved/sticky-routing.md。
-	StickyRoutingMode string `json:"sticky_routing_mode"`
 }
 
 type Account struct {
@@ -187,7 +169,6 @@ type Account struct {
 	Concurrency             int             `json:"concurrency"`
 	LoadFactor              *int            `json:"load_factor,omitempty"`
 	Priority                int             `json:"priority"`
-	ChannelType             int             `json:"channel_type"`
 	RateMultiplier          float64         `json:"rate_multiplier"`
 	Status                  string          `json:"status"`
 	ErrorMessage            string          `json:"error_message"`

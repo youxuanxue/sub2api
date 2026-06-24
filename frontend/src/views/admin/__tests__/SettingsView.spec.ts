@@ -538,7 +538,7 @@ describe("admin SettingsView payment visible method controls", () => {
       enabled: true,
       thinking_signature_enabled: true,
       thinking_budget_enabled: true,
-      apikey_signature_enabled: true,
+      apikey_signature_enabled: false,
       apikey_signature_patterns: [],
     });
     getBetaPolicySettings.mockResolvedValue({
@@ -565,7 +565,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(wrapper.text()).not.toContain("支付来源");
   });
 
-  it("links payment guidance to TokenKey payment docs", async () => {
+  it("links payment guidance to README sections instead of removed payment docs", async () => {
     const wrapper = mountView();
 
     await flushPromises();
@@ -579,10 +579,10 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(paymentLinks).toHaveLength(2);
     expect(paymentLinks[0]?.attributes("href")).toBe(
-      "https://github.com/youxuanxue/sub2api/blob/main/docs/PAYMENT_CN.md",
+      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md",
     );
     expect(paymentLinks[1]?.attributes("href")).toBe(
-      "https://github.com/youxuanxue/sub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式",
+      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式",
     );
     for (const link of paymentLinks) {
       expect(link.attributes("href")).toContain("docs/PAYMENT");
@@ -860,7 +860,7 @@ describe("admin SettingsView wechat connect controls", () => {
       enabled: true,
       thinking_signature_enabled: true,
       thinking_budget_enabled: true,
-      apikey_signature_enabled: true,
+      apikey_signature_enabled: false,
       apikey_signature_patterns: [],
     });
     getBetaPolicySettings.mockResolvedValue({
