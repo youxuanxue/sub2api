@@ -39,13 +39,12 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 	// Edge nodes are prod→edge mirror-relay targets, so a routing_capacity_rejection
 	// P0 there is just the prod relay being turned away — client-invisible (prod
 	// fails over to another edge), and the relay-探测 failover smears it across every
-	// thin edge it probes. A REAL edge outage is already paged by the account-incident
-	// P0 (账号失效) and the "平台池全不可调度 [edge-xxx]" pool-exhausted P0, both
-	// event-driven on the edge's own siteID and sharing this same feishu.enabled
-	// switch. So this rule is pure Feishu noise on an edge: suppress its
-	// notifications there. The event is still persisted (edge dashboard /
-	// scan-edge-health keep the trail); prod still pages — it is the relay terminus
-	// where the thin-pool-race blind spot actually matters.
+	// thin edge it probes. Edge-local diagnostics are still persisted for the edge
+	// dashboard / scan-edge-health trail, but human paging is centralized on prod:
+	// prod is the relay terminus where the thin-pool-race blind spot is
+	// client-visible and where platform-pool exhaustion Feishu cards are allowed to
+	// page. So this rule is pure Feishu noise on an edge: suppress its notifications
+	// there.
 	if s.isEdgeNode() && isEdgeSuppressedAlertRule(rule) {
 		return result
 	}

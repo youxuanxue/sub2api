@@ -515,9 +515,10 @@ func TestIsEdgeNode(t *testing.T) {
 }
 
 // TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
-// edge. Only the routing-capacity-rejection P0 (client-invisible on an edge,
-// covered by account-incident / pool-exhausted P0s) qualifies; capacity/error
-// signals that ARE meaningful on an edge must still page.
+// edge. Only the routing-capacity-rejection P0 qualifies: edge-local events still
+// persist for diagnostics, while human paging for client-visible pool exhaustion
+// is centralized on prod. Capacity/error signals that ARE meaningful on an edge
+// must still page.
 func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	t.Parallel()
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
