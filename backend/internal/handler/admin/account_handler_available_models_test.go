@@ -336,6 +336,42 @@ func TestAccountHandlerGetAvailableModels_KiroOAuthUsesShortModelIDs(t *testing.
 	require.False(t, ids["claude-sonnet-4-5-20250929"], "Kiro rejects Anthropic dated snapshot IDs")
 }
 
+func TestAccountHandlerGetAvailableModels_GrokUsesGrokCatalog(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       603,
+			Name:     "grok-us4",
+			Platform: service.PlatformGrok,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "edge-key",
+				"base_url": "https://api-us4.tokenkey.dev",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/603/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+	require.Equal(t, "grok-4.3", resp.Data[0].ID, "grok chat probe default must be first")
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["grok-4.3"], "grok account test must default from the grok catalog")
+	require.False(t, ids["claude-sonnet-4-6"], "grok must not fall through to Claude catalog")
+}
+
 func TestAccountHandlerGetAvailableModels_KiroMirrorStubUsesKiroCatalog(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

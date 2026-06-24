@@ -93,6 +93,16 @@
       "rationale": "The wiring of the grok create-time validate+prime into CreateAccount (next to resolveNewAPIMoonshotBaseURLOnSave). An upstream merge that rewrites CreateAccount must preserve this call, or grok accounts are created unvalidated/unprimed."
     },
     {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": ["if account.IsGrok() {", "return s.testGrokAccountConnection(c, account, modelID, prompt)"],
+      "rationale": "The admin account-test dispatcher must route grok accounts to the native OpenAI-compatible /v1/chat/completions probe before the generic Claude /v1/messages fallback. Losing this branch makes first-class grok relay stubs test through messages dispatch, which is intentionally disabled on grok groups and returns a misleading 403 even though native chat completions can serve."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_tk_grok.go",
+      "must_contain": ["func (s *AccountTestService) testGrokAccountConnection", "testOpenAIChatCompletionsConnection", "defaultGrokTestModelID"],
+      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge, OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai, and the requested model is normalized to a chat-capable grok default. Losing this file or broadening it back into Claude messages reintroduces the group-dispatch 403 path for grok account tests."
+    },
+    {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
       "must_contain": ["'grok'"],
       "rationale": "grok's membership in GATEWAY_PLATFORMS + OPENAI_COMPAT_PLATFORMS + GROUP_DISPATCH_CONFIG_PLATFORMS + the exhaustive Record<AccountPlatform> color maps. OPENAI_COMPAT_PLATFORMS must mirror the backend engine.OpenAICompatPlatforms() (preflight newapi compat-pool drift guard watches the lockstep); removing 'grok' drops it from the admin platform pickers/badges and breaks the pool mirror."
