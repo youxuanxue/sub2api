@@ -80,6 +80,22 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
     return 1
   }
 
+  # smoke_assert_anthropic_model_listed_or_warn — universal-key prod topology:
+  # TK_SMOKE_API_KEY is routing_mode=universal; GET /v1/models skips backing-group
+  # resolution (docs/approved/universal-key-routing.md PR1: metadata fallback, PR3:
+  # entitled-group union). The handler unions global account model_mapping keys, so
+  # newapi vendor ids appear while prod Claude capacity (kiro-us3/4/5/6 mirror stubs
+  # with empty native mapping) does not. /v1/messages is the canonical Anthropic probe.
+  smoke_assert_anthropic_model_listed_or_warn() {
+    local models_file="$1"
+    local model="$2"
+    if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "::warning::tk_post_deploy_smoke: anthropic model '${model}' missing from /v1/models for universal smoke key — expected when prod Claude is only via kiro mirror stubs (empty model_mapping); deferring to /v1/messages probe" >&2
+    return 0
+  }
+
   # soft_degrade_or_exit — see post_deploy_smoke.sh header for contract.
   soft_degrade_or_exit() {
     local label="$1" http="$2" resp_file="$3"

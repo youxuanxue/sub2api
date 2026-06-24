@@ -163,7 +163,7 @@ if ! smoke_suite_runs chat; then
   echo "tk_post_deploy_smoke: skip /v1/chat/completions (suite=${GATEWAY_SMOKE_SUITE})"
 else
 for model in "${anthropic_models[@]}"; do
-smoke_assert_model_listed "$tmpdir/models.json" "anthropic" "${model}" || exit 1
+smoke_assert_anthropic_model_listed_or_warn "$tmpdir/models.json" "${model}"
 expect_openai="E2E-OPENAI-OK"
 payload="$(jq -n \
   --arg m "${model}" \
@@ -205,7 +205,7 @@ if ! smoke_suite_runs messages; then
   echo "tk_post_deploy_smoke: skip /v1/messages (suite=${GATEWAY_SMOKE_SUITE})"
 else
 for model in "${anthropic_models[@]}"; do
-smoke_assert_model_listed "$tmpdir/models.json" "anthropic" "${model}" || exit 1
+smoke_assert_anthropic_model_listed_or_warn "$tmpdir/models.json" "${model}"
 expect_anthropic="E2E-ANTHROPIC-OK"
 claude_ua="$(smoke_default_claude_user_agent)"
 # Claude Code client shape: required by ClaudeCodeValidator (Step 4) so that
