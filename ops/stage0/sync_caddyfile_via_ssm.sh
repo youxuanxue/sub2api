@@ -17,7 +17,7 @@
 #      means the sync does not depend on a CFN stack update having already
 #      propagated the new blob to Parameter Store.
 #   2. On the host: write it to caddy/Caddyfile.template, derive the render vars
-#      (same set as boot UserData), then `envsubst` — IDENTICAL to the UserData
+#      (same set as boot UserData), then `envsubst` — matching the UserData
 #      "envsubst < caddy/Caddyfile.template > caddy/Caddyfile" line:
 #        - API_DOMAIN / ACME_EMAIL: sourced from /var/lib/tokenkey/.env (the
 #          boot UserData persists both there).
@@ -25,6 +25,9 @@
 #          holds it only transiently. Recovered from the live Caddyfile's
 #          `remote_ip` line so the relay allowlist is preserved verbatim. For
 #          prod the template has no such token, so the var stays empty/no-op.
+#      For prod hosts already migrated to blue/green, rewrite the rendered
+#      canonical prod upstream from tokenkey:8080 to tokenkey-${active}:8080 so
+#      directive hot-sync never disables the active color.
 #   3. Validate the rendered config in a throwaway caddy:2-alpine container.
 #   4. Apply IN PLACE (`cat new > Caddyfile`, NOT mv): the compose mount binds
 #      the single FILE, so replacing the inode via mv would leave the running
@@ -127,6 +130,7 @@ jq -n --arg b64 "${CADDY_B64}" --arg kind "${KIND}" '{
     "echo \"render vars: API_DOMAIN=$API_DOMAIN ACME_EMAIL=${ACME_EMAIL:-} MAIN_GATEWAY_ALLOWED_CIDR=${MAIN_GATEWAY_ALLOWED_CIDR:-<none>}\"",
     ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
     "sudo sh -c \"API_DOMAIN='\''$API_DOMAIN'\'' ACME_EMAIL='\''${ACME_EMAIL:-}'\'' MAIN_GATEWAY_ALLOWED_CIDR='\''${MAIN_GATEWAY_ALLOWED_CIDR:-}'\'' envsubst '\''\\$API_DOMAIN \\$ACME_EMAIL \\$MAIN_GATEWAY_ALLOWED_CIDR'\'' < '\''$CADDY_DIR/Caddyfile.template'\'' > '\''$CADDY_DIR/Caddyfile.new'\''\"",
+    "if [ \"$KIND\" = prod ] && [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"prod blue/green active upstream preserved: $UPSTREAM\" ;; *) echo \"::error::invalid active-color for prod blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
     "echo === validate rendered config in throwaway caddy container ===",
     "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile",
     "echo \"=== apply IN PLACE (cat-truncate keeps inode the bind-mount maps) ===\"",

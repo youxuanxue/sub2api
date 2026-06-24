@@ -44,7 +44,7 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenke
 
 ### 把 Caddyfile 改动落到「已经在跑」的主机（热同步）
 
-`deploy-stage0.yml` / `deploy_via_ssm.sh` **只换镜像，不刷新 Caddyfile**——Caddyfile 是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有 prod/edge 主机要等下次重建才生效。两条生效路径：
+`deploy_via_ssm.sh`（Lightsail edge / legacy single-app path）**只换镜像，不刷新 Caddyfile**——Caddyfile 是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有主机要等下次重建才生效。两条生效路径：
 
 - **下次重建生效（reboot durability）**：`build-cfn.sh` 已把新 Caddyfile 嵌进 CFN 模板的 SSM 段；一次普通 `update-stack`（或重新 provision / EIP 轮换）就把新 blob 推进 Parameter Store，下次开机渲染即新值。更新 SSM Parameter 资源**不会**替换实例（UserData 只在启动时跑）。
 - **立刻生效（live host）**：跑热同步脚本，在运行中的主机上按开机同样的方式重渲染 Caddyfile 并 `caddy reload`（零断连）：
@@ -57,11 +57,11 @@ bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
 EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 ```
 
-脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
+脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。prod 主机如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
 
 ### 把 #811 的 swap + 内存压力告警落到「已经在跑」的 prod（不重建实例）
 
-同一道理：`deploy-stage0.yml` 只换镜像、**不跑 bootstrap**，所以 #811 给 `stage0-ec2-bootstrap.sh` 加的 `/swapfile` 释放阀 + `vm.swappiness`/`vfs_cache_pressure` sysctl，以及 `tokenkey-disk-metrics.sh` 里的内存压力告警，都只在**实例 bootstrap**时落地——#811 之前 provision 的 prod 实例不会有。两条生效路径：
+同一道理：`deploy-stage0.yml` 虽然会更新 app 镜像和 blue/green runtime state，但**不跑 EC2 bootstrap / CloudFormation UserData**，所以 #811 给 `stage0-ec2-bootstrap.sh` 加的 `/swapfile` 释放阀 + `vm.swappiness`/`vfs_cache_pressure` sysctl，以及 `tokenkey-disk-metrics.sh` 里的内存压力告警，都只在**实例 bootstrap**时落地——#811 之前 provision 的 prod 实例不会有。两条生效路径：
 
 - **下次重建生效**：换机 / CFN 更新时 bootstrap 自动装上（#804 已 pin AMI，换机不退版）。
 - **立刻生效（live host，prod-only）**：dispatch `ops-stage0-host-mem-guard.yml -f target=prod`（或本地 `bash ops/stage0/sync-host-mem-guard-via-ssm.sh <instance-id>`）。原语在运行中的实例上 fallocate swap + 写 sysctl + 刷新 `tokenkey-disk-metrics.sh`，**两段 payload 都从 `stage0-ec2-bootstrap.sh` 运行时抽取**（单一源、无副本漂移）；幂等（swap 已在则跳过、disk-metrics 原地覆盖由 5min timer 复跑）。edge 是 Lightsail 中继、另一套 bootstrap、无此 timer，故不覆盖。
@@ -224,7 +224,7 @@ Runtime state on the prod host:
 - active app containers: `tokenkey-blue` or `tokenkey-green`
 - systemd restart policy: `tokenkey.service` starts Postgres/Redis, the active app color, and Caddy; it does not restart the legacy `tokenkey` app.
 
-Rollback is a normal redeploy of the previous known-good image tag through `deploy-stage0.yml`; the script pulls it into the inactive color, switches Caddy after health is green, and drains the current color. Destructive DB migrations remain the main semantic risk: any new/changed SQL migration with `DROP`, `RENAME`, `SET NOT NULL`, or `ALTER ... TYPE` must pass `scripts/checks/bluegreen-migration-safety.py` via `scripts/preflight.sh` before merge, or carry an explicit `bluegreen-safe-destructive-ok` comment after manual expand-contract review.
+Rollback is a normal redeploy of the previous known-good image tag through `deploy-stage0.yml`; the script pulls it into the inactive color, switches Caddy after health is green, and drains the current color. Destructive DB migrations remain the main semantic risk: any new/changed SQL migration with `DROP`, `RENAME`, `SET NOT NULL`, `ADD COLUMN ... NOT NULL`, or `ALTER ... TYPE` must pass `scripts/checks/bluegreen-migration-safety.py` via `scripts/preflight.sh` before merge, or carry an explicit `bluegreen-safe-destructive-ok` comment after manual expand-contract review.
 
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。

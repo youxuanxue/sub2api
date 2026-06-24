@@ -60,12 +60,13 @@
 2. 给 target 设新镜像 tag，`compose up -d <target>`，等 Docker health `/health/live` 和 readiness `/health` 都通过；
 3. `caddy validate` 新配置后 reload 到 target upstream，新请求开始进入 target；
 4. SIGUSR1 drain 旧色，等 `in_flight=0` 或 plateau；
-5. 停旧色容器；写 `active-color=target` 并持久化 blue/green 版 `tokenkey.service`。
+5. 写 `active-color=target` 并持久化 blue/green 版 `tokenkey.service`；
+6. 停旧色容器。
    **失败时**（target 没 healthy）：旧色从未被 drain/切走，零影响，停掉失败 target 即可。
 
 ### 已验证的技术结论
 
-- **Caddy 切色原子性**：第一阶段用 `caddy validate` + `cat > Caddyfile` 保 inode + `caddy reload`。reload 失败会写回旧 Caddyfile 并 reload 回旧配置；Caddy reload 成功后脚本不再自动删除 target，避免误删已开始服务的新 upstream。
+- **Caddy 切色原子性**：第一阶段只改 live Caddyfile 的唯一 `reverse_proxy` upstream，保留其余 canonical / hot-sync 指令；再用 `caddy validate` + `cat > Caddyfile` 保 inode + `caddy reload`。reload 失败会写回旧 Caddyfile 并 reload 回旧配置；Caddy reload 成功后脚本不再自动删除 target，避免误删已开始服务的新 upstream。
 - **drain 是进程级、无同名容器假设**：`drainFlag` 是每进程独立的 `atomic.Bool`；`docker kill -s USR1 tokenkey-blue` 只 drain blue 进程。`/health`（drain-aware→503）/ `/health/live`（恒 200，docker healthcheck 用）/ `/health/inflight`（loopback-only，脚本须 `docker exec <color> wget localhost:8080/...`）。无 `SetDrain(false)` 调用点 → 新色必须是全新 `up`（drain=false 初始），换色天然清 drain，**不需要单色模式那条 `--force-recreate` load-bearing 逻辑**。
 - **内存**：当前 prod `t4g.large` 足够短暂双 app 重叠。后续若把蓝绿布局固化进 CFN，可再加 app `mem_limit` / `GOMEMLIMIT` 钉峰值。
 - **edge 不上蓝绿**：edge 是 t4g.micro（1GB），双色即便有 swap 也重度换页；edge 是薄 relay 节点、发版影响面小，维持现状单色 drain-recreate。**方案按节点 opt-in：prod 蓝绿，edge 现状。**
@@ -81,7 +82,7 @@
 |---|---|---|
 | `deploy/aws/stage0/docker-compose.yml` | 引入 `x-tokenkey-app` YAML anchor，`tokenkey` 拆成 `tokenkey-blue` + `tokenkey-green`（各自 `container_name` + `TOKENKEY_IMAGE_{BLUE,GREEN}`）；加 `mem_limit`/`GOMEMLIMIT`；caddy `depends_on` 收敛到只依赖 postgres/redis | **此文件被 prod+edge 共享 embed，必须先拆 edge** |
 | `deploy/aws/stage0/docker-compose.edge.yml`（新增） | edge 保留单色 `container_name: tokenkey`（=现状），与 prod 解耦 | 解决共享耦合 |
-| `deploy/aws/stage0/Caddyfile` | `reverse_proxy tokenkey:8080` → `reverse_proxy tokenkey-blue:8080 tokenkey-green:8080`，其余不变 | 双 upstream + active health 自动路由 |
+| `deploy/aws/stage0/Caddyfile` | 第一阶段**不改** canonical 文件，仍保留 `reverse_proxy tokenkey:8080`；live host 由 `deploy_via_ssm_bluegreen.sh` / `sync_caddyfile_via_ssm.sh` 只重写 upstream host 为 active 色 | 单 active upstream，避免 cutover 前 target 提前接流量 |
 | `deploy/aws/stage0/Caddyfile.edge` | **不改**（edge 单色 `tokenkey:8080`） | edge opt-out |
 | `deploy/aws/stage0/build-cfn.sh` | 拆 `COMPOSE_SRC` 为 prod / edge 两个 blob，分别 embed 进 single-ec2 / edge-ec2（仿 Caddyfile 已有的 prod/edge 分流），新增 `EDGE_COMPOSE_GZB64_SSM` marker | prod/edge compose 解耦 |
 | `deploy/aws/cloudformation/stage0-single-ec2.yaml` | 加 `SwapSizeGiB`（抄 edge swapfile UserData）；`COMPOSE_GZB64_SSM` 指向蓝绿 compose；UserData 首启写 `active-color=blue` 并只 `up` active 色 | prod 加 swap + 蓝绿首启 |
@@ -89,14 +90,14 @@
 | `sync_compose_via_ssm.sh`（新增） | 热同步 compose 到 live host（类比 `ops/stage0/sync_caddyfile_via_ssm.sh`，但无 envsubst、可直接 `gunzip >` 覆盖，只落盘 + `compose config -q` 校验、不 `up`） | 现存实例落地 |
 | `ops/stage0/deploy_via_ssm_bluegreen.sh` | **已实施**。蓝绿切换原语，含单色 `tokenkey` → `tokenkey-blue` 自迁移、Caddy 切色、systemd 持久化 | prod 发版 |
 | `cutover_to_bluegreen_via_ssm.sh`（新增） | **不再需要第一阶段**：自迁移已合入 `deploy_via_ssm_bluegreen.sh` | 仅后续拆分时考虑 |
-| `scripts/checks/bluegreen-migration-safety.py` | **已实施**。对本次新增/修改迁移静态扫 `DROP COLUMN`/`DROP TABLE`/`SET NOT NULL`/`RENAME`/`ALTER...TYPE`，命中需迁移头注释显式标记才放行 | expand-contract 门禁 |
+| `scripts/checks/bluegreen-migration-safety.py` | **已实施**。对本次新增/修改迁移静态扫 `DROP COLUMN`/`DROP TABLE`/`SET NOT NULL`/`ADD COLUMN ... NOT NULL`/`RENAME`/`ALTER...TYPE`，命中需迁移头注释显式标记才放行 | expand-contract 门禁 |
 | `backend/migrations/README.md` | 加「蓝绿 expand-contract 规则」：破坏性变更拆两次发布（先 expand 双写、下版 contract 删旧），即「N 版代码必须能在 N+1 schema 上正常跑」 | 文档约束 |
 | `.github/workflows/deploy-stage0.yml` | **已实施**：Deploy via SSM 改调 `deploy_via_ssm_bluegreen.sh`；后续可选加 `operation=rollback`（秒级换回旧色） | prod workflow |
 | `.github/workflows/deploy-edge-*.yml` | **不改** | edge opt-out |
 
 ### DB 迁移 expand-contract（最大语义风险）
 
-蓝绿重叠窗口内新旧 schema 代码同连一个库。Advisory Lock（ID `694208311321144027`）已串行化并发迁移、checksum 跳过已应用——**并发安全已具备**。危险在**语义**：若新版带破坏性迁移（DROP/RENAME/NOT NULL），旧色（N 版代码）在「新色 healthy 但还没 drain 旧色」窗口里业务请求会 500，破坏「零影响」承诺。现有迁移以 `ADD COLUMN`/`CREATE TABLE`/`CREATE INDEX CONCURRENTLY`/seed 为主（expand 友好），但存在 `DROP` 类。门禁 `scripts/checks/bluegreen-migration-safety.py` 把「记得 expand-contract」变成机械检查，不可省。
+蓝绿重叠窗口内新旧 schema 代码同连一个库。Advisory Lock（ID `694208311321144027`）已串行化并发迁移、checksum 跳过已应用——**并发安全已具备**。危险在**语义**：若新版带破坏性迁移（DROP/RENAME/NOT NULL/ADD COLUMN NOT NULL），旧色（N 版代码）在「新色 healthy 但还没 drain 旧色」窗口里业务请求会 500，破坏「零影响」承诺。现有迁移以 `ADD COLUMN`/`CREATE TABLE`/`CREATE INDEX CONCURRENTLY`/seed 为主（expand 友好），但存在 `DROP` 类。门禁 `scripts/checks/bluegreen-migration-safety.py` 把「记得 expand-contract」变成机械检查，不可省。
 
 ---
 
@@ -136,7 +137,7 @@
 | **Caddy 探测时延**（`sleep 12` 经验值，≥2×health_interval） | 与 health_interval 同步调；§5 步骤 4 覆盖此风险 |
 | **cutover 一次性窗口顺序敏感** | 封装专用脚本，先本地演练 §5 再上 prod |
 
-**回滚（分层）**：① 蓝绿发版失败 → 脚本 drain 前 `exit 1`，旧色零影响；② 上线后发现问题（已切色）→ `operation=rollback` 重新拉起上一色（仍持上版镜像）、drain 当前色、翻 `active-color`，秒级；③ 蓝绿方案本身出问题 → `sync_compose_via_ssm.sh` 同步回单色版（含 `.before-<ts>` 备份 + ERR trap），回到 `deploy_via_ssm.sh` 单色发版，整能力一键回退到现状。
+**回滚（分层）**：① 蓝绿发版失败 → Caddy reload 前 `exit 1`，旧色零影响；② 上线后发现问题（已切色）→ 重新 dispatch 上一版 tag，脚本拉起 inactive 色、健康后切回并 drain 当前色；③ 蓝绿方案本身出问题 → 手工恢复 legacy `tokenkey` compose/service 后，workflow 可临时改回 `deploy_via_ssm.sh` 单色发版。
 
 ---
 

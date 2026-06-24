@@ -1330,7 +1330,7 @@ elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-ligh
     echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
     errors=$((errors + 1))
 elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; then
-    echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use ops/stage0/deploy_via_ssm.sh"
+    echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use the matching ops/stage0 deploy primitive"
     errors=$((errors + 1))
 else
     echo "  ok: prod uses blue/green SSM primitive; Lightsail edge stays on single-app SSM primitive"
@@ -1340,6 +1340,10 @@ echo ""
 echo "=== sub2api: blue/green migration safety ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for blue/green migration safety)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/bluegreen-migration-safety.py --selftest >/dev/null; then
+    echo "  FAIL: blue/green migration safety selftest failed"
+    echo "        — run: python3 scripts/checks/bluegreen-migration-safety.py --selftest"
     errors=$((errors + 1))
 else
     _bgm_base="${PREFLIGHT_BASE:-origin/main}"
