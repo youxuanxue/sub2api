@@ -146,6 +146,17 @@ func TestFormatRoutingRejectionByModel(t *testing.T) {
 			{Model: "", Count: 5},
 		}))
 	})
+
+	t.Run("markdown in client-requested model is neutralized", func(t *testing.T) {
+		got := formatRoutingRejectionByModel([]*OpsRoutingRejectionModel{
+			{Model: "[claude-sonnet](http://evil)", Count: 12},
+		})
+		require.NotContains(t, got, "[")
+		require.NotContains(t, got, "](")
+		require.NotContains(t, got, "http://evil")
+		require.Contains(t, got, "claude-sonnet")
+		require.Contains(t, got, "×12")
+	})
 }
 
 func TestOpsTopCauseApplies(t *testing.T) {

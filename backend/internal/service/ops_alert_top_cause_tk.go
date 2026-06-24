@@ -75,10 +75,10 @@ func opsTopCauseApplies(metricType string) bool {
 // "" when the rule is not a rate metric, the query fails, or there is nothing to
 // show. `cause` is the primary line: the model/owner breakdown (error-rate
 // rules), the saturated pool(s) (pool_load_rate), or the empty platform pool(s)
-// (routing_capacity_rejection_count). `users` is the per-user (client)
-// concentration breakdown for routing_capacity_rejection_count, rendered on its
-// own line under 主因. Best-effort: a failure here must never block firing the
-// alert.
+// (routing_capacity_rejection_count). `models` is the failed-request top model
+// breakdown for routing_capacity_rejection_count, rendered on its own line under
+// 主因. `users` is retained for already-stored historical event dimensions.
+// Best-effort: a failure here must never block firing the alert.
 //
 // This function is node-agnostic. Edge nodes suppress the WHOLE
 // routing_capacity_rejection_count alert at the notification layer
@@ -159,10 +159,7 @@ func formatOpsTopCause(causes []*OpsTopErrorCause) string {
 		if c == nil {
 			continue
 		}
-		model := strings.TrimSpace(c.Model)
-		if model == "" {
-			model = "(unknown)"
-		}
+		model := sanitizeFeishuModelLabel(c.Model)
 		owner := strings.TrimSpace(c.ErrorOwner)
 		if owner == "" {
 			owner = "unknown"
@@ -255,16 +252,26 @@ func formatRoutingRejectionByModel(models []*OpsRoutingRejectionModel) string {
 		if m == nil || m.Count <= 0 {
 			continue
 		}
-		name := strings.TrimSpace(m.Model)
-		if name == "" {
-			name = "(unknown)"
-		}
+		name := sanitizeFeishuModelLabel(m.Model)
 		parts = append(parts, fmt.Sprintf("%s ×%d", name, m.Count))
 		if len(parts) >= 3 {
 			break
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+func sanitizeFeishuModelLabel(model string) string {
+	raw := strings.TrimSpace(model)
+	if raw == "" || raw == "(unknown)" {
+		return "(unknown)"
+	}
+	name := sanitizeFeishuLabel(model)
+	if name == "" {
+		return "(unknown)"
+	}
+	name = strings.ReplaceAll(name, "://", ": / /")
+	return truncateRunes(name, 64)
 }
 
 // feishuLabelSanitizer defangs lark_md control characters in a user-controlled
