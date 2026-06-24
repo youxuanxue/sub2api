@@ -5,6 +5,7 @@
 -- actual_cost. The Go feeder writes these metrics for new/recomputed days, and
 -- backfillGroupDailyMetricsAllOnce fills historical rows before the read path
 -- uses them.
+-- bluegreen-safe-destructive-ok: expand-only DEFAULT 0 columns keep old writers/readers compatible during color overlap.
 
 ALTER TABLE usage_dashboard_group_daily
     ADD COLUMN IF NOT EXISTS total_requests BIGINT NOT NULL DEFAULT 0,
