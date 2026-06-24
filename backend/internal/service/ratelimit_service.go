@@ -393,6 +393,20 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
+		// TK (prod incident 2026-06-24): Kiro mirror stubs ride the Anthropic
+		// api-key transport, but the 401 is owned by the downstream edge Kiro
+		// OAuth account. The edge can force-refresh and clear its own OAuth
+		// state; permanently disabling the prod relay stub strands that recovered
+		// edge behind a stale error. Treat this as a transient downstream auth
+		// blip: fail over / let pool-mode retry absorb it, record a bounded
+		// saturation preference, and leave local stub health untouched.
+		if tkSkipDownstreamKiroOAuth401Penalty(account, statusCode, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_kiro_oauth_401_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_oauth_401")
+			return true
+		}
 		// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 (the
 		// upstream rejects a specific capability — e.g. image generation — because
 		// the serving OAuth token lacks that capability's scope) must NOT cool or
