@@ -7,6 +7,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
@@ -72,6 +73,36 @@ def js_asset_paths_from_vite_asset(asset: str) -> list[str]:
         if path not in seen:
             seen.append(path)
     return seen
+
+
+def find_create_mount_asset(
+    base: str,
+    seed_paths: list[str],
+    fetch: Callable[[str], str],
+) -> tuple[str, str, list[str]]:
+    """Walk lazy-loaded Vite chunks until we find the create-mode NewAPI field mount."""
+    errors: list[str] = []
+    queue = list(seed_paths)
+    seen: set[str] = set()
+
+    while queue:
+        asset_path = queue.pop(0)
+        if asset_path in seen:
+            continue
+        seen.add(asset_path)
+
+        asset_url = urljoin(base, asset_path.lstrip("/"))
+        asset = fetch(asset_url)
+
+        if asset_has_account_create_mount(asset):
+            errors.extend(check_account_asset(asset, asset_url))
+            return asset, asset_path, errors
+
+        for dep_path in js_asset_paths_from_vite_asset(asset):
+            if dep_path not in seen:
+                queue.append(dep_path)
+
+    return "", "", errors
 
 
 def asset_has_account_create_mount(asset: str) -> bool:
@@ -199,21 +230,12 @@ def check_url(base_url: str) -> list[str]:
         if not assets:
             return [f"{base}: Vite entry {entry_rel} does not reference an AccountsView chunk"]
 
-    errors: list[str] = []
-    account_asset = ""
-    account_asset_path = ""
-    for asset_path in assets:
-        asset_url = urljoin(base, asset_path.lstrip("/"))
-        asset = read_url(asset_url)
-        if not asset_has_account_create_mount(asset):
-            continue
-        account_asset = asset
-        account_asset_path = asset_path
-        errors.extend(check_account_asset(asset, asset_url))
-        break
+    account_asset, account_asset_path, errors = find_create_mount_asset(base, assets, read_url)
 
     if not account_asset:
-        errors.append(f"{base}: referenced account-modal assets do not contain the Extension Engine/newapi create-mode field mount")
+        errors.append(
+            f"{base}: referenced account-modal assets do not contain the Extension Engine/newapi create-mode field mount"
+        )
         return errors
 
     label_errors = check_newapi_labels(account_asset, urljoin(base, account_asset_path.lstrip("/")))
