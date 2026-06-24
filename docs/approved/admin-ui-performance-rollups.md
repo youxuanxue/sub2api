@@ -5,7 +5,7 @@ approved_by: "xuejiao (design approval, 2026-06-23)"
 created: 2026-06-23
 owners: [tk-platform]
 related_prs: [963]
-related_commits: ["511ef944504de4387dec865f4ba11114e7cea0a5"]
+related_commits: ["e2e5055a878cd9aaff4c1e4016071f903cfc693d"]
 ---
 
 # Admin UI Performance Rollups
