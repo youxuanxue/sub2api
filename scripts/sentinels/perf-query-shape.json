@@ -13,25 +13,40 @@
     {
       "path": "backend/internal/repository/usage_log_repo.go",
       "must_contain": [
-        "groupUsageSummaryFromRollup"
+        "groupUsageSummaryFromRollup",
+        "getGroupStatsFromRollup"
       ],
-      "rationale": "GetAllGroupUsageSummary feeds the admin Groups page usage-summary on every load. It MUST route through groupUsageSummaryFromRollup (the per-(group,day) rollup, completed days from usage_dashboard_group_daily + today from raw) before falling back to the legacy `groups g LEFT JOIN usage_logs ul ... SUM(actual_cost)` un-time-bounded full-table scan. An upstream merge or a 'simplify' refactor that drops the rollup call silently restores the full 2.4M-row scan on every GroupsView load with all tests green (the fallback returns identical numbers). This sentinel is the only mechanical guard. See usage_log_repo_tk_group_rollup.go."
+      "rationale": "GetAllGroupUsageSummary feeds the admin Groups page usage-summary on every load, and GetGroupStatsWithFilters feeds Dashboard/Usage group distribution. They MUST route through usage_dashboard_group_daily rollup helpers before falling back to raw usage_logs scans: groupUsageSummaryFromRollup for all-time cost summary, getGroupStatsFromRollup for completed-day requests/tokens/cost distribution plus raw head/tail. Dropping either call silently restores a 2.4M-row or wide-window scan with byte-identical results and green tests, so this sentinel is the mechanical guard."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",
       "must_contain": [
         "WHERE group_id > 0 AND bucket_date < $1::date",
-        "FILTER (WHERE created_at >= $2)"
+        "FILTER (WHERE created_at >= $2)",
+        "func (r *usageLogRepository) getGroupStatsFromRollup(",
+        "FROM usage_dashboard_group_daily gd",
+        "WHERE gd.bucket_date > DATE '",
+        "func (r *usageLogRepository) groupDailyMetricsBackfilled("
       ],
-      "rationale": "groupUsageSummaryFromRollup's exact rollup/raw decomposition: total_cost = SUM(rollup completed days, bucket_date < server-today) + SUM(raw remainder, created_at >= server-today); today_cost = SUM(raw, created_at >= user-today). Each usage_logs row is counted exactly once toward total_cost. A refactor that drops the `bucket_date < today` rollup bound or the `created_at >= $2` raw-remainder split would double-count or miss the today/history boundary — a SILENT correctness regression on a financial figure that a small test fixture may not surface. These anchors pin the load-bearing shape."
+      "rationale": "groupUsageSummaryFromRollup's exact rollup/raw decomposition: total_cost = SUM(rollup completed days, bucket_date < server-today) + SUM(raw remainder, created_at >= server-today); today_cost = SUM(raw, created_at >= user-today). getGroupStatsFromRollup is the Dashboard/Usage group-distribution twin: it uses completed-day usage_dashboard_group_daily metrics plus raw head/tail spans, gated by groupDailyMetricsBackfilled so old cost-only rows are never trusted for requests/tokens. A refactor that drops the bounds, raw split, or metrics-backfill gate would double-count/miss rows or silently return zero historical tokens."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo_tk_group.go",
       "must_contain": [
         "backfillGroupDailyAllOnce",
+        "backfillGroupDailyMetricsAllOnce",
         "usage_dashboard_group_daily"
       ],
-      "rationale": "The per-(group,day) rollup feeder + one-time historical backfill. backfillGroupDailyAllOnce is REQUIRED: the watermark-driven incremental feeder only moves forward and never backfills pre-deploy days, so without the guarded one-time backfill the all-time Groups total would permanently exclude historical cost (or force the read path to keep raw-scanning the whole table). A refactor that removes the backfill or the upsertGroupDailyAggregates feeder breaks the rollup silently — the read path then falls back to the slow full scan with identical numbers."
+      "rationale": "The per-(group,day) rollup feeder + one-time historical backfills. backfillGroupDailyAllOnce is REQUIRED for the all-time Groups cost summary; backfillGroupDailyMetricsAllOnce is REQUIRED for deployments that already had the old cost-only table before requests/tokens/account-cost columns were added. The watermark-driven incremental feeder only moves forward and never backfills pre-deploy days, so removing either backfill permanently undercounts or forces slow raw scans. A refactor that removes the backfill or the upsertGroupDailyAggregates feeder breaks the rollup silently."
+    },
+    {
+      "path": "backend/migrations/tk_046_usage_dashboard_group_daily_metrics.sql",
+      "must_contain": [
+        "ALTER TABLE usage_dashboard_group_daily",
+        "ADD COLUMN IF NOT EXISTS total_requests",
+        "ADD COLUMN IF NOT EXISTS account_cost"
+      ],
+      "rationale": "Schema bridge for old deployments that already ran tk_038 with actual_cost only. Dashboard/Usage group distribution needs requests, tokens, total_cost and account_cost; without tk_046 the Go feeder/read path cannot use usage_dashboard_group_daily safely after rollout. Pins the additive migration so the performance fix is deployable on prod, not just fresh databases."
     },
     {
       "path": "backend/internal/service/ops_cleanup_executor.go",

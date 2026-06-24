@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import type { DashboardStats } from '@/types'
@@ -89,6 +89,7 @@ const createDashboardStats = (): DashboardStats => ({
 
 describe('admin DashboardView', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     getSnapshotV2.mockReset()
     getUserUsageTrend.mockReset()
     getUserSpendingRanking.mockReset()
@@ -112,6 +113,10 @@ describe('admin DashboardView', () => {
       start_date: '',
       end_date: ''
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('uses last 24 hours as default dashboard range', async () => {
@@ -139,7 +144,35 @@ describe('admin DashboardView', () => {
     expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
       start_date: formatLocalDate(yesterday),
       end_date: formatLocalDate(now),
-      granularity: 'hour'
+      granularity: 'hour',
+      include_stats: true,
+      include_trend: false,
+      include_model_stats: false,
+      include_users_trend: false
     }))
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(getSnapshotV2).toHaveBeenCalledTimes(4)
+    expect(getSnapshotV2).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      include_stats: false,
+      include_trend: true,
+      include_model_stats: false,
+      include_users_trend: false
+    }))
+    expect(getSnapshotV2).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      include_stats: false,
+      include_trend: false,
+      include_model_stats: true,
+      include_users_trend: false
+    }))
+    expect(getSnapshotV2).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      include_stats: false,
+      include_trend: false,
+      include_model_stats: false,
+      include_users_trend: true
+    }))
+    expect(getUserSpendingRanking).toHaveBeenCalledTimes(1)
   })
 })

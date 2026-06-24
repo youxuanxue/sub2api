@@ -3077,8 +3077,10 @@ func (r *usageLogRepository) GetModelStatsWithFiltersBySource(ctx context.Contex
 
 func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string) (results []ModelStat, err error) {
 	if shouldUseModelDailyRollup(userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source) {
-		aggregated, aggregatedErr := r.getModelStatsFromRollup(ctx, startTime, endTime)
-		if aggregatedErr == nil && len(aggregated) > 0 {
+		aggregated, ok, aggregatedErr := r.getModelStatsFromRollup(ctx, startTime, endTime)
+		if aggregatedErr != nil {
+			logger.LegacyPrintf("repository.usage_log", "getModelStatsFromRollup failed, falling back to usage_logs: %v", aggregatedErr)
+		} else if ok {
 			return aggregated, nil
 		}
 	}
@@ -3152,6 +3154,14 @@ func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Contex
 
 // GetGroupStatsWithFilters returns group usage statistics with optional filters
 func (r *usageLogRepository) GetGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) (results []usagestats.GroupStat, err error) {
+	if shouldUseGroupDailyStatsRollup(userID, apiKeyID, accountID, requestType, stream, billingType) {
+		if fast, ok, err := r.getGroupStatsFromRollup(ctx, startTime, endTime, groupID); err != nil {
+			logger.LegacyPrintf("repository.usage_log", "getGroupStatsFromRollup failed, falling back to usage_logs: %v", err)
+		} else if ok {
+			return fast, nil
+		}
+	}
+
 	query := `
 		SELECT
 			COALESCE(ul.group_id, 0) as group_id,
@@ -3487,6 +3497,22 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 
 	// 汇总查询:失败即致命。
 	runSummary := func(c context.Context) error {
+		if filters.SkipSummary {
+			return nil
+		}
+		if fast, ok, err := r.getStatsWithFiltersFromHourlyRollup(c, filters, start, end); err != nil {
+			logger.LegacyPrintf("repository.usage_log", "getStatsWithFiltersFromHourlyRollup failed, falling back to usage_logs: %v", err)
+		} else if ok {
+			stats.TotalRequests = fast.TotalRequests
+			stats.TotalInputTokens = fast.TotalInputTokens
+			stats.TotalOutputTokens = fast.TotalOutputTokens
+			stats.TotalCacheTokens = fast.TotalCacheTokens
+			stats.TotalCost = fast.TotalCost
+			stats.TotalActualCost = fast.TotalActualCost
+			totalAccountCost = fast.totalAccountCost
+			stats.AverageDurationMs = fast.AverageDurationMs
+			return nil
+		}
 		return scanSingleRow(
 			c, r.sql, query, args,
 			&stats.TotalRequests,
@@ -3501,6 +3527,10 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	}
 	// endpoint 明细:best-effort(失败 log + 返空),不致命。
 	runEndpoints := func(c context.Context) {
+		if filters.SkipEndpointStats {
+			endpoints = []EndpointStat{}
+			return
+		}
 		res, err := r.GetEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -3511,6 +3541,10 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		endpoints = res
 	}
 	runUpstream := func(c context.Context) {
+		if filters.SkipEndpointStats {
+			upstreamEndpoints = []EndpointStat{}
+			return
+		}
 		res, err := r.GetUpstreamEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -3521,6 +3555,10 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		upstreamEndpoints = res
 	}
 	runPaths := func(c context.Context) {
+		if filters.SkipEndpointStats {
+			endpointPaths = []EndpointStat{}
+			return
+		}
 		res, err := r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {

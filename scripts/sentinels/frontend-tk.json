@@ -598,9 +598,12 @@
     {
       "path": "frontend/src/components/account/usage-cells/useAccountUsageFetch.ts",
       "must_contain": [
-        "if (props.usageOverride !== undefined) return false"
+        "function canFetchUsageForAccount(props: AccountUsageCellProps): boolean",
+        "function shouldAutoFetchUsageForAccount(props: AccountUsageCellProps): boolean",
+        "if (props.usageOverride !== undefined) return false",
+        "if (props.usageOverride !== undefined && isAnthropicOAuthOrSetupToken.value) return"
       ],
-      "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip self-fetch and render injected usage verbatim. Split from AccountUsageCell.vue (B6 perf) — dropping this guard would re-enable per-row /usage fetches on Edge Accounts overview and hammer prod for non-existent ids."
+      "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip mount/lazy self-fetch and render injected usage verbatim. The explicit manual-refresh guard prevents Anthropic OAuth/SetupToken rows owned by the list batch loader from falling back to per-row /usage after a refresh token bump. Split from AccountUsageCell.vue (B6 perf) — dropping these guards would re-enable per-row /usage fetches on Edge Accounts overview or the admin accounts list and hammer prod."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",
@@ -968,18 +971,24 @@
       "must_contain": [
         "export function useTkAccountUsageBatch(",
         "getBatchPassiveUsage(",
-        "isBatchPassiveCapable"
+        "isBatchPassiveCapable",
+        "function canSelfFetchUsage(account: Account): boolean",
+        "function usageOverrideFor(account: Account): AccountUsageInfo | null | undefined",
+        "return key in usageByAccountId.value ? usageByAccountId.value[key] : null"
       ],
-      "rationale": "TK composable that batches Anthropic OAuth/SetupToken passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard + the platform scoping (only anthropic oauth/setup-token). If deleted, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, and the scoping predicate."
+      "rationale": "TK composable that batches Anthropic OAuth/SetupToken passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard + platform scoping; canSelfFetchUsage deliberately returns null overrides for active-only fetchable platforms until explicit user refresh, suppressing the historical mount-time N parallel /usage XHRs. If deleted or narrowed back to passive-only rows, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, the scoping predicate, the list-owned override function, and the present-with-null sentinel."
     },
     {
       "path": "frontend/src/views/admin/AccountsView.vue",
       "must_contain": [
         "useTkAccountUsageBatch",
         ":usage-override=\"accountUsageOverrideFor(row)\"",
-        "refreshUsageBatch(accounts.value)"
+        "const refreshAccountRowMetrics = () => {",
+        "refreshTodayStatsBatch().catch(",
+        "refreshUsageBatch(rows).catch(",
+        "refreshAccountRowMetrics()"
       ],
-      "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshUsageBatch calls after each list load. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches) or the refresh calls (overrides never populate). Pins the import, the cell binding, and the refresh call."
+      "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshAccountRowMetrics helper that kicks today-stats and usage-batch loading after list load/reload/auto-refresh without serializing those background requests on the main list response. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches), restore serialized row metrics, or stop refreshing overrides after list changes. Pins the import, the cell binding, and the concurrent row-metric refresh helper/calls."
     },
     {
       "path": "frontend/src/api/admin/accounts.ts",

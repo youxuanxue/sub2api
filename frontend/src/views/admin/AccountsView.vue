@@ -711,6 +711,16 @@ const usageManualRefreshToken = ref(0)
 // never self-fetches when an override is present (see useTkAccountUsageBatch).
 const { usageOverrideFor: accountUsageOverrideFor, refreshUsageBatch } = useTkAccountUsageBatch()
 
+const refreshAccountRowMetrics = () => {
+  const rows = accounts.value.slice()
+  refreshTodayStatsBatch().catch((error) => {
+    console.error('Failed to load account today stats:', error)
+  })
+  refreshUsageBatch(rows).catch((error) => {
+    console.error('Failed to load account usage:', error)
+  })
+}
+
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
   tokens: 0,
@@ -979,8 +989,7 @@ const load = async () => {
   requestParams.lite = '1'
   isFirstLoad.value = false
   await baseLoad()
-  await refreshTodayStatsBatch()
-  refreshUsageBatch(accounts.value)
+  refreshAccountRowMetrics()
 }
 
 const reload = async () => {
@@ -988,8 +997,7 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
-  refreshUsageBatch(accounts.value)
+  refreshAccountRowMetrics()
 }
 
 const debouncedReload = () => {
@@ -1148,8 +1156,7 @@ const refreshAccountsIncrementally = async () => {
       hasPendingListSync.value = false
     }
 
-    await refreshTodayStatsBatch()
-    refreshUsageBatch(accounts.value)
+    refreshAccountRowMetrics()
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1160,7 +1167,7 @@ const refreshAccountsIncrementally = async () => {
 const handleManualRefresh = async () => {
   await load()
   await refreshEdges({ force: true })
-  // load() already refreshed the batch passive-usage for Anthropic rows
+  // load() already starts the batch passive-usage refresh for Anthropic rows
   // (override path). Bump the token so the residual self-fetch platforms
   // (gemini/antigravity/openai cells) also refresh on explicit user refresh.
   usageManualRefreshToken.value += 1

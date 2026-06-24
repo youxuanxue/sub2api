@@ -24,17 +24,17 @@ describe('useTkAccountUsageBatch', () => {
     getBatchPassiveUsage.mockReset()
   })
 
-  it('only batches Anthropic OAuth/SetupToken rows; others get undefined override', async () => {
+  it('only sends Anthropic passive rows to the batch endpoint and suppresses active self-fetch rows', async () => {
     getBatchPassiveUsage.mockResolvedValue({ usage: { '1': usageA } })
     const { refreshUsageBatch, usageOverrideFor } = useTkAccountUsageBatch()
 
     const accounts = [
       acct(1, 'anthropic', 'oauth'),
       acct(2, 'anthropic', 'setup-token'),
-      acct(3, 'anthropic', 'apikey'), // not passive-capable
-      acct(4, 'gemini', 'oauth'), // self-fetches, no override
-      acct(5, 'openai', 'oauth'), // active path, no override
-      acct(6, 'antigravity', 'oauth') // active path, no override
+      acct(3, 'anthropic', 'apikey'), // never self-fetches
+      acct(4, 'gemini', 'oauth'), // active-only on manual refresh
+      acct(5, 'openai', 'oauth'), // active-only on manual refresh
+      acct(6, 'antigravity', 'oauth') // active-only on manual refresh
     ]
 
     await refreshUsageBatch(accounts)
@@ -48,11 +48,14 @@ describe('useTkAccountUsageBatch', () => {
     expect(usageOverrideFor(accounts[0])).toEqual(usageA)
     expect(usageOverrideFor(accounts[1])).toBeNull()
 
-    // Non-capable rows: undefined => cell self-fetches as before.
+    // Rows that never self-fetch usage are left alone.
     expect(usageOverrideFor(accounts[2])).toBeUndefined()
-    expect(usageOverrideFor(accounts[3])).toBeUndefined()
-    expect(usageOverrideFor(accounts[4])).toBeUndefined()
-    expect(usageOverrideFor(accounts[5])).toBeUndefined()
+
+    // Active-only platforms get a null override on list load, so mounting the
+    // table no longer fans out to per-row active usage probes.
+    expect(usageOverrideFor(accounts[3])).toBeNull()
+    expect(usageOverrideFor(accounts[4])).toBeNull()
+    expect(usageOverrideFor(accounts[5])).toBeNull()
   })
 
   it('returns null override for a capable row before the batch resolves', () => {
@@ -62,10 +65,13 @@ describe('useTkAccountUsageBatch', () => {
     expect(usageOverrideFor(acct(9, 'anthropic', 'oauth'))).toBeNull()
   })
 
-  it('does not call the API when there are no capable rows', async () => {
-    const { refreshUsageBatch } = useTkAccountUsageBatch()
-    await refreshUsageBatch([acct(1, 'gemini', 'oauth'), acct(2, 'openai', 'oauth')])
+  it('does not call the API when there are no passive batch-capable rows', async () => {
+    const { refreshUsageBatch, usageOverrideFor } = useTkAccountUsageBatch()
+    const accounts = [acct(1, 'gemini', 'oauth'), acct(2, 'openai', 'oauth')]
+    await refreshUsageBatch(accounts)
     expect(getBatchPassiveUsage).not.toHaveBeenCalled()
+    expect(usageOverrideFor(accounts[0])).toBeNull()
+    expect(usageOverrideFor(accounts[1])).toBeNull()
   })
 
   it('ignores a stale response when a newer refresh has started (race guard)', async () => {

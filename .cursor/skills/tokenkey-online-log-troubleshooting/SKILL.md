@@ -25,6 +25,11 @@ description: >-
 | live-host 运行态漂移（运行镜像 tag vs 部署 tag + deploy_via_ssm 注入的 env：SERVER_FRONTEND_URL / QA_CAPTURE_EXPORT_STORAGE_*）| 机械 | `ops/stage0/assert-live-host-state.sh <instance_id> [expected_tag]`（只读 SSM，advisory；verdict 逻辑+`--selftest` 在 `ops/stage0/live_host_state_verdict.py`，已进 preflight；deploy-stage0 部署后 + ops-daily-diagnostics 每日审计自动跑）|
 | Gateway "http request completed" 最近 N 行 tail（脱敏 → JSON array，轻量原始日志） | 机械 | `ops/observability/probe-tail-gateway-logs.sh`（经 run-probe 投递；`LIMIT` 默认 50、`SINCE` 默认 24h、`CONTAINER` 默认 tokenkey） |
 | Dashboard 预聚合覆盖度诊断（"使用趋势只显示 2 天"：usage_dashboard_daily/hourly vs raw usage_logs + aggregation watermark） | 机械 | `ops/observability/probe-dashboard-aggregate-coverage.sh`（经 run-probe 投递；只读 `row_to_json`） |
+| Admin UI access-log 性能画像（/admin 前端资源 + /api/v1/admin/* latency p50/p90/p95 + slow samples） | 机械 | `ops/observability/probe-admin-ui-perf.sh`（经 run-probe 投递；只读 Docker logs 聚合） |
+| Admin UI API timing（逐页接口 curl TTFB/total/size/非 2xx，含 dashboard/usage/accounts/ops/payment 等页面形状） | 机械 | `ops/observability/probe-admin-ui-api-timing.sh`（经 run-probe 投递；只读 admin API key + curl，无 mutating endpoints） |
+| Admin aggregation runtime config（dashboard aggregation env/config + hourly/daily/model/group marker 覆盖度） | 机械 | `ops/observability/probe-admin-aggregation-config.sh`（经 run-probe 投递；只读 env + SELECT） |
+| Admin model rollup timing（dashboard/models 冷态慢：raw 7d group-by vs usage_dashboard_model_daily + raw today 耗时/一致性） | 机械 | `ops/observability/probe-admin-model-rollup-timing.sh`（经 run-probe 投递；只读 SELECT + EXPLAIN ANALYZE） |
+| Admin group rollup timing（usage/dashboard group distribution 冷态慢：raw 7d group-by vs usage_dashboard_group_daily + raw today 耗时/一致性） | 机械 | `ops/observability/probe-admin-group-rollup-timing.sh`（经 run-probe 投递；只读 SELECT + EXPLAIN ANALYZE） |
 | 图片/视频盯盘（成功计量计费 + 错误分面 + 计费异常 + last-seen；区分 image vs video、空池 429 vs 真上游错误 vs 缺权限 401） | 机械 | `ops/observability/probe-image-video-billing.sh`（窗口盯盘，`WINDOW_MIN`/`CTX_HOURS`）+ `ops/observability/probe-image-video-deepctx.sh`（openai 账号池/报错归属/流量出处一次性深挖），均经 run-probe 投递；只读 `row_to_json` |
 | 用户级盯盘（一组 user_id 的请求 + 错误 + 计量计费 + 图片/视频 breakout + last-seen，单次 SSM 往返，对齐 30min 汇报节奏） | 机械 | `ops/observability/probe-user-billing-watch.sh`（经 run-probe 投递；`USER_IDS` 逗号分隔整数默认 `1,16`、`WINDOW_MINUTES` 默认 30；只读 `row_to_json`，复用 probe-image-video-billing.sh 的 image/video 判别谓词） |
 | Gateway UA/TLS / usage_logs / ops / docker 指纹交叉对比（窄时间窗） | 机械 | `ops/observability/probe-gateway-ua-tls-compare.sh`（通过 run-probe.sh 投递；`WINDOW_MINUTES` 收窄 DB 窗） |
@@ -304,6 +309,60 @@ CLI 契约：
 **前置条件**：目标实例上 debug  env 已开启且文件存在；否则 SSM 会在 `docker exec tokenkey test -f …` 失败。未开启时先用 §5 / §5.1 聚合，或经 deploy/ops 流程临时开启（超出本 skill 只读边界，需显式确认）。
 
 **与 run-probe 的分工**：`run-probe.sh` 只回传远端 stdout 字节；本脚本需要本机 boto3 presign + S3 下载，因此是**开发者机器上运行的 orchestrator**，不要塞进 run-probe。
+
+## 5.3) Admin UI 性能探测（机械化）
+
+Admin 页面慢、首屏资源异常、或发版后需要复测 `/admin/*` 运营体验时，用两个只读 probe 组合：access-log 聚合看真实访问路径和慢样本，API timing 主动测每个页面依赖的接口形状。都通过 §2 `run-probe.sh` 投递；脚本只读 Docker logs、settings 表里的 `admin_api_key`，并只调用 `GET` 与只读 batch `POST`，不跑 test/run/export/sync/reset 类 mutating endpoint。
+
+```bash
+# 真实访问日志聚合：/api/v1/admin/* endpoint latency + /admin 前端资源 preload/慢资源样本
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-admin-ui-perf.sh \
+  --env SINCE=24h \
+  --timeout-seconds 180
+
+# 主动接口 timing：Dashboard / Usage / Accounts / Groups / Ops / Payment / Risk 等页面形状
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-admin-ui-api-timing.sh \
+  --timeout-seconds 240
+
+# 聚合运行态：确认 dashboard aggregation env/config、watermark、model/group backfill marker
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-admin-aggregation-config.sh \
+  --timeout-seconds 120
+
+# 针对 dashboard/models 冷态慢：验证 model daily rollup 是否生效、raw today group-by 耗时
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-admin-model-rollup-timing.sh \
+  --timeout-seconds 240
+
+# 针对 usage/dashboard group distribution 冷态慢：验证 group daily rollup 是否生效
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-admin-group-rollup-timing.sh \
+  --timeout-seconds 240
+```
+
+输出解读：
+
+| probe | 主要字段 | 用途 |
+|---|---|---|
+| `probe-admin-ui-perf.sh` | `admin_by_endpoint_top`、`frontend_by_path_top`、`slow_admin_samples`、`slow_frontend_samples` | 找出真实用户访问中的慢 endpoint、旧资源是否仍被 preload、慢资源样本 |
+| `probe-admin-ui-api-timing.sh` | `top_slow`、`non_2xx`、`results[].label`、`curl.ttfb`、`curl.total`、`curl.size` | 主动复现各 admin 页面依赖接口的 TTFB/total，定位 stats/model/group/users-trend 等慢段 |
+| `probe-admin-aggregation-config.sh` | `env_dashboard_aggregation`、`aggregation_watermark`、`hourly_min/max`、`group_daily_backfilled`、`group_daily_metrics_backfilled`、`model_daily_backfilled` | 部署前后确认聚合运行态、历史 backfill marker 是否已启用对应快路径 |
+| `probe-admin-model-rollup-timing.sh` | `model_daily_backfilled`、`raw_7d_model_group_explain`、`rollup_completed_days_explain`、`raw_today_model_group_explain`、`raw_vs_rollup_plus_today_delta` | 验证 dashboard model distribution 的 7d raw group-by 耗时、completed-day rollup 耗时、today raw tail 耗时、历史 backfill marker 与快路径一致性 |
+| `probe-admin-group-rollup-timing.sh` | `raw_7d_group_explain`、`rollup_completed_days_explain`、`raw_today_group_explain`、`raw_vs_rollup_completed_days_delta` | 验证 Dashboard/Usage group distribution 的 7d raw group-by 耗时、completed-day rollup 耗时、today raw tail 耗时和历史一致性 |
+
+`probe-admin-model-rollup-timing.sh` / `probe-admin-group-rollup-timing.sh` 默认只输出 meta、窗口计数与一致性 delta，避免 SSM stdout 被 `EXPLAIN FORMAT JSON` 截断；需要执行计划时追加 `--env INCLUDE_EXPLAIN=1`，或用 `--env INCLUDE_EXPLAIN=1 --env EXPLAIN_SECTION=raw_7d|rollup_completed_days|raw_today` 单段拉取。
+
+解读纪律：
+- Dashboard/Usage 的 combined snapshot 可能被前一个 split 请求预热；需要冷态判断时，把 split 测点排在 combined 前，或比较 `trend-only` / `models-only` / `groups-only` 的首个耗时。
+- `http_code=500` 先看具体 label，不要把整个 admin UI 判死；例如 `dashboard.snapshot.*users-trend*` 失败通常只影响 users-trend 区块。
+- API timing 的公网网络耗时很小，`ttfb≈total` 时基本就是服务端/DB/缓存路径耗时；DNS/connect 异常才看网络。
 
 ## 6) 配置与限额核对
 

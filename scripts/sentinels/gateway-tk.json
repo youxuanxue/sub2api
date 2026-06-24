@@ -3123,24 +3123,76 @@
       "rationale": "TK feeder that populates the per-(user, platform, day) rollup table (tk_034) backing the admin Users page + dashboard spending-ranking widget. This is the write half of the perf fix that replaced the full 30-day usage_logs scan (845K buffers / 2.7s on prod) with pre-aggregated reads. The effective-platform projection reuses the live queries' usageLogEffectivePlatformExpr (same package) so the rollup partitions by exactly the platform the page shows; this sentinel pins the upsert, the target table, and that the platform projection reuses the shared expression so an upstream merge / refactor cannot silently drop the feeder or drift the platform grain."
     },
     {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_group.go",
+      "must_contain": [
+        "func (r *dashboardAggregationRepository) upsertGroupDailyAggregates(",
+        "INSERT INTO usage_dashboard_group_daily",
+        "COALESCE(ul.group_id, 0) AS group_id",
+        "COALESCE(SUM(ul.input_tokens), 0) AS input_tokens",
+        "COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) AS account_cost",
+        "func (r *dashboardAggregationRepository) backfillGroupDailyMetricsAllOnce"
+      ],
+      "rationale": "TK feeder for the per-(group, day) rollup now backing both Groups usage-summary and Dashboard/Usage group distribution. It must write full requests/token/cost metrics, not just actual_cost, and must run a metrics backfill marker for deployments whose old tk_038 table was cost-only. Dropping this silently leaves group distribution on the slow raw usage_logs scan or, worse, historical requests/tokens at zero."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",
+      "must_contain": [
+        "func (r *usageLogRepository) getGroupStatsFromRollup(",
+        "func (r *usageLogRepository) groupDailyMetricsBackfilled(",
+        "FROM usage_dashboard_group_daily gd",
+        "WHERE gd.bucket_date > DATE '",
+        "win.rawSpans"
+      ],
+      "rationale": "TK read path for Dashboard/Usage group distribution: completed server-TZ days come from usage_dashboard_group_daily metrics, raw head/tail spans come from usage_logs, and the metrics-backfill marker prevents old cost-only rows from being trusted. Anchors the fast path and correctness gate so group distribution cannot silently regress to the 0.9s raw scan or zero historical tokens."
+    },
+    {
       "path": "backend/internal/repository/dashboard_aggregation_repo.go",
       "must_contain": [
         "if err := r.upsertUserPlatformDailyAggregates(ctx, dayStart, dayEnd); err != nil {",
+        "if err := r.backfillGroupDailyMetricsAllOnce(ctx); err != nil {",
+        "if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {",
         "if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {",
+        "if err := r.deleteGroupDailyRange(ctx, dayStart, dayEnd); err != nil {",
         "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {"
       ],
-      "rationale": "Thin injection of the per-(user, platform, day) rollup feeder into the upstream-shaped aggregation repo: the upsert call lives in both aggregateRangeInTx and recomputeRangeInTx, the range delete in recomputeRangeInTx (so a zeroed day does not linger after a usage_logs rollback), and the retention prune in CleanupAggregates. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving the rollup unpopulated and the admin pages reading stale/empty history. Pins all three call sites."
+      "rationale": "Thin injection of TK rollup feeders into the upstream-shaped aggregation repo: user-platform and group daily upsert calls live in both aggregateRangeInTx and recomputeRangeInTx, range deletes prevent stale rows after recompute, user-platform retention prune follows the daily cutoff, and group metrics backfill runs before group distribution trusts the extended table. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving rollups unpopulated and admin pages reading stale/empty history or raw-scanning again."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_tk_user_platform_rollup.go",
       "must_contain": [
         "func (r *usageLogRepository) getBatchUserUsageStatsRollup(",
         "func (r *usageLogRepository) getUserSpendingRankingRollup(",
+        "func (r *usageLogRepository) getUserUsageTrendRollup(",
         "func planUsageRollupWindow(",
         "func (r *usageLogRepository) userPlatformRollupFloorDay(",
-        "FROM usage_dashboard_user_platform_daily"
+        "FROM usage_dashboard_user_platform_daily",
+        "COALESCE(SUM(actual_cost), 0)"
       ],
-      "rationale": "TK read half of the rollup perf fix: GetBatchUserUsageStats and GetUserSpendingRanking are served from usage_dashboard_user_platform_daily for completed days plus raw usage_logs for the partial/today slices. planUsageRollupWindow is the exact-semantics window decomposition (full completed server-TZ days from the rollup, partial head/tail + today from raw) that keeps output byte-identical to the legacy raw-scan queries. userPlatformRollupFloorDay is the coverage floor that routes completed days the rollup does not yet cover (post-migration cold start, where the shared aggregation watermark won't backfill old days) back to raw usage_logs, so the page never silently undercounts history. Pins both read entry points, the decomposition function (loose prefix — signature evolves), the coverage-floor helper, and the rollup table read so a merge cannot silently revert the pages to the slow full-window scan or drop the cold-start fallback."
+      "rationale": "TK read half of the rollup perf fix: GetBatchUserUsageStats, GetUserSpendingRanking, and dashboard user-usage trend are served from usage_dashboard_user_platform_daily for completed days plus raw usage_logs for the partial/today slices. planUsageRollupWindow is the exact-semantics window decomposition (full completed server-TZ days from the rollup, partial head/tail + today from raw) that keeps output byte-identical to the legacy raw-scan queries. userPlatformRollupFloorDay is the coverage floor that routes completed days the rollup does not yet cover (post-migration cold start, where the shared aggregation watermark won't backfill old days) back to raw usage_logs, so the page never silently undercounts history. The table column is actual_cost, not total_cost; pinning actual_cost catches the prod 500 class where a drifted trend query references the wrong rollup column. Pins the read entry points, the decomposition function (loose prefix), the coverage-floor helper, and the rollup table read so a merge cannot silently revert the pages to the slow full-window scan or drop the cold-start fallback."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_model_rollup.go",
+      "must_contain": [
+        "func shouldUseModelDailyRollup(",
+        "func (r *usageLogRepository) modelDailyBackfilled(",
+        "func (r *usageLogRepository) getModelStatsFromRollup(",
+        "FROM usage_dashboard_model_daily",
+        "modelDailyBackfillMarkerDate",
+        "COALESCE(NULLIF(TRIM(requested_model), ''), model) AS model",
+        "GROUP BY 1"
+      ],
+      "rationale": "Dashboard model distribution uses completed-day usage_dashboard_model_daily plus raw head/tail spans only after a one-time historical backfill marker is present; without that marker prod can have partial/stale rows from the forward-only aggregation watermark and the read path must fall back to raw logs. The raw tail intentionally groups by SELECT ordinal (GROUP BY 1) because the expression is aliased to model while usage_logs also has a model column; GROUP BY model resolves to the input column and breaks the requested_model fallback expression on Postgres, causing the rollup path to error and fall back to a slow full raw scan. Pins the rollup entry point, the marker gate, the daily table, the requested_model fallback expression, and the GROUP BY 1 fix."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_stats_rollup.go",
+      "must_contain": [
+        "func shouldUseUsageStatsHourlyRollup(",
+        "func (r *usageLogRepository) getStatsWithFiltersFromHourlyRollup(",
+        "SELECT last_aggregated_at FROM usage_dashboard_aggregation_watermark WHERE id = 1",
+        "FROM usage_dashboard_hourly",
+        "addUsageStatsRawSpan(ctx, agg, rollupEnd, end)"
+      ],
+      "rationale": "Admin Usage summary default stats are served from usage_dashboard_hourly for complete hours, capped by the shared aggregation watermark, with raw head/tail spans for partial hours. This avoids the first-screen /admin/usage/stats raw full-window scan while preserving exact semantics for the unfiltered summary path. Pins the eligibility gate, the read entry point, the watermark cap, the hourly table read, and the raw-tail merge."
     },
     {
       "path": "backend/internal/repository/usage_log_repo.go",

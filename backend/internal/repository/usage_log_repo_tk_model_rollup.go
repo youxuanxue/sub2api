@@ -43,7 +43,7 @@ func shouldUseModelDailyRollup(
 
 func (r *usageLogRepository) modelDailyRollupFloorDay(ctx context.Context) (time.Time, bool, error) {
 	rows, err := r.sql.QueryContext(ctx,
-		`SELECT to_char(MIN(bucket_date), 'YYYY-MM-DD') FROM usage_dashboard_model_daily`)
+		`SELECT to_char(MIN(bucket_date), 'YYYY-MM-DD') FROM usage_dashboard_model_daily WHERE bucket_date > DATE '`+modelDailyBackfillMarkerDate+`'`)
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -71,13 +71,34 @@ func (r *usageLogRepository) modelDailyRollupFloorDay(ctx context.Context) (time
 	return day, true, nil
 }
 
+func (r *usageLogRepository) modelDailyBackfilled(ctx context.Context) (bool, error) {
+	var done bool
+	if err := scanSingleRow(ctx, r.sql,
+		"SELECT EXISTS(SELECT 1 FROM usage_dashboard_model_daily WHERE bucket_date = DATE '"+modelDailyBackfillMarkerDate+"' AND model = $1)",
+		[]any{modelDailyBackfillMarkerModel}, &done); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	return done, nil
+}
+
 func (r *usageLogRepository) getModelStatsFromRollup(
 	ctx context.Context,
 	startTime, endTime time.Time,
-) ([]ModelStat, error) {
+) ([]ModelStat, bool, error) {
+	ready, err := r.modelDailyBackfilled(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ready {
+		return nil, false, nil
+	}
+
 	floorDay, hasRollupData, err := r.modelDailyRollupFloorDay(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	win := planUsageRollupWindow(startTime, endTime, floorDay, hasRollupData)
 	byModel := make(map[string]*modelStatAgg)
@@ -113,12 +134,13 @@ func (r *usageLogRepository) getModelStatsFromRollup(
 				COALESCE(SUM(actual_cost), 0),
 				COALESCE(SUM(account_cost), 0)
 			FROM usage_dashboard_model_daily
-			WHERE bucket_date >= $1::date AND bucket_date < $2::date
+			WHERE bucket_date > DATE '` + modelDailyBackfillMarkerDate + `'
+			  AND bucket_date >= $1::date AND bucket_date < $2::date
 			GROUP BY model
 		`
 		rows, err := r.sql.QueryContext(ctx, q, win.rollupStartDay, win.rollupEndDay)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for rows.Next() {
 			var model string
@@ -126,15 +148,15 @@ func (r *usageLogRepository) getModelStatsFromRollup(
 			var cost, actualCost, accountCost float64
 			if err := rows.Scan(&model, &reqs, &inTok, &outTok, &cacheCreate, &cacheRead, &totalTok, &cost, &actualCost, &accountCost); err != nil {
 				_ = rows.Close()
-				return nil, err
+				return nil, false, err
 			}
 			addRow(model, reqs, inTok, outTok, cacheCreate, cacheRead, totalTok, cost, actualCost, accountCost)
 		}
 		if err := rows.Close(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := rows.Err(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -154,11 +176,11 @@ func (r *usageLogRepository) getModelStatsFromRollup(
 				COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0)
 			FROM usage_logs
 			WHERE created_at >= $1 AND created_at < $2
-			GROUP BY model
+			GROUP BY 1
 		`
 		rows, err := r.sql.QueryContext(ctx, q, from, to)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for rows.Next() {
 			var model string
@@ -166,15 +188,15 @@ func (r *usageLogRepository) getModelStatsFromRollup(
 			var cost, actualCost, accountCost float64
 			if err := rows.Scan(&model, &reqs, &inTok, &outTok, &cacheCreate, &cacheRead, &totalTok, &cost, &actualCost, &accountCost); err != nil {
 				_ = rows.Close()
-				return nil, err
+				return nil, false, err
 			}
 			addRow(model, reqs, inTok, outTok, cacheCreate, cacheRead, totalTok, cost, actualCost, accountCost)
 		}
 		if err := rows.Close(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := rows.Err(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -199,5 +221,5 @@ func (r *usageLogRepository) getModelStatsFromRollup(
 		}
 		return results[i].Model < results[j].Model
 	})
-	return results, nil
+	return results, true, nil
 }

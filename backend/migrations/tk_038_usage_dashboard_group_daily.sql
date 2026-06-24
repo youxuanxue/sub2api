@@ -13,9 +13,8 @@
 -- usage_log_repo_tk_group_rollup.go (read) and dashboard_aggregation_repo_tk_group.go
 -- (feeder + one-time backfill).
 --
--- Grain: one row per (group_id, bucket_date). Metric: actual_cost only — that is
--- the single column the usage-summary reads. "platform"/token columns are
--- deliberately omitted (YAGNI); add later if a consumer needs them.
+-- Grain: one row per (group_id, bucket_date). Metrics cover both the Groups page
+-- cost summary and the Dashboard/Usage group distribution chart.
 --
 -- Retention: UNLIKE the windowed usage_dashboard_* rollups, this table is NOT
 -- pruned by CleanupAggregates — the Groups summary is an ALL-TIME cumulative, so
@@ -31,10 +30,17 @@
 -- grain matches the read path exactly.
 
 CREATE TABLE IF NOT EXISTS usage_dashboard_group_daily (
-    bucket_date  DATE NOT NULL,
-    group_id     BIGINT NOT NULL,
-    actual_cost  DECIMAL(20, 10) NOT NULL DEFAULT 0,
-    computed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    bucket_date           DATE NOT NULL,
+    group_id              BIGINT NOT NULL,
+    total_requests        BIGINT NOT NULL DEFAULT 0,
+    input_tokens          BIGINT NOT NULL DEFAULT 0,
+    output_tokens         BIGINT NOT NULL DEFAULT 0,
+    cache_creation_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_read_tokens     BIGINT NOT NULL DEFAULT 0,
+    total_cost            DECIMAL(20, 10) NOT NULL DEFAULT 0,
+    actual_cost           DECIMAL(20, 10) NOT NULL DEFAULT 0,
+    account_cost          DECIMAL(20, 10) NOT NULL DEFAULT 0,
+    computed_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (bucket_date, group_id)
 );
 

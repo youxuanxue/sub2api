@@ -682,7 +682,7 @@ func (r *usageLogRepository) getUserUsageTrendRollup(
 			SELECT
 				TO_CHAR(bucket_date::timestamp, '%s') AS date,
 				user_id,
-				COALESCE(SUM(total_cost), 0),
+				COALESCE(SUM(actual_cost), 0),
 				COALESCE(SUM(actual_cost), 0),
 				COALESCE(SUM(total_requests), 0),
 				COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0)

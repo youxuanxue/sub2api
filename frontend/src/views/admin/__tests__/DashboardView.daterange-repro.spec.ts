@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import DashboardView from '../DashboardView.vue'
@@ -68,10 +68,11 @@ const mountDashboard = () =>
     }
   })
 
-const lastSnapshotCall = () =>
-  getSnapshotV2.mock.calls.at(-1)?.[0] as
-    | { start_date: string; end_date: string; granularity: string }
-    | undefined
+const lastChartSnapshotCall = () =>
+  getSnapshotV2.mock.calls
+    .map((call) => call[0])
+    .filter((params) => params?.include_trend === true)
+    .at(-1) as { start_date: string; end_date: string; granularity: string } | undefined
 
 // open the date picker and click a preset by its (mocked) label key
 const clickPreset = async (wrapper: ReturnType<typeof mountDashboard>, labelKey: string) => {
@@ -101,6 +102,7 @@ const selectGranularity = async (wrapper: ReturnType<typeof mountDashboard>, lab
 
 describe('admin DashboardView — date-range / granularity request params', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     getSnapshotV2.mockReset()
     getUserUsageTrend.mockReset()
     getUserSpendingRanking.mockReset()
@@ -118,6 +120,10 @@ describe('admin DashboardView — date-range / granularity request params', () =
     })
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   // Regression guard for the screenshot bug: selecting 近14天 used to only flip
   // the trigger label without applying, so a subsequent granularity change still
   // requested the default last-24h window (2 daily buckets) while the label read
@@ -125,15 +131,17 @@ describe('admin DashboardView — date-range / granularity request params', () =
   it('picking 近14天 preset applies immediately and a later 粒度→按天 keeps the 14-day window', async () => {
     const wrapper = mountDashboard()
     await flushPromises()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
 
     // baseline: default last-24h + hour
-    expect(lastSnapshotCall()).toMatchObject({ granularity: 'hour' })
+    expect(lastChartSnapshotCall()).toMatchObject({ granularity: 'hour' })
 
     await clickPreset(wrapper, 'dates.last14Days')
     await selectGranularity(wrapper, 'admin.dashboard.day')
     await flushPromises()
 
-    const call = lastSnapshotCall()!
+    const call = lastChartSnapshotCall()!
     const span =
       (new Date(call.end_date).getTime() - new Date(call.start_date).getTime()) / 86400000
 
@@ -144,11 +152,13 @@ describe('admin DashboardView — date-range / granularity request params', () =
   it('picking 近14天 preset alone sends a real 14-day window', async () => {
     const wrapper = mountDashboard()
     await flushPromises()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
 
     await clickPreset(wrapper, 'dates.last14Days')
     await flushPromises()
 
-    const call = lastSnapshotCall()!
+    const call = lastChartSnapshotCall()!
     const span =
       (new Date(call.end_date).getTime() - new Date(call.start_date).getTime()) / 86400000
 

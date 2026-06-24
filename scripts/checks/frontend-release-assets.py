@@ -62,6 +62,18 @@ def account_assets_from_vite_entry(entry_js: str) -> list[str]:
     return seen
 
 
+def js_asset_paths_from_vite_asset(asset: str) -> list[str]:
+    """Resolve JS chunk paths embedded in a Vite chunk's dependency map/imports."""
+    names = re.findall(r'assets/([^"\'\\]+\.js)', asset)
+    names.extend(re.findall(r'from"\./([^"\'\\]+\.js)"', asset))
+    seen: list[str] = []
+    for name in names:
+        path = "/assets/" + name
+        if path not in seen:
+            seen.append(path)
+    return seen
+
+
 def asset_has_account_create_mount(asset: str) -> bool:
     """Content fingerprint of the chunk that carries the account create-mode NewAPI
     field mount, independent of the chunk's filename (rename-proof)."""
@@ -103,20 +115,6 @@ def check_account_asset(asset: str, source: str) -> list[str]:
     if missing:
         errors.append(f"{source}: create-mode Extension Engine field mount is missing props: {', '.join(missing)}")
 
-    required_labels = [
-        "newApiPlatform.channelType",
-        "newApiPlatform.baseUrl",
-        "newApiPlatform.apiKey",
-    ]
-    label_positions = {label: asset.find(label) for label in required_labels}
-    missing_labels = [label for label, idx in label_positions.items() if idx < 0]
-    if missing_labels:
-        errors.append(f"{source}: shared NewAPI field component is missing labels: {', '.join(missing_labels)}")
-
-    ordered_labels = [label_positions[label] for label in required_labels]
-    if all(idx >= 0 for idx in ordered_labels) and ordered_labels != sorted(ordered_labels):
-        errors.append(f"{source}: shared NewAPI channel/base-url/api-key labels are out of order")
-
     account_type_idx = asset.find("admin.accounts.accountType", platform_idx)
     if account_type_idx >= 0 and account_type_idx < create_mount_idx:
         errors.append(f"{source}: account-type block appears before create-mode Extension Engine field mount")
@@ -133,6 +131,24 @@ def check_account_asset(asset: str, source: str) -> list[str]:
     return errors
 
 
+REQUIRED_NEWAPI_LABELS = [
+    "newApiPlatform.channelType",
+    "newApiPlatform.baseUrl",
+    "newApiPlatform.apiKey",
+]
+
+
+def check_newapi_labels(asset: str, source: str) -> list[str]:
+    label_positions = {label: asset.find(label) for label in REQUIRED_NEWAPI_LABELS}
+    if not all(idx >= 0 for idx in label_positions.values()):
+        return []
+
+    ordered_labels = [label_positions[label] for label in REQUIRED_NEWAPI_LABELS]
+    if ordered_labels != sorted(ordered_labels):
+        return [f"{source}: shared NewAPI channel/base-url/api-key labels are out of order"]
+    return []
+
+
 def check_dist(dist: Path) -> list[str]:
     # Rename-proof: scan every JS chunk and validate the one(s) that carry the
     # account create-mode NewAPI field mount, identified by content rather than by
@@ -140,18 +156,29 @@ def check_dist(dist: Path) -> list[str]:
     # breaking again the next time frontend/vite.config.ts reshuffles manualChunks.
     errors: list[str] = []
     checked = 0
-    for path in sorted((dist / "assets").glob("*.js")):
-        asset = read_file(path)
+    labels_checked = 0
+    all_js_assets = [(path, read_file(path)) for path in sorted((dist / "assets").glob("*.js"))]
+    for path, asset in all_js_assets:
         if not asset_has_account_create_mount(asset):
             continue
         checked += 1
         errors.extend(check_account_asset(asset, str(path)))
 
+    for path, asset in all_js_assets:
+        if not all(label in asset for label in REQUIRED_NEWAPI_LABELS):
+            continue
+        labels_checked += 1
+        errors.extend(check_newapi_labels(asset, str(path)))
+
     if checked == 0:
-        return [
+        errors.extend([
             f"{dist}: no JS chunk carries the admin account create-mode Extension Engine "
             f"field mount (variant:\"create\" + channel-type-options)"
-        ]
+        ])
+    if labels_checked == 0:
+        errors.append(
+            f"{dist}: no JS chunk carries the shared NewAPI field labels: {', '.join(REQUIRED_NEWAPI_LABELS)}"
+        )
     return errors
 
 
@@ -173,15 +200,35 @@ def check_url(base_url: str) -> list[str]:
             return [f"{base}: Vite entry {entry_rel} does not reference an AccountsView chunk"]
 
     errors: list[str] = []
+    account_asset = ""
+    account_asset_path = ""
     for asset_path in assets:
         asset_url = urljoin(base, asset_path.lstrip("/"))
         asset = read_url(asset_url)
         if not asset_has_account_create_mount(asset):
             continue
+        account_asset = asset
+        account_asset_path = asset_path
         errors.extend(check_account_asset(asset, asset_url))
+        break
+
+    if not account_asset:
+        errors.append(f"{base}: referenced account-modal assets do not contain the Extension Engine/newapi create-mode field mount")
         return errors
 
-    errors.append(f"{base}: referenced account-modal assets do not contain the Extension Engine/newapi create-mode field mount")
+    label_errors = check_newapi_labels(account_asset, urljoin(base, account_asset_path.lstrip("/")))
+    if not label_errors and all(label in account_asset for label in REQUIRED_NEWAPI_LABELS):
+        return errors
+
+    for dep_path in js_asset_paths_from_vite_asset(account_asset):
+        dep_url = urljoin(base, dep_path.lstrip("/"))
+        dep_asset = read_url(dep_url)
+        if not all(label in dep_asset for label in REQUIRED_NEWAPI_LABELS):
+            continue
+        errors.extend(check_newapi_labels(dep_asset, dep_url))
+        return errors
+
+    errors.append(f"{base}: no account-modal dependency carries the shared NewAPI field labels: {', '.join(REQUIRED_NEWAPI_LABELS)}")
     return errors
 
 
