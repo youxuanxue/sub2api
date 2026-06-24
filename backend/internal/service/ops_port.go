@@ -40,6 +40,10 @@ type OpsRepository interface {
 	// out of capacity AND WHO inside each pool is driving it — the platform→user
 	// attribution the old two separate marginal queries could not express.
 	TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error)
+	// TopRoutingCapacityRejectionByModel returns the top requested-model buckets
+	// over the same routing-capacity rejection window/scope. It powers the
+	// no-available-accounts P0 card's "模型" line.
+	TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error)
 	GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error)
 	GetLatencyHistogram(ctx context.Context, filter *OpsDashboardFilter) (*OpsLatencyHistogramResponse, error)
 	GetErrorTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsErrorTrendResponse, error)

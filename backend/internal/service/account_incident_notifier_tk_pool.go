@@ -43,7 +43,7 @@ func (n *TKAccountIncidentNotifier) SetPoolSchedulableCounter(fn func(ctx contex
 // NotifyPlatformPoolExhausted 发送平台池全不可调度 P0 卡片。按 platform 去重
 // （冷却风暴里每个后续账号封锁都会再触发一次池级检查,只发第一张）。
 func (n *TKAccountIncidentNotifier) NotifyPlatformPoolExhausted(platform string, trigger *Account, until time.Time, reason string) {
-	if n == nil || strings.TrimSpace(platform) == "" {
+	if n == nil || n.isEdgeSite() || strings.TrimSpace(platform) == "" {
 		return
 	}
 	now := n.currentTime()
@@ -123,6 +123,9 @@ func (n *TKAccountIncidentNotifier) poolRecoveryLoop() {
 // 保证每个平台一次恢复事件只发一张绿卡。
 func (n *TKAccountIncidentNotifier) checkPoolRecovery() {
 	if n == nil {
+		return
+	}
+	if n.isEdgeSite() {
 		return
 	}
 	n.mu.Lock()

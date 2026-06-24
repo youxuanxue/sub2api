@@ -22,6 +22,8 @@ type stubOpsRepo struct {
 	routingRejectionsErr error
 	routingByPlatform    []*OpsRoutingRejectionPlatform
 	routingByPlatformErr error
+	routingByModel       []*OpsRoutingRejectionModel
+	routingByModelErr    error
 }
 
 func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -46,6 +48,13 @@ func (s *stubOpsRepo) TopRoutingCapacityRejectionByPlatform(ctx context.Context,
 		return nil, s.routingByPlatformErr
 	}
 	return s.routingByPlatform, nil
+}
+
+func (s *stubOpsRepo) TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error) {
+	if s.routingByModelErr != nil {
+		return nil, s.routingByModelErr
+	}
+	return s.routingByModel, nil
 }
 
 // GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
@@ -394,9 +403,9 @@ func TestComputeRuleMetricRoutingCapacityRejectionCount(t *testing.T) {
 // TestComputeTopCauseRoutingCapacityRejection pins the self-diagnosing 主因 line
 // for the empty-pool P0: a single JOINT breakdown naming WHICH platform pool(s)
 // are out of capacity AND WHO inside each pool is driving it (user id + api-key
-// name + count), instead of two un-cross-referenceable marginal lines. `users` is
-// always empty now — the standalone 用户 line is retired. Example names here are
-// synthetic.
+// name + count), plus the top requested models by failed request volume. `users`
+// is always empty now — the standalone 用户 line is retired. Example names here
+// are synthetic.
 func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 	t.Parallel()
 
@@ -407,18 +416,26 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 
 	t.Run("joint per-platform breakdown with nested users", func(t *testing.T) {
 		t.Parallel()
-		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatform: []*OpsRoutingRejectionPlatform{
-			{Platform: "anthropic", Count: 40, Users: []*OpsRoutingRejectionUser{
-				{UserID: 1, APIKeyName: "eval-harness", Count: 30},
-				{UserID: 16, APIKeyName: "mobile-app", Count: 10},
-			}},
-			{Platform: "newapi", Count: 8, Users: []*OpsRoutingRejectionUser{
-				{UserID: 16, APIKeyName: "ci-runner", Count: 8},
-			}},
-		}}}
-		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingByPlatform: []*OpsRoutingRejectionPlatform{
+				{Platform: "anthropic", Count: 40, Users: []*OpsRoutingRejectionUser{
+					{UserID: 1, APIKeyName: "eval-harness", Count: 30},
+					{UserID: 16, APIKeyName: "mobile-app", Count: 10},
+				}},
+				{Platform: "newapi", Count: 8, Users: []*OpsRoutingRejectionUser{
+					{UserID: 16, APIKeyName: "ci-runner", Count: 8},
+				}},
+			},
+			routingByModel: []*OpsRoutingRejectionModel{
+				{Model: "claude-sonnet-4-5", Count: 31},
+				{Model: "claude-opus-4-8", Count: 12},
+				{Model: "qwen3-coder-plus", Count: 5},
+			},
+		}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
 		require.Equal(t, `anthropic ×40（#1 "eval-harness" ×30 · #16 "mobile-app" ×10） · newapi ×8（#16 "ci-runner" ×8）`, cause)
 		require.Empty(t, users, "standalone 用户 line is retired for new events")
+		require.Equal(t, "claude-sonnet-4-5 ×31 · claude-opus-4-8 ×12 · qwen3-coder-plus ×5", models)
 	})
 
 	t.Run("platform with no attributable users renders bare", func(t *testing.T) {
@@ -426,25 +443,43 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatform: []*OpsRoutingRejectionPlatform{
 			{Platform: "anthropic", Count: 40},
 		}}}
-		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
 		require.Equal(t, "anthropic ×40", cause)
 		require.Empty(t, users)
+		require.Empty(t, models)
 	})
 
 	t.Run("no rows => no 主因 line", func(t *testing.T) {
 		t.Parallel()
 		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{}}
-		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
 		require.Empty(t, cause)
 		require.Empty(t, users)
+		require.Empty(t, models)
 	})
 
-	t.Run("query error => no 主因 line (best-effort, never blocks firing)", func(t *testing.T) {
+	t.Run("platform query error still keeps model line (best-effort, never blocks firing)", func(t *testing.T) {
 		t.Parallel()
-		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatformErr: context.DeadlineExceeded}}
-		cause, users := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingByPlatformErr: context.DeadlineExceeded,
+			routingByModel:       []*OpsRoutingRejectionModel{{Model: "claude-sonnet-4-5", Count: 9}},
+		}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
 		require.Empty(t, cause)
 		require.Empty(t, users)
+		require.Equal(t, "claude-sonnet-4-5 ×9", models)
+	})
+
+	t.Run("model query error still keeps platform line (best-effort, never blocks firing)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingByPlatform: []*OpsRoutingRejectionPlatform{{Platform: "anthropic", Count: 40}},
+			routingByModelErr: context.DeadlineExceeded,
+		}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Equal(t, "anthropic ×40", cause)
+		require.Empty(t, users)
+		require.Empty(t, models)
 	})
 }
 

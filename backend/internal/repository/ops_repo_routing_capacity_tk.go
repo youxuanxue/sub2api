@@ -187,3 +187,51 @@ ORDER BY platform ASC, cnt DESC, user_id ASC, key_name ASC`
 	}
 	return out, nil
 }
+
+// TopRoutingCapacityRejectionByModel returns the top requested-model buckets over
+// the routing-capacity rejection rows in the same window/scope as the alert
+// metric. requested_model is preferred because it is the client-visible demand
+// signal; model is a legacy fallback for older rows.
+func (r *opsRepository) TopRoutingCapacityRejectionByModel(ctx context.Context, filter *service.OpsDashboardFilter, limit int) ([]*service.OpsRoutingRejectionModel, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("nil ops repository")
+	}
+	if filter == nil {
+		return nil, fmt.Errorf("nil filter")
+	}
+	if filter.StartTime.IsZero() || filter.EndTime.IsZero() {
+		return nil, fmt.Errorf("start_time/end_time required")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+
+	where, args, next := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
+	q := `SELECT COALESCE(NULLIF(TRIM(requested_model), ''), NULLIF(TRIM(model), ''), '(unknown)') AS model, COUNT(*) AS cnt
+FROM ops_error_logs
+` + where + `
+  AND error_phase = 'routing'
+GROUP BY 1
+ORDER BY cnt DESC, model ASC
+LIMIT $` + strconv.Itoa(next)
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]*service.OpsRoutingRejectionModel, 0, limit)
+	for rows.Next() {
+		var m service.OpsRoutingRejectionModel
+		if err := rows.Scan(&m.Model, &m.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

@@ -94,6 +94,10 @@ func (m *opsRepoMock) TopRoutingCapacityRejectionByPlatform(ctx context.Context,
 	return nil, nil
 }
 
+func (m *opsRepoMock) TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error) {
 	return &OpsThroughputTrendResponse{}, nil
 }

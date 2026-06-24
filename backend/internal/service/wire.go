@@ -1000,7 +1000,11 @@ func ProvideTKAccountIncidentNotifier(
 	if rl != nil {
 		rl.SetAccountIncidentNotifier(n)
 	}
-	SetClaudeAPIStatusNotifier(n)
+	if isEdgeSiteID(site) {
+		SetClaudeAPIStatusNotifier(nil)
+	} else {
+		SetClaudeAPIStatusNotifier(n)
+	}
 	return n
 }
 
