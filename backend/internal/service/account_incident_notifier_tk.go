@@ -612,6 +612,21 @@ func accountIncidentDedupeKey(site string, accountID int64, reasonClass string) 
 	return fmt.Sprintf("%s|%d|%s", site, accountID, reasonClass)
 }
 
+func isEdgeSiteID(site string) bool {
+	return strings.HasPrefix(strings.TrimSpace(site), "edge-")
+}
+
+// IsEdgeFrontendURL reports whether server.frontend_url identifies a TokenKey
+// mirror-relay edge. Empty/unparseable/custom hosts are treated as non-edge so
+// prod does not silently lose global checks when config is incomplete.
+func IsEdgeFrontendURL(frontendURL string) bool {
+	return isEdgeSiteID(siteFromFrontendURL(frontendURL))
+}
+
+func (n *TKAccountIncidentNotifier) isEdgeSite() bool {
+	return n != nil && isEdgeSiteID(n.siteID)
+}
+
 // siteFromFrontendURL 从 server.frontend_url 域名提取节点名:
 //
 //	api.tokenkey.dev      -> prod

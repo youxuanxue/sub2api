@@ -50,6 +50,14 @@ type OpsRoutingRejectionUser struct {
 	Count      int64
 }
 
+// OpsRoutingRejectionModel is one requested-model bucket for routing-phase
+// capacity rejections. It answers the operator question "which requested models
+// make up the failed request volume?" on the no-available-accounts P0 card.
+type OpsRoutingRejectionModel struct {
+	Model string
+	Count int64
+}
+
 // opsTopCauseMetricTypes are the rule metric types for which a top-cause
 // breakdown is meaningful (rate metrics over ops_error_logs). Other rule types
 // (system gauges, group-availability counts) get no breakdown — keeping the
@@ -76,25 +84,25 @@ func opsTopCauseApplies(metricType string) bool {
 // routing_capacity_rejection_count alert at the notification layer
 // (maybeSendAlertNotifications → isEdgeNode), so there is no per-field edge
 // branching here.
-func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) (cause string, users string) {
+func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) (cause string, users string, models string) {
 	if s == nil || rule == nil {
-		return "", ""
+		return "", "", ""
 	}
 	metricType := strings.TrimSpace(rule.MetricType)
 	// pool_load_rate 的主因来自实时池负载快照（哪几个调度池在饱和），而非
 	// ops_error_logs，所以单独取一支；详见 ops_pool_load_rate_tk.go。
 	if metricType == "pool_load_rate" {
 		if s.opsService == nil {
-			return "", ""
+			return "", "", ""
 		}
 		pools, err := s.opsService.ComputePoolLoadRates(ctx)
 		if err != nil {
-			return "", ""
+			return "", "", ""
 		}
-		return formatPoolLoadCause(pools, rule, platform, groupID), ""
+		return formatPoolLoadCause(pools, rule, platform, groupID), "", ""
 	}
 	if s.opsRepo == nil {
-		return "", ""
+		return "", "", ""
 	}
 	// routing_capacity_rejection_count's cause is a single JOINT breakdown over the
 	// routing-phase rows themselves (not the model/owner/upstream_status breakdown
@@ -117,10 +125,11 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 			QueryMode: OpsQueryModeRaw,
 		}
 		platforms, _ := s.opsRepo.TopRoutingCapacityRejectionByPlatform(ctx, filter, 2, 3)
-		return formatRoutingRejectionByPlatform(platforms), ""
+		modelBuckets, _ := s.opsRepo.TopRoutingCapacityRejectionByModel(ctx, filter, 3)
+		return formatRoutingRejectionByPlatform(platforms), "", formatRoutingRejectionByModel(modelBuckets)
 	}
 	if !opsTopCauseApplies(metricType) {
-		return "", ""
+		return "", "", ""
 	}
 	// upstream_error_rate counts only provider-owned, non-429/529 final failures
 	// (the upstream_excl set); error_rate counts all SLA errors. Mirror that so
@@ -134,9 +143,9 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 		QueryMode: OpsQueryModeRaw,
 	}, upstreamOnly, 2)
 	if err != nil || len(causes) == 0 {
-		return "", ""
+		return "", "", ""
 	}
-	return formatOpsTopCause(causes), ""
+	return formatOpsTopCause(causes), "", ""
 }
 
 // formatOpsTopCause renders up to two causes as a compact one-line string, e.g.
@@ -234,6 +243,28 @@ func formatRejectionUserSegment(u *OpsRoutingRejectionUser) string {
 	}
 	seg += fmt.Sprintf(" ×%d", u.Count)
 	return seg
+}
+
+// formatRoutingRejectionByModel renders up to 3 requested-model buckets as a
+// compact line for routing-capacity P0 cards, e.g.
+//
+//	claude-sonnet-4-5 ×120 · claude-opus-4-8 ×32 · (unknown) ×4
+func formatRoutingRejectionByModel(models []*OpsRoutingRejectionModel) string {
+	parts := make([]string, 0, 3)
+	for _, m := range models {
+		if m == nil || m.Count <= 0 {
+			continue
+		}
+		name := strings.TrimSpace(m.Model)
+		if name == "" {
+			name = "(unknown)"
+		}
+		parts = append(parts, fmt.Sprintf("%s ×%d", name, m.Count))
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // feishuLabelSanitizer defangs lark_md control characters in a user-controlled

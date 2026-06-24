@@ -22,7 +22,7 @@ type ClaudeAPIStatusNotifier interface {
 
 // NotifyClaudeAPIIncidentStarted 在 Claude API 从 operational 转为非 operational 时发 P0 红卡。
 func (n *TKAccountIncidentNotifier) NotifyClaudeAPIIncidentStarted(status string) {
-	if n == nil {
+	if n == nil || n.isEdgeSite() {
 		return
 	}
 	now := n.currentTime()
@@ -41,7 +41,7 @@ func (n *TKAccountIncidentNotifier) NotifyClaudeAPIIncidentStarted(status string
 
 // NotifyClaudeAPIIncidentResolved 在 Claude API 恢复 operational 且此前发过故障卡时发绿卡闭环。
 func (n *TKAccountIncidentNotifier) NotifyClaudeAPIIncidentResolved(status string) {
-	if n == nil {
+	if n == nil || n.isEdgeSite() {
 		return
 	}
 	n.mu.Lock()

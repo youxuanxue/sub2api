@@ -92,7 +92,7 @@ func (d *blockingFeishuDoer) lastBody() string {
 }
 
 func newTestNotifier(provider opsFeishuConfigProvider, doer opsFeishuHTTPDoer, fixedNow time.Time) *TKAccountIncidentNotifier {
-	n := newTKAccountIncidentNotifier(provider, "edge-test")
+	n := newTKAccountIncidentNotifier(provider, "prod")
 	n.httpClient = doer
 	n.now = func() time.Time { return fixedNow }
 	return n
@@ -159,6 +159,14 @@ func TestSiteFromFrontendURL(t *testing.T) {
 	for in, want := range cases {
 		require.Equal(t, want, siteFromFrontendURL(in), "input=%q", in)
 	}
+}
+
+func TestIsEdgeFrontendURL(t *testing.T) {
+	t.Parallel()
+	require.True(t, IsEdgeFrontendURL("https://api-us3.tokenkey.dev"))
+	require.False(t, IsEdgeFrontendURL("https://api.tokenkey.dev"))
+	require.False(t, IsEdgeFrontendURL(""))
+	require.False(t, IsEdgeFrontendURL("https://gateway.example.com"))
 }
 
 func TestNotifyPermanentSendsImmediately(t *testing.T) {

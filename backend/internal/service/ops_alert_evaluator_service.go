@@ -295,7 +295,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			// TK (us7 P0 2026-06-13): attach the top offending model/reason so the
 			// notification card is self-diagnosing (real fire vs client noise)
 			// without an SSH/dashboard drill. Best-effort — never blocks firing.
-			if cause, users := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" {
+			if cause, users, models := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" || models != "" {
 				if dimensions == nil {
 					dimensions = map[string]any{}
 				}
@@ -304,6 +304,9 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				}
 				if users != "" {
 					dimensions["top_cause_users"] = users
+				}
+				if models != "" {
+					dimensions["top_cause_models"] = models
 				}
 			}
 

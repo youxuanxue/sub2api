@@ -108,6 +108,28 @@ func TestCheckPoolRecovery_SendsGreenCardPairedWithExhaust(t *testing.T) {
 	require.Equal(t, 2, doer.callCount(), "recovery must not re-fire for an already-recovered platform")
 }
 
+func TestNotifyPlatformPoolExhausted_EdgeSiteIsSuppressed(t *testing.T) {
+	provider := &fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 2)}
+	fixedNow := time.Date(2026, 6, 11, 6, 49, 0, 0, time.UTC)
+	n := newTestNotifier(provider, doer, fixedNow)
+	n.siteID = "edge-us3"
+
+	var counterCalls int64
+	n.SetPoolSchedulableCounter(func(_ context.Context, _ string) (int, error) {
+		atomic.AddInt64(&counterCalls, 1)
+		return 1, nil
+	})
+
+	trigger := &Account{ID: 7, Name: "cc-us3", Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	n.NotifyPlatformPoolExhausted(PlatformAnthropic, trigger, fixedNow.Add(10*time.Minute), "529")
+	n.checkPoolRecovery()
+	time.Sleep(100 * time.Millisecond)
+
+	require.Equal(t, 0, doer.callCount())
+	require.EqualValues(t, 0, atomic.LoadInt64(&counterCalls), "edge pool recovery must not compute after suppressed exhaust")
+}
+
 func TestCheckPoolRecovery_NoCounterIsNoop(t *testing.T) {
 	provider := &fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}
 	doer := &blockingFeishuDoer{done: make(chan struct{}, 4)}

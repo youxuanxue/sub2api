@@ -32,29 +32,29 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	windowEnd := windowStart.Add(time.Hour)
 	at := windowStart.Add(5 * time.Minute)
 
-	insert := func(phase, owner, platform string, statusCode int, businessLimited bool) {
+	insert := func(phase, owner, platform, requestedModel, model string, statusCode int, businessLimited bool) {
 		_, err := integrationDB.ExecContext(ctx, `
 			INSERT INTO ops_error_logs (
 				error_phase, error_type, severity, status_code,
-				error_owner, platform, is_business_limited, created_at
-			) VALUES ($1, 'api_error', 'error', $2, $3, $4, $5, $6)`,
-			phase, statusCode, owner, platform, businessLimited, at,
+				error_owner, platform, requested_model, model, is_business_limited, created_at
+			) VALUES ($1, 'api_error', 'error', $2, $3, $4, $5, $6, $7, $8)`,
+			phase, statusCode, owner, platform, requestedModel, model, businessLimited, at,
 		)
 		require.NoError(t, err)
 	}
 
 	// Routing-phase capacity rejections — MUST be counted. Split across platforms
 	// so the top-cause breakdown is exercised (anthropic 2 : openai 1).
-	insert("routing", "platform", "anthropic", 429, true) // local empty pool fast-fail (#575)
-	insert("routing", "platform", "anthropic", 503, true) // relayed downstream-capacity (rare 503 terminal)
-	insert("routing", "platform", "openai", 429, true)    // a second platform's empty-pool rejection
+	insert("routing", "platform", "anthropic", "claude-sonnet-4-5", "mapped-a", 429, true) // local empty pool fast-fail (#575)
+	insert("routing", "platform", "anthropic", "claude-sonnet-4-5", "mapped-b", 503, true) // relayed downstream-capacity (rare 503 terminal)
+	insert("routing", "platform", "openai", "", "gpt-5.1", 429, true)                      // a second platform's empty-pool rejection
 
 	// NOT routing — must NOT be counted, even though some are 429 + business-limited:
-	insert("auth", "client", "anthropic", 429, true)      // user-level rate limit (their own quota)
-	insert("upstream", "provider", "anthropic", 429, false) // real provider rate_limit_error
-	insert("request", "client", "openai", 429, true)        // concurrency/queue business limit
-	insert("internal", "platform", "gemini", 500, false)    // non-capacity platform error
-	insert("upstream", "provider", "openai", 502, false)    // ordinary provider failure
+	insert("auth", "client", "anthropic", "claude-sonnet-4-5", "", 429, true)      // user-level rate limit (their own quota)
+	insert("upstream", "provider", "anthropic", "claude-opus-4-8", "", 429, false) // real provider rate_limit_error
+	insert("request", "client", "openai", "gpt-5.1", "", 429, true)                // concurrency/queue business limit
+	insert("internal", "platform", "gemini", "gemini-2.5-pro", "", 500, false)     // non-capacity platform error
+	insert("upstream", "provider", "openai", "gpt-5.1", "", 502, false)            // ordinary provider failure
 
 	filter := &service.OpsDashboardFilter{
 		StartTime: windowStart,
@@ -82,6 +82,14 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	require.Equal(t, "openai", platforms[1].Platform)
 	require.EqualValues(t, 1, platforms[1].Count)
 	require.Empty(t, platforms[1].Users)
+
+	models, err := repo.TopRoutingCapacityRejectionByModel(ctx, filter, 3)
+	require.NoError(t, err)
+	require.Len(t, models, 2)
+	require.Equal(t, "claude-sonnet-4-5", models[0].Model, "requested_model wins over mapped model")
+	require.EqualValues(t, 2, models[0].Count)
+	require.Equal(t, "gpt-5.1", models[1].Model, "legacy rows fall back to model when requested_model is blank")
+	require.EqualValues(t, 1, models[1].Count)
 
 	// Cross-check the blind spot: the three routing rows are business-limited →
 	// excluded from the ratio metrics' numerator AND denominator, which is exactly

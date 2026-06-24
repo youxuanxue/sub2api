@@ -54,6 +54,18 @@ func TestNotifyClaudeAPIIncidentResolved_OnlyAfterStarted(t *testing.T) {
 	require.True(t, strings.Contains(doer.lastBody(), "operational"))
 }
 
+func TestNotifyClaudeAPIIncident_EdgeSiteIsSuppressed(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 2)}
+	fixed := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, fixed)
+	n.siteID = "edge-us3"
+
+	n.NotifyClaudeAPIIncidentStarted("partial_outage")
+	n.NotifyClaudeAPIIncidentResolved("operational")
+
+	require.Equal(t, 0, doer.callCount())
+}
+
 func TestSetClaudeAPIStatusNotifier_WiresPollerTransition(t *testing.T) {
 	doer := &blockingFeishuDoer{done: make(chan struct{}, 1)}
 	fixed := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)

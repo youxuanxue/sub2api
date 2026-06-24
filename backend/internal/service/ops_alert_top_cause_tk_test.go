@@ -86,6 +86,20 @@ func TestBuildOpsFeishuAlertTextTopCauseLine(t *testing.T) {
 		require.Contains(t, out, "anthropic ×339 · newapi ×4\n**用户**：")
 	})
 
+	t.Run("renders 模型 on its own line when top_cause_models present", func(t *testing.T) {
+		ev := &OpsAlertEvent{
+			MetricValue: &mv,
+			Dimensions: map[string]any{
+				"top_cause":        "anthropic ×339",
+				"top_cause_models": "claude-sonnet-4-5 ×180 · claude-opus-4-8 ×49 · qwen3-coder-plus ×12",
+			},
+		}
+		out := buildOpsFeishuAlertText(rule, ev, "prod", "")
+		require.Contains(t, out, "**主因**：anthropic ×339")
+		require.Contains(t, out, "**模型**：claude-sonnet-4-5 ×180 · claude-opus-4-8 ×49 · qwen3-coder-plus ×12")
+		require.Contains(t, out, "anthropic ×339\n**模型**：")
+	})
+
 	// No top_cause_users dimension (non-rejection rules, or a degraded user query)
 	// => no 用户 line. (Edge nodes never reach this renderer at all — the whole
 	// routing-rejection alert is suppressed upstream in maybeSendAlertNotifications.)
@@ -111,6 +125,26 @@ func TestBuildOpsFeishuAlertTextTopCauseLine(t *testing.T) {
 		out := buildOpsFeishuAlertText(rule, ev, "prod", "")
 		require.Contains(t, out, `**用户**：#1 "eval-harness" ×275`)
 		require.NotContains(t, out, "**主因**")
+	})
+}
+
+func TestFormatRoutingRejectionByModel(t *testing.T) {
+	t.Run("top three requested models", func(t *testing.T) {
+		require.Equal(t,
+			"claude-sonnet-4-5 ×120 · claude-opus-4-8 ×32 · qwen3-coder-plus ×4",
+			formatRoutingRejectionByModel([]*OpsRoutingRejectionModel{
+				{Model: "claude-sonnet-4-5", Count: 120},
+				{Model: "claude-opus-4-8", Count: 32},
+				{Model: "qwen3-coder-plus", Count: 4},
+				{Model: "gpt-5.1", Count: 1},
+			}))
+	})
+
+	t.Run("blank model defaults safely and non-positive counts skipped", func(t *testing.T) {
+		require.Equal(t, "(unknown) ×5", formatRoutingRejectionByModel([]*OpsRoutingRejectionModel{
+			{Model: "skip", Count: 0},
+			{Model: "", Count: 5},
+		}))
 	})
 }
 

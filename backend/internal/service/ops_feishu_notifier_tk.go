@@ -236,6 +236,9 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	if users := opsFeishuTopCauseUsers(event.Dimensions); users != "" {
 		topCauseLine += fmt.Sprintf("\n**用户**：%s", escapeFeishuText(users))
 	}
+	if models := opsFeishuTopCauseModels(event.Dimensions); models != "" {
+		topCauseLine += fmt.Sprintf("\n**模型**：%s", escapeFeishuText(models))
+	}
 	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
@@ -275,6 +278,21 @@ func opsFeishuTopCauseUsers(dimensions map[string]any) string {
 		return ""
 	}
 	if v, ok := dimensions["top_cause_users"]; ok {
+		if s, ok := v.(string); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+// opsFeishuTopCauseModels extracts the top requested-model breakdown for
+// routing-capacity P0s. It is separate from 主因 so platform/user attribution and
+// model demand stay independently readable.
+func opsFeishuTopCauseModels(dimensions map[string]any) string {
+	if len(dimensions) == 0 {
+		return ""
+	}
+	if v, ok := dimensions["top_cause_models"]; ok {
 		if s, ok := v.(string); ok {
 			return strings.TrimSpace(s)
 		}
