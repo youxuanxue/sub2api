@@ -28,7 +28,7 @@
 
       <!-- grok (7th platform, OAuth): refresh_token rotation. Blank = keep current;
            a re-pasted token is re-validated + re-primed by the backend on save. -->
-      <div v-if="account.platform === 'grok'" class="space-y-4">
+      <div v-if="account.platform === 'grok' && account.type === 'oauth'" class="space-y-4">
         <AccountGrokPlatformFields
           v-model:refreshToken="grokRefreshToken"
           v-model:baseUrl="grokBaseUrl"
@@ -96,7 +96,9 @@
                     ? 'https://generativelanguage.googleapis.com'
                     : account.platform === 'antigravity'
                       ? 'https://cloudcode-pa.googleapis.com'
-                      : 'https://api.anthropic.com'
+                      : account.platform === 'grok'
+                        ? 'https://api-us4.tokenkey.dev'
+                        : 'https://api.anthropic.com'
               "
             />
             <p class="input-hint">{{ baseUrlHint }}</p>
@@ -118,7 +120,9 @@
                     ? 'AIza...'
                     : account.platform === 'antigravity'
                       ? 'sk-...'
-                      : 'sk-ant-...'
+                      : account.platform === 'grok'
+                        ? 'tk-edge-...'
+                        : 'sk-ant-...'
               "
             />
             <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
@@ -2597,6 +2601,7 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (props.account.platform === 'grok' && props.account.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3050,6 +3055,7 @@ const tempUnschedPresets = computed(() => [
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === 'grok') return ''
   return 'https://api.anthropic.com'
 })
 
@@ -3360,6 +3366,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
     })
   }
+  // 第七平台 grok OAuth：refresh_token 是敏感字段，编辑时留空表示保留现有值
+  // （composable 不回填），base_url 回填。API-key relay stub 走下面的通用
+  // apikey 编辑字段，不应进入 OAuth composable。
+  if (newAccount.platform === 'grok' && newAccount.type === 'oauth') {
+    grokPopulateFromAccount({
+      credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
+    })
+  }
 
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
@@ -3369,7 +3383,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newAccount.platform === 'grok'
+            ? ''
+            : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
     // TK: edge mirror-stub pool (default anthropic for non-stub accounts).
     editMirrorPlatform.value = normalizeMirrorPlatform(credentials.mirror_platform)
@@ -3385,12 +3401,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       if (!credentials.model_pricing_status) {
         void newapiRefreshStoredPricingStatus()
       }
-    }
-
-    // 第七平台 grok：refresh_token 是敏感字段，编辑时留空表示保留现有值（composable
-    // 不回填），base_url 回填。
-    if (newAccount.platform === 'grok') {
-      grokPopulateFromAccount({ credentials })
     }
 
     // Load model mappings and detect mode
@@ -3477,7 +3487,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newAccount.platform === 'grok'
+            ? ''
+            : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI OAuth accounts
@@ -4000,7 +4012,7 @@ const handleSubmit = async () => {
     // 第七平台 grok（oauth，非 apikey）：仅在重粘了 refresh_token 或改了 base_url 时
     // 才发 credentials。refresh_token 留空 = 保留现有（后端 MergePreservingSensitiveCreds
     // + 后台刷新器处理）；重粘则后端 resolveGrokTokenOnSave 活体校验 + 重新 prime。
-    if (props.account.platform === 'grok') {
+    if (props.account.platform === 'grok' && props.account.type === 'oauth') {
       const bundle = grokBuildSubmitBundle('edit')
       if (!bundle) return
       if (Object.keys(bundle.credentials).length > 0) {
@@ -4077,6 +4089,8 @@ const handleSubmit = async () => {
         // TK: edge mirror-stub pool selector (surface-C). anthropic apikey only.
         if (props.account.platform === 'anthropic') {
           newCredentials.mirror_platform = editMirrorPlatform.value
+        } else if (props.account.platform === 'grok') {
+          newCredentials.mirror_platform = 'grok'
         }
         if (shouldApplyModelMapping) {
           const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)

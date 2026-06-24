@@ -3589,6 +3589,7 @@ export default {
       notesHint: '备注可选',
       // Filter options
       allPlatforms: '全部平台',
+      kiroStubPlatform: 'Kiro Stub',
       allTypes: '全部类型',
       allStatus: '全部状态',
       allGroups: '全部分组',
@@ -4379,12 +4380,18 @@ export default {
         pleaseAcknowledgeTos: '创建账号前请先勾选确认 Kiro 服务条款'
       },
       grokPlatform: {
+        oauthMode: 'OAuth',
+        oauthModeHint: 'xAI refresh token',
+        relayMode: 'Relay Stub',
+        relayModeHint: 'Edge API key',
         refreshToken: 'Refresh Token',
         refreshTokenPlaceholder: 'xAI Grok OAuth refresh token',
         refreshTokenHint: '创建时 TokenKey 会立刻用它换取 access token —— 这里若失败，说明 token 无效或该账号不是 SuperGrok Heavy。',
         refreshTokenHowTo: '在本机运行 xAI Grok CLI 登录（loopback OAuth）拿到 refresh_token 后粘贴到这里。xAI 公共 client 无服务端 redirect / device-code 流程，故 token 须在本机铸取。',
         baseUrl: 'Base URL（可选）',
         baseUrlHint: '默认 https://api.x.ai/v1，仅自建反代时覆盖。',
+        relayBaseUrlHint: '使用 edge 网关地址，例如 https://api-us4.tokenkey.dev。',
+        relayApiKeyHint: '填写该 relay stub 访问 edge 的 TokenKey API key。',
         tokenEditHint: '留空表示保留当前值',
         heavyNote: 'xAI 把 OAuth API 面限定给 SuperGrok Heavy；标准 / 过期订阅会在请求时返回 HTTP 403。',
         pleaseEnterRefreshToken: '请输入 Grok refresh token'

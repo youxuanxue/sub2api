@@ -1609,6 +1609,7 @@ const handleBulkUpdated = () => {
 const handleDataImported = () => { showImportData.value = false; reload() }
 const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
+const ACCOUNT_KIRO_STUB_PLATFORM_FILTER = '__kiro_stub__'
 const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
   type: params.type || '',
@@ -1619,9 +1620,21 @@ const buildAccountQueryFilters = () => ({
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
+const accountMatchesPlatformFilter = (account: Account, platform: string) => {
+  if (!platform) return true
+  if (platform === ACCOUNT_KIRO_STUB_PLATFORM_FILTER) {
+    return (
+      account.platform === 'anthropic' &&
+      account.type === 'apikey' &&
+      Boolean(account.edge_id) &&
+      account.credentials?.mirror_platform === 'kiro'
+    )
+  }
+  return account.platform === platform
+}
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
-  if (filters.platform && account.platform !== filters.platform) return false
+  if (!accountMatchesPlatformFilter(account, filters.platform)) return false
   if (filters.type && account.type !== filters.type) return false
   if (filters.status) {
     const now = Date.now()

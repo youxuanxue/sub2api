@@ -3517,6 +3517,7 @@ export default {
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
       allPlatforms: 'All Platforms',
+      kiroStubPlatform: 'Kiro Stub',
       allTypes: 'All Types',
       allStatus: 'All Status',
       allGroups: 'All Groups',
@@ -4237,12 +4238,18 @@ export default {
         pleaseAcknowledgeTos: 'Please acknowledge the Kiro terms of service before creating the account'
       },
       grokPlatform: {
+        oauthMode: 'OAuth',
+        oauthModeHint: 'xAI refresh token',
+        relayMode: 'Relay Stub',
+        relayModeHint: 'Edge API key',
         refreshToken: 'Refresh Token',
         refreshTokenPlaceholder: 'xAI Grok OAuth refresh token',
         refreshTokenHint: 'On create, TokenKey immediately exchanges it for an access token — a failure here means the token is invalid or the account is not SuperGrok Heavy.',
         refreshTokenHowTo: 'Obtain the refresh_token by running the xAI Grok CLI login on your own machine (loopback OAuth), then paste it here. xAI\'s public client has no server-side redirect / device-code flow, so the token must be minted out-of-band.',
         baseUrl: 'Base URL (optional)',
         baseUrlHint: 'Defaults to https://api.x.ai/v1. Override only for a self-hosted reverse proxy.',
+        relayBaseUrlHint: 'Use the edge gateway URL, for example https://api-us4.tokenkey.dev.',
+        relayApiKeyHint: 'Use the TokenKey edge API key for this relay stub.',
         tokenEditHint: 'Leave empty to keep the current value',
         heavyNote: 'xAI gates the OAuth API surface to SuperGrok Heavy. A standard / expired subscription returns HTTP 403 at request time.',
         pleaseEnterRefreshToken: 'Please enter the Grok refresh token'

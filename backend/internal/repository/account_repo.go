@@ -551,7 +551,16 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.client.Account.Query()
 
-	if platform != "" {
+	if platform == service.AccountListPlatformKiroStubFilter {
+		q = q.Where(
+			dbaccount.PlatformEQ(service.PlatformAnthropic),
+			dbaccount.TypeEQ(service.AccountTypeAPIKey),
+			dbpredicate.Account(func(s *entsql.Selector) {
+				s.Where(sqljson.ValueEQ(dbaccount.FieldCredentials, "kiro", sqljson.Path("mirror_platform")))
+				s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
+			}),
+		)
+	} else if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
 	}
 	if accountType != "" {

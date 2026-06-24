@@ -247,9 +247,73 @@
         />
       </div>
 
-      <!-- grok (7th platform): OAuth refresh_token paste directly under platform picker. -->
+      <!-- grok (7th platform): OAuth account or prod→edge first-class relay stub. -->
       <div v-if="form.platform === 'grok'" class="space-y-4">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+          <div class="mt-2 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              @click="accountCategory = 'oauth-based'"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                accountCategory === 'oauth-based'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/20'
+                  : 'border-gray-200 hover:border-slate-300 dark:border-dark-600 dark:hover:border-slate-700'
+              ]"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  accountCategory === 'oauth-based'
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                ]"
+              >
+                <Icon name="sparkles" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.accounts.grokPlatform.oauthMode') }}
+                </span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.grokPlatform.oauthModeHint') }}
+                </span>
+              </div>
+            </button>
+            <button
+              type="button"
+              @click="accountCategory = 'apikey'"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                accountCategory === 'apikey'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/20'
+                  : 'border-gray-200 hover:border-slate-300 dark:border-dark-600 dark:hover:border-slate-700'
+              ]"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  accountCategory === 'apikey'
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                ]"
+              >
+                <Icon name="key" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.accounts.grokPlatform.relayMode') }}
+                </span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.grokPlatform.relayModeHint') }}
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
         <AccountGrokPlatformFields
+          v-if="accountCategory === 'oauth-based'"
           v-model:refreshToken="grokRefreshToken"
           v-model:baseUrl="grokBaseUrl"
           variant="create"
@@ -1133,7 +1197,9 @@
                 ? 'https://api.openai.com'
                 : form.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
+                  : form.platform === 'grok'
+                    ? 'https://api-us4.tokenkey.dev'
+                    : 'https://api.anthropic.com'
             "
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
@@ -1150,7 +1216,9 @@
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
-                  : 'sk-ant-...'
+                  : form.platform === 'grok'
+                    ? 'tk-edge-...'
+                    : 'sk-ant-...'
             "
           />
           <p class="input-hint">{{ apiKeyHint }}</p>
@@ -3450,12 +3518,14 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === 'grok' && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
+  if (form.platform === 'grok' && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayApiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4076,9 +4146,9 @@ watch(
       form.type = 'oauth'
       return
     }
-    // grok (7th platform): always oauth type (refresh_token paste), regardless of addMethod.
+    // grok (7th platform): OAuth refresh_token or first-class API-key relay stub.
     if (form.platform === 'grok') {
-      form.type = 'oauth'
+      form.type = category === 'apikey' ? 'apikey' : 'oauth'
       return
     }
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
@@ -4102,7 +4172,9 @@ watch(
         ? 'https://api.openai.com'
         : newPlatform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newPlatform === 'grok'
+            ? ''
+            : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -4138,8 +4210,8 @@ watch(
       antigravityModelMappings.value = []
       antigravityModelRestrictionMode.value = 'mapping'
     } else if (newPlatform === 'grok') {
-      // 第七平台 grok：oauth(refresh_token)直填，accountCategory='oauth-based' 让
-      // watcher A 把 form.type 同步成 'oauth'。字段重置由 composable.reset() 负责。
+      // 第七平台 grok 默认创建 OAuth 账号；需要 prod→edge relay stub 时可切到
+      // API Key，提交 platform=grok,type=apikey。
       accountCategory.value = 'oauth-based'
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -4986,11 +5058,30 @@ const handleSubmit = async () => {
     return
   }
 
-  // 第七平台 grok：粘 refresh_token，type=oauth；创建期后端 resolveGrokTokenOnSave
-  // 用 refresh_token 立刻换 access_token（绿勾 / 明确报错），无需手填 access_token。
+  // 第七平台 grok：OAuth 账号粘 refresh_token；prod→edge relay stub 走
+  // first-class platform=grok,type=apikey。
   if (form.platform === 'grok') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (accountCategory.value === 'apikey') {
+      const baseURL = apiKeyBaseUrl.value.trim()
+      const apiKey = apiKeyValue.value.trim()
+      if (!baseURL) {
+        appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
+        return
+      }
+      if (!apiKey) {
+        appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
+      }
+      const credentials: Record<string, unknown> = {
+        base_url: baseURL,
+        api_key: apiKey,
+        mirror_platform: 'grok',
+      }
+      await createAccountAndFinish('grok', 'apikey', credentials, buildAPIKeyOrBedrockExtra())
       return
     }
     const bundle = grokBuildSubmitBundle('create')
