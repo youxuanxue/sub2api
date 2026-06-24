@@ -28,7 +28,8 @@ set -euo pipefail
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0-bluegreen}}"
-TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-600}"
+TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-1200}"
+EXECUTION_TIMEOUT_SECONDS="${STAGE0_SSM_EXECUTION_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
 if [[ -z "${TAG}" ]]; then
@@ -41,6 +42,11 @@ if [[ -z "${INSTANCE_ID}" ]]; then
 fi
 if [[ "${INSTANCE_ID}" != i-* ]]; then
   echo "stage0_deploy_via_ssm_bluegreen: prod-only primitive requires EC2 instance id (i-*), got ${INSTANCE_ID}" >&2
+  exit 1
+fi
+if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] \
+  || (( TIMEOUT_SECONDS <= 0 || EXECUTION_TIMEOUT_SECONDS <= 0 )); then
+  echo "stage0_deploy_via_ssm_bluegreen: timeout values must be positive integers" >&2
   exit 1
 fi
 
@@ -447,75 +453,38 @@ UNIT
   log "installed blue/green tokenkey.service restart policy"
 }
 
+render_caddy_with_upstream() {
+  local upstream="$1" tmp="$2"
+  sudo awk -v upstream="${upstream}" '
+    /^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\{[[:space:]]*$/ {
+      count += 1
+      if (count == 1) {
+        match($0, /[^[:space:]]/)
+        indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : ""
+        print indent "reverse_proxy " upstream " {"
+      } else {
+        print
+      }
+      next
+    }
+    { print }
+    END { if (count != 1) exit 7 }
+  ' "${LIVE_CADDY}" | sudo tee "${tmp}" >/dev/null
+}
+
 write_caddy_for_color() {
-  local color="$1" upstream tmp backup api_domain acme_email ts
+  local color="$1" upstream tmp backup ts
   upstream="$(color_container "${color}"):8080"
-  api_domain="$(env_get API_DOMAIN)"
-  acme_email="$(env_get ACME_EMAIL)"
-  [[ -n "${api_domain}" ]] || die "API_DOMAIN empty in ${ENV_FILE}"
-  [[ -n "${acme_email}" ]] || die "ACME_EMAIL empty in ${ENV_FILE}"
   [[ -f "${LIVE_CADDY}" ]] || die "missing live Caddyfile at ${LIVE_CADDY}"
 
   tmp="${CADDY_DIR}/Caddyfile.bluegreen-${color}.new"
   ts="$(date +%Y%m%d-%H%M%S)"
   backup="${CADDY_DIR}/Caddyfile.before-bluegreen-${color}-${ts}"
 
-  sudo tee "${tmp}" >/dev/null <<CADDY
-{
-	email ${acme_email}
-}
-
-${api_domain} {
-	encode zstd gzip
-
-	@static {
-		path /assets/*
-		path /logo.png
-		path /favicon.ico
-	}
-	header @static ?Cache-Control "public, max-age=31536000, immutable"
-
-	tls {
-		protocols tls1.2 tls1.3
-		issuer acme {
-			email ${acme_email}
-			disable_http_challenge
-		}
-	}
-
-	reverse_proxy ${upstream} {
-		flush_interval -1
-		health_uri /health
-		health_interval 5s
-		health_timeout 3s
-		fail_duration 5s
-		max_fails 1
-		unhealthy_status 502 504
-		lb_try_duration 30s
-		lb_try_interval 1s
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
-		header_up X-Forwarded-Host {host}
-		transport http {
-			dial_timeout 5s
-			keepalive 120s
-			keepalive_idle_conns 64
-			compression off
-		}
-	}
-
-	request_body {
-		max_size 100MB
-	}
-
-	log {
-		output stdout
-		format json
-		level INFO
-	}
-}
-CADDY
+  if ! render_caddy_with_upstream "${upstream}" "${tmp}"; then
+    sudo rm -f "${tmp}" >/dev/null 2>&1 || true
+    die "could not rewrite exactly one reverse_proxy upstream in ${LIVE_CADDY}"
+  fi
 
   sudo docker run --rm -v "${tmp}:/tmp/Caddyfile:ro" caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile
   sudo cp -a "${LIVE_CADDY}" "${backup}"
@@ -661,6 +630,7 @@ chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n"
 
 jq -n \
   --arg tag "${TAG}" \
+  --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
   --arg qa_driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
   --arg qa_region "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}" \
   --arg qa_bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}" \
@@ -692,7 +662,8 @@ jq -n \
       + " GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=" + ($image_overflow|@sh)
       + " /tmp/tokenkey-bluegreen-deploy.sh"
     )
-  ])
+  ]),
+  executionTimeout: [$execution_timeout]
 }' > "${params_file}"
 
 if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then

@@ -28,6 +28,7 @@ DANGEROUS = [
     ("DROP TABLE", re.compile(r"\bDROP\s+TABLE\b", re.I)),
     ("DROP COLUMN", re.compile(r"\bDROP\s+COLUMN\b", re.I)),
     ("ALTER TABLE RENAME", re.compile(r"\bALTER\s+TABLE\b[^;]*\bRENAME\b", re.I | re.S)),
+    ("ADD COLUMN NOT NULL", re.compile(r"\bADD\s+COLUMN\b[^;]*\bNOT\s+NULL\b", re.I | re.S)),
     ("RENAME COLUMN", re.compile(r"\bRENAME\s+COLUMN\b", re.I)),
     ("RENAME TO", re.compile(r"\bRENAME\s+TO\b", re.I)),
     ("SET NOT NULL", re.compile(r"\bSET\s+NOT\s+NULL\b", re.I)),
@@ -84,8 +85,7 @@ def strip_comments(sql: str) -> str:
     return sql
 
 
-def scan_file(path: Path) -> list[str]:
-    text = path.read_text(errors="replace")
+def scan_sql(text: str) -> list[str]:
     if ACK in text:
         return []
     body = strip_comments(text)
@@ -93,12 +93,62 @@ def scan_file(path: Path) -> list[str]:
     return hits
 
 
+def scan_file(path: Path) -> list[str]:
+    return scan_sql(path.read_text(errors="replace"))
+
+
+def selftest() -> int:
+    cases = [
+        (
+            "drop-column",
+            "ALTER TABLE accounts DROP COLUMN old_token;",
+            ["DROP COLUMN"],
+        ),
+        (
+            "add-column-not-null",
+            "ALTER TABLE users ADD COLUMN tier_id integer NOT NULL;",
+            ["ADD COLUMN NOT NULL"],
+        ),
+        (
+            "nullable-add-column",
+            "ALTER TABLE users ADD COLUMN tier_id integer;",
+            [],
+        ),
+        (
+            "comment-stripped",
+            "-- ALTER TABLE users ADD COLUMN tier_id integer NOT NULL;\nSELECT 1;",
+            [],
+        ),
+        (
+            "ack-bypasses-after-human-expand-contract-review",
+            f"-- {ACK}: expand column first, contract in later deploy\nALTER TABLE users ADD COLUMN tier_id integer NOT NULL;",
+            [],
+        ),
+    ]
+    failures: list[str] = []
+    for name, sql, expected in cases:
+        got = scan_sql(sql)
+        if got != expected:
+            failures.append(f"{name}: expected {expected}, got {got}")
+    if failures:
+        print("FAIL: bluegreen-migration-safety selftest")
+        for failure in failures:
+            print(f"  - {failure}")
+        return 1
+    print("ok: bluegreen-migration-safety selftest")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", default=os.environ.get("PREFLIGHT_BASE"))
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
 
     base, head = resolve_range(args.base, args.head)
     if not base:

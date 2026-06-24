@@ -76,6 +76,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         commands = params["commands"]
         joined = "\n".join(commands)
 
+        self.assertEqual(params.get("executionTimeout"), ["1200"])
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
         self.assertIn("QA_CAPTURE_EXPORT_STORAGE_BUCKET='tokenkey-prod-qa-exports-682751977094'", joined)
@@ -89,7 +90,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("TOKENKEY_IMAGE_BLUE", remote)
         self.assertIn("TOKENKEY_IMAGE_GREEN", remote)
         self.assertIn("write_caddy_for_color", remote)
-        self.assertIn("reverse_proxy ${upstream}", remote)
+        self.assertIn("render_caddy_with_upstream", remote)
+        self.assertIn("could not rewrite exactly one reverse_proxy upstream", remote)
         self.assertIn("wait_ready", remote)
         self.assertIn("http://localhost:8080/health", remote)
         self.assertIn("drain_container \"${active_container}\"", remote)
