@@ -199,17 +199,25 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - 产出 PR 时默认附带精简中文 `摘要`、`风险`、`验证`、`提交`；每次新增 commit 后先重写 PR body 再 push / review
 - 高风险原型阶段完成后必须暂停等待审批，不得自行进入功能实现阶段
 
-## 完成自检（提交前必做）
+## 完成自检与门禁
 
-每次任务完成、准备提交或汇报前，Agent 必须执行一致性自检。**优先用脚本，不依赖记忆**：
+每次任务完成或准备汇报时，Agent 必须给出与风险匹配的验证证据。普通进度汇报不触发全量 preflight；汇报已完成的测试、运行检查、人工自检和剩余风险即可。
 
-### 强制：运行 preflight 脚本（机械检查）
+准备 commit / push / PR 出口 / 部署 / 发布时，必须执行一致性自检。**优先用脚本，不依赖记忆**：
+
+### 强制门禁：运行 preflight 脚本（机械检查）
 
 ```bash
 ./scripts/preflight.sh   # 模板见 dev-rules/templates/preflight.sh
 ```
 
-任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
+以下场景必须有新鲜 preflight 结果：
+- 创建本地 commit 前（通常由 pre-commit hook 自动触发）。
+- push 分支、创建 PR，或在新增 commit 后继续 review 前。
+- 部署、发布、打 tag 或触发 release 流程前。
+- 高风险审批门禁、代码审查或人工明确要求时。
+
+任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交、推送、部署或发布**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
 
 其中新增红线由模板 preflight 机械化落地：
 - contract deletion notice：公共契约删除必须有显式 deletion notice。
