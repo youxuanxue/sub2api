@@ -400,7 +400,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// edge behind a stale error. Treat this as a transient downstream auth
 		// blip: fail over / let pool-mode retry absorb it, record a bounded
 		// saturation preference, and leave local stub health untouched.
-		if tkSkipDownstreamKiroOAuth401Penalty(account, statusCode, upstreamMsg, responseBody) {
+		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, statusCode, upstreamMsg, responseBody) {
 			slog.Info("anthropic_downstream_kiro_oauth_401_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
@@ -1100,6 +1100,18 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		return true
 	}
 	if account.Platform == PlatformAnthropic {
+		// TK (prod mirror boundary): a Kiro edge OAuth invalid-bearer 403 can be
+		// relayed to prod as an Anthropic API-key stub 403. Prod has no Kiro OAuth
+		// token to refresh; the edge owns #970-style force-refresh. Treat the relay
+		// stub as healthy and fail over without entering the generic Anthropic 403
+		// ladder / permanent-disable checks.
+		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, http.StatusForbidden, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_kiro_oauth_403_skip_penalty",
+				"account_id", account.ID,
+				"status_code", http.StatusForbidden)
+			s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "kiro_oauth_403")
+			return true
+		}
 		// TK (PR #691 cc-only canary prep): a relayed canonical-ingress strict 403
 		// from a downstream strict-mode edge is the end client's identity problem,
 		// not stub health — fail over to the next stub without advancing the 3/3
