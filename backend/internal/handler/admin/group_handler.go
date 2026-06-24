@@ -2,8 +2,10 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +26,8 @@ import (
 // list refreshes (search/sort/paginate). "Today" totals being up to 30s stale
 // is fine for a dashboard summary. Mirrors the dashboard_query_cache pattern.
 var groupUsageSummaryCache = newSnapshotCache(30 * time.Second)
+
+const groupUsageSummaryRefreshTimeout = 10 * time.Second
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
@@ -445,6 +449,12 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 
 	// Cache by the local day boundary (the only input that affects the result).
 	cacheKey := todayStart.UTC().Format(time.RFC3339)
+	if entry, ok := groupUsageSummaryCache.GetStale(cacheKey); ok && time.Now().After(entry.ExpiresAt) {
+		h.refreshGroupUsageSummaryInBackground(cacheKey, todayStart)
+		h.writeGroupUsageSummary(c, entry)
+		return
+	}
+
 	entry, _, err := groupUsageSummaryCache.GetOrLoad(cacheKey, func() (any, error) {
 		return h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
 	})
@@ -452,6 +462,22 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 		response.Error(c, 500, "Failed to get group usage summary")
 		return
 	}
+	h.writeGroupUsageSummary(c, entry)
+}
+
+func (h *GroupHandler) refreshGroupUsageSummaryInBackground(cacheKey string, todayStart time.Time) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), groupUsageSummaryRefreshTimeout)
+		defer cancel()
+		if err := groupUsageSummaryCache.Refresh(cacheKey, func() (any, error) {
+			return h.dashboardService.GetGroupUsageSummary(ctx, todayStart)
+		}); err != nil {
+			slog.Warn("admin groups usage summary background refresh failed", "err", err)
+		}
+	}()
+}
+
+func (h *GroupHandler) writeGroupUsageSummary(c *gin.Context, entry snapshotCacheEntry) {
 	results, err := snapshotPayloadAs[[]usagestats.GroupUsageSummary](entry.Payload)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group usage summary")

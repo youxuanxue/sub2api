@@ -727,6 +727,28 @@ func TestUsageLogRepositoryGetStatsWithFiltersCanSkipSummary(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageLogRepositoryGetStatsWithFiltersCanLoadSingleEndpointSource(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	filters := usagestats.UsageLogFilters{
+		SkipSummary:         true,
+		EndpointStatsSource: usagestats.EndpointSourceUpstream,
+	}
+
+	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(upstream_endpoint\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}).
+			AddRow("https://upstream.example/v1/messages", int64(2), int64(30), 0.2, 0.1))
+
+	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
+	require.NoError(t, err)
+	require.Empty(t, stats.Endpoints)
+	require.Len(t, stats.UpstreamEndpoints, 1)
+	require.Equal(t, "https://upstream.example/v1/messages", stats.UpstreamEndpoints[0].Endpoint)
+	require.Empty(t, stats.EndpointPaths)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUsageLogRepositoryGetStatsWithFiltersUsesHourlyRollupForUnfilteredSummary(t *testing.T) {
 	require.NoError(t, timezone.Init("UTC"))
 

@@ -3527,7 +3527,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	}
 	// endpoint 明细:best-effort(失败 log + 返空),不致命。
 	runEndpoints := func(c context.Context) {
-		if filters.SkipEndpointStats {
+		if filters.SkipEndpointStats || !shouldLoadEndpointStatsSource(filters.EndpointStatsSource, usagestats.EndpointSourceInbound) {
 			endpoints = []EndpointStat{}
 			return
 		}
@@ -3541,7 +3541,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		endpoints = res
 	}
 	runUpstream := func(c context.Context) {
-		if filters.SkipEndpointStats {
+		if filters.SkipEndpointStats || !shouldLoadEndpointStatsSource(filters.EndpointStatsSource, usagestats.EndpointSourceUpstream) {
 			upstreamEndpoints = []EndpointStat{}
 			return
 		}
@@ -3555,7 +3555,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		upstreamEndpoints = res
 	}
 	runPaths := func(c context.Context) {
-		if filters.SkipEndpointStats {
+		if filters.SkipEndpointStats || !shouldLoadEndpointStatsSource(filters.EndpointStatsSource, usagestats.EndpointSourcePath) {
 			endpointPaths = []EndpointStat{}
 			return
 		}
@@ -3596,6 +3596,10 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	stats.EndpointPaths = endpointPaths
 
 	return stats, nil
+}
+
+func shouldLoadEndpointStatsSource(source, desired string) bool {
+	return source == "" || source == desired
 }
 
 // AccountUsageHistory represents daily usage history for an account

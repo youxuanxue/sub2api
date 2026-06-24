@@ -33,4 +33,8 @@ func TestUsageStatsCacheKey_StableAndDistinct(t *testing.T) {
 	withoutSummary := base
 	withoutSummary.SkipSummary = true
 	require.NotEqual(t, k1, usageStatsCacheKey(withoutSummary), "summary toggle must change key")
+
+	inboundOnly := base
+	inboundOnly.EndpointStatsSource = usagestats.EndpointSourceInbound
+	require.NotEqual(t, k1, usageStatsCacheKey(inboundOnly), "endpoint stats source must change key")
 }
