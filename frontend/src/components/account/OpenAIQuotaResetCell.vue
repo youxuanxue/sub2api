@@ -43,7 +43,7 @@
         class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-orange-600 transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-orange-400 dark:hover:bg-orange-900/30"
         :disabled="resetting || loading || !canReset"
         :title="resetButtonTitle"
-        @click="handleReset"
+        @click="openResetConfirm"
       >
         <svg
           class="h-2.5 w-2.5"
@@ -120,6 +120,17 @@
         />
       </div>
     </div>
+
+    <ConfirmDialog
+      :show="showResetConfirm"
+      :title="t('admin.accounts.openaiQuotaReset.confirmTitle')"
+      :message="t('admin.accounts.openaiQuotaReset.confirmMessage', { count: availableResetCount })"
+      :confirm-text="t('admin.accounts.openaiQuotaReset.reset')"
+      :cancel-text="t('common.cancel')"
+      danger
+      @confirm="confirmReset"
+      @cancel="showResetConfirm = false"
+    />
   </div>
 </template>
 
@@ -135,6 +146,7 @@ import {
 } from '@/api/admin/accounts'
 import UsageProgressBar from './UsageProgressBar.vue'
 import { normalizeCodexAdditionalLimits } from '@/constants/codexRateLimitWindows.tk'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const props = defineProps<{
   account: Account
@@ -150,6 +162,7 @@ const resetting = ref(false)
 const error = ref<string | null>(null)
 const data = ref<OpenAIQuotaUsage | null>(null)
 const resetMessage = ref<string | null>(null)
+const showResetConfirm = ref(false)
 
 const availableResetCount = computed(() => data.value?.rate_limit_reset_credits?.available_count ?? 0)
 const canReset = computed(() => availableResetCount.value > 0)
@@ -214,7 +227,17 @@ const handleQuery = async () => {
   }
 }
 
-const handleReset = async () => {
+const openResetConfirm = () => {
+  if (resetting.value || loading.value) return
+  if (!canReset.value) {
+    error.value = t('admin.accounts.openaiQuotaReset.noCreditsAvailable')
+    return
+  }
+  showResetConfirm.value = true
+}
+
+const confirmReset = async () => {
+  showResetConfirm.value = false
   if (resetting.value) return
   if (!canReset.value) {
     error.value = t('admin.accounts.openaiQuotaReset.noCreditsAvailable')
@@ -248,6 +271,7 @@ watch(
     resetMessage.value = null
     loading.value = false
     resetting.value = false
+    showResetConfirm.value = false
   }
 )
 </script>
