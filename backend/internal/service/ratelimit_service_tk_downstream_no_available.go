@@ -115,10 +115,12 @@ func tkIsKiroMirrorStub(account *Account) bool {
 // permanently SetError'ing the prod stub would strand a healthy edge behind a
 // stale mirror error.
 //
-// Scope is intentionally narrow: only Kiro mirror stubs, only 401/403, and only
-// the TokenKey downstream wrapper / Kiro Invalid bearer shape. Real Anthropic
-// api-key 401s, generic Anthropic 403s, and other mirror platforms keep the
-// existing hard-disable / ladder behaviour.
+// Scope is intentionally narrow: only Kiro mirror stubs and only the TokenKey
+// downstream wrapper / Kiro Invalid bearer shape. 401 keeps the existing wrapper
+// compatibility; 403 mirrors the edge-local #970 force-refresh predicate and
+// requires the invalid-bearer signal. Real Anthropic api-key 401s, generic
+// Anthropic 403s, and other mirror platforms keep the existing hard-disable /
+// ladder behaviour.
 func tkSkipDownstreamKiroOAuthAuthRejectPenalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
 	if (statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden) || !tkIsKiroMirrorStub(account) {
 		return false
@@ -127,6 +129,9 @@ func tkSkipDownstreamKiroOAuthAuthRejectPenalty(account *Account, statusCode int
 	body := strings.ToLower(string(responseBody))
 	if strings.Contains(msg, "invalid bearer token") || strings.Contains(body, "invalid bearer token") {
 		return true
+	}
+	if statusCode == http.StatusForbidden {
+		return false
 	}
 	if strings.Contains(msg, "upstream request failed") || strings.Contains(body, "upstream request failed") {
 		return true

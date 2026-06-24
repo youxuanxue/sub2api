@@ -319,13 +319,14 @@
         "func tkIsKiroMirrorStub(account *Account) bool",
         "func tkSkipDownstreamKiroOAuthAuthRejectPenalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool",
         "statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden",
+        "if statusCode == http.StatusForbidden {",
         "all available accounts exhausted",
         "ErrNoAvailableAccounts.Error()",
         "mirror_platform",
         "invalid bearer token",
         "upstream request failed"
       ],
-      "rationale": "Downstream capacity-signal skips for prod→edge mirror stubs. 'no available accounts' (429/503, empty downstream pool) and 'all available accounts exhausted' (G2 narrow, 429/5xx, downstream failover loop ran dry) are both TokenKey-generated downstream-capacity strings the real provider APIs never emit; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Both skips match ONLY these TokenKey phrases, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. G5 Kiro mirror OAuth auth rejection: a prod Anthropic API-key mirror stub whose credentials.mirror_platform=kiro may receive the edge Kiro OAuth account's 401/403 invalid-bearer wrapper, but prod has no OAuth identity to refresh and must not SetError or ladder-cool the relay stub after edge self-heals. Dropping the Kiro mirror predicate or auth-reject helper silently reintroduces stale prod stub errors after a successful edge force-refresh. Widening the match beyond Kiro mirror stubs would weaken real Anthropic API-key 401 protection and generic Anthropic 403 route-away handling. Prod incidents 2026-05-31 / 2026-06 were both this misattribution class: downstream edge state punished as prod stub health."
+      "rationale": "Downstream capacity-signal skips for prod→edge mirror stubs. 'no available accounts' (429/503, empty downstream pool) and 'all available accounts exhausted' (G2 narrow, 429/5xx, downstream failover loop ran dry) are both TokenKey-generated downstream-capacity strings the real provider APIs never emit; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Both skips match ONLY these TokenKey phrases, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. G5 Kiro mirror OAuth auth rejection: a prod Anthropic API-key mirror stub whose credentials.mirror_platform=kiro may receive the edge Kiro OAuth account's 401/403 invalid-bearer wrapper, but prod has no OAuth identity to refresh and must not SetError or ladder-cool the relay stub after edge self-heals. 401 keeps the existing TokenKey wrapper compatibility; 403 must require the invalid-bearer signal to mirror #970 and must not skip a generic upstream_request_failed wrapper. Dropping the Kiro mirror predicate or auth-reject helper silently reintroduces stale prod stub errors after a successful edge force-refresh. Widening the match beyond Kiro mirror stubs would weaken real Anthropic API-key 401 protection and generic Anthropic 403 route-away handling. Prod incidents 2026-05-31 / 2026-06 were both this misattribution class: downstream edge state punished as prod stub health."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -345,10 +346,11 @@
         "TestTkSkipDownstreamKiroOAuthAuthRejectPenalty",
         "TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth401_DoesNotSetError",
         "TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError",
+        "TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_StillCounts",
         "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError",
         "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_StillCounts"
       ],
-      "rationale": "Focused regressions proving the G5 boundary: Kiro mirror-stub 401/403 invalid-bearer wrappers are skipped without SetError or ladder cooldown, but a plain Anthropic API-key 401 still permanently disables and a plain Anthropic API-key 403 still enters the upstream-error ladder. Dropping these tests lets an upstream merge silently widen or remove the auth-reject carve-out."
+      "rationale": "Focused regressions proving the G5 boundary: Kiro mirror-stub 401/403 invalid-bearer wrappers are skipped without SetError or ladder cooldown, but a generic Kiro mirror 403 wrapper still enters the upstream-error ladder, a plain Anthropic API-key 401 still permanently disables, and a plain Anthropic API-key 403 still enters the ladder. Dropping these tests lets an upstream merge silently widen or remove the auth-reject carve-out."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_request_too_large_test.go",
