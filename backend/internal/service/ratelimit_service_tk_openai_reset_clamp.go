@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// defaultOpenAIMaxRateLimitCooldownSeconds is the DEFAULT-ON ceiling (1h) applied
+// defaultOpenAIMaxRateLimitCooldownSeconds is the DEFAULT-ON ceiling (5h) applied
 // to OpenAI-compat (OpenAI + NewAPI) window-exhaustion 429 cooldowns when the
 // operator has not configured SettingKeyOpenAIMaxRateLimitCooldownSeconds. An
 // explicit "0" disables clamping (trust the upstream reset verbatim). Kept in
 // lockstep with defaultAnthropicMaxRateLimitCooldownSeconds.
-const defaultOpenAIMaxRateLimitCooldownSeconds = 3600
+const defaultOpenAIMaxRateLimitCooldownSeconds = 18000
 
 // OpenAIMaxRateLimitCooldownSeconds returns the ceiling (seconds) for how long an
 // OpenAI-compat account may stay rate-limited from a single upstream window 429
@@ -56,7 +56,7 @@ func (s *SettingService) OpenAIMaxRateLimitCooldownSeconds(ctx context.Context) 
 // accounts" / 503 despite spare capacity. Clamping lets the account re-enter the
 // pool after the ceiling so live traffic re-probes it (a fresh 429 re-cools it).
 // This is "traffic as the probe" — no separate background prober, no extra
-// upstream cost. Default-on (ceiling 1h) for parity with the Anthropic clamp;
+// upstream cost. Default-on (ceiling 5h) for parity with the Anthropic clamp;
 // set the ceiling to 0 to disable and trust the upstream reset verbatim.
 func (s *RateLimitService) tkClampOpenAIRateLimitReset(ctx context.Context, accountID int64, resetAt time.Time) time.Time {
 	if s == nil || s.settingService == nil {

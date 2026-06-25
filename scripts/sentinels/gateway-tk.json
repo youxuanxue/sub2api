@@ -1443,18 +1443,18 @@
       "must_contain": [
         "func (s *RateLimitService) tkClampOpenAIRateLimitReset",
         "SettingKeyOpenAIMaxRateLimitCooldownSeconds",
-        "defaultOpenAIMaxRateLimitCooldownSeconds = 3600"
+        "defaultOpenAIMaxRateLimitCooldownSeconds = 18000"
       ],
-      "rationale": "TK#1981: default-ON (ceiling 1h, flipped for parity with the Anthropic clamp) clamp of long OpenAI/NewAPI window-exhaustion 429 reset windows. Guards the capability — and its default-on ceiling — against silent upstream-merge deletion or a default flip back to OFF."
+      "rationale": "TK#1981: default-ON (ceiling 5h, flipped for parity with the Anthropic clamp) clamp of long OpenAI/NewAPI window-exhaustion 429 reset windows. Guards the capability — and its default-on ceiling — against silent upstream-merge deletion or a default flip back to OFF."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_reset_clamp.go",
       "must_contain": [
         "func (s *RateLimitService) tkClampAnthropicWindowReset",
         "SettingKeyAnthropicMaxRateLimitCooldownSeconds",
-        "defaultAnthropicMaxRateLimitCooldownSeconds = 3600"
+        "defaultAnthropicMaxRateLimitCooldownSeconds = 18000"
       ],
-      "rationale": "TK (sibling of #1981, default-ON ceiling 1h): clamp of long Anthropic unified 5h/7d 429 reset windows. Anthropic's 7d window is rolling, so the upstream reset (a conservative weekly boundary) far outlives the account's actual recovery; without the clamp a recovered account is benched for days (prod 2026-06 edge-us6 oh-3-a). Guards the capability — and its default-on ceiling — against silent upstream-merge deletion or a default flip back to OFF."
+      "rationale": "TK (sibling of #1981, default-ON ceiling 5h): clamp of long Anthropic unified 5h/7d 429 reset windows. Anthropic's 7d window is rolling, so the upstream reset (a conservative weekly boundary) far outlives the account's actual recovery; without the clamp a recovered account is benched for days (prod 2026-06 edge-us6 oh-3-a). Guards the capability — and its default-on ceiling — against silent upstream-merge deletion or a default flip back to OFF."
     },
     {
       "path": "backend/internal/service/openai_gateway_tk_failover_encrypted_reasoning.go",

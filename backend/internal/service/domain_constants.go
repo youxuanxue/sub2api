@@ -171,9 +171,9 @@ const (
 
 	// SettingKeyOpenAIMaxRateLimitCooldownSeconds caps how long an OpenAI-compat
 	// (OpenAI + NewAPI) account may stay rate-limited from a single upstream
-	// window-exhaustion 429 reset. DEFAULT-ON (ceiling 3600s), in lockstep with
+	// window-exhaustion 429 reset. DEFAULT-ON (ceiling 18000s / 5h), in lockstep with
 	// SettingKeyAnthropicMaxRateLimitCooldownSeconds: unset / blank / non-numeric
-	// / negative → 3600; an explicit "0" disables it (trust the upstream reset
+	// / negative → 18000; an explicit "0" disables it (trust the upstream reset
 	// verbatim). An upstream reset farther out than the ceiling (e.g. a 7-day
 	// window-exhaustion reset) is clamped to now+ceiling so the account re-enters
 	// the pool and is re-probed by natural request traffic instead of sitting idle
@@ -186,7 +186,7 @@ const (
 	// account may stay rate-limited from a single upstream unified-window (5h/7d)
 	// 429 reset. Unlike its OpenAI twin this is DEFAULT-ON: when unset / blank /
 	// non-numeric / negative it falls back to defaultAnthropicMaxRateLimitCooldownSeconds
-	// (3600s). An explicit "0" disables it (trust the upstream reset verbatim).
+	// (18000s / 5h). An explicit "0" disables it (trust the upstream reset verbatim).
 	//
 	// Rationale (prod 2026-06, edge-us6 account oh-3-a): Anthropic's unified 7d
 	// window is rolling — utilization that was >=1.0 at the moment of the 429
