@@ -2238,6 +2238,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		imageCounter.AddSSEData(message)
 
 		if eventType == "response.failed" {
+			failedMessage := extractOpenAISSEErrorMessage(message)
 			if hit, code, msg := detectOpenAICyberPolicy(message); hit {
 				MarkOpsCyberPolicy(c, CyberPolicyMark{
 					Code:           code,
@@ -2247,6 +2248,18 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 					UpstreamInTok:  usage.InputTokens,
 					UpstreamOutTok: usage.OutputTokens,
 				})
+			} else if firstTokenMs == nil && openAIStreamFailedEventShouldFailover(message, failedMessage) {
+				lease.MarkBroken()
+				parseOpenAIWSResponseUsageFromCompletedEvent(message, usage)
+				logOpenAIStreamFailedEvent(ctx, c, account, strings.TrimSpace(lease.HandshakeHeaders().Get("x-request-id")), message, failedMessage, false, false)
+				return nil, s.newOpenAIStreamFailoverError(
+					c,
+					account,
+					false,
+					strings.TrimSpace(lease.HandshakeHeaders().Get("x-request-id")),
+					message,
+					failedMessage,
+				)
 			}
 		}
 
@@ -3225,6 +3238,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			imageCounter.AddSSEData(upstreamMessage)
 
 			if eventType == "response.failed" {
+				failedMessage := extractOpenAISSEErrorMessage(upstreamMessage)
 				if hit, code, msg := detectOpenAICyberPolicy(upstreamMessage); hit {
 					MarkOpsCyberPolicy(c, CyberPolicyMark{
 						Code:           code,
@@ -3234,6 +3248,17 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 						UpstreamInTok:  usage.InputTokens,
 						UpstreamOutTok: usage.OutputTokens,
 					})
+				} else if firstTokenMs == nil && openAIStreamFailedEventShouldFailover(upstreamMessage, failedMessage) {
+					lease.MarkBroken()
+					logOpenAIStreamFailedEvent(ctx, c, account, strings.TrimSpace(lease.HandshakeHeaders().Get("x-request-id")), upstreamMessage, failedMessage, false, false)
+					return nil, s.newOpenAIStreamFailoverError(
+						c,
+						account,
+						false,
+						strings.TrimSpace(lease.HandshakeHeaders().Get("x-request-id")),
+						upstreamMessage,
+						failedMessage,
+					)
 				}
 			}
 
