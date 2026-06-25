@@ -42,8 +42,9 @@ const (
 	// OpenAI Platform API for API Key accounts (fallback)
 	openaiPlatformAPIURL   = "https://api.openai.com/v1/responses"
 	openaiStickySessionTTL = time.Hour // 粘性会话TTL
-	// 与真实本机 Codex CLI 0.142.0 / chatgpt.com backend capture 对齐。
-	codexCLIUserAgent = "codex-tui/0.142.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.0)"
+	// ForceCodexCLI 硬覆盖与 settingService 缺省时的兜底 UA，与后台默认值共用同一份字面量，
+	// 避免 Codex 版本升级时两处手工同步漂移（见 DefaultOpenAICodexUserAgent）。
+	codexCLIUserAgent = DefaultOpenAICodexUserAgent
 	// codex_cli_only 拒绝时单个请求头日志长度上限（字符）
 	codexCLIOnlyHeaderValueMaxBytes = 256
 
