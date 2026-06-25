@@ -426,12 +426,14 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 
 	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", requestID)
 	if err != nil {
+		if result, failoverErr := s.openAICompatBufferedReadErrResult(c, account, requestID, acc, openAICompatBufferedRouteChat, err); failoverErr != nil {
+			return result, failoverErr
+		}
 		return nil, err
 	}
 
 	if finalResponse == nil {
-		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
-		return nil, fmt.Errorf("upstream stream ended without terminal event")
+		return s.openAICompatBufferedMissingTerminalResult(c, account, requestID, acc, openAICompatBufferedRouteChat)
 	}
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
 		payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
