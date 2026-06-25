@@ -452,7 +452,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
 			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
 		}
-		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, openAICompatFailedResponseMessage(finalResponse))
+		return s.openAICompatBufferedFailedResponseResult(c, account, requestID, finalResponse, openAICompatBufferedRouteChat)
 	}
 
 	// When the terminal event has an empty output array, reconstruct from
