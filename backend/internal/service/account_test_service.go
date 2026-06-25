@@ -71,6 +71,7 @@ type AccountTestService struct {
 	claudeTokenProvider       *ClaudeTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
 	kiroGatewayService        *KiroGatewayService
+	rateLimitService          *RateLimitService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
@@ -83,6 +84,7 @@ func NewAccountTestService(
 	claudeTokenProvider *ClaudeTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
 	kiroGatewayService *KiroGatewayService,
+	rateLimitService *RateLimitService,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
@@ -93,6 +95,7 @@ func NewAccountTestService(
 		claudeTokenProvider:       claudeTokenProvider,
 		antigravityGatewayService: antigravityGatewayService,
 		kiroGatewayService:        kiroGatewayService,
+		rateLimitService:          rateLimitService,
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
@@ -301,6 +304,9 @@ func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *
 		}
 		var failoverErr *UpstreamFailoverError
 		if errors.As(err, &failoverErr) {
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody, parsed.Model)
+			}
 			body := strings.TrimSpace(string(failoverErr.ResponseBody))
 			if body == "" {
 				body = failoverErr.Error()

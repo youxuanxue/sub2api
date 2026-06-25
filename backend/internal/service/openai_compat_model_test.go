@@ -970,7 +970,7 @@ func TestForwardAsAnthropic_ReusesOAuthCodexTurnState(t *testing.T) {
 	require.NotNil(t, firstResult)
 	require.Empty(t, upstream.requests[0].Header.Get("x-codex-turn-state"))
 	require.Empty(t, upstream.requests[0].Header.Get("OpenAI-Beta"))
-	require.Empty(t, upstream.requests[0].Header.Get("originator"))
+	require.Equal(t, "codex_cli_rs", upstream.requests[0].Header.Get("originator"))
 
 	secondBody := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":false}`)
 	secondRec := httptest.NewRecorder()
@@ -985,7 +985,7 @@ func TestForwardAsAnthropic_ReusesOAuthCodexTurnState(t *testing.T) {
 	require.Equal(t, generateSessionUUID(isolateOpenAISessionID(0, "stable-cache-key")), upstream.requests[1].Header.Get("session_id"))
 	require.Empty(t, upstream.requests[1].Header.Get("conversation_id"))
 	require.Empty(t, upstream.requests[1].Header.Get("OpenAI-Beta"))
-	require.Empty(t, upstream.requests[1].Header.Get("originator"))
+	require.Equal(t, "codex_cli_rs", upstream.requests[1].Header.Get("originator"))
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
 	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached on turn 2.
 	require.Equal(t, "resp_oauth_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
@@ -1201,7 +1201,7 @@ func TestForwardAsAnthropic_OAuthKeepsSystemAsDeveloperInput(t *testing.T) {
 	require.True(t, instructions.Exists())
 	require.Empty(t, instructions.String())
 	require.Empty(t, upstream.requests[0].Header.Get("OpenAI-Beta"))
-	require.Empty(t, upstream.requests[0].Header.Get("originator"))
+	require.Equal(t, "codex_cli_rs", upstream.requests[0].Header.Get("originator"))
 }
 
 func TestForwardAsAnthropic_OAuthAddsClaudeCodeTodoGuardForCompatModel(t *testing.T) {

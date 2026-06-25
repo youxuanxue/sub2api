@@ -298,6 +298,40 @@
       "rationale": "English i18n strings for the kiro account form (labels, ToS copy, validation messages). Losing them surfaces raw i18n keys in the UI."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_kiro_quota402.go",
+      "must_contain": [
+        "tkIsKiroQuotaLimit402",
+        "tkHandleKiroQuotaLimit402",
+        "tkKiroQuotaLimitIncidentReason",
+        "reached the limit"
+      ],
+      "rationale": "Kiro OAuth subscription quota exhaustion surfaces as HTTP 402 + 'You have reached the limit.' (prod 2026-06-25 edge-us4 account 9). This companion maps that verdict to reason kiro_quota_limit + SetError stop-scheduling + immediate Feishu P0. Without it, operators either get a mislabeled auth_error card or no alert when reproducing via admin account-test."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "rateLimitService          *RateLimitService",
+        "s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode"
+      ],
+      "rationale": "Admin Kiro account-test must call HandleUpstreamError on UpstreamFailoverError, matching gateway_service.go's kiro Forward branch. Otherwise a 402 quota hit visible in the test UI never reaches the Feishu incident funnel."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_kiro_quota402_test.go",
+      "must_contain": [
+        "TestTkHandleKiroQuotaLimit402_DisablesAccountAndAlerts",
+        "TestHandleUpstreamError_Kiro402ReachedLimitUsesDedicatedReason",
+        "TestClassifyIncident_KiroQuotaLimit_IsImmediateP0"
+      ],
+      "rationale": "Regression guard for the Kiro 402 reached-the-limit matcher, HandleUpstreamError integration, and classifyIncident permanent P0 mapping."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_kiro_quota402_test.go",
+      "must_contain": [
+        "TestAccountTestService_Kiro402ReachedLimitTriggersIncidentAlert"
+      ],
+      "rationale": "Regression guard that admin Kiro account-test forwards UpstreamFailoverError into HandleUpstreamError so a reproduced 402 quota hit triggers the Feishu incident funnel."
+    },
+    {
       "path": "frontend/src/i18n/locales/zh.ts",
       "must_contain": [
         "kiroPlatform"

@@ -194,7 +194,81 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 	require.NotEmpty(t, upstream.lastReq.Header.Get("Session_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("Conversation_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
-	require.Empty(t, upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+}
+
+func TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		path           string
+		body           []byte
+		userAgent      string
+		wantOriginator string
+	}{
+		{
+			name:           "responses python requests",
+			path:           "/v1/responses",
+			body:           []byte(`{"model":"gpt-5.5","stream":true,"instructions":"local-test-instructions","input":[{"type":"input_text","text":"hi"}]}`),
+			userAgent:      "python-requests/2.33.1",
+			wantOriginator: "codex_cli_rs",
+		},
+		{
+			name:           "chat completions python urllib",
+			path:           "/v1/chat/completions",
+			body:           []byte(`{"model":"gpt-5.5","stream":true,"messages":[{"role":"user","content":"hi"}]}`),
+			userAgent:      "Python-urllib/3.13",
+			wantOriginator: "codex_cli_rs",
+		},
+		{
+			name:           "messages claude cli",
+			path:           "/v1/messages",
+			body:           []byte(`{"model":"claude-opus-4-7","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`),
+			userAgent:      "claude-cli/2.1.179 (external, sdk-cli)",
+			wantOriginator: "codex_cli_rs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(tt.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Header.Set("User-Agent", tt.userAgent)
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-normalize"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:          &config.Config{},
+				httpUpstream: upstream,
+			}
+			account := &Account{
+				ID:          123,
+				Name:        "acc",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"access_token":       "oauth-token",
+					"chatgpt_account_id": "chatgpt-acc",
+				},
+				Status:      StatusActive,
+				Schedulable: true,
+			}
+
+			_, err := svc.Forward(context.Background(), c, account, tt.body)
+			require.Error(t, err)
+			require.NotNil(t, upstream.lastReq)
+			require.Equal(t, DefaultOpenAICodexUserAgent, upstream.lastReq.Header.Get("User-Agent"))
+			require.Equal(t, tt.wantOriginator, upstream.lastReq.Header.Get("originator"))
+			require.NotEqual(t, tt.userAgent, upstream.lastReq.Header.Get("User-Agent"))
+		})
+	}
 }
 
 type openAIPassthroughFailoverRepo struct {

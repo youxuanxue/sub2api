@@ -281,10 +281,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.IsOpenAIOAuth() {
 		// Anthropic Messages compatibility uses the ChatGPT Codex SSE endpoint.
 		// Match airgate-openai's request shape: the SSE endpoint does not need
-		// the Responses experimental beta header, and forcing originator can make
-		// ChatGPT select a different internal continuation path.
+		// the Responses experimental beta header. Keep originator so ChatGPT
+		// classifies the request under the official Codex surface instead of
+		// Uncategorized.
 		upstreamReq.Header.Del("OpenAI-Beta")
-		upstreamReq.Header.Del("originator")
 	}
 	if account.IsOpenAIOAuth() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
 		upstreamReq.Header.Del("conversation_id")
