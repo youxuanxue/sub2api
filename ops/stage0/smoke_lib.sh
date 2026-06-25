@@ -96,6 +96,20 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
     return 0
   }
 
+  # smoke_assert_openai_oauth_model_listed_or_warn — same universal-key topology as
+  # anthropic: OpenAI OAuth accounts may use empty model_mapping passthrough to
+  # upstream model ids. GET /v1/models omits those ids; /v1/chat/completions
+  # (openai oauth) is the canonical probe.
+  smoke_assert_openai_oauth_model_listed_or_warn() {
+    local models_file="$1"
+    local model="$2"
+    if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "::warning::tk_post_deploy_smoke: openai_oauth model '${model}' missing from /v1/models for universal smoke key — expected when prod OpenAI OAuth uses empty model_mapping passthrough; deferring to /v1/chat/completions (openai oauth) probe" >&2
+    return 0
+  }
+
   # soft_degrade_or_exit — see post_deploy_smoke.sh header for contract.
   soft_degrade_or_exit() {
     local label="$1" http="$2" resp_file="$3"

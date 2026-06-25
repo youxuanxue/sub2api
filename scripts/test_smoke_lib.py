@@ -51,6 +51,30 @@ class SmokeLibAnthropicModelListTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stderr, "")
 
+    def test_openai_oauth_warns_when_missing_from_universal_model_list(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"object": "list", "data": [{"id": "gemini-2.5-flash"}]}, fh)
+            models_path = Path(fh.name)
+
+        proc = _run_helper(
+            "smoke_assert_openai_oauth_model_listed_or_warn", models_path, "gpt-5.4"
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("::warning::", proc.stderr)
+        self.assertIn("empty model_mapping passthrough", proc.stderr)
+        self.assertNotIn("::error::", proc.stderr)
+
+    def test_openai_oauth_passes_when_listed(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"object": "list", "data": [{"id": "gpt-5.4"}]}, fh)
+            models_path = Path(fh.name)
+
+        proc = _run_helper(
+            "smoke_assert_openai_oauth_model_listed_or_warn", models_path, "gpt-5.4"
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "")
+
     def test_strict_assert_fails_when_missing(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
             json.dump({"object": "list", "data": [{"id": "gemini-2.5-flash"}]}, fh)

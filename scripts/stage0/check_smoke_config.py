@@ -3,7 +3,10 @@
 
 Checks TK_SMOKE_ANTHROPIC_MODELS, TK_SMOKE_GEMINI_MODELS, and
 TK_SMOKE_OPENAI_OAUTH_MODELS against the single TK_SMOKE_API_KEY /v1/models
-view. A configured model missing from the key's model list is config drift.
+view. Gemini models must appear in the list. Anthropic and OpenAI OAuth may
+use empty model_mapping passthrough on prod (ids absent from /v1/models); those
+are warnings only — post_deploy_smoke defers to /v1/messages and openai oauth
+chat probes respectively.
 """
 from __future__ import annotations
 
@@ -23,6 +26,10 @@ from scripts.stage0.smoke_env import (
     openai_oauth_models,
     smoke_api_key,
 )
+
+# Platforms whose prod accounts may passthrough upstream model ids with empty
+# model_mapping — same defer semantics as ops/stage0/smoke_lib.sh warn helpers.
+_DEFER_MODEL_LIST_LABELS = frozenset({"anthropic", "openai_oauth"})
 
 
 def _fetch_models(base: str, api_key: str) -> list[dict] | None:
@@ -49,6 +56,13 @@ def _check_models(label: str, available_ids: set[str], configured: list[str]) ->
     for model in configured:
         if model in available_ids:
             print(f"check_smoke_config[{label}]: OK model={model}")
+            continue
+        if label in _DEFER_MODEL_LIST_LABELS:
+            print(
+                f"::warning::check_smoke_config[{label}]: configured model {model!r} "
+                "not listed — empty model_mapping passthrough; defer to smoke probe",
+                file=sys.stderr,
+            )
             continue
         print(f"::error::check_smoke_config[{label}]: configured model {model!r} not listed", file=sys.stderr)
         rc = 1
