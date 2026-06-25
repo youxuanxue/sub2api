@@ -18,10 +18,10 @@ const defaultAnthropicMaxRateLimitCooldownSeconds = 18000
 // an Anthropic account may stay rate-limited from a single upstream unified-window
 // 429 reset.
 //
-// Unlike its OpenAI twin (OpenAIMaxRateLimitCooldownSeconds, default-off), this is
-// DEFAULT-ON: an unset / blank / non-numeric / negative value falls back to
-// defaultAnthropicMaxRateLimitCooldownSeconds. Only an explicit, non-negative
-// integer overrides it; "0" disables clamping.
+// Unlike its OpenAI twin (OpenAIMaxRateLimitCooldownSeconds), this is DEFAULT-ON
+// with the same default ceiling (18000s / 5h): an unset / blank / non-numeric /
+// negative value falls back to defaultAnthropicMaxRateLimitCooldownSeconds. Only
+// an explicit, non-negative integer overrides it; "0" disables clamping.
 //
 // TK (sibling of upstream Wei-Shaw/sub2api#1981; see
 // ratelimit_service_tk_anthropic_reset_clamp.go package doc).
