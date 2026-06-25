@@ -151,7 +151,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 
 	var req CreateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -203,7 +203,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 
 	var req UpdateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 

@@ -80,7 +80,7 @@ func (h *ContentModerationHandler) GetConfig(c *gin.Context) {
 func (h *ContentModerationHandler) UpdateConfig(c *gin.Context) {
 	var req contentModerationConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	cfg, err := h.service.UpdateConfig(c.Request.Context(), service.UpdateContentModerationConfigInput{
@@ -126,7 +126,7 @@ func (h *ContentModerationHandler) UpdateConfig(c *gin.Context) {
 func (h *ContentModerationHandler) TestAPIKeys(c *gin.Context) {
 	var req contentModerationAPIKeyTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	result, err := h.service.TestAPIKeys(c.Request.Context(), service.TestContentModerationAPIKeysInput{
@@ -217,7 +217,7 @@ func (h *ContentModerationHandler) UnbanUser(c *gin.Context) {
 func (h *ContentModerationHandler) DeleteFlaggedHash(c *gin.Context) {
 	var req contentModerationHashRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	result, err := h.service.DeleteFlaggedInputHash(c.Request.Context(), req.InputHash)

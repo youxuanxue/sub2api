@@ -67,7 +67,7 @@ func (h *AffiliateHandler) UpdateUserSettings(c *gin.Context) {
 
 	var req UpdateAffiliateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -135,7 +135,7 @@ type BatchSetRateRequest struct {
 func (h *AffiliateHandler) BatchSetRate(c *gin.Context) {
 	var req BatchSetRateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	if len(req.UserIDs) == 0 {

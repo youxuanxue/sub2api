@@ -356,6 +356,28 @@ func TestBadRequest(t *testing.T) {
 	require.Equal(t, "参数无效", got.Message)
 }
 
+// TestInvalidRequest 锁死安全审计 P2-1：绑定/校验失败统一返回通用 400，响应体里
+// 绝不能出现 go-playground/validator 原始报错的 struct 名 / 字段名 / tag 细节。
+func TestInvalidRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	InvalidRequest(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	got := parseResponseBody(t, w)
+	require.Equal(t, http.StatusBadRequest, got.Code)
+	require.Equal(t, "invalid request", got.Message)
+
+	// 负向断言：模拟此前会被透传的 validator 内部细节绝不出现在响应里。
+	body := w.Body.String()
+	for _, leak := range []string{"Field validation", "Error:Field", "'required' tag", "Request.", "Key:"} {
+		require.NotContains(t, body, leak, "InvalidRequest 不得泄露 validator/框架内部细节")
+	}
+}
+
 func TestUnauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

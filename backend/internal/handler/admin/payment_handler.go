@@ -153,7 +153,7 @@ func (h *PaymentHandler) ProcessRefund(c *gin.Context) {
 
 	var req AdminProcessRefundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -193,7 +193,7 @@ func (h *PaymentHandler) ListPlans(c *gin.Context) {
 func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 	var req service.CreatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	plan, err := h.configService.CreatePlan(c.Request.Context(), req)
@@ -213,7 +213,7 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 	}
 	var req service.UpdatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	plan, err := h.configService.UpdatePlan(c.Request.Context(), id, req)
@@ -256,7 +256,7 @@ func (h *PaymentHandler) ListProviders(c *gin.Context) {
 func (h *PaymentHandler) CreateProvider(c *gin.Context) {
 	var req service.CreateProviderInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	inst, err := h.configService.CreateProviderInstance(c.Request.Context(), req)
@@ -277,7 +277,7 @@ func (h *PaymentHandler) UpdateProvider(c *gin.Context) {
 	}
 	var req service.UpdateProviderInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	inst, err := h.configService.UpdateProviderInstance(c.Request.Context(), id, req)
@@ -333,7 +333,7 @@ func (h *PaymentHandler) GetConfig(c *gin.Context) {
 func (h *PaymentHandler) UpdateConfig(c *gin.Context) {
 	var req service.UpdatePaymentConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	if err := h.configService.UpdatePaymentConfig(c.Request.Context(), req); err != nil {

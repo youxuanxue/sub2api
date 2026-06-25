@@ -115,7 +115,7 @@ func (h *TotpHandler) Enable(c *gin.Context) {
 
 	var req TotpEnableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *TotpHandler) Disable(c *gin.Context) {
 
 	var req TotpDisableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 

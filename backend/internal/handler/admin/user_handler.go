@@ -228,7 +228,7 @@ func (h *UserHandler) BindAuthIdentity(c *gin.Context) {
 
 	var req BindUserAuthIdentityRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -261,7 +261,7 @@ func (h *UserHandler) BindAuthIdentity(c *gin.Context) {
 func (h *UserHandler) Create(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -294,7 +294,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -349,7 +349,7 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 
 	var req UpdateBalanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -473,7 +473,7 @@ func (h *UserHandler) ReplaceGroup(c *gin.Context) {
 
 	var req ReplaceGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -518,7 +518,7 @@ type BatchUpdateConcurrencyRequest struct {
 func (h *UserHandler) BatchUpdateConcurrency(c *gin.Context) {
 	var req BatchUpdateConcurrencyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	if !req.All && len(req.UserIDs) == 0 {
@@ -628,7 +628,7 @@ func (h *UserHandler) UpdateUserPlatformQuotas(c *gin.Context) {
 
 	var req UpdateUserPlatformQuotasRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -804,7 +804,7 @@ func (h *UserHandler) ResetUserPlatformQuotaWindow(c *gin.Context) {
 
 	var req ResetUserPlatformQuotaWindowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 

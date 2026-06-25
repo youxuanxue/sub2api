@@ -33,7 +33,7 @@ func (h *BackupHandler) GetS3Config(c *gin.Context) {
 func (h *BackupHandler) UpdateS3Config(c *gin.Context) {
 	var req service.BackupS3Config
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	cfg, err := h.backupService.UpdateS3Config(c.Request.Context(), req)
@@ -47,7 +47,7 @@ func (h *BackupHandler) UpdateS3Config(c *gin.Context) {
 func (h *BackupHandler) TestS3Connection(c *gin.Context) {
 	var req service.BackupS3Config
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	err := h.backupService.TestS3Connection(c.Request.Context(), req)
@@ -72,7 +72,7 @@ func (h *BackupHandler) GetSchedule(c *gin.Context) {
 func (h *BackupHandler) UpdateSchedule(c *gin.Context) {
 	var req service.BackupScheduleConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	cfg, err := h.backupService.UpdateSchedule(c.Request.Context(), req)

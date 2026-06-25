@@ -46,7 +46,7 @@ func (h *RedeemHandler) Redeem(c *gin.Context) {
 
 	var req RedeemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 

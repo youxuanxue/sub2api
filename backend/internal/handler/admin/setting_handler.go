@@ -705,7 +705,7 @@ type UpdateSettingsRequest struct {
 func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	var req UpdateSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -2975,7 +2975,7 @@ type TestSMTPRequest struct {
 func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 	var req TestSMTPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3043,7 +3043,7 @@ type SendTestEmailRequest struct {
 func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	var req SendTestEmailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3203,7 +3203,7 @@ type UpdateOverloadCooldownSettingsRequest struct {
 func (h *SettingHandler) UpdateOverloadCooldownSettings(c *gin.Context) {
 	var req UpdateOverloadCooldownSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3255,7 +3255,7 @@ type UpdateRateLimit429CooldownSettingsRequest struct {
 func (h *SettingHandler) UpdateRateLimit429CooldownSettings(c *gin.Context) {
 	var req UpdateRateLimit429CooldownSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3335,7 +3335,7 @@ type UpdateRectifierSettingsRequest struct {
 func (h *SettingHandler) UpdateRectifierSettings(c *gin.Context) {
 	var req UpdateRectifierSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3418,7 +3418,7 @@ type UpdateBetaPolicySettingsRequest struct {
 func (h *SettingHandler) UpdateBetaPolicySettings(c *gin.Context) {
 	var req UpdateBetaPolicySettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3461,7 +3461,7 @@ type UpdateStreamTimeoutSettingsRequest struct {
 func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 	var req UpdateStreamTimeoutSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3510,7 +3510,7 @@ func (h *SettingHandler) GetWebSearchEmulationConfig(c *gin.Context) {
 func (h *SettingHandler) UpdateWebSearchEmulationConfig(c *gin.Context) {
 	var cfg service.WebSearchEmulationConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -3535,7 +3535,7 @@ func (h *SettingHandler) ResetWebSearchUsage(c *gin.Context) {
 		ProviderType string `json:"provider_type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	if req.ProviderType == "" {
@@ -3556,7 +3556,7 @@ func (h *SettingHandler) TestWebSearchEmulation(c *gin.Context) {
 		Query string `json:"query"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	if strings.TrimSpace(req.Query) == "" {
@@ -3669,7 +3669,7 @@ func (h *SettingHandler) UpdateEmailTemplate(c *gin.Context) {
 	}
 	var req dto.UpdateEmailTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	tmpl, err := h.notificationEmailService.UpdateTemplate(c.Request.Context(), c.Param("event"), c.Param("locale"), req.Subject, req.HTML)
@@ -3704,7 +3704,7 @@ func (h *SettingHandler) PreviewEmailTemplate(c *gin.Context) {
 	}
 	var req dto.PreviewEmailTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	preview, err := h.notificationEmailService.PreviewTemplate(c.Request.Context(), service.NotificationEmailPreviewInput{

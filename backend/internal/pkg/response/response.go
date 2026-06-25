@@ -106,9 +106,9 @@ func BadRequest(c *gin.Context, message string) {
 // 会把 go-playground/validator 的原始报错（如 "Key: 'LoginRequest.Email' Error:Field
 // validation for 'Email' failed on the 'required' tag"）透传给客户端，泄露 Go struct 名、
 // 字段名与框架/tag 细节，降低逆向门槛。绑定/校验失败对客户端只需告知"请求非法"，无需也不应
-// 暴露内部结构。err 参数保留以便调用点形态统一并供将来按需做服务端日志，不写入响应体。
-func InvalidRequest(c *gin.Context, err error) {
-	_ = err
+// 暴露内部结构。调用点的 err 仍用于 `if err != nil` 判定，故此处不收 err 参数（与其它
+// 响应 helper 保持一致，避免无意义的入参）。
+func InvalidRequest(c *gin.Context) {
 	Error(c, http.StatusBadRequest, "invalid request")
 }
 

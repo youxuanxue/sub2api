@@ -97,7 +97,7 @@ func (h *PromoHandler) GetByID(c *gin.Context) {
 func (h *PromoHandler) Create(c *gin.Context) {
 	var req CreatePromoCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *PromoHandler) Update(c *gin.Context) {
 
 	var req UpdatePromoCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 

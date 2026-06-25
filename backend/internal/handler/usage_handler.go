@@ -526,7 +526,7 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 
 	var req BatchAPIKeysUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 

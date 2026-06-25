@@ -91,7 +91,7 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 	req := ExportSelfRequest{}
 	if c.Request != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
-			response.InvalidRequest(c, err)
+			response.InvalidRequest(c)
 			return
 		}
 	}

@@ -112,7 +112,7 @@ type codexAccountIndex struct {
 func (h *AccountHandler) ImportCodexSession(c *gin.Context) {
 	var req CodexSessionImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 	if req.Concurrency != nil && *req.Concurrency < 0 {

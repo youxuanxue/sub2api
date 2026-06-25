@@ -91,7 +91,7 @@ func (h *ErrorPassthroughHandler) GetByID(c *gin.Context) {
 func (h *ErrorPassthroughHandler) Create(c *gin.Context) {
 	var req CreateErrorPassthroughRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -166,7 +166,7 @@ func (h *ErrorPassthroughHandler) Update(c *gin.Context) {
 
 	var req UpdateErrorPassthroughRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequest(c, err)
+		response.InvalidRequest(c)
 		return
 	}
 
