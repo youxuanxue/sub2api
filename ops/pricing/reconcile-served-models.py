@@ -237,7 +237,10 @@ def extract_model_items(obj: Any) -> list[tuple[str, str | None]]:
     def add_item(item: Any, fallback_key: str | None = None) -> None:
         pricing: str | None = None
         model: str | None = None
-        if isinstance(item, str):
+        if fallback_key and isinstance(item, str) and item in ("priced", "missing"):
+            model = fallback_key.strip()
+            pricing = item
+        elif isinstance(item, str):
             model = item.strip()
         elif isinstance(item, dict):
             raw = item.get("id") or item.get("model_id") or item.get("model")
@@ -782,6 +785,9 @@ def _selftest() -> int:
     ]})
     if pairs != [("qwen-a", "priced"), ("qwen-b", None)]:
         failures.append(f"extract_model_items unexpected: {pairs}")
+    status_map_pairs = extract_model_items({"qwen-c": "priced", "qwen-d": "missing"})
+    if status_map_pairs != [("qwen-c", "priced"), ("qwen-d", "missing")]:
+        failures.append(f"extract_model_items status map unexpected: {status_map_pairs}")
 
     model, variant = normalize_probe_model("qwen3-8b (thinking)")
     if (model, variant) != ("qwen3-8b", "thinking"):

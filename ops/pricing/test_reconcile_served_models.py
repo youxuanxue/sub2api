@@ -25,6 +25,12 @@ class ReconcileServedModelsTest(unittest.TestCase):
         agg.add("200", "servable", "thinking")
         self.assertEqual(agg.status, "servable")
 
+    def test_extract_model_items_supports_status_map(self):
+        self.assertEqual(
+            RSM.extract_model_items({"qwen3-8b": "priced", "qwen3-14b": "missing"}),
+            [("qwen3-14b", "missing"), ("qwen3-8b", "priced")],
+        )
+
     def test_plan_classifies_candidate_price_probe_and_mirror_drift(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
