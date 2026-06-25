@@ -123,6 +123,7 @@ func TestClassifyIncident(t *testing.T) {
 		{"openai_403_temp", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "403"},
 		{"temp_unschedulable", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "temp"},
 		{"stream_timeout_temp_unschedulable", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "temp"},
+		{"kiro_quota_limit", time.Time{}, IncidentKindUnknown, IncidentKindPermanentDisable, "kiro_quota_limit"},
 		// unknown reason → fall back to until/kind
 		{"mystery", time.Time{}, IncidentKindUnknown, IncidentKindPermanentDisable, "other"},
 		{"mystery", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "other"},

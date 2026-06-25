@@ -114,6 +114,11 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		// 1h per-account dedupe so a persistently-arrears account fires at most
 		// once per window instead of one card per request.
 		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "DashScope 等上游账号欠费(Arrearage),需在对应控制台(如阿里云百炼)充值/还款;账号已临时摘出轮换,充值后冷却到期自动恢复"}
+	case "kiro_quota_limit":
+		// TK (prod 2026-06-25, edge-us4 account 9): Kiro OAuth subscription quota
+		// exhaustion is HTTP 402 + "You have reached the limit." — not an auth
+		// failure. Route through the immediate P0 card with quota-specific advice.
+		return incidentClass{true, IncidentKindPermanentDisable, "kiro_quota_limit", "Kiro 订阅用量额度耗尽", "AWS Kiro/CodeWhisperer 订阅额度已用尽(402 reached the limit);等待额度重置或升级 Kiro 订阅;账号已停调度,恢复后需手动清除 error 并重测"}
 	case "429_model_class":
 		// G4(#600)模型维度 cooldown：单模型类(如 opus)打穿 5h/7d 用量窗口,只冷却该模型类,
 		// 账号其它模型仍可调度。不能复用兜底的"账号临时冷却"——那会误报成整账号下线。
