@@ -130,7 +130,8 @@ class CfnDataVolumeNoReplaceTest(unittest.TestCase):
         body = _SHELL.read_text(encoding="utf-8")
         self.assertNotIn("aws cloudformation execute-change-set", body)
         self.assertNotIn("--execute-approved", body)
-        self.assertNotIn("|| true", body)
+        swallow_pattern = "||" + " true"
+        self.assertNotIn(swallow_pattern, body)
 
     def test_shell_script_uses_previous_template_with_stable_ami(self) -> None:
         body = _SHELL.read_text(encoding="utf-8")

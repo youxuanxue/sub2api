@@ -153,11 +153,11 @@ if ! aws cloudformation create-change-set --region "${REGION}" \
 fi
 CHANGE_SET_CREATED=1
 
-set +e
-aws cloudformation wait change-set-create-complete --region "${REGION}" \
-  --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>"${TMP_DIR}/wait.err"
-WAIT_RC=$?
-set -e
+WAIT_RC=0
+if ! aws cloudformation wait change-set-create-complete --region "${REGION}" \
+  --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>"${TMP_DIR}/wait.err"; then
+  WAIT_RC=$?
+fi
 
 if ! STATUS="$(aws cloudformation describe-change-set --region "${REGION}" \
   --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" \
