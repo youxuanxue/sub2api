@@ -26,6 +26,8 @@
 # OpenAI OAuth regression:
 #   TK_SMOKE_OPENAI_OAUTH_MODELS    comma/space separated, default: gpt-5.4
 #   TK_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
+#   Empty model_mapping passthrough (like Anthropic kiro stubs): model may be
+#   absent from GET /v1/models; smoke warns and defers to the openai oauth chat probe.
 #
 # Anthropic-compat probes:
 #   TK_SMOKE_ANTHROPIC_MODELS  comma/space separated, default: claude-sonnet-4-6
@@ -435,7 +437,7 @@ if smoke_suite_runs openai_oauth; then
   done < <(smoke_model_list "${TK_SMOKE_OPENAI_OAUTH_MODELS:-}" "gpt-5.4")
   echo "tk_post_deploy_smoke: openai_oauth_models=${openai_oauth_models[*]}"
   for openai_oauth_model in "${openai_oauth_models[@]}"; do
-  smoke_assert_model_listed "$tmpdir/models.json" "openai_oauth" "${openai_oauth_model}" || exit 1
+  smoke_assert_openai_oauth_model_listed_or_warn "$tmpdir/models.json" "${openai_oauth_model}"
 
   expect_oai_oauth="E2E-OPENAI-OAUTH-OK"
   # The math problem reliably triggers reasoning so reasoning_tokens > 0.
