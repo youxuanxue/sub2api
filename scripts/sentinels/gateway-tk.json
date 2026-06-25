@@ -3370,6 +3370,7 @@
       "path": "backend/internal/service/openai_gateway_service_tk_buffered_failover.go",
       "must_contain": [
         "openAICompatBufferedMissingTerminalResult",
+        "openAICompatBufferedFailedResponseFailover",
         "acc.HasContent()",
         "newOpenAIStreamFailoverError"
       ],
@@ -3380,7 +3381,8 @@
       "must_contain": [
         "TestForwardAsChatCompletions_BufferedMissingTerminalBeforeOutputReturnsFailover",
         "TestForwardAsChatCompletions_BufferedMissingTerminalAfterOutputReturns502WithoutFailover",
-        "TestForwardAsAnthropic_BufferedMissingTerminalBeforeOutputReturnsFailover"
+        "TestForwardAsAnthropic_BufferedMissingTerminalBeforeOutputReturnsFailover",
+        "TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover"
       ],
       "rationale": "Regression anchors for buffered missing-terminal failover: [DONE]/EOF with no content must UpstreamFailoverError without committing client body; partial delta without terminal must stay 502 and must not failover."
     }

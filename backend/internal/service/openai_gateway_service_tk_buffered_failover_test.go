@@ -163,6 +163,39 @@ func TestForwardAsAnthropic_BufferedMissingTerminalAfterOutputReturns502WithoutF
 	require.Equal(t, "buffered_missing_terminal", events[0].Kind)
 }
 
+func TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.5","max_tokens":16,"messages":[{"role":"user","content":"large prompt"}],"stream":false}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := strings.Join([]string{
+		`event: response.failed`,
+		`data: {"type":"response.failed","response":{"id":"resp_failed","object":"response","model":"gpt-5.5","status":"failed","output":[],"error":{"code":"upstream_error","message":"input exceeds the context window"}}}`,
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_messages_failed_buffered"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+
+	svc := &OpenAIGatewayService{httpUpstream: upstream}
+	account := openAICompatTestOAuthAccount(1, "openai-oauth")
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.5")
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Contains(t, string(failoverErr.ResponseBody), "input exceeds the context window")
+	require.False(t, c.Writer.Written())
+}
+
 func openAICompatTestOAuthAccount(id int64, name string) *Account {
 	return &Account{
 		ID:          id,

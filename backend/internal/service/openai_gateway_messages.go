@@ -545,9 +545,6 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages buffered", requestID)
 	if err != nil {
-		if result, failoverErr := s.openAICompatBufferedReadErrResult(c, account, requestID, acc, openAICompatBufferedRouteMessages, err); failoverErr != nil {
-			return result, failoverErr
-		}
 		return nil, err
 	}
 

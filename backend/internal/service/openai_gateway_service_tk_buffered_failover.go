@@ -45,27 +45,6 @@ func (s *OpenAIGatewayService) openAICompatBufferedMissingTerminalResult(
 	return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, failoverMsg)
 }
 
-func (s *OpenAIGatewayService) openAICompatBufferedReadErrResult(
-	c *gin.Context,
-	account *Account,
-	requestID string,
-	acc *apicompat.BufferedResponseAccumulator,
-	route openAICompatBufferedRouteKind,
-	readErr error,
-) (*OpenAIForwardResult, error) {
-	if readErr == nil {
-		return nil, nil
-	}
-	if acc == nil || !acc.HasContent() {
-		failoverMsg := "OpenAI stream ended before a terminal event"
-		if route == openAICompatBufferedRouteMessages {
-			failoverMsg = "OpenAI messages stream ended before a terminal event"
-		}
-		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, failoverMsg)
-	}
-	return nil, readErr
-}
-
 func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseFailover(
 	c *gin.Context,
 	account *Account,
