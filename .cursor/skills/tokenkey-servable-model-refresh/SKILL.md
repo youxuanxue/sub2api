@@ -35,6 +35,9 @@ description: >-
 
 ## 用法
 
+若问题是 newapi 长尾 / prod mapping / mirror 漂移而非「刷新四平台 allowlist」，先走
+**`tokenkey-modelops-planner`**，再决定是否仍需要本 skill。
+
 需运营本机有 AWS creds（探测走 prod SSM）。
 
 ```bash
@@ -147,18 +150,8 @@ python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --
 细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、镜像价格错误时只能用渠道定价修）
 见 `ops/pricing/README.md` §"Pricing-missing hotfix"。
 
-## 姊妹入口：modelops planner
+## 姊妹 skill
 
-当问题不是“刷新公开/菜单 allowlist”，而是“某个 newapi 长尾模型、生产 mapping、Qwen-2
-备份、定价、probe 结果之间哪里漂了”，先跑：
-
-```bash
-python3 ops/pricing/modelops.py plan \
-  --upstream 60:/tmp/qwen_upstream_models.json \
-  --probe-results /tmp/qwen_probe.tsv \
-  --live-mapping /tmp/qwen_mapping_snapshot.json \
-  --mirror 60:72
-```
-
-`modelops.py` 只出计划，不写生产；真正刷新本 skill 管的 catalog/menu surface 仍用
-`refresh-servable-allowlist.py`。
+- **`tokenkey-modelops-planner`**：newapi 长尾 / prod mapping / mirror / 定价 / probe 漂移的**只读
+  对账**；本 skill 只管四原生平台 catalog/menu 的**实测刷新写入**。
+- `tokenkey-onboard-model`：经账号 60/39 等策展 mapping 的上架与计价意图。
