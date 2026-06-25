@@ -421,6 +421,48 @@
       "rationale": "TK companion holding OAuth auth-rejection handling. For non-Anthropic OAuth 401, tkDisableIfOAuth401OnValidToken keeps the original safety gate: only a STILL-VALID access_token (remaining lifetime >= tkOAuth401ValidTokenMargin = max(refresh window, 5min floor)) is treated as grant revocation and SetError on the first strike; expired/near-expiry/missing expires_at falls through to temp_unschedulable cooldown + background refresh. Kiro is the narrow exception: valid-token 401 and Kiro upstream 403 bodies/messages containing invalid bearer token both call the shared tkHandleKiroOAuthAuthReject path, which uses OAuthRefreshAPI.RefreshNow under the distributed lock and clears error/schedulability/temp cooldown after a successful refresh. The 403_invalid_bearer path deliberately does NOT require expires_at because live edge-us4 Kiro credentials lacked expires_at while returning HTTP 403 \"The bearer token included in the request is invalid.\" Nonretryable refresh errors still fall back to handleAuthError/manual re-auth, so revoked grants are not hidden. Anchors here prevent an upstream merge from turning the 403 fix into a broad 403 retry, dropping RefreshNow, or removing the 401 validity gate."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_kiro_quota402.go",
+      "must_contain": [
+        "tkIsKiroQuotaLimit402",
+        "tkHandleKiroQuotaLimit402",
+        "tkKiroQuotaLimitIncidentReason",
+        "reached the limit"
+      ],
+      "rationale": "Kiro subscription quota exhaustion (prod 2026-06-25 edge-us4 account 9: HTTP 402 + plain-text 'You have reached the limit.') must route through a dedicated incident reason for an immediate actionable P0 Feishu card, not the misleading auth_error '认证失败' bucket. tkHandleKiroQuotaLimit402 stops scheduling (SetError) and funnels notifyAccountSchedulingBlocked with reason kiro_quota_limit. Dropping this companion silently regresses operators back to either no alert (admin account-test bypass) or a mislabeled auth card."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_kiro_quota402_test.go",
+      "must_contain": [
+        "TestTkHandleKiroQuotaLimit402_DisablesAccountAndAlerts",
+        "TestHandleUpstreamError_Kiro402ReachedLimitUsesDedicatedReason",
+        "TestClassifyIncident_KiroQuotaLimit_IsImmediateP0"
+      ],
+      "rationale": "Focused regressions for the Kiro 402 reached-the-limit P0 path: matcher boundary, HandleUpstreamError integration, classifyIncident permanent P0 mapping, and admin account-test penalty wiring."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "rateLimitService          *RateLimitService",
+        "s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode"
+      ],
+      "rationale": "Admin Kiro account-test must mirror gateway Forward's HandleUpstreamError side effect. Without it, an operator reproducing edge-us4 account 9's 402 via /admin/accounts/:id/test disables nothing in the incident funnel and sends no Feishu P0 — the same silent-alert class as pre-bridge newapi."
+    },
+    {
+      "path": "backend/internal/service/account_incident_notifier_tk.go",
+      "must_contain": [
+        "case \"kiro_quota_limit\":",
+        "IncidentKindPermanentDisable, \"kiro_quota_limit\", \"Kiro 订阅用量额度耗尽\""
+      ],
+      "rationale": "classifyIncident MUST map reason kiro_quota_limit to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT auth_error's misleading 认证失败 copy and NOT the default-OFF temporary digest. Quota exhaustion needs human action (wait for reset / upgrade subscription)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.tkHandleKiroQuotaLimit402(ctx, account, upstreamMsg, responseBody)"
+      ],
+      "rationale": "HandleUpstreamError case 402 must invoke the Kiro quota-limit companion before the generic Payment required → auth_error path so Kiro 402 reached-the-limit gets the dedicated P0 reason. An upstream merge that drops this call site re-buries the alert under auth_error or skips the matcher entirely."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",
       "must_contain": [
         "TestRateLimitService_OAuth401_AnthropicAny401SetErrorsImmediately",
