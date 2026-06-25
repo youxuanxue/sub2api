@@ -8,6 +8,7 @@ func TestIsCodexCLIRequest(t *testing.T) {
 		ua   string
 		want bool
 	}{
+		{name: "codex-tui 前缀", ua: "codex-tui/0.142.0", want: true},
 		{name: "codex_cli_rs 前缀", ua: "codex_cli_rs/0.1.0", want: true},
 		{name: "codex_vscode 前缀", ua: "codex_vscode/1.2.3", want: true},
 		{name: "大小写混合", ua: "Codex_CLI_Rs/0.1.0", want: true},
@@ -33,6 +34,7 @@ func TestIsCodexOfficialClientRequest(t *testing.T) {
 		ua   string
 		want bool
 	}{
+		{name: "codex-tui 前缀", ua: "codex-tui/0.142.0", want: true},
 		{name: "codex_cli_rs 前缀", ua: "codex_cli_rs/0.98.0", want: true},
 		{name: "codex_vscode 前缀", ua: "codex_vscode/1.0.0", want: true},
 		{name: "codex_app 前缀", ua: "codex_app/0.1.0", want: true},
