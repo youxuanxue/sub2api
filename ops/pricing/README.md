@@ -14,6 +14,7 @@ live in
 | --- | --- |
 | `probe-servable-models.sh` | Runs ON the prod host (via `ops/observability/run-probe.sh`). Pulls the edge-us7 relay key + the GPT-line key from the DB (never printed), sends one minimal real request per candidate model, emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. |
 | `refresh-servable-allowlist.py` | Orchestrator: derives candidates from the litellm catalog, runs the probe, keeps `verdict==servable`, de-duplicates dated snapshots, and splices the two Go maps. `selftest` covers all deterministic glue (no prod). |
+| `reconcile-served-models.py` | Read-only planner for newapi long-tail reconcile: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
 | `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
@@ -36,6 +37,31 @@ Split the steps when you want to inspect the raw verdicts first:
 python3 ops/pricing/refresh-servable-allowlist.py probe | tee /tmp/servable.tsv
 python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.tsv
 ```
+
+## Served-model reconcile planner (read-only)
+
+For newapi long-tail and mirror-account operations, use the planner to turn
+discovery/probe/pricing/runtime facts into a reviewable plan:
+
+```bash
+# Generate read-only SQL for a live model_mapping snapshot, then run it through
+# the normal prod DB access path and save the JSON result locally.
+python3 ops/pricing/reconcile-served-models.py snapshot-sql --accounts 60,72
+
+# Compare upstream discovery, probe results, live mapping, and Qwen -> Qwen-2 mirror drift.
+python3 ops/pricing/reconcile-served-models.py plan \
+  --upstream 60:/tmp/qwen_upstream_models.json \
+  --probe-results /tmp/qwen_probe.tsv \
+  --live-mapping /tmp/qwen_mapping_snapshot.json \
+  --mirror 60:72
+```
+
+The planner's output is intentionally an operator plan, not an apply loop:
+`probe_needed` includes grouped `run-probe.sh` commands, `price_missing` points
+to `apply-pricing-hotfix.py lookup`, `mapping_missing` prints guarded
+`apply-model-mapping-live.py --dry-run` commands, and `mirror_drift` reports
+exact key/value differences. Apply still goes through migrations, the guarded
+live model-mapping tool, or pricing-hotfix after review.
 
 ## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
 
