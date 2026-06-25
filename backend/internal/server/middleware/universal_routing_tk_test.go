@@ -359,6 +359,47 @@ func TestMaybeResolveUniversal_InternalErrorLogsStructuredContext(t *testing.T) 
 	require.True(t, logSink.ContainsFieldValue("universal_shape", "openai"))
 }
 
+func TestMaybeResolveUniversal_NoEntitledGroupLogsStructuredContext(t *testing.T) {
+	logSink, restore := captureMiddlewareStructuredLog(t)
+	defer restore()
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5.5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(10, service.PlatformAnthropic)}})
+	apiKey := &service.APIKey{ID: 11, UserID: 22, RoutingMode: service.RoutingModeUniversal}
+
+	handled := MaybeResolveUniversal(c, apiKey, resolver)
+	require.True(t, handled)
+	require.True(t, logSink.ContainsMessageAtLevel("universal_routing.no_entitled_group", "warn"))
+	require.True(t, logSink.ContainsFieldValue("api_key_id", "11"))
+	require.True(t, logSink.ContainsFieldValue("user_id", "22"))
+	require.True(t, logSink.ContainsFieldValue("request_model", "gpt-5.5"))
+	require.True(t, logSink.ContainsFieldValue("universal_shape", "openai"))
+}
+
+func TestMaybeResolveUniversal_ResolvedLogsStructuredContext(t *testing.T) {
+	logSink, restore := captureMiddlewareStructuredLog(t)
+	defer restore()
+
+	openaiGroup := activeGroup(20, service.PlatformOpenAI)
+	openaiGroup.Name = "uni-openai"
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5.5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{
+		activeGroup(10, service.PlatformAnthropic),
+		openaiGroup,
+	}})
+	apiKey := &service.APIKey{ID: 11, UserID: 22, RoutingMode: service.RoutingModeUniversal}
+
+	handled := MaybeResolveUniversal(c, apiKey, resolver)
+	require.False(t, handled)
+	require.True(t, logSink.ContainsMessageAtLevel("universal_routing.resolved", "info"))
+	require.True(t, logSink.ContainsFieldValue("api_key_id", "11"))
+	require.True(t, logSink.ContainsFieldValue("user_id", "22"))
+	require.True(t, logSink.ContainsFieldValue("request_model", "gpt-5.5"))
+	require.True(t, logSink.ContainsFieldValue("backing_group_id", "20"))
+	require.True(t, logSink.ContainsFieldValue("backing_group_name", "uni-openai"))
+	require.True(t, logSink.ContainsFieldValue("backing_platform", service.PlatformOpenAI))
+}
+
 // Regression for the "prod 视频全局宕" incident (fix/video-channel-type-selection):
 // a universal key POSTing /v1/video/generations must peek the JSON body's model so the
 // resolver converges onto the video-capable backing group. Before the fix the video
