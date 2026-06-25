@@ -42,7 +42,7 @@ func (h *ComplianceHandler) GetStatus(c *gin.Context) {
 func (h *ComplianceHandler) Accept(c *gin.Context) {
 	var req AcceptAdminComplianceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

@@ -40,7 +40,7 @@ type GeminiGenerateAuthURLRequest struct {
 func (h *GeminiOAuthHandler) GenerateAuthURL(c *gin.Context) {
 	var req GeminiGenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -93,7 +93,7 @@ type GeminiExchangeCodeRequest struct {
 func (h *GeminiOAuthHandler) ExchangeCode(c *gin.Context) {
 	var req GeminiExchangeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

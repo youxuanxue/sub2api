@@ -46,7 +46,8 @@ func TestAdminAPIKeyHandler_UpdateGroup_InvalidJSON(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "Invalid request")
+	// 安全审计 P2-1：绑定失败统一返回通用 "invalid request"，不透出 validator 字段/框架细节。
+	require.Contains(t, rec.Body.String(), "invalid request")
 }
 
 func TestAdminAPIKeyHandler_UpdateGroup_KeyNotFound(t *testing.T) {

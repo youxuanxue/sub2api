@@ -137,7 +137,7 @@ func (h *SubscriptionHandler) GetProgress(c *gin.Context) {
 func (h *SubscriptionHandler) Assign(c *gin.Context) {
 	var req AssignSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *SubscriptionHandler) Assign(c *gin.Context) {
 func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
 	var req BulkAssignSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -197,7 +197,7 @@ func (h *SubscriptionHandler) Extend(c *gin.Context) {
 
 	var req AdjustSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -234,7 +234,7 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 	}
 	var req ResetSubscriptionQuotaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 	if !req.Daily && !req.Weekly && !req.Monthly {

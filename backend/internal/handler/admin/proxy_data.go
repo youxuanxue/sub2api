@@ -99,7 +99,7 @@ func (h *ProxyHandler) ImportData(c *gin.Context) {
 
 	var req ProxyImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

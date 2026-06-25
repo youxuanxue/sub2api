@@ -100,6 +100,18 @@ func BadRequest(c *gin.Context, message string) {
 	Error(c, http.StatusBadRequest, message)
 }
 
+// InvalidRequest 处理请求体绑定/校验失败，统一返回通用 400。
+//
+// 安全审计 P2-1：此前各 handler 一律 BadRequest("Invalid request: "+err.Error())，
+// 会把 go-playground/validator 的原始报错（如 "Key: 'LoginRequest.Email' Error:Field
+// validation for 'Email' failed on the 'required' tag"）透传给客户端，泄露 Go struct 名、
+// 字段名与框架/tag 细节，降低逆向门槛。绑定/校验失败对客户端只需告知"请求非法"，无需也不应
+// 暴露内部结构。err 参数保留以便调用点形态统一并供将来按需做服务端日志，不写入响应体。
+func InvalidRequest(c *gin.Context, err error) {
+	_ = err
+	Error(c, http.StatusBadRequest, "invalid request")
+}
+
 // Unauthorized 返回401错误
 func Unauthorized(c *gin.Context, message string) {
 	Error(c, http.StatusUnauthorized, message)

@@ -132,7 +132,7 @@ func (h *RedeemHandler) GetByID(c *gin.Context) {
 func (h *RedeemHandler) Generate(c *gin.Context) {
 	var req GenerateRedeemCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -173,7 +173,7 @@ func (h *RedeemHandler) CreateAndRedeem(c *gin.Context) {
 
 	var req CreateAndRedeemCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 	req.Code = strings.TrimSpace(req.Code)
@@ -291,7 +291,7 @@ func (h *RedeemHandler) BatchDelete(c *gin.Context) {
 		IDs []int64 `json:"ids" binding:"required,min=1"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -317,7 +317,7 @@ func (h *RedeemHandler) BatchUpdate(c *gin.Context) {
 
 	var req dto.BatchUpdateRedeemCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

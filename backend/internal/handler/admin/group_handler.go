@@ -297,7 +297,7 @@ func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
 func (h *GroupHandler) Create(c *gin.Context) {
 	var req CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -355,7 +355,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 
 	var req UpdateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -576,7 +576,7 @@ func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
 
 	var req BatchSetGroupRateMultipliersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -604,7 +604,7 @@ func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
 
 	var req BatchSetGroupRPMOverridesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -646,7 +646,7 @@ type UpdateSortOrderRequest struct {
 func (h *GroupHandler) UpdateSortOrder(c *gin.Context) {
 	var req UpdateSortOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

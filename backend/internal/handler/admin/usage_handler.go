@@ -476,7 +476,7 @@ func (h *UsageHandler) CreateCleanupTask(c *gin.Context) {
 
 	var req CreateUsageCleanupTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 	req.StartDate = strings.TrimSpace(req.StartDate)

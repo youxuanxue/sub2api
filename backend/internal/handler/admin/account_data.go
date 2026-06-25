@@ -213,7 +213,7 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 func (h *AccountHandler) ImportData(c *gin.Context) {
 	var req DataImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

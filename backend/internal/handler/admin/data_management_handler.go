@@ -134,7 +134,7 @@ func (h *DataManagementHandler) GetConfig(c *gin.Context) {
 func (h *DataManagementHandler) UpdateConfig(c *gin.Context) {
 	var req service.DataManagementConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -152,7 +152,7 @@ func (h *DataManagementHandler) UpdateConfig(c *gin.Context) {
 func (h *DataManagementHandler) TestS3(c *gin.Context) {
 	var req TestS3ConnectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *DataManagementHandler) TestS3(c *gin.Context) {
 func (h *DataManagementHandler) CreateBackupJob(c *gin.Context) {
 	var req CreateBackupJobRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -240,7 +240,7 @@ func (h *DataManagementHandler) CreateSourceProfile(c *gin.Context) {
 
 	var req CreateSourceProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -275,7 +275,7 @@ func (h *DataManagementHandler) UpdateSourceProfile(c *gin.Context) {
 
 	var req UpdateSourceProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -356,7 +356,7 @@ func (h *DataManagementHandler) ListS3Profiles(c *gin.Context) {
 func (h *DataManagementHandler) CreateS3Profile(c *gin.Context) {
 	var req CreateS3ProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -390,7 +390,7 @@ func (h *DataManagementHandler) CreateS3Profile(c *gin.Context) {
 func (h *DataManagementHandler) UpdateS3Profile(c *gin.Context) {
 	var req UpdateS3ProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 

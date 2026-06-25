@@ -89,7 +89,7 @@ func (h *TLSFingerprintProfileHandler) GetByID(c *gin.Context) {
 func (h *TLSFingerprintProfileHandler) Create(c *gin.Context) {
 	var req CreateTLSFingerprintProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
@@ -135,7 +135,7 @@ func (h *TLSFingerprintProfileHandler) Update(c *gin.Context) {
 
 	var req UpdateTLSFingerprintProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c, err)
 		return
 	}
 
