@@ -130,6 +130,7 @@ class CfnDataVolumeNoReplaceTest(unittest.TestCase):
         body = _SHELL.read_text(encoding="utf-8")
         self.assertNotIn("aws cloudformation execute-change-set", body)
         self.assertNotIn("--execute-approved", body)
+        self.assertNotIn("|| true", body)
 
     def test_shell_script_uses_previous_template_with_stable_ami(self) -> None:
         body = _SHELL.read_text(encoding="utf-8")
@@ -143,6 +144,15 @@ class CfnDataVolumeNoReplaceTest(unittest.TestCase):
         self.assertNotIn("--throughput", body)
         self.assertNotIn("Iops: !Ref DataVolumeIops", body)
         self.assertNotIn("Throughput: !Ref DataVolumeThroughput", body)
+
+    def test_keep_change_set_only_retains_after_guard_validation(self) -> None:
+        body = _SHELL.read_text(encoding="utf-8")
+        self.assertIn("CHANGE_SET_VALIDATED=0", body)
+        self.assertIn("CHANGE_SET_VALIDATED=1", body)
+        self.assertIn(
+            '! ( "${KEEP_CHANGE_SET}" = 1 && "${CHANGE_SET_VALIDATED}" = 1 )',
+            body,
+        )
 
 
 if __name__ == "__main__":

@@ -65,17 +65,30 @@ CHANGESET_JSON="${TMP_DIR}/changeset.json"
 STABLE_AMI_PARAM=""
 STABLE_AMI_PARAM_PREEXISTED=0
 CHANGE_SET_CREATED=0
+CHANGE_SET_VALIDATED=0
 
 cleanup() {
   local rc=$?
-  if [[ "${CHANGE_SET_CREATED}" = 1 && "${KEEP_CHANGE_SET}" = 0 ]]; then
-    aws cloudformation delete-change-set --region "${REGION}" \
-      --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>&1 || true
+  local cleanup_failed=0
+  if [[ "${CHANGE_SET_CREATED}" = 1 && ! ( "${KEEP_CHANGE_SET}" = 1 && "${CHANGE_SET_VALIDATED}" = 1 ) ]]; then
+    if ! aws cloudformation delete-change-set --region "${REGION}" \
+      --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>"${TMP_DIR}/delete-change-set.err"; then
+      echo "::error::failed to delete preview change set ${CHANGE_SET_NAME}" >&2
+      cat "${TMP_DIR}/delete-change-set.err" >&2
+      cleanup_failed=1
+    fi
   fi
-  if [[ -n "${STABLE_AMI_PARAM}" && "${KEEP_CHANGE_SET}" = 0 && "${STABLE_AMI_PARAM_PREEXISTED}" = 0 ]]; then
-    aws ssm delete-parameter --region "${REGION}" --name "${STABLE_AMI_PARAM}" >/dev/null 2>&1 || true
+  if [[ -n "${STABLE_AMI_PARAM}" && ! ( "${KEEP_CHANGE_SET}" = 1 && "${CHANGE_SET_VALIDATED}" = 1 ) && "${STABLE_AMI_PARAM_PREEXISTED}" = 0 ]]; then
+    if ! aws ssm delete-parameter --region "${REGION}" --name "${STABLE_AMI_PARAM}" >/dev/null 2>"${TMP_DIR}/delete-parameter.err"; then
+      echo "::error::failed to delete preview SSM parameter ${STABLE_AMI_PARAM}" >&2
+      cat "${TMP_DIR}/delete-parameter.err" >&2
+      cleanup_failed=1
+    fi
   fi
   rm -rf "${TMP_DIR}"
+  if [[ "${rc}" = 0 && "${cleanup_failed}" = 1 ]]; then
+    rc=2
+  fi
   exit "${rc}"
 }
 trap cleanup EXIT
@@ -140,15 +153,29 @@ if ! aws cloudformation create-change-set --region "${REGION}" \
 fi
 CHANGE_SET_CREATED=1
 
+set +e
 aws cloudformation wait change-set-create-complete --region "${REGION}" \
-  --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>&1 || true
+  --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>"${TMP_DIR}/wait.err"
+WAIT_RC=$?
+set -e
 
-STATUS="$(aws cloudformation describe-change-set --region "${REGION}" \
+if ! STATUS="$(aws cloudformation describe-change-set --region "${REGION}" \
   --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" \
-  --query Status --output text 2>/dev/null || echo UNKNOWN)"
-REASON="$(aws cloudformation describe-change-set --region "${REGION}" \
+  --query Status --output text 2>"${TMP_DIR}/status.err")"; then
+  echo "::error::failed to describe change set status" >&2
+  cat "${TMP_DIR}/status.err" >&2
+  if [[ "${WAIT_RC}" -ne 0 ]]; then
+    cat "${TMP_DIR}/wait.err" >&2
+  fi
+  exit 2
+fi
+if ! REASON="$(aws cloudformation describe-change-set --region "${REGION}" \
   --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" \
-  --query StatusReason --output text 2>/dev/null || true)"
+  --query StatusReason --output text 2>"${TMP_DIR}/reason.err")"; then
+  echo "::error::failed to describe change set status reason" >&2
+  cat "${TMP_DIR}/reason.err" >&2
+  exit 2
+fi
 
 if [[ "${STATUS}" == "FAILED" ]] && grep -qiE "didn't contain changes|No updates are to be performed" <<<"${REASON}"; then
   echo "ok: ${STACK} DataVolume parameters already converged"
@@ -164,6 +191,7 @@ aws cloudformation describe-change-set --region "${REGION}" \
 
 echo "[datavolume] validating DataVolume-only / Replacement=False contract" >&2
 python3 "${SCRIPT_DIR}/cfn_datavolume_changeset_guard.py" --allowed-properties Size <"${CHANGESET_JSON}"
+CHANGE_SET_VALIDATED=1
 
 echo
 aws cloudformation describe-change-set --region "${REGION}" \
