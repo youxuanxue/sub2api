@@ -95,6 +95,8 @@ func TestSecurityHeaders(t *testing.T) {
 		assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 		assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
 		assert.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
+		// 安全审计 P0-1：HSTS 必须随基础安全头一并下发，锁死防 SSL Stripping 不被静默移除。
+		assert.Equal(t, "max-age=31536000; includeSubDomains", w.Header().Get("Strict-Transport-Security"))
 	})
 
 	t.Run("csp_disabled_no_csp_header", func(t *testing.T) {

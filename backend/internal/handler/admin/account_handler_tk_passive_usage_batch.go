@@ -25,7 +25,7 @@ type BatchPassiveUsageRequest struct {
 func (h *AccountHandler) GetBatchPassiveUsage(c *gin.Context) {
 	var req BatchPassiveUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

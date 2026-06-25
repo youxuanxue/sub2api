@@ -45,7 +45,7 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 	req := ExportSelfRequest{}
 	if c.Request != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, "Invalid request: "+err.Error())
+			response.InvalidRequest(c)
 			return
 		}
 	}

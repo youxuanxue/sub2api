@@ -155,7 +155,7 @@ func (h *UserAttributeHandler) ListDefinitions(c *gin.Context) {
 func (h *UserAttributeHandler) CreateDefinition(c *gin.Context) {
 	var req CreateAttributeDefinitionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -189,7 +189,7 @@ func (h *UserAttributeHandler) UpdateDefinition(c *gin.Context) {
 
 	var req UpdateAttributeDefinitionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -238,7 +238,7 @@ func (h *UserAttributeHandler) DeleteDefinition(c *gin.Context) {
 func (h *UserAttributeHandler) ReorderDefinitions(c *gin.Context) {
 	var req ReorderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -290,7 +290,7 @@ func (h *UserAttributeHandler) UpdateUserAttributes(c *gin.Context) {
 
 	var req UpdateUserAttributesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -327,7 +327,7 @@ func (h *UserAttributeHandler) UpdateUserAttributes(c *gin.Context) {
 func (h *UserAttributeHandler) GetBatchUserAttributes(c *gin.Context) {
 	var req BatchGetUserAttributesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

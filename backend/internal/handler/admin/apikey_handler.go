@@ -39,7 +39,7 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 
 	var req AdminUpdateAPIKeyGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
