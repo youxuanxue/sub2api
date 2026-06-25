@@ -253,4 +253,4 @@ SELECT id, credentials->'model_mapping' FROM accounts WHERE id IN (39,60) AND de
 ## 姊妹 skill
 
 - **`tokenkey-modelops-planner`**（总入口）：上架/mapping 走 **分支 A**；catalog 走 **分支 B**。
-- `tokenkey-servable-model-refresh`：分支 B 写入执行体（本 skill 是其 **分支 C**）。
+- `tokenkey-servable-model-refresh`：hub **分支 B** 写入执行体。
