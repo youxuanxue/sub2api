@@ -22,24 +22,24 @@ func settingServiceWithAnthropicMaxCooldown(val string) *SettingService {
 }
 
 // Unlike the OpenAI twin this is DEFAULT-ON: unset/blank/malformed/negative all
-// fall back to 3600 (the safety default), and only an explicit "0" disables it.
+// fall back to 18000 (the safety default), and only an explicit "0" disables it.
 func TestAnthropicMaxRateLimitCooldownSeconds(t *testing.T) {
 	ctx := context.Background()
-	require.Equal(t, 3600, settingServiceWithAnthropicMaxCooldown("").AnthropicMaxRateLimitCooldownSeconds(ctx), "unset => default ON 3600")
-	require.Equal(t, 3600, settingServiceWithAnthropicMaxCooldown("-1").AnthropicMaxRateLimitCooldownSeconds(ctx), "negative => default, never silently disable")
-	require.Equal(t, 3600, settingServiceWithAnthropicMaxCooldown("nope").AnthropicMaxRateLimitCooldownSeconds(ctx), "malformed => default, never silently disable")
+	require.Equal(t, 18000, settingServiceWithAnthropicMaxCooldown("").AnthropicMaxRateLimitCooldownSeconds(ctx), "unset => default ON 18000")
+	require.Equal(t, 18000, settingServiceWithAnthropicMaxCooldown("-1").AnthropicMaxRateLimitCooldownSeconds(ctx), "negative => default, never silently disable")
+	require.Equal(t, 18000, settingServiceWithAnthropicMaxCooldown("nope").AnthropicMaxRateLimitCooldownSeconds(ctx), "malformed => default, never silently disable")
 	require.Equal(t, 0, settingServiceWithAnthropicMaxCooldown("0").AnthropicMaxRateLimitCooldownSeconds(ctx), "explicit 0 => disabled")
-	require.Equal(t, 1800, settingServiceWithAnthropicMaxCooldown("1800").AnthropicMaxRateLimitCooldownSeconds(ctx), "explicit positive override")
+	require.Equal(t, 3600, settingServiceWithAnthropicMaxCooldown("3600").AnthropicMaxRateLimitCooldownSeconds(ctx), "explicit positive override")
 }
 
 func TestTkClampAnthropicWindowReset(t *testing.T) {
 	ctx := context.Background()
 	sevenDays := time.Now().Add(7 * 24 * time.Hour)
 
-	t.Run("default-on clamps a far-future reset to now+1h", func(t *testing.T) {
+	t.Run("default-on clamps a far-future reset to now+5h", func(t *testing.T) {
 		svc := &RateLimitService{settingService: settingServiceWithAnthropicMaxCooldown("")}
 		got := svc.tkClampAnthropicWindowReset(ctx, 1, sevenDays)
-		require.WithinDuration(t, time.Now().Add(time.Hour), got, 2*time.Second, "default-on must clamp a 7d reset to now+1h")
+		require.WithinDuration(t, time.Now().Add(5*time.Hour), got, 2*time.Second, "default-on must clamp a 7d reset to now+5h")
 	})
 
 	t.Run("explicit 0 disables, returns reset verbatim", func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestTkClampAnthropicWindowReset(t *testing.T) {
 	})
 
 	t.Run("near reset within ceiling is preserved", func(t *testing.T) {
-		svc := &RateLimitService{settingService: settingServiceWithAnthropicMaxCooldown("3600")}
+		svc := &RateLimitService{settingService: settingServiceWithAnthropicMaxCooldown("18000")}
 		near := time.Now().Add(5 * time.Minute)
 		got := svc.tkClampAnthropicWindowReset(ctx, 1, near)
 		require.WithinDuration(t, near, got, time.Second, "a reset within the ceiling must be preserved")
@@ -99,7 +99,7 @@ func (r *anthropicClampRepoStub) UpdateSessionWindow(_ context.Context, _ int64,
 func TestPersistAnthropicExhaustedWindowLimit_ClampsSchedulingNotGauge(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("7d window: scheduling reset clamped to now+1h", func(t *testing.T) {
+	t.Run("7d window: scheduling reset clamped to now+5h", func(t *testing.T) {
 		repo := &anthropicClampRepoStub{}
 		svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 		svc.SetSettingService(settingServiceWithAnthropicMaxCooldown("")) // default-on
@@ -113,8 +113,8 @@ func TestPersistAnthropicExhaustedWindowLimit_ClampsSchedulingNotGauge(t *testin
 		require.True(t, svc.persistAnthropicExhaustedWindowLimit(ctx, account, headers))
 
 		require.Equal(t, 1, repo.rateLimitCalls)
-		require.WithinDuration(t, time.Now().Add(time.Hour), repo.rateLimitReset, 2*time.Second, "scheduling cooldown must be clamped to now+1h, not the 3d upstream reset")
-		require.True(t, repo.rateLimitReset.Before(original.Add(-time.Hour)), "clamped reset must be well before the upstream 3d reset")
+		require.WithinDuration(t, time.Now().Add(5*time.Hour), repo.rateLimitReset, 2*time.Second, "scheduling cooldown must be clamped to now+5h, not the 3d upstream reset")
+		require.True(t, repo.rateLimitReset.Before(original.Add(-5*time.Hour)), "clamped reset must be well before the upstream 3d reset")
 		require.Zero(t, repo.sessionCalls, "7d window does not touch the 5h session gauge")
 	})
 
@@ -123,7 +123,7 @@ func TestPersistAnthropicExhaustedWindowLimit_ClampsSchedulingNotGauge(t *testin
 		svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 		svc.SetSettingService(settingServiceWithAnthropicMaxCooldown("")) // default-on
 
-		originalEnd := time.Now().Add(4 * time.Hour) // > 1h ceiling, within 6h max-age
+		originalEnd := time.Now().Add(6 * time.Hour) // > 5h ceiling, within 6h max-age
 		headers := http.Header{}
 		headers.Set("anthropic-ratelimit-unified-5h-status", "rejected")
 		headers.Set("anthropic-ratelimit-unified-5h-reset", strconv.FormatInt(originalEnd.Unix(), 10))
@@ -132,7 +132,7 @@ func TestPersistAnthropicExhaustedWindowLimit_ClampsSchedulingNotGauge(t *testin
 		require.True(t, svc.persistAnthropicExhaustedWindowLimit(ctx, account, headers))
 
 		require.Equal(t, 1, repo.rateLimitCalls)
-		require.WithinDuration(t, time.Now().Add(time.Hour), repo.rateLimitReset, 2*time.Second, "scheduling cooldown clamped to now+1h")
+		require.WithinDuration(t, time.Now().Add(5*time.Hour), repo.rateLimitReset, 2*time.Second, "scheduling cooldown clamped to now+5h")
 		require.Equal(t, 1, repo.sessionCalls)
 		require.WithinDuration(t, originalEnd, repo.sessionWindowEnd, 2*time.Second, "usage gauge window-end must stay at the ORIGINAL upstream 5h reset, not the clamp")
 	})

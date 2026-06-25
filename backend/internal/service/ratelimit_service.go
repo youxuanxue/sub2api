@@ -1645,8 +1645,9 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
-			// TK (upstream#1981): opt-in clamp of long upstream resets (e.g. 7d
-			// window exhaustion) so released accounts are not idled. Default OFF.
+			// TK (upstream#1981): DEFAULT-ON clamp of long upstream resets (e.g. 7d
+			// window exhaustion); ceiling from SettingKeyOpenAIMaxRateLimitCooldownSeconds
+			// (default 18000s / 5h). Explicit "0" disables and trusts upstream reset.
 			clamped := s.tkClampOpenAIRateLimitReset(ctx, account.ID, *resetAt)
 			s.notifyAccountSchedulingBlocked(account, clamped, "429")
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, clamped); err != nil {
@@ -1715,7 +1716,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {
 					return true
 				}
-				// TK (upstream#1981): opt-in clamp (default OFF) — see header path above.
+				// TK (upstream#1981): DEFAULT-ON clamp — see header path above.
 				resetTime = s.tkClampOpenAIRateLimitReset(ctx, account.ID, resetTime)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {

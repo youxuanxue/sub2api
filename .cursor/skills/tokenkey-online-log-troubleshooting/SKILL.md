@@ -480,8 +480,11 @@ grep -Fc 'gateway_usage.cost_calculation_failed_record_zero_cost' /tmp/tk.log   
 grep -Fc 'openai_implicit_throttle_cooldown_applied' /tmp/tk.log
 grep -Fc 'openai_implicit_throttle_cooldown_failed'  /tmp/tk.log    # SetTempUnschedulable 失败，应为 0
 
-# #1981 限流 reset 钳制（opt-in；默认关 → 应为 0）。命中时确认被钳的原始 reset 确是超长窗口。
+# #1981 限流 reset 钳制（DEFAULT-ON；未显式设 0 即生效，默认 ceiling 18000s/5h）。
+#        marker 仅在超长 upstream reset 被截断时出现；不能用 marker=0 推断「仍关闭」。
 grep -F 'openai_rate_limit_reset_clamped' /tmp/tk.log \
+  | grep -oE '"original_reset":"[^"]*"' | head
+grep -F 'anthropic_rate_limit_reset_clamped' /tmp/tk.log \
   | grep -oE '"original_reset":"[^"]*"' | head
 ```
 
@@ -492,9 +495,10 @@ grep -F 'openai_rate_limit_reset_clamped' /tmp/tk.log \
 | **#1934** sticky 切组 | 复用既有 sticky 删除路径，无新行 | OpenAI/newapi sticky failover 率 / `decision.Layer` 分布有无异常上升（§5 parse-access-log by-minute）；预期几乎无变化（仅平台 openai/newapi，不碰 Anthropic） |
 | **#1946** 监控 thinking-block | 提取层改动，无新行 | Anthropic 渠道监控「测试失败」误报是否下降（渠道监控结果 / ops_error_logs 里 challenge mismatch 计数应降） |
 
-opt-in 开关确认（这批默认关，部署后未显式配置则应保持关）：
+opt-in 开关确认（仅 #2727 默认关；#1981 clamp 为 DEFAULT-ON，见上节 grep）：
 
-- `#2727` `tk_openai_implicit_throttle_cooldown_seconds`、`#1981` `tk_openai_max_rate_limit_cooldown_seconds`：上面两组 marker 计数为 0 即证明仍默认关；要启用先设对应 SettingKey 再复查 marker 出现。
+- `#2727` `tk_openai_implicit_throttle_cooldown_seconds`：上面 marker 计数为 0 即证明仍默认关；要启用先设 SettingKey 再复查 marker 出现。
+- `#1981` `tk_openai_max_rate_limit_cooldown_seconds` / `tk_anthropic_max_rate_limit_cooldown_seconds`：未写入 settings 或非法值时走代码默认 18000s；显式 `"0"` 关闭 clamp。DB 显式值（如 `"3600"`）优先于代码默认。
 
 > 按 §0「配置收敛≠线上稳定」：marker 计数只证明代码路径被走到，真实稳定仍需对照 final `status_code`、503 率、账号可调度数（§4 / §5 / §6）。本节 marker 串以 `backend/internal/service/*` 的 `slog`/`zap` 调用为 ground truth；改了日志文案需同步本节。
 
