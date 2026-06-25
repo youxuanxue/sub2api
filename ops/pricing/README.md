@@ -1,20 +1,31 @@
-# Servable-model allowlist refresh
+# TokenKey model operations
 
-The public `/pricing` catalog and the per-user "Your Menu" only show claude +
-gpt models that are **currently servable through TokenKey** — established by a
-live prod probe, not by the canonical `DefaultModels` lists. The two allowlists
-live in
-`backend/internal/service/pricing_catalog_supported_models_tk.go`
-(between `servable-allowlist:begin/end <platform>` markers) and are
-**regenerated** by the tooling here. Last probe: 2026-06-05.
+TokenKey model operations keep four facts separate:
+
+| Fact | Owner |
+| --- | --- |
+| Runtime serving | per-account `accounts.credentials.model_mapping` |
+| Price | `channel_model_pricing` + `tk_pricing_overlay.json` + litellm mirror |
+| Public catalog + user menu surface | `pricing_catalog_supported_models_tk.go` |
+| Curated newapi intent | `tk_served_models.json` |
+
+The public `/pricing` catalog and the per-user "Your Menu" have converged on
+the same servable surface: `supportedCatalogModelIDsForPlatform` feeds the menu
+fallback, and `FilterPublicCatalogToServable` filters the public catalog from
+the same empirical sets. These sets live in
+`backend/internal/service/pricing_catalog_supported_models_tk.go` between
+`servable-allowlist:begin/end <platform>` markers. The refresh tool rewrites the
+anthropic/openai/gemini blocks from live probes; antigravity and grok are still
+hand-maintained empirical sets in the same file.
 
 ## Files
 
 | File | Role |
 | --- | --- |
-| `probe-servable-models.sh` | Runs ON the prod host (via `ops/observability/run-probe.sh`). Pulls the edge-us7 relay key + the GPT-line key from the DB (never printed), sends one minimal real request per candidate model, emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. |
-| `refresh-servable-allowlist.py` | Orchestrator: derives candidates from the litellm catalog, runs the probe, keeps `verdict==servable`, de-duplicates dated snapshots, and splices the two Go maps. `selftest` covers all deterministic glue (no prod). |
-| `reconcile-served-models.py` | Read-only planner for newapi long-tail reconcile: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
+| `probe-servable-models.sh` | Runs on prod or an edge via `ops/observability/run-probe.sh`. Sends one minimal real request per candidate model and emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. |
+| `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes, keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). |
+| `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
+| `reconcile-served-models.py` | Compatibility wrapper for `modelops.py`. New runbooks should call `modelops.py`. |
 | `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
@@ -23,7 +34,7 @@ live in
 # 0. preview the candidate split (no prod)
 python3 ops/pricing/refresh-servable-allowlist.py candidates
 
-# 1. probe + rewrite the Go allowlist in one shot
+# 1. probe + rewrite the Go allowlist blocks in one shot
 python3 ops/pricing/refresh-servable-allowlist.py run
 
 # 2. review the Go diff, then open a PR (or pass --open-pr to step 1)
@@ -38,18 +49,19 @@ python3 ops/pricing/refresh-servable-allowlist.py probe | tee /tmp/servable.tsv
 python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.tsv
 ```
 
-## Served-model reconcile planner (read-only)
+## Modelops planner (read-only)
 
-For newapi long-tail and mirror-account operations, use the planner to turn
-discovery/probe/pricing/runtime facts into a reviewable plan:
+For newapi long-tail, live runtime mapping checks, and mirror-account
+operations, use the planner to turn discovery/probe/pricing/runtime facts into
+a reviewable plan:
 
 ```bash
 # Generate read-only SQL for a live model_mapping snapshot, then run it through
 # the normal prod DB access path and save the JSON result locally.
-python3 ops/pricing/reconcile-served-models.py snapshot-sql --accounts 60,72
+python3 ops/pricing/modelops.py snapshot-sql --accounts 60,72
 
 # Compare upstream discovery, probe results, live mapping, and Qwen -> Qwen-2 mirror drift.
-python3 ops/pricing/reconcile-served-models.py plan \
+python3 ops/pricing/modelops.py plan \
   --upstream 60:/tmp/qwen_upstream_models.json \
   --probe-results /tmp/qwen_probe.tsv \
   --live-mapping /tmp/qwen_mapping_snapshot.json \
@@ -60,8 +72,10 @@ The planner's output is intentionally an operator plan, not an apply loop:
 `probe_needed` includes grouped `run-probe.sh` commands, `price_missing` points
 to `apply-pricing-hotfix.py lookup`, `mapping_missing` prints guarded
 `apply-model-mapping-live.py --dry-run` commands, and `mirror_drift` reports
-exact key/value differences. Apply still goes through migrations, the guarded
-live model-mapping tool, or pricing-hotfix after review.
+exact key/value differences. It also names the shared catalog/menu surface so
+operators do not hand-maintain a second menu list. Apply still goes through
+migrations, the guarded live model-mapping tool, `refresh-servable-allowlist.py`,
+or pricing-hotfix after review.
 
 ## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
 

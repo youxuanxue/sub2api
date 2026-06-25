@@ -252,3 +252,19 @@ SELECT id, credentials->'model_mapping' FROM accounts WHERE id IN (39,60) AND de
 - `tokenkey-servable-model-refresh`：四个原生平台（anthropic/openai/gemini/antigravity）的公开目录
   allowlist 实测刷新（有 Go map）+ ark/volcengine 运营对账。本 skill 是其在 **newapi 长尾 + 计费意图**
   方向的补集。
+
+## 姊妹脚本：modelops planner
+
+新模型上架前后，或排查 Qwen/Qwen-2、DeepSeek、GLM、VolcEngine 这类策展账号漂移时，先让
+`ops/pricing/modelops.py` 生成只读计划：
+
+```bash
+python3 ops/pricing/modelops.py plan \
+  --upstream 60:/tmp/qwen_upstream_models.json \
+  --probe-results /tmp/qwen_probe.tsv \
+  --live-mapping /tmp/qwen_mapping_snapshot.json \
+  --mirror 60:72
+```
+
+它自动对齐 discovery / probe / price / manifest / live mapping / mirror drift，并打印下一步 probe
+或 guarded dry-run 命令；但它不写生产、不替代本 skill 的人工判断与 guarded apply。

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).with_name("reconcile-served-models.py")
+SCRIPT = Path(__file__).with_name("modelops.py")
 SPEC = importlib.util.spec_from_file_location("reconcile_served_models", SCRIPT)
 RSM = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = RSM
@@ -83,6 +83,8 @@ class ReconcileServedModelsTest(unittest.TestCase):
         self.assertEqual([x["model_id"] for x in plan["probe_needed"]], ["qwen-unprobed"])
         self.assertEqual(plan["probe_commands"][0]["env"], "DASHSCOPE_CHAT_MODELS")
         self.assertEqual(plan["mirror_drift"][0]["missing_in_target"], ["qwen-extra"])
+        self.assertIn("catalog_menu", plan["surfaces"])
+        self.assertEqual(plan["surfaces"]["catalog_menu"], "backend/internal/service/pricing_catalog_supported_models_tk.go")
 
 
 if __name__ == "__main__":

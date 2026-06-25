@@ -606,23 +606,23 @@ else
     echo "  ok: served-models manifest agrees with price/display/migration"
 fi
 
-# ---- sub2api: served-model reconcile planner selftest ------------------------
-# The reconcile planner is deliberately read-only: it mechanizes discovery/probe/
-# price/mapping diffing and prints existing guarded apply commands, but never
-# writes accounts or pricing itself. Keep its parser/classifier covered so the
-# operator-facing plan cannot silently misclassify a priced-but-unprobed model or
-# a mirror-account drift.
+# ---- sub2api: modelops planner selftest --------------------------------------
+# The modelops planner is deliberately read-only: it mechanizes discovery/probe/
+# price/mapping/catalog-surface diffing and prints existing guarded apply
+# commands, but never writes accounts or pricing itself. Keep its parser/
+# classifier covered so the operator-facing plan cannot silently misclassify a
+# priced-but-unprobed model or a mirror-account drift.
 echo ""
-echo "=== sub2api: served-model reconcile planner selftest ==="
+echo "=== sub2api: modelops planner selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for served-model reconcile planner)"
+    echo "  FAIL: python3 not on PATH (required for modelops planner)"
     errors=$((errors + 1))
-elif ! python3 ./ops/pricing/reconcile-served-models.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: served-model reconcile planner selftest"
-    echo "        — run: python3 ops/pricing/reconcile-served-models.py --selftest"
+elif ! python3 ./ops/pricing/modelops.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: modelops planner selftest"
+    echo "        — run: python3 ops/pricing/modelops.py --selftest"
     errors=$((errors + 1))
 else
-    echo "  ok: served-model reconcile planner selftest"
+    echo "  ok: modelops planner selftest"
 fi
 
 # ---- sub2api: pricing-hotfix runbook selftest -------------------------------
