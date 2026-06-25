@@ -3340,6 +3340,31 @@
         "if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {"
       ],
       "rationale": "PR #902 coverage parity: the window-sched tri-state guard now gates the previous_response_id chain (SelectAccountByPreviousResponseID) too, replacing the retired auto-pause that used to gate this path. isSticky=true keeps a StickyOnly account's chain, only a NotSchedulable account yields. If an upstream merge drops this line the prev-response path loses window coverage silently. Anchor pins the injection."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "openAIStreamFailoverBlockedByClientOutput(firstTokenMs)",
+        "openAIStreamDataCountsAsFirstToken(eventType)",
+        "server_is_overloaded"
+      ],
+      "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. server_is_overloaded must stay in the transient/capacity classifier so pre-token capacity failures fail over instead of forwarding to the client. Upstream merges of openai_gateway_service.go can silently restore clientOutputStarted gating and drop the overload markers while older happy-path tests still pass."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_test.go",
+      "must_contain": [
+        "TestOpenAIStreamingResponseFailedAfterOutputItemAddedStillFailovers",
+        "TestOpenAIStreamingResponseFailedAfterRealTokenDoesNotFailover",
+        "TestOpenAIStreamFailoverBlockedByClientOutput_UsesFirstTokenOnly"
+      ],
+      "rationale": "PR #1001 regression anchors: structural output_item.added before response.failed must still fail over; real output_text.delta before response.failed must not; helper openAIStreamFailoverBlockedByClientOutput must remain firstTokenMs-only. Without pinning these tests, an upstream merge conflict can drop the focused cases and reintroduce the prod 1.8.42 failover_eligible-without-failover_candidate pattern."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "firstTokenMs == nil && openAIStreamFailedEventShouldFailover"
+      ],
+      "rationale": "PR #1001: WS Responses paths (forwardOpenAIWSV2 + ProxyResponsesWebSocketFromClient) must surface UpstreamFailoverError on pre-token response.failed transient/capacity errors instead of forwarding to the client. Losing this branch reverts WS to the HTTP/SSE bug class fixed in #1001."
     }
   ]
 }
