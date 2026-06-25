@@ -3412,11 +3412,12 @@
       "path": "backend/internal/service/openai_gateway_service_tk_buffered_failover.go",
       "must_contain": [
         "openAICompatBufferedMissingTerminalResult",
-        "openAICompatBufferedFailedResponseFailover",
+        "openAICompatBufferedFailedResponseResult",
         "acc.HasContent()",
+        "openAIStreamFailedEventShouldFailover",
         "newOpenAIStreamFailoverError"
       ],
-      "rationale": "Non-stream /v1/chat/completions and /v1/messages buffer upstream Responses SSE; when the stream ends without a terminal event and no accumulated output, prod account 64 was returning gateway-generated 502 instead of failing over to a sibling. This companion mirrors the streaming missing-terminal policy (failover before output, client error after partial output). Upstream merges that revert the buffered handlers to direct writeChatCompletionsError/writeAnthropicError silently restore the 502 storm."
+      "rationale": "Non-stream /v1/chat/completions and /v1/messages buffer upstream Responses SSE; when the stream ends without a terminal event and no accumulated output, prod account 64 was returning gateway-generated 502 instead of failing over to a sibling. This companion mirrors the streaming missing-terminal policy (failover before output, client error after partial output) AND the streaming response.failed policy (failover only when openAIStreamFailedEventShouldFailover agrees; non-retryable content_policy/safety/invalid_request failures surface to the client instead of replaying on a sibling). Upstream merges that revert the buffered handlers to direct writeChatCompletionsError/writeAnthropicError silently restore the 502 storm; dropping the shouldFailover gate silently restores pointless sibling failover on non-retryable rejections."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_buffered_failover_test.go",
@@ -3424,9 +3425,11 @@
         "TestForwardAsChatCompletions_BufferedMissingTerminalBeforeOutputReturnsFailover",
         "TestForwardAsChatCompletions_BufferedMissingTerminalAfterOutputReturns502WithoutFailover",
         "TestForwardAsAnthropic_BufferedMissingTerminalBeforeOutputReturnsFailover",
-        "TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover"
+        "TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover",
+        "TestForwardAsChatCompletions_BufferedResponseFailedNonRetryableNoFailover",
+        "TestForwardAsAnthropic_BufferedResponseFailedNonRetryableNoFailover"
       ],
-      "rationale": "Regression anchors for buffered missing-terminal failover: [DONE]/EOF with no content must UpstreamFailoverError without committing client body; partial delta without terminal must stay 502 and must not failover."
+      "rationale": "Regression anchors for buffered missing-terminal failover: [DONE]/EOF with no content must UpstreamFailoverError without committing client body; partial delta without terminal must stay 502 and must not failover. The NonRetryable anchors pin the shouldFailover gate: a content_policy/safety/invalid_request response.failed must surface to the client as an error and must NOT failover to a sibling account."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",

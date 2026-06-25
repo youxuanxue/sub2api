@@ -45,22 +45,42 @@ func (s *OpenAIGatewayService) openAICompatBufferedMissingTerminalResult(
 	return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, failoverMsg)
 }
 
-func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseFailover(
+// openAICompatBufferedFailedResponseResult mirrors the streaming response.failed
+// policy. The streaming path only fails over when openAIStreamFailedEventShouldFailover
+// agrees (transient / capacity errors); a non-retryable failure (content_policy,
+// safety, invalid_request, …) is forwarded to the client instead of replayed on a
+// sibling account. The buffered path applies the same gate: retryable → failover,
+// non-retryable → surface the upstream message as a client error with no failover.
+// cyber_policy is handled by the caller before reaching here.
+func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseResult(
 	c *gin.Context,
 	account *Account,
 	requestID string,
 	finalResponse *apicompat.ResponsesResponse,
+	route openAICompatBufferedRouteKind,
 ) (*OpenAIForwardResult, error) {
 	if finalResponse == nil {
 		return nil, fmt.Errorf("openai buffered response.failed: nil response")
 	}
 	payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
-	return nil, s.newOpenAIStreamFailoverError(
-		c,
-		account,
-		false,
-		requestID,
-		payload,
-		openAICompatFailedResponseMessage(finalResponse),
-	)
+	message := openAICompatFailedResponseMessage(finalResponse)
+	if openAIStreamFailedEventShouldFailover(payload, message) {
+		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message)
+	}
+
+	// Non-retryable upstream failure: do not failover (replaying a policy/invalid
+	// rejection on another account is pointless and pollutes sibling cooldown
+	// attribution). Surface the upstream message to the client, as the streaming
+	// path forwards the response.failed event verbatim.
+	clientMsg := message
+	if clientMsg == "" {
+		clientMsg = "Upstream returned a failed response"
+	}
+	if route == openAICompatBufferedRouteMessages {
+		s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "buffered_response_failed", clientMsg)
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
+	} else {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
+	}
+	return nil, fmt.Errorf("openai buffered response.failed (non-retryable): %s", message)
 }
