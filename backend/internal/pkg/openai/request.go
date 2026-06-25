@@ -3,8 +3,9 @@ package openai
 import "strings"
 
 // CodexCLIUserAgentPrefixes matches Codex CLI User-Agent patterns
-// Examples: "codex_vscode/1.0.0", "codex_cli_rs/0.1.2"
+// Examples: "codex-tui/0.142.0", "codex_vscode/1.0.0", "codex_cli_rs/0.1.2"
 var CodexCLIUserAgentPrefixes = []string{
+	"codex-tui/",
 	"codex_vscode/",
 	"codex_cli_rs/",
 }
@@ -12,6 +13,7 @@ var CodexCLIUserAgentPrefixes = []string{
 // CodexOfficialClientUserAgentPrefixes matches Codex 官方客户端家族 User-Agent 前缀。
 // 该列表仅用于 OpenAI OAuth `codex_cli_only` 访问限制判定。
 var CodexOfficialClientUserAgentPrefixes = []string{
+	"codex-tui/",
 	"codex_cli_rs/",
 	"codex_vscode/",
 	"codex_app/",

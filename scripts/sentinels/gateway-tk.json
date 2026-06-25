@@ -3385,6 +3385,36 @@
         "TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover"
       ],
       "rationale": "Regression anchors for buffered missing-terminal failover: [DONE]/EOF with no content must UpstreamFailoverError without committing client body; partial delta without terminal must stay 502 and must not failover."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "func resolveOpenAICodexUserAgent(",
+        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(",
+        "openai.IsCodexOfficialClientOriginator(originator)"
+      ],
+      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress (python-requests/urllib/SDK) must be re-presented upstream as official Codex: applyOpenAICodexUserAgent sets a Codex UA (precedence ForceCodexCLI > account custom UA > preserve-real-Codex-ingress > admin setting > built-in default) and resolveOpenAIUpstreamOriginator only preserves an inbound originator when IsCodexOfficialClientOriginator() accepts it, otherwise forces codex_cli_rs. Dropping these helpers/wiring silently reverts to forwarding arbitrary client identity, which OpenAI categorizes as Uncategorized and which degrades account health/risk-control — and unit tests on unrelated paths can still stay green. NOTE: anchors structural behavior only, never the codex-tui UA version literal (that is a fingerprint value governed by tokenkey-cc/openai fingerprint-alignment and is meant to drift)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "classifies the request under the official Codex surface"
+      ],
+      "rationale": "Anthropic Messages -> Codex SSE bridge must KEEP the originator header (set to codex_cli_rs upstream) so ChatGPT classifies the request under the official Codex surface, NOT delete it. This reverses the earlier req.Header.Del(\"originator\") that the prior code carried; that exact spot has proven TK<->upstream churn, so an upstream merge re-adding the Del would silently re-introduce Uncategorized classification. Anchoring the rationale comment forces any revert to also drop the comment, surfacing the change in preflight + the upstream-merge PR shape check. Paired regression tests live in openai_compat_model_test.go (TestForwardAsAnthropic_* assert originator==codex_cli_rs)."
+    },
+    {
+      "path": "backend/internal/pkg/openai/request.go",
+      "must_contain": [
+        "\"codex-tui/\","
+      ],
+      "rationale": "codex-tui/ is the real local Codex CLI UA family token (capture 0.142.0). It must stay in both CodexCLIUserAgentPrefixes and CodexOfficialClientUserAgentPrefixes so (a) real codex-tui ingress is recognized as Codex and preserved, and (b) codex_cli_only access restriction accepts it. Dropping it makes legitimate Codex clients fall through to forced-UA rewrite and breaks the codex_cli_only allowlist for the dominant client. Anchors the prefix token (not a version), so upstream merges to the prefix lists are caught."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_passthrough_test.go",
+      "must_contain": [
+        "TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress"
+      ],
+      "rationale": "Regression anchor for the Codex fingerprint normalization: non-Codex OAuth ingress (python-requests / Python-urllib / claude-cli) across /v1/responses, /v1/chat/completions, /v1/messages must reach upstream with a Codex UA and originator==codex_cli_rs, never the inbound client identity. Pins the test so an upstream refactor cannot silently drop the only end-to-end guard for the mimicry behavior."
     }
   ]
 }
