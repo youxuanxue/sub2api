@@ -1,10 +1,15 @@
 ---
 name: tokenkey-servable-model-refresh
 description: >-
-  Refresh TokenKey public pricing and menu served-model allowlists from real upstream probes. Use when the catalog/menu is stale, models may no longer serve 200, or ops/pricing refresh/probe automation needs to update supported maps.
+  Write sub-flow for TokenKey catalog/menu allowlist refresh (branch B). Enter via
+  tokenkey-modelops-planner first; load this skill only when executing
+  refresh-servable-allowlist probe/run/apply and Gemini/Volcengine edge cases.
 ---
 
-# TokenKey：实测可服务模型 allowlist 刷新
+# TokenKey：catalog/Menu allowlist 刷新（写入子流程 · 分支 B）
+
+> **入口：** 运营/agent 应先走 **`tokenkey-modelops-planner`** 路由；判定为 catalog/menu
+> 刷新后再加载本 skill。勿把本 skill 当作 model ops 总入口。
 
 适用于本仓库（TokenKey fork of sub2api）。把「公开 `/pricing` 与用户 `Your Menu`
 应该展示哪些实测可服务模型」从一次性手工探测固化为可复跑流水线。背景与解耦原因见
@@ -147,18 +152,7 @@ python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --
 细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、镜像价格错误时只能用渠道定价修）
 见 `ops/pricing/README.md` §"Pricing-missing hotfix"。
 
-## 姊妹入口：modelops planner
+## 姊妹 skill
 
-当问题不是“刷新公开/菜单 allowlist”，而是“某个 newapi 长尾模型、生产 mapping、Qwen-2
-备份、定价、probe 结果之间哪里漂了”，先跑：
-
-```bash
-python3 ops/pricing/modelops.py plan \
-  --upstream 60:/tmp/qwen_upstream_models.json \
-  --probe-results /tmp/qwen_probe.tsv \
-  --live-mapping /tmp/qwen_mapping_snapshot.json \
-  --mirror 60:72
-```
-
-`modelops.py` 只出计划，不写生产；真正刷新本 skill 管的 catalog/menu surface 仍用
-`refresh-servable-allowlist.py`。
+- **`tokenkey-modelops-planner`**（总入口）：先路由；catalog/menu 走其 **分支 B** 再加载本 skill。
+- `tokenkey-onboard-model`：newapi 长尾 manifest+migration+价（hub **分支 C**）。

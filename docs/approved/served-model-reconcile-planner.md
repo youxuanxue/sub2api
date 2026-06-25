@@ -37,10 +37,7 @@ The Jobs cut is one entry, four facts:
 
 ## Tool
 
-`ops/pricing/modelops.py`
-
-`ops/pricing/reconcile-served-models.py` remains as a compatibility wrapper. New runbooks
-use `modelops.py`.
+**Operator/agent entry:** `.cursor/skills/tokenkey-modelops-planner/SKILL.md` (hub; catalog refresh = branch B → `tokenkey-servable-model-refresh`).
 
 Primary command:
 

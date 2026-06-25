@@ -78,4 +78,4 @@ bash ops/observability/run-probe.sh \
   --env ERR_HOURS=1
 ```
 
-For Kiro OAuth auth drift, switch to `tokenkey-kiro-reauth`. For catalog-wide model serving refresh, use `tokenkey-servable-model-refresh`.
+For Kiro OAuth auth drift, switch to `tokenkey-kiro-reauth`. For any modelops work (catalog refresh, mapping drift, onboard), enter via `tokenkey-modelops-planner` first.

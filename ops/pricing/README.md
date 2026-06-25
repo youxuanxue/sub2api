@@ -51,6 +51,9 @@ python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.
 
 ## Modelops planner (read-only)
 
+**Operator entry:** skill `tokenkey-modelops-planner` (`.cursor/skills/tokenkey-modelops-planner/SKILL.md`).
+Script implementation below; do not treat this README as the primary runbook.
+
 For newapi long-tail, live runtime mapping checks, and mirror-account
 operations, use the planner to turn discovery/probe/pricing/runtime facts into
 a reviewable plan:
