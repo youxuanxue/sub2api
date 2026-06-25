@@ -1,10 +1,15 @@
 ---
 name: tokenkey-servable-model-refresh
 description: >-
-  Refresh TokenKey public pricing and menu served-model allowlists from real upstream probes. Use when the catalog/menu is stale, models may no longer serve 200, or ops/pricing refresh/probe automation needs to update supported maps.
+  Write sub-flow for TokenKey catalog/menu allowlist refresh (branch B). Enter via
+  tokenkey-modelops-planner first; load this skill only when executing
+  refresh-servable-allowlist probe/run/apply and Gemini/Volcengine edge cases.
 ---
 
-# TokenKey：实测可服务模型 allowlist 刷新
+# TokenKey：catalog/Menu allowlist 刷新（写入子流程 · 分支 B）
+
+> **入口：** 运营/agent 应先走 **`tokenkey-modelops-planner`** 路由；判定为 catalog/menu
+> 刷新后再加载本 skill。勿把本 skill 当作 model ops 总入口。
 
 适用于本仓库（TokenKey fork of sub2api）。把「公开 `/pricing` 与用户 `Your Menu`
 应该展示哪些实测可服务模型」从一次性手工探测固化为可复跑流水线。背景与解耦原因见
@@ -34,9 +39,6 @@ description: >-
   `auth_error` 行）。③ 合并授权（人）。
 
 ## 用法
-
-若问题是 newapi 长尾 / prod mapping / mirror 漂移而非「刷新四平台 allowlist」，先走
-**`tokenkey-modelops-planner`**，再决定是否仍需要本 skill。
 
 需运营本机有 AWS creds（探测走 prod SSM）。
 
@@ -152,6 +154,5 @@ python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --
 
 ## 姊妹 skill
 
-- **`tokenkey-modelops-planner`**：newapi 长尾 / prod mapping / mirror / 定价 / probe 漂移的**只读
-  对账**；本 skill 只管四原生平台 catalog/menu 的**实测刷新写入**。
-- `tokenkey-onboard-model`：经账号 60/39 等策展 mapping 的上架与计价意图。
+- **`tokenkey-modelops-planner`**（总入口）：先路由；catalog/menu 走其 **分支 B** 再加载本 skill。
+- `tokenkey-onboard-model`：newapi 长尾 manifest+migration+价（hub **分支 C**）。

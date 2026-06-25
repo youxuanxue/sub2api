@@ -252,7 +252,5 @@ SELECT id, credentials->'model_mapping' FROM accounts WHERE id IN (39,60) AND de
 
 ## 姊妹 skill
 
-- **`tokenkey-modelops-planner`**（对账入口）：上架前或空池 429/503 时，先只读 plan 看清缺 probe、
-  缺价还是缺 mapping；不写生产。
-- `tokenkey-servable-model-refresh`：四原生平台公开目录 allowlist 刷新；本 skill 是其 **newapi 长尾 +
-  计费意图** 写入方向的补集。
+- **`tokenkey-modelops-planner`**（总入口）：上架/mapping 走 **分支 A**；catalog 走 **分支 B**。
+- `tokenkey-servable-model-refresh`：分支 B 写入执行体（本 skill 是其 **分支 C**）。
