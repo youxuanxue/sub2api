@@ -10,9 +10,11 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // 压缩请求体超过该大小时,跳过“解码取模型”以界定额外解码内存(取模型仅作平台偏好提示)。
@@ -58,14 +60,17 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	}
 
 	model := peekUniversalModel(c, shape)
+	reqLog := universalRoutingLogger(c, apiKey, shape, model, forcedPlatform)
 
 	backing, err := resolver.Resolve(c.Request.Context(), apiKey, shape, model, forcedPlatform)
 	if err != nil {
 		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
 		// 后者不该被伪装成“该模型不在你的套餐内”。
 		if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
+			reqLog.Warn("universal_routing.no_entitled_group")
 			writeUniversalRoutingError(c, shape, model)
 		} else {
+			reqLog.Error("universal_routing.resolve_failed", zap.Error(err))
 			writeUniversalRoutingInternalError(c, shape)
 		}
 		c.Abort()
@@ -75,7 +80,58 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	// 伪装成绑定该后端组的普通 key。apiKey 是每请求新建的结构（snapshotToAPIKey），就地替换安全。
 	apiKey.Group = backing
 	apiKey.GroupID = &backing.ID
+	reqLog.Info("universal_routing.resolved",
+		zap.Int64("backing_group_id", backing.ID),
+		zap.String("backing_group_name", backing.Name),
+		zap.String("backing_platform", backing.Platform),
+	)
 	return false
+}
+
+func universalRoutingLogger(c *gin.Context, apiKey *service.APIKey, shape service.UniversalShape, model, forcedPlatform string) *zap.Logger {
+	base := logger.L()
+	if c != nil && c.Request != nil {
+		base = logger.FromContext(c.Request.Context())
+	}
+
+	fields := []zap.Field{
+		zap.String("component", "middleware.universal_routing"),
+		zap.String("universal_shape", universalShapeLabel(shape)),
+		zap.String("request_model", strings.TrimSpace(model)),
+		zap.String("forced_platform", strings.TrimSpace(forcedPlatform)),
+	}
+	if apiKey != nil {
+		fields = append(fields,
+			zap.Int64("api_key_id", apiKey.ID),
+			zap.Int64("user_id", apiKey.UserID),
+		)
+	}
+	return base.With(fields...)
+}
+
+func universalShapeLabel(shape service.UniversalShape) string {
+	switch shape {
+	case service.ShapeSkip:
+		return "skip"
+	case service.ShapeAnthropicMessages:
+		return "anthropic_messages"
+	case service.ShapeAnthropicCountTokens:
+		return "anthropic_count_tokens"
+	case service.ShapeOpenAIChat:
+		return "openai"
+	case service.ShapeOpenAIEmbeddings:
+		return "openai_embeddings"
+	case service.ShapeOpenAIImages:
+		return "openai_images"
+	case service.ShapeOpenAIImagesEdit:
+		return "openai_images_edit"
+	case service.ShapeOpenAIVideo:
+		return "openai_video"
+	case service.ShapeGemini:
+		return "gemini"
+	default:
+		return "unknown"
+	}
 }
 
 // peekUniversalModel 取请求模型名（仅作平台偏好提示）。body 类端点读 body 后“原样还原”

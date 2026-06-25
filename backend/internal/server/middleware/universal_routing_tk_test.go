@@ -7,17 +7,98 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
+
+var middlewareStructuredLogCaptureMu sync.Mutex
+
+type middlewareInMemoryLogSink struct {
+	mu     sync.Mutex
+	events []*logger.LogEvent
+}
+
+func (s *middlewareInMemoryLogSink) WriteLogEvent(event *logger.LogEvent) {
+	if event == nil {
+		return
+	}
+	cloned := *event
+	if event.Fields != nil {
+		cloned.Fields = make(map[string]any, len(event.Fields))
+		for k, v := range event.Fields {
+			cloned.Fields[k] = v
+		}
+	}
+	s.mu.Lock()
+	s.events = append(s.events, &cloned)
+	s.mu.Unlock()
+}
+
+func (s *middlewareInMemoryLogSink) ContainsMessageAtLevel(substr, level string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wantLevel := strings.ToLower(strings.TrimSpace(level))
+	for _, ev := range s.events {
+		if ev == nil {
+			continue
+		}
+		if strings.Contains(ev.Message, substr) && strings.ToLower(strings.TrimSpace(ev.Level)) == wantLevel {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *middlewareInMemoryLogSink) ContainsFieldValue(field, substr string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ev := range s.events {
+		if ev == nil || ev.Fields == nil {
+			continue
+		}
+		if v, ok := ev.Fields[field]; ok && strings.Contains(fmt.Sprint(v), substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func captureMiddlewareStructuredLog(t *testing.T) (*middlewareInMemoryLogSink, func()) {
+	t.Helper()
+	middlewareStructuredLogCaptureMu.Lock()
+
+	err := logger.Init(logger.InitOptions{
+		Level:       "debug",
+		Format:      "json",
+		ServiceName: "sub2api",
+		Environment: "test",
+		Output: logger.OutputOptions{
+			ToStdout: true,
+			ToFile:   false,
+		},
+		Sampling: logger.SamplingOptions{Enabled: false},
+	})
+	require.NoError(t, err)
+
+	sink := &middlewareInMemoryLogSink{}
+	logger.SetSink(sink)
+	return sink, func() {
+		logger.SetSink(nil)
+		middlewareStructuredLogCaptureMu.Unlock()
+	}
+}
 
 type stubSpanLister struct {
 	groups []service.Group
@@ -259,6 +340,23 @@ func TestMaybeResolveUniversal_InternalErrorIs500Not403(t *testing.T) {
 	if strings.Contains(w.Body.String(), "universal_no_entitled_group") {
 		t.Fatalf("internal error must not be mislabeled as no-entitled-group: %s", w.Body.String())
 	}
+}
+
+func TestMaybeResolveUniversal_InternalErrorLogsStructuredContext(t *testing.T) {
+	logSink, restore := captureMiddlewareStructuredLog(t)
+	defer restore()
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5.5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{err: errors.New("database unavailable")})
+	apiKey := &service.APIKey{ID: 11, UserID: 22, RoutingMode: service.RoutingModeUniversal}
+
+	handled := MaybeResolveUniversal(c, apiKey, resolver)
+	require.True(t, handled)
+	require.True(t, logSink.ContainsMessageAtLevel("universal_routing.resolve_failed", "error"))
+	require.True(t, logSink.ContainsFieldValue("api_key_id", "11"))
+	require.True(t, logSink.ContainsFieldValue("user_id", "22"))
+	require.True(t, logSink.ContainsFieldValue("request_model", "gpt-5.5"))
+	require.True(t, logSink.ContainsFieldValue("universal_shape", "openai"))
 }
 
 // Regression for the "prod 视频全局宕" incident (fix/video-channel-type-selection):

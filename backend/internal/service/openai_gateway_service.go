@@ -4044,6 +4044,64 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 	return true
 }
 
+func openAIStreamFailedEventLooksTransient(payload []byte, message string) bool {
+	return isOpenAITransientProcessingError(http.StatusBadRequest, message, payload)
+}
+
+func logOpenAIStreamFailedEvent(ctx context.Context, c *gin.Context, account *Account, upstreamRequestID string, payload []byte, message string, clientOutputStarted bool, passthrough bool) {
+	log := logger.FromContext(ctx).With(
+		zap.String("component", "service.openai_gateway"),
+		zap.String("upstream_request_id", strings.TrimSpace(upstreamRequestID)),
+		zap.Bool("client_output_started", clientOutputStarted),
+		zap.Bool("failover_possible", !clientOutputStarted),
+		zap.Bool("passthrough_mode", passthrough),
+		zap.Bool("remote_compact", isOpenAIResponsesCompactPath(c)),
+	)
+	if account != nil {
+		log = log.With(
+			zap.Int64("account_id", account.ID),
+			zap.String("account_name", account.Name),
+			zap.String("account_type", account.Type),
+			zap.String("account_platform", account.Platform),
+		)
+	}
+	if c != nil {
+		if v, ok := c.Get(OpsModelKey); ok {
+			if model, ok := v.(string); ok && strings.TrimSpace(model) != "" {
+				log = log.With(zap.String("request_model", strings.TrimSpace(model)))
+			}
+		}
+	}
+	failoverEligible := openAIStreamFailedEventShouldFailover(payload, message)
+	transient := openAIStreamFailedEventLooksTransient(payload, message)
+	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+	errorCode := strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String())
+	if errorCode == "" {
+		errorCode = strings.TrimSpace(gjson.GetBytes(payload, "error.code").String())
+	}
+	errorType := strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String())
+	if errorType == "" {
+		errorType = strings.TrimSpace(gjson.GetBytes(payload, "error.type").String())
+	}
+	msg := "openai.stream_failed_event.forwarded_to_client"
+	if !clientOutputStarted && failoverEligible {
+		msg = "openai.stream_failed_event.failover_candidate"
+	}
+	fields := []zap.Field{
+		zap.String("event_type", eventType),
+		zap.String("error_code", errorCode),
+		zap.String("error_type", errorType),
+		zap.String("error_message", sanitizeUpstreamErrorMessage(strings.TrimSpace(message))),
+		zap.Bool("failover_eligible", failoverEligible),
+		zap.Bool("transient_processing_error", transient),
+	}
+	if clientOutputStarted && transient {
+		log.Warn(msg, fields...)
+		return
+	}
+	log.Info(msg, fields...)
+}
+
 func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 	c *gin.Context,
 	account *Account,
@@ -4237,8 +4295,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				} else if !openAIStreamClientOutputStarted(c, clientOutputStarted) && openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
+					logOpenAIStreamFailedEvent(ctx, c, account, upstreamRequestID, dataBytes, failedMessage, false, true)
 					return resultWithUsage(),
 						s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, dataBytes, failedMessage)
+				} else {
+					logOpenAIStreamFailedEvent(ctx, c, account, upstreamRequestID, dataBytes, failedMessage, openAIStreamClientOutputStarted(c, clientOutputStarted), true)
 				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
@@ -5288,9 +5349,12 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				} else if !openAIStreamClientOutputStarted(c, clientOutputStarted) && openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
+					logOpenAIStreamFailedEvent(ctx, c, account, upstreamRequestID, dataBytes, failedMessage, false, false)
 					sawFailedEvent = true
 					streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage)
 					return
+				} else {
+					logOpenAIStreamFailedEvent(ctx, c, account, upstreamRequestID, dataBytes, failedMessage, openAIStreamClientOutputStarted(c, clientOutputStarted), false)
 				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
