@@ -3472,6 +3472,23 @@
         "TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress"
       ],
       "rationale": "Regression anchor for the Codex fingerprint normalization: non-Codex OAuth ingress (python-requests / Python-urllib / claude-cli) across /v1/responses, /v1/chat/completions, /v1/messages must reach upstream with a Codex UA and originator==codex_cli_rs, never the inbound client identity. Pins the test so an upstream refactor cannot silently drop the only end-to-end guard for the mimicry behavior."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_handler_tk_window.go",
+      "must_contain": [
+        "func parseNamedRange(c *gin.Context) (start time.Time, end time.Time, ok bool)",
+        "case \"today\":",
+        "s := timezone.Today()",
+        "timezone.StartOfMonth(timezone.Now())"
+      ],
+      "rationale": "Admin dashboard calendar presets (today/yesterday/this_month/last_month) MUST resolve to the server/billing timezone here (timezone.Today()/StartOfMonth), byte-identical to the customer dashboard and the daily rollup buckets. Without this resolver the admin per-user '今日消费' window follows the operator's browser timezone and silently disagrees with the customer's own dashboard for the same user/day (TK 2026-06-26: admin $1360 vs customer $1024 for user_id=16). An upstream-shaped refactor of the admin dashboard handlers could drop this companion and the window would fall back to browser-local date strings while still compiling."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_handler.go",
+      "must_contain": [
+        "if s, e, ok := parseNamedRange(c); ok {"
+      ],
+      "rationale": "parseTimeRange MUST consult parseNamedRange (server-TZ calendar presets) after parseAbsoluteRange and before the viewer-timezone date-string fallback. If this injection line is dropped on an upstream merge, the resolver in dashboard_handler_tk_window.go is orphaned and admin calendar presets silently revert to browser-timezone windows — the cross-surface 今日消费 mismatch returns with no compile error."
     }
   ]
 }

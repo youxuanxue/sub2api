@@ -41,6 +41,15 @@ func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
 		return s, e
 	}
 
+	// TK: calendar presets (today/yesterday/this_month/last_month) are resolved
+	// in the SERVER/billing timezone so the admin dashboard's "今天" window is
+	// byte-identical to the customer dashboard (timezone.Today()) and the daily
+	// rollup buckets — regardless of the viewer's browser timezone. See
+	// dashboard_handler_tk_window.go.
+	if s, e, ok := parseNamedRange(c); ok {
+		return s, e
+	}
+
 	userTZ := c.Query("timezone") // Get user's timezone from request
 	now := timezone.NowInUserLocation(userTZ)
 	startDate := c.Query("start_date")
