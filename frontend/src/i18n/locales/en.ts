@@ -25,6 +25,11 @@ export default {
     },
     tableHint:
       'Swipe horizontally or scroll below to see all columns. Model names wrap in the left column.',
+    export: {
+      button: 'Export CSV',
+      success: 'Pricing exported'
+    },
+    tieredBadge: 'Tiered ×{n}',
     footer: {
       total: '{count} models listed',
       filtered: 'Showing {shown} of {total} models'

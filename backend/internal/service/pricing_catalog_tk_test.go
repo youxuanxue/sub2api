@@ -163,6 +163,52 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		"source price wins over overlay (fill-only); overlay must NOT override")
 }
 
+// TestPricingCatalogService_AttachesOverlayTiers pins that input-token interval
+// (阶梯) pricing from tk_pricing_overlay.json is surfaced on Pricing.Tiers of the
+// public catalog (the fix for "公开接口拍平丢掉阶梯价"), and that the flat price is
+// left untouched as the first-tier base. doubao-seed-2-0-pro-260215 carries a 3-tier
+// ladder in the compiled-in overlay.
+func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
+	const fixture = `{
+	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC), true
+	})
+
+	resp := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, m := range resp.Data {
+		byID[m.ModelID] = m
+	}
+
+	pro, ok := byID["doubao-seed-2-0-pro-260215"]
+	require.True(t, ok, "tiered overlay model must surface")
+	require.Len(t, pro.Pricing.Tiers, 3, "doubao-seed-2-0-pro carries a 3-tier ladder")
+
+	// tier 1: [0, 32000), per-token ×1000 = per-1k.
+	assert.Equal(t, 0, pro.Pricing.Tiers[0].MinTokens)
+	require.NotNil(t, pro.Pricing.Tiers[0].MaxTokens)
+	assert.Equal(t, 32000, *pro.Pricing.Tiers[0].MaxTokens)
+	assert.InDelta(t, 0.000477612, pro.Pricing.Tiers[0].InputPer1KTokens, 1e-9)
+	assert.InDelta(t, 0.002388060, pro.Pricing.Tiers[0].OutputPer1KTokens, 1e-9)
+
+	// top tier is open-ended (MaxTokens nil) and costs more than tier 1.
+	assert.Nil(t, pro.Pricing.Tiers[2].MaxTokens, "top tier must be unbounded")
+	assert.Greater(t, pro.Pricing.Tiers[2].InputPer1KTokens, pro.Pricing.Tiers[0].InputPer1KTokens)
+
+	// flat price is left as the first-tier base (purely additive — display unchanged).
+	assert.InDelta(t, pro.Pricing.Tiers[0].InputPer1KTokens, pro.Pricing.InputPer1KTokens, 1e-9,
+		"flat input price must equal first tier (additive change, not a mutation)")
+
+	// flat-priced model has no tiers.
+	flat, ok := byID["gpt-5.4"]
+	require.True(t, ok)
+	assert.Empty(t, flat.Pricing.Tiers, "flat-priced model must not carry tiers")
+}
+
 func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) {
 	const fixture = `{
 	  "gemini-2.5-flash": {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000025,"cache_read_input_token_cost":0.00000003,"litellm_provider":"vertex_ai-language-models"}

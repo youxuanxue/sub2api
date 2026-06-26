@@ -244,6 +244,16 @@
             class="flex shrink-0 flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
           >
             <p class="text-xs text-gray-500 dark:text-dark-400" data-tk="pricing-active-catalog">{{ activeCatalogLabel }}</p>
+            <button
+              v-if="canExportPricing"
+              type="button"
+              class="inline-flex items-center gap-1.5 self-start rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:self-auto"
+              data-tk="pricing-export-csv"
+              @click="onExportPricing"
+            >
+              <Icon name="download" size="sm" :stroke-width="2" />
+              {{ t('pricing.export.button') }}
+            </button>
           </div>
           <p
             class="shrink-0 border-b border-gray-100 bg-gray-50/50 px-4 py-2 text-xs text-gray-500 dark:border-dark-800 dark:bg-dark-800/30 dark:text-dark-400 lg:hidden"
@@ -367,6 +377,14 @@
                         <span class="ml-0.5 text-xs text-gray-400">{{
                           t('pricing.perThousandTokens')
                         }}</span>
+                        <div v-if="row.tiers && row.tiers.length" class="mt-0.5">
+                          <span
+                            class="inline-flex cursor-help items-center rounded bg-amber-50 px-1 py-px text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+                            :title="tierTooltip(row)"
+                            data-tk="pricing-tier-badge"
+                            >{{ t('pricing.tieredBadge', { n: row.tiers.length }) }}</span
+                          >
+                        </div>
                       </template>
                       <template v-else>—</template>
                     </td>
@@ -493,6 +511,7 @@ import {
   filterPricingCatalogByModel,
   type PricingCatalogSearchMode
 } from '@/utils/pricingCatalogSearch'
+import { exportPricingCsv } from '@/composables/useTkPricingExport'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -523,6 +542,16 @@ interface NormalizedRow {
   perRequest?: number | null
   perImage?: number | null
   perSecond?: number | null
+  /** Input-token interval (阶梯) ladder, normalized from either catalog source. */
+  tiers?: NormalizedTier[]
+}
+
+/** Normalized阶梯 bracket shared by public + my views (per-1k). */
+interface NormalizedTier {
+  minTokens: number
+  maxTokens: number | null
+  inputPer1K: number | null
+  outputPer1K: number | null
 }
 
 const signupBonusFormatted = computed(() =>
@@ -591,6 +620,17 @@ const selectedGroupId = ref<number>(0)
 
 const canShowCatalogFilters = computed(() => myCatalog.value != null)
 
+// Admin-only "export platform pricing" — the public (在售目录/对外价) catalog only,
+// as a sales-friendly CSV. Hidden for non-admins and when there is nothing to export.
+const canExportPricing = computed(
+  () => authStore.isAdmin && viewMode.value === 'public' && (publicCatalog.value?.data.length ?? 0) > 0
+)
+
+const onExportPricing = () => {
+  exportPricingCsv(publicCatalog.value)
+  appStore.showSuccess(t('pricing.export.success'))
+}
+
 // ============================== hero copy ==============================
 
 const heroTitle = computed(() => t('pricing.title'))
@@ -623,7 +663,13 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       billingMode: m.pricing.billing_mode || 'token',
       perRequest: null,
       perImage: m.pricing.output_cost_per_image ?? null,
-      perSecond: m.pricing.output_cost_per_second ?? null
+      perSecond: m.pricing.output_cost_per_second ?? null,
+      tiers: m.pricing.tiers?.map((tt) => ({
+        minTokens: tt.min_tokens,
+        maxTokens: tt.max_tokens ?? null,
+        inputPer1K: tt.input_per_1k_tokens ?? null,
+        outputPer1K: tt.output_per_1k_tokens ?? null
+      }))
     }))
   }
   // 'my' view
@@ -642,7 +688,13 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     billingMode: m.billing_mode,
     perRequest: m.your_price.per_request ?? null,
     perImage: m.your_price.per_image ?? null,
-    perSecond: m.your_price.per_second ?? null
+    perSecond: m.your_price.per_second ?? null,
+    tiers: m.your_price.tiers?.map((tt) => ({
+      minTokens: tt.min_tokens,
+      maxTokens: tt.max_tokens ?? null,
+      inputPer1K: tt.input_per_1k ?? null,
+      outputPer1K: tt.output_per_1k ?? null
+    }))
   }))
 })
 
@@ -766,6 +818,27 @@ function formatPrice(value: number): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
+}
+
+/** "0" / "32000"→"32k" / null→"∞" — compact token-bound label for the阶梯 tooltip. */
+function tierTokenLabel(n: number | null): string {
+  if (n === null) return '∞'
+  if (n === 0) return '0'
+  return n % 1000 === 0 ? `${n / 1000}k` : String(n)
+}
+
+/** Multi-line ladder for the row's tier badge `title` (per-1k, both views). */
+function tierTooltip(row: NormalizedRow): string {
+  if (!row.tiers || row.tiers.length === 0) return ''
+  const unit = t('pricing.perThousandTokens')
+  return row.tiers
+    .map((tier) => {
+      const range = `${tierTokenLabel(tier.minTokens)}–${tierTokenLabel(tier.maxTokens)}`
+      const inp = tier.inputPer1K != null ? formatPrice(tier.inputPer1K) : '—'
+      const out = tier.outputPer1K != null ? formatPrice(tier.outputPer1K) : '—'
+      return `${range}: ${t('pricing.columns.input')} ${inp} / ${t('pricing.columns.output')} ${out} ${unit}`
+    })
+    .join('\n')
 }
 
 function formatBillingMode(mode: string): string {

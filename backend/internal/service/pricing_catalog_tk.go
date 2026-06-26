@@ -102,6 +102,28 @@ type PublicCatalogPricing struct {
 	BillingMode         string  `json:"billing_mode,omitempty"`
 	OutputCostPerImage  float64 `json:"output_cost_per_image,omitempty"`
 	OutputCostPerSecond float64 `json:"output_cost_per_second,omitempty"`
+	// Tiers, when non-empty, is the input-token interval (阶梯) pricing for models
+	// whose unit price varies by request input length (overlay `intervals` —
+	// VolcEngine doubao-seed-*, DeepSeek, Qwen-plus/coder, GLM-4.7 tiered SKUs).
+	// The flat Input/OutputPer1KTokens fields above carry the FIRST (lowest) tier
+	// so pre-tier clients still render a sane base price; tier-aware clients (and
+	// the admin CSV export) render the full ladder. Per 1k tokens, USD. Until this
+	// field shipped the public /pricing endpoint silently flattened these models to
+	// their first-tier price only — the ladder lived only in the compiled-in
+	// tk_pricing_overlay.json. Omitted for flat-priced models.
+	Tiers []PublicCatalogTier `json:"tiers,omitempty"`
+}
+
+// PublicCatalogTier is one input-token bracket of a tiered (阶梯) price. MinTokens
+// is inclusive, MaxTokens exclusive; MaxTokens == nil is the open-ended top tier.
+// Prices are USD per 1k tokens (overlay intervals are stored per-token → ×1000 to
+// match the rest of the catalog).
+type PublicCatalogTier struct {
+	MinTokens         int     `json:"min_tokens"`
+	MaxTokens         *int    `json:"max_tokens,omitempty"`
+	InputPer1KTokens  float64 `json:"input_per_1k_tokens"`
+	OutputPer1KTokens float64 `json:"output_per_1k_tokens"`
+	CacheReadPer1K    float64 `json:"cache_read_per_1k,omitempty"`
 }
 
 // catalogRichEntry mirrors the litellm-shape JSON fields needed for the public
@@ -221,6 +243,7 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 	// contract) rather than surfacing a partial overlay-only catalog.
 	if len(resp.Data) > 0 {
 		applyCatalogOverlayPricing(resp)
+		attachCatalogOverlayTiers(resp)
 	}
 
 	s.mu.Lock()
@@ -390,6 +413,45 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 		sort.Slice(resp.Data, func(i, j int) bool {
 			return resp.Data[i].ModelID < resp.Data[j].ModelID
 		})
+	}
+}
+
+// attachCatalogOverlayTiers surfaces overlay-defined input-token interval (阶梯)
+// pricing on the public catalog. Runs AFTER applyCatalogOverlayPricing so it sees
+// every model (file-sourced and overlay-filled). The flat Input/OutputPer1KTokens
+// fields stay the base (first) tier for pre-tier clients; this fills the full
+// ladder on Pricing.Tiers for tier-aware clients and the admin CSV export. Overlay
+// interval prices are per-token → ×1000 to match the catalog's per-1k unit.
+// Purely additive (never mutates flat prices), idempotent, nil-safe.
+func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
+	if resp == nil || len(resp.Data) == 0 {
+		return
+	}
+	overlay := loadTKPricingOverlay()
+	if len(overlay) == 0 {
+		return
+	}
+	for i := range resp.Data {
+		p := overlay[resp.Data[i].ModelID]
+		if p == nil || len(p.Intervals) == 0 {
+			continue
+		}
+		tiers := make([]PublicCatalogTier, 0, len(p.Intervals))
+		for j := range p.Intervals {
+			iv := p.Intervals[j]
+			tier := PublicCatalogTier{MinTokens: iv.MinTokens, MaxTokens: iv.MaxTokens}
+			if iv.InputPrice != nil {
+				tier.InputPer1KTokens = *iv.InputPrice * 1000
+			}
+			if iv.OutputPrice != nil {
+				tier.OutputPer1KTokens = *iv.OutputPrice * 1000
+			}
+			if iv.CacheReadPrice != nil {
+				tier.CacheReadPer1K = *iv.CacheReadPrice * 1000
+			}
+			tiers = append(tiers, tier)
+		}
+		resp.Data[i].Pricing.Tiers = tiers
 	}
 }
 
