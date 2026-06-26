@@ -37,6 +37,20 @@ export interface MePricingPrice {
   per_image?: number
   /** USD per second of generated video (video billing_mode), scaled by the user's rate. */
   per_second?: number
+  /** Input-token interval (阶梯) ladder, copied verbatim from the public catalog
+   *  (single source of truth — me-pricing is the official list price). The flat
+   *  input/output fields carry the first tier. Absent for flat-priced models. */
+  tiers?: MePricingTier[]
+}
+
+/** One input-token bracket of a tiered (阶梯) price. `min_tokens` inclusive,
+ *  `max_tokens` exclusive; `max_tokens` absent = open-ended top tier. Per 1k tokens. */
+export interface MePricingTier {
+  min_tokens: number
+  max_tokens?: number
+  input_per_1k?: number
+  output_per_1k?: number
+  cache_read_per_1k?: number
 }
 
 export interface MePricingModel {

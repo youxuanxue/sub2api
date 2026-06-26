@@ -211,6 +211,46 @@ type MePricingPrice struct {
 	// the public catalog meta (which now surfaces media — pricing_catalog_tk.go).
 	PerImage  *float64 `json:"per_image,omitempty"`
 	PerSecond *float64 `json:"per_second,omitempty"`
+	// Tiers, when non-empty, is the input-token interval (阶梯) ladder for models
+	// whose unit price varies by request input length. Single source of truth: it
+	// is copied verbatim from the public catalog (PublicCatalogModel.Pricing.Tiers,
+	// built once in attachCatalogOverlayTiers) — me-pricing shows the OFFICIAL list
+	// price (officialRate = 1.0, no group/override scaling), so its ladder is the
+	// same one the public /pricing endpoint serves. The flat Input/OutputPer1K
+	// fields carry the first (lowest) tier. Per 1k tokens, USD.
+	Tiers []MePricingTier `json:"tiers,omitempty"`
+}
+
+// MePricingTier mirrors PublicCatalogTier (the single source) in the me-pricing
+// DTO's per-1k naming. MinTokens inclusive, MaxTokens exclusive (nil = open-ended
+// top tier). Pointer prices keep the "nil = no data" convention of MePricingPrice.
+type MePricingTier struct {
+	MinTokens      int      `json:"min_tokens"`
+	MaxTokens      *int     `json:"max_tokens,omitempty"`
+	InputPer1K     *float64 `json:"input_per_1k,omitempty"`
+	OutputPer1K    *float64 `json:"output_per_1k,omitempty"`
+	CacheReadPer1K *float64 `json:"cache_read_per_1k,omitempty"`
+}
+
+// mePricingTiersFromCatalog converts the public catalog's tier ladder into the
+// me-pricing DTO shape verbatim (no rate scaling — me-pricing is the official
+// list price). Returns nil for a flat-priced model so the field stays omitted.
+func mePricingTiersFromCatalog(tiers []PublicCatalogTier) []MePricingTier {
+	if len(tiers) == 0 {
+		return nil
+	}
+	out := make([]MePricingTier, 0, len(tiers))
+	for i := range tiers {
+		t := tiers[i]
+		in, outp := t.InputPer1KTokens, t.OutputPer1KTokens
+		mt := MePricingTier{MinTokens: t.MinTokens, MaxTokens: t.MaxTokens, InputPer1K: &in, OutputPer1K: &outp}
+		if t.CacheReadPer1K > 0 {
+			cr := t.CacheReadPer1K
+			mt.CacheReadPer1K = &cr
+		}
+		out = append(out, mt)
+	}
+	return out
 }
 
 // MePricingKeyRef populates the key-picker dropdown. Only active keys
@@ -518,6 +558,9 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 			if m.Vendor == "" {
 				m.Vendor = meta.Vendor
 			}
+			// Single source of truth: the阶梯 ladder is the public catalog's,
+			// copied verbatim (me-pricing is the official list price, rate 1.0).
+			m.YourPrice.Tiers = mePricingTiersFromCatalog(meta.Pricing.Tiers)
 		}
 		if m.Capabilities == nil {
 			m.Capabilities = []string{}
