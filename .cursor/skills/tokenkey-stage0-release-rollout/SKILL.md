@@ -20,7 +20,7 @@ description: >-
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
 | Edge dispatch 路由（edges 均为 Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
-| **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认且推荐 `--parallel 1` 顺序**；并发换容器会同窗口缩小 prod 的 anthropic/kiro failover 池——`--parallel N>1` 仅在 edges 已蓝绿/非中转 fleet 时作显式加速，见 §7 注） |
+| **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
 | prod 镜像预热（deploy 前，把 ~150s pull 移出关键路径） | 机械 | `gh workflow run warm-image-stage0.yml` + 自批 + watch（只读、非致命；命令形状见 §「部署目标矩阵 → prod」） |
 | prod Environment approval（canary 绿后） | 机械 | `gh api -X POST …/pending_deployments`（命令形状见 §「部署目标矩阵 → prod」；批不批、何时批是判断） |
@@ -249,7 +249,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    # 每个 edge 输出 rollout-edges: edge=<id> run_id=<id> result=ok；全过输出 ALL_OK n=<k>
    ```
 
-   脚本按 batch dispatch upgrade → watch（自动重连抖动的 `gh run watch`）→ 验 `tk_edge_post_deploy_smoke: OK phase=infra`。**默认 `--parallel 1`（顺序），中转型 edge 保持顺序**：prod 的 `cc-/kiro-<edge>` 镜像账号把 anthropic/kiro 流量中转到各 edge，而 edge 是**原地换容器**（`deploy_via_ssm.sh`，有短暂 `/health=503` 窗口，非 prod 的蓝绿 `deploy_via_ssm_bluegreen.sh`），并发重启 N 个 edge 会在同一 ~80s 窗口从 prod failover 池摘掉 N 个目标（v1.8.48 实测：`--parallel 3` 升 us4/us5/us6 时只剩 canary 健康，并发切换瞬时出现一小簇 anthropic/kiro 502）。`--parallel N>1` 是显式的速度/爆炸半径取舍，**只有在 edges 已蓝绿或非中转型 fleet 时才用**。批内已 dispatch 的 edge 会全部验收；任一失败后不再启动下一批（未 dispatch 的 edge 留在旧 tag）。**不再**对每个 edge 跑 main-via-edge。
+   脚本按 batch dispatch upgrade → watch（自动重连抖动的 `gh run watch`）→ 验 `tk_edge_post_deploy_smoke: OK phase=infra`。**默认 `--parallel 1`（顺序）**，降低并发换容器对线上的影响（并发重启多个 edge 会缩小 prod 中转 failover 池、在换容器窗口冒 502）；`N>1` 仅在可接受该影响时用。批内已 dispatch 的 edge 会全部验收；任一失败后不再启动下一批（未 dispatch 的 edge 留在旧 tag）。**不再**对每个 edge 跑 main-via-edge。
    - **main-via-edge canary** 仍通常仅 **uk1 / us1**（需 `TK_SMOKE_API_KEY`）。
    - **us2 / us3 / us4** 等 Lightsail-only edge：rollout 以 infra smoke + 可选 `curl https://api-<id>.tokenkey.dev/health` 为准；勿因缺 canary secret 判失败。
 8. **发版后跟进（按 diff 档位，至多一次 tick）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
@@ -640,7 +640,7 @@ bash scripts/release-rollout-summary.sh --mode release
 - `scripts/release-decide-version.sh` — VERSION/tag 三态决策。
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
-- `scripts/stage0/rollout-edges.sh` — 其余 Edge bounded-parallel rollout（fail-stop + smoke 标记验收；**默认且推荐 `--parallel 1` 顺序**；`N>1` 仅在 edges 已蓝绿/非中转 fleet 时作显式加速——并发换容器会缩小 prod 的 anthropic/kiro failover 池）。
+- `scripts/stage0/rollout-edges.sh` — 其余 Edge bounded-parallel rollout（fail-stop + smoke 标记验收；**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受时用）。
 - `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（edges 均为 Lightsail）。
 - `ops/observability/probe-release-control-plane.sh` — 发版后控制面探活（prod + deployable Edge，JSON lines + summary）。
 - `ops/observability/probe-post-release-tick.sh` — 发版后 tick 探针（blue/green active container auto + HOOK_PATTERNS 计数 + 流量/5xx/panic）。
