@@ -75,7 +75,8 @@ type kiroEndpoint struct {
 // it in rest.go (kiroRestFetch, management.us-east-1.kiro.dev first, codewhisperer
 // fallback) for the calls edge-us6 smoke-validated equivalent on management —
 // ListAvailableProfiles, ListAvailableModels, getUsageLimits. GetUserInfo stays on
-// codewhisperer: management returns UnknownOperationException for it.
+// codewhisperer: the new protocol has no standalone user-info op (identity is folded
+// into getUsageLimits.userInfo, which TK already reads) and TK has no caller for it.
 var kiroEndpoints = []kiroEndpoint{
 	{
 		// Kiro Runtime — the go-forward *.kiro.dev data-plane host (preferred).

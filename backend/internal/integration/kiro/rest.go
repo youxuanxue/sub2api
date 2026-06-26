@@ -18,8 +18,9 @@ const (
 	// kiroRestFetch, management-first with codewhisperer fallback) by the calls
 	// edge-us6 smoke-validated equivalent on management: ListAvailableProfiles
 	// (same profileArn), ListAvailableModels (same model set), getUsageLimits (all
-	// fields UsageLimitsResponse reads). GetUserInfo stays on codewhisperer —
-	// management returns UnknownOperationException for it.
+	// fields UsageLimitsResponse reads). GetUserInfo stays on codewhisperer: the new
+	// protocol has no standalone user-info op — identity is folded into getUsageLimits
+	// (userInfo{email,userId}); and kiro.GetUserInfo has no TK caller anyway.
 	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
 
@@ -31,9 +32,11 @@ func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestA
 // (profileArn appended when withParn), returning the first HTTP-200 body. Used by
 // the calls edge-us6 smoke-validated equivalent on management — ListAvailableProfiles
 // (same profileArn), ListAvailableModels (same model set), getUsageLimits (every
-// field UsageLimitsResponse reads is present). GetUserInfo is deliberately NOT routed
-// here: management returns UnknownOperationException (HTTP 400) for it, so it stays on
-// the legacy host until the management operation name is identified.
+// field UsageLimitsResponse reads is present). GetUserInfo is NOT routed here: the
+// new *.kiro.dev protocol has no standalone user-info operation (management 400s
+// every GetUserInfo/getUserInfo/GetUser variant, edge-us6-probed); user identity is
+// instead folded into getUsageLimits (userInfo{email,userId} + subscriptionInfo),
+// which TK already parses. kiro.GetUserInfo has no caller in TK anyway.
 func kiroRestFetch(account *Account, method, path, body string, withParn bool) ([]byte, error) {
 	var lastErr error
 	for _, base := range kiroRestBases() {
@@ -85,9 +88,12 @@ func GetUsageLimits(account *Account) (*UsageLimitsResponse, error) {
 	return &result, nil
 }
 
-// GetUserInfo 获取用户信息. Stays on the legacy codewhisperer.* host: management.kiro.dev
-// returns UnknownOperationException (HTTP 400) for GetUserInfo (edge-us6 probe, 2026-06-26),
-// so it is NOT routed through kiroRestFetch until the management equivalent is identified.
+// GetUserInfo 获取用户信息. Legacy codewhisperer.* only — the new *.kiro.dev protocol
+// has NO standalone user-info operation (management 400s every variant; edge-us6 probe
+// 2026-06-26). On the new protocol user identity is returned inside getUsageLimits
+// (userInfo{email,userId} + subscriptionInfo), already parsed via the migrated
+// GetUsageLimits. This function additionally has no caller in TK, so it needs no
+// migration; kept as vendored API surface.
 func GetUserInfo(account *Account) (*UserInfoResponse, error) {
 	url := fmt.Sprintf("%s/GetUserInfo", kiroRestAPIBase)
 
