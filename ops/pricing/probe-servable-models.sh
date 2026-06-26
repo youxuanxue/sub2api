@@ -102,11 +102,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # fallback. When delivered via run-probe.sh the companion must be uploaded with
 # `--with ops/pricing/probe_reserved_resources.sh`; fail loudly if it is absent
 # (otherwise every family would silently config_error on undefined tk_probe_*).
-# shellcheck source=probe_reserved_resources.sh
-if ! . "$SCRIPT_DIR/probe_reserved_resources.sh" 2>/dev/null; then
-	echo "probe-servable-models: cannot source $SCRIPT_DIR/probe_reserved_resources.sh — deliver it with 'run-probe.sh --with ops/pricing/probe_reserved_resources.sh'" >&2
+# Check existence separately from sourcing: a MISSING file is the --with mistake,
+# but a present-but-broken file must surface its OWN error (do not mask it here).
+if [ ! -f "$SCRIPT_DIR/probe_reserved_resources.sh" ]; then
+	echo "probe-servable-models: companion $SCRIPT_DIR/probe_reserved_resources.sh not found — deliver it with 'run-probe.sh --with ops/pricing/probe_reserved_resources.sh'" >&2
 	exit 2
 fi
+# shellcheck source=probe_reserved_resources.sh
+. "$SCRIPT_DIR/probe_reserved_resources.sh"
 
 PSQL_ARRAY=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'
