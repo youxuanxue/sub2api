@@ -161,6 +161,8 @@ const props = withDefaults(
     showSourceToggle?: boolean
     startDate?: string
     endDate?: string
+    startTs?: number
+    endTs?: number
     filters?: Record<string, any>
   }>(),
   {
@@ -197,6 +199,8 @@ const toggleBreakdown = async (endpoint: string) => {
       ...props.filters,
       start_date: props.startDate,
       end_date: props.endDate,
+      start_ts: props.startTs,
+      end_ts: props.endTs,
       endpoint,
       endpoint_type: props.source,
     })

@@ -122,6 +122,8 @@ export async function getStats(params: {
   period?: string
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   timezone?: string
   nocache?: number
   include_summary?: number | boolean

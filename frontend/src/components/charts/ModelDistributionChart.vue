@@ -274,6 +274,8 @@ const props = withDefaults(defineProps<{
   rankingError?: boolean
   startDate?: string
   endDate?: string
+  startTs?: number
+  endTs?: number
   filters?: Record<string, any>
 }>(), {
   upstreamModelStats: () => [],
@@ -310,6 +312,8 @@ const toggleBreakdown = async (type: string, id: string) => {
       ...props.filters,
       start_date: props.startDate,
       end_date: props.endDate,
+      start_ts: props.startTs,
+      end_ts: props.endTs,
       model: id,
       model_source: props.source,
     })

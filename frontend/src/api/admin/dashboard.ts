@@ -83,6 +83,8 @@ export async function getUsageTrend(params?: TrendParams): Promise<TrendResponse
 export interface ModelStatsParams {
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   user_id?: number
   api_key_id?: number
   model?: string
@@ -113,6 +115,8 @@ export async function getModelStats(params?: ModelStatsParams): Promise<ModelSta
 export interface GroupStatsParams {
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   user_id?: number
   api_key_id?: number
   account_id?: number
@@ -166,6 +170,8 @@ export async function getGroupStats(params?: GroupStatsParams): Promise<GroupSta
 export interface UserBreakdownParams {
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   group_id?: number
   model?: string
   model_source?: 'requested' | 'upstream' | 'mapping'

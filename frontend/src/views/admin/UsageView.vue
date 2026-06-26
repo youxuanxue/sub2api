@@ -33,6 +33,8 @@
             :show-metric-toggle="true"
             :start-date="startDate"
             :end-date="endDate"
+            :start-ts="getTimeWindowParams()?.start_ts"
+            :end-ts="getTimeWindowParams()?.end_ts"
             :filters="breakdownFilters"
           />
           <GroupDistributionChart
@@ -42,6 +44,8 @@
             :show-metric-toggle="true"
             :start-date="startDate"
             :end-date="endDate"
+            :start-ts="getTimeWindowParams()?.start_ts"
+            :end-ts="getTimeWindowParams()?.end_ts"
             :filters="breakdownFilters"
           />
         </div>
@@ -59,6 +63,8 @@
               :title="t('usage.endpointDistribution')"
               :start-date="startDate"
               :end-date="endDate"
+              :start-ts="getTimeWindowParams()?.start_ts"
+              :end-ts="getTimeWindowParams()?.end_ts"
               :filters="breakdownFilters"
             />
           </div>
@@ -171,6 +177,7 @@ import ModelDistributionChart from '@/components/charts/ModelDistributionChart.v
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import { rollingWindowTs } from '@/utils/dashboardWindow.tk'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -210,9 +217,15 @@ let modelStatsReqSeq = 0
 let initialChartTimer: number | null = null
 const exportProgress = reactive({ show: false, progress: 0, current: 0, total: 0, estimatedTime: '' })
 const cleanupDialogVisible = ref(false)
+const activePreset = ref<string | null>('last24Hours')
+// Set only when another page passes a precise window in the route; rolling
+// presets are recalculated per request so refresh keeps meaning "last N hours".
+const selectedAbsoluteWindow = ref<{ start_ts: number; end_ts: number } | null>(null)
 // Balance history modal state
 const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
+
+const getTimeWindowParams = () => selectedAbsoluteWindow.value ?? rollingWindowTs(activePreset.value)
 
 const breakdownFilters = computed(() => {
   const f: Record<string, any> = {}
@@ -282,11 +295,90 @@ const getNumericQueryValue = (value: string | null | Array<string | null> | unde
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+const detectPresetForDateRange = (start: string, end: string): string | null => {
+  const presets = [
+    'today',
+    'yesterday',
+    'last24Hours',
+    '7days',
+    '14days',
+    '30days',
+    'thisMonth',
+    'lastMonth'
+  ] as const
+
+  for (const preset of presets) {
+    const pickerRange = (() => {
+      switch (preset) {
+        case 'today': {
+          const t = formatLD(new Date())
+          return { start: t, end: t }
+        }
+        case 'yesterday': {
+          const d = new Date()
+          d.setDate(d.getDate() - 1)
+          const yesterday = formatLD(d)
+          return { start: yesterday, end: yesterday }
+        }
+        case 'last24Hours':
+          return getLast24HoursRangeDates()
+        case '7days': {
+          const endDate = formatLD(new Date())
+          const d = new Date()
+          d.setDate(d.getDate() - 6)
+          return { start: formatLD(d), end: endDate }
+        }
+        case '14days': {
+          const endDate = formatLD(new Date())
+          const d = new Date()
+          d.setDate(d.getDate() - 13)
+          return { start: formatLD(d), end: endDate }
+        }
+        case '30days': {
+          const endDate = formatLD(new Date())
+          const d = new Date()
+          d.setDate(d.getDate() - 29)
+          return { start: formatLD(d), end: endDate }
+        }
+        case 'thisMonth': {
+          const now = new Date()
+          return { start: formatLD(new Date(now.getFullYear(), now.getMonth(), 1)), end: formatLD(now) }
+        }
+        case 'lastMonth': {
+          const now = new Date()
+          return {
+            start: formatLD(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+            end: formatLD(new Date(now.getFullYear(), now.getMonth(), 0))
+          }
+        }
+      }
+    })()
+    if (pickerRange.start === start && pickerRange.end === end) {
+      return preset
+    }
+  }
+
+  return null
+}
+
 const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+  const queryStartTs = getNumericQueryValue(route.query.start_ts)
+  const queryEndTs = getNumericQueryValue(route.query.end_ts)
 
+  if (queryStartTs != null && queryEndTs != null) {
+    selectedAbsoluteWindow.value = { start_ts: queryStartTs, end_ts: queryEndTs }
+    if (!queryStartDate) {
+      startDate.value = formatLD(new Date(queryStartTs))
+    }
+    if (!queryEndDate) {
+      endDate.value = formatLD(new Date(queryEndTs))
+    }
+  } else {
+    selectedAbsoluteWindow.value = null
+  }
   if (queryStartDate) {
     startDate.value = queryStartDate
   }
@@ -300,12 +392,15 @@ const applyRouteQueryFilters = () => {
     start_date: startDate.value,
     end_date: endDate.value
   }
+  activePreset.value = detectPresetForDateRange(startDate.value, endDate.value)
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
 }
 
 const onDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
   startDate.value = range.startDate
   endDate.value = range.endDate
+  activePreset.value = range.preset
+  selectedAbsoluteWindow.value = null
   filters.value = {
     ...filters.value,
     start_date: range.startDate,
@@ -327,6 +422,7 @@ const buildUsageListParams = (
     page_size: pageSize,
     exact_total: exactTotal,
     ...filters.value,
+    ...(getTimeWindowParams() ?? {}),
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -350,6 +446,7 @@ const loadStats = async (force = false) => {
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
       ...filters.value,
+      ...(getTimeWindowParams() ?? {}),
       stream: legacyStream === null ? undefined : legacyStream,
       include_endpoints: 0,
       ...(force ? { nocache: 1 } : {}),
@@ -377,6 +474,7 @@ const loadEndpointStats = async (force = false) => {
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
       ...filters.value,
+      ...(getTimeWindowParams() ?? {}),
       stream: legacyStream === null ? undefined : legacyStream,
       include_summary: 0,
       include_endpoints: 1,
@@ -442,6 +540,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
     const baseParams = {
       start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
+      ...(getTimeWindowParams() ?? {}),
       user_id: filters.value.user_id,
       model: filters.value.model,
       api_key_id: filters.value.api_key_id,
@@ -487,6 +586,7 @@ const buildChartSnapshotParams = () => {
   return {
     start_date: filters.value.start_date || startDate.value,
     end_date: filters.value.end_date || endDate.value,
+    ...(getTimeWindowParams() ?? {}),
     granularity: granularity.value,
     user_id: filters.value.user_id,
     model: filters.value.model,
@@ -568,6 +668,8 @@ const resetFilters = () => {
   const range = getLast24HoursRangeDates()
   startDate.value = range.start
   endDate.value = range.end
+  activePreset.value = 'last24Hours'
+  selectedAbsoluteWindow.value = null
   filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, billing_type: null, billing_mode: undefined }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
   applyFilters()
@@ -734,12 +836,13 @@ const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined 
 const loadAdminErrors = async () => {
   errLoading.value = true
   try {
+    const timeWindow = getTimeWindowParams()
     const resp = await listErrorLogs({
       page: errPage.value,
       page_size: errPageSize.value,
       view: 'all',
-      start_time: toRFC3339(filters.value.start_date),
-      end_time: toRFC3339(filters.value.end_date, true),
+      start_time: timeWindow ? new Date(timeWindow.start_ts).toISOString() : toRFC3339(filters.value.start_date),
+      end_time: timeWindow ? new Date(timeWindow.end_ts).toISOString() : toRFC3339(filters.value.end_date, true),
       user_id: filters.value.user_id ?? undefined,
       api_key_id: filters.value.api_key_id ?? undefined,
       account_id: filters.value.account_id ?? undefined,
