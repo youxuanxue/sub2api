@@ -34,10 +34,12 @@ supersedes: none
 - **不是**被否决的「price ⇒ serving auto-mapping」（见 §3）。本闸是 fail-closed 的**减法**
   （unpriced → 不服务），**绝不**往任何账号的 serving 白名单里**加**模型。它**读** PRICE 与
   SERVING 两个事实，**不拥有**任何一个。
-- **可用性靠自动定价保**（§4）：首次请求一个未定价、但**在候选集内**的模型，会触发从可信源
-  （官方价页 / litellm 镜像）取价，**热推进 overlay runtime 层**（`SettingKeyTKPricingOverlayRuntime`，
-  git 的 `tk_pricing_overlay.json` 仍是唯一事实源、runtime 只是它的热投影），下一次请求即放行——分钟级、
-  无人工、无发版。**取不到价**的模型保持被拒（响亮的 `404`），而非无声漏 `$0`。
+- **可用性靠补价通路保**（§4，**增量阶梯**）：一次闸拒绝点名一个未定价、但**在候选集内**的模型，触发
+  补价通路把价**热推进 overlay runtime 层**（`SettingKeyTKPricingOverlayRuntime`，git 的
+  `tk_pricing_overlay.json` 仍是唯一事实源、runtime 只是它的热投影），下一次请求即放行——运行期生效、
+  **无发版**。**v1（本次）= 拒绝即触发既有缺价飞书告警，运维用现成 `apply-pricing-hotfix.py` 补价**（人
+  在环、约 5 秒批）；v2 = litellm-一键确认 + Go-native overlay 写器；v3 = 官方价全自动（需先建价源，
+  fast-follow）。**取不到价**的模型保持被拒（响亮 `404`），而非无声漏 `$0`。
 
 ## 1. 缺口（代码佐证）
 
@@ -100,43 +102,53 @@ fail-closed 的代价——拒掉一个刚发布的模型——由 §4 自动定
   *价格*、写 PRICE 事实；它**绝不**自动上架 serving（不写 `model_mapping`）。serving 仍是人/迁移的
   决策；只有价格被自动化，且只来自可信源。
 
-## 4. 首见即自动定价（让 fail-closed 安全的那一半）
+## 4. 让 fail-closed 安全的那一半（自动定价的增量阶梯）
 
-没有它的 fail-closed = 「拒掉每个刚发布的模型」= 可用性回退。有了它，闸唯一可见的效果是：某个
-全新模型的*第一个*请求可能在价格落地前的几分钟内被拒。
+没有「补价通路」的 fail-closed = 「拒掉每个刚发布的模型」= 可用性回退。所以闸**绝不单独发布**：它
+必须配一条真实的补价通路，让拒绝是**临时**的、几分钟内由补价解除（R4，见下）。这条通路按**三档增量**
+落地——能力是*派生*的、按来源决定自治度（D3），先发最简的、把全自动留作 fast-follow：
 
-**管道（仅写 PRICE，绝不碰 serving）：**
+- **v1（本次落地）= 闸 + 拒绝即触发既有缺价告警 → 运维现成工具补价。** 一次闸拒绝复用既有
+  `PricingMissingNotifier`（与 `served_zero_cost` / `PricingMissing` 同一信号面，
+  `gateway_service_tk_served_zero_cost.go:106` + `pricing_missing_notifier_tk.go`）即时发一张飞书卡
+  点名「模型 X 未定价被拒、去补价」（reason `gate_rejected_unpriced`，带 requested model + platform）。
+  运维用**现成** `ops/pricing/apply-pricing-hotfix.py lookup` 取价、`apply` 经 admin API 写渠道定价
+  （立即生效、无发版），再 `stage-overlay` 固化进 `tk_pricing_overlay.json` 提 PR。这是**人在环、约
+  5 秒批**的补价通路——不是全自动，但**真实存在**，足以让闸非空转（R4）。等补价落地前模型仍是 `404`，
+  不破例服务。
+- **v2（fast-follow）= litellm-一键确认 + Go-native overlay runtime 写器。** 触发时把
+  `apply-pricing-hotfix.py lookup` 的 litellm 候选**预填**进飞书/admin 卡，人批后由进程内 overlay
+  runtime 写器（`settingRepo.Set(SettingKeyTKPricingOverlayRuntime)` + `Publish(settings_updated)`，复
+  用既有 reload 链）热推、全副本即时 reload——**无发版、无 ops 脚本**。litellm 是派生、偶尔出错的 feed
+  （`$0 = 未知` 陷阱），无人值守 apply 会算错客户的钱，故这一档**天然需人 5 秒确认**；确认期间仍 `404`。
+- **v3（fast-follow，需先建价源）= 官方价全自动 apply，无人无发版。** 官方价页（Vertex / OpenAI /
+  Anthropic，带 `source` URL + 抓取日）是权威，让人盖章是官僚剧场——这是「上游发完几分钟模型就能用」
+  的魔法。**但官方价抓取（`FetchOfficialPricing`）与候选集谓词当前两侧零实现**，全自动**前置依赖先建
+  权威价源**，故它是 fast-follow、**非 v1 前置**；在价源落地前，gemini/Vertex 缺价新模型走 v1 的人批
+  通路（litellm 对主流新模型覆盖快），不会退化成纯拒绝。
 
-1. **信号**：一次闸拒绝（或既有的 `served_zero_cost` / `PricingMissing` 信号）点名一个未定价、且是
-   **候选**（在 catalog 候选集内——不是任意客户垃圾串）的模型。
-2. **取价 + 按来源定自治档（D3，禁臆造）**：解析价格，并**让来源决定自治度**——档位是*派生*的、
-   绝非运维旗标：
-   - **官方价页**（Vertex / OpenAI / Anthropic，带 `source` URL + 抓取日）→ **全自动 apply**，无人、
-     无发版。让人给权威价盖章是官僚剧场；这正是「上游发完几分钟模型就能用」的魔法。
-   - **只有 litellm 镜像价**（找不到官方源）→ **不自动 apply**。litellm 是派生、偶尔出错的 feed
-     （它的 `$0 = 未知` 陷阱）；无人值守 apply 会算错客户的钱，而算错价对信任的破坏远大于几分钟延迟。
-     推一张**一键确认**（飞书卡片 / admin 操作），价格已预填——人花 5 秒批，而非 30 分钟查。**等确认
-     期间模型仍是 `404`**，不破例服务——规矩无例外，人只是让价格更快落地。
-3. **写入 PRICE = overlay 热推**：把 fill 写进 overlay（`tk_pricing_overlay.json`，git 唯一事实源），
-   经 **overlay runtime 热层**（`SettingKeyTKPricingOverlayRuntime`，工具 `manage-overlay-runtime.py`）
-   热推到 prod settings + publish `settings_updated`，所有副本立即 reload——运行期生效、**无发版**；
-   runtime 只是 git 的热投影，下次例行发版折进 embedded floor（floor 追上），`check` 审
-   pending/shadow/orphan 漂移。**不写 `model_mapping`**。auto-fill 的语义是**全局缺价补齐**，正是
-   overlay（fill-only，只补缺、不覆盖正确的非零源价）的职责，而非 per-channel 价；overlay **承载全维度**
-   （`OutputCostPerSecond` / `ThinkingOutputCostPerToken` 都在内，`pricing_service_tk_overlay.go`），
-   故 veo/seedance/思考模型也**当场自动定价、无维度 carve-out**。价格优先级不变
-   （`channel_model_pricing` > overlay > litellm > Go fallback）；`channel_model_pricing` 与
-   `channel-pricing-refund-gate-and-runtime-pricing.md` 的「②」是 per-channel 价的**正交轨道**，
-   本设计**不依赖②落地**。
-4. **服务**：下一次请求解析出价 → 过闸。**完全取不到价**的模型保持被拒（响亮 `404`），交人补价或
-   弃用——绝不无声 `$0`。
+**三档共有的不变量（仅写 PRICE，绝不碰 serving）：**
+
+1. **信号**：一次闸拒绝（或 `served_zero_cost` / `PricingMissing`）点名一个未定价、且是**候选**（在
+   catalog 候选集内——不是任意客户垃圾串）的模型。
+2. **写入 PRICE = overlay 热推**：fill 写进 overlay（`tk_pricing_overlay.json`，git 唯一事实源），经
+   **overlay runtime 热层**（`SettingKeyTKPricingOverlayRuntime`）热推 + publish `settings_updated`，所有
+   副本立即 reload——运行期生效、**无发版**；runtime 只是 git 的热投影，下次例行发版折进 embedded floor。
+   v1 的「写入」由运维用 `apply-pricing-hotfix.py` / `manage-overlay-runtime.py` 完成（人触发）；v2/v3
+   把这一步搬进进程内（自动/半自动）。**不写 `model_mapping`**。overlay **承载全维度**
+   （`OutputCostPerSecond` / `ThinkingOutputCostPerToken` 都在内，`pricing_service_tk_overlay.go`），故
+   veo/seedance/思考模型也无维度 carve-out。价格优先级不变（`channel_model_pricing` > overlay >
+   litellm > Go fallback）；`channel_model_pricing` 与 `channel-pricing-refund-gate-and-runtime-pricing.md`
+   的「②」是 per-channel 价的**正交轨道**，本设计**不依赖②落地**。
+3. **服务**：下一次请求解析出价 → 过闸。**完全取不到价**的模型保持被拒（响亮 `404`），交人补价或弃用
+   ——绝不无声 `$0`。
 
 ## 5. 上线与铺开（gemini/Vertex 一步 ON，逐平台扩，可回滚）
 
 | 步骤 | 内容 | 行为变化 | 门槛 / 回滚 |
 | --- | --- | --- | --- |
-| **一步上线** | 闸 + 自动定价同时上线，启用集 = {gemini/Vertex}（catch-all 重灾区） | gemini/Vertex 未定价 id：自动定价 → 放行；取不到价 → `404`（不再 `$0` 服务） | 把 gemini 移出启用集即回滚；自动定价分钟级填真缺口、无错源价 |
-| **逐平台扩** | 把其余 native 平台（anthropic/openai/antigravity）加入启用集，每个 soak 后再加下一个 | 该平台未定价 id 同上 | 逐平台：该平台 `served_zero_cost` 在 soak 窗口读 ~0、自动定价干净落地 |
+| **一步上线** | 闸 + v1 补价通路（拒绝即告警 + 现成补价工具）同时上线，启用集 = {gemini/Vertex}（catch-all 重灾区） | gemini/Vertex 未定价 id：拒绝 `404` + 飞书告警 → 运维约 5 秒补价 → 下次放行；取不到价 → 保持 `404`（不再 `$0` 服务） | 把 gemini 移出启用集即回滚；v1 补价通路人在环填真缺口、无错源价 |
+| **逐平台扩** | 把其余 native 平台（anthropic/openai/antigravity）加入启用集，每个 soak 后再加下一个 | 该平台未定价 id 同上 | 逐平台：该平台 `served_zero_cost` 在 soak 窗口读 ~0、补价通路干净落地 |
 
 gemini/Vertex 站稳后，`tokenkey-servable-model-refresh` 里那套手动 catch-all「安全仪式」（probe →
 补价 → soak → 清空 mapping）**退役**：机器强制*priced ⟺ servable*，人只批自动取价拿不到的那几个。
@@ -145,8 +157,10 @@ gemini/Vertex 站稳后，`tokenkey-servable-model-refresh` 里那套手动 catc
 
 ## 6. 风险与非目标
 
-- **R1 — 可用性回退**：fail-closed 若没有自动定价 = 拒新模型。*缓解*：闸与自动定价**同时**上线
-  （绝不单发「空转闸」），首发只在 gemini/Vertex；其余平台逐个加入、每个 soak；移出启用集即回滚。
+- **R1 — 可用性回退**：fail-closed 若没有补价通路 = 拒新模型。*缓解*：闸与**补价通路**（v1 = 拒绝即
+  告警 + 现成 `apply-pricing-hotfix.py`，人在环约 5 秒批；v2/v3 逐步自动化，§4 阶梯）**同时**上线（绝不
+  单发「空转闸」，R4），首发只在 gemini/Vertex；其余平台逐个加入、每个 soak；移出启用集即回滚。v1 非
+  全自动，但补价通路真实存在、分钟级解除拒绝——满足「闸非空转」。
 - **R2 — 真免费模型**：真正免费的模型（倍率 0 的组、按策略 `$0` 的 id）不能被当「未定价」拒掉。
   *缓解*：闸判的是 `IsModelPriced`（*价条目存在*），不是 `cost==0`。按策略定价为零的 id 仍有条目；
   `negative_multiplier` / 免费组语义（`served_zero_cost`）不受影响。
@@ -175,7 +189,10 @@ gemini/Vertex 站稳后，`tokenkey-servable-model-refresh` 里那套手动 catc
   SDK 当鉴权失败。priced-vs-unknown 是运维关切，走 body 子码 + 日志，不进 HTTP 状态。
 - **D2 — 首发启用集 = gemini/Vertex**（§5）：火在这儿（catch-all、手动仪式、最高新模型节奏、官方价
   清晰），爆炸半径单平台、可回滚。
-- **D3 — 自动定价两档，由来源派生**（§4 step 2）：官方价 → 全自动；litellm-only → 一键人确认
-  （错价比延迟更伤信任）。非旗标、无逃生门，等确认期间仍 `404`。
-- **D4 — 价格写 overlay runtime 热推**（§4 step 3）：单一事实源（git overlay）、无发版、承载全维度、
-  不依赖②；`channel_model_pricing` 回归 per-channel 修正本职。
+- **D3 — 自动定价由来源派生、分档增量落地**（§4）：v1 = 闸 + 拒绝即触发既有缺价告警，运维用现成
+  `apply-pricing-hotfix.py` 补价（人在环、约 5 秒批，**真实补价通路、非全自动**）；v2 = litellm-一键确认
+  + Go-native overlay 写器（半自动）；v3 = 官方价全自动（需先建权威价源，**fast-follow 非 v1 前置**）。
+  错价比延迟更伤信任，故 litellm/官方两档天然需人或需先建源。非旗标、无逃生门，等确认期间仍 `404`。
+- **D4 — 价格写 overlay runtime 热推**（§4 共有不变量 step 2）：单一事实源（git overlay）、无发版、
+  承载全维度、不依赖②；`channel_model_pricing` 回归 per-channel 修正本职。v1 的写入由运维工具完成（人
+  触发同一 overlay runtime 热层）；v2/v3 把写入搬进进程内（Go-native overlay 写器），事实源与热推链不变。

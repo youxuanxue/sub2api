@@ -1013,9 +1013,25 @@ func ProvideTKAccountIncidentNotifier(
 // (GatewayService + OpenAIGatewayService) post-construction. Same lifecycle
 // shape as ProvideTKAccountIncidentNotifier: returns the concrete instance so
 // provideCleanup can Stop() the ticker at shutdown. Setters are nil-safe.
+//
+// It ALSO wires the runtime priced-serving gate deps
+// (docs/approved/priced-or-it-doesnt-ship.md) in the same pass, since the gate
+// reuses this same notifier as its reject-time alert channel and the catalog
+// predicate must reach the same three forwarders:
+//   - GatewayService / OpenAIGatewayService already hold settingService +
+//     notifier; we add the catalog via SetPricingCatalogService.
+//   - GeminiMessagesCompatService holds none of them; SetPricedServingGateDeps
+//     injects catalog + setting + notifier at once.
+//
+// Piggybacking on this already-evaluated provider (consumed by provideCleanup
+// via the *TKPricingMissingNotifier edge) avoids a fresh wire sentinel for the
+// gate. All setters are nil-safe; an absent dep simply leaves the gate off.
 func ProvideTKPricingMissingNotifier(
 	gw *GatewayService,
 	openaiGw *OpenAIGatewayService,
+	geminiCompat *GeminiMessagesCompatService,
+	catalog *PricingCatalogService,
+	setting *SettingService,
 	ops *OpsService,
 	cfg *config.Config,
 ) *TKPricingMissingNotifier {
@@ -1033,9 +1049,14 @@ func ProvideTKPricingMissingNotifier(
 	n.Start()
 	if gw != nil {
 		gw.SetPricingMissingNotifier(n)
+		gw.SetPricingCatalogService(catalog)
 	}
 	if openaiGw != nil {
 		openaiGw.SetPricingMissingNotifier(n)
+		openaiGw.SetPricingCatalogService(catalog)
+	}
+	if geminiCompat != nil {
+		geminiCompat.SetPricedServingGateDeps(catalog, setting, n)
 	}
 	return n
 }

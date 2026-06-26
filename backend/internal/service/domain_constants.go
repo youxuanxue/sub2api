@@ -604,6 +604,14 @@ const (
 
 	// SettingKeyPricingCatalogPublic 公开模型 + 价格目录页是否对外开放（默认 true，关闭后路由 404）。
 	SettingKeyPricingCatalogPublic = "pricing_catalog_public"
+
+	// SettingKeyPricedServingGateEnabled 运行期「定了价才能上」准入闸的按平台启用集
+	// （docs/approved/priced-or-it-doesnt-ship.md）。**集合语义、非 boolean**：值是逗号分隔
+	// 的平台名集合（如 "gemini" / "gemini,openai"），某平台 ∈ 集合才对该平台启用闸。
+	// 首发启用集 = {gemini}（含 Vertex，vertex 经 channel_type 区分、不引入新维度）；
+	// 缺 row / 读失败 / 平台不在集内 → 该平台无闸（serving 照旧），即灰度/回滚旋钮。
+	// 解析见 SettingService.IsPricedServingGateEnabled（沿用 IsSignupBonusEnabled 样板）。
+	SettingKeyPricedServingGateEnabled = "priced_serving_gate_enabled"
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。

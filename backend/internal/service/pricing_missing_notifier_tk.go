@@ -74,6 +74,10 @@ func pricingMissingReasonLabel(reason string) string {
 	switch reason {
 	case "negative_multiplier":
 		return "负倍率归零（价格有效但被负费率倍率清零）"
+	case tkPricedServingGateRejectReason:
+		// 运行期价格闸拒绝：与「已服务零计费」不同——该请求被 404 拒掉、未服务客户，
+		// 运维补价后即可放行（docs/approved/priced-or-it-doesnt-ship.md）。
+		return "模型未定价被准入闸拒绝（已返回 404、未服务；补价后放行）"
 	default:
 		return "模型无价（倍率前成本为零）"
 	}

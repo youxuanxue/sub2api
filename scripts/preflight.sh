@@ -698,6 +698,26 @@ else
     echo "  ok: all gateway TK sentinels intact"
 fi
 
+# ---- sub2api: priced-serving-gate sentinel registry -------------------------
+# Source of truth: scripts/sentinels/priced-serving-gate.json. Pins the runtime
+# 'priced-or-it-doesnt-ship' serving-admission gate (docs/approved/priced-or-it-doesnt-ship.md,
+# issue #1016 v1): the gate companion + R3-consistency predicate, the DI wiring,
+# every per-route hook (5 forwarders), the setting constant, and the enabled-set
+# getter. Each per-route touch is one guarded call + early return that compiles
+# clean if dropped, so an upstream merge can silently revert it and re-open the
+# native catch-all $0-billing hole the gate exists to close.
+echo ""
+echo "=== sub2api: priced-serving-gate sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read priced-serving-gate.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-priced-serving-gate.py --quiet; then
+    # check-priced-serving-gate.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all priced-serving-gate sentinels intact"
+fi
+
 # ---- sub2api: anthropic baseline ↔ ratelimit constants sync -----------------
 # Anthropic OAuth tier baseline JSON documents the cooldown ladder
 # (30s / 2min / 10min) and 30-min tier TTL that the Go runtime owns. If the

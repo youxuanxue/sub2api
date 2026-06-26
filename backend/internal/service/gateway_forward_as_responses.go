@@ -76,6 +76,14 @@ func (s *GatewayService) ForwardAsResponses(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
 
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// No-op unless account.Platform is in the enabled set. See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", mappedModel, account.Platform)
+	}
+
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),

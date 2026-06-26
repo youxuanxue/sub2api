@@ -410,6 +410,10 @@ type OpenAIGatewayService struct {
 	// TK: pricing-missing → Feishu notifier. Injected via
 	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
 	tkPricingMissingNotifier PricingMissingNotifier
+	// TK: pricing catalog membership predicate for the runtime priced-serving
+	// gate (docs/approved/priced-or-it-doesnt-ship.md). Injected via
+	// SetPricingCatalogService (TK companion). nil = gate disabled (fail-open).
+	tkPricingCatalog *PricingCatalogService
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -2792,6 +2796,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Model mapping applied: %s -> %s (account: %s, isCodexCLI: %v)", reqModel, billingModel, account.Name, isCodexCLI)
 		reqModel = billingModel
 		markPatchSet("model", billingModel)
+	}
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE any upstream forward / stream start
+	// (SSE pre-flight — cannot 404 mid-stream). No-op unless account.Platform is
+	// in the enabled set. See gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, account.Platform, billingModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", billingModel, account.Platform)
 	}
 	upstreamModel := billingModel
 	isCompactRequest := isOpenAIResponsesCompactPath(c)

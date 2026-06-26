@@ -717,6 +717,11 @@ type GatewayService struct {
 	// TK: pricing-missing → Feishu notifier. Injected via
 	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
 	tkPricingMissingNotifier PricingMissingNotifier
+	// TK: pricing catalog membership predicate for the runtime priced-serving
+	// gate (docs/approved/priced-or-it-doesnt-ship.md). Injected via
+	// SetPricingCatalogService (TK companion) so the upstream constructor stays
+	// unchanged. nil = gate disabled (fail-open).
+	tkPricingCatalog *PricingCatalogService
 	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
 	// vendored CodeWhisperer EventStream protocol layer.
 	kiroGateway *KiroGatewayService
@@ -5296,6 +5301,18 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
 			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
 		}
+	}
+
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE any upstream forward / stream start (SSE
+	// pre-flight — cannot 404 mid-stream). This is the native /v1/messages
+	// catch-all重灾区 (空 model_mapping = allow-all). Runs on the post-mapping
+	// model, after the deprecated-model gate, so admin rewrites take precedence.
+	// No-op unless account.Platform is in the enabled set (gemini ships first;
+	// anthropic joins later per the rollout plan). See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", mappedModel, account.Platform)
 	}
 
 	// TK: if this exact (mapped) Anthropic model name was recently confirmed

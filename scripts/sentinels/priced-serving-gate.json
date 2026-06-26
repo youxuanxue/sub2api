@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing hooks for the runtime 'priced-or-it-doesnt-ship' serving-admission gate (docs/approved/priced-or-it-doesnt-ship.md, issue #1016 v1). The gate is a thin per-route injection (one guarded call + early return) into 5 upstream-shaped service forwarders; each touch is small and compiles clean if dropped, so an upstream merge or refactor can silently revert it and re-open the catch-all $0-billing hole. These sentinels pin the gate companion, its R3-consistency predicate, the DI wiring, every per-route hook, the setting constant, and the enabled-set getter so preflight + the upstream-merge PR shape check fail loudly if any disappears.",
+  "sentinels": [
+    {
+      "path": "backend/internal/service/gateway_priced_serving_gate_tk.go",
+      "must_contain": [
+        "func tkCheckPricedServingGate(",
+        "func tkPricedServingGateRejected(",
+        "func tkWritePricedServingGateRejection(",
+        "catalog.tkIsModelEffectivelyPriced(billingModel, platform)",
+        "setting.IsPricedServingGateEnabled(ctx, platform)",
+        "not_found_error",
+        "invalid_request_error",
+        "tkPricedServingGateSubcode = \"model_not_priced\"",
+        "priced_serving_gate.rejected",
+        "notifier.NotifyPricingMissing(ev)"
+      ],
+      "rationale": "The gate core: pure decision (tkPricedServingGateRejected), full path that writes the 404 + fires the reject-time alert (tkCheckPricedServingGate), and the per-platform 404 body writer. The literal error envelope strings (not_found_error for Anthropic, invalid_request_error + model_not_priced subcode for OpenAI/NewAPI) are the byte-aligned shapes clients depend on; losing them silently changes the rejection contract. The NotifyPricingMissing call is v1's automatic-pricing channel (reject → Feishu card → ops hot-fixes the price) and satisfies design R4 (the gate is never an empty no-op)."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_membership_tk.go",
+      "must_contain": [
+        "func (s *PricingCatalogService) tkIsModelEffectivelyPriced(modelID, platform string) bool",
+        "p.OutputCostPerImage != 0 || p.OutputCostPerSecond != 0"
+      ],
+      "rationale": "R3 predicate consistency (design §7). The gate MUST use tkIsModelEffectivelyPriced, NOT bare IsModelPriced: a catalog entry whose token price is present-but-zero is a catalog member (IsModelPriced=true) but billing's GetModelPricing resolves it to ErrModelPricingUnavailable and charges $0 — a gate on bare membership would be form-over-substance. The media-price clause keeps legitimately media-priced models (zero token price, non-zero per-second/per-image) passing. If this predicate is deleted or downgraded to bare membership, the gate silently re-opens the $0-billing hole it exists to close."
+    },
+    {
+      "path": "backend/internal/service/gateway_priced_serving_gate_wiring_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
+        "func (s *OpenAIGatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
+        "func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, setting *SettingService, notifier PricingMissingNotifier)",
+        "func (s *GatewayService) tkPricedServingGate(",
+        "func (s *OpenAIGatewayService) tkPricedServingGate(",
+        "func (s *GeminiMessagesCompatService) tkPricedServingGate("
+      ],
+      "rationale": "Post-construction DI setters (mirroring SetPricingAvailabilityService) and the per-service one-liner wrappers each route hook calls. The gemini compat service holds none of the deps natively, so its SetPricedServingGateDeps injects all three at once. Dropping a setter dead-codes the gate for that service (silently off in prod while unit tests pass); dropping a wrapper breaks the route-hook call sites."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, account.Platform, billingModel, originalModel) {"
+      ],
+      "rationale": "Route hook 1/5 — OpenAI native /v1/responses (+chat). Inserted right after billingModel := account.GetMappedModel, BEFORE upstream forward / SSE stream start (cannot 404 mid-stream). A silent revert re-opens $0 serving for unpriced OpenAI models when openai joins the enabled set."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {"
+      ],
+      "rationale": "Route hook 2/5 — responses-bridge (ForwardAsResponses). Inserted after anthropicReq.Model = mappedModel, before forward / stream start."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {"
+      ],
+      "rationale": "Route hook 3/5 — chat-completions-bridge (ForwardAsChatCompletions). Inserted after anthropicReq.Model = mappedModel, before forward / stream start."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {",
+        "tkPricingCatalog         *PricingCatalogService"
+      ],
+      "rationale": "Route hooks 4/5 + 5/5 — gemini compat Forward AND ForwardNative (the digest-chain dual paths; BOTH must gate, the shared hook literal appears twice in this file). This is the first-launch enabled platform (gemini/Vertex), so a revert here is the highest-impact: it re-opens the exact catch-all $0 hole this design targets. The struct field anchor proves the post-construction-injected deps slot survives (the gemini compat service holds none of them on its upstream constructor, so the field is the only evidence the SetPricedServingGateDeps target still exists)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {"
+      ],
+      "rationale": "Route hook (native anthropic /v1/messages catch-all). Inserted right after the deprecated-model gate (post-mapping, pre-forward) — the native catch-all (empty model_mapping = allow-all) is the原始 vulnerability重灾区. anthropic is NOT in the first-launch enabled set but joins per the rollout plan; the hook must survive until then."
+    },
+    {
+      "path": "backend/internal/service/domain_constants.go",
+      "must_contain": [
+        "SettingKeyPricedServingGateEnabled = \"priced_serving_gate_enabled\""
+      ],
+      "rationale": "The setting key for the per-platform enabled SET. Renaming/removing it silently disables every IsPricedServingGateEnabled lookup (gate off for all platforms) without a compile error if a stale string literal lingers elsewhere."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_cold_start.go",
+      "must_contain": [
+        "func (s *SettingService) IsPricedServingGateEnabled(ctx context.Context, platform string) bool",
+        "defaultPricedServingGateEnabledSet = \"gemini\"",
+        "defaults[SettingKeyPricedServingGateEnabled] = defaultPricedServingGateEnabledSet"
+      ],
+      "rationale": "The enabled-set getter (comma-separated SET membership, fail-open-toward-off) and the first-launch default (gemini/Vertex, D2). Losing the getter breaks the gate's enable check; losing the cold-start default means a fresh DB ships with the gate OFF, regressing the 'gemini/Vertex one-step ON' launch contract."
+    }
+  ]
+}
