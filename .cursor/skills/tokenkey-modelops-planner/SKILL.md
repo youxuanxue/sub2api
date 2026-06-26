@@ -57,6 +57,7 @@ python3 ops/pricing/modelops.py snapshot-sql --accounts 60,72
 
 bash ops/observability/run-probe.sh --target prod \
   --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
   --env "DASHSCOPE_CHAT_MODELS=qwen3-8b" --timeout-seconds 300 \
   | tee /tmp/qwen_probe.tsv
 

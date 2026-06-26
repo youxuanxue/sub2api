@@ -70,17 +70,21 @@ group 18），与 servable-refresh 的 gemini 族同形（OpenAI-compat /v1/chat
 thinking 各发一条确认两档都 200：
 
 ```bash
-# 经 prod 网关、用 group 18 绑定的 api_key 探 newapi/dashscope（参照 GEMINI_* 族的 group-key 取法）
+# 经 prod 网关探 newapi/dashscope：probe key 由 __tk_probe_newapi_qwen_* 自动 ensure
+# （从 PROBE_DASHSCOPE_SOURCE_GROUP 默认 `Qwen` 源组复制 schedulable 账号；--with 上传 companion 库）
 bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
   --env "DASHSCOPE_CHAT_MODELS=qwen3-8b qwen3-14b qwen3-32b" --timeout-seconds 300
 # 200=servable（留）；400/404+not-found/retired=unsupported；429+"No available accounts"=not_allowlisted（TK 空池=未在调度层 allowlist，#812 信号）；其它 429/502/503=inconclusive；401/403=auth_error
 ```
 
-> **注**：dashscope/qwen probe 族（`DASHSCOPE_CHAT_MODELS` → group `Qwen`(18) 绑定的 api_key →
-> `/v1/chat/completions`，思考档 `enable_thinking:true`、非思考档须显式 `enable_thinking:false`）。
-> `DASHSCOPE_GROUP_NAME` 默认**已是 `Qwen`**（大小写敏感，prod 实证；曾因默认小写 `qwen` 与真组 `Qwen`
-> 不匹配吞掉一次 livefire），无需再手传组名；组名/key 取不到时探针报 `config_error`（带 stderr 诊断），
-> **不再伪装成 `auth_error`**。**此族属本 skill 的 column-3 配套**，与 manifest/guard 解耦——guard 不依赖
+> **注**：dashscope/qwen probe 族（`DASHSCOPE_CHAT_MODELS` → 经 prod 网关 `/v1/chat/completions`，
+> 思考档 `enable_thinking:true`、非思考档须显式 `enable_thinking:false`）。probe key 走 reserved
+> `__tk_probe_newapi_qwen_*`，从 `PROBE_DASHSCOPE_SOURCE_GROUP`（默认 **`Qwen`**，大小写敏感、prod 实证；
+> 曾因默认小写 `qwen` 与真组 `Qwen` 不匹配吞掉一次 livefire）复制 schedulable 账号，无需手传组名；
+> 源组/账号取不到时探针报 `config_error`（带 stderr 诊断），**不再伪装成 `auth_error`**。companion 库
+> 必须随 `--with ops/pricing/probe_reserved_resources.sh` 上传。**此族属本 skill 的 column-3 配套**，
+> 与 manifest/guard 解耦——guard 不依赖
 > probe 跑过，只校验仓库内三方一致。
 
 ### 2) 写 manifest 条目（单一意图源，**先于**投影）
@@ -167,9 +171,10 @@ prod 可服务"，见 memory `priced_not_equal_servable_verify_livefire`）：
 
 ```bash
 bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
   --env "DASHSCOPE_CHAT_MODELS=<model_id>"
-# DASHSCOPE_GROUP_NAME 默认已是 Qwen，无需手传；期望两行皆 200 servable。
-# 000 config_error = 组名/key 没取到（看 stderr 诊断），非模型信号、非上游 auth。
+# PROBE_DASHSCOPE_SOURCE_GROUP 默认已是 Qwen，无需手传；期望两行皆 200 servable。
+# 000 config_error = 源组/账号没取到（看 stderr 诊断），非模型信号、非上游 auth。
 ```
 
 > 也可经 **TK universal key**（客户真路径）端到端验：`POST <prod>/v1/chat/completions`、`Authorization:

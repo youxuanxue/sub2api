@@ -22,8 +22,10 @@ hand-maintained empirical sets in the same file.
 
 | File | Role |
 | --- | --- |
-| `probe-servable-models.sh` | Runs on prod or an edge via `ops/observability/run-probe.sh`. Sends one minimal real request per candidate model and emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. |
-| `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes, keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). |
+| `probe-servable-models.sh` | Runs on prod or an edge via `ops/observability/run-probe.sh`. Sends one minimal real request per candidate model and emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. Always auto-ensures reusable `__tk_probe_<scope>_group` / `__tk_probe_<scope>_key` per platform via `probe_reserved_resources.sh` (no direct-key fallback, no dependency on `TK_SMOKE_API_KEY` or customer keys). The companion is mandatory — deliver it with `run-probe.sh --with ops/pricing/probe_reserved_resources.sh` (the orchestrator and every manual invocation below do). |
+| `probe_reserved_resources.sh` | Shared DB helpers for reserved probe groups/keys (same namespace as `tokenkey-account-model-probe`). Per-scope `flock` on `/tmp/tokenkey-account-model-probe-<scope>.lock` serializes `account_groups` mutations vs account-model probes. Catalog refresh copies schedulable accounts from canonical source groups, probes, then clears `account_groups` bindings and releases locks on EXIT. |
+| `probe-traffic-proven-models.sh` | Runs on prod via `ops/observability/run-probe.sh`. Read-only over `usage_logs`: emits `platform⇥model⇥hits` for every model that served **real successful traffic** in the last `TRAFFIC_HOURS` (default 24). Feeds the `--skip-proven-by-traffic` short-circuit below. Positive evidence only — a model with no recent traffic is simply absent (never an unsupported signal). |
+| `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
 | `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
 | `reconcile-served-models.py` | Compatibility wrapper for `modelops.py`. New runbooks should call `modelops.py`. |
 | `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
@@ -48,6 +50,49 @@ Split the steps when you want to inspect the raw verdicts first:
 python3 ops/pricing/refresh-servable-allowlist.py probe | tee /tmp/servable.tsv
 python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.tsv
 ```
+
+### 24h-traffic short-circuit (`--skip-proven-by-traffic`)
+
+A full probe is ~160 models in ~16 SSM batches (8–15 min). Many of those models
+already served **real successful traffic** in the last day — re-probing them is
+pure latency. `--skip-proven-by-traffic` (or env `REFRESH_SKIP_PROVEN_BY_TRAFFIC=1`)
+queries `usage_logs` once up front and skips the probe for any candidate already
+proven servable, cutting the batch count:
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic
+# tune the window (default 24h):
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --traffic-hours 48
+```
+
+It logs exactly what it skipped, for human review:
+
+```
+[refresh] skipping 37 models proven by 24h traffic: anthropic/claude-opus-4-8, openai/gpt-5.4, …
+[refresh] probing 41 models in 5 batch(es) of <= 12 …
+```
+
+**Why it is safe (purely additive — read the contract before changing it):**
+
+- **Traffic success = servable** is firm positive evidence; **no traffic ≠
+  unsupported**. A candidate that did not show up in the window is *still probed*
+  normally — the short-circuit only ever removes probes, never marks anything
+  unsupported. Default is **off** so the conservative full probe stays the baseline;
+  enable it as a graduated rollout.
+- **Only candidates can be skipped/added.** The proven set is intersected with the
+  derived candidate set, so traffic can never inject a model that is not already a
+  priced/known candidate.
+- **Platform bucket comes from the candidate set, not the serving account.** Vertex
+  is served under `accounts.platform='newapi'`, so a served `gemini-2.5-pro` is
+  bucketed as `gemini` because that is its *candidate* platform. The script's
+  `usage_logs` row only needs the model id to match.
+- **Blocked models cannot revive.** skiplist/deadlist entries are already absent
+  from the candidate set, and the proven set is additionally re-checked against the
+  reprobe ledger (`validate_results_against_reprobe_ledger`) — one successful
+  request cannot bring a deadlisted model back.
+- A `usage_logs` row is a **metered** request (errors that burn no tokens are not
+  logged); the query additionally requires real generation (tokens / image / video)
+  so a `$0` placeholder row never counts as proof.
 
 ## Modelops planner (read-only)
 
@@ -137,10 +182,14 @@ channel pricing is exactly the tool for that. Alert digest cadence is
 
 ## Caveats
 
-- The probe tests anthropic through the **edge-us7** relay and openai through
-  the **GPT-line** group only. Models served exclusively by another group
-  (e.g. an image / dedicated-codex pool) read inconclusive here and are
-  dropped; provide that group's key and extend the probe to re-add them.
+- The probe tests anthropic **edge-native** — rotated across the deployable edges
+  (`deployable_edges()` from `edge-targets-lightsail.json`), servable if any edge serves —
+  gemini/Vertex through the **prod `google-vertex`** group, and openai through the
+  **GPT-line** group. A separate warning-only pass re-probes the edge-servable set through
+  the prod gateway per mirror sub-pool (`cc-*` anthropic-OAuth + `kiro-*` Kiro) and warns on
+  "edge serves but prod relay does not"; those rows never enter the allowlist. Models served
+  exclusively by yet another group read inconclusive here and are dropped; provide that
+  group's key and extend the probe to re-add them.
 - This is a snapshot. Re-run after the served fleet changes (new model family,
   account/tier changes, an upstream sunset).
 

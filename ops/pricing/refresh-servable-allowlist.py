@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -40,8 +41,17 @@ REPO = Path(__file__).resolve().parents[2]
 CATALOG = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
 GO_FILE = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 PROBE = REPO / "ops/pricing/probe-servable-models.sh"
+PROBE_LIB = REPO / "ops/pricing/probe_reserved_resources.sh"
+TRAFFIC_PROBE = REPO / "ops/pricing/probe-traffic-proven-models.sh"
 RUN_PROBE = REPO / "ops/observability/run-probe.sh"
 REPROBE_LEDGER = REPO / "ops/pricing/servable-reprobe-ledger.json"
+
+# 24h-traffic short-circuit (additive optimization, gated by a flag/env so the
+# default stays the conservative full probe). A candidate model that already
+# served real successful traffic in this window is proven servable and skips the
+# SSM probe batch entirely. Absence of traffic is NOT a negative signal — those
+# candidates are still probed normally.
+DEFAULT_TRAFFIC_HOURS = 24
 
 # Dated snapshot suffix, both fleet conventions: anthropic "-YYYYMMDD"
 # (claude-opus-4-5-20251101) and openai "-YYYY-MM-DD" (gpt-5.5-2026-04-23).
@@ -55,8 +65,12 @@ DATED_RE = re.compile(r"^(.+)-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
 BATCH_SIZE = 12
 
 # ----- gemini / Vertex (newapi fifth platform) -----
-# The google group lives on edge us6 (not prod), so gemini batches target it.
-GEMINI_TARGET = "edge:us6"
+# Live Vertex capacity now serves from the PROD `google-vertex` group (ids 47/57/58/59);
+# the old edge-us6 `google` group was emptied (account soft-deleted). gemini batches
+# therefore target prod and reach it through the public gateway (external curl), same as
+# the other newapi families. (The probe script's PROBE_GEMINI_SOURCE_GROUP default is
+# `google-vertex` to match.)
+GEMINI_TARGET = "prod"
 # Predict-API media models are NOT in upstream /v1/models discovery; seed them
 # explicitly (they ride the model_mapping today). Imagen -> images, veo -> video.
 GEMINI_PREDICT_MODELS = (
@@ -75,6 +89,12 @@ PROBE_FAMILIES_BY_PLATFORM = {
     "anthropic": ("anthropic",),
     "openai": ("openai_chat", "openai_responses", "openai_image"),
     "gemini": ("gemini_chat", "gemini_image", "gemini_video"),
+}
+# Inverse of PROBE_FAMILIES_BY_PLATFORM: probe-family -> allowlist platform.
+FAMILY_PLATFORM = {
+    family: platform
+    for platform, families in PROBE_FAMILIES_BY_PLATFORM.items()
+    for family in families
 }
 GO_ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 REPROBE_LISTS = ("watchlist", "skiplist", "deadlist")
@@ -215,17 +235,8 @@ def _known_allowlist_members(text: str) -> set[tuple[str, str]]:
 
 
 def _candidate_members(candidates: dict[str, list[str]]) -> set[tuple[str, str]]:
-    family_platform = {
-        "anthropic": "anthropic",
-        "openai_chat": "openai",
-        "openai_responses": "openai",
-        "openai_image": "openai",
-        "gemini_chat": "gemini",
-        "gemini_image": "gemini",
-        "gemini_video": "gemini",
-    }
     out: set[tuple[str, str]] = set()
-    for family, platform in family_platform.items():
+    for family, platform in FAMILY_PLATFORM.items():
         out.update((platform, model) for model in candidates.get(family, []))
     return out
 
@@ -364,6 +375,141 @@ def build_probe_candidates(catalog: dict, discovered: list[str]) -> tuple[dict[s
     return cands, ledger
 
 
+# ----- 24h-traffic short-circuit (deterministic glue; transport is run-probe) -----
+def parse_traffic_rows(text: str) -> dict[str, set[str]]:
+    """probe-traffic-proven-models.sh TSV -> accounts.platform -> set of served
+    model ids. Lines: platform\\tmodel\\thits. The platform column here is the
+    SERVING account's platform (human context only); buckets are re-decided from
+    the candidate set in proven_servable_from_traffic, so unknown platforms are
+    harmless. Malformed lines are ignored."""
+    out: dict[str, set[str]] = {}
+    for line in text.splitlines():
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) != 3:
+            continue
+        plat, model, _hits = (p.strip() for p in parts)
+        if not plat or not model:
+            continue
+        out.setdefault(plat, set()).add(model)
+    return out
+
+
+def candidate_model_platforms(candidates: dict[str, list[str]]) -> dict[str, set[str]]:
+    """model id -> set of allowlist platforms it is a candidate for."""
+    out: dict[str, set[str]] = {}
+    for platform, model in _candidate_members(candidates):
+        out.setdefault(model, set()).add(platform)
+    return out
+
+
+def proven_servable_from_traffic(
+    traffic: dict[str, set[str]], candidates: dict[str, list[str]]
+) -> dict[str, set[str]]:
+    """Intersect the 24h-traffic-served models with the candidate set, bucketing
+    each by the CANDIDATE platform (NOT the serving-account platform — Vertex is
+    served under accounts.platform='newapi', so account platform is unreliable).
+
+    Properties enforced here (the correctness contract):
+      * PURELY ADDITIVE — only models that BOTH appear in traffic AND are known
+        candidates survive. A candidate absent from traffic is simply not returned
+        (it stays in the probe set). A served model that is not a candidate is
+        dropped (never injected into the allowlist).
+      * Blocked models (skiplist/deadlist) are already absent from `candidates`
+        (augment_candidates_with_watchlist removed them), so they can never appear
+        here even with a real traffic hit — a deadlist model cannot revive on one
+        successful request. validate_results_against_reprobe_ledger is still run on
+        the result by callers as defense-in-depth.
+    Returns platform -> set of proven-servable model ids."""
+    model_platforms = candidate_model_platforms(candidates)
+    served = {model for models in traffic.values() for model in models}
+    out: dict[str, set[str]] = {}
+    for model in served:
+        for platform in model_platforms.get(model, ()):
+            out.setdefault(platform, set()).add(model)
+    return out
+
+
+def remove_proven_from_candidates(
+    candidates: dict[str, list[str]], proven: dict[str, set[str]]
+) -> dict[str, list[str]]:
+    """Drop proven (platform, model) pairs from the probe families so the SSM
+    probe never re-tests a model the traffic already proved. Returns a new dict;
+    the input is untouched."""
+    proven_pairs = {(platform, model) for platform, models in proven.items() for model in models}
+    out: dict[str, list[str]] = {}
+    for family, models in candidates.items():
+        platform = FAMILY_PLATFORM.get(family)
+        out[family] = [model for model in models if (platform, model) not in proven_pairs]
+    return out
+
+
+def proven_as_tsv(proven: dict[str, set[str]]) -> str:
+    """Render the traffic-proven set as servable probe rows (platform\\tmodel\\t200
+    \\tservable) so the `probe` subcommand's TSV stays complete for a later
+    `apply --results`."""
+    return "\n".join(
+        f"{platform}\t{model}\t200\tservable"
+        for platform in sorted(proven)
+        for model in sorted(proven[platform])
+    )
+
+
+def _log_proven_skip(proven: dict[str, set[str]], hours: int) -> None:
+    total = sum(len(models) for models in proven.values())
+    if total == 0:
+        print(
+            f"[refresh] no candidate model matched the last {hours}h of successful "
+            "traffic — probing the full candidate set",
+            file=sys.stderr,
+        )
+        return
+    rendered = ", ".join(
+        f"{platform}/{model}"
+        for platform in sorted(proven)
+        for model in sorted(proven[platform])
+    )
+    print(
+        f"[refresh] skipping {total} models proven by {hours}h traffic: {rendered}",
+        file=sys.stderr,
+    )
+
+
+def fetch_traffic_proven(hours: int = DEFAULT_TRAFFIC_HOURS, target: str = "prod") -> dict[str, set[str]]:
+    """Pull the (platform, model) pairs that served successful traffic in the last
+    `hours` hours from prod, via the same run-probe SSM transport the probe uses."""
+    if not RUN_PROBE.exists() or not TRAFFIC_PROBE.exists():
+        raise SystemExit("FATAL: run-probe.sh or probe-traffic-proven-models.sh missing")
+    cmd = [
+        "bash", str(RUN_PROBE), "--target", target, "--script", str(TRAFFIC_PROBE),
+        "--timeout-seconds", "120", "--env", f"TRAFFIC_HOURS={hours}",
+    ]
+    proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    sys.stderr.write(proc.stderr)
+    if proc.returncode != 0:
+        raise SystemExit(f"FATAL: traffic-proven query failed (exit {proc.returncode}) — see stderr above")
+    return parse_traffic_rows(proc.stdout)
+
+
+def short_circuit_by_traffic(
+    candidates: dict[str, list[str]],
+    ledger: dict,
+    *,
+    hours: int = DEFAULT_TRAFFIC_HOURS,
+    target: str = "prod",
+) -> tuple[dict[str, list[str]], dict[str, set[str]]]:
+    """Fetch 24h traffic, derive the proven-servable candidates, validate them
+    against the reprobe ledger, log the skips, and return (reduced_candidates,
+    proven). reduced_candidates has the proven models removed so they are not
+    re-probed; proven is merged into the servable results by the caller."""
+    traffic = fetch_traffic_proven(hours=hours, target=target)
+    proven = proven_servable_from_traffic(traffic, candidates)
+    # Defense-in-depth: proven ⊆ candidates (which already exclude skiplist/deadlist),
+    # so this never fires — but it guards against any future candidate-derivation drift.
+    validate_results_against_reprobe_ledger(proven, ledger)
+    _log_proven_skip(proven, hours)
+    return remove_proven_from_candidates(candidates, proven), proven
+
+
 # ----- de-duplication (operator rule) -----
 def dedup(servable: set[str]) -> list[str]:
     """Drop a dated `<base>-YYYYMMDD` form when its non-dated base also serves,
@@ -432,8 +578,8 @@ def chunk(items: list[str], size: int) -> list[list[str]]:
 
 
 # ----- live probe -----
+# anthropic is handled separately (edge rotation), not in this single-target table.
 ENV_BY_FAMILY = (
-    ("ANTHROPIC_MODELS", "anthropic", "prod"),
     ("OPENAI_CHAT_MODELS", "openai_chat", "prod"),
     ("OPENAI_RESPONSES_MODELS", "openai_responses", "prod"),
     ("OPENAI_IMAGE_MODELS", "openai_image", "prod"),
@@ -442,10 +588,31 @@ ENV_BY_FAMILY = (
     ("GEMINI_VIDEO_MODELS", "gemini_video", GEMINI_TARGET),
 )
 
+# ----- anthropic: edge-native probe, rotated across deployable edges -----
+# claude is served by the edges' own native OAuth pool; prod only holds cc-* mirror
+# accounts that relay to those edges and cool down on any edge blip (a prod-gateway
+# probe then empty-pools -> false "unservable"). So anthropic probes the edges directly
+# and a model is servable if ANY edge serves it. One healthy edge is enough; unhealthy
+# edges config_error cheaply (no schedulable native account) and we rotate past them.
+FLEET_JSON = REPO / "deploy/aws/lightsail/edge-targets-lightsail.json"
+
+
+def deployable_edges() -> list[str]:
+    """Rotation order = edges marked deployable in the lightsail fleet manifest."""
+    try:
+        data = json.loads(FLEET_JSON.read_text(encoding="utf-8"))
+        edges = [k for k, v in data.get("targets", {}).items() if v.get("deployable")]
+        if edges:
+            return edges
+    except Exception as e:  # noqa: BLE001 — manifest optional; fall back to known edges
+        print(f"[refresh] WARN: fleet manifest unreadable ({e}); using fallback edges", file=sys.stderr)
+    return ["us3", "us4", "us5", "us6"]
+
 
 def _run_probe_batch(env_args: list[str], target: str = "prod") -> str:
     cmd = [
         "bash", str(RUN_PROBE), "--target", target, "--script", str(PROBE),
+        "--with", str(PROBE_LIB),
         "--timeout-seconds", "600", *env_args,
     ]
     proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -456,18 +623,88 @@ def _run_probe_batch(env_args: list[str], target: str = "prod") -> str:
     return "\n".join(ln for ln in proc.stdout.splitlines() if ln.count("\t") == 3)
 
 
+def _servable_tag(tsv: str, tag: str) -> set[str]:
+    """Servable model ids emitted under a specific platform tag (col 1)."""
+    out: set[str] = set()
+    for ln in tsv.splitlines():
+        p = ln.split("\t")
+        if len(p) == 4 and p[0] == tag and p[1] != "*" and p[3] == "servable":
+            out.add(p[1])
+    return out
+
+
+# Prod mirror sub-pools (warning-only relay check): name prefix -> (emit tag, label).
+ANTHROPIC_PROD_MIRRORS = (
+    ("anthropic_prodmirror_cc", "prod cc-* (anthropic-OAuth) relay"),
+    ("anthropic_prodmirror_kiro", "prod kiro-* (Kiro) relay"),
+)
+
+
 def live_probe(candidates: dict[str, list[str]]) -> str:
     if not RUN_PROBE.exists() or not PROBE.exists():
         raise SystemExit("FATAL: run-probe.sh or probe-servable-models.sh missing")
-    # One run-probe invocation per family-batch: a single command spanning the
-    # whole catalog would exceed the SSM waiter window and be reported failed.
+    rows: list[str] = []
+
+    # anthropic: rotate across deployable edges; a model is servable if ANY edge serves
+    # it. Stop rotating a batch once every model is confirmed (one healthy edge usually
+    # serves the whole shared OAuth pool). Edges with no schedulable native account
+    # config_error (ignored by parse_results), so an all-cold fleet leaves the anthropic
+    # allowlist untouched via the 0-servable guard rather than wiping it.
+    anth = candidates.get("anthropic", [])
+    if anth:
+        edges = deployable_edges()
+        abatches = chunk(anth, BATCH_SIZE)
+        edge_rows: list[str] = []
+        print(f"[refresh] anthropic: {len(anth)} models × up to {len(edges)} edge(s) {edges} (servable if ANY serves) …", file=sys.stderr)
+        for ci, c in enumerate(abatches, 1):
+            served: set[str] = set()
+            for ei, edge in enumerate(edges, 1):
+                print(f"[refresh] anthropic batch {ci}/{len(abatches)} via edge:{edge} ({ei}/{len(edges)}; {len(served)}/{len(c)} served) …", file=sys.stderr)
+                out = _run_probe_batch(["--env", f"ANTHROPIC_MODELS={' '.join(c)}"], target=f"edge:{edge}")
+                if out:
+                    edge_rows.append(out)
+                    served |= _servable_tag(out, "anthropic")
+                if len(served) >= len(c):
+                    break  # whole batch confirmed on some edge — no need to rotate further
+            if len(served) < len(c):
+                print(f"[refresh] anthropic batch {ci}: {len(served)}/{len(c)} served after all edges (rest inconclusive)", file=sys.stderr)
+        rows.extend(edge_rows)
+
+        # Prod relay-health (warning-only): the edges are the source of truth, but customers
+        # reach claude through prod's mirror accounts (cc-* anthropic-OAuth + kiro-* Kiro).
+        # Re-probe the edge-servable set via the prod gateway per mirror sub-pool and WARN
+        # on any model an edge serves but a prod mirror does not (edge通 prod不通). These rows
+        # carry distinct platform tags that parse_results ignores — never the allowlist.
+        # NOTE: this only covers models actually edge-probed THIS run. A model short-
+        # circuited by 24h traffic (--skip-proven-by-traffic) is removed from candidates
+        # before live_probe, so it is absent from edge_servable and its prod relay health
+        # is NOT checked here. That is acceptable (relay health is warning-only and the
+        # model demonstrably served real traffic); run a full probe to relay-health-check
+        # every served model.
+        edge_servable = _servable_tag("\n".join(edge_rows), "anthropic")
+        if edge_servable:
+            mrows: list[str] = []
+            for mb in chunk(sorted(edge_servable), max(1, BATCH_SIZE // 2)):
+                out = _run_probe_batch(["--env", f"ANTHROPIC_PROD_MIRROR_MODELS={' '.join(mb)}"], target="prod")
+                if out:
+                    rows.append(out)
+                    mrows.append(out)
+            mtxt = "\n".join(mrows)
+            for tag, label in ANTHROPIC_PROD_MIRRORS:
+                missing = sorted(edge_servable - _servable_tag(mtxt, tag))
+                if missing:
+                    print(f"[refresh] WARNING: {len(missing)}/{len(edge_servable)} edge-servable model(s) NOT served via {label} (edge OK, prod relay not): {', '.join(missing)}", file=sys.stderr)
+                else:
+                    print(f"[refresh] {label}: all {len(edge_servable)} edge-servable models OK", file=sys.stderr)
+
+    # Other families: one run-probe invocation per family-batch at a fixed target
+    # (a single command spanning the whole catalog would exceed the SSM waiter window).
     batches: list[tuple[str, list[str], str]] = []
     for env_key, fam, target in ENV_BY_FAMILY:
         for c in chunk(candidates.get(fam, []), BATCH_SIZE):
             batches.append((env_key, c, target))
     total = sum(len(candidates.get(f, [])) for _, f, _ in ENV_BY_FAMILY)
-    print(f"[refresh] probing {total} models in {len(batches)} batch(es) of <= {BATCH_SIZE} …", file=sys.stderr)
-    rows: list[str] = []
+    print(f"[refresh] probing {total} non-anthropic models in {len(batches)} batch(es) of <= {BATCH_SIZE} …", file=sys.stderr)
     for i, (env_key, models, target) in enumerate(batches, 1):
         print(f"[refresh] batch {i}/{len(batches)} ({env_key}@{target}: {len(models)}) …", file=sys.stderr)
         out = _run_probe_batch(["--env", f"{env_key}={' '.join(models)}"], target=target)
@@ -665,6 +902,10 @@ def selftest() -> int:
         "anthropic\tclaude-opus-4-8\t200\tservable\n"
         "openai\tgpt-4o\t400\tunsupported\nopenai\t*\t000\tauth_error\n"
         "gemini\tgemini-2.5-pro\t200\tservable\ngemini\tgemma-4-31b-it\t400\tunsupported\n"
+        # prod-mirror relay-health rows carry distinct tags and MUST NOT enter the allowlist
+        # (the exact-dict assertion below fails if parse_results ever stops ignoring them).
+        "anthropic_prodmirror_cc\tclaude-sonnet-4-6\t200\tservable\n"
+        "anthropic_prodmirror_kiro\tclaude-sonnet-4-6\t429\tnot_allowlisted\n"
         "grok\tgrok-4.3\t200\tservable\ngrok\tgrok-4-0709\t429\tinconclusive"
     )
     p = parse_results(tsv)
@@ -703,6 +944,68 @@ def selftest() -> int:
     assert "gemini-3-pro-image-preview" in real_cands["gemini_chat"], real_cands["gemini_chat"]
     assert "gemini-3-pro-image-preview" not in real_cands["gemini_image"], real_cands["gemini_image"]
 
+    probe_lib = REPO / "ops/pricing/probe_reserved_resources.sh"
+    probe_test = REPO / "ops/pricing/test_probe_reserved_resources.sh"
+    probe_sh = PROBE
+    for path in (probe_lib, probe_test, probe_sh):
+        if not path.is_file():
+            raise AssertionError(f"missing probe script: {path}")
+    subprocess.run(["bash", "-n", str(probe_sh)], check=True)
+    subprocess.run(["bash", str(probe_test)], check=True)
+
+    # 24h-traffic short-circuit: proven-by-traffic candidates skip the probe batch
+    # but still land in the servable set, while non-candidates / blocked / untrafficked
+    # models are handled correctly (no injection, no revival, no false negative).
+    traffic_cands = augment_candidates_with_watchlist(build_candidates(cat, ["gemini-2.5-pro"]), ledger)
+    assert "gpt-image-dead" not in traffic_cands["openai_image"], "skiplist must pre-exclude"
+    assert candidate_model_platforms(traffic_cands)["gemini-2.5-pro"] == {"gemini"}
+    mock_tsv = (
+        "anthropic\tclaude-opus-4-8\t42\n"      # candidate -> proven (anthropic)
+        "openai\tgpt-5.4\t10\n"                 # candidate -> proven (openai)
+        "newapi\tgemini-2.5-pro\t7\n"           # served as newapi, but candidate=gemini -> bucket by CANDIDATE platform
+        "openai\tgpt-image-dead\t3\n"           # skiplisted -> not a candidate -> dropped, no revival
+        "openai\tgpt-4o\t99\n"                  # unpriced -> not a candidate -> dropped, no injection
+        "\n bad line with no tabs \n"            # malformed -> ignored
+    )
+    traffic = parse_traffic_rows(mock_tsv)
+    assert traffic["newapi"] == {"gemini-2.5-pro"}, traffic
+    proven = proven_servable_from_traffic(traffic, traffic_cands)
+    assert proven == {
+        "anthropic": {"claude-opus-4-8"},
+        "openai": {"gpt-5.4"},
+        "gemini": {"gemini-2.5-pro"},  # bucketed by candidate platform, NOT the serving 'newapi'
+    }, proven
+    flat_proven = {m for s in proven.values() for m in s}
+    assert "gpt-image-dead" not in flat_proven, "blocked model must never revive via traffic"
+    assert "gpt-4o" not in flat_proven, "non-candidate must never be injected via traffic"
+    # proven ⊆ candidates (which exclude skiplist/deadlist) -> ledger validation passes.
+    validate_results_against_reprobe_ledger(proven, ledger)
+    # reduced candidates: proven removed (not re-probed), untrafficked candidates kept (still probed).
+    reduced = remove_proven_from_candidates(traffic_cands, proven)
+    assert "claude-opus-4-8" not in reduced["anthropic"], reduced["anthropic"]
+    assert "claude-3-haiku-20240307" in reduced["anthropic"], "untrafficked candidate must still be probed"
+    assert "gpt-5.4" not in reduced["openai_chat"], reduced["openai_chat"]
+    assert "gpt-5.2" in reduced["openai_chat"], "untrafficked watchlist candidate must still be probed"
+    assert "gemini-2.5-pro" not in reduced["gemini_chat"], reduced["gemini_chat"]
+    assert "gemini-3-pro-image-preview" in reduced["gemini_chat"], "untrafficked candidate must still be probed"
+    orig_count = sum(len(v) for v in traffic_cands.values())
+    reduced_count = sum(len(v) for v in reduced.values())
+    assert reduced_count == orig_count - 3, (orig_count, reduced_count)
+    # empty traffic -> no short-circuit, candidates untouched (pure additive, never subtractive)
+    assert proven_servable_from_traffic({}, traffic_cands) == {}
+    assert remove_proven_from_candidates(traffic_cands, {}) == traffic_cands
+    # a blocked model that somehow reached the proven set IS still caught by the ledger guard
+    try:
+        validate_results_against_reprobe_ledger({"openai": {"gpt-image-dead"}}, ledger)
+        raise AssertionError("blocked proven model must fail ledger validation")
+    except SystemExit as e:
+        assert "skiplist/deadlist" in str(e), e
+    # proven_as_tsv round-trips into servable probe rows the apply path understands
+    tsv = proven_as_tsv({"anthropic": {"claude-opus-4-8"}, "openai": {"gpt-5.4"}})
+    assert parse_results(tsv) == {
+        "anthropic": {"claude-opus-4-8"}, "openai": {"gpt-5.4"}, "gemini": set(), "grok": set()
+    }, tsv
+
     print("refresh-servable-allowlist selftest: PASS")
     return 0
 
@@ -714,17 +1017,35 @@ def main() -> int:
         "gemini discovered-models source: JSON object (account.model_pricing_status "
         "— keys), JSON list, or newline list. Omit to probe only the imagen/veo seed."
     )
+    SKIP_HELP = (
+        "short-circuit: skip the SSM probe for any candidate already proven servable "
+        "by the last --traffic-hours of successful prod traffic (additive; unmatched "
+        "candidates are still probed). Default off (env REFRESH_SKIP_PROVEN_BY_TRAFFIC=1 "
+        "also enables it) so the conservative full probe stays the default."
+    )
+    HOURS_HELP = f"traffic short-circuit look-back window in hours (default {DEFAULT_TRAFFIC_HOURS})"
+
+    def add_traffic_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--skip-proven-by-traffic", action="store_true", help=SKIP_HELP)
+        p.add_argument("--traffic-hours", type=int, default=DEFAULT_TRAFFIC_HOURS, help=HOURS_HELP)
+
     ap_cand = sub.add_parser("candidates")
     ap_cand.add_argument("--discovered", help=DISC_HELP)
     ap_probe = sub.add_parser("probe")
     ap_probe.add_argument("--discovered", help=DISC_HELP)
+    add_traffic_flags(ap_probe)
     ap_apply = sub.add_parser("apply")
     ap_apply.add_argument("--results", required=True, help="TSV results file (- for stdin)")
     ap_run = sub.add_parser("run")
     ap_run.add_argument("--open-pr", action="store_true")
     ap_run.add_argument("--discovered", help=DISC_HELP)
+    add_traffic_flags(ap_run)
     sub.add_parser("selftest")
     args = ap.parse_args()
+
+    def skip_proven_enabled() -> bool:
+        return bool(getattr(args, "skip_proven_by_traffic", False)) or \
+            os.environ.get("REFRESH_SKIP_PROVEN_BY_TRAFFIC", "") not in ("", "0", "false", "False")
 
     def _report(final: dict[str, list[str]]) -> None:
         print(
@@ -742,8 +1063,15 @@ def main() -> int:
         return 0
 
     if args.cmd == "probe":
-        cands, _ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
-        print(live_probe(cands))
+        cands, ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
+        proven: dict[str, set[str]] = {}
+        if skip_proven_enabled():
+            cands, proven = short_circuit_by_traffic(cands, ledger, hours=args.traffic_hours)
+        probe_tsv = live_probe(cands)
+        if proven:
+            tsv = proven_as_tsv(proven)
+            probe_tsv = f"{tsv}\n{probe_tsv}".strip() if probe_tsv else tsv
+        print(probe_tsv)
         return 0
 
     if args.cmd == "apply":
@@ -755,7 +1083,13 @@ def main() -> int:
 
     if args.cmd == "run":
         cands, ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
-        final = write_allowlists(parse_results(live_probe(cands)), ledger)
+        proven: dict[str, set[str]] = {}
+        if skip_proven_enabled():
+            cands, proven = short_circuit_by_traffic(cands, ledger, hours=args.traffic_hours)
+        servable = parse_results(live_probe(cands))
+        for platform, models in proven.items():
+            servable.setdefault(platform, set()).update(models)
+        final = write_allowlists(servable, ledger)
         _report(final)
         if args.open_pr:
             open_pr(final)
