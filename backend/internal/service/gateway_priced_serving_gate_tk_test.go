@@ -169,19 +169,20 @@ func TestPricedServingGateRejected_NilDepsFailOpen(t *testing.T) {
 // $0-guard). The old catalog-membership predicate got this WRONG (catalog has no
 // family fallback) and would 404 a model billing prices fine — on the only
 // launch platform. This is the constructive gate ⟺ billing property.
-func TestPricedServingGateRejected_GeminiFamilyFallbackNotRejected(t *testing.T) {
+func TestPricedServingGateRejected_GeminiUnknownNoFallbackIsRejected(t *testing.T) {
 	ctx := context.Background()
 	setting := newGateSettingService("gemini")
-	// Source has ONLY gemini-2.5-pro; the new variant is absent from the source.
-	resolve := gateBillingResolverWith("gemini-2.5-pro")
+	// Source prices the canary (healthy system) but NOT the new variant. There is no flat
+	// gemini family fallback anymore (docs/approved/priced-or-it-doesnt-ship.md), so a gemini id
+	// with no real litellm/overlay price resolves to ErrModelPricingUnavailable.
+	resolve := gateBillingResolverWith(tkPricedServingGateCanaryModel)
 
-	// New gemini variant the catalog hasn't caught up to → resolves via fallback.
 	_, err := resolve("gemini-9.9-ultra-preview")
-	require.False(t, errors.Is(err, ErrModelPricingUnavailable),
-		"sanity: billing fallback covers any gemini-* model")
+	require.True(t, errors.Is(err, ErrModelPricingUnavailable),
+		"sanity: an unknown gemini variant has NO flat fallback → billing unavailable")
 
-	require.False(t, tkPricedServingGateRejected(ctx, resolve, setting, "gemini-9.9-ultra-preview", "gemini"),
-		"a new gemini variant billing prices via family fallback must NOT be gate-rejected (SHOULD-FIX1)")
+	require.True(t, tkPricedServingGateRejected(ctx, resolve, setting, "gemini-9.9-ultra-preview", "gemini"),
+		"an unknown gemini with no real price must be gate-rejected ('查不到就拒'), not masked by a flat fallback")
 }
 
 // TestPricedServingGateRejected_DegradedSourceFailsOpen pins the fail-OPEN

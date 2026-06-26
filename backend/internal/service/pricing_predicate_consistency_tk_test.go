@@ -51,7 +51,8 @@ func TestR3_CatchAllKeyConsistency_GateRejectsOnBillingKey(t *testing.T) {
 	// Source prices the mapped target only; the requested client id is unpriced
 	// (and not a fallback family).
 	blob := []byte(`{
-		"mapped-priced-target": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "test"}
+		"mapped-priced-target": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "test"},
+		"gemini-2.5-pro": {"input_cost_per_token": 0.00000125, "output_cost_per_token": 0.00001, "litellm_provider": "test"}
 	}`)
 	billing := newConsistencyBilling(t, blob)
 	resolve := billing.GetModelPricing
@@ -86,7 +87,8 @@ func TestR3_BoundariesThroughRealBilling(t *testing.T) {
 		"r3-input-only":     {"input_cost_per_token": 0.000003, "output_cost_per_token": 0, "litellm_provider": "test"},
 		"r3-zero-token":     {"input_cost_per_token": 0, "output_cost_per_token": 0, "litellm_provider": "test"},
 		"r3-video-priced":   {"input_cost_per_token": 0, "output_cost_per_token": 0, "output_cost_per_second": 0.4, "mode": "video", "litellm_provider": "test"},
-		"r3-image-priced":   {"input_cost_per_token": 0, "output_cost_per_token": 0, "output_cost_per_image": 0.04, "mode": "image", "litellm_provider": "test"}
+		"r3-image-priced":   {"input_cost_per_token": 0, "output_cost_per_token": 0, "output_cost_per_image": 0.04, "mode": "image", "litellm_provider": "test"},
+		"gemini-2.5-pro":    {"input_cost_per_token": 0.00000125, "output_cost_per_token": 0.00001, "litellm_provider": "test"}
 	}`)
 	billing := newConsistencyBilling(t, blob)
 	resolve := billing.GetModelPricing
@@ -104,8 +106,8 @@ func TestR3_BoundariesThroughRealBilling(t *testing.T) {
 		{"r3-video-priced", false, "per-second media price → pass"},
 		{"r3-image-priced", false, "per-image media price → pass"},
 		{"r3-absent-not-family", true, "absent + no fallback family → reject"},
-		{"gemini-new-variant-xyz", false, "absent but gemini family fallback → priced → pass (SHOULD-FIX1)"},
-		{"claude-new-variant-xyz", false, "absent but claude family fallback → priced → pass (SHOULD-FIX1)"},
+		{"gemini-new-variant-xyz", true, "gemini flat fallback REMOVED → unavailable → reject ('查不到就拒')"},
+		{"claude-new-variant-xyz", false, "claude family fallback still applies → priced → pass"},
 	}
 
 	for _, tc := range cases {

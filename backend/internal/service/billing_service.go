@@ -259,14 +259,14 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:     false,
 	}
 
-	// Gemini 3.1 Pro
-	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
-		InputPricePerToken:         2e-6,   // $2 per MTok
-		OutputPricePerToken:        12e-6,  // $12 per MTok
-		CacheCreationPricePerToken: 2e-6,   // $2 per MTok
-		CacheReadPricePerToken:     0.2e-6, // $0.20 per MTok
-		SupportsCacheBreakdown:     false,
-	}
+	// NOTE: no flat "any gemini → gemini-3.1-pro" fallback (docs/approved/priced-or-it-doesnt-ship.md).
+	// A single per-family rate silently mischarges EVERY gemini model (e.g. gemini-2.5-flash billed
+	// at gemini-3.1-pro's $2/$12 — a large overcharge), destroying pricing transparency/trust. Every
+	// gemini model TokenKey serves is covered by the litellm mirror or tk_pricing_overlay.json with
+	// its REAL price (verified 2026-06-26: all 13 served-in-7d gemini ids resolve there; the canary
+	// gemini-2.5-pro resolves via litellm). A gemini id with no real price now returns
+	// ErrModelPricingUnavailable → the PricingMissingNotifier alert fires ("查不到就告警") and the
+	// priced-serving gate rejects it, instead of being masked by a wrong flat rate.
 
 	// OpenAI GPT-5.4（业务指定价格）
 	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
@@ -560,14 +560,14 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if strings.Contains(modelLower, "claude") {
 		return s.fallbackPrices["claude-sonnet-4"]
 	}
-	// Gemini family fallback (upstream Wei-Shaw/sub2api#2486): any gemini-* model
-	// without an explicit LiteLLM or fallback entry — including new Google variants
-	// like gemini-pro-agent — must bill at the conservative paid-tier rate instead
-	// of returning nil (which causes calculateTokenCost to swallow the error and
-	// silently record ActualCost=0 with no quota deduction).
-	if strings.Contains(modelLower, "gemini") {
-		return s.fallbackPrices["gemini-3.1-pro"]
-	}
+	// Gemini: intentionally NO flat per-family fallback (docs/approved/priced-or-it-doesnt-ship.md).
+	// Upstream #2486 mapped any gemini-* without a real price to a conservative flat rate to avoid a
+	// silent ActualCost=0. TokenKey supersedes that masking: a single rate mischarges every gemini
+	// model (gemini-2.5-flash billed at gemini-3.1-pro's $2/$12), and "no $0" is now achieved the
+	// honest way — every served gemini id carries a REAL price in the litellm mirror / overlay, and
+	// any id that does not resolves to ErrModelPricingUnavailable → PricingMissingNotifier alert
+	// ("查不到就告警") + priced-serving-gate rejection, instead of a wrong flat charge. (Re-add a
+	// gemini fallback only if reverting that design.)
 
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
 	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
