@@ -204,19 +204,28 @@ def installed_codex_version() -> str:
 
 
 def locate_codex_binary() -> Path | None:
-    """Best-effort path to the native (Rust) codex binary behind the npm wrapper."""
+    """Best-effort path to the native (Rust) codex binary behind the npm wrapper.
+
+    Bounded on purpose: the recursive ``**`` glob is scoped to the codex package
+    root (the nearest ancestor ``@openai/codex/``), NEVER an open-ended ascent that
+    could glob from the filesystem root and scan the whole disk. A missing binary
+    just yields None (binary-strings sanity is then skipped, handled by callers).
+    """
     exe = shutil.which("codex")
     if not exe:
         return None
     real = Path(exe).resolve()
-    # npm layout: .../@openai/codex/bin/codex.js -> vendor native under a sibling pkg.
-    for base in (real.parent, *real.parents):
-        for cand in base.glob("**/@openai/codex-*/vendor/*/bin/codex"):
-            if cand.is_file():
-                return cand
-    # Homebrew / standalone: the resolved target may already be the native binary.
+    # Standalone / Homebrew native binary: the resolved target is already it.
     if real.is_file() and real.suffix != ".js":
         return real
+    # npm layout: .../@openai/codex/bin/codex.js -> native pkg under a nested
+    # node_modules. Search ONLY inside the @openai/codex package root.
+    for anc in real.parents:
+        if anc.name == "codex" and anc.parent.name == "@openai":
+            for cand in anc.glob("**/@openai/codex-*/vendor/*/bin/codex"):
+                if cand.is_file():
+                    return cand
+            return None  # found the package root but no native binary — stop here
     return None
 
 

@@ -8,8 +8,10 @@ fingerprint diff/consistency engine). stdlib unittest only — run with:
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -144,6 +146,47 @@ class EmitEditsTests(unittest.TestCase):
 
     def test_no_edits_when_already_aligned(self):
         self.assertEqual(eng.emit_edits(_aligned("0.142.2"), "0.142.2"), [])
+
+
+class LocateBinaryTests(unittest.TestCase):
+    """locate_codex_binary must be bounded — never an open-ended disk glob."""
+
+    def test_returns_none_when_not_installed(self):
+        with mock.patch.object(eng.shutil, "which", return_value=None):
+            self.assertIsNone(eng.locate_codex_binary())
+
+    def test_finds_native_binary_in_npm_layout(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            wrapper = root / "lib/node_modules/@openai/codex/bin/codex.js"
+            native = (root / "lib/node_modules/@openai/codex/node_modules/@openai/"
+                      "codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
+            wrapper.parent.mkdir(parents=True)
+            native.parent.mkdir(parents=True)
+            wrapper.write_text("// wrapper", encoding="utf-8")
+            native.write_bytes(b"native")
+            with mock.patch.object(eng.shutil, "which", return_value=str(wrapper)):
+                # resolve() the expected path too — the engine resolves symlinks
+                # (macOS /var -> /private/var) so compare canonicalised paths.
+                self.assertEqual(eng.locate_codex_binary(), native.resolve())
+
+    def test_standalone_native_target_returns_itself(self):
+        with tempfile.TemporaryDirectory() as d:
+            native = Path(d) / "bin/codex"
+            native.parent.mkdir(parents=True)
+            native.write_bytes(b"native")
+            with mock.patch.object(eng.shutil, "which", return_value=str(native)):
+                self.assertEqual(eng.locate_codex_binary(), native.resolve())
+
+    def test_missing_native_under_pkg_root_returns_none_without_root_glob(self):
+        # Wrapper present but no native pkg: must give up at the @openai/codex root,
+        # NOT keep ascending to '/' and glob the whole disk.
+        with tempfile.TemporaryDirectory() as d:
+            wrapper = Path(d) / "node_modules/@openai/codex/bin/codex.js"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_text("// wrapper", encoding="utf-8")
+            with mock.patch.object(eng.shutil, "which", return_value=str(wrapper)):
+                self.assertIsNone(eng.locate_codex_binary())
 
 
 class LiveRepoTests(unittest.TestCase):
