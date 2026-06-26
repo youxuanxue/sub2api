@@ -56,12 +56,20 @@
 # Optional env:
 #   ARK_ACCOUNT_ID           default 7   (accounts row holding the ark api_key + base_url)
 #   ANTHROPIC_EDGE_BASE      default https://api-us7.tokenkey.dev
-#   ANTHROPIC_KEY_ACCOUNT_ID default 54  (its credentials.api_key relays to the edge)
+#   ANTHROPIC_KEY_ACCOUNT_ID default 54  (legacy only when USE_TK_PROBE_RESERVED=0)
 #   PROD_BASE                default https://api.tokenkey.dev
-#   OPENAI_KEY_NAME          default TK_SMOKE_API_KEY (api_keys.user_id=1)
-#   GEMINI_GROUP_NAME        default google  (verified us6 newapi Vertex group; CASE-SENSITIVE)
-#   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
-#   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
+#   OPENAI_KEY_NAME          default TK_SMOKE_API_KEY (legacy only when USE_TK_PROBE_RESERVED=0)
+#   USE_TK_PROBE_RESERVED    default 1 — auto ensure __tk_probe_<scope>_group/key per platform
+#   PROBE_OPENAI_SOURCE_GROUP default GPT专线 (schedulable accounts copied into probe group)
+#   PROBE_ANTHROPIC_SOURCE_GROUP default `default` (the edge's native OAuth anthropic group;
+#                            probe runs ON an edge, NOT prod — see refresh-allowlist ANTHROPIC_EDGES)
+#   ANTHROPIC_APP_CONTAINER  default tokenkey-caddy (edge app container; busybox wget, bypass Caddy)
+#   ANTHROPIC_APP_URL        default http://tokenkey:8080 (edge app, reached internally)
+#   PROBE_GEMINI_SOURCE_GROUP default google-vertex (PROD newapi Vertex group; ids 47/57/58/59)
+#   PROBE_DASHSCOPE_SOURCE_GROUP default Qwen
+#   PROBE_ZHIPU_SOURCE_GROUP default GLM
+#   PROBE_GROK_SOURCE_GROUP  default grok
+#   GEMINI_GROUP_NAME        default google-vertex  (PROD newapi Vertex group; legacy-path only; CASE-SENSITIVE)
 #   GROK_GROUP_NAME          default grok  (verified edge native grok group; CASE-SENSITIVE)
 #   GROK_APP_CONTAINER       default tokenkey-caddy
 #   GROK_APP_URL             default http://tokenkey:8080
@@ -89,19 +97,42 @@
 # (host-shell parse trap, see check-stage0-ssm-host-parse.sh).
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=probe_reserved_resources.sh
+. "$SCRIPT_DIR/probe_reserved_resources.sh"
+
+PSQL_ARRAY=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'
 AEDGE="${ANTHROPIC_EDGE_BASE:-https://api-us7.tokenkey.dev}"
 AACCT="${ANTHROPIC_KEY_ACCOUNT_ID:-54}"
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
 OKEY_NAME="${OPENAI_KEY_NAME:-TK_SMOKE_API_KEY}"
-GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
-# Gemini/Vertex lives on an EDGE node whose Caddy restricts /v1/* to the prod
-# gateway CIDR (a host-local request to the public api-<edge> domain 403s with
-# "edge relay path is restricted"). The probe therefore hits the app container
-# directly on the docker network, bypassing the edge Caddy. The caddy container
-# carries busybox wget and resolves the app service name on the compose network.
-GEMINI_APP_CONTAINER="${GEMINI_APP_CONTAINER:-tokenkey-caddy}"
-GEMINI_APP_URL="${GEMINI_APP_URL:-http://tokenkey:8080}"
+USE_TK_PROBE_RESERVED="${USE_TK_PROBE_RESERVED:-1}"
+PROBE_OPENAI_SOURCE_GROUP="${PROBE_OPENAI_SOURCE_GROUP:-GPT专线}"
+# anthropic probes an EDGE's native OAuth pool directly (the edge `default` group),
+# not the prod cc-* mirror accounts: the mirrors relay prod->edge and cool down on any
+# edge upstream blip, so a prod-gateway probe empty-pools (429 not_allowlisted) whenever
+# the mirror pool is exhausted — a false "unservable". One healthy edge is enough to
+# confirm a model; the orchestrator rotates across deployable edges (refresh-servable-
+# allowlist.py ANTHROPIC_EDGES) and a model is servable if ANY edge serves it.
+PROBE_ANTHROPIC_SOURCE_GROUP="${PROBE_ANTHROPIC_SOURCE_GROUP:-default}"  # edge native OAuth group
+ANTHROPIC_APP_CONTAINER="${ANTHROPIC_APP_CONTAINER:-tokenkey-caddy}"
+ANTHROPIC_APP_URL="${ANTHROPIC_APP_URL:-http://tokenkey:8080}"
+# Prod relay-health probe (ANTHROPIC_PROD_MIRROR_MODELS, warning-only — does NOT feed
+# the allowlist). prod serves claude via api-key MIRROR accounts that all sit in the
+# `claude` group but split by NAME prefix into two upstream relays: `cc-*` (anthropic
+# OAuth edges) and `kiro-*` (Kiro edges). Each sub-pool is probed on its own key via the
+# prod gateway and emits a distinct platform tag (anthropic_prodmirror_cc / _kiro) that
+# parse_results ignores; the orchestrator warns when an edge-servable model fails here.
+PROBE_ANTHROPIC_MIRROR_GROUP="${PROBE_ANTHROPIC_MIRROR_GROUP:-claude}"
+PROBE_GEMINI_SOURCE_GROUP="${PROBE_GEMINI_SOURCE_GROUP:-google-vertex}"
+PROBE_DASHSCOPE_SOURCE_GROUP="${PROBE_DASHSCOPE_SOURCE_GROUP:-Qwen}"
+PROBE_ZHIPU_SOURCE_GROUP="${PROBE_ZHIPU_SOURCE_GROUP:-GLM}"
+PROBE_GROK_SOURCE_GROUP="${PROBE_GROK_SOURCE_GROUP:-grok}"
+GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-$PROBE_GEMINI_SOURCE_GROUP}"
+# Gemini/Vertex now serves from the PROD `google-vertex` group (not edge us6), so the
+# probe goes through the PROD public gateway with external curl like the other newapi
+# families — no edge-internal wget hop is needed (prod's Caddy is not CIDR-restricted).
 GROK_GROUP_NAME="${GROK_GROUP_NAME:-grok}"
 GROK_APP_CONTAINER="${GROK_APP_CONTAINER:-tokenkey-caddy}"
 GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
@@ -151,7 +182,7 @@ verdict() { # $1=code $2=bodyfile -> echoes verdict
 	esac
 }
 
-probe_anthropic() {
+probe_anthropic() { # legacy: edge direct with mirror account upstream api_key
 	local key="$1" m f code
 	for m in $ANTHROPIC_MODELS; do
 		f="$(mktemp)"
@@ -166,8 +197,52 @@ probe_anthropic() {
 	done
 }
 
+# probe_anthropic_internal: edge-native probe. Runs ON an edge host and hits the app
+# container directly (busybox wget, bypassing the edge Caddy /v1/* CIDR restriction),
+# so the request is scheduled onto the edge's OWN native OAuth account (the `default`
+# group) and relayed straight to Anthropic — no prod cc-* mirror hop. Key is the reserved
+# __tk_probe_anthropic_key bound to the edge `default` accounts; never printed.
+probe_anthropic_internal() { # $1=key  (models from $ANTHROPIC_MODELS)
+	local key="$1" m hf bf code body
+	for m in $ANTHROPIC_MODELS; do
+		hf="$(mktemp)"; bf="$(mktemp)"
+		body="{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}"
+		sudo docker exec "$ANTHROPIC_APP_CONTAINER" wget -S -q -O - --timeout=90 \
+			--header="x-api-key: $key" --header='anthropic-version: 2023-06-01' \
+			--header='anthropic-beta: claude-code-20250219' --header='X-App: cli' \
+			--header="User-Agent: $UA" --header='content-type: application/json' \
+			--post-data="$body" "$ANTHROPIC_APP_URL/v1/messages" >"$bf" 2>"$hf" || true # preflight-allow: swallow (status parsed from -S header file)
+		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$' || true)" # preflight-allow: swallow (no status line -> code stays empty -> next line sets 000)
+		[ -z "$code" ] && code=000
+		emit anthropic "$m" "$code" "$(verdict "$code" "$bf")"
+		rm -f "$hf" "$bf"
+		sleep "$REQ_SLEEP"
+	done
+}
+
+# probe_anthropic_prod_mirror: PROD relay-health probe (warning-only). Hits the PROD
+# public gateway /v1/messages with a key bound to one prod mirror sub-pool (cc-* or
+# kiro-*), so the request traverses the real prod->edge relay a customer would use.
+# Emits under a CALLER-SUPPLIED tag (anthropic_prodmirror_cc / _kiro) that parse_results
+# ignores — these rows never enter the allowlist; the orchestrator only diffs them
+# against the edge-native servable set to warn on "edge serves but prod relay doesn't".
+probe_anthropic_prod_mirror() { # $1=key $2=emit-tag  (models from $ANTHROPIC_PROD_MIRROR_MODELS)
+	local key="$1" tag="$2" m f code
+	for m in $ANTHROPIC_PROD_MIRROR_MODELS; do
+		f="$(mktemp)"
+		code="$(curl -s -o "$f" -w '%{http_code}' -m 75 -X POST "$PROD/v1/messages" \
+			-H "x-api-key: $key" -H 'anthropic-version: 2023-06-01' \
+			-H 'anthropic-beta: claude-code-20250219' -H 'X-App: cli' \
+			-H "User-Agent: $UA" -H 'content-type: application/json' \
+			--data-binary "{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}")"
+		emit "$tag" "$m" "$code" "$(verdict "$code" "$f")"
+		rm -f "$f"
+		sleep "$REQ_SLEEP"
+	done
+}
+
 # probe_compat_endpoint: OpenAI-compatible Bearer-auth probe against an arbitrary
-# base. Used by both openai (PROD) and gemini (us6 / newapi+Vertex) families —
+# base. Used by openai, gemini, and zhipu/dashscope (all PROD / OpenAI-compat) families —
 # they share the same /v1/* OpenAI-compat surface, only base + key + emit-tag differ.
 probe_compat_endpoint() { # $1=platform-tag $2=base $3=key $4=endpoint $5=models $6=jsonbody-template-fn
 	local platform="$1" base="$2" key="$3" path="$4" models="$5" buildfn="$6" m f code
@@ -186,26 +261,6 @@ probe_openai_endpoint() { # back-compat wrapper: openai family always targets PR
 	probe_compat_endpoint openai "$PROD" "$1" "$2" "$3" "$4"
 }
 
-# probe_gemini_internal: same OpenAI-compat surface, but reached via the app
-# container on the docker network (bypasses the edge Caddy /v1/* restriction).
-# Uses busybox wget inside GEMINI_APP_CONTAINER: -S prints the response status
-# line to stderr (captured to a header file), -O - streams the body to stdout.
-# Key value lives in a shell var only; never emitted.
-probe_gemini_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
-	local key="$1" path="$2" models="$3" buildfn="$4" m hf bf code body
-	for m in $models; do
-		hf="$(mktemp)"; bf="$(mktemp)"; body="$($buildfn "$m")"
-		sudo docker exec "$GEMINI_APP_CONTAINER" wget -S -q -O - --timeout=90 \
-			--header="Authorization: Bearer $key" --header='content-type: application/json' \
-			--post-data="$body" "$GEMINI_APP_URL$path" >"$bf" 2>"$hf" || true
-		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$')"
-		[ -z "$code" ] && code=000
-		emit gemini "$m" "$code" "$(verdict "$code" "$bf")"
-		rm -f "$hf" "$bf"
-		sleep "$REQ_SLEEP"
-	done
-}
-
 probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
 	local key="$1" path="$2" models="$3" buildfn="$4" m hf bf code body
 	for m in $models; do
@@ -213,7 +268,7 @@ probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
 		sudo docker exec "$GROK_APP_CONTAINER" wget -S -q -O - --timeout=90 \
 			--header="Authorization: Bearer $key" --header='content-type: application/json' \
 			--post-data="$body" "$GROK_APP_URL$path" >"$bf" 2>"$hf" || true
-		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$')"
+		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$' || true)" # preflight-allow: swallow (no status line -> code stays empty -> next line sets 000)
 		[ -z "$code" ] && code=000
 		emit grok "$m" "$code" "$(verdict "$code" "$bf")"
 		rm -f "$hf" "$bf"
@@ -263,24 +318,81 @@ probe_zhipu() { # $1=key  (models from $ZHIPU_CHAT_MODELS)
 	probe_compat_endpoint newapi "$PROD" "$1" /v1/chat/completions "$ZHIPU_CHAT_MODELS" body_chat
 }
 
+# Resolve a catalog probe key via __tk_probe_<scope>_*. Tracks scopes for EXIT cleanup.
+TK_PROBE_CATALOG_SCOPES=""
+tk_probe_catalog_key() { # $1=scope $2=platform $3=bind_kind $4=bind_val -> sets REPLY_KEY
+	local scope="$1" platform="$2" bind_kind="$3" bind_val="$4"
+	if ! tk_probe_prepare_catalog "$scope" "$platform" "$bind_kind" "$bind_val"; then
+		return 1
+	fi
+	TK_PROBE_CATALOG_SCOPES="${TK_PROBE_CATALOG_SCOPES} ${scope}"
+	REPLY_KEY="$TK_PROBE_KEY"
+}
+
+tk_probe_catalog_cleanup() {
+	local scope
+	for scope in $TK_PROBE_CATALOG_SCOPES; do
+		[ -n "$scope" ] || continue
+		tk_probe_clear_bindings "$scope" || true # preflight-allow: swallow
+	done
+	tk_probe_release_reuse_locks
+}
+
 main() {
-	local akey okey gkey grkey dkey zkey arkacct arkkey arkbase
+	trap tk_probe_catalog_cleanup EXIT
+	local akey okey gkey grkey dkey zkey arkacct arkkey arkbase reply_key
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
-		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
-		if [ -z "$akey" ]; then
-			cfgerr anthropic "no api_key on account id=$AACCT (ANTHROPIC_KEY_ACCOUNT_ID)"
+		if [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+			if tk_probe_catalog_key anthropic anthropic source_group "$PROBE_ANTHROPIC_SOURCE_GROUP"; then
+				reply_key="$REPLY_KEY"
+				probe_anthropic_internal "$reply_key"
+			else
+				cfgerr anthropic "failed to prepare __tk_probe_anthropic_* (source_group=$PROBE_ANTHROPIC_SOURCE_GROUP — this edge has no schedulable native OAuth account; rotate to another edge)"
+			fi
 		else
-			probe_anthropic "$akey"
+			akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
+			if [ -z "$akey" ]; then
+				cfgerr anthropic "no api_key on account id=$AACCT (ANTHROPIC_KEY_ACCOUNT_ID)"
+			else
+				probe_anthropic "$akey"
+			fi
+		fi
+	fi
+	# Prod relay-health probe (warning-only): probe each prod mirror sub-pool (cc-* and
+	# kiro-*, split out of the `claude` group by name prefix) through the prod gateway.
+	# Reserved-resources only — distinct scopes/tags; the orchestrator diffs the results
+	# against the edge-native servable set. A cold sub-pool config_errors (rotation cue).
+	if [ -n "${ANTHROPIC_PROD_MIRROR_MODELS:-}" ] && [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+		if tk_probe_catalog_key anthropic_prodmirror_cc anthropic group_like "${PROBE_ANTHROPIC_MIRROR_GROUP}|cc-%"; then
+			probe_anthropic_prod_mirror "$REPLY_KEY" anthropic_prodmirror_cc
+		else
+			cfgerr anthropic_prodmirror_cc "no schedulable cc-* mirror in group '$PROBE_ANTHROPIC_MIRROR_GROUP' (prod anthropic-OAuth relay pool empty)"
+		fi
+		if tk_probe_catalog_key anthropic_prodmirror_kiro anthropic group_like "${PROBE_ANTHROPIC_MIRROR_GROUP}|kiro-%"; then
+			probe_anthropic_prod_mirror "$REPLY_KEY" anthropic_prodmirror_kiro
+		else
+			cfgerr anthropic_prodmirror_kiro "no schedulable kiro-* mirror in group '$PROBE_ANTHROPIC_MIRROR_GROUP' (prod Kiro relay pool empty)"
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
-		okey="$($PSQL -c "SELECT key FROM api_keys WHERE user_id=1 AND name='$OKEY_NAME' AND deleted_at IS NULL LIMIT 1" | tr -d '[:space:]')"
-		if [ -z "$okey" ]; then
-			cfgerr openai "no api_key user_id=1 name='$OKEY_NAME' (OPENAI_KEY_NAME)"
+		if [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+			if tk_probe_catalog_key openai openai source_group "$PROBE_OPENAI_SOURCE_GROUP"; then
+				okey="$REPLY_KEY"
+				[ -n "${OPENAI_CHAT_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/chat/completions "$OPENAI_CHAT_MODELS" body_chat
+				[ -n "${OPENAI_RESPONSES_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/responses "$OPENAI_RESPONSES_MODELS" body_resp
+				[ -n "${OPENAI_IMAGE_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/images/generations "$OPENAI_IMAGE_MODELS" body_img
+			else
+				cfgerr openai "failed to prepare __tk_probe_openai_* (source_group=$PROBE_OPENAI_SOURCE_GROUP)"
+			fi
 		else
-			[ -n "${OPENAI_CHAT_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/chat/completions "$OPENAI_CHAT_MODELS" body_chat
-			[ -n "${OPENAI_RESPONSES_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/responses "$OPENAI_RESPONSES_MODELS" body_resp
-			[ -n "${OPENAI_IMAGE_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/images/generations "$OPENAI_IMAGE_MODELS" body_img
+			okey="$($PSQL -c "SELECT key FROM api_keys WHERE user_id=1 AND name='$OKEY_NAME' AND deleted_at IS NULL LIMIT 1" | tr -d '[:space:]')"
+			if [ -z "$okey" ]; then
+				cfgerr openai "no api_key user_id=1 name='$OKEY_NAME' (OPENAI_KEY_NAME)"
+			else
+				[ -n "${OPENAI_CHAT_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/chat/completions "$OPENAI_CHAT_MODELS" body_chat
+				[ -n "${OPENAI_RESPONSES_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/responses "$OPENAI_RESPONSES_MODELS" body_resp
+				[ -n "${OPENAI_IMAGE_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/images/generations "$OPENAI_IMAGE_MODELS" body_img
+			fi
 		fi
 	fi
 	# Ark families: DIRECT volcengine data-plane probe (activation truth). Bypasses
@@ -307,47 +419,94 @@ main() {
 	# TO the newapi/qwen group (api_keys.group_id -> groups.id, joined by group name);
 	# never printed. Routes at prod (the newapi pool is prod-served, unlike gemini).
 	if [ -n "${DASHSCOPE_CHAT_MODELS:-}" ]; then
-		dkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$DASHSCOPE_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
-		if [ -z "$dkey" ]; then
-			cfgerr newapi "no api_key bound to group '$DASHSCOPE_GROUP_NAME' (DASHSCOPE_GROUP_NAME) — check name/case + that a key is bound"
+		if [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+			if tk_probe_catalog_key newapi_qwen newapi source_group "$PROBE_DASHSCOPE_SOURCE_GROUP"; then
+				dkey="$REPLY_KEY"
+				probe_dashscope "$dkey"
+			else
+				cfgerr newapi "failed to prepare __tk_probe_newapi_qwen_* (source_group=$PROBE_DASHSCOPE_SOURCE_GROUP)"
+			fi
 		else
-			probe_dashscope "$dkey"
+			dkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$DASHSCOPE_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+			if [ -z "$dkey" ]; then
+				cfgerr newapi "no api_key bound to group '$DASHSCOPE_GROUP_NAME' (DASHSCOPE_GROUP_NAME) — check name/case + that a key is bound"
+			else
+				probe_dashscope "$dkey"
+			fi
 		fi
 	fi
 	# Zhipu/GLM family: newapi channel_type=26 (account 67 "GLM") served through
 	# the PROD TK gateway /v1/chat/completions. Probe key is a TK api_key BOUND TO
 	# the GLM group; never printed.
 	if [ -n "${ZHIPU_CHAT_MODELS:-}" ]; then
-		zkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$ZHIPU_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
-		if [ -z "$zkey" ]; then
-			cfgerr newapi "no api_key bound to group '$ZHIPU_GROUP_NAME' (ZHIPU_GROUP_NAME) — check name/case + that a key is bound"
+		if [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+			if tk_probe_catalog_key newapi_glm newapi source_group "$PROBE_ZHIPU_SOURCE_GROUP"; then
+				zkey="$REPLY_KEY"
+				probe_zhipu "$zkey"
+			else
+				cfgerr newapi "failed to prepare __tk_probe_newapi_glm_* (source_group=$PROBE_ZHIPU_SOURCE_GROUP)"
+			fi
 		else
-			probe_zhipu "$zkey"
+			zkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$ZHIPU_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+			if [ -z "$zkey" ]; then
+				cfgerr newapi "no api_key bound to group '$ZHIPU_GROUP_NAME' (ZHIPU_GROUP_NAME) — check name/case + that a key is bound"
+			else
+				probe_zhipu "$zkey"
+			fi
 		fi
 	fi
 	# Grok family: native xAI OAuth pool on the edge (currently us4). Probe key is
 	# a TK api_key BOUND TO the edge-side grok group; never printed. The probe runs
 	# on the edge host and hits the app container directly, bypassing edge Caddy.
 	if [ -n "${GROK_CHAT_MODELS:-}" ]; then
-		grkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GROK_GROUP_NAME' AND g.platform='grok' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
-		if [ -z "$grkey" ]; then
-			cfgerr grok "no api_key bound to group '$GROK_GROUP_NAME' (GROK_GROUP_NAME) — check name/case + that a key is bound"
+		if [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+			if tk_probe_catalog_key grok grok source_group "$PROBE_GROK_SOURCE_GROUP"; then
+				grkey="$REPLY_KEY"
+				probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
+			else
+				cfgerr grok "failed to prepare __tk_probe_grok_* (source_group=$PROBE_GROK_SOURCE_GROUP)"
+			fi
 		else
-			probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
+			grkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GROK_GROUP_NAME' AND g.platform='grok' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+			if [ -z "$grkey" ]; then
+				cfgerr grok "no api_key bound to group '$GROK_GROUP_NAME' (GROK_GROUP_NAME) — check name/case + that a key is bound"
+			else
+				probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
+			fi
 		fi
 	fi
-	# Gemini family: newapi/Vertex models served through the google group on GEMINI_BASE.
-	# Key is an api_key BOUND TO that group (api_keys.group_id -> groups.id); never printed.
+	# Gemini family: newapi/Vertex models. Live Vertex capacity moved from edge us6
+	# to the PROD `google-vertex` group (account ids 47/57/58/59), so gemini now probes
+	# the PROD public gateway with external curl — identical transport to the other
+	# newapi families (zhipu/dashscope), NOT the edge-internal wget hop (that was only
+	# needed to bypass an edge Caddy /v1/* CIDR restriction; prod's gateway is public).
+	# emit tag stays `gemini` so parse_results maps results to the gemini allowlist.
 	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then
-		gkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GEMINI_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
-		if [ -z "$gkey" ]; then
-			cfgerr gemini "no api_key bound to group '$GEMINI_GROUP_NAME' (GEMINI_GROUP_NAME) — check name/case + that a key is bound"
+		if [ "$USE_TK_PROBE_RESERVED" = "1" ]; then
+			if tk_probe_catalog_key newapi_google newapi source_group "$PROBE_GEMINI_SOURCE_GROUP"; then
+				gkey="$REPLY_KEY"
+				[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
+				[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
+				[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
+			else
+				cfgerr gemini "failed to prepare __tk_probe_newapi_google_* (source_group=$PROBE_GEMINI_SOURCE_GROUP)"
+			fi
 		else
-			[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
-			[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
-			[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
+			gkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GEMINI_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+			if [ -z "$gkey" ]; then
+				cfgerr gemini "no api_key bound to group '$GEMINI_GROUP_NAME' (GEMINI_GROUP_NAME) — check name/case + that a key is bound"
+			else
+				[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
+				[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
+				[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
+			fi
 		fi
 	fi
+	# Verdicts live in the emitted TSV, never in the exit code (config_error rows
+	# exit 0 too). Force success so a trailing `[ -n "$X" ] && cmd` guard whose env
+	# is empty (the common single-family batch shape) cannot leave $? = 1 and make
+	# run-probe / the orchestrator treat a completed probe batch as a transport FATAL.
+	return 0
 }
 
 main

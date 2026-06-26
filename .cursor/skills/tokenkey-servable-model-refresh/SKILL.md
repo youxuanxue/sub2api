@@ -29,10 +29,11 @@ description: >-
 **已达基线**——可机械化的步骤全在脚本里，prompt 不重复它们：
 
 - **机械化（脚本承载）**：候选派生（按 litellm vendor + 是否有价，分 chat/responses/image
-  家族，Gemini 另走 discovered + seed）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
+  家族，Gemini 另走 discovered + seed）、**24h 流量短路**（从 `usage_logs` 拉近窗成功流量、
+  与候选集求交、跳过 SSM 探测）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
   `servable`、dated 去重、Go map splice、分批避开 SSM 等待窗口、自动开 PR——全在
-  `refresh-servable-allowlist.py` / `probe-servable-models.sh`，`selftest` 子命令覆盖，
-  preflight `servable-allowlist generator selftest` 门禁 + sentinel 守 splice 标记。
+  `refresh-servable-allowlist.py` / `probe-servable-models.sh` / `probe-traffic-proven-models.sh`，
+  `selftest` 子命令覆盖，preflight `servable-allowlist generator selftest` 门禁 + sentinel 守 splice 标记。
 - **真判断（留给人/agent）**：① `inconclusive`（429/502/503）的取舍——它常是「该探测组没有
   这类账号」而非模型本身不可用（如 image 经 GPT专线组、专用 codex 池）；要不要给别的组 key
   扩探测再加回，是判断。② 审 PR diff 是否合理（突然大幅增删要查是不是探测设置坏了，看
@@ -40,7 +41,7 @@ description: >-
 
 ## 用法
 
-需运营本机有 AWS creds（探测走 prod SSM）。
+需运营本机有 AWS creds（探测走 prod SSM）。默认路径不再依赖 `TK_SMOKE_API_KEY` 或业务组上已绑定的 customer key：`probe-servable-models.sh` 在每次 batch 自动 ensure 可复用的 `__tk_probe_<scope>_group` / `__tk_probe_<scope>_key`（与 `tokenkey-account-model-probe` 同命名空间），从 canonical 源组复制 schedulable 账号、探测、EXIT 时清除 account 绑定。
 
 ```bash
 # 0) 预览候选切分（无需 prod）
@@ -57,24 +58,51 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 `run` 不带 `--open-pr` 只重写本地 Go 文件，便于先审 `git diff`。
 
-## Gemini / Vertex 三族（newapi 第五平台，探测目标 us6）
+### 24h 流量短路（`--skip-proven-by-traffic`，加性优化、默认关、可灰度）
 
-claude/gpt 经 prod 探测；**gemini/Vertex 经 us6 的 `google` 组探测**（该组账号在 us6）。三族：
+全量探测约 162 模型 / 16 批 / 8–15 分钟。很多候选**近 24h 已被真实客流成功调用**，再探纯属浪费。
+`--skip-proven-by-traffic`（或 env `REFRESH_SKIP_PROVEN_BY_TRAFFIC=1`）在探测前先经 `run-probe.sh` 投递
+`probe-traffic-proven-models.sh`，只读聚合 `usage_logs` 近 `--traffic-hours`（默认 24）的成功流量，把
+**已被流量证明 servable 的候选直接判 servable 并移出探测批**，batch 数显著下降：
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --traffic-hours 48
+# probe 子命令同样支持；被跳过的模型以 servable 行写进 TSV，apply 仍完整
+python3 ops/pricing/refresh-servable-allowlist.py probe --skip-proven-by-traffic | tee /tmp/servable.tsv
+```
+
+跳过项显式打到 stderr 供人审：`[refresh] skipping N models proven by 24h traffic: anthropic/claude-opus-4-8, …`。
+
+**正确性契约（改动前必读，全是为了不引入假阳/假阴）**：
+
+- **纯加性**：流量成功=确凿 servable 正证据；**没流量 ≠ 不可服务**（可能只是没人调）——未命中流量的候选
+  **仍正常进探测批**，短路只删探测、绝不判 unsupported。默认关，保守全探仍是基线，开关用于灰度。
+- **只能跳/加候选集内模型**：proven 集与派生候选集求交，流量无法把候选集外（无价/未知）模型塞进 allowlist。
+- **平台桶按候选集定，不按服务账号**：Vertex 经 `accounts.platform='newapi'` 服务，所以流量里的
+  `gemini-2.5-pro` 按其**候选平台** `gemini` 入桶；`usage_logs` 行只需 model id 命中候选即可。
+- **deadlist 不会因一条流量复活**：skiplist/deadlist 早已从候选集剔除，proven 再过一遍
+  `validate_results_against_reprobe_ledger` 兜底。
+- `usage_logs` 一行 = 一次**计费**请求（不耗 token 的错误不落行）；查询再要求真实产出（token/图/视频）
+  排除 `$0` 占位行，确保不把空请求当 servable 证据。
+
+## Gemini / Vertex 三族（newapi 第五平台，探测目标 prod）
+
+gpt 经 prod 探测；claude **直探 edge 原生 OAuth 池**（见下文判断要点）；**gemini/Vertex 也经 prod 的 `google-vertex` 组探测**（live Vertex 账号
+ids 47/57/58/59 在 prod；旧 us6 `google` 组账号已软删、清空）。三族：
 `GEMINI_CHAT_MODELS`→`/v1/chat/completions`、`GEMINI_IMAGE_MODELS`→`/v1/images/generations`、
 `GEMINI_VIDEO_MODELS`→`/v1/video/generations`（异步 submit 200 即 servable，best-effort）。
-probe key 取自**绑定 `google` 组的 api_key**（`api_keys.group_id→groups.id`，永不回显）。
+probe key 由 `__tk_probe_newapi_google_*` 自动 ensure（从 **google-vertex** 源组复制 schedulable 账号）。
 
-**edge 内网访问（关键，否则全 403）**：edge 的 Caddy 把 `/v1/*` 只放行给 prod 网关 CIDR
-（`Caddyfile.edge` 的 `@allowed_relay … remote_ip ${MAIN_GATEWAY_ALLOWED_CIDR}`），edge 主机本地直打
-公网 `api-<edge>` 域名会被 Caddy 返 `edge relay path is restricted` 403。所以 gemini 三族**在 edge
-主机上经 `docker exec <app容器> wget http://tokenkey:8080` 直打 app、绕过 Caddy**（`GEMINI_APP_CONTAINER`
-/`GEMINI_APP_URL`）。这测的是同一条 account→Vertex 真实链路，Caddy 只是访问控制层、不影响模型可服务性。
-（「对客 prod→edge relay 拓扑」是另一回事——是产品/架构决策，与本探测无关。）
+**走 prod 公网网关外部 curl**（与 openai/zhipu 同款），不再用 edge 内网 `docker exec wget`：Vertex 迁到
+prod 后，prod 的 Caddy 不做 `/v1/*` CIDR 限制，外部 curl 直通。（历史上 gemini 探 us6 edge 才需要
+内网 wget 绕 edge Caddy；那条路径与 `GEMINI_APP_CONTAINER/URL` 已随 Vertex 迁出 us6 一并移除。
+edge native 平台如 **grok** 仍保留内网 wget。「对客 prod→edge relay 拓扑」是另一回事——产品/架构决策，与本探测无关。）
 
 - **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
   种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
   ```bash
-  # 先从 us6 account 3 拉发现清单（只读），存成 JSON 再喂给候选
+  # 先从 prod 某 Vertex 账号（google-vertex 组，如 id 47/57）拉发现清单（只读），存成 JSON 再喂给候选
   # （model_pricing_status 是对象，键即模型名；工具取其 keys）
   python3 ops/pricing/refresh-servable-allowlist.py candidates --discovered /tmp/mps.json
   python3 ops/pricing/refresh-servable-allowlist.py run --discovered /tmp/mps.json   # 探测+重写
@@ -89,8 +117,8 @@ probe key 取自**绑定 `google` 组的 api_key**（`api_keys.group_id→groups
 清空 `model_mapping` → 账号放行全部模型；**未定价模型会静默计 $0**（`pricing_missing_record_zero_cost`）。
 务必按序，别跳：
 
-1. **探测窗口**：临时清空该账号 mapping + `schedulable=true` → 经 us6 探测全核心候选 → **立即还原**。
-   （us6 `google` 组当前无真实客流，窗口内基本只有探测自身请求。）
+1. **探测窗口**：临时清空该账号 mapping + `schedulable=true` → 经 **prod（`google-vertex` 组）** 探测全核心候选 → **立即还原**。
+   （`google-vertex` 组当前无真实客流，窗口内基本只有探测自身请求；旧 us6 `google` 组账号已软删，不再是探测目标。）
 2. **对账 `servable ∩ unpriced`**：以探测窗口内的 `pricing_missing_record_zero_cost` 日志为真值
    （比 `model_pricing_status` 快照可靠），与发现清单对账。
 3. **补准价（禁臆造）**：每个 servable-且-缺价的核心模型，查 **Google Vertex 官方实价**补
@@ -127,8 +155,8 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 - **verdict 语义**：200=servable（留）；400/404+retired/not-found/"not supported when using
   Codex"=unsupported；429/502/503=inconclusive（容量/协议/该组无账号）；401/403=auth_error
   （探测设置坏了，不是模型信号——先修 key/形状再重跑）。
-- **探测覆盖面**：anthropic 仅经 **edge-us7**、openai 仅经 **GPT专线组**。只由别的组服务的模型
-  在此读 inconclusive 被删；要保留得给那个组的 key 并扩 `probe-servable-models.sh`。
+- **探测覆盖面**：anthropic **直探 edge 原生 OAuth 池**——在各 deployable edge(`edge-targets-lightsail.json` 的 `deployable==true`,经 `refresh-servable-allowlist.py deployable_edges()`)上从 edge `default` 组复制 schedulable 原生账号、经 edge app 内网 `docker exec wget` 探 `/v1/messages`,**任一 edge 服务即 servable**(同一 OAuth 池,一个健康 edge 即可确认全部;探到空池/不可用的 edge 报 config_error → 轮换下一个)。servability **不再依赖 prod cc-* 镜像账号**:镜像中继 prod→edge,edge 一抖动就冷却,经 prod 网关探会空池(`429 not_allowlisted`)成假阴。openai/gemini 经 `__tk_probe_*` + prod 网关(GPT专线 / google-vertex 源组)。要保留某模型得改 `PROBE_*_SOURCE_GROUP` 或扩 `probe-servable-models.sh`。
+- **prod 中继健康 warning(只告警,不入 allowlist)**:edge 是 servability 真值,但客户实际经 prod 镜像访问 claude。prod 的 `claude` 组镜像账号按**名字前缀**分两条上游中继——`cc-*`(anthropic OAuth edges)与 `kiro-*`(Kiro edges),**必须分开探**(否则一条通会掩盖另一条的故障)。refresh 在 edge-servable 集上经 prod 网关分别探这两路(`ANTHROPIC_PROD_MIRROR_MODELS`,emit `anthropic_prodmirror_cc/_kiro` 独立 tag,`parse_results` 天然忽略),对「edge 通但某 prod 镜像不通」的模型打 `WARNING`。实证:cc 池退化时 `cc → 429`、`kiro → 200`,warning 精确指出 cc 中继故障。
 - **探测形状**（改 probe 时勿破坏，否则全假阴）：claude 路径要 `User-Agent: claude-cli/...`
   + `anthropic-beta: claude-code-20250219` + cc system + `metadata.user_id` 是**字符串**；
   codex 走 `/v1/responses`。详见 probe 脚本头注释。
