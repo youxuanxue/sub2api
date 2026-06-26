@@ -1475,6 +1475,23 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		return true
 	}
 
+	// TK (prod P0 2026-06-25): a client-induced model/endpoint capability 403
+	// (e.g. /v1/embeddings with a chat-only model → "not allowed to generate
+	// embeddings from this model") is deterministic per-request and would 403 on
+	// every account. Skip the 403 counter AND the temp_unschedulable write so a
+	// single malformed request cannot cool a healthy shared OAuth account out of
+	// the pool for all other models. The request still fails over (return true).
+	// See ratelimit_service_tk_openai_client_induced_403.go.
+	if matched := tkIsOpenAIClientInducedCapability403(upstreamMsg, responseBody); matched != "" {
+		slog.Warn(
+			"openai_403_client_induced_capability_skip_cooldown",
+			"account_id", account.ID,
+			"matched_keyword", matched,
+			"upstream_msg", upstreamMsg,
+		)
+		return true
+	}
+
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,

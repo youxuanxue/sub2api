@@ -3,6 +3,16 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_client_induced_403.go",
+      "must_contain": [
+        "func tkIsOpenAIClientInducedCapability403(upstreamMsg string, responseBody []byte) string",
+        "openAIClientInducedCapability403Keywords",
+        "embeddings from this model",
+        "not allowed to generate embeddings"
+      ],
+      "rationale": "TK prod P0 2026-06-25 (routing_capacity_rejection spike on gpt-5.5): a single `POST /v1/embeddings` with model=gpt-5.5 returned OpenAI 403 'You are not allowed to generate embeddings from this model'. handleOpenAI403 treated that client-induced model/endpoint capability 403 as account-level and wrote a 10-min temp_unschedulable on OAuth Codex accounts #9/#73 — the very accounts serving the bulk of gpt-5.5 chat traffic — emptying the openai compat pool and producing 628 'no available accounts' 429s until the cooldown lapsed. This companion holds the keyword predicate that handleOpenAI403 consults (anchored via the ratelimit_service.go sentinel) to SKIP the 403 counter + cooldown for deterministic per-request capability 403s, the OpenAI sibling of the Anthropic client-induced-400 skip (#2608). Dropping this file or its keywords silently restores OAuth-pool poisoning where one wrong-endpoint request cools a healthy shared account for all other models."
+    },
+    {
       "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
@@ -181,6 +191,8 @@
         "openai_403_cf_challenge_skip_cooldown",
         "openAIIsHTMLBody",
         "openai_403_html_body_skip_cooldown",
+        "tkIsOpenAIClientInducedCapability403(upstreamMsg, responseBody)",
+        "openai_403_client_induced_capability_skip_cooldown",
         "handleAnthropicUpstreamError(",
         "handleAnthropicUpstreamErrorWithOptions",
         "IncrementAnthropicUpstreamErrorCount",
