@@ -56,6 +56,17 @@ type kiroEndpoint struct {
 // operator's LOCAL Kiro login over LOCAL egress — use `--header-style tokenkey` to
 // mirror this file's UA — so it proves gateway shape but not edge-account/edge-egress
 // entitlement; that part was confirmed here with an ad-hoc edge-side probe).
+//
+// OFFICIAL DEPRECATION (kiro.dev/docs firewalls, page updated 2026-05-27): Kiro
+// states `q.<region>.amazonaws.com` is "legacy and will be deprecated in a future
+// release" (must still allowlist during the transition), and the older
+// `codewhisperer.<region>.amazonaws.com` host is no longer documented at all. The
+// go-forward hosts are runtime/management/telemetry.<region>.kiro.dev. Community
+// gateways have begun migrating (e.g. 9router -> runtime.us-east-1.kiro.dev, with
+// auto-resolved profileArn to avoid IDC-login 403 — a case TK's ResolveProfileArn
+// already covers). No firm cutoff date is published, so this stays a scheduled
+// migration, not an emergency — but it is a committed upstream deprecation, not a
+// guess: plan the host flip rather than waiting for the legacy hosts to go dark.
 var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
