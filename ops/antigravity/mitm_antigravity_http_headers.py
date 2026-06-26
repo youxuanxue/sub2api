@@ -1,10 +1,11 @@
 """mitmproxy addon: log real Antigravity IDE HTTP requests on the cloudcode-pa
 endpoints.
 
-Sibling of ops/anthropic/mitm_cc_http_headers.py and ops/kiro/
-mitm_kiro_http_headers.py. For Antigravity the HTTP layer is the load-bearing
-fingerprint, so this addon is the PRIMARY capture path (not best-effort like
-kiro). It records, per `v1internal:*` request:
+Sibling of ops/anthropic/mitm_cc_http_headers.py. For Antigravity the HTTP layer
+is the load-bearing fingerprint, so this addon is the PRIMARY capture path —
+unlike kiro, whose mitm path was non-viable (the IDE direct-dials and ignores
+HTTP_PROXY) and uses probe_runtime_gateway.py instead. It records, per
+`v1internal:*` request:
   - the on-wire User-Agent header (carries the `antigravity/<ver> <os>/<arch>` UA)
   - X-Goog-Api-Client / Client-Metadata headers (if present)
   - the request-body identity fields: top-level `userAgent` literal, project,

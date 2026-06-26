@@ -27,6 +27,46 @@ type kiroEndpoint struct {
 	Name      string
 }
 
+// NOTE (2026-06-26, endpoint-drift watch): the real Kiro IDE has moved its DATA
+// plane to the *.kiro.dev gateway — observed on-wire the IDE egresses to
+// runtime.us-east-1.kiro.dev (+ management.us-east-1.kiro.dev), not the direct
+// AWS hosts below. The AUTH/refresh plane already uses
+// prod.us-east-1.auth.desktop.kiro.dev (see refresh.go). TokenKey still forwards
+// to the legacy direct CodeWhisperer/Q endpoints, which remain LIVE as of
+// 2026-06-26 (q + codewhisperer.us-east-1.amazonaws.com resolve to the same IP
+// and still answer requests), so this is a FORWARD-COMPAT WATCH item, not an
+// outage.
+//
+// SMOKE-VALIDATED (2026-06-26, edge-us6, real OAuth account kiro-us6-real): a
+// minimal generateAssistantResponse "ping" replicating this file's exact on-wire
+// request (headers + KiroPayload body) confirmed the *.kiro.dev gateway answers the
+// same protocol shape as the legacy hosts — NOT an exhaustive parity check (tool
+// use, multi-turn, per-model behavior were not exercised):
+//   - data plane: POST https://runtime.us-east-1.kiro.dev/generateAssistantResponse
+//     with X-Amz-Target=AmazonCodeWhispererStreamingService.GenerateAssistantResponse
+//     -> HTTP 200 + a real assistant event-stream (application/vnd.amazon.eventstream),
+//     same shape as legacy q/codewhisperer generateAssistantResponse.
+//   - control plane: POST https://management.us-east-1.kiro.dev/ListAvailableProfiles
+//     -> HTTP 200 with the SAME profileArn as legacy codewhisperer.
+// So migrating looks like a host swap (q/codewhisperer.us-east-1.amazonaws.com ->
+// runtime/management.us-east-1.kiro.dev, same path / x-amz-target / body / headers),
+// deferred only because the legacy hosts still answer. Before flipping the URLs
+// below: re-validate from the SERVING edge against the edge account (the committed
+// ops/kiro/probe_runtime_gateway.py validates the *.kiro.dev protocol with the
+// operator's LOCAL Kiro login over LOCAL egress — use `--header-style tokenkey` to
+// mirror this file's UA — so it proves gateway shape but not edge-account/edge-egress
+// entitlement; that part was confirmed here with an ad-hoc edge-side probe).
+//
+// OFFICIAL DEPRECATION (kiro.dev/docs firewalls, page updated 2026-05-27): Kiro
+// states `q.<region>.amazonaws.com` is "legacy and will be deprecated in a future
+// release" (must still allowlist during the transition), and the older
+// `codewhisperer.<region>.amazonaws.com` host is no longer documented at all. The
+// go-forward hosts are runtime/management/telemetry.<region>.kiro.dev. Community
+// gateways have begun migrating (e.g. 9router -> runtime.us-east-1.kiro.dev, with
+// auto-resolved profileArn to avoid IDC-login 403 — a case TK's ResolveProfileArn
+// already covers). No firm cutoff date is published, so this stays a scheduled
+// migration, not an emergency — but it is a committed upstream deprecation, not a
+// guess: plan the host flip rather than waiting for the legacy hosts to go dark.
 var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",

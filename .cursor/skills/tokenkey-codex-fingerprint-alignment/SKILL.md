@@ -12,7 +12,7 @@ description: >-
 
 关联：`tokenkey-cc-fingerprint-alignment`（anthropic）、`tokenkey-antigravity-fingerprint-alignment`
 （antigravity）、`tokenkey-kiro-fingerprint-alignment`（kiro）、`tokenkey-fingerprint-alignment-all`
-（umbrella，目前编排 cc/kiro/antigravity 三引擎）。参考实现真值：`backend/internal/service/openai_gateway_service.go`、
+（umbrella，编排 cc/kiro/antigravity/codex 四引擎；codex 以 `check` 门禁并入，单独刷新仍用本 skill）。参考实现真值：`backend/internal/service/openai_gateway_service.go`、
 `internal/pkg/openai/request.go`（codex 客户端识别）。
 
 ## 为什么与 cc / kiro / antigravity 都不同（无需 mitm / pcap）
