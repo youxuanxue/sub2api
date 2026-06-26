@@ -65,9 +65,26 @@ type kiroEndpoint struct {
 // gateways have begun migrating (e.g. 9router -> runtime.us-east-1.kiro.dev, with
 // auto-resolved profileArn to avoid IDC-login 403 — a case TK's ResolveProfileArn
 // already covers). No firm cutoff date is published, so this stays a scheduled
-// migration, not an emergency — but it is a committed upstream deprecation, not a
-// guess: plan the host flip rather than waiting for the legacy hosts to go dark.
+// migration, not an emergency — but it is a committed upstream deprecation.
+//
+// MIGRATION (this list, rolled out edge-first): the runtime.us-east-1.kiro.dev
+// endpoint is now PREFERRED (index 0, selected by the "auto"/"runtime" preference),
+// with the legacy q/codewhisperer hosts RETAINED below as automatic fallback — the
+// request loop falls through to them on any failure, so a runtime hiccup self-heals
+// to legacy with no behavior regression. The control plane is migrated alongside
+// it in rest.go (kiroRestFetch, management.us-east-1.kiro.dev first, codewhisperer
+// fallback) for the calls edge-us6 smoke-validated equivalent on management —
+// ListAvailableProfiles, ListAvailableModels, getUsageLimits. GetUserInfo stays on
+// codewhisperer: the new protocol has no standalone user-info op (identity is folded
+// into getUsageLimits.userInfo, which TK already reads) and TK has no caller for it.
 var kiroEndpoints = []kiroEndpoint{
+	{
+		// Kiro Runtime — the go-forward *.kiro.dev data-plane host (preferred).
+		URL:       "https://runtime.us-east-1.kiro.dev/generateAssistantResponse",
+		Origin:    "AI_EDITOR",
+		AmzTarget: "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
+		Name:      "Kiro Runtime",
+	},
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
 		Origin:    "AI_EDITOR",
@@ -300,15 +317,17 @@ func getSortedEndpoints(preferred string) []kiroEndpoint {
 
 	var primary int
 	switch preferred {
-	case "kiro":
+	case "runtime":
 		primary = 0
-	case "codewhisperer":
+	case "kiro":
 		primary = 1
-	case "amazonq":
+	case "codewhisperer":
 		primary = 2
+	case "amazonq":
+		primary = 3
 	default:
-		// "auto": Kiro first, then fallback to others
-		return []kiroEndpoint{kiroEndpoints[0], kiroEndpoints[1], kiroEndpoints[2]}
+		// "auto": runtime.kiro.dev first, then legacy hosts as fallback.
+		return []kiroEndpoint{kiroEndpoints[0], kiroEndpoints[1], kiroEndpoints[2], kiroEndpoints[3]}
 	}
 
 	if !fallback {
@@ -443,9 +462,18 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
-			// Authentication errors and payment errors are not retried across endpoints.
+			// Auth/payment errors normally aren't retried across endpoints (the same
+			// token would be rejected everywhere). EXCEPTION: runtime.kiro.dev is a
+			// different gateway/entitlement domain than the legacy amazonaws hosts, so
+			// a 401/403/402 there does NOT imply legacy will reject the same token —
+			// it must still fall through to legacy (the migration's self-heal). Only
+			// a legacy-host auth/payment error short-circuits.
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
-				return lastErr
+				if !strings.Contains(ep.URL, ".kiro.dev") {
+					return lastErr
+				}
+				logWarnf("[KiroAPI] Endpoint %s auth/payment error %d; falling through to legacy: %v", ep.Name, resp.StatusCode, lastErr)
+				continue
 			}
 			logWarnf("[KiroAPI] Endpoint %s error: %v", ep.Name, lastErr)
 			continue
