@@ -37,20 +37,25 @@ type kiroEndpoint struct {
 // and still answer requests), so this is a FORWARD-COMPAT WATCH item, not an
 // outage.
 //
-// EMPIRICALLY VALIDATED (2026-06-26, edge-us6, real OAuth account kiro-us6-real):
-// the *.kiro.dev gateway is protocol-identical to the legacy hosts for TokenKey's
-// exact on-wire request (this file's headers + the KiroPayload body):
+// SMOKE-VALIDATED (2026-06-26, edge-us6, real OAuth account kiro-us6-real): a
+// minimal generateAssistantResponse "ping" replicating this file's exact on-wire
+// request (headers + KiroPayload body) confirmed the *.kiro.dev gateway answers the
+// same protocol shape as the legacy hosts — NOT an exhaustive parity check (tool
+// use, multi-turn, per-model behavior were not exercised):
 //   - data plane: POST https://runtime.us-east-1.kiro.dev/generateAssistantResponse
 //     with X-Amz-Target=AmazonCodeWhispererStreamingService.GenerateAssistantResponse
-//     returned HTTP 200 + a real assistant event-stream (application/vnd.amazon.eventstream),
-//     identical in shape to legacy q/codewhisperer generateAssistantResponse.
+//     -> HTTP 200 + a real assistant event-stream (application/vnd.amazon.eventstream),
+//     same shape as legacy q/codewhisperer generateAssistantResponse.
 //   - control plane: POST https://management.us-east-1.kiro.dev/ListAvailableProfiles
-//     returned HTTP 200 with the SAME profileArn as legacy codewhisperer.
-// So migration is now a SAFE host swap (q/codewhisperer.us-east-1.amazonaws.com ->
+//     -> HTTP 200 with the SAME profileArn as legacy codewhisperer.
+// So migrating looks like a host swap (q/codewhisperer.us-east-1.amazonaws.com ->
 // runtime/management.us-east-1.kiro.dev, same path / x-amz-target / body / headers),
-// deferred only because the legacy hosts still answer. When AWS sunsets them, flip
-// the URLs below (keep AmzTarget=AmazonCodeWhispererStreamingService.GenerateAssistantResponse)
-// and re-run ops/kiro/probe_runtime_gateway.py from the serving edge to re-confirm.
+// deferred only because the legacy hosts still answer. Before flipping the URLs
+// below: re-validate from the SERVING edge against the edge account (the committed
+// ops/kiro/probe_runtime_gateway.py validates the *.kiro.dev protocol with the
+// operator's LOCAL Kiro login over LOCAL egress — use `--header-style tokenkey` to
+// mirror this file's UA — so it proves gateway shape but not edge-account/edge-egress
+// entitlement; that part was confirmed here with an ad-hoc edge-side probe).
 var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
