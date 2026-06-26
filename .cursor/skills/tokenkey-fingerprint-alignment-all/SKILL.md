@@ -12,6 +12,8 @@ description: >-
 
 关联：`tokenkey-cc-fingerprint-alignment`（cc 单平台）、`tokenkey-kiro-fingerprint-alignment`
 （kiro 单平台）、`tokenkey-antigravity-fingerprint-alignment`（antigravity 单平台）、
+`tokenkey-codex-fingerprint-alignment`（codex / OpenAI 单平台；读本机 codex CLI、无 mitm，
+机制不同故**不并入本 umbrella 的三引擎编排**，单独跑）、
 `docs/accounts/kiro-tls-fingerprint-alignment-design.md`、`docs/antigravity-fingerprint-changelog.md`。
 
 ## 流程

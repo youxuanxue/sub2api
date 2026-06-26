@@ -10,7 +10,8 @@ description: >-
 truth，**Go 常量** 当待对齐对象。**承重维度是 HTTP，不是 JA3**。
 
 关联：`tokenkey-cc-fingerprint-alignment`（anthropic）、`tokenkey-kiro-fingerprint-alignment`
-（kiro）、`tokenkey-fingerprint-alignment-all`（umbrella：三引擎合一 PR）、
+（kiro）、`tokenkey-codex-fingerprint-alignment`（codex / OpenAI）、
+`tokenkey-fingerprint-alignment-all`（umbrella：三引擎合一 PR）、
 `docs/antigravity-fingerprint-changelog.md`。
 
 ## 为什么与 cc / kiro 都不同
