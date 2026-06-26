@@ -17,8 +17,11 @@ multi-account edge (us5) buckled under concentrated failover load; ~3445 clients
 
 Trigger model — three severities, all deduped by one state key. The severity answers
 the only question that matters: IS A REAL CLIENT BEING HURT RIGHT NOW?
-  🔴 critical (ACTIVE HARM): unreachable / parse-error / degraded, OR a `down` edge that
-    is ACTIVELY rejecting (no_available_429>0). Someone is eating 429s this minute.
+  🔴 critical: confirmed active harm — degraded, or a `down` edge ACTIVELY rejecting
+    (no_available_429>0; someone is eating 429s this minute) — OR an UNKNOWN-bad state
+    (unreachable / parse-error) we cannot clear. Treated critical because we can't rule
+    harm out, but the head says 需立即处理, NOT 客户端已受影响 — we don't claim confirmed
+    impact for an edge the probe simply couldn't reach.
   🟠 warning (LEADING INDICATOR): a `down` edge whose pool just emptied (sched=0, accounts
     exist) but has rejected ZERO clients yet (no_available_429==0). Nobody is hurt yet —
     this is the step BEFORE an outage, not an outage. The 2026-06-09 alert read exactly
@@ -241,6 +244,15 @@ _KIND_ZH = {
     "parse-error": "解析失败",
     "down-leading": "即将掉单·预警（池已空，尚无客户端被拒）",
 }
+# Short label per kind for the critical head's "(kinds present)" hint — derived from the
+# actual set so the head never names a kind that isn't there.
+_KIND_BRIEF = {
+    "down-active": "宕机",
+    "degraded": "降级",
+    "unreachable": "不可达",
+    "parse-error": "解析失败",
+    "down-leading": "即将掉单",
+}
 
 
 def _row_kind(r: dict) -> str:
@@ -277,10 +289,24 @@ def _mark_new(edges: list, prev_posture_edges: set) -> str:
 
 def _format_message(actionable: list, thin: list, no_accounts: list, healthy: list,
                     window: str, severity: str, prev_posture_edges: set = frozenset()) -> str:
+    grouped: dict = {}
+    for r in actionable:
+        grouped.setdefault(_row_kind(r), []).append(r)
+    kinds_present = [k for k in _KIND_ORDER if k in grouped]
+
     if actionable:
         n = len(actionable)
         if severity == "critical":
-            head = f"🔴 TokenKey 边缘健康 — {n} 个 edge 正在掉单/异常（客户端已受影响）"
+            # Honest head: the critical set can mix confirmed harm (active-down / degraded)
+            # with UNKNOWN states (unreachable / parse-error) and even leading-indicator
+            # edges that have hurt nobody yet. So the head must NOT blanket-claim
+            # "客户端已受影响" / "正在掉单" across all N — that is the very overclaim this
+            # refactor exists to kill (it would read as a confirmed outage on a probe flake,
+            # and contradict the body's own "尚无客户端被拒" leading section). The head names
+            # only the kinds ACTUALLY present (derived from `grouped`, not a fixed legend);
+            # the precise per-edge truth lives in each section header.
+            present = "/".join(_KIND_BRIEF[k] for k in kinds_present)
+            head = f"🔴 TokenKey 边缘健康 — {n} 个 edge 需立即处理（{present}）"
         else:  # warning: leading-indicator only — pool empty, nobody rejected yet
             head = f"🟠 TokenKey 边缘健康 — {n} 个 edge 即将掉单（预警·尚无客户端被拒）"
     elif severity == "notice":
@@ -288,10 +314,6 @@ def _format_message(actionable: list, thin: list, no_accounts: list, healthy: li
     else:
         head = "✅ TokenKey 边缘健康 — 全部恢复（无宕机/降级）"
     lines = [head, ""]
-
-    grouped: dict = {}
-    for r in actionable:
-        grouped.setdefault(_row_kind(r), []).append(r)
 
     for kind in _KIND_ORDER:
         rs = grouped.get(kind)
@@ -587,6 +609,23 @@ _msg_case(
     ["排查三连"],
 )
 _msg_case(
+    "unreachable-only head must NOT claim confirmed client impact (probe flake ≠ outage)",
+    [{"edge": "sg1", "verdict": "unreachable"}, {"edge": "prod", "verdict": "healthy"}],
+    ["🔴", "需立即处理"],
+    ["客户端已受影响", "正在掉单"],  # unknown state — no blanket harm claim in the head
+)
+_msg_case(
+    "mixed leading+active head must not contradict the body's 尚无客户端被拒 leading section",
+    [
+        {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
+         "served_200": 639, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 639},
+        {"edge": "us5", "verdict": "degraded", "schedulable_accounts": 3, "total_accounts": 3,
+         "served_200": 11102, "no_available_429": 4841, "served_ratio": 0.696},
+    ],
+    ["🔴", "需立即处理", "尚无客户端被拒"],   # head neutral; body still carries the leading truth
+    ["2 个 edge 正在掉单"],                   # the old head over-counted leading edges as 正在掉单
+)
+_msg_case(
     "degraded => 🔴 (active harm, clients bleeding 429s) + 池不足 tag + labelled window traffic",
     [{"edge": "us5", "verdict": "degraded", "schedulable_accounts": 3, "total_accounts": 3,
       "served_200": 11102, "no_available_429": 4841, "served_ratio": 0.696, "wait_timeout": 5656}],
@@ -598,6 +637,13 @@ _msg_case(
     [{"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
       "served_200": 600, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 600}],
     ["⏱", "单/分", "下一单"],
+)
+_msg_case(
+    "leading-indicator with ZERO traffic in window => ⏱ honest 'unknown', no fabricated urgency",
+    [{"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
+      "served_200": 0, "no_available_429": 0, "total_completed": 0}],
+    ["⏱", "无流量经过", "未知"],
+    ["单/分"],  # no rate invented when there is no traffic to estimate from
 )
 _msg_case(
     "posture marks newly-appeared edges with 新, leaves chronic ones bare",
