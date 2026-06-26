@@ -61,6 +61,7 @@ func geminiGateService(t *testing.T) *GeminiMessagesCompatService {
 		newGateBillingService(t, tkPricedServingGateCanaryModel),
 		newGateSettingService("gemini"),
 		nil,
+		nil, // resolver: nil → no channel-price probe (these route tests judge base pricing only)
 	)
 	return svc
 }

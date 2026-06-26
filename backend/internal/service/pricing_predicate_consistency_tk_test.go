@@ -69,11 +69,11 @@ func TestR3_CatchAllKeyConsistency_GateRejectsOnBillingKey(t *testing.T) {
 
 	// Gate fed the MAPPED key (the OLD buggy behavior) would PASS — documenting
 	// the leak the refactor closes.
-	require.False(t, tkPricedServingGateRejected(ctx, resolve, setting, mappedPriced, "gemini"),
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, mappedPriced, "gemini", 0),
 		"judging the mapped (priced) key PASSES — this was the leak")
 
 	// Gate fed the REQUESTED/billing key (the FIXED behavior) must REJECT.
-	require.True(t, tkPricedServingGateRejected(ctx, resolve, setting, requestedUnpriced, "gemini"),
+	require.True(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, requestedUnpriced, "gemini", 0),
 		"BLOCKER1: gate must judge the exact key billing charges (requested/original) and reject the $0 leak")
 }
 
@@ -116,7 +116,7 @@ func TestR3_BoundariesThroughRealBilling(t *testing.T) {
 			billingUnavailable := errors.Is(err, ErrModelPricingUnavailable)
 			require.Equal(t, tc.wantReject, billingUnavailable, "billing availability: %s", tc.note)
 
-			gotReject := tkPricedServingGateRejected(ctx, resolve, setting, tc.model, "gemini")
+			gotReject := tkPricedServingGateRejected(ctx, resolve, nil, setting, tc.model, "gemini", 0)
 			require.Equal(t, tc.wantReject, gotReject,
 				"gate reject must equal billing-unavailable (constructive consistency): %s", tc.note)
 		})
@@ -147,9 +147,89 @@ func TestR3_ImageTokenPriced_PriceThroughBilling(t *testing.T) {
 	require.False(t, errors.Is(err, ErrModelPricingUnavailable),
 		"billing prices an image-token-only entry (not unavailable)")
 
-	require.False(t, tkPricedServingGateRejected(ctx, resolve, setting, "r3-image-token-only", "gemini"),
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "r3-image-token-only", "gemini", 0),
 		"SHOULD-FIX2: a model billing prices via output_cost_per_image_token must NOT be gate-rejected "+
 			"(the old catalog predicate, lacking this field, would have 404'd it)")
+}
+
+// TestR3_ChannelPricedModelNotFalseRejected pins the re-review BLOCKER B1 fix: billing
+// charges via TWO sources — GetModelPricing (litellm/overlay/fallback base) AND, when the
+// group has channel_model_pricing, resolveChannelPricing (resolver.Resolve.Source==Channel).
+// A model priced ONLY via the channel source has NO base price, so the old gate (which asked
+// only GetModelPricing) would 404 a model billing happily charges — a false reject on the
+// default-shipped gemini platform. The gate now probes the channel source too, restoring
+// "gate ⟺ billing" on BOTH sources. This test feeds a stub channelProbe (standing in for
+// resolver.Resolve.Source==PricingSourceChannel) and asserts the matrix.
+func TestR3_ChannelPricedModelNotFalseRejected(t *testing.T) {
+	ctx := context.Background()
+	// Base pricing knows ONLY the canary (so the degraded probe reads healthy); the
+	// channel-only model has NO base entry → GetModelPricing returns unavailable.
+	blob := []byte(`{"gemini-2.5-pro": {"input_cost_per_token": 0.00000125, "output_cost_per_token": 0.00001, "litellm_provider": "test"}}`)
+	resolve := newConsistencyBilling(t, blob).GetModelPricing
+	setting := newGateSettingService("gemini")
+
+	const channelOnly = "channel-only-priced-model"
+	const groupWithChannel int64 = 42
+	// Stub mirroring resolver.Resolve(...).Source==PricingSourceChannel: the group has a
+	// channel price for channelOnly only.
+	channelProbe := func(_ context.Context, model string, groupID int64) bool {
+		return model == channelOnly && groupID == groupWithChannel
+	}
+
+	// Sanity: channelOnly has no BASE price (would 404 under the old base-only gate).
+	_, err := resolve(channelOnly)
+	require.True(t, errors.Is(err, ErrModelPricingUnavailable), "channel-only model has no base price")
+
+	// B1 FIX: base missing + channel priced + real group → billing charges → gate PASSES.
+	require.False(t,
+		tkPricedServingGateRejected(ctx, resolve, channelProbe, setting, channelOnly, "gemini", groupWithChannel),
+		"BLOCKER B1: a model priced via channel_model_pricing must NOT be 404'd (billing charges it)")
+
+	// Control 1: nil channelProbe (old behavior / unwired resolver) → base-only → REJECT.
+	require.True(t,
+		tkPricedServingGateRejected(ctx, resolve, nil, setting, channelOnly, "gemini", groupWithChannel),
+		"without the channel probe the model is (incorrectly) rejected — documents the pre-fix leak")
+
+	// Control 2: groupID 0 (no group in context) → probe skipped → REJECT (safe degenerate).
+	require.True(t,
+		tkPricedServingGateRejected(ctx, resolve, channelProbe, setting, channelOnly, "gemini", 0),
+		"groupID 0 skips the channel probe")
+
+	// Control 3: a different unpriced model the group has NO channel price for → REJECT.
+	require.True(t,
+		tkPricedServingGateRejected(ctx, resolve, channelProbe, setting, "other-unpriced", "gemini", groupWithChannel),
+		"channel probe returns false for a model without channel pricing → still rejected")
+}
+
+// TestTkResolvedPricingChargeable pins the adversarial-review fix to the B1 channel probe:
+// a channel_model_pricing ROW existing (Source==Channel) is NOT enough to pass the gate —
+// the row must be ACTUALLY chargeable. An all-empty row resolves to a $0 BasePricing that
+// billing serves at $0 (served_zero_cost), so it must read as NOT chargeable → gate rejects,
+// matching the base path where an all-zero entry is unpriced. Only a positive price in some
+// dimension makes it chargeable.
+func TestTkResolvedPricingChargeable(t *testing.T) {
+	cases := []struct {
+		name string
+		r    *ResolvedPricing
+		want bool
+	}{
+		{"nil", nil, false},
+		{"all-empty channel row (the leak)", &ResolvedPricing{Source: PricingSourceChannel, BasePricing: &ModelPricing{}}, false},
+		{"nil BasePricing", &ResolvedPricing{Source: PricingSourceChannel}, false},
+		{"positive input token price", &ResolvedPricing{BasePricing: &ModelPricing{InputPricePerToken: 0.000003}}, true},
+		{"positive output token price", &ResolvedPricing{BasePricing: &ModelPricing{OutputPricePerToken: 0.000015}}, true},
+		{"positive cache-read only", &ResolvedPricing{BasePricing: &ModelPricing{CacheReadPricePerToken: 0.0000003}}, true},
+		{"default per-request price", &ResolvedPricing{DefaultPerRequestPrice: 0.04, BasePricing: &ModelPricing{}}, true},
+		{"per-request tier", &ResolvedPricing{RequestTiers: []PricingInterval{{PerRequestPrice: testPtrFloat64(0.04)}}, BasePricing: &ModelPricing{}}, true},
+		{"per-request tier nil price", &ResolvedPricing{RequestTiers: []PricingInterval{{PerRequestPrice: nil}}, BasePricing: &ModelPricing{}}, false},
+		{"token interval with price", &ResolvedPricing{Intervals: []PricingInterval{{InputPrice: testPtrFloat64(0.000003)}}, BasePricing: &ModelPricing{}}, true},
+		{"token interval all-nil", &ResolvedPricing{Intervals: []PricingInterval{{}}, BasePricing: &ModelPricing{}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tkResolvedPricingChargeable(tc.r))
+		})
+	}
 }
 
 // (compile sanity for config import used by newGateSettingService elsewhere; the

@@ -73,15 +73,27 @@ const (
 // *BillingService，便于各路线统一接线 + 单测直接喂一个 stub resolver。
 type tkBillingPricingResolver func(model string) (*ModelPricing, error)
 
+// tkChannelPricingProbe 报告某 group 是否对 model 配了【渠道价】(channel_model_pricing)，
+// 精确镜像 billing 计费路径的 resolveChannelPricing：`resolver.Resolve(...).Source ==
+// PricingSourceChannel` 才算。billing 对 per-request/image 模式的渠道价、以及覆盖在缺失基础价
+// 之上的 token 渠道价都按【非零】计费，而 GetModelPricing 不带 group、根本查不到这些渠道价 →
+// 闸若只问 GetModelPricing，会误拒「渠道有价但基础价缺」的可计费模型（复审 BLOCKER B1：
+// 闸键 == 账键但闸的【价源】不全）。闸补这道渠道价探测后，「闸 ⟺ billing」对两个价源都构造性
+// 成立。nil = 不注入（退化为仅基础价判定，安全 fail-open 方向）。
+type tkChannelPricingProbe func(ctx context.Context, model string, groupID int64) bool
+
 // tkPricedServingGateCanaryModel 是降级探测用的常驻已定价 canary。它必须在任何健康的
-// pricing 系统里恒解析出价（gemini-* family 经 billing getFallbackPricing 硬编码兜底，
-// 不依赖 litellm/overlay 源是否加载成功），故「连它都未定价」唯一可能是 pricing 系统整体
-// 降级——此时闸 fail-open 放行，不把定价文件 glitch 放大成整服务 404。
+// pricing 系统里恒解析出价：gemini-2.5-pro 常驻在【内嵌 litellm 镜像】
+// (resources/model-pricing/model_prices_and_context_window.json)，随二进制打包、不依赖远程
+// 下载或 overlay 是否加载成功；故「连它都未定价」唯一可能是 pricing 源整体被灌入坏数据/空集
+// （远程下载失败或 overlay 热推坏数据）——此时闸 fail-open 放行，不把定价文件 glitch 放大成整
+// 服务 404。注：gemini 一口价 fallback 已删（commit C「查不到就告警」），canary 的健壮性来自
+// 内嵌镜像、不再来自 getFallbackPricing（修正旧注释的失实说法）。
 const tkPricedServingGateCanaryModel = "gemini-2.5-pro"
 
 // tkPricingSystemDegraded 报告 pricing 神谕是否整体降级（而非「某个模型恰好未定价」）。
 // 判据：常驻已定价 canary 都解析为未定价 ⇒ 源加载失败/降级。健康系统永远 false（canary
-// 有 family 兜底）。降级时闸必须 fail-open（与 billing 降级 fail-open $0 同向），否则一次
+// 常驻内嵌 litellm 镜像）。降级时闸必须 fail-open（与 billing 降级 fail-open $0 同向），否则一次
 // 定价文件 glitch 会让闸 404 掉 100% 启用平台流量。
 func tkPricingSystemDegraded(resolve tkBillingPricingResolver) bool {
 	if resolve == nil {
@@ -98,18 +110,25 @@ func tkPricingSystemDegraded(resolve tkBillingPricingResolver) bool {
 // 短路顺序（性能 + 正确性）：
 //  1. resolver/setting 未注入 → false（放行，零开销）；
 //  2. setting 未启用该平台 → false（放行，不调 billing）；
-//  3. billing 神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable）→ 放行；
-//  4. 未定价时再探降级：pricing 系统整体降级 → fail-open 放行；
-//  5. 否则拒绝（系统健康、平台已启用、该模型真未定价）。
+//  3. billing 基础价神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable）→ 放行；
+//  4. 基础价缺失时再查【渠道价】：该 group 对该 model 配了 channel_model_pricing
+//     （Source==PricingSourceChannel，billing 计费路径 resolveChannelPricing 会按它非零计费）→ 放行；
+//  5. 两个价源都未定价时再探降级：pricing 系统整体降级 → fail-open 放行；
+//  6. 否则拒绝（系统健康、平台已启用、该模型基础价 + 渠道价都真未定价）。
 //
-// 用 GetModelPricing 神谕（**非** catalog 成员影子谓词）是 R3 一致性的根：billing 用它决定
-// 记不记 $0，闸用同一调用、同一键，闸 ⟺ billing 构造性成立（含 fallback family + 全维度字段），
-// 永不漂移。详见文件头根因说明。
+// 闸用 billing 自己的【两个】价源（GetModelPricing 基础价 + resolver 渠道价），与 billing
+// 计费路径（CalculateCost ← GetModelPricing；resolveChannelPricing ← resolver.Resolve）一一对应，
+// 而非 catalog 成员影子谓词——这是 R3「闸 ⟺ billing 构造性成立」的根：billing 用这两个源决定
+// 记不记 $0，闸用同样两个源、同一个键，永不漂移（含 fallback family + 全维度字段 + 渠道价）。
+// 早先只问 GetModelPricing 漏了渠道价 → 误拒「渠道有价、基础价缺」的可计费模型（复审 BLOCKER B1）。
+// 详见文件头根因说明。
 func tkPricedServingGateRejected(
 	ctx context.Context,
 	resolve tkBillingPricingResolver,
+	channelProbe tkChannelPricingProbe,
 	setting *SettingService,
 	billingModel, platform string,
+	groupID int64,
 ) bool {
 	if setting == nil || resolve == nil {
 		// 依赖未注入（降级/测试接线）→ 永不拒绝。闸是叠加的减法，缺依赖必须 fail-open，
@@ -120,10 +139,15 @@ func tkPricedServingGateRejected(
 		return false
 	}
 	if _, err := resolve(billingModel); !errors.Is(err, ErrModelPricingUnavailable) {
-		// 有价（或非「不可用」错误，按健康放行——只有明确的 unavailable 才是漏血信号）。
+		// 基础价有（或非「不可用」错误，按健康放行——只有明确的 unavailable 才是漏血信号）。
 		return false
 	}
-	// 该模型解析为未定价：先排除「pricing 系统整体降级」——降级时 fail-open 放行，
+	// 基础价缺失：再查渠道价。billing 计费路径 resolveChannelPricing 对 per-request/image 渠道价、
+	// 以及覆盖在缺失基础价之上的 token 渠道价仍按非零计费；闸必须同样认它，否则误拒可计费模型（B1）。
+	if channelProbe != nil && groupID != 0 && channelProbe(ctx, billingModel, groupID) {
+		return false
+	}
+	// 基础价 + 渠道价都解析为未定价：先排除「pricing 系统整体降级」——降级时 fail-open 放行，
 	// 不把定价源 glitch 放大成整服务 404（SHOULD-FIX，与 billing 降级 fail-open 同向）。
 	if tkPricingSystemDegraded(resolve) {
 		return false
@@ -145,18 +169,33 @@ func tkPricedServingGateRejected(
 func tkCheckPricedServingGate(
 	ctx context.Context,
 	resolve tkBillingPricingResolver,
+	channelProbe tkChannelPricingProbe,
 	setting *SettingService,
 	notifier PricingMissingNotifier,
 	c *gin.Context,
 	wireProtocol tkGateWireProtocol,
 	platform, billingModel, requestedModel string,
 ) bool {
-	if !tkPricedServingGateRejected(ctx, resolve, setting, billingModel, platform) {
+	// groupID 用于渠道价探测（B1）：从 gin context 经 api_key 取，与下面告警取 group 同源。
+	groupID := tkGateGroupID(c)
+	if !tkPricedServingGateRejected(ctx, resolve, channelProbe, setting, billingModel, platform, groupID) {
 		return true
 	}
 	tkWritePricedServingGateRejection(c, wireProtocol)
 	tkLogAndNotifyPricedServingGateRejection(c, notifier, platform, billingModel, requestedModel)
 	return false
+}
+
+// tkGateGroupID 从 gin context 取请求所属 group 的 ID（经 api_key），供闸的渠道价探测使用。
+// 取不到（无 c / 无 api_key / 无 group）返 0 —— 探测随即跳过，退化为仅基础价判定（安全方向）。
+func tkGateGroupID(c *gin.Context) int64 {
+	if c == nil {
+		return 0
+	}
+	if g := apiKeyGroup(getAPIKeyFromContext(c)); g != nil {
+		return g.ID
+	}
+	return 0
 }
 
 // tkWritePricedServingGateRejection 按**客户端 wire 协议**字节对齐写 404 拒绝 body。HTTP

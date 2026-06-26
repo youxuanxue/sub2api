@@ -41,6 +41,73 @@ func tkBillingResolverFromService(b *BillingService) tkBillingPricingResolver {
 	return b.GetModelPricing
 }
 
+// tkChannelPricingProbeFromResolver adapts a *ModelPricingResolver into the gate's
+// tkChannelPricingProbe. It probes the SAME resolver billing's resolveChannelPricing uses
+// (gate ⟺ billing on the channel-price source too, re-review BLOCKER B1). Returns nil for a
+// nil resolver → the gate skips the channel check and falls back to base-pricing only (safe
+// fail-open direction).
+//
+// CRUCIAL (adversarial re-review): `Source == PricingSourceChannel` alone is NOT enough.
+// resolveChannelPricing returns the resolved whenever the group has a channel_model_pricing
+// ROW for the model — but an all-empty row (no flat price, no interval) still resolves to
+// Channel with a $0 BasePricing, and billing then serves it at $0 (served_zero_cost). That is
+// exactly the unpriced serving the gate exists to reject, so the probe additionally requires
+// the resolved channel pricing to be ACTUALLY chargeable (some positive price dimension) —
+// mirroring "billing charges > $0 via channel", not merely "a channel row exists".
+func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannelPricingProbe {
+	if resolver == nil {
+		return nil
+	}
+	return func(ctx context.Context, model string, groupID int64) bool {
+		resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: &groupID})
+		return resolved != nil && resolved.Source == PricingSourceChannel && tkResolvedPricingChargeable(resolved)
+	}
+}
+
+// tkResolvedPricingChargeable reports whether a *ResolvedPricing would make billing charge a
+// real (> $0) cost — i.e. it carries at least one positive price in ANY dimension. It is
+// mode-agnostic on purpose: it checks per-request (default + tiers), token intervals, and the
+// flat BasePricing token dimensions, so an all-empty channel row (which resolves to a $0
+// BasePricing) reads as NOT chargeable and the gate rejects it. This matches the base path,
+// where an all-zero litellm entry is likewise treated as unpriced (tkIsEffectivelyUnpriced).
+func tkResolvedPricingChargeable(r *ResolvedPricing) bool {
+	if r == nil {
+		return false
+	}
+	if r.DefaultPerRequestPrice > 0 {
+		return true
+	}
+	for i := range r.RequestTiers {
+		if tkPricingIntervalHasPositivePrice(&r.RequestTiers[i]) {
+			return true
+		}
+	}
+	for i := range r.Intervals {
+		if tkPricingIntervalHasPositivePrice(&r.Intervals[i]) {
+			return true
+		}
+	}
+	p := r.BasePricing
+	return p != nil && (p.InputPricePerToken > 0 || p.OutputPricePerToken > 0 ||
+		p.CacheCreationPricePerToken > 0 || p.CacheReadPricePerToken > 0 ||
+		p.ThinkingOutputPricePerToken > 0 || p.ImageOutputPricePerToken > 0)
+}
+
+// tkPricingIntervalHasPositivePrice reports whether a tier/interval carries any positive
+// price (per-request or any token dimension). nil-pointer price fields = not configured.
+func tkPricingIntervalHasPositivePrice(iv *PricingInterval) bool {
+	if iv == nil {
+		return false
+	}
+	if iv.PerRequestPrice != nil && *iv.PerRequestPrice > 0 {
+		return true
+	}
+	return (iv.InputPrice != nil && *iv.InputPrice > 0) ||
+		(iv.OutputPrice != nil && *iv.OutputPrice > 0) ||
+		(iv.CacheWritePrice != nil && *iv.CacheWritePrice > 0) ||
+		(iv.CacheReadPrice != nil && *iv.CacheReadPrice > 0)
+}
+
 // ---------------------------------------------------------------------------
 // GatewayService (native anthropic /v1/messages, responses-bridge,
 // chat-completions-bridge all hang off this struct).
@@ -74,7 +141,7 @@ func (s *GatewayService) tkPricedServingGate(ctx context.Context, c *gin.Context
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), tkChannelPricingProbeFromResolver(s.resolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +168,7 @@ func (s *OpenAIGatewayService) tkPricedServingGate(ctx context.Context, c *gin.C
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), tkChannelPricingProbeFromResolver(s.resolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
 }
 
 // ---------------------------------------------------------------------------
@@ -114,12 +181,13 @@ func (s *OpenAIGatewayService) tkPricedServingGate(ctx context.Context, c *gin.C
 // settingService, and pricing-missing notifier onto the gemini compat service in
 // one call (it holds none of them natively). Called during Wire DI; absent call
 // = gate disabled.
-func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier) {
+func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver) {
 	if s != nil {
 		s.tkPricingCatalog = catalog
 		s.tkBillingService = billing
 		s.tkSettingService = setting
 		s.tkPricingMissingNotifier = notifier
+		s.tkPricingResolver = resolver
 	}
 }
 
@@ -140,5 +208,5 @@ func (s *GeminiMessagesCompatService) tkPricedServingGate(ctx context.Context, c
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
 }

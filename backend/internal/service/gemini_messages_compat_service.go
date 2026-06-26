@@ -64,6 +64,11 @@ type GeminiMessagesCompatService struct {
 	tkBillingService         *BillingService
 	tkPricingCatalog         *PricingCatalogService
 	tkPricingMissingNotifier PricingMissingNotifier
+	// tkPricingResolver mirrors the billing cost path's channel-pricing source
+	// (resolveChannelPricing ← resolver.Resolve). The gate probes it so a model
+	// priced ONLY via channel_model_pricing (no litellm/overlay/fallback base) is
+	// NOT falsely 404'd — keeping gate ⟺ billing on the channel source too (B1).
+	tkPricingResolver *ModelPricingResolver
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {

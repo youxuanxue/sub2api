@@ -146,7 +146,7 @@ func TestPricedServingGateRejected_Matrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			setting := newGateSettingService(tc.enabledSet)
-			got := tkPricedServingGateRejected(ctx, resolve, setting, tc.model, tc.platform)
+			got := tkPricedServingGateRejected(ctx, resolve, nil, setting, tc.model, tc.platform, 0)
 			require.Equal(t, tc.wantReject, got)
 		})
 	}
@@ -159,8 +159,8 @@ func TestPricedServingGateRejected_NilDepsFailOpen(t *testing.T) {
 
 	// Nil resolver or nil setting must never reject (additive subtraction must not
 	// reject real traffic because of a wiring gap).
-	require.False(t, tkPricedServingGateRejected(ctx, nil, setting, "totally-unpriced-xyz", "gemini"))
-	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, "totally-unpriced-xyz", "gemini"))
+	require.False(t, tkPricedServingGateRejected(ctx, nil, nil, setting, "totally-unpriced-xyz", "gemini", 0))
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, nil, "totally-unpriced-xyz", "gemini", 0))
 }
 
 // TestPricedServingGateRejected_GeminiFamilyFallbackNotRejected pins SHOULD-FIX1:
@@ -181,7 +181,7 @@ func TestPricedServingGateRejected_GeminiUnknownNoFallbackIsRejected(t *testing.
 	require.True(t, errors.Is(err, ErrModelPricingUnavailable),
 		"sanity: an unknown gemini variant has NO flat fallback → billing unavailable")
 
-	require.True(t, tkPricedServingGateRejected(ctx, resolve, setting, "gemini-9.9-ultra-preview", "gemini"),
+	require.True(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "gemini-9.9-ultra-preview", "gemini", 0),
 		"an unknown gemini with no real price must be gate-rejected ('查不到就拒'), not masked by a flat fallback")
 }
 
@@ -198,7 +198,7 @@ func TestPricedServingGateRejected_DegradedSourceFailsOpen(t *testing.T) {
 	// Sanity: the canary itself is unavailable under this resolver → "degraded".
 	require.True(t, tkPricingSystemDegraded(resolve), "canary unavailable ⇒ system degraded")
 
-	require.False(t, tkPricedServingGateRejected(ctx, resolve, setting, "anything-at-all", "gemini"),
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "anything-at-all", "gemini", 0),
 		"degraded pricing source must fail OPEN (no mass 404)")
 }
 
@@ -224,7 +224,7 @@ func TestCheckPricedServingGate_PassWhenPriced(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireGemini, "gemini", "gemini-2.5-pro", "gemini-2.5-pro")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireGemini, "gemini", "gemini-2.5-pro", "gemini-2.5-pro")
 	require.True(t, ok, "priced model on enabled platform must pass")
 	require.Equal(t, http.StatusOK, w.Code, "no response should be written on pass")
 	require.False(t, c.IsAborted())
@@ -237,7 +237,7 @@ func TestCheckPricedServingGate_PassWhenPlatformDisabled(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
 	require.True(t, ok, "platform not in enabled set: serving unchanged even when unpriced")
 	require.Equal(t, http.StatusOK, w.Code)
 }
@@ -258,7 +258,7 @@ func TestCheckPricedServingGate_Reject_OpenAIShape(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro") // gpt-unpriced absent
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404")
 	require.True(t, c.IsAborted())
@@ -279,7 +279,7 @@ func TestCheckPricedServingGate_Reject_AnthropicShape(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireAnthropic, "anthropic", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireAnthropic, "anthropic", "totally-unpriced-xyz", "totally-unpriced-xyz")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404 (not 4xx-other)")
 
@@ -301,7 +301,7 @@ func TestCheckPricedServingGate_Reject_GeminiShape(t *testing.T) {
 	c, w := newGateTestContext()
 
 	// totally-unpriced-xyz is not gemini-family so it really resolves unavailable.
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code)
 
@@ -328,7 +328,7 @@ func TestCheckPricedServingGate_WireProtocolDecouplesFromPlatform(t *testing.T) 
 
 	// gemini account, Anthropic ingress → Anthropic envelope.
 	c, w := newGateTestContext()
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireAnthropic, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireAnthropic, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
 	require.False(t, ok)
 	var anth map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &anth))
@@ -336,7 +336,7 @@ func TestCheckPricedServingGate_WireProtocolDecouplesFromPlatform(t *testing.T) 
 
 	// gemini account, OpenAI ingress (ForwardAsChatCompletions) → OpenAI envelope.
 	c2, w2 := newGateTestContext()
-	ok2 := tkCheckPricedServingGate(ctx, resolve, setting, nil, c2, tkGateWireOpenAI, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok2 := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c2, tkGateWireOpenAI, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
 	require.False(t, ok2)
 	var oai map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &oai))
@@ -351,7 +351,7 @@ func TestCheckPricedServingGate_NilContextIsSafe(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	require.NotPanics(t, func() {
 		// nil gin context: rejection path must not panic (returns false).
-		ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, nil, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+		ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, nil, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
 		require.False(t, ok)
 	})
 }
@@ -367,7 +367,7 @@ func TestCheckPricedServingGate_RejectFiresNotifier(t *testing.T) {
 	c, _ := newGateTestContext()
 
 	spy := &gateNotifierSpy{}
-	ok := tkCheckPricedServingGate(ctx, resolve, setting, spy, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "gemini-flash-orig")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "gemini-flash-orig")
 	require.False(t, ok)
 	require.Len(t, spy.events, 1, "rejection must fire exactly one pricing-missing event")
 	ev := spy.events[0]

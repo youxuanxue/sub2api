@@ -9,6 +9,7 @@
         "func tkPricedServingGateRejected(",
         "func tkWritePricedServingGateRejection(",
         "if _, err := resolve(billingModel); !errors.Is(err, ErrModelPricingUnavailable) {",
+        "if channelProbe != nil && groupID != 0 && channelProbe(ctx, billingModel, groupID) {",
         "func tkPricingSystemDegraded(resolve tkBillingPricingResolver) bool {",
         "const tkPricedServingGateCanaryModel = \"gemini-2.5-pro\"",
         "setting.IsPricedServingGateEnabled(ctx, platform)",
@@ -25,12 +26,15 @@
       "must_contain": [
         "func (s *GatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
         "func (s *OpenAIGatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
-        "func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier)",
+        "func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver)",
         "func (s *GatewayService) tkPricedServingGate(",
         "func (s *OpenAIGatewayService) tkPricedServingGate(",
-        "func (s *GeminiMessagesCompatService) tkPricedServingGate("
+        "func (s *GeminiMessagesCompatService) tkPricedServingGate(",
+        "func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannelPricingProbe {",
+        "return resolved != nil && resolved.Source == PricingSourceChannel",
+        "func tkResolvedPricingChargeable(r *ResolvedPricing) bool {"
       ],
-      "rationale": "Post-construction DI setters and the per-service one-liner wrappers each route hook calls. SetPricedServingGateDeps injects the BillingService (the gate's oracle) alongside setting/catalog/notifier — the 4-arg shape proves billing is wired (drop it and the gate dead-codes silently off in prod while unit tests pass)."
+      "rationale": "Post-construction DI setters and the per-service one-liner wrappers each route hook calls. SetPricedServingGateDeps injects the BillingService (the gate's base oracle) AND the ModelPricingResolver (the channel-price source) alongside setting/catalog/notifier — the 5-arg shape proves BOTH billing sources are wired (drop the resolver and the gate stops seeing channel_model_pricing → false-404s channel-only-priced models, re-review BLOCKER B1). tkChannelPricingProbeFromResolver mirrors GatewayService.resolveChannelPricing EXACTLY (Source==PricingSourceChannel), so gate ⟺ billing holds on the channel source too; losing it reopens B1."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",

@@ -1061,7 +1061,15 @@ func ProvideTKPricingMissingNotifier(
 		openaiGw.SetPricingCatalogService(catalog)
 	}
 	if geminiCompat != nil {
-		geminiCompat.SetPricedServingGateDeps(catalog, billing, setting, n)
+		// gemini compat delegates billing to GatewayService.recordUsage (which uses
+		// gw.resolver for channel pricing), so feed the gate the SAME resolver so its
+		// channel-price probe matches billing exactly (B1). Same package → private
+		// field access, no extra Wire provider / wire_gen regen.
+		var resolver *ModelPricingResolver
+		if gw != nil {
+			resolver = gw.resolver
+		}
+		geminiCompat.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
 	}
 	return n
 }
