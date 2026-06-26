@@ -2799,9 +2799,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
 	// unpriced models with a 404 BEFORE any upstream forward / stream start
-	// (SSE pre-flight — cannot 404 mid-stream). No-op unless account.Platform is
-	// in the enabled set. See gateway_priced_serving_gate_tk.go.
-	if !s.tkPricedServingGate(ctx, c, account.Platform, billingModel, originalModel) {
+	// (SSE pre-flight — cannot 404 mid-stream). Native openai ingress → OPENAI 404
+	// envelope (BLOCKER4). Judge billingModel — openai native bills on the mapped
+	// billingModel (the primary usageBillingModelCandidates key), so gate键=账键
+	// already; keep it (BLOCKER1 only flipped the native gemini/anthropic Forward
+	// paths to originalModel). No-op unless account.Platform is in the enabled set.
+	// See gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", billingModel, account.Platform)
 	}
 	upstreamModel := billingModel

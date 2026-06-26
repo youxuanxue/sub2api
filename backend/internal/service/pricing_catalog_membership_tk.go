@@ -90,44 +90,13 @@ func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalog
 	return nil, false
 }
 
-// tkIsModelEffectivelyPriced is the runtime priced-serving gate's predicate
-// (docs/approved/priced-or-it-doesnt-ship.md §7 R3). It is STRICTER than
-// IsModelPriced: catalog *membership* is necessary but not sufficient — the
-// matched entry must also carry a non-zero resolvable price.
-//
-// Why a separate, stricter predicate instead of reusing IsModelPriced: the
-// billing resolver (BillingService.GetModelPricing) drops an all-zero token
-// entry via tkIsEffectivelyUnpriced and returns ErrModelPricingUnavailable,
-// then bills $0. But buildCatalogFromBytes KEEPS an entry whose token-cost
-// pointers are present-but-zero, so IsModelPriced returns true for it. A gate
-// built on bare membership would therefore PASS a model billing charges $0 for
-// — "闸形同虚设" (R3 predicate drift). This predicate mirrors
-// tkIsEffectivelyUnpriced: a model is effectively priced iff it has a non-zero
-// token price OR a non-zero media (per-image / per-second) price. The R3 test
-// pins `tkIsModelEffectivelyPriced(m) ⟺ GetModelPricing(m) != ErrModelPricingUnavailable`
-// on the candidate set, including the present-but-zero boundary.
-//
-// IsModelPriced is intentionally left unchanged — it feeds the model-list /
-// upstream-discovery filters whose membership semantics predate this gate;
-// tightening it there is out of scope for v1 (separate blast radius).
-func (s *PricingCatalogService) tkIsModelEffectivelyPriced(modelID, platform string) bool {
-	m, ok := s.findCatalogModel(modelID)
-	if !ok || m == nil {
-		return false
-	}
-	p := m.Pricing
-	// Token-priced: any non-zero per-token rate (input/output/thinking/cache).
-	if p.InputPer1KTokens != 0 || p.OutputPer1KTokens != 0 ||
-		p.ThinkingOutputPer1KTokens != 0 || p.CacheReadPer1K != 0 || p.CacheWritePer1K != 0 {
-		return true
-	}
-	// Media-priced: per-image (image gen) or per-second (video gen). These models
-	// legitimately carry zero token price; the media unit is the real price.
-	if p.OutputCostPerImage != 0 || p.OutputCostPerSecond != 0 {
-		return true
-	}
-	return false
-}
+// NOTE: the runtime priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md)
+// does NOT use a catalog predicate. It asks billing's own oracle
+// (BillingService.GetModelPricing → ErrModelPricingUnavailable) on the exact key
+// billing will charge, so "gate ⟺ billing" holds by construction (no shadow
+// predicate to drift). An earlier draft had a stricter catalog predicate here; it
+// was removed once the gate moved to the billing oracle (R3 dissolved). findCatalogModel
+// above stays — it backs IsModelPriced (model-list / discovery membership).
 
 // stripVendorPrefixForCatalogLookup converts an OpenRouter/Azure-style
 // "<vendor>/<model>" id into the bare catalog form, normalizing "." → "-"

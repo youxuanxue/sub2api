@@ -3,11 +3,29 @@ package service
 // TokenKey: runtime "priced-or-it-doesnt-ship" serving-admission gate (v1).
 //
 // 设计：docs/approved/priced-or-it-doesnt-ship.md。一条规矩、全平台（按启用集灰度）：
-// billing model 解析后、上游转发前，若该模型在价格 catalog 里无可解析价
-// (`!PricingCatalogService.IsModelPriced`)，则 fail-closed 返回 404（外形与上游
-// 「模型不可用」字节对齐，内部子码 model_not_priced 只进 body/日志），而非按 $0 服务。
-// 这堵住 native 平台「空 model_mapping = catch-all 透传」会把任意未定价 id 按 $0
-// 端给付费客户的漏洞（CI-time A1 guard 的运行期对应）。
+// billing model 解析后、上游转发前，若该模型解析不出价（billing 神谕
+// `BillingService.GetModelPricing` 返回 ErrModelPricingUnavailable），则 fail-closed
+// 返回 404（外形与上游「模型不可用」字节对齐，内部子码 model_not_priced 只进 body/日志），
+// 而非按 $0 服务。这堵住 native 平台「空 model_mapping = catch-all 透传」会把任意未定价 id
+// 按 $0 端给付费客户的漏洞（CI-time A1 guard 的运行期对应）。
+//
+// 根因（评审 BLOCKER1/SHOULD-FIX1/2 的统一修法）：闸的判据是 **billing 真正用来决定记不记
+// $0 的同一个调用、同一个键**——`GetModelPricing(billingKey)`，而非 catalog 成员影子谓词
+// （tkIsModelEffectivelyPriced）。理由：billing 用 GetModelPricing 决定记不记 $0，闸必须用
+// 同一个神谕，闸 ⟺ billing 才是构造性成立、永不漂移：
+//   - billing 的 getFallbackPricing 对任意 gemini-*/claude-* family 兜底返有效价（防 $0 漏血），
+//     闸走同一调用即自动继承 family 兜底 → 不再误拒新 gemini（SHOULD-FIX1）；
+//   - GetModelPricing 解析全维度（priority/above1hr/image-token/intervals/media），闸走同一
+//     调用即字段对齐，不再漏判 priority-only/interval-only 等有价模型（SHOULD-FIX2）；
+//   - 闸键逐路线传 billing 将记账的确切键（native gemini/anthropic 是 originalModel，openai
+//     native 是 mapped billingModel），闸/账同键 → 堵住「闸查 mapped=priced 放行、billing 查
+//     original=unpriced 记 $0」的反向漏血（BLOCKER1）。
+//
+// 降级 fail-OPEN（SHOULD-FIX：防大面积宕机）：若 pricing 源整体降级，GetModelPricing 会对
+// 一批模型返 unavailable → 闸 404 掉 100% 启用平台流量。我们区分「系统健康但该模型未定价→拒」
+// 与「pricing 系统降级→放行」：拒绝前用一个常驻已定价 canary 模型探一次，若连它都解析为未定价，
+// 判定 pricing 系统降级 → fail-open 放行。billing 本身降级 fail-open $0，闸不能把定价文件 glitch
+// 变成整服务 404。
 //
 // v1 范围（架构师拍板，docs §4/§8-D4 增量阶梯）：**闸 + 拒绝时触发既有缺价告警**。
 // 拒绝时复用既有 PricingMissingNotifier（gateway_service_tk_served_zero_cost.go 同一
@@ -15,17 +33,19 @@ package service
 // 定价通路」（人在环、5 秒批），满足设计 R4「闸非空转」。v2（litellm 一键确认 + Go
 // overlay 写器）、v3（官方价全自动）是 fast-follow，不在本文件。
 //
-// 为什么不放 handler 包：4 条注入点都在 service 深处（model mapping 发生在 handler
+// 为什么不放 handler 包：多条注入点都在 service 深处（model mapping 发生在 handler
 // 返回后），把 helper 放 service 既避免 handler→service 反向依赖，又能直接拿到 gin
-// context（取 api_key/group 做告警）、catalog 谓词与 notifier。上游 handler 文件零改动。
+// context（取 api_key/group 做告警）、billing 神谕与 notifier。上游 handler 文件零改动。
 //
 // 关键不变量（SSE pre-flight）：闸**必须在首字节前**触发——流式途中无法补 404。所有
 // 调用点都在 billing model 解析后、转发/流开始前（streamStarted 之前），见各路线注入。
+// 零计费 pre-flight 操作（如 gemini countTokens）必须在闸前 action 短路豁免（docs §4）：
+// 它零漏血面、且契约是永不硬失败，对它 404 毫无收益且破契约。
 
 import (
 	"context"
+	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -42,31 +62,56 @@ const (
 	// 区别于 served_zero_cost 的 "unpriced"（已服务零计费）/"negative_multiplier"。卡片
 	// 文案在 pricingMissingReasonLabel 映射。
 	tkPricedServingGateRejectReason = "gate_rejected_unpriced"
-	// tkPricedServingGateMessage 是返回给客户端的人类可读文案（三平台共用），刻意贴近
+	// tkPricedServingGateMessage 是返回给客户端的人类可读文案（各 wire 协议共用），刻意贴近
 	// 上游「未知模型」措辞，让客户端 SDK 走既有未知模型路径。
 	tkPricedServingGateMessage = "model not available"
 )
 
-// tkPricedServingGateRejected 是闸内部的判定结果：true = 应拒绝（未定价且平台已启用）。
-// 拆成独立纯函数便于单测断言「开/关 × 定价/未定价」矩阵，不依赖 gin/notifier。
+// tkBillingPricingResolver 是闸的判据：billing 真正用来决定记不记 $0 的同一个调用。
+// 形如 BillingService.GetModelPricing —— 返回 (pricing, nil) = 有价；返回包裹
+// ErrModelPricingUnavailable 的 err = 未定价（billing 会记 $0）。闸注入它而非整个
+// *BillingService，便于各路线统一接线 + 单测直接喂一个 stub resolver。
+type tkBillingPricingResolver func(model string) (*ModelPricing, error)
+
+// tkPricedServingGateCanaryModel 是降级探测用的常驻已定价 canary。它必须在任何健康的
+// pricing 系统里恒解析出价（gemini-* family 经 billing getFallbackPricing 硬编码兜底，
+// 不依赖 litellm/overlay 源是否加载成功），故「连它都未定价」唯一可能是 pricing 系统整体
+// 降级——此时闸 fail-open 放行，不把定价文件 glitch 放大成整服务 404。
+const tkPricedServingGateCanaryModel = "gemini-2.5-pro"
+
+// tkPricingSystemDegraded 报告 pricing 神谕是否整体降级（而非「某个模型恰好未定价」）。
+// 判据：常驻已定价 canary 都解析为未定价 ⇒ 源加载失败/降级。健康系统永远 false（canary
+// 有 family 兜底）。降级时闸必须 fail-open（与 billing 降级 fail-open $0 同向），否则一次
+// 定价文件 glitch 会让闸 404 掉 100% 启用平台流量。
+func tkPricingSystemDegraded(resolve tkBillingPricingResolver) bool {
+	if resolve == nil {
+		// resolver 未注入：交给上层 nil 检查 fail-open；这里不单独判降级。
+		return false
+	}
+	_, err := resolve(tkPricedServingGateCanaryModel)
+	return errors.Is(err, ErrModelPricingUnavailable)
+}
+
+// tkPricedServingGateRejected 是闸内部的判定结果：true = 应拒绝（未定价且平台已启用且系统健康）。
+// 拆成独立纯函数便于单测断言「开/关 × 定价/未定价 × 降级」矩阵，不依赖 gin/notifier。
 //
 // 短路顺序（性能 + 正确性）：
-//  1. setting 未启用该平台 → false（放行，零 catalog 查表开销）；
-//  2. catalog 谓词 tkIsModelEffectivelyPriced → 命中即放行；
-//  3. 否则拒绝。
+//  1. resolver/setting 未注入 → false（放行，零开销）；
+//  2. setting 未启用该平台 → false（放行，不调 billing）；
+//  3. billing 神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable）→ 放行；
+//  4. 未定价时再探降级：pricing 系统整体降级 → fail-open 放行；
+//  5. 否则拒绝（系统健康、平台已启用、该模型真未定价）。
 //
-// 用 tkIsModelEffectivelyPriced（**非** 裸 IsModelPriced）是 R3 一致性的关键：catalog
-// 里有条目但 token 价全 0 的模型，IsModelPriced 返 true、但 billing 的 GetModelPricing
-// 经 tkIsEffectivelyUnpriced 仍返 ErrModelPricingUnavailable 按 $0 记账——若闸用裸成员
-// 谓词就会放过它、形同虚设。tkIsModelEffectivelyPriced 与计费侧同语义（见
-// pricing_catalog_membership_tk.go），R3 测试钉死两者在候选集上等价。
+// 用 GetModelPricing 神谕（**非** catalog 成员影子谓词）是 R3 一致性的根：billing 用它决定
+// 记不记 $0，闸用同一调用、同一键，闸 ⟺ billing 构造性成立（含 fallback family + 全维度字段），
+// 永不漂移。详见文件头根因说明。
 func tkPricedServingGateRejected(
 	ctx context.Context,
-	catalog *PricingCatalogService,
+	resolve tkBillingPricingResolver,
 	setting *SettingService,
 	billingModel, platform string,
 ) bool {
-	if setting == nil || catalog == nil {
+	if setting == nil || resolve == nil {
 		// 依赖未注入（降级/测试接线）→ 永不拒绝。闸是叠加的减法，缺依赖必须 fail-open，
 		// 绝不因接线问题误拒真实流量。
 		return false
@@ -74,7 +119,13 @@ func tkPricedServingGateRejected(
 	if !setting.IsPricedServingGateEnabled(ctx, platform) {
 		return false
 	}
-	if catalog.tkIsModelEffectivelyPriced(billingModel, platform) {
+	if _, err := resolve(billingModel); !errors.Is(err, ErrModelPricingUnavailable) {
+		// 有价（或非「不可用」错误，按健康放行——只有明确的 unavailable 才是漏血信号）。
+		return false
+	}
+	// 该模型解析为未定价：先排除「pricing 系统整体降级」——降级时 fail-open 放行，
+	// 不把定价源 glitch 放大成整服务 404（SHOULD-FIX，与 billing 降级 fail-open 同向）。
+	if tkPricingSystemDegraded(resolve) {
 		return false
 	}
 	return true
@@ -84,35 +135,44 @@ func tkPricedServingGateRejected(
 // false = 已拒绝（已写 404 响应 + 触发告警），调用方必须立即 return 不再转发。
 //
 // requestedModel 用于告警样例展示（客户端原始模型名），billingModel 是判定键 +
-// 拒绝文案里点名的模型。platform 是 account.Platform（gemini 即含 vertex）。
+// 拒绝文案里点名的模型（**必须是 billing 将记账的确切键**：native gemini/anthropic 是
+// originalModel，openai native 是 mapped billingModel）。platform 是 account.Platform。
+// wireProtocol 决定 404 body 形态（**按调用方实际讲的协议、非 account.Platform**，破 D1 的
+// BLOCKER4 修法）：Forward(anthropic ingress)=anthropic、ForwardNative=gemini、
+// ForwardAs{ChatCompletions,Responses}=openai。
 //
-// nil-safe：catalog/setting/c 任一为 nil 都安全放行（见 tkPricedServingGateRejected）。
+// nil-safe：resolve/setting/c 任一为 nil 都安全放行（见 tkPricedServingGateRejected）。
 func tkCheckPricedServingGate(
 	ctx context.Context,
-	catalog *PricingCatalogService,
+	resolve tkBillingPricingResolver,
 	setting *SettingService,
 	notifier PricingMissingNotifier,
 	c *gin.Context,
+	wireProtocol tkGateWireProtocol,
 	platform, billingModel, requestedModel string,
 ) bool {
-	if !tkPricedServingGateRejected(ctx, catalog, setting, billingModel, platform) {
+	if !tkPricedServingGateRejected(ctx, resolve, setting, billingModel, platform) {
 		return true
 	}
-	tkWritePricedServingGateRejection(c, platform, billingModel)
+	tkWritePricedServingGateRejection(c, wireProtocol)
 	tkLogAndNotifyPricedServingGateRejection(c, notifier, platform, billingModel, requestedModel)
 	return false
 }
 
-// tkWritePricedServingGateRejection 按平台字节对齐写 404 拒绝 body。HTTP 状态统一 404，
-// 子码 model_not_priced 只在能放下的平台进 body（OpenAI/NewAPI 有 code 字段；Anthropic
-// 无 code 字段，子码只走日志；Gemini 是 numeric-code 形）。
-func tkWritePricedServingGateRejection(c *gin.Context, platform, billingModel string) {
+// tkWritePricedServingGateRejection 按**客户端 wire 协议**字节对齐写 404 拒绝 body。HTTP
+// 状态统一 404，子码 model_not_priced 只在能放下的协议进 body（OpenAI/NewAPI 有 code 字段；
+// Anthropic 无 code 字段，子码只走日志；Gemini 是 numeric-code 形）。
+//
+// 关键（BLOCKER4）：形按 wireProtocol 选，**不**按 account.Platform——一个 gemini 账号可能在
+// 跑 Anthropic /v1/messages ingress（Forward），客户端是 Anthropic SDK 读 error.type，必须回
+// Anthropic 形；反之 anthropic 账号跑 openai 协议（ForwardAs*）必须回 OpenAI 形。
+func tkWritePricedServingGateRejection(c *gin.Context, wireProtocol tkGateWireProtocol) {
 	if c == nil {
 		return
 	}
 	MarkResponseCommitted(c)
-	switch tkPricedServingGatePlatformFamily(platform) {
-	case tkGateFamilyAnthropic:
+	switch wireProtocol {
+	case tkGateWireAnthropic:
 		// Anthropic 形：{type:error, error:{type:not_found_error, message}}（无 code 字段）。
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 			"type": "error",
@@ -121,7 +181,7 @@ func tkWritePricedServingGateRejection(c *gin.Context, platform, billingModel st
 				"message": tkPricedServingGateMessage,
 			},
 		})
-	case tkGateFamilyGemini:
+	case tkGateWireGemini:
 		// Gemini 形：googleError(404) → {error:{code:404, message, status:NOT_FOUND}}。
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 			"error": gin.H{
@@ -132,7 +192,6 @@ func tkWritePricedServingGateRejection(c *gin.Context, platform, billingModel st
 		})
 	default:
 		// OpenAI/NewAPI 形：{error:{type:invalid_request_error, code:model_not_priced, message}}。
-		// 子码进 body 的 code 字段（OpenAI errorResponse helper 本身不带 code，这里直接写）。
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 			"error": gin.H{
 				"type":    "invalid_request_error",
@@ -199,24 +258,16 @@ func tkLogAndNotifyPricedServingGateRejection(
 	notifier.NotifyPricingMissing(ev)
 }
 
-// tkPricedServingGatePlatformFamily 把 account.Platform 归到三种拒绝 body 形态之一。
-type tkGateFamily int
+// tkGateWireProtocol 是拒绝 body 形态的选择维度：**客户端实际讲的协议**，不是 account.Platform。
+// 同一个账号平台可能服务多种 ingress 协议（gemini 账号跑 Anthropic /v1/messages、anthropic
+// 账号跑 openai /v1/chat/completions），404 信封必须匹配客户端 SDK 在读的字段（BLOCKER4）。
+type tkGateWireProtocol int
 
 const (
-	tkGateFamilyOpenAI tkGateFamily = iota
-	tkGateFamilyAnthropic
-	tkGateFamilyGemini
+	// tkGateWireOpenAI = OpenAI 兼容信封（含 newapi compat 系）。零值默认。
+	tkGateWireOpenAI tkGateWireProtocol = iota
+	// tkGateWireAnthropic = Anthropic /v1/messages 信封（error.type=not_found_error）。
+	tkGateWireAnthropic
+	// tkGateWireGemini = Google generativelanguage 信封（error.status=NOT_FOUND）。
+	tkGateWireGemini
 )
-
-func tkPricedServingGatePlatformFamily(platform string) tkGateFamily {
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case PlatformAnthropic:
-		return tkGateFamilyAnthropic
-	case PlatformGemini:
-		return tkGateFamilyGemini
-	default:
-		// openai / newapi / antigravity（compat 系）/ 未知 → OpenAI 形。首发启用集只有
-		// gemini，但其余平台逐个加入时此默认分支即生效。
-		return tkGateFamilyOpenAI
-	}
-}

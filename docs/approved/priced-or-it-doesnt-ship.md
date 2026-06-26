@@ -25,9 +25,11 @@ supersedes: none
 
 - **堵漏**：native 平台「空 `model_mapping` = catch-all 透传」——空映射账号会服务**任意**客户
   model id，包括上游刚发、**还没价**的 id → 按 `$0` 记账（`served_zero_cost` 只观测、从不拒绝）。
-- **决策**：serving 准入处，若 billing model **无可解析价**（`!IsModelPriced`），**返回 `404`，
-  外形与上游「模型不可用」一致**（内部子码 `model_not_priced`），而非 `$0` 服务。闸**按平台启用**
-  （`SettingKeyPricedServingGateEnabled`），首发启用集 = {gemini/Vertex}，移出即回滚。
+- **决策**：serving 准入处，若 **billing 自己的解析器 `GetModelPricing` 对 billing 将记账的键返
+  `ErrModelPricingUnavailable`**（即会按 `$0` 记账），**返回 `404`，外形与上游「模型不可用」一致**
+  （内部子码 `model_not_priced`），而非 `$0` 服务。闸用 billing 神谕、不另造 catalog 影子谓词，故
+  「闸 ⟺ billing」按构造成立。闸**按平台启用**（`SettingKeyPricedServingGateEnabled`），首发启用集 =
+  {gemini/Vertex}，移出即回滚。
 - 这是 **CI-time A1 guard 的运行期对应**（`catalog-serving-drift.py`：每个 catalog/manifest id
   都可解析出价）。A1 只在 CI 保护*已上架*的 id；catch-all 路径在运行期服务的是*不在 manifest 里*
   的 id，没有任何此类检查。本设计堵的就是这个运行期缺口。
@@ -56,13 +58,18 @@ supersedes: none
 ## 2. 决策 — serving 准入处的价格闸
 
 **不变量（这条规矩）**：每个网关请求，在 billing model id 解析后、上游转发前，若
-`!PricingCatalogService.IsModelPriced(billingModel, platform)`，则**返回 `404`**（内部子码
-`model_not_priced`）——*除非该平台未在启用集内*。
+**`BillingService.GetModelPricing(billingKey)` 返回 `ErrModelPricingUnavailable`**（即 billing 会按
+`$0` 记账），则**返回 `404`**（内部子码 `model_not_priced`）——*除非该平台未在启用集内*。
 
-- **闸点**：请求准入处，复用既有价格谓词 `PricingCatalogService.IsModelPriced(modelID, platform)`
-  （`pricing_catalog_membership_tk.go:51`），它已是 catalog / `/v1/models` 的过滤器
-  （`model_list_filter_tk.go:48`）。同一个谓词，现在也在 *serving* 路径强制——于是「列得出来」
-  与「服务得了」终于一致。它是**内存 catalog 查表**，不引入额外 I/O，每请求开销可忽略。
+- **闸点 = billing 神谕，不是 catalog 影子谓词**：闸**直接调 billing 自己的解析器**
+  `BillingService.GetModelPricing`（`billing_service.go:700`），用 **billing 将记账的同一个键**
+  （native gemini/anthropic 是 `originalModel`，openai native 是 mapped `billingModel`），`!errors.Is(err, ErrModelPricingUnavailable)`
+  才放行。**这样「闸 ⟺ billing」按构造成立**：billing 用这个调用决定记不记 `$0`，闸用同一调用同一键，
+  没有 catalog 影子谓词可漂移（含 `getFallbackPricing` family 兜底 + 全维度价字段）。GetModelPricing 走
+  内存价源（litellm 镜像 / overlay / fallback 都在内存），不引入额外 I/O。**降级 fail-open**：若整个
+  pricing 源降级，先用常驻已定价 canary 探一次，连它都解析为未定价则判降级 → 放行（与 billing 降级
+  fail-open `$0` 同向，不把定价文件 glitch 放大成整服务 404）。`/pricing` 与 `/v1/models` 仍用
+  `IsModelPriced` 做展示过滤，serving 闸用 billing 神谕——两面同向但闸更严（要可解析出真价）。
 - **设置开关（按平台启用，回滚 + 灰度）**：`SettingKeyPricedServingGateEnabled`，经
   `SettingService.IsPricedServingGateEnabled(ctx, platform)` 解析（沿用 `IsSignupBonusEnabled` 样板，
   `setting_service_tk_cold_start.go:84`）。它是**已启用平台集**：首发 = {gemini/Vertex}（一步 ON），
@@ -162,12 +169,13 @@ gemini/Vertex 站稳后，`tokenkey-servable-model-refresh` 里那套手动 catc
   单发「空转闸」，R4），首发只在 gemini/Vertex；其余平台逐个加入、每个 soak；移出启用集即回滚。v1 非
   全自动，但补价通路真实存在、分钟级解除拒绝——满足「闸非空转」。
 - **R2 — 真免费模型**：真正免费的模型（倍率 0 的组、按策略 `$0` 的 id）不能被当「未定价」拒掉。
-  *缓解*：闸判的是 `IsModelPriced`（*价条目存在*），不是 `cost==0`。按策略定价为零的 id 仍有条目；
-  `negative_multiplier` / 免费组语义（`served_zero_cost`）不受影响。
-- **R3 — 谓词漂移**：若 `IsModelPriced` 与真正的计费 resolver（`GetModelPricing`）不一致，闸可能
-  放过一个随后按 `$0` 记账的模型（或拒掉一个本可定价的）。*缓解*：加测试断言候选集上
-  `IsModelPriced(m) ⟺ GetModelPricing(m) != ErrModelPricingUnavailable`；两者本已共享 catalog
-  解析（`pricing_catalog_supported_models_tk.go:230`）。
+  *缓解*：闸判的是 `GetModelPricing` 能否**解析出价条目**（返回非 `ErrModelPricingUnavailable`），不是
+  `cost==0`。按策略定价为零但有条目的 id 仍解析得出；`negative_multiplier` / 免费组语义
+  （`served_zero_cost`）不受影响。
+- **R3 — 谓词漂移：按构造消除**：闸**就是** billing 的 `GetModelPricing`（同一调用、同一键），不存在
+  「闸谓词 vs 计费谓词」两套实现去漂移——这是把闸从早先的 catalog 影子谓词改成 billing 神谕的根本收益
+  （评审 BLOCKER1 + fallback/字段缺口都源于影子谓词,一并消失）。仍加一条一致性测试 + 路线级测试（catch-all
+  下 requested≠mapped、requested 未定价→闸按 billing 键拒）作回归守卫,并实证「改坏闸键→测试变红」。
 - **非目标 — 自动上架 serving**：本闸绝不写 `model_mapping`。模型变*可服务*只能走既有人/迁移路径；
   本闸只管*一个已映射/透传但无价的模型能不能过*。
 - **非目标 — 让 serving 收敛到上游**：与 SSOT doc 里被否决的选项一致；上游仍是喂给人决策的 feed。

@@ -5308,11 +5308,15 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// pre-flight — cannot 404 mid-stream). This is the native /v1/messages
 	// catch-all重灾区 (空 model_mapping = allow-all). Runs on the post-mapping
 	// model, after the deprecated-model gate, so admin rewrites take precedence.
-	// No-op unless account.Platform is in the enabled set (gemini ships first;
-	// anthropic joins later per the rollout plan). See
+	// Native anthropic ingress → ANTHROPIC 404 envelope (BLOCKER4). Judge
+	// originalModel — billing records on result.Model=originalModel
+	// (forwardResultBillingModel), so the gate must use billing's exact key, not
+	// mappedModel (BLOCKER1: catch-all {"*":priced} would else pass while billing
+	// $0s the unpriced original). No-op unless account.Platform is in the enabled
+	// set (gemini ships first; anthropic joins later per the rollout plan). See
 	// gateway_priced_serving_gate_tk.go.
-	if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {
-		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", mappedModel, account.Platform)
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
 	// TK: if this exact (mapped) Anthropic model name was recently confirmed

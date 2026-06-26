@@ -5,10 +5,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,13 @@ import (
 
 // Tests for the runtime priced-serving gate (gateway_priced_serving_gate_tk.go +
 // gateway_priced_serving_gate_wiring_tk.go), docs/approved/priced-or-it-doesnt-ship.md.
+//
+// Root-cause refactor (this revision): the gate judges via the SAME billing
+// oracle billing uses — BillingService.GetModelPricing — not a catalog shadow
+// predicate. So these tests inject a tkBillingPricingResolver (func over
+// GetModelPricing). The canary model (tkPricedServingGateCanaryModel,
+// "gemini-2.5-pro") must always resolve priced in a healthy resolver, so the
+// "system degraded → fail-open" branch fires only when the WHOLE source is dead.
 
 // gateRepoStub is a minimal SettingRepository whose only purpose is to return a
 // fixed enabled-set string for SettingKeyPricedServingGateEnabled.
@@ -70,10 +78,15 @@ func newGateSettingService(enabledSet string) *SettingService {
 	return NewSettingService(repo, &config.Config{})
 }
 
-// gateCatalogWith builds a PricingCatalogService whose catalog contains exactly
-// the given model ids (each priced with a real non-zero input/output cost).
-func gateCatalogWith(modelIDs ...string) *PricingCatalogService {
-	svc := NewPricingCatalogService(nil)
+// gateBillingResolverWith builds a tkBillingPricingResolver backed by a REAL
+// BillingService whose pricing source contains exactly the given model ids (each
+// priced with a real non-zero input/output cost). Because it is the real
+// GetModelPricing, family fallbacks ALSO apply (e.g. any "gemini-*" / "claude-*"
+// resolves via getFallbackPricing even when absent from the source) — which is
+// the whole point of the refactor. The canary gemini-2.5-pro therefore always
+// resolves priced (gemini family fallback), so the degraded-source branch stays
+// inert here.
+func gateBillingResolverWith(modelIDs ...string) tkBillingPricingResolver {
 	entries := map[string]map[string]any{}
 	for _, id := range modelIDs {
 		entries[id] = map[string]any{
@@ -83,10 +96,20 @@ func gateCatalogWith(modelIDs ...string) *PricingCatalogService {
 		}
 	}
 	blob, _ := json.Marshal(entries)
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return blob, time.Now(), true
-	})
-	return svc
+	ps := &PricingService{}
+	data, _ := ps.parsePricingData(blob)
+	ps.pricingData = data
+	billing := NewBillingService(nil, ps)
+	return billing.GetModelPricing
+}
+
+// gateDegradedResolver simulates a totally degraded pricing system: EVERY model
+// (including the canary) resolves to ErrModelPricingUnavailable. Used to prove
+// the gate fails OPEN under source degradation instead of 404ing all traffic.
+func gateDegradedResolver() tkBillingPricingResolver {
+	return func(model string) (*ModelPricing, error) {
+		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	}
 }
 
 func newGateTestContext() (*gin.Context, *httptest.ResponseRecorder) {
@@ -101,7 +124,8 @@ func newGateTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 
 func TestPricedServingGateRejected_Matrix(t *testing.T) {
 	ctx := context.Background()
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	// Source has gemini-2.5-pro (also the canary) so healthy resolver resolves it.
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 
 	cases := []struct {
 		name       string
@@ -110,19 +134,19 @@ func TestPricedServingGateRejected_Matrix(t *testing.T) {
 		model      string
 		wantReject bool
 	}{
-		{"platform NOT in set: unpriced still served", "gemini", "openai", "gpt-unpriced", false},
+		{"platform NOT in set: unpriced still served", "gemini", "openai", "totally-unpriced-xyz", false},
 		{"platform NOT in set: priced served", "gemini", "openai", "gemini-2.5-pro", false},
-		{"empty set: nothing gated", "", "gemini", "gpt-unpriced", false},
-		{"platform in set + unpriced: REJECT", "gemini", "gemini", "gpt-unpriced", true},
+		{"empty set: nothing gated", "", "gemini", "totally-unpriced-xyz", false},
+		{"platform in set + unpriced: REJECT", "gemini", "gemini", "totally-unpriced-xyz", true},
 		{"platform in set + priced: pass", "gemini", "gemini", "gemini-2.5-pro", false},
-		{"multi-member set, member + unpriced: REJECT", "gemini,openai", "openai", "gpt-unpriced", true},
+		{"multi-member set, member + unpriced: REJECT", "gemini,openai", "openai", "totally-unpriced-xyz", true},
 		{"multi-member set, member + priced: pass", "gemini,openai", "openai", "gemini-2.5-pro", false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			setting := newGateSettingService(tc.enabledSet)
-			got := tkPricedServingGateRejected(ctx, catalog, setting, tc.model, tc.platform)
+			got := tkPricedServingGateRejected(ctx, resolve, setting, tc.model, tc.platform)
 			require.Equal(t, tc.wantReject, got)
 		})
 	}
@@ -131,12 +155,61 @@ func TestPricedServingGateRejected_Matrix(t *testing.T) {
 func TestPricedServingGateRejected_NilDepsFailOpen(t *testing.T) {
 	ctx := context.Background()
 	setting := newGateSettingService("gemini")
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 
-	// Nil catalog or nil setting must never reject (additive subtraction must
-	// not reject real traffic because of a wiring gap).
-	require.False(t, tkPricedServingGateRejected(ctx, nil, setting, "gpt-unpriced", "gemini"))
-	require.False(t, tkPricedServingGateRejected(ctx, catalog, nil, "gpt-unpriced", "gemini"))
+	// Nil resolver or nil setting must never reject (additive subtraction must not
+	// reject real traffic because of a wiring gap).
+	require.False(t, tkPricedServingGateRejected(ctx, nil, setting, "totally-unpriced-xyz", "gemini"))
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, "totally-unpriced-xyz", "gemini"))
+}
+
+// TestPricedServingGateRejected_GeminiFamilyFallbackNotRejected pins SHOULD-FIX1:
+// a brand-new gemini-* id ABSENT from the pricing source must NOT be rejected,
+// because billing's getFallbackPricing covers any "gemini" model (upstream #2486
+// $0-guard). The old catalog-membership predicate got this WRONG (catalog has no
+// family fallback) and would 404 a model billing prices fine — on the only
+// launch platform. This is the constructive gate ⟺ billing property.
+func TestPricedServingGateRejected_GeminiFamilyFallbackNotRejected(t *testing.T) {
+	ctx := context.Background()
+	setting := newGateSettingService("gemini")
+	// Source has ONLY gemini-2.5-pro; the new variant is absent from the source.
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
+
+	// New gemini variant the catalog hasn't caught up to → resolves via fallback.
+	_, err := resolve("gemini-9.9-ultra-preview")
+	require.False(t, errors.Is(err, ErrModelPricingUnavailable),
+		"sanity: billing fallback covers any gemini-* model")
+
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, setting, "gemini-9.9-ultra-preview", "gemini"),
+		"a new gemini variant billing prices via family fallback must NOT be gate-rejected (SHOULD-FIX1)")
+}
+
+// TestPricedServingGateRejected_DegradedSourceFailsOpen pins the fail-OPEN
+// SHOULD-FIX: when the WHOLE pricing system is degraded (even the canary resolves
+// unavailable), the gate must NOT 404 — it fails open, matching billing's own
+// degrade-to-$0 behavior, so a pricing-file glitch never blackholes 100% of
+// enabled-platform traffic.
+func TestPricedServingGateRejected_DegradedSourceFailsOpen(t *testing.T) {
+	ctx := context.Background()
+	setting := newGateSettingService("gemini")
+	resolve := gateDegradedResolver()
+
+	// Sanity: the canary itself is unavailable under this resolver → "degraded".
+	require.True(t, tkPricingSystemDegraded(resolve), "canary unavailable ⇒ system degraded")
+
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, setting, "anything-at-all", "gemini"),
+		"degraded pricing source must fail OPEN (no mass 404)")
+}
+
+// TestPricingSystemDegraded_HealthyIsNotDegraded guards the other side: a healthy
+// resolver (canary resolves priced) must NOT be flagged degraded, or the gate
+// would never reject anything.
+func TestPricingSystemDegraded_HealthyIsNotDegraded(t *testing.T) {
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
+	require.False(t, tkPricingSystemDegraded(resolve),
+		"healthy resolver (canary priced) must not be flagged degraded")
+	require.False(t, tkPricingSystemDegraded(nil),
+		"nil resolver defers to the upper nil-check fail-open, not the degraded path")
 }
 
 // ---------------------------------------------------------------------------
@@ -147,10 +220,10 @@ func TestCheckPricedServingGate_PassWhenPriced(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("gemini")
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, c, "gemini", "gemini-2.5-pro", "gemini-2.5-pro")
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireGemini, "gemini", "gemini-2.5-pro", "gemini-2.5-pro")
 	require.True(t, ok, "priced model on enabled platform must pass")
 	require.Equal(t, http.StatusOK, w.Code, "no response should be written on pass")
 	require.False(t, c.IsAborted())
@@ -160,26 +233,31 @@ func TestCheckPricedServingGate_PassWhenPlatformDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("gemini") // openai NOT in set
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, c, "openai", "gpt-unpriced", "gpt-unpriced")
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
 	require.True(t, ok, "platform not in enabled set: serving unchanged even when unpriced")
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
 // ---------------------------------------------------------------------------
-// 404 body byte-alignment per platform family (D1).
+// 404 body byte-alignment per CLIENT WIRE PROTOCOL (D1 / BLOCKER4).
+//
+// Critical: the shape is chosen by the caller's wire protocol, NOT
+// account.Platform — a gemini account can serve an Anthropic ingress, an
+// anthropic account can serve an OpenAI ingress. These tests pass the protocol
+// explicitly and assert the matching envelope.
 // ---------------------------------------------------------------------------
 
 func TestCheckPricedServingGate_Reject_OpenAIShape(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("openai")
-	catalog := gateCatalogWith("gemini-2.5-pro") // gpt-unpriced absent
+	resolve := gateBillingResolverWith("gemini-2.5-pro") // gpt-unpriced absent
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, c, "openai", "gpt-unpriced", "gpt-unpriced")
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404")
 	require.True(t, c.IsAborted())
@@ -193,31 +271,14 @@ func TestCheckPricedServingGate_Reject_OpenAIShape(t *testing.T) {
 	require.Nil(t, payload["type"], "OpenAI shape has no top-level type")
 }
 
-func TestCheckPricedServingGate_Reject_NewAPIUsesOpenAIShape(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx := context.Background()
-	setting := newGateSettingService("newapi")
-	catalog := gateCatalogWith("gemini-2.5-pro")
-	c, w := newGateTestContext()
-
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, c, "newapi", "qwen-unpriced", "qwen-unpriced")
-	require.False(t, ok)
-	require.Equal(t, http.StatusNotFound, w.Code)
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
-	errObj := payload["error"].(map[string]any)
-	require.Equal(t, "invalid_request_error", errObj["type"], "newapi aligns to OpenAI-compat shape")
-	require.Equal(t, tkPricedServingGateSubcode, errObj["code"])
-}
-
 func TestCheckPricedServingGate_Reject_AnthropicShape(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("anthropic")
-	catalog := gateCatalogWith("claude-sonnet-4-6")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, c, "anthropic", "claude-unpriced", "claude-unpriced")
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireAnthropic, "anthropic", "totally-unpriced-xyz", "totally-unpriced-xyz")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404 (not 4xx-other)")
 
@@ -235,10 +296,11 @@ func TestCheckPricedServingGate_Reject_GeminiShape(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("gemini")
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, c, "gemini", "gemini-unpriced", "gemini-unpriced")
+	// totally-unpriced-xyz is not gemini-family so it really resolves unavailable.
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code)
 
@@ -251,13 +313,44 @@ func TestCheckPricedServingGate_Reject_GeminiShape(t *testing.T) {
 	require.Equal(t, "NOT_FOUND", errObj["status"])
 }
 
+// TestCheckPricedServingGate_WireProtocolDecouplesFromPlatform pins BLOCKER4 at
+// the unit boundary: the SAME account platform ("gemini") gets DIFFERENT 404
+// envelopes depending on the wire protocol the client speaks. A gemini account
+// serving an Anthropic /v1/messages ingress must get the Anthropic envelope (not
+// the Google one) or the Anthropic SDK reads error.type and throws an
+// unexpected exception instead of a clean NotFoundError.
+func TestCheckPricedServingGate_WireProtocolDecouplesFromPlatform(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := context.Background()
+	setting := newGateSettingService("gemini")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
+
+	// gemini account, Anthropic ingress → Anthropic envelope.
+	c, w := newGateTestContext()
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, c, tkGateWireAnthropic, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	require.False(t, ok)
+	var anth map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &anth))
+	require.Equal(t, "error", anth["type"], "gemini account on Anthropic ingress → Anthropic envelope")
+
+	// gemini account, OpenAI ingress (ForwardAsChatCompletions) → OpenAI envelope.
+	c2, w2 := newGateTestContext()
+	ok2 := tkCheckPricedServingGate(ctx, resolve, setting, nil, c2, tkGateWireOpenAI, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	require.False(t, ok2)
+	var oai map[string]any
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &oai))
+	require.Nil(t, oai["type"], "gemini account on OpenAI ingress → OpenAI envelope (no top-level type)")
+	errObj := oai["error"].(map[string]any)
+	require.Equal(t, "invalid_request_error", errObj["type"])
+}
+
 func TestCheckPricedServingGate_NilContextIsSafe(t *testing.T) {
 	ctx := context.Background()
 	setting := newGateSettingService("gemini")
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	require.NotPanics(t, func() {
 		// nil gin context: rejection path must not panic (returns false).
-		ok := tkCheckPricedServingGate(ctx, catalog, setting, nil, nil, "gemini", "gpt-unpriced", "gpt-unpriced")
+		ok := tkCheckPricedServingGate(ctx, resolve, setting, nil, nil, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
 		require.False(t, ok)
 	})
 }
@@ -269,16 +362,16 @@ func TestCheckPricedServingGate_RejectFiresNotifier(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("gemini")
-	catalog := gateCatalogWith("gemini-2.5-pro")
+	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, _ := newGateTestContext()
 
 	spy := &gateNotifierSpy{}
-	ok := tkCheckPricedServingGate(ctx, catalog, setting, spy, c, "gemini", "gemini-unpriced", "gemini-flash-orig")
+	ok := tkCheckPricedServingGate(ctx, resolve, setting, spy, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "gemini-flash-orig")
 	require.False(t, ok)
 	require.Len(t, spy.events, 1, "rejection must fire exactly one pricing-missing event")
 	ev := spy.events[0]
 	require.Equal(t, tkPricedServingGateRejectReason, ev.Reason)
-	require.Equal(t, "gemini-unpriced", ev.BillingModel)
+	require.Equal(t, "totally-unpriced-xyz", ev.BillingModel)
 	require.Equal(t, "gemini-flash-orig", ev.RequestedModel)
 	require.Equal(t, "gemini", ev.Platform)
 }

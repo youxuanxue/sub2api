@@ -1019,9 +1019,13 @@ func ProvideTKAccountIncidentNotifier(
 // reuses this same notifier as its reject-time alert channel and the catalog
 // predicate must reach the same three forwarders:
 //   - GatewayService / OpenAIGatewayService already hold settingService +
-//     notifier; we add the catalog via SetPricingCatalogService.
+//     notifier + billingService; we add the catalog via SetPricingCatalogService.
 //   - GeminiMessagesCompatService holds none of them; SetPricedServingGateDeps
-//     injects catalog + setting + notifier at once.
+//     injects catalog + billing + setting + notifier at once.
+//
+// The gate's pass/reject judgment goes through BillingService.GetModelPricing
+// (the same oracle billing uses to decide $0), so the billing service must reach
+// the gemini compat forwarder too (it holds none of the deps natively).
 //
 // Piggybacking on this already-evaluated provider (consumed by provideCleanup
 // via the *TKPricingMissingNotifier edge) avoids a fresh wire sentinel for the
@@ -1031,6 +1035,7 @@ func ProvideTKPricingMissingNotifier(
 	openaiGw *OpenAIGatewayService,
 	geminiCompat *GeminiMessagesCompatService,
 	catalog *PricingCatalogService,
+	billing *BillingService,
 	setting *SettingService,
 	ops *OpsService,
 	cfg *config.Config,
@@ -1056,7 +1061,7 @@ func ProvideTKPricingMissingNotifier(
 		openaiGw.SetPricingCatalogService(catalog)
 	}
 	if geminiCompat != nil {
-		geminiCompat.SetPricedServingGateDeps(catalog, setting, n)
+		geminiCompat.SetPricedServingGateDeps(catalog, billing, setting, n)
 	}
 	return n
 }

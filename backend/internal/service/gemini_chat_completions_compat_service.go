@@ -88,6 +88,19 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// This path serves an OpenAI /v1/chat/completions ingress against a gemini
+	// account (writeChatCompletionsError elsewhere), so the 404 body must be the
+	// OPENAI envelope (BLOCKER4: byte-align to the client's wire protocol, not
+	// account.Platform). Judge originalModel — billing records on
+	// result.Model=originalModel here, so the gate must use billing's exact key
+	// (BLOCKER1/BLOCKER2: this third gemini ingress had NO gate before). See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
+
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())

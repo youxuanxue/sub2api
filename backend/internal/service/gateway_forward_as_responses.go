@@ -78,10 +78,13 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
 	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
-	// No-op unless account.Platform is in the enabled set. See
+	// OpenAI /v1/responses ingress (against an anthropic account) → OPENAI 404
+	// envelope (BLOCKER4). Judge originalModel — billing records on
+	// result.Model=originalModel here, so the gate must use billing's exact key
+	// (BLOCKER1). No-op unless account.Platform is in the enabled set. See
 	// gateway_priced_serving_gate_tk.go.
-	if !s.tkPricedServingGate(ctx, c, account.Platform, mappedModel, originalModel) {
-		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", mappedModel, account.Platform)
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
