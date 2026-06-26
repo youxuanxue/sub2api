@@ -34,9 +34,9 @@ supersedes: none
   （unpriced → 不服务），**绝不**往任何账号的 serving 白名单里**加**模型。它**读** PRICE 与
   SERVING 两个事实，**不拥有**任何一个。
 - **可用性靠自动定价保**（§4）：首次请求一个未定价、但**在候选集内**的模型，会触发从可信源
-  （官方价页 / litellm 镜像）取价，写入**仅 PRICE owner**（`channel_model_pricing` / overlay，
-  对齐「② runtime pricing」轨道），下一次请求即放行——分钟级、无人工、无发版。**取不到价**的模型
-  保持被拒（响亮的 `404`），而非无声漏 `$0`。
+  （官方价页 / litellm 镜像）取价，**热推进 overlay runtime 层**（`SettingKeyTKPricingOverlayRuntime`，
+  git 的 `tk_pricing_overlay.json` 仍是唯一事实源、runtime 只是它的热投影），下一次请求即放行——分钟级、
+  无人工、无发版。**取不到价**的模型保持被拒（响亮的 `404`），而非无声漏 `$0`。
 
 ## 1. 缺口（代码佐证）
 
@@ -117,23 +117,28 @@ fail-closed 的代价——拒掉一个刚发布的模型——由 §4 自动定
 
    这正是 `apply-pricing-hotfix.py` runbook 已编码的来源契约；phase 2 把它接到信号上，并按来源分
    「全自动 vs 一键确认」。
-3. **写入 PRICE owner**：写 `channel_model_pricing`（运行期、无发版——「② runtime pricing」轨道），
-   或固化 overlay fill。**不写 `model_mapping`**。价格优先级不变（`channel_model_pricing` > overlay
-   > litellm > Go fallback）。
+3. **写入 PRICE owner = overlay 热推（D4）**：把这条 fill 写进 overlay（`tk_pricing_overlay.json`），
+   并经 **overlay runtime 热层**（`SettingKeyTKPricingOverlayRuntime`，工具 `manage-overlay-runtime.py`）
+   **热推到 prod settings + publish `settings_updated`**，所有副本立即 reload——运行期生效、**无发版**。
+   **git 的 `tk_pricing_overlay.json` 仍是唯一事实源**，runtime 层只是它的热投影；下一次例行发版把 fill
+   折进 embedded floor（floor 追上），`manage-overlay-runtime.py check` 审 pending/shadow/orphan 漂移。
+   **不写 `model_mapping`**。价格优先级不变（`channel_model_pricing` > overlay > litellm > Go fallback）；
+   overlay 是 **fill-only**——只补缺、不覆盖正确的非零源价。
 4. **服务**：下一次请求解析出价 → 过闸。**完全取不到价**的模型保持被拒（响亮 `404`），交人补价或
    弃用——绝不无声 `$0`。
 
-**写路范围（D4）— P1 不阻塞在整个②的构建上**：`channel_model_pricing` *今天*已能承载
-`token / per_request / image` 价（`channel.go:75`）——覆盖 gemini chat + imagen，即 §5 首选平台
-gemini/Vertex catch-all 漏血的主体。所以 P1 自动定价**现在**就把这些维度写进 `channel_model_pricing`
-（运行期、无发版），不依赖②。channel writer 还扛不动的维度——`video` / per-second / 思考档
-（veo、seedance、思考模型）——暂留**人工经 overlay 上架**，等②补齐 resolver 写路；对它们，闸只是把
-未定价 id 一直拦着直到有人补价。②落地后，自动定价免费扩展到这些维度。（overlay 是 `//go:embed` 的
-→ 改价要发版才生效，故它是尚未运行期化维度的*兜底*，绝非自动定价的热路径。）
+**为什么是 overlay 热推、不是 `channel_model_pricing`（D4）**：auto-fill 的语义是**全局缺价补齐**
+（「这个模型值 X」），正是 overlay 的职责，而非 per-channel 价。overlay 走 runtime 热层就**无发版**
+（早先一版误以为 overlay = `//go:embed` 必发版，漏看了 `tkOverlayEffective = embedded ∪ runtime` 的热层），
+且 overlay **承载全维度**——`OutputCostPerSecond`（video/per-second）、`ThinkingOutputCostPerToken`
+（思考档）都在内（`pricing_service_tk_overlay.go`）——所以 veo/seedance/思考模型也能**当场自动定价**，
+**不依赖②、无维度 carve-out**。`channel_model_pricing` 回归本职：per-channel 价格修正（WINS 优先级），
+不背 auto-fill；二者职责更清。
 
-**对齐而非重复**：这是 `channel-pricing-refund-gate-and-runtime-pricing.md` 里已 staged 的「②
-runtime pricing」的**需求驱动触发器**。那里的 refund gate / validator 不变量在这里变成 load-bearing。
-phase 2 不发明新的价格 writer，它触发那个已规划的。
+**与②的关系**：`channel-pricing-refund-gate-and-runtime-pricing.md` 的「② runtime pricing」是把
+*per-channel* 价做成运行期可写——与本设计的*全局 fill* 是**两条正交轨道**，本设计**不依赖②落地**。
+（早先一版把 auto-fill 误接到②/channel writer，被「保持单一事实源」一问纠正：fill 归 overlay，
+per-channel 修正归 channel。）
 
 ## 5. 分阶段与灰度（每阶段各自独立安全）
 
@@ -186,9 +191,12 @@ P2 按平台、可回滚（把设置翻回去）。`tokenkey-servable-model-refr
 - **D3 — 自动定价自治度：按来源分两档（唯一的真判断）**：官方价 → **全自动**（给权威价盖章是剧场）；
   只有 litellm 镜像价 → **一键人确认**（价格预填），因为无人值守的错价会算错客户的钱，而错价对信任的
   破坏远大于几分钟延迟。档位*由来源派生*、非运维旗标——一条规矩、无逃生门。
-- **D4 — P1 价格 writer：现在写 `channel_model_pricing` 的 token/image；不阻塞在整个②上**：channel
-  writer 已承载 `token / per_request / image`——足够覆盖 gemini chat + imagen，即 D2 重灾区的主体——
-  运行期、无发版。`video` / per-second / 思考维度等②，暂留人工 overlay 上架；闸只是把那些未定价 id
-  拦着直到补价。P1 对齐②，但不依赖②完工。
+- **D4 — P1 价格 writer：overlay runtime 热推，保持单一事实源（修订）**：auto-fill 写 overlay
+  （`tk_pricing_overlay.json`，git 唯一源），经 runtime 热层（`SettingKeyTKPricingOverlayRuntime` /
+  `manage-overlay-runtime.py`）热推生效、**无发版**；runtime 只是 git 的热投影，发版时 floor 追上，
+  `check` 审漂移。overlay **承载全维度**（含 `OutputCostPerSecond` / `ThinkingOutputCostPerToken`），
+  故 veo/seedance/思考也**当场自动定价、不依赖②、无 carve-out**。`channel_model_pricing` 回归 per-channel
+  价格修正本职。（修订自初版「写 channel_model_pricing、video 等②」——「保持单一事实源」一问纠正了它：
+  初版漏看了 `tkOverlayEffective = embedded ∪ runtime` 的热层，且把全局 fill 误塞进 per-channel 写路。）
 
 这些决策让闸**能针对 gemini/Vertex 重灾区直接上线、且绝大多数自动定价**——这正是整个设计的意义。
