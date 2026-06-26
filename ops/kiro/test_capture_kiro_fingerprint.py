@@ -103,7 +103,7 @@ class TsharkParseTests(unittest.TestCase):
                 "0x0304,0x0303",     # supported_version
                 "0x001d",            # key_share_group
                 "1",                 # psk_ke_modes
-                "codewhisperer.us-east-1.amazonaws.com",
+                "runtime.us-east-1.kiro.dev",
             ]
         )
         fields = eng.parse_tshark_tsv(header + "\n" + row + "\n")
@@ -113,7 +113,7 @@ class TsharkParseTests(unittest.TestCase):
         self.assertEqual(fields["curves"], [0x1D, 0x17])
         self.assertEqual(fields["alpn_protocols"], ["h2", "http/1.1"])
         self.assertEqual(fields["supported_versions"], [0x0304, 0x0303])
-        self.assertEqual(fields["server_name"], "codewhisperer.us-east-1.amazonaws.com")
+        self.assertEqual(fields["server_name"], "runtime.us-east-1.kiro.dev")
 
     def test_raises_without_data_row(self):
         with self.assertRaises(ValueError):

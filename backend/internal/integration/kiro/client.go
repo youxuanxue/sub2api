@@ -27,6 +27,18 @@ type kiroEndpoint struct {
 	Name      string
 }
 
+// NOTE (2026-06-26, endpoint-drift watch): the real Kiro IDE has moved its DATA
+// plane to the *.kiro.dev gateway — observed on-wire the IDE egresses to
+// runtime.us-east-1.kiro.dev (+ management.us-east-1.kiro.dev), not the direct
+// AWS hosts below. The AUTH/refresh plane already uses
+// prod.us-east-1.auth.desktop.kiro.dev (see refresh.go). TokenKey still forwards
+// to the legacy direct CodeWhisperer/Q endpoints, which remain LIVE as of
+// 2026-06-26 (q + codewhisperer.us-east-1.amazonaws.com resolve to the same IP
+// and still answer requests), so this is a FORWARD-COMPAT WATCH item, not an
+// outage. If AWS deprecates the direct endpoints in favour of the kiro.dev
+// gateway, migrating requires first capturing the IDE's HTTP request to
+// runtime.us-east-1.kiro.dev (path / x-amz-target / body / headers) — do NOT
+// swap the host blindly, the gateway protocol may differ.
 var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",

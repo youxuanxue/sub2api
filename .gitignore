@@ -199,6 +199,9 @@ exports/
 # Kiro fingerprint capture artifacts (pcap/bundle), parallel to .tls_list/
 .kiro_tls/
 
+# Antigravity fingerprint capture artifacts (mitm log/bundle), parallel to .kiro_tls/
+.antigravity_fp/
+
 # Stray ops/stage0 SSM run-command artifacts — ops/stage0/*_via_ssm.sh write
 # ssm-params.json / stdout.txt / stderr.txt to OUTPUT_DIR (defaults to ".",
 # i.e. repo root when run from there). Root-anchored so subdir files unaffected.

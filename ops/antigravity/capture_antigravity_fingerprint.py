@@ -5,9 +5,13 @@ TokenKey alignment.
 Sibling of ops/anthropic/capture_cc_fingerprint.py and ops/kiro/
 capture_kiro_fingerprint.py, but **inverted relative to kiro**: for Antigravity the
 load-bearing fingerprint is the HTTP layer (the impersonated client User-Agent
-*version*, the body `userAgent` literal, the loadCodeAssist/onboardUser ideType
-metadata, and the privacy-endpoint `X-Goog-Api-Client: gl-node/<ver>`), NOT the
-TLS JA3. TokenKey and the real Antigravity IDE both speak from native Go/Node TLS
+*version* in `antigravity/hub/<ver> windows/amd64`, the body `userAgent` literal,
+and the loadCodeAssist/onboardUser ideType metadata), NOT the TLS JA3. Note the
+privacy endpoints (setUserSettings/fetchUserInfo) deliberately send NO
+`X-Goog-Api-Client: gl-node/<ver>` header — #756 + the 2026-06-13 real-IDE capture
+confirmed the IDE does not send it, so its ABSENCE is the aligned state, and a
+captured gl-node is treated as drift. TokenKey and the real Antigravity IDE both
+speak from native Go/Node TLS
 stacks, so their ClientHello is same-origin and JA3 carries no signal — TLS is
 captured (optional) for completeness only and never gates.
 
@@ -20,7 +24,7 @@ only parses + diffs; it never fabricates values.
 The align target is read live from the Go constants (single source of truth — no
 committed baseline JSON):
   - backend/internal/pkg/antigravity/oauth.go             (UA version/format, ClientID, scopes, redirect)
-  - backend/internal/pkg/antigravity/client.go            (ideType/ideName/platform/pluginType, gl-node X-Goog-Api-Client)
+  - backend/internal/pkg/antigravity/client.go            (ideType/ideName/platform/pluginType; X-Goog-Api-Client expected ABSENT post-#756)
   - backend/internal/pkg/antigravity/request_transformer.go (body userAgent literal)
 
 Subcommands:
@@ -114,10 +118,13 @@ def _extract_struct_field(go_src: str, field: str, where: str) -> str:
 
 
 def _extract_ua_format(oauth_src: str) -> str:
-    """Pull the `antigravity/%s windows/amd64` format string out of BuildUserAgent."""
-    m = re.search(r"fmt\.Sprintf\(\"(antigravity/%s[^\"]*)\"", oauth_src)
+    """Pull the `antigravity/hub/%s windows/amd64` format string out of BuildUserAgent.
+    The `hub/` subclient_type segment was added in #756 to match the real IDE 2.0.11
+    on-wire UA; the pattern allows any literal between `antigravity/` and the `%s`
+    version placeholder so a future subclient rename does not silently fail to parse."""
+    m = re.search(r"fmt\.Sprintf\(\"(antigravity/[^\"]*%s[^\"]*)\"", oauth_src)
     if not m:
-        raise ValueError("BuildUserAgent fmt.Sprintf(\"antigravity/%s ...\") not found in oauth.go")
+        raise ValueError("BuildUserAgent fmt.Sprintf(\"antigravity/...%s... windows/amd64\") not found in oauth.go")
     return m.group(1)
 
 
@@ -129,10 +136,11 @@ def _extract_scopes(oauth_src: str) -> list[str]:
 
 
 def _extract_const_header(go_src: str, header: str) -> str:
+    """Extract a Header.Set("<header>", "<val>") literal from client.go, or "" when
+    the header is no longer set. #756 removed X-Goog-Api-Client(gl-node) from the
+    privacy endpoints, so its ABSENCE is the aligned state — not a parse error."""
     m = re.search(rf"\"{re.escape(header)}\",\s*\"([^\"]*)\"", go_src)
-    if not m:
-        raise ValueError(f"Header.Set(\"{header}\", \"...\") not found in client.go")
-    return m.group(1)
+    return m.group(1) if m else ""
 
 
 def load_antigravity_baseline() -> dict[str, Any]:
@@ -156,18 +164,19 @@ def load_antigravity_baseline() -> dict[str, Any]:
 
 def expected_user_agent(baseline: dict[str, Any]) -> str:
     """Render the HTTP User-Agent exactly as antigravity.BuildUserAgent does for the
-    default version (e.g. `antigravity/1.23.2 windows/amd64`)."""
+    default version (e.g. `antigravity/hub/2.0.11 windows/amd64`)."""
     return baseline["ua_format"].replace("%s", baseline["ua_version"], 1)
 
 
 # --------------------------------------------------------------------------- #
 # Captured-UA parsing.
 # --------------------------------------------------------------------------- #
-_UA_RE = re.compile(r"antigravity/(\d+\.\d+\.\d+)\s*(\S+)?")
+_UA_RE = re.compile(r"antigravity/(?:hub/)?(\d+\.\d+\.\d+)\s*(\S+)?")
 
 
 def parse_ua(ua: str) -> tuple[str, str]:
-    """Return (version, os_arch) parsed from an `antigravity/<ver> <os>/<arch>` UA.
+    """Return (version, os_arch) parsed from an `antigravity/hub/<ver> <os>/<arch>` UA
+    (the `hub/` subclient segment is optional for backward compatibility).
     Empty strings when not parseable."""
     m = _UA_RE.search(ua or "")
     if not m:
@@ -249,8 +258,9 @@ def parse_tshark_tsv(tsv_text: str) -> dict[str, Any] | None:
 # Per-field "last non-empty wins" merge across all log lines, because the load-
 # bearing values are spread across endpoints: streamGenerateContent carries the
 # UA header + body userAgent + project/model; loadCodeAssist carries ideType/
-# ideName; onboardUser carries platform/pluginType; the privacy endpoints carry
-# X-Goog-Api-Client. A single chat session typically hits several of these.
+# ideName; onboardUser carries platform/pluginType. The privacy endpoints are
+# watched for X-Goog-Api-Client only to detect a gl-node regression (#756 removed
+# it; it should stay absent). A single chat session typically hits several of these.
 _MERGE_FIELDS = (
     "user_agent",
     "body_user_agent",
@@ -323,8 +333,30 @@ def diff_bundle(bundle: dict[str, Any], baseline: dict[str, Any]) -> list[DiffRo
     _http_row(rows, "http.ide_name", baseline["ide_name"], http.get("ide_name"))
     _http_row(rows, "http.platform", baseline["platform"], http.get("platform"))
     _http_row(rows, "http.plugin_type", baseline["plugin_type"], http.get("plugin_type"))
-    # 4. privacy-endpoint gl-node client header.
-    _http_row(rows, "http.x_goog_api_client", baseline["x_goog_api_client"], http.get("x_goog_api_client"))
+    # 4. privacy-endpoint X-Goog-Api-Client (gl-node). #756 + the 2026-06-13 real-IDE
+    #    capture confirmed the privacy endpoints send NO such header; TokenKey removed
+    #    it to align, so the aligned state is ABSENCE on both sides. A non-empty
+    #    capture means the real IDE sends gl-node again (we'd need to re-add it) —
+    #    surface as actionable drift.
+    base_xgoog = str(baseline.get("x_goog_api_client", "")).strip()
+    cap_xgoog = str(http.get("x_goog_api_client", "")).strip()
+    captured_any = bool(str(http.get("user_agent", "")).strip())
+    if cap_xgoog:
+        rows.append(DiffRow(
+            "http.x_goog_api_client", base_xgoog or "(not sent)", cap_xgoog,
+            "match" if cap_xgoog == base_xgoog else "mismatch", critical=True,
+            note="" if cap_xgoog == base_xgoog else "real IDE sent gl-node; TokenKey removed it in #756 — re-evaluate.",
+        ))
+    elif captured_any:
+        rows.append(DiffRow(
+            "http.x_goog_api_client", base_xgoog or "(not sent)", "(absent — aligned)",
+            "match" if base_xgoog == "" else "mismatch", critical=True,
+        ))
+    else:
+        rows.append(DiffRow(
+            "http.x_goog_api_client", base_xgoog or "(not sent)", "(no http capture)",
+            "missing_capture", critical=False,
+        ))
 
     # 5. Serving-path Client-Metadata header presence — TokenKey does NOT send this
     #    on streamGenerateContent today; if the real IDE does, surface it as a

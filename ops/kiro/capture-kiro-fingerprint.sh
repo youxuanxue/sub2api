@@ -3,7 +3,10 @@
 # diff its JA3 + User-Agent against TokenKey repo constants.
 #
 # Why passive pcap (vs the cc collector-redirect path): the real Kiro IDE
-# hard-codes codewhisperer.us-east-1.amazonaws.com / q.us-east-1.amazonaws.com and
+# hard-codes its data-plane endpoints (the current IDE egresses to
+# runtime.us-east-1.kiro.dev / management.us-east-1.kiro.dev — the *.kiro.dev
+# gateway it migrated to; the legacy codewhisperer/q.us-east-1.amazonaws.com hosts
+# are kept in the default SNI list because TokenKey still forwards there) and
 # cannot be pointed at a self-hosted collector. The TLS ClientHello is sent in the
 # clear before the handshake completes, so tcpdump + tshark recover the JA3 with no
 # MITM. HTTP headers (UA) live inside TLS and need the optional mitm path.
@@ -16,7 +19,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PY="$SCRIPT_DIR/capture_kiro_fingerprint.py"
 
-KIRO_HOSTS_DEFAULT="codewhisperer.us-east-1.amazonaws.com q.us-east-1.amazonaws.com"
+# Current Kiro IDE data-plane SNIs first (runtime/management.us-east-1.kiro.dev —
+# verified on-wire 2026-06-26), then the legacy amazonaws hosts TokenKey still
+# forwards to. The tshark SNI filter ORs them, so listing both is safe.
+KIRO_HOSTS_DEFAULT="runtime.us-east-1.kiro.dev management.us-east-1.kiro.dev codewhisperer.us-east-1.amazonaws.com q.us-east-1.amazonaws.com"
 KIRO_HOSTS="${TOKENKEY_KIRO_CAPTURE_HOSTS:-$KIRO_HOSTS_DEFAULT}"
 OUT_DIR="${TOKENKEY_KIRO_CAPTURE_OUT_DIR:-$REPO_ROOT/.kiro_tls}"
 IFACE="${TOKENKEY_KIRO_CAPTURE_IFACE:-}"
@@ -45,6 +51,10 @@ capture flow:
   3. tshark extracts the ClientHello (SNI restricted to the Kiro hosts) -> TSV
   4. capture_kiro_fingerprint.py computes ja3 + assembles the bundle, then diffs
 
+capture exit codes: 0 = aligned, 1 = actionable drift, 2 = capture/env/usage
+  failure (no traffic captured, missing tool, bad args). A capture miss is rc=2,
+  NEVER rc=1 — do not refresh artifacts on a rc=2.
+
 Requires: python3, tcpdump, tshark, dig (or host). tcpdump needs sudo/root on macOS.
 The optional --http-log FILE is a line-JSON log produced by mitm_kiro_http_headers.py
 (only usable if the Kiro IDE honors HTTP_PROXY + a trusted MITM CA).
@@ -64,7 +74,7 @@ kiro_sni_filter() {
 }
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || { echo "error: required command not found: $1" >&2; exit 1; }
+  command -v "$1" >/dev/null 2>&1 || { echo "error: required command not found: $1" >&2; exit 2; }
 }
 
 resolve_ips() {
@@ -99,7 +109,7 @@ cmd_capture() {
       --seconds) CAPTURE_SECONDS="$2"; shift 2 ;;
       --out-dir) OUT_DIR="$2"; shift 2 ;;
       --http-log) http_log="$2"; shift 2 ;;
-      *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
+      *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
     esac
   done
 
@@ -125,7 +135,7 @@ cmd_capture() {
     if [[ -z "$ips" ]]; then
       echo "error: could not resolve any IP for: $KIRO_HOSTS" >&2
       echo "  (if the Kiro IDE egresses through a system/local proxy, pass --proxy-port N)" >&2
-      exit 1
+      exit 2  # env/capture failure, NOT drift — umbrella maps rc=2 -> error (see contract below)
     fi
     echo "IPs:"; echo "$ips" | sed 's/^/  /'
     filter="$(build_pcap_filter "$ips")"
@@ -150,7 +160,7 @@ cmd_capture() {
 
   if [[ ! -s "$pcap" ]]; then
     echo "error: empty pcap — no handshake captured. Check --iface and that Kiro made a request." >&2
-    exit 1
+    exit 2  # env/capture failure, NOT drift
   fi
 
   echo "Extracting ClientHello via tshark ..."
@@ -177,7 +187,7 @@ cmd_capture() {
   if [[ "$(wc -l <"$tsv")" -lt 2 ]]; then
     echo "error: tshark found no Kiro ClientHello in $pcap" >&2
     echo "  (try a wider --seconds, confirm --iface, or that Kiro egresses on this host)" >&2
-    exit 1
+    exit 2  # capture miss (no traffic), NOT fingerprint drift — do NOT refresh artifacts on this
   fi
 
   local bundle_args=(--tshark-tsv "$tsv" --out "$bundle" --source "passive-pcap" --captured-at "${stamp:0:4}-${stamp:4:2}-${stamp:6:2}T${stamp:9:2}:${stamp:11:2}:${stamp:13:2}Z")
@@ -188,8 +198,11 @@ cmd_capture() {
   echo "bundle=$bundle"
   echo "To commit/refresh the canonical profile (first capture or drift):"
   echo "  python3 $PY emit-profile --bundle $bundle"
-  # --check: exit 1 on actionable drift so the umbrella orchestrator can map
-  # rc=1 -> drift (same contract as the cc / antigravity engines' capture).
+  # Capture exit-code contract (umbrella maps rc): 0 = aligned, 1 = actionable
+  # drift, 2 = capture/env/usage failure. ONLY this final diff --check may yield 1;
+  # every capture-pipeline failure above exits 2 so a capture MISS (no traffic) is
+  # never mislabeled as drift — which would otherwise tempt a phantom artifact
+  # refresh (matches the cc / antigravity engines' contract).
   python3 "$PY" diff --bundle "$bundle" --check
 }
 
@@ -204,7 +217,7 @@ main() {
     show-baseline) require_cmd python3; exec python3 "$PY" show-baseline "$@" ;;
     emit-profile) require_cmd python3; exec python3 "$PY" emit-profile "$@" ;;
     -h|--help|"") usage ;;
-    *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
+    *) echo "unknown command: $cmd" >&2; usage; exit 2 ;;
   esac
 }
 
