@@ -68,6 +68,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// 可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）绕过只在
 	// /responses 生效的限制。见 upstream Wei-Shaw/sub2api#3014。
 	// 对未开启该策略的账号（含 APIKey 账号）是零成本 no-op。
+	//
+	// TK 把上游 (#3434) 内联的 detect+log+403 收敛进 enforceCodexClientRestriction
+	// 这一单一执行点（/responses、/v1/chat/completions、图片 OAuth 共用），且返回
+	// 普通错误而非 failover 错误，避免对受限账号 failover 绕过本地策略。
 	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
 		return nil, err
 	}
@@ -186,7 +190,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
 		}
-		codexResult := applyCodexOAuthTransform(reqBody, false, false)
+		codexResult := applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
+			SkipDefaultInstructions: !isResponsesShape,
+		})
+		if !isResponsesShape {
+			ensureCodexOAuthInstructionsField(reqBody)
+		}
 		if codexResult.NormalizedModel != "" {
 			upstreamModel = codexResult.NormalizedModel
 		}
@@ -255,18 +264,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

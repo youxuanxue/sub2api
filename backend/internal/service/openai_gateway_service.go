@@ -1215,6 +1215,21 @@ func isOpenAIInstructionsRequiredError(upstreamStatusCode int, upstreamMsg strin
 }
 
 func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
+		return false
+	}
+
+	hasOpenAIServerOverloadedCode := func(payload []byte) bool {
+		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
+		if code == "" {
+			code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
+		}
+		return code == "server_is_overloaded" || code == "slow_down"
+	}
+
+	if len(upstreamBody) > 0 && hasOpenAIServerOverloadedCode(upstreamBody) {
+		return true
+	}
 	if upstreamStatusCode != http.StatusBadRequest {
 		return false
 	}
@@ -2862,6 +2877,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error(), "param": "input"}})
 			return nil, err
+		}
+	}
+
+	// gpt-5.3-codex-spark also rejects the image_generation tool (HTTP 400,
+	// param=tools). Strip it here so both APIKey and OAuth /responses paths are
+	// covered regardless of the image-generation feature gate.
+	if isCodexSparkModel(upstreamModel) && openAIRequestBodyHasImageGenerationTool(body) {
+		decoded, decodeErr := ensureReqBody()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if stripCodexSparkImageGenerationTools(decoded) {
+			markDecodedModified()
 		}
 	}
 
