@@ -12,39 +12,82 @@ import (
 
 const (
 	kiroRestAPIBase = "https://codewhisperer.us-east-1.amazonaws.com"
+	// kiroManagementAPIBase is the go-forward *.kiro.dev control-plane host
+	// (configuration / lifecycle / access management). It replaces the legacy
+	// codewhisperer.* base, which Kiro's docs no longer list at all. Used (via
+	// kiroRestFetch, management-first with codewhisperer fallback) by the calls
+	// edge-us6 smoke-validated equivalent on management: ListAvailableProfiles
+	// (same profileArn), ListAvailableModels (same model set), getUsageLimits (all
+	// fields UsageLimitsResponse reads). GetUserInfo stays on codewhisperer —
+	// management returns UnknownOperationException for it.
+	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
+
+// kiroRestBases lists the control-plane hosts in preference order: the go-forward
+// management.us-east-1.kiro.dev first, the legacy codewhisperer.* as fallback.
+func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestAPIBase} }
+
+// kiroRestFetch issues method+path against each control-plane base in turn
+// (profileArn appended when withParn), returning the first HTTP-200 body. Used by
+// the calls edge-us6 smoke-validated equivalent on management — ListAvailableProfiles
+// (same profileArn), ListAvailableModels (same model set), getUsageLimits (every
+// field UsageLimitsResponse reads is present). GetUserInfo is deliberately NOT routed
+// here: management returns UnknownOperationException (HTTP 400) for it, so it stays on
+// the legacy host until the management operation name is identified.
+func kiroRestFetch(account *Account, method, path, body string, withParn bool) ([]byte, error) {
+	var lastErr error
+	for _, base := range kiroRestBases() {
+		u := base + path
+		if withParn {
+			u = withProfileArnQuery(u, account)
+		}
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, u, rdr)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		setKiroHeaders(req, account)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
+		if err != nil {
+			lastErr = err
+			logWarnf("[KiroREST] %s %s failed: %v", method, base, err)
+			continue
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, base, string(data))
+			logWarnf("[KiroREST] %s %s -> HTTP %d", method, base, resp.StatusCode)
+			continue
+		}
+		return data, nil
+	}
+	return nil, lastErr
+}
 
 // GetUsageLimits 获取账户使用量和订阅信息
 func GetUsageLimits(account *Account) (*UsageLimitsResponse, error) {
-	url := fmt.Sprintf("%s/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true", kiroRestAPIBase)
-	url = withProfileArnQuery(url, account)
-
-	req, err := http.NewRequest("GET", url, nil)
+	data, err := kiroRestFetch(account, "GET", "/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true", "", true)
 	if err != nil {
 		return nil, err
 	}
-
-	setKiroHeaders(req, account)
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result UsageLimitsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-// GetUserInfo 获取用户信息
+// GetUserInfo 获取用户信息. Stays on the legacy codewhisperer.* host: management.kiro.dev
+// returns UnknownOperationException (HTTP 400) for GetUserInfo (edge-us6 probe, 2026-06-26),
+// so it is NOT routed through kiroRestFetch until the management equivalent is identified.
 func GetUserInfo(account *Account) (*UserInfoResponse, error) {
 	url := fmt.Sprintf("%s/GetUserInfo", kiroRestAPIBase)
 
@@ -77,31 +120,14 @@ func GetUserInfo(account *Account) (*UserInfoResponse, error) {
 
 // ListAvailableModels 获取可用模型列表
 func ListAvailableModels(account *Account) ([]ModelInfo, error) {
-	url := fmt.Sprintf("%s/ListAvailableModels?origin=AI_EDITOR&maxResults=50", kiroRestAPIBase)
-	url = withProfileArnQuery(url, account)
-
-	req, err := http.NewRequest("GET", url, nil)
+	data, err := kiroRestFetch(account, "GET", "/ListAvailableModels?origin=AI_EDITOR&maxResults=50", "", true)
 	if err != nil {
 		return nil, err
 	}
-
-	setKiroHeaders(req, account)
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result struct {
 		Models []ModelInfo `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
 	return result.Models, nil
@@ -184,30 +210,16 @@ func isTransientProfileFetchError(err error) bool {
 }
 
 func listAvailableProfiles(account *Account) (string, error) {
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/ListAvailableProfiles", kiroRestAPIBase), strings.NewReader(`{"maxResults":10}`))
+	data, err := kiroRestFetch(account, "POST", "/ListAvailableProfiles", `{"maxResults":10}`, false)
 	if err != nil {
 		return "", err
 	}
-	setKiroHeaders(req, account)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result struct {
 		Profiles []struct {
 			Arn string `json:"arn"`
 		} `json:"profiles"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return "", err
 	}
 	for _, profile := range result.Profiles {

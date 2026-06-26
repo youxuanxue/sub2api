@@ -109,9 +109,19 @@
       "must_contain": [
         "func CallKiroAPIWithDoer",
         "func parseEventStream",
-        "HTTPDoer"
+        "HTTPDoer",
+        "runtime.us-east-1.kiro.dev"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress."
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The runtime.us-east-1.kiro.dev anchor pins the go-forward *.kiro.dev data-plane host as the preferred endpoint (edge-first migration); an upstream merge that drops it would silently route serving traffic back to the deprecated amazonaws hosts."
+    },
+    {
+      "path": "backend/internal/integration/kiro/rest.go",
+      "must_contain": [
+        "kiroManagementAPIBase",
+        "management.us-east-1.kiro.dev",
+        "func kiroRestFetch"
+      ],
+      "rationale": "Control-plane calls (ListAvailableProfiles / ListAvailableModels / getUsageLimits) routed through management.us-east-1.kiro.dev first with a codewhisperer.* fallback via kiroRestFetch (edge-us6 smoke-validated equivalent). A missing profileArn is the classic Kiro IDC-login 403 cause, so losing the management base or its fallback silently reintroduces 403s once codewhisperer.* is deprecated."
     },
     {
       "path": "backend/internal/service/account_tk_kiro.go",
