@@ -287,4 +287,13 @@ func TestPricingMissingFirstSeenCard_GateRejectVsServed(t *testing.T) {
 	require.NotContains(t, rejectedBody, "已照常服务", "gate-reject card must NOT claim the request was served")
 	// both cards carry the same actionable remediation steps
 	require.Contains(t, rejectedBody, "apply-pricing-hotfix.py")
+
+	// served_at_fallback (post-pivot convergence signal): served at a family FLOOR (not $0, not 404).
+	fallback := samplePricingMissingEvent()
+	fallback.Reason = tkServedAtFallbackReason
+	fbBody := buildPricingMissingFirstSeenText("site", fallback, fallback.Platform, fallback.BillingModel, now)
+	require.Contains(t, fbBody, "家族兜底", "served_at_fallback card must say it billed at a family floor")
+	require.NotContains(t, fbBody, "返回 404 拒绝", "served_at_fallback was SERVED (not 404'd)")
+	require.NotContains(t, fbBody, "已照常服务、按零成本记录", "served_at_fallback is NOT $0 (floor>0)")
+	require.Contains(t, fbBody, "apply-pricing-hotfix.py", "convergence: same fill runbook")
 }

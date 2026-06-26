@@ -2,36 +2,31 @@ package service
 
 // TokenKey: runtime "priced-or-it-doesnt-ship" serving-admission gate (v1).
 //
-// 设计：docs/approved/priced-or-it-doesnt-ship.md。一条规矩、全平台（按启用集灰度）：
-// billing model 解析后、上游转发前，若该模型解析不出价（billing 神谕
-// `BillingService.GetModelPricing` 返回 ErrModelPricingUnavailable），则 fail-closed
-// 返回 404（外形与上游「模型不可用」字节对齐，内部子码 model_not_priced 只进 body/日志），
-// 而非按 $0 服务。这堵住 native 平台「空 model_mapping = catch-all 透传」会把任意未定价 id
-// 按 $0 端给付费客户的漏洞（CI-time A1 guard 的运行期对应）。
+// 设计：docs/approved/priced-or-it-doesnt-ship.md。**家族 floor + 只拒无 floor + 告警收敛**
+// （全平台默认开闸）：billing model 解析后、上游转发前问 billing 神谕
+// `BillingService.GetModelPricing`——它先查真价（litellm/overlay/渠道），查不到再落 Go
+// **家族兜底 floor**（claude/gpt/gemini-* 都有家族 floor）。
+//   - 解析出价（真价或家族 floor）→ 放行，**绝不按 $0 服务**（堵住空 model_mapping catch-all
+//     透传把未定价 id 按 $0 端给付费客户的漏洞）；
+//   - 连家族 floor 都没有（多厂商 newapi/国产 的未知 id，刻意「未知不回退」以免大幅误计）→
+//     `ErrModelPricingUnavailable` → fail-closed 返回 404（外形与上游「模型不可用」字节对齐，
+//     子码 model_not_priced 只进 body/日志）。
+//   - 走的是【家族 floor 而非真价】→ 发 `served_at_fallback` 告警（见
+//     gateway_service_tk_served_zero_cost.go），驱动运维/自动补真价 → fallback 用量衰减到稳态。
 //
-// 根因（评审 BLOCKER1/SHOULD-FIX1/2 的统一修法）：闸的判据是 **billing 真正用来决定记不记
-// $0 的同一个调用、同一个键**——`GetModelPricing(billingKey)`，而非 catalog 成员影子谓词
-// （tkIsModelEffectivelyPriced）。理由：billing 用 GetModelPricing 决定记不记 $0，闸必须用
-// 同一个神谕，闸 ⟺ billing 才是构造性成立、永不漂移：
-//   - billing 的 getFallbackPricing 对任意 gemini-*/claude-* family 兜底返有效价（防 $0 漏血），
-//     闸走同一调用即自动继承 family 兜底 → 不再误拒新 gemini（SHOULD-FIX1）；
-//   - GetModelPricing 解析全维度（priority/above1hr/image-token/intervals/media），闸走同一
-//     调用即字段对齐，不再漏判 priority-only/interval-only 等有价模型（SHOULD-FIX2）；
-//   - 闸键逐路线传 billing 将记账的确切键（native gemini/anthropic 是 originalModel，openai
-//     native 是 mapped billingModel），闸/账同键 → 堵住「闸查 mapped=priced 放行、billing 查
-//     original=unpriced 记 $0」的反向漏血（BLOCKER1）。
+// 为什么这样而非「无价即拒」：家族 floor 精确到 family（不是一个 flat 价）+ 取家族中位,误计被
+// 夹小;新模型立刻能服务(按 floor)不丢流量,真价由告警驱动几分钟内补上。误计风险大的多厂商平台
+// (newapi)才走 reject。详见 docs §4/§5。
 //
-// 降级 fail-OPEN（SHOULD-FIX：防大面积宕机）：若 pricing 源整体降级，GetModelPricing 会对
-// 一批模型返 unavailable → 闸 404 掉 100% 启用平台流量。我们区分「系统健康但该模型未定价→拒」
-// 与「pricing 系统降级→放行」：拒绝前用一个常驻已定价 canary 模型探一次，若连它都解析为未定价，
-// 判定 pricing 系统降级 → fail-open 放行。billing 本身降级 fail-open $0，闸不能把定价文件 glitch
-// 变成整服务 404。
+// 闸键 = billing 将记账的确切键（native gemini/anthropic 是 originalModel，openai native 是
+// mapped billingModel），且闸用 billing 自己的【两个价源】(GetModelPricing 基础价+family floor、
+// resolver 渠道价)——与 billing 计费路径一一对应,「闸 ⟺ billing」构造性成立、永不漂移(BLOCKER1/
+// B1 的统一修法)。
 //
-// v1 范围（架构师拍板，docs §4/§8-D4 增量阶梯）：**闸 + 拒绝时触发既有缺价告警**。
-// 拒绝时复用既有 PricingMissingNotifier（gateway_service_tk_served_zero_cost.go 同一
-// 信号面）发飞书卡片，让运维用现成 `apply-pricing-hotfix.py` 补价——这是 v1 的「自动
-// 定价通路」（人在环、5 秒批），满足设计 R4「闸非空转」。v2（litellm 一键确认 + Go
-// overlay 写器）、v3（官方价全自动）是 fast-follow，不在本文件。
+// **无降级金丝雀机制**（设计转向后移除）：Go 家族 floor 是硬编码的、免疫 litellm/overlay 源
+// 故障——一次定价 glitch 不会 404 掉 floored 平台(它们恒落 floor 服务)，故不需要「降级 fail-open」
+// 兜底;而无 floor 的 newapi 在缺价时【就该 reject】(用户决策「newapi 保留 reject」)，对它 fail-open
+// 反而会违背「绝不 $0」。所以家族 floor 本身就是 glitch 防护,canary/tkPricingSystemDegraded 已删。
 //
 // 为什么不放 handler 包：多条注入点都在 service 深处（model mapping 发生在 handler
 // 返回后），把 helper 放 service 既避免 handler→service 反向依赖，又能直接拿到 gin
@@ -82,46 +77,22 @@ type tkBillingPricingResolver func(model string) (*ModelPricing, error)
 // 成立。nil = 不注入（退化为仅基础价判定，安全 fail-open 方向）。
 type tkChannelPricingProbe func(ctx context.Context, model string, groupID int64) bool
 
-// tkPricedServingGateCanaryModel 是降级探测用的常驻已定价 canary。它必须在任何健康的
-// pricing 系统里恒解析出价：gemini-2.5-pro 常驻在【内嵌 litellm 镜像】
-// (resources/model-pricing/model_prices_and_context_window.json)，随二进制打包、不依赖远程
-// 下载或 overlay 是否加载成功；故「连它都未定价」唯一可能是 pricing 源整体被灌入坏数据/空集
-// （远程下载失败或 overlay 热推坏数据）——此时闸 fail-open 放行，不把定价文件 glitch 放大成整
-// 服务 404。注：gemini 一口价 fallback 已删（commit C「查不到就告警」），canary 的健壮性来自
-// 内嵌镜像、不再来自 getFallbackPricing（修正旧注释的失实说法）。
-const tkPricedServingGateCanaryModel = "gemini-2.5-pro"
-
-// tkPricingSystemDegraded 报告 pricing 神谕是否整体降级（而非「某个模型恰好未定价」）。
-// 判据：常驻已定价 canary 都解析为未定价 ⇒ 源加载失败/降级。健康系统永远 false（canary
-// 常驻内嵌 litellm 镜像）。降级时闸必须 fail-open（与 billing 降级 fail-open $0 同向），否则一次
-// 定价文件 glitch 会让闸 404 掉 100% 启用平台流量。
-func tkPricingSystemDegraded(resolve tkBillingPricingResolver) bool {
-	if resolve == nil {
-		// resolver 未注入：交给上层 nil 检查 fail-open；这里不单独判降级。
-		return false
-	}
-	_, err := resolve(tkPricedServingGateCanaryModel)
-	return errors.Is(err, ErrModelPricingUnavailable)
-}
-
-// tkPricedServingGateRejected 是闸内部的判定结果：true = 应拒绝（未定价且平台已启用且系统健康）。
-// 拆成独立纯函数便于单测断言「开/关 × 定价/未定价 × 降级」矩阵，不依赖 gin/notifier。
+// tkPricedServingGateRejected 是闸内部的判定结果：true = 应拒绝（平台已启用且基础价 + 家族 floor
+// + 渠道价都解析不出）。拆成独立纯函数便于单测断言「开/关 × 有价/无价 × 渠道价」矩阵，不依赖 gin/notifier。
 //
 // 短路顺序（性能 + 正确性）：
 //  1. resolver/setting 未注入 → false（放行，零开销）；
 //  2. setting 未启用该平台 → false（放行，不调 billing）；
-//  3. billing 基础价神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable）→ 放行；
-//  4. 基础价缺失时再查【渠道价】：该 group 对该 model 配了 channel_model_pricing
+//  3. billing 神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable —— 含真价 litellm/
+//     overlay 与 Go 家族 floor，claude/gpt/gemini-* 都有 floor）→ 放行；
+//  4. 基础价/floor 都缺时再查【渠道价】：该 group 对该 model 配了 channel_model_pricing
 //     （Source==PricingSourceChannel，billing 计费路径 resolveChannelPricing 会按它非零计费）→ 放行；
-//  5. 两个价源都未定价时再探降级：pricing 系统整体降级 → fail-open 放行；
-//  6. 否则拒绝（系统健康、平台已启用、该模型基础价 + 渠道价都真未定价）。
+//  5. 否则拒绝（真价、家族 floor、渠道价全无 —— 即多厂商 newapi/国产 的未知 id，刻意不回退以免大幅误计）。
 //
-// 闸用 billing 自己的【两个】价源（GetModelPricing 基础价 + resolver 渠道价），与 billing
+// 闸用 billing 自己的【两个】价源（GetModelPricing 含 family floor + resolver 渠道价），与 billing
 // 计费路径（CalculateCost ← GetModelPricing；resolveChannelPricing ← resolver.Resolve）一一对应，
-// 而非 catalog 成员影子谓词——这是 R3「闸 ⟺ billing 构造性成立」的根：billing 用这两个源决定
-// 记不记 $0，闸用同样两个源、同一个键，永不漂移（含 fallback family + 全维度字段 + 渠道价）。
-// 早先只问 GetModelPricing 漏了渠道价 → 误拒「渠道有价、基础价缺」的可计费模型（复审 BLOCKER B1）。
-// 详见文件头根因说明。
+// 而非 catalog 成员影子谓词——这是 R3「闸 ⟺ billing 构造性成立」的根。无降级金丝雀：Go 家族 floor
+// 免疫源故障,本身就是 glitch 防护(详见文件头)。早先只问 GetModelPricing 漏渠道价 → B1(已修)。
 func tkPricedServingGateRejected(
 	ctx context.Context,
 	resolve tkBillingPricingResolver,
@@ -142,16 +113,12 @@ func tkPricedServingGateRejected(
 		// 基础价有（或非「不可用」错误，按健康放行——只有明确的 unavailable 才是漏血信号）。
 		return false
 	}
-	// 基础价缺失：再查渠道价。billing 计费路径 resolveChannelPricing 对 per-request/image 渠道价、
-	// 以及覆盖在缺失基础价之上的 token 渠道价仍按非零计费；闸必须同样认它，否则误拒可计费模型（B1）。
+	// 基础价/floor 都缺失：再查渠道价。billing 计费路径 resolveChannelPricing 对 per-request/image
+	// 渠道价、以及覆盖在缺失基础价之上的 token 渠道价仍按非零计费；闸必须同样认它，否则误拒可计费模型（B1）。
 	if channelProbe != nil && groupID != 0 && channelProbe(ctx, billingModel, groupID) {
 		return false
 	}
-	// 基础价 + 渠道价都解析为未定价：先排除「pricing 系统整体降级」——降级时 fail-open 放行，
-	// 不把定价源 glitch 放大成整服务 404（SHOULD-FIX，与 billing 降级 fail-open 同向）。
-	if tkPricingSystemDegraded(resolve) {
-		return false
-	}
+	// 真价、家族 floor、渠道价全无 → 真正未定价（多厂商 newapi/国产 未知 id），fail-closed 拒。
 	return true
 }
 

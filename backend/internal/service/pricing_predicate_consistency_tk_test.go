@@ -106,8 +106,9 @@ func TestR3_BoundariesThroughRealBilling(t *testing.T) {
 		{"r3-video-priced", false, "per-second media price → pass"},
 		{"r3-image-priced", false, "per-image media price → pass"},
 		{"r3-absent-not-family", true, "absent + no fallback family → reject"},
-		{"gemini-new-variant-xyz", true, "gemini flat fallback REMOVED → unavailable → reject ('查不到就拒')"},
-		{"claude-new-variant-xyz", false, "claude family fallback still applies → priced → pass"},
+		{"gemini-new-variant-xyz", false, "post-pivot: gemini family floor → priced (served at floor) → pass"},
+		{"claude-new-variant-xyz", false, "claude family fallback applies → priced → pass"},
+		{"some-unknown-vendor-zzz", true, "no family floor (multi-vendor unknown) → unavailable → reject (backstop)"},
 	}
 
 	for _, tc := range cases {
@@ -199,6 +200,27 @@ func TestR3_ChannelPricedModelNotFalseRejected(t *testing.T) {
 	require.True(t,
 		tkPricedServingGateRejected(ctx, resolve, channelProbe, setting, "other-unpriced", "gemini", groupWithChannel),
 		"channel probe returns false for a model without channel pricing → still rejected")
+}
+
+// TestIsServedViaFamilyFloor pins the post-pivot convergence signal (docs/approved/
+// priced-or-it-doesnt-ship.md §4): true iff a model has NO real litellm/overlay price BUT a Go
+// family floor — i.e. it is being served at an estimated floor and needs a real price filled
+// (served_at_fallback alert). A real-priced model, or a no-floor model (gate-rejected), returns false.
+func TestIsServedViaFamilyFloor(t *testing.T) {
+	// Only "real-priced-model" has a real price; everything else relies on Go family floors (or none).
+	blob := []byte(`{"real-priced-model": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "test"}}`)
+	billing := newConsistencyBilling(t, blob)
+
+	require.False(t, billing.IsServedViaFamilyFloor("real-priced-model"),
+		"a model with a real litellm/overlay price is NOT served via floor")
+	require.True(t, billing.IsServedViaFamilyFloor("gemini-9-ultra-preview"),
+		"a gemini model with no real price falls to the gemini family floor → served via floor")
+	require.True(t, billing.IsServedViaFamilyFloor("gpt-9-unknown-codex"),
+		"an unknown gpt model falls to the gpt family floor → served via floor")
+	require.True(t, billing.IsServedViaFamilyFloor("claude-brand-new-xyz"),
+		"an unknown claude model falls to the claude family floor → served via floor")
+	require.False(t, billing.IsServedViaFamilyFloor("no-family-vendor-zzz"),
+		"a no-family-floor model has neither real price nor floor → not served-via-floor (it is gate-rejected)")
 }
 
 // TestTkResolvedPricingChargeable pins the adversarial-review fix to the B1 channel probe:

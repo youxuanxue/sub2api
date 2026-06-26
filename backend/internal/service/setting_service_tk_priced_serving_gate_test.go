@@ -33,6 +33,12 @@ func TestIsPricedServingGateEnabled_SetMembership(t *testing.T) {
 		{"whitespace + case tolerant", " Gemini , OpenAI ", "gemini", true},
 		{"empty platform never matches", "gemini", "", false},
 		{"platform case-insensitive match", "gemini", "GEMINI", true},
+		// post-pivot "*" all-platforms wildcard (default).
+		{"wildcard '*' matches gemini", "*", "gemini", true},
+		{"wildcard '*' matches anthropic", "*", "anthropic", true},
+		{"wildcard '*' matches newapi", "*", "newapi", true},
+		{"wildcard '*' in a list matches any member-or-not", "gemini,*", "anthropic", true},
+		{"wildcard '*' still needs a non-empty platform", "*", "", false},
 	}
 
 	for _, tc := range cases {
@@ -53,13 +59,14 @@ func TestIsPricedServingGateEnabled_NilReceiverSafe(t *testing.T) {
 		"nil receiver must fail-open-toward-off (no panic)")
 }
 
-// TestPricedServingGate_ColdStartDefaultIsGemini pins the first-launch enabled
-// set (D2): a fresh DB defaults to gating gemini/Vertex only.
-func TestPricedServingGate_ColdStartDefaultIsGemini(t *testing.T) {
+// TestPricedServingGate_ColdStartDefaultIsAll pins the post-pivot default: a fresh DB enables the
+// gate for ALL platforms ("*"). Safe because family floors mean floored platforms (claude/gpt/
+// gemini) never reject — only no-floor multi-vendor ids reject (the backstop).
+func TestPricedServingGate_ColdStartDefaultIsAll(t *testing.T) {
 	defaults := map[string]string{}
 	tkMergeDefaultColdStartSettings(defaults)
-	require.Equal(t, "gemini", defaults[SettingKeyPricedServingGateEnabled],
-		"first-launch enabled set must be gemini (covers Vertex via account.Platform)")
+	require.Equal(t, "*", defaults[SettingKeyPricedServingGateEnabled],
+		"post-pivot default enabled set is '*' (all platforms; family floors prevent floored-platform mass-404)")
 }
 
 // TestPricedServingGate_SystemSettingsRoundTrip exercises the admin PUT→GET

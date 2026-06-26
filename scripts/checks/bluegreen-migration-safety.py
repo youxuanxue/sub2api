@@ -94,6 +94,11 @@ def scan_sql(text: str) -> list[str]:
 
 
 def scan_file(path: Path) -> list[str]:
+    # A migration listed in the committed diff but absent from the working tree (deleted or
+    # renamed away — e.g. a *.sql renamed within this PR) has no content to scan and cannot carry
+    # destructive SQL; skip it instead of crashing on FileNotFoundError.
+    if not path.exists():
+        return []
     return scan_sql(path.read_text(errors="replace"))
 
 

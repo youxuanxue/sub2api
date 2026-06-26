@@ -10197,6 +10197,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
 	s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
+	// TK 设计转向：按家族 floor 服务（cost>0 但走 Go 兜底而非真价）→ served_at_fallback 收敛告警。
+	tkNotifyServedAtFallback(s.tkPricingMissingNotifier, s.billingService, cost, apiKey, billingModel, requestedModel, result.UpstreamModel, tkClaudeUsageBillableUnits(result.Usage, result.ImageCount))
 
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)

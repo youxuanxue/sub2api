@@ -6611,6 +6611,21 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
 	s.tkNotifyServedZeroCost(cost, result, apiKey, input, billingModels, actualInputTokens, multiplier, accountRateMultiplier)
+	// TK 设计转向：按家族 floor 服务（cost>0 但走 Go 兜底而非真价）→ served_at_fallback 收敛告警。
+	// billingModel 取首候选（与 served_zero_cost 同源）；codex 多候选规范化下偶有噪声,可接受(纯观测)。
+	{
+		reqModel := result.Model
+		if input != nil && input.OriginalModel != "" {
+			reqModel = input.OriginalModel
+		}
+		fbUnits := int64(actualInputTokens) + int64(result.Usage.OutputTokens) +
+			int64(result.Usage.CacheCreationInputTokens) + int64(result.Usage.CacheReadInputTokens) +
+			int64(result.Usage.ImageOutputTokens)
+		if fbUnits <= 0 && result.ImageCount > 0 {
+			fbUnits = int64(result.ImageCount)
+		}
+		tkNotifyServedAtFallback(s.tkPricingMissingNotifier, s.billingService, cost, apiKey, firstUsageBillingModel(billingModels), reqModel, result.UpstreamModel, fbUnits)
+	}
 
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
 	if result.OpenAIWSMode {

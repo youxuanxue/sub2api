@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -103,15 +102,6 @@ func gateBillingResolverWith(modelIDs ...string) tkBillingPricingResolver {
 	return billing.GetModelPricing
 }
 
-// gateDegradedResolver simulates a totally degraded pricing system: EVERY model
-// (including the canary) resolves to ErrModelPricingUnavailable. Used to prove
-// the gate fails OPEN under source degradation instead of 404ing all traffic.
-func gateDegradedResolver() tkBillingPricingResolver {
-	return func(model string) (*ModelPricing, error) {
-		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
-	}
-}
-
 func newGateTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -163,54 +153,30 @@ func TestPricedServingGateRejected_NilDepsFailOpen(t *testing.T) {
 	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, nil, "totally-unpriced-xyz", "gemini", 0))
 }
 
-// TestPricedServingGateRejected_GeminiFamilyFallbackNotRejected pins SHOULD-FIX1:
-// a brand-new gemini-* id ABSENT from the pricing source must NOT be rejected,
-// because billing's getFallbackPricing covers any "gemini" model (upstream #2486
-// $0-guard). The old catalog-membership predicate got this WRONG (catalog has no
-// family fallback) and would 404 a model billing prices fine — on the only
-// launch platform. This is the constructive gate ⟺ billing property.
-func TestPricedServingGateRejected_GeminiUnknownNoFallbackIsRejected(t *testing.T) {
+// TestPricedServingGate_GeminiUnknownServedAtFamilyFloor pins the post-pivot behavior (reverses the
+// C-era "gemini unknown → reject", docs/approved/priced-or-it-doesnt-ship.md): a brand-new gemini-*
+// id with no real price now falls to the gemini FAMILY FLOOR (getFallbackPricing), so it is SERVED
+// (never $0, never 404). Only an id with NO family floor (multi-vendor newapi/国产 unknown) is
+// rejected — the intended backstop. The degrade/canary fail-open mechanism was removed: the Go family
+// floors are themselves the source-glitch protection (floored families can't mass-404).
+func TestPricedServingGate_GeminiUnknownServedAtFamilyFloor(t *testing.T) {
 	ctx := context.Background()
-	setting := newGateSettingService("gemini")
-	// Source prices the canary (healthy system) but NOT the new variant. There is no flat
-	// gemini family fallback anymore (docs/approved/priced-or-it-doesnt-ship.md), so a gemini id
-	// with no real litellm/overlay price resolves to ErrModelPricingUnavailable.
-	resolve := gateBillingResolverWith(tkPricedServingGateCanaryModel)
+	setting := newGateSettingService("*") // post-pivot default: all platforms enabled
+	resolve := gateBillingResolverWith("gemini-2.5-pro") // REAL BillingService → Go family floors apply
 
+	// A new gemini variant absent from the source now resolves via the gemini family floor.
 	_, err := resolve("gemini-9.9-ultra-preview")
+	require.False(t, errors.Is(err, ErrModelPricingUnavailable),
+		"post-pivot: an unknown gemini variant falls to the gemini family floor (not unavailable)")
+	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "gemini-9.9-ultra-preview", "gemini", 0),
+		"a floored gemini model must be SERVED (at floor), not rejected")
+
+	// A multi-vendor newapi/国产 unknown id has NO family floor → unavailable → rejected (backstop).
+	_, err = resolve("some-unknown-vendor-model-zzz")
 	require.True(t, errors.Is(err, ErrModelPricingUnavailable),
-		"sanity: an unknown gemini variant has NO flat fallback → billing unavailable")
-
-	require.True(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "gemini-9.9-ultra-preview", "gemini", 0),
-		"an unknown gemini with no real price must be gate-rejected ('查不到就拒'), not masked by a flat fallback")
-}
-
-// TestPricedServingGateRejected_DegradedSourceFailsOpen pins the fail-OPEN
-// SHOULD-FIX: when the WHOLE pricing system is degraded (even the canary resolves
-// unavailable), the gate must NOT 404 — it fails open, matching billing's own
-// degrade-to-$0 behavior, so a pricing-file glitch never blackholes 100% of
-// enabled-platform traffic.
-func TestPricedServingGateRejected_DegradedSourceFailsOpen(t *testing.T) {
-	ctx := context.Background()
-	setting := newGateSettingService("gemini")
-	resolve := gateDegradedResolver()
-
-	// Sanity: the canary itself is unavailable under this resolver → "degraded".
-	require.True(t, tkPricingSystemDegraded(resolve), "canary unavailable ⇒ system degraded")
-
-	require.False(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "anything-at-all", "gemini", 0),
-		"degraded pricing source must fail OPEN (no mass 404)")
-}
-
-// TestPricingSystemDegraded_HealthyIsNotDegraded guards the other side: a healthy
-// resolver (canary resolves priced) must NOT be flagged degraded, or the gate
-// would never reject anything.
-func TestPricingSystemDegraded_HealthyIsNotDegraded(t *testing.T) {
-	resolve := gateBillingResolverWith("gemini-2.5-pro")
-	require.False(t, tkPricingSystemDegraded(resolve),
-		"healthy resolver (canary priced) must not be flagged degraded")
-	require.False(t, tkPricingSystemDegraded(nil),
-		"nil resolver defers to the upper nil-check fail-open, not the degraded path")
+		"a no-family-match unknown id has no floor → billing unavailable")
+	require.True(t, tkPricedServingGateRejected(ctx, resolve, nil, setting, "some-unknown-vendor-model-zzz", "newapi", 0),
+		"a no-floor unknown id must be rejected (the backstop)")
 }
 
 // ---------------------------------------------------------------------------
@@ -255,10 +221,11 @@ func TestCheckPricedServingGate_Reject_OpenAIShape(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := context.Background()
 	setting := newGateSettingService("openai")
-	resolve := gateBillingResolverWith("gemini-2.5-pro") // gpt-unpriced absent
+	resolve := gateBillingResolverWith("gemini-2.5-pro") // the judged model has no family floor → reject
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
+	// "no-family-unpriced-zzz" matches no Go family floor (not gpt/gemini/claude) → unavailable → reject.
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "no-family-unpriced-zzz", "no-family-unpriced-zzz")
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404")
 	require.True(t, c.IsAborted())

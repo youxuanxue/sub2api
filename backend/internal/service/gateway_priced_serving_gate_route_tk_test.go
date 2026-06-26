@@ -58,7 +58,7 @@ func geminiGateService(t *testing.T) *GeminiMessagesCompatService {
 	svc := &GeminiMessagesCompatService{}
 	svc.SetPricedServingGateDeps(
 		nil,
-		newGateBillingService(t, tkPricedServingGateCanaryModel),
+		newGateBillingService(t, "gemini-2.5-pro"),
 		newGateSettingService("gemini"),
 		nil,
 		nil, // resolver: nil → no channel-price probe (these route tests judge base pricing only)
@@ -73,7 +73,7 @@ func catchAllGeminiAccount() *Account {
 		Platform: PlatformGemini,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"model_mapping": map[string]any{"*": tkPricedServingGateCanaryModel},
+			"model_mapping": map[string]any{"*": "gemini-2.5-pro"},
 		},
 	}
 }

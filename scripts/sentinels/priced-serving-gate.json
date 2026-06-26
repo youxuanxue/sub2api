@@ -10,8 +10,6 @@
         "func tkWritePricedServingGateRejection(",
         "if _, err := resolve(billingModel); !errors.Is(err, ErrModelPricingUnavailable) {",
         "if channelProbe != nil && groupID != 0 && channelProbe(ctx, billingModel, groupID) {",
-        "func tkPricingSystemDegraded(resolve tkBillingPricingResolver) bool {",
-        "const tkPricedServingGateCanaryModel = \"gemini-2.5-pro\"",
         "setting.IsPricedServingGateEnabled(ctx, platform)",
         "not_found_error",
         "invalid_request_error",
@@ -19,7 +17,7 @@
         "priced_serving_gate.rejected",
         "notifier.NotifyPricingMissing(ev)"
       ],
-      "rationale": "The gate core. R3 consistency (design §7) is now BY CONSTRUCTION: the gate judges via billing's own oracle — `resolve(billingModel)` is BillingService.GetModelPricing, rejecting iff it returns ErrModelPricingUnavailable, the SAME call+key billing uses to decide $0. No catalog shadow predicate exists to drift (an earlier draft's tkIsModelEffectivelyPriced was removed). tkPricingSystemDegraded + the canary make the gate fail-OPEN when the whole pricing source is degraded (else one bad pricing file 404s 100% of enabled-platform traffic). The literal error envelope strings (not_found_error / invalid_request_error + model_not_priced subcode) are the byte-aligned shapes clients depend on. NotifyPricingMissing is v1's pricing channel (reject → Feishu card → ops hot-fixes the price) satisfying R4."
+      "rationale": "The gate core. R3 consistency is BY CONSTRUCTION: the gate judges via billing's own two price sources — `resolve(billingModel)` is BillingService.GetModelPricing (real price + Go family floor) and channelProbe mirrors resolveChannelPricing — rejecting iff BOTH are unavailable, the SAME sources+key billing uses to decide $0. Post-pivot (family floor + alert + converge) there is NO degrade canary: the Go family floors are immune to litellm/overlay source glitches (floored platforms never mass-404), so tkPricingSystemDegraded/tkPricedServingGateCanaryModel were removed (re-adding a fail-open would contradict 'newapi 保留 reject'). The literal error envelope strings (not_found_error / invalid_request_error + model_not_priced subcode) are the byte-aligned shapes clients depend on. NotifyPricingMissing is the reject channel (gate_rejected_unpriced → Feishu → fill) satisfying R4."
     },
     {
       "path": "backend/internal/service/gateway_priced_serving_gate_wiring_tk.go",
@@ -91,10 +89,11 @@
       "path": "backend/internal/service/setting_service_tk_cold_start.go",
       "must_contain": [
         "func (s *SettingService) IsPricedServingGateEnabled(ctx context.Context, platform string) bool",
-        "defaultPricedServingGateEnabledSet = \"gemini\"",
+        "if m == \"*\" || m == platform {",
+        "defaultPricedServingGateEnabledSet = \"*\"",
         "defaults[SettingKeyPricedServingGateEnabled] = defaultPricedServingGateEnabledSet"
       ],
-      "rationale": "The enabled-set getter (comma-separated SET membership, fail-open-toward-off) and the first-launch default (gemini/Vertex, D2). Losing the getter breaks the gate's enable check; losing the cold-start default means a fresh DB ships with the gate OFF, regressing the 'gemini/Vertex one-step ON' launch contract."
+      "rationale": "The enabled-set getter (comma-separated SET membership + '*' all-wildcard, fail-open-toward-off) and the post-pivot default '*' (all platforms; safe because family floors mean floored platforms never reject). The '*' branch is load-bearing for 'default all 闸打开'; losing it or the cold-start default means a fresh DB ships with the gate OFF, regressing the launch contract."
     },
     {
       "path": "backend/internal/handler/admin/channel_handler_tk_billing_source_guard.go",
@@ -113,13 +112,13 @@
       "rationale": "The call site wiring the B1 guardrail into both Create and Update channel handlers (the anchor is identical for both). If an upstream merge drops the call, the guard function survives but never runs — the switch goes silent again. Pinning the upstream-shaped handler here also gives the upstream-override gate verified sentinel coverage for this file."
     },
     {
-      "path": "backend/migrations/tk_047_default_priced_serving_gate_gemini.sql",
+      "path": "backend/migrations/tk_047_default_priced_serving_gate_all.sql",
       "must_contain": [
         "INSERT INTO settings (key, value)",
-        "'priced_serving_gate_enabled', 'gemini'",
+        "'priced_serving_gate_enabled', '*'",
         "ON CONFLICT (key) DO NOTHING"
       ],
-      "rationale": "BLOCKER 1 fix (god's-eye review): the in-process cold-start default (tkMergeDefaultColdStartSettings='gemini') does NOT run on existing prod DBs (InitializeDefaultSettings early-returns on a non-empty DB and isn't invoked on a normal deploy), so this migration is the ACTUAL load-bearing seed that turns the gate ON for gemini/Vertex in prod (design §2/§5, '一步 ON'). Only the cold-start default string is unit-tested; without this anchor an edit to the migration's seeded value (e.g. to '' or a wrong platform) would ship the gate silently OFF again with no test catching it. Pins the exact key+value+idempotent-conflict clause."
+      "rationale": "BLOCKER 1 fix (god's-eye review): the in-process cold-start default (tkMergeDefaultColdStartSettings='*') does NOT run on existing prod DBs (InitializeDefaultSettings early-returns on a non-empty DB and isn't invoked on a normal deploy), so this migration is the ACTUAL load-bearing seed that turns the gate ON for ALL platforms in prod (post-pivot default). Only the cold-start default string is unit-tested; without this anchor an edit to the migration's seeded value (e.g. to '' or a single platform) would silently narrow/disable the gate with no test catching it. Pins the exact key+value('*')+idempotent-conflict clause."
     }
   ]
 }
