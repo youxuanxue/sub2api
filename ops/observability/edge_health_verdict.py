@@ -51,6 +51,43 @@ def _load_thresholds(path: pathlib.Path) -> dict:
     return data["thresholds"]
 
 
+def triage_account(acct: dict) -> dict:
+    """Derive WHICH of the sched=0 排查三连 steps applies to ONE unschedulable account,
+    from fields the probe already emits (status / session_window_status). This is the
+    状态派生 the operator was being told to do by hand: the raw verdict line said
+    `sched=0/N` and then "go run the 3-step runbook and figure out which N are stuck and
+    why". The signals are all already in the ACCT row — keeping them on the floor was the
+    waste. Buckets map 1:1 onto the runbook:
+
+      oauth  (step 3) status != active            — account-level death (OAuth 吊销/error)
+      window (step 1) session_window_status=rejected — 5h/7d 窗口烧穿, will self-recover
+      flag   (step 2) healthy but schedulable=false  — pinned off; the ONE instant fix
+
+    Precedence is account-death > window-burn > flag-pin: a dead account is not fixed by
+    flipping a flag, and a flag-pin is the only one a one-liner resolves. Probe limitation:
+    a `schedulable=true` account silently in cooldown (temp_unschedulable_until) is not in
+    this set — it still counts toward n_sched; that case surfaces as degraded/down-by-ratio,
+    a different path."""
+    status = (acct.get("status") or "").strip()
+    window = (acct.get("session_window_status") or "").strip()
+    if status == "error":
+        bucket, hint = "oauth", "status=error（多为 OAuth 吊销 / refresh 报成功仍 401）→ 重新授权或换号，重刷无效"
+    elif status and status != "active":
+        bucket, hint = "oauth", f"status={status}（非 active）→ 确认是否应启用 / 重新授权"
+    elif window == "rejected":
+        bucket, hint = "window", "5h/7d 窗口烧穿（上游 rejected）→ 等窗口重置，勿清冷却、勿扩容"
+    else:
+        bucket, hint = "flag", "schedulable=false 被钉死（账号健康却调度关闭）→ 一键启用：remediate-schedulable-pool.sh MODE=edge-oauth-pool"
+    return {
+        "id": acct.get("id"),
+        "name": acct.get("name"),
+        "bucket": bucket,
+        "hint": hint,
+        "status": status or None,
+        "window": window or None,
+    }
+
+
 def compute_verdict(accounts: list, traffic: dict, thresholds: dict) -> dict:
     """Pure function: per-account schedulability + traffic counts + thresholds ->
     verdict payload. No I/O. `accounts` is a list of ACCT dicts (any platform; the
@@ -123,6 +160,10 @@ def compute_verdict(accounts: list, traffic: dict, thresholds: dict) -> dict:
         "total_completed": total_completed,
         "since": traffic.get("since"),
         "account_names": [a.get("name") for a in schedulable],
+        # Per-account triage for the unschedulable accounts (the ones blocking a sched=0
+        # pool). Derived here so the alert renders "account #5: schedulable=false 被钉死 →
+        # 一键启用" instead of dumping the generic 3-step and saying "逐账号定位 yourself".
+        "unschedulable": [triage_account(a) for a in accounts if a.get("schedulable") is not True],
     }
 
 
@@ -243,6 +284,23 @@ _SELFTEST_CASES = [
 ]
 
 
+# --- triage fixtures: lock the per-account sched=0 cause derivation (the 状态派生 that
+# replaces "go run the 3-step runbook by hand"). Each tuple is (label, ACCT dict,
+# expected_bucket) — the exact bucket the alert turns into a per-account action line. ---
+_TRIAGE_CASES = [
+    ("healthy-but-pinned => flag (the instant fix)",
+     {"id": 5, "name": "cc-foo", "status": "active", "schedulable": False, "session_window_status": "allowed"}, "flag"),
+    ("5h window burnt => window (wait, do not clear cooldown)",
+     {"id": 6, "name": "cc-bar", "status": "active", "schedulable": False, "session_window_status": "rejected"}, "window"),
+    ("status=error => oauth (re-auth, refresh won't help)",
+     {"id": 7, "name": "cc-baz", "status": "error", "schedulable": False, "session_window_status": "allowed"}, "oauth"),
+    ("status=disabled => oauth bucket (account-level, not a flag flip)",
+     {"id": 8, "name": "cc-qux", "status": "disabled", "schedulable": False}, "oauth"),
+    ("account death dominates a coincident window-burn => oauth",
+     {"id": 9, "name": "cc-dead", "status": "error", "schedulable": False, "session_window_status": "rejected"}, "oauth"),
+]
+
+
 def _run_selftest(thresholds: dict) -> int:
     failures = 0
     for label, accounts, traffic, expected in _SELFTEST_CASES:
@@ -251,10 +309,17 @@ def _run_selftest(thresholds: dict) -> int:
         if not ok:
             failures += 1
         print(f"  [{'ok' if ok else 'FAIL'}] {label}: expected={expected} got={got}", file=sys.stderr)
+    for label, acct, expected in _TRIAGE_CASES:
+        got = triage_account(acct)["bucket"]
+        ok = got == expected
+        if not ok:
+            failures += 1
+        print(f"  [{'ok' if ok else 'FAIL'}] triage/{label}: expected={expected} got={got}", file=sys.stderr)
+    total = len(_SELFTEST_CASES) + len(_TRIAGE_CASES)
     if failures:
         print(f"edge_health_verdict selftest: {failures} FAILED", file=sys.stderr)
         return 1
-    print(f"edge_health_verdict selftest: all {len(_SELFTEST_CASES)} cases passed", file=sys.stderr)
+    print(f"edge_health_verdict selftest: all {total} cases passed", file=sys.stderr)
     return 0
 
 
