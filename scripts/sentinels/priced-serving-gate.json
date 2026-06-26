@@ -111,6 +111,15 @@
         "tkRequireBillingModelSourceConfirm(req.BillingModelSource, req.ConfirmBillingModelSource)"
       ],
       "rationale": "The call site wiring the B1 guardrail into both Create and Update channel handlers (the anchor is identical for both). If an upstream merge drops the call, the guard function survives but never runs — the switch goes silent again. Pinning the upstream-shaped handler here also gives the upstream-override gate verified sentinel coverage for this file."
+    },
+    {
+      "path": "backend/migrations/tk_047_default_priced_serving_gate_gemini.sql",
+      "must_contain": [
+        "INSERT INTO settings (key, value)",
+        "'priced_serving_gate_enabled', 'gemini'",
+        "ON CONFLICT (key) DO NOTHING"
+      ],
+      "rationale": "BLOCKER 1 fix (god's-eye review): the in-process cold-start default (tkMergeDefaultColdStartSettings='gemini') does NOT run on existing prod DBs (InitializeDefaultSettings early-returns on a non-empty DB and isn't invoked on a normal deploy), so this migration is the ACTUAL load-bearing seed that turns the gate ON for gemini/Vertex in prod (design §2/§5, '一步 ON'). Only the cold-start default string is unit-tested; without this anchor an edit to the migration's seeded value (e.g. to '' or a wrong platform) would ship the gate silently OFF again with no test catching it. Pins the exact key+value+idempotent-conflict clause."
     }
   ]
 }

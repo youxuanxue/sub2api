@@ -236,3 +236,10 @@ gemini/Vertex 站稳后，`tokenkey-servable-model-refresh` 里那套手动 catc
   gemini 一般无 channel 级改名（`ChannelMappedModel` 空），故首发不触；channel 型平台（newapi 等）加入前，
   让闸键在 channel-mapped 情形也走 mapped。注：B（改 `billing_model_source` 强制人类确认）已把拨到非默认值
   的动作收敛为刻意操作。
+- **R-404 契约收敛（D1，NIT）**：闸的 404 形【与真实上游对齐】（gemini 首发面 `googleError` 字节同构、
+  anthropic `not_found_error`、openai 404），但与网关【自身】对同一上游错误的既有处理在 anthropic/openai 上
+  分裂——anthropic 别处把上游 404 翻成 400 `invalid_request_error`「Unsupported model」（`gateway_service.go:8634`），
+  openai native 404 用 `not_found_error`+`code:model_not_found`（`openai_gateway_service.go:5016`），而闸用
+  404 `not_found_error`(anthropic) / `invalid_request_error`+`model_not_priced`(openai)。**不致客户端重试/鉴权误判**
+  （都是 404、非 401/403/429/5xx），gemini 首发面无此问题；anthropic/openai 启用前，让闸 404 形与
+  `handleErrorResponse` 既有 404 契约收敛。
