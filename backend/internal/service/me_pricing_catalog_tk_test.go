@@ -184,6 +184,62 @@ func mkPublicCatalogModel(modelID, vendor string, in, out, cacheR float64) Publi
 
 // ----- tests -----
 
+// TestMePricingCatalog_TiersFromPublicCatalog pins the single-source-of-truth
+// contract: Your-Menu surfaces the input-token interval (阶梯) ladder copied
+// verbatim from the public catalog (no rate scaling — me-pricing is the official
+// list price), so /pricing and me/pricing-catalog never diverge on tiers.
+func TestMePricingCatalog_TiersFromPublicCatalog(t *testing.T) {
+	g := mkGroupForMe(10, "Pro", "newapi", 1.5)
+	k1 := mkKeyForMe(1, 7, "default", ptrI(10))
+
+	maxTok := func(v int) *int { return &v }
+	catalogModel := PublicCatalogModel{
+		ModelID:      "qwen-plus",
+		Vendor:       "dashscope",
+		Capabilities: []string{},
+		Pricing: PublicCatalogPricing{
+			Currency:          "USD",
+			InputPer1KTokens:  0.0001194,
+			OutputPer1KTokens: 0.0002985,
+			Tiers: []PublicCatalogTier{
+				{MinTokens: 0, MaxTokens: maxTok(128000), InputPer1KTokens: 0.0001194, OutputPer1KTokens: 0.0002985, CacheReadPer1K: 0.0001194},
+				{MinTokens: 128000, MaxTokens: nil, InputPer1KTokens: 0.0007164, OutputPer1KTokens: 0.0071642},
+			},
+		},
+	}
+
+	svc := newService(
+		&fakeKeyAccess{groups: []Group{g}, keys: []APIKey{k1}},
+		&fakeChannelLister{channels: []AvailableChannel{
+			mkChannelWithModel(100, "ch1",
+				[]AvailableGroupRef{{ID: 10, Name: "Pro", Platform: "newapi", RateMultiplier: 1.5}},
+				[]SupportedModel{mkSupportedModel("qwen-plus", "newapi", mkPricing(0.0000001194, 0.0000002985, 0))},
+			),
+		}},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{catalogModel}}},
+	)
+
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	tiers := resp.Models[0].YourPrice.Tiers
+	require.Len(t, tiers, 2, "ladder copied from the public catalog")
+
+	// tier 1: bounded, verbatim (no ×1.5 scaling — official list price).
+	assert.Equal(t, 0, tiers[0].MinTokens)
+	require.NotNil(t, tiers[0].MaxTokens)
+	assert.Equal(t, 128000, *tiers[0].MaxTokens)
+	require.NotNil(t, tiers[0].InputPer1K)
+	assert.InDelta(t, 0.0001194, *tiers[0].InputPer1K, 1e-12, "verbatim from catalog, not scaled by 1.5")
+	require.NotNil(t, tiers[0].CacheReadPer1K)
+	assert.InDelta(t, 0.0001194, *tiers[0].CacheReadPer1K, 1e-12)
+
+	// top tier: open-ended, costlier; no cache-read → pointer stays nil.
+	assert.Nil(t, tiers[1].MaxTokens)
+	assert.InDelta(t, 0.0007164, *tiers[1].InputPer1K, 1e-12)
+	assert.Nil(t, tiers[1].CacheReadPer1K)
+}
+
 // TK: 价格一律官方基价（倍率 1.0），TargetGroup 的 RateMultiplier 字段仍反映
 // 真实生效倍率（1.5），但不再作用于 YourPrice。
 func TestMePricingCatalog_DefaultToFirstKeyGroup_OfficialPrice(t *testing.T) {

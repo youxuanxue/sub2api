@@ -26,6 +26,21 @@ export interface PublicPricing {
   output_cost_per_image?: number
   /** USD per second of generated video (video billing_mode). */
   output_cost_per_second?: number
+  /** Input-token interval (阶梯) pricing for models whose unit price varies by
+   *  request input length (VolcEngine doubao-seed-*, DeepSeek, Qwen-plus/coder,
+   *  GLM-4.7). The flat input/output fields carry the first (lowest) tier; this
+   *  array carries the full ladder. Absent for flat-priced models. Per 1k tokens. */
+  tiers?: PublicPricingTier[]
+}
+
+/** One input-token bracket of a tiered (阶梯) price. `min_tokens` inclusive,
+ *  `max_tokens` exclusive; `max_tokens` absent = open-ended top tier. Per 1k tokens. */
+export interface PublicPricingTier {
+  min_tokens: number
+  max_tokens?: number
+  input_per_1k_tokens: number
+  output_per_1k_tokens: number
+  cache_read_per_1k?: number
 }
 
 export interface PublicCatalogModel {
