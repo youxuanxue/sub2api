@@ -9,7 +9,9 @@
 # are kept in the default SNI list because TokenKey still forwards there) and
 # cannot be pointed at a self-hosted collector. The TLS ClientHello is sent in the
 # clear before the handshake completes, so tcpdump + tshark recover the JA3 with no
-# MITM. HTTP headers (UA) live inside TLS and need the optional mitm path.
+# MITM. This engine is TLS/JA3-only — HTTP-protocol verification lives in
+# probe_runtime_gateway.py (the mitm path was empirically non-viable: the Kiro
+# IDE direct-dials its gateway and ignores HTTP_PROXY, so no proxy can intercept).
 #
 # Deterministic parse / JA3 / diff is delegated to capture_kiro_fingerprint.py;
 # this shell only drives tcpdump + tshark and shells out.
@@ -36,7 +38,7 @@ PROXY_PORT="${TOKENKEY_KIRO_CAPTURE_PROXY_PORT:-}"
 usage() {
   cat <<'EOF'
 Usage:
-  capture-kiro-fingerprint.sh capture [--iface IF] [--proxy-port N] [--seconds N] [--out-dir DIR] [--http-log FILE]
+  capture-kiro-fingerprint.sh capture [--iface IF] [--proxy-port N] [--seconds N] [--out-dir DIR]
   capture-kiro-fingerprint.sh diff --bundle PATH [--check]
   capture-kiro-fingerprint.sh check --bundle PATH
   capture-kiro-fingerprint.sh check-tls --bundle PATH
@@ -56,8 +58,8 @@ capture exit codes: 0 = aligned, 1 = actionable drift, 2 = capture/env/usage
   NEVER rc=1 — do not refresh artifacts on a rc=2.
 
 Requires: python3, tcpdump, tshark, dig (or host). tcpdump needs sudo/root on macOS.
-The optional --http-log FILE is a line-JSON log produced by mitm_kiro_http_headers.py
-(only usable if the Kiro IDE honors HTTP_PROXY + a trusted MITM CA).
+HTTP-protocol verification is not done here — use ops/kiro/probe-runtime-gateway.sh
+(the mitm path was non-viable: Kiro direct-dials and ignores HTTP_PROXY).
 EOF
 }
 
@@ -101,14 +103,12 @@ build_pcap_filter() {
 }
 
 cmd_capture() {
-  local http_log=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --iface) IFACE="$2"; shift 2 ;;
       --proxy-port) PROXY_PORT="$2"; shift 2 ;;
       --seconds) CAPTURE_SECONDS="$2"; shift 2 ;;
       --out-dir) OUT_DIR="$2"; shift 2 ;;
-      --http-log) http_log="$2"; shift 2 ;;
       *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
     esac
   done
@@ -191,7 +191,6 @@ cmd_capture() {
   fi
 
   local bundle_args=(--tshark-tsv "$tsv" --out "$bundle" --source "passive-pcap" --captured-at "${stamp:0:4}-${stamp:4:2}-${stamp:6:2}T${stamp:9:2}:${stamp:11:2}:${stamp:13:2}Z")
-  [[ -n "$http_log" && -f "$http_log" ]] && bundle_args+=(--http-log "$http_log")
   python3 "$PY" bundle-from-pcap "${bundle_args[@]}"
 
   echo
