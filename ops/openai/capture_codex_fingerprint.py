@@ -300,7 +300,7 @@ def emit_edits(bl: Baseline, new_version: str) -> list[dict]:
 # --------------------------------------------------------------------------- #
 # rendering
 # --------------------------------------------------------------------------- #
-def _print_rows(rows: list[Row]) -> None:
+def _print_rows(rows: list[Row], stream=sys.stdout) -> None:
     width = max((len(r.field) for r in rows), default=0)
     for r in rows:
         mark = {"match": "✓", "mismatch": "✗", "info": "·",
@@ -308,7 +308,7 @@ def _print_rows(rows: list[Row]) -> None:
         line = f"  {mark} {r.field.ljust(width)}  pinned={r.pinned or '-'}  installed={r.installed or '-'}  [{r.status}]"
         if r.note:
             line += f"  ({r.note})"
-        print(line)
+        print(line, file=stream)
 
 
 def _print_non_version(bl: Baseline, installed_markers: dict[str, bool] | None) -> None:
@@ -408,7 +408,7 @@ def cmd_check_consistency(_args) -> int:
     drift = any(r.status != "match" for r in rows)
     if drift:
         print("Codex version pins are NOT mutually consistent:", file=sys.stderr)
-        _print_rows(rows)
+        _print_rows(rows, sys.stderr)
         consensus = bl.consensus()
         print("\nAll five pins must carry the SAME codex version. Re-run a full bump "
               "(ops/openai/capture-codex-fingerprint.sh emit-edits) so the UA default, "

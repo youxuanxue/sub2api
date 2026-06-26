@@ -800,8 +800,8 @@ elif ! python3 -m unittest discover -s ops/openai -p 'test_*.py' -t ops/openai >
     echo "  FAIL: ops/openai codex fingerprint engine self-test failed"
     errors=$((errors + 1))
 elif ! python3 ./ops/openai/capture_codex_fingerprint.py check-consistency >/dev/null; then
-    # check-consistency already printed the actionable per-pin failure to stderr.
-    python3 ./ops/openai/capture_codex_fingerprint.py check-consistency || true  # preflight-allow: re-run to surface the report (already counted)
+    # On failure the engine prints the actionable per-pin report to stderr (stdout
+    # is the success line, suppressed here); a single run surfaces it, no re-run.
     errors=$((errors + 1))
 else
     echo "  ok: codex version pins mutually consistent across UA/gateway/probe/en/zh"
