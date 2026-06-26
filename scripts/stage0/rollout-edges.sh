@@ -7,11 +7,23 @@
 # watch the run to completion, and verify the canonical acceptance marker
 # `tk_edge_post_deploy_smoke: OK phase=infra` in the run log.
 #
-# Default is sequential. --parallel N dispatches bounded batches after the
-# canary/prod gates have already passed, reducing all-rollout wall clock while
-# preserving fail-stop between batches. If any edge in a batch fails, the script
-# finishes verifying that already-dispatched batch, prints the failed edge(s),
-# and does not dispatch the next batch.
+# Default is sequential (--parallel 1) and SHOULD stay that way for the relay-
+# bearing edge fleet. WHY this default is load-bearing, not just conservative:
+# prod holds cc-/kiro-<edge> mirror accounts that relay anthropic/kiro traffic to
+# api-<edge>.tokenkey.dev, and edges swap containers IN-PLACE (deploy_via_ssm.sh,
+# brief /health=503 window) rather than blue/green like prod (deploy_via_ssm_
+# bluegreen.sh). Restarting N edges concurrently removes N relay targets from
+# prod's failover pool in the SAME ~80s swap window. Observed v1.8.48 (2026-06-26):
+# a --parallel 3 rollout of us4/us5/us6 left only the canary healthy and produced a
+# small anthropic/kiro 502 cluster at the concurrent-swap instant. So --parallel
+# N>1 is an explicit speed/blast-radius tradeoff, safe only once edges are
+# blue/green (or for non-relay-bearing fleets) — do not raise the default.
+#
+# --parallel N dispatches bounded batches after the canary/prod gates have already
+# passed, reducing all-rollout wall clock while preserving fail-stop between
+# batches. If any edge in a batch fails, the script finishes verifying that
+# already-dispatched batch, prints the failed edge(s), and does not dispatch the
+# next batch.
 #
 # Usage:
 #   bash scripts/stage0/rollout-edges.sh --tag 1.7.88 --skip uk1
