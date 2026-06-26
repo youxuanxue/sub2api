@@ -462,9 +462,18 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
-			// Authentication errors and payment errors are not retried across endpoints.
+			// Auth/payment errors normally aren't retried across endpoints (the same
+			// token would be rejected everywhere). EXCEPTION: runtime.kiro.dev is a
+			// different gateway/entitlement domain than the legacy amazonaws hosts, so
+			// a 401/403/402 there does NOT imply legacy will reject the same token —
+			// it must still fall through to legacy (the migration's self-heal). Only
+			// a legacy-host auth/payment error short-circuits.
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
-				return lastErr
+				if !strings.Contains(ep.URL, ".kiro.dev") {
+					return lastErr
+				}
+				logWarnf("[KiroAPI] Endpoint %s auth/payment error %d; falling through to legacy: %v", ep.Name, resp.StatusCode, lastErr)
+				continue
 			}
 			logWarnf("[KiroAPI] Endpoint %s error: %v", ep.Name, lastErr)
 			continue
