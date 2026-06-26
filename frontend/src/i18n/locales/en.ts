@@ -2819,6 +2819,7 @@ export default {
         billingModelSourceRequested: 'Bill by requested model',
         billingModelSourceUpstream: 'Bill by final upstream model',
         billingModelSourceHint: 'Controls which model name is used for pricing lookup',
+        billingModelSourceConfirm: 'Setting the billing basis to bill by requested / final model can make the billed model name differ from what the price gate judges, leaking $0 charges. Continue?',
         selectedCount: '{count} selected',
         searchGroups: 'Search groups...',
         noGroupsMatch: 'No groups match your search',

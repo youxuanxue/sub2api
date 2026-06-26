@@ -91,6 +91,22 @@
         "defaults[SettingKeyPricedServingGateEnabled] = defaultPricedServingGateEnabledSet"
       ],
       "rationale": "The enabled-set getter (comma-separated SET membership, fail-open-toward-off) and the first-launch default (gemini/Vertex, D2). Losing the getter breaks the gate's enable check; losing the cold-start default means a fresh DB ships with the gate OFF, regressing the 'gemini/Vertex one-step ON' launch contract."
+    },
+    {
+      "path": "backend/internal/handler/admin/channel_handler_tk_billing_source_guard.go",
+      "must_contain": [
+        "func tkRequireBillingModelSourceConfirm(source string, confirmed bool) error {",
+        "case service.BillingModelSourceRequested, service.BillingModelSourceUpstream:",
+        "BILLING_MODEL_SOURCE_CONFIRM_REQUIRED"
+      ],
+      "rationale": "B1 guardrail (re-review BLOCKER, design §8). The gate judges the same key billing charges — EXCEPT when an operator sets channels.billing_model_source=requested/upstream, which makes billing charge the client's pre-mapping id while a catch-all mapping can leave the mapped id priced: the one config switch that can silently re-open the $0 leak. prod runs 0 such channels; this guard keeps it that way by rejecting any create/update that sets a risky value without explicit confirm_billing_model_source=true. Drop it and the dangerous switch becomes settable silently again."
+    },
+    {
+      "path": "backend/internal/handler/admin/channel_handler.go",
+      "must_contain": [
+        "tkRequireBillingModelSourceConfirm(req.BillingModelSource, req.ConfirmBillingModelSource)"
+      ],
+      "rationale": "The call site wiring the B1 guardrail into both Create and Update channel handlers (the anchor is identical for both). If an upstream merge drops the call, the guard function survives but never runs — the switch goes silent again. Pinning the upstream-shaped handler here also gives the upstream-override gate verified sentinel coverage for this file."
     }
   ]
 }
