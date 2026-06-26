@@ -73,6 +73,18 @@
         "g, gctx := errgroup.WithContext(ctx)"
       ],
       "rationale": "buildSnapshotV2Response MUST compute its sections (stats / trend / models / groups / users_trend) CONCURRENTLY via errgroup. Reverting to the sequential if-blocks returns byte-identical output, so no unit/integration test catches it, but the 30-day admin dashboard regresses from ~max-of-sections back to ~sum-of-sections (users-trend alone is ~6.6s cold on prod), and folding users-trend into this single endpoint turns from a one-round-trip win into an ~8.6s serialization. This handler is upstream-owned and churned, so an upstream merge or refactor that restores the sequential form silently re-introduces the regression — this substring is the only mechanical guard."
+    },
+    {
+      "path": "backend/internal/handler/admin/usage_handler.go",
+      "must_contain": [
+        "func parseUsageAbsoluteRangeOrNil",
+        "parseAbsoluteRange(c)",
+        "parseUsageListTimeRange(c)",
+        "parseUsageStatsTimeRange(c)",
+        "StartTime:",
+        "EndpointStatsSource: endpointStatsSource"
+      ],
+      "rationale": "Admin Usage list/stats must honor start_ts/end_ts absolute windows before legacy start_date/end_date expansion. Dropping this silently widens the default rolling windows back to local date boundaries and restores the production /admin/usage/stats latency problem while returning semantically similar data. This upstream-shaped handler needs a source anchor so future merges cannot compile green after removing the absolute-window filter contract."
     }
   ]
 }

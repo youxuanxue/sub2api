@@ -1051,6 +1051,26 @@
         "additional_rate_limits"
       ],
       "rationale": "TK-only normalizer that turns the OpenAI/Codex /wham/usage additional_rate_limits[] (per-model metered windows, e.g. GPT-5.3-Codex-Spark) into display-ready 5h/7d windows for OpenAIQuotaResetCell.vue. The backend already fetches these windows but they were never surfaced, so an exhausted spark sub-limit hid behind a healthy account-wide gauge ('刷不出 codex 额度'). If this helper is dropped on an upstream merge the spark window silently disappears from the admin card again; the .vue import would fail loudly, but the sentinel adds a second layer."
+    },
+    {
+      "path": "frontend/src/views/admin/DashboardView.vue",
+      "must_contain": [
+        "import { rollingWindowTs } from '@/utils/dashboardWindow.tk'",
+        "const goToUserUsage = (item: UserSpendingRankingItem) => {",
+        "...(rollingWindowTs(activePreset.value) ?? {})"
+      ],
+      "rationale": "Admin Dashboard rolling presets and user-ranking drilldown must carry the same absolute epoch-ms window to /admin/usage. If an upstream-shaped DashboardView rewrite drops rollingWindowTs propagation, dashboard numbers and usage drilldowns desynchronize and the usage page widens queries back to full date boundaries while still compiling."
+    },
+    {
+      "path": "frontend/src/views/admin/UsageView.vue",
+      "must_contain": [
+        "import { rollingWindowTs } from '@/utils/dashboardWindow.tk'",
+        "const getTimeWindowParams = () => selectedAbsoluteWindow.value ?? rollingWindowTs(activePreset.value)",
+        "...(getTimeWindowParams() ?? {})",
+        "start_time: timeWindow ? new Date(timeWindow.start_ts).toISOString()",
+        ":start-ts=\"getTimeWindowParams()?.start_ts\""
+      ],
+      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dropping any of this wiring silently restores widened local-date queries for default rolling windows, which is a production latency regression rather than an obvious functional break."
     }
   ]
 }

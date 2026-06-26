@@ -28,6 +28,22 @@ type UsageHandler struct {
 	cleanupService *service.UsageCleanupService
 }
 
+var (
+	errInvalidUsageStartDate = errors.New("invalid start_date format, use YYYY-MM-DD")
+	errInvalidUsageEndDate   = errors.New("invalid end_date format, use YYYY-MM-DD")
+)
+
+func usageTimeRangeBadRequestMessage(err error) string {
+	switch {
+	case errors.Is(err, errInvalidUsageStartDate):
+		return "Invalid start_date format, use YYYY-MM-DD"
+	case errors.Is(err, errInvalidUsageEndDate):
+		return "Invalid end_date format, use YYYY-MM-DD"
+	default:
+		return err.Error()
+	}
+}
+
 // NewUsageHandler creates a new admin usage handler
 func NewUsageHandler(
 	usageService *service.UsageService,
@@ -83,7 +99,7 @@ func parseUsageListTimeRange(c *gin.Context) (*time.Time, *time.Time, error) {
 	if startDateStr != "" {
 		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
 		if err != nil {
-			return nil, nil, errors.New("Invalid start_date format, use YYYY-MM-DD")
+			return nil, nil, errInvalidUsageStartDate
 		}
 		startTime = &t
 	}
@@ -91,7 +107,7 @@ func parseUsageListTimeRange(c *gin.Context) (*time.Time, *time.Time, error) {
 	if endDateStr != "" {
 		t, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
 		if err != nil {
-			return nil, nil, errors.New("Invalid end_date format, use YYYY-MM-DD")
+			return nil, nil, errInvalidUsageEndDate
 		}
 		t = t.AddDate(0, 0, 1)
 		endTime = &t
@@ -115,11 +131,11 @@ func parseUsageStatsTimeRange(c *gin.Context) (*time.Time, *time.Time, error) {
 		var err error
 		startTime, err = timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
 		if err != nil {
-			return nil, nil, errors.New("Invalid start_date format, use YYYY-MM-DD")
+			return nil, nil, errInvalidUsageStartDate
 		}
 		endTime, err = timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
 		if err != nil {
-			return nil, nil, errors.New("Invalid end_date format, use YYYY-MM-DD")
+			return nil, nil, errInvalidUsageEndDate
 		}
 		endTime = endTime.AddDate(0, 0, 1)
 	} else {
@@ -227,7 +243,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 
 	startTime, endTime, err := parseUsageListTimeRange(c)
 	if err != nil {
-		response.BadRequest(c, err.Error())
+		response.BadRequest(c, usageTimeRangeBadRequestMessage(err))
 		return
 	}
 
@@ -347,7 +363,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 
 	startTime, endTime, err := parseUsageStatsTimeRange(c)
 	if err != nil {
-		response.BadRequest(c, err.Error())
+		response.BadRequest(c, usageTimeRangeBadRequestMessage(err))
 		return
 	}
 
