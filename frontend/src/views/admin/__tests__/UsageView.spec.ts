@@ -188,6 +188,51 @@ describe('admin UsageView distribution metric toggles', () => {
     vi.useRealTimers()
   })
 
+  it('uses absolute window params for the default rolling last-24-hour requests', async () => {
+    vi.setSystemTime(new Date('2026-06-25T12:34:56.789Z'))
+    const endTs = Date.UTC(2026, 5, 25, 12, 34, 0)
+    const startTs = endTs - 24 * 60 * 60 * 1000
+    const expectedWindow = { start_ts: startTs, end_ts: endTs }
+
+    mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: EndpointDistributionChartStub,
+      } },
+    })
+
+    await flushPromises()
+    expect(list.mock.calls[0]?.[0]).toEqual(expect.objectContaining(expectedWindow))
+    expect(getStats.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      ...expectedWindow,
+      include_endpoints: 0,
+    }))
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    expect(getModelStats.mock.calls[0]?.[0]).toEqual(expect.objectContaining(expectedWindow))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      ...expectedWindow,
+      include_trend: true,
+    }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      ...expectedWindow,
+      include_group_stats: true,
+    }))
+
+    triggerEndpointIntersection()
+    await flushPromises()
+    const endpointStatsParams = getStats.mock.calls[getStats.mock.calls.length - 1]?.[0]
+    expect(endpointStatsParams).toEqual(expect.objectContaining({
+      ...expectedWindow,
+      include_summary: 0,
+      include_endpoints: 1,
+    }))
+  })
+
   it('loads summary first and endpoint distribution only after the chart enters view', async () => {
     mount(UsageView, {
       global: { stubs: {

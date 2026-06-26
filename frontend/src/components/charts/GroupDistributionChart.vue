@@ -129,6 +129,8 @@ const props = withDefaults(defineProps<{
   showMetricToggle?: boolean
   startDate?: string
   endDate?: string
+  startTs?: number
+  endTs?: number
   filters?: Record<string, any>
 }>(), {
   loading: false,
@@ -158,6 +160,8 @@ const toggleBreakdown = async (type: string, id: number | string) => {
       ...props.filters,
       start_date: props.startDate,
       end_date: props.endDate,
+      start_ts: props.startTs,
+      end_ts: props.endTs,
       group_id: Number(id),
     })
     breakdownItems.value = res.users || []

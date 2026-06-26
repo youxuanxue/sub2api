@@ -663,7 +663,8 @@ const goToUserUsage = (item: UserSpendingRankingItem) => {
     query: {
       user_id: String(item.user_id),
       start_date: startDate.value,
-      end_date: endDate.value
+      end_date: endDate.value,
+      ...(rollingWindowTs(activePreset.value) ?? {})
     }
   })
 }
@@ -699,7 +700,7 @@ const loadDashboardStatsSnapshot = async () => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
+      ...(rollingWindowTs(activePreset.value) ?? {}),
       granularity: granularity.value,
       include_stats: true,
       include_trend: false,
@@ -724,7 +725,7 @@ const loadDashboardTrendSnapshot = async (currentSeq: number) => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
+      ...(rollingWindowTs(activePreset.value) ?? {}),
       granularity: granularity.value,
       include_stats: false,
       include_trend: true,
@@ -749,7 +750,7 @@ const loadDashboardModelStatsSnapshot = async (currentSeq: number) => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
+      ...(rollingWindowTs(activePreset.value) ?? {}),
       granularity: granularity.value,
       include_stats: false,
       include_trend: false,
@@ -783,7 +784,7 @@ const loadUserUsageTrend = async () => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
+      ...(rollingWindowTs(activePreset.value) ?? {}),
       granularity: granularity.value,
       include_stats: false,
       include_trend: false,
@@ -811,7 +812,7 @@ const loadUserSpendingRanking = async () => {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...rollingWindowTs(activePreset.value),
+      ...(rollingWindowTs(activePreset.value) ?? {}),
       limit: rankingLimit
     })
     if (currentSeq !== rankingLoadSeq) return
