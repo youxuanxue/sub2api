@@ -10,9 +10,10 @@ handshake is plaintext) and this engine only parses + diffs — it never fabrica
 a JA3.
 
 Subcommands:
-  bundle-from-pcap  Build a capture bundle from a tshark TSV (one ClientHello) +
-                    optional HTTP header log. Computes ja3_raw / ja3_hash and an
-                    upstream-shaped TLS profile object.
+  bundle-from-pcap  Build a capture bundle from a tshark TSV (one ClientHello).
+                    Computes ja3_raw / ja3_hash and an upstream-shaped TLS profile
+                    object. (HTTP-protocol verification lives in
+                    probe_runtime_gateway.py; the mitm path was non-viable.)
   diff              Compare --bundle against repo baseline; human report on stdout.
   check             Same as diff but exits 1 when actionable mismatches exist.
   check-tls         Exit 1 when bundle TLS ja3 fields mismatch the committed profile.
@@ -66,9 +67,10 @@ TSHARK_FIELDS = (
     "tls.handshake.extensions_server_name",
 )
 
-# Fields that block merge / signal real drift when mismatched (and the captured
-# side is present).
-CRITICAL_FIELDS = frozenset({"tls.ja3_hash", "http.user_agent", "http.x_amz_user_agent"})
+# Fields that block merge / signal real drift when mismatched. Kiro capture is
+# TLS/JA3-only: HTTP-protocol verification lives in probe_runtime_gateway.py (the
+# mitm path was empirically non-viable — Kiro direct-dials, bypassing proxies).
+CRITICAL_FIELDS = frozenset({"tls.ja3_hash"})
 
 
 @dataclass(frozen=True)
@@ -252,23 +254,6 @@ def parse_tshark_tsv(tsv_text: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# HTTP header log (mitm) parsing — best-effort, optional.
-# --------------------------------------------------------------------------- #
-def parse_http_log(path: Path) -> dict[str, Any]:
-    """Read the last JSON line written by mitm_kiro_http_headers.py."""
-    last: dict[str, Any] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            last = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    return last
-
-
-# --------------------------------------------------------------------------- #
 # Baseline + diff.
 # --------------------------------------------------------------------------- #
 def load_committed_profile(path: Path = KIRO_TLS_PROFILE_JSON) -> dict[str, Any] | None:
@@ -277,10 +262,9 @@ def load_committed_profile(path: Path = KIRO_TLS_PROFILE_JSON) -> dict[str, Any]
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def diff_bundle(bundle: dict[str, Any], consts: dict[str, str], committed: dict[str, Any] | None) -> list[DiffRow]:
+def diff_bundle(bundle: dict[str, Any], committed: dict[str, Any] | None) -> list[DiffRow]:
     rows: list[DiffRow] = []
     tls = bundle.get("tls", {})
-    http = bundle.get("http", {})
 
     cap_ja3 = str(tls.get("ja3_hash", ""))
     if committed is None:
@@ -299,31 +283,7 @@ def diff_bundle(bundle: dict[str, Any], consts: dict[str, str], committed: dict[
         status = "match" if base_ja3 == cap_ja3 else "mismatch"
         rows.append(DiffRow("tls.ja3_hash", base_ja3, cap_ja3, status, critical=True))
 
-    # HTTP UA rows (best-effort; mitm capture optional).
-    exp_ua = expected_user_agent(consts)
-    cap_ua = str(http.get("user_agent", "")).strip()
-    cap_ua = _strip_machine_suffix(cap_ua)
-    if not cap_ua:
-        rows.append(DiffRow("http.user_agent", exp_ua, "(no http capture)", "missing_capture", critical=False))
-    else:
-        status = "match" if cap_ua == exp_ua else "mismatch"
-        rows.append(DiffRow("http.user_agent", exp_ua, cap_ua, status, critical=True))
-
-    exp_amz = expected_amz_user_agent(consts)
-    cap_amz = _strip_machine_suffix(str(http.get("x_amz_user_agent", "")).strip())
-    if not cap_amz:
-        rows.append(DiffRow("http.x_amz_user_agent", exp_amz, "(no http capture)", "missing_capture", critical=False))
-    else:
-        status = "match" if cap_amz == exp_amz else "mismatch"
-        rows.append(DiffRow("http.x_amz_user_agent", exp_amz, cap_amz, status, critical=True))
-
     return rows
-
-
-def _strip_machine_suffix(ua: str) -> str:
-    """Remove the per-account `-<machineID>` suffix appended after KiroIDE-<ver>,
-    so the canonical UA (without machine id) compares cleanly."""
-    return re.sub(r"(KiroIDE-\d+\.\d+\.\d+)-\S+$", r"\1", ua)
 
 
 def has_actionable_mismatch(rows: list[DiffRow]) -> bool:
@@ -365,16 +325,6 @@ def cmd_bundle_from_pcap(args: argparse.Namespace) -> int:
     }
     profile = build_canonical_profile(fields, observed)
 
-    http: dict[str, Any] = {}
-    if args.http_log and Path(args.http_log).exists():
-        log = parse_http_log(Path(args.http_log))
-        http = {
-            "user_agent": log.get("user_agent", ""),
-            "x_amz_user_agent": log.get("x_amz_user_agent", ""),
-            "x_amzn_headers": log.get("x_amzn", {}),
-            "host": log.get("host", ""),
-        }
-
     bundle = {
         "schema_version": SCHEMA_VERSION,
         "captured_at": args.captured_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -386,7 +336,6 @@ def cmd_bundle_from_pcap(args: argparse.Namespace) -> int:
             "enable_grease": profile["enable_grease"],
             "profile": profile,
         },
-        "http": http,
     }
     out = Path(args.out)
     out.write_text(json.dumps(bundle, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -401,9 +350,8 @@ def _load_bundle(path: str) -> dict[str, Any]:
 
 def cmd_diff(args: argparse.Namespace) -> int:
     bundle = _load_bundle(args.bundle)
-    consts = load_kiro_constants()
     committed = load_committed_profile()
-    rows = diff_bundle(bundle, consts, committed)
+    rows = diff_bundle(bundle, committed)
     print(_render(rows))
     actionable = has_actionable_mismatch(rows)
     if actionable:
@@ -471,9 +419,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    b = sub.add_parser("bundle-from-pcap", help="assemble bundle from tshark TSV (+ optional http log)")
+    b = sub.add_parser("bundle-from-pcap", help="assemble TLS/JA3 bundle from tshark TSV")
     b.add_argument("--tshark-tsv", required=True)
-    b.add_argument("--http-log", default="")
     b.add_argument("--out", required=True)
     b.add_argument("--source", default="")
     b.add_argument("--captured-at", default="")

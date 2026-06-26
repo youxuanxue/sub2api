@@ -11,15 +11,16 @@ truth，**Go 常量** 当待对齐对象。**承重维度是 HTTP，不是 JA3**
 
 关联：`tokenkey-cc-fingerprint-alignment`（anthropic）、`tokenkey-kiro-fingerprint-alignment`
 （kiro）、`tokenkey-codex-fingerprint-alignment`（codex / OpenAI）、
-`tokenkey-fingerprint-alignment-all`（umbrella：三引擎合一 PR）、
+`tokenkey-fingerprint-alignment-all`（umbrella：cc/kiro/antigravity/codex 四引擎合一 PR）、
 `docs/antigravity-fingerprint-changelog.md`。
 
 ## 为什么与 cc / kiro 都不同
 
 - cc 靠 `ANTHROPIC_BASE_URL` 重定向到自建 collector；kiro 端点硬编码、靠被动 pcap 抓 JA3。
 - antigravity 端点 `cloudcode-pa.googleapis.com` 也硬编码（不能重定向），但**承重的是 HTTP
-  层**：客户端 UA 的**版本号**、body 里 `userAgent:"antigravity"`、loadCodeAssist/onboardUser
-  的 `ideType` metadata、隐私端点的 `X-Goog-Api-Client: gl-node/<ver>`。
+  层**：客户端 UA 的**版本号**（含 `/hub/` subclient 段）、body 里 `userAgent:"antigravity"`、
+  loadCodeAssist/onboardUser 的 `ideType` metadata；隐私端点的 `X-Goog-Api-Client: gl-node`
+  **应缺席**（#756 移除，真机不发；抓到反而算漂移）。
 - **JA3 不承重**：TK 与官方 IDE 都是 Go/Node 原生 TLS 栈，ClientHello 同源。故 TLS 走可选被动
   pcap、仅记录、**永不门禁**；不得从 UA 推断 JA3，也不得捏造 JA3。
 - 采集机制 = **mitmproxy**：真实 IDE 必须走代理 + 信任 mitm CA。

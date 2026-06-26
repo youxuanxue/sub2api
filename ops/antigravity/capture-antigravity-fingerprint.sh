@@ -4,7 +4,8 @@
 #
 # Why mitmproxy (vs cc's collector-redirect and kiro's passive pcap): for
 # Antigravity the load-bearing fingerprint is the HTTP layer (impersonated client
-# UA *version*, body `userAgent`, ideType metadata, gl-node X-Goog-Api-Client),
+# UA *version* incl. the /hub/ subclient segment, body `userAgent`, ideType
+# metadata; X-Goog-Api-Client gl-node is expected ABSENT post-#756, presence = drift),
 # NOT the TLS JA3 — TokenKey and the real IDE share a native Go/Node TLS stack, so
 # the ClientHello is same-origin and JA3 carries no signal. The cloudcode-pa
 # endpoint is hard-coded (cannot be redirected like cc), so the on-wire HTTP is
