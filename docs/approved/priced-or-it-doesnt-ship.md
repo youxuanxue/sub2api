@@ -30,9 +30,10 @@ supersedes: none
   upstream-new id that has **no price** → billed `$0` (`served_zero_cost` is
   observability-only; it never rejects).
 - **Decision:** at serving admission, if the billing model has **no resolvable price**
-  (`!IsModelPriced`), **reject** with a clear 4xx instead of serving `$0`. Gate is
-  **setting-gated, default OFF** (`SettingKeyPricedServingGateEnabled`) so P0 ships zero
-  behavior change.
+  (`!IsModelPriced`), **reject with a `404` shaped exactly like the upstream
+  "model not available"** (internal subcode `model_not_priced`) instead of serving `$0`.
+  Gate is **setting-gated, default OFF** (`SettingKeyPricedServingGateEnabled`) so P0 ships
+  zero behavior change.
 - This is the **runtime counterpart of the CI-time A1 guard**
   (`catalog-serving-drift.py`: every catalog/manifest id is price-resolvable). A1 only
   protects *onboarded* ids at CI; the catch-all path serves *non-manifest* ids at runtime
@@ -45,7 +46,7 @@ supersedes: none
   litellm mirror), writes it to the **PRICE owner only** (`channel_model_pricing` /
   overlay, aligning with the "② runtime pricing" track), and the model passes the gate on
   the next request — minutes, no human, no release. A model with **no sourceable price**
-  stays blocked (loud 4xx) instead of leaking `$0`.
+  stays blocked (loud 404) instead of leaking `$0`.
 
 ## 1. The gap (grounded in code)
 
@@ -65,8 +66,8 @@ already covered.
 
 **Invariant (the one rule):** for every gateway request, after the billing model id is
 resolved and before the upstream forward, if `!PricingCatalogService.IsModelPriced(billingModel, platform)`
-then **reject** with `4xx model_not_priced` ("this model is not currently available")
-— *unless the gate is disabled* (default).
+then **reject with `404`** (internal subcode `model_not_priced`) — *unless the gate is
+disabled* (default).
 
 - **Gate point:** request admission, reusing the existing price predicate
   `PricingCatalogService.IsModelPriced(modelID, platform)` (`pricing_catalog_membership_tk.go:51`),
@@ -78,9 +79,13 @@ then **reject** with `4xx model_not_priced` ("this model is not currently availa
 - **Companion file:** a `*_tk_*.go` admission helper (e.g.
   `gateway_handler_tk_priced_serving_gate.go`) called from the gateway entry; the upstream
   handler gains one import + one guard call (rule §5 minimal-invasion).
-- **Reject shape:** a real 4xx with a stable error code the client can read, not a 5xx and
-  not a silent `$0` success. Emit a structured `priced_serving_gate.rejected` log
-  (model, platform, api_key/group) so ops sees enforcement, symmetric to `served_zero_cost`.
+- **Reject shape (D1):** a `404` whose body is byte-shaped like the upstream's
+  "model not available" so the client's SDK handles it with its existing unknown-model
+  path — **not** a `403` (reads as an auth/permission failure → wrong client retry +
+  support noise) and **not** a silent `$0` success. The priced-vs-unknown distinction is
+  an **ops** concern, carried in the body subcode `model_not_priced` + a structured
+  `priced_serving_gate.rejected` log (model, platform, api_key/group), symmetric to
+  `served_zero_cost` — never in the HTTP status the client branches on.
 
 **Why fail-closed, not "serve + alert":** "serve + alert" optimizes for *never rejecting a
 request* at the cost of (a) silent revenue leak and (b) shipping an un-vetted model to a
@@ -127,22 +132,43 @@ may reject for a few minutes while the price lands.
 1. **Signal.** A gate rejection (or the existing `served_zero_cost` / `PricingMissing`
    signal) names an unpriced model that is a **candidate** (known to the catalog candidate
    set — not arbitrary client garbage).
-2. **Fetch (trusted source, 禁臆造).** Resolve a price from, in order: the model's
-   **official price page** (with `source` URL + capture date) → the **litellm mirror**. This
-   is the exact contract the `apply-pricing-hotfix.py` runbook already encodes; phase 2
-   wires it to the signal so it runs without a human for sourceable prices.
+2. **Fetch + autonomy tier by source (D3, 禁臆造).** Resolve a price and **let the source
+   decide autonomy** — the tier is *derived*, never an operator flag:
+   - **Official price page** (Vertex / OpenAI / Anthropic, with `source` URL + capture
+     date) → **fully automatic apply**, no human, no release. Making a human rubber-stamp
+     an authoritative price is bureaucratic theater; this is the "model works minutes after
+     upstream ships it" magic.
+   - **litellm mirror only** (no official source found) → **do NOT auto-apply.** litellm is
+     a derived, occasionally-wrong feed (its `$0 = unknown` trap); applying it unattended
+     mischarges customers, and a wrong price destroys trust worse than a few minutes of
+     latency. Push a **one-click confirm** (Feishu card / admin action) with the proposed
+     price pre-filled — a 5-second human approval, not a 30-minute research task.
+
+   This is the exact source contract `apply-pricing-hotfix.py` already encodes; phase 2
+   wires it to the signal and splits auto-apply vs one-click by source.
 3. **Apply to the PRICE owner.** Write to `channel_model_pricing` (runtime, no release —
    the "② runtime pricing" track) or stage the durable overlay fill. **No `model_mapping`
    write.** Price precedence is unchanged (`channel_model_pricing` > overlay > litellm > Go
    fallback).
 4. **Serve.** The next request resolves a price → passes the gate. A model whose price is
-   **not sourceable** stays blocked (loud 4xx), surfaced for a human to price or decline —
-   never a silent `$0`.
+   **not sourceable at all** stays blocked (loud `404`), surfaced for a human to price or
+   decline — never a silent `$0`.
 
 **Alignment, not duplication:** this is the demand-driven trigger for the already-staged "②
 runtime pricing" work in `channel-pricing-refund-gate-and-runtime-pricing.md`. The refund
 gate / validator invariants there become load-bearing here. Phase 2 does not invent a new
 price writer; it triggers the planned one.
+
+**Writer scope (D4) — P1 does NOT block on the full ② build.** `channel_model_pricing`
+*already* carries `token / per_request / image` prices today (`channel.go:75`) — which
+covers gemini chat + imagen, i.e. the bulk of the §5-P2-first gemini/Vertex catch-all leak.
+So P1 auto-pricing writes those dimensions to `channel_model_pricing` (runtime, no release)
+**now**, with no dependency on ②. The dimensions the channel writer cannot carry yet —
+`video` / per-second / thinking (veo, seedance, thinking models) — stay **human-onboarded
+via the overlay** until ② adds those resolver paths; for them the gate simply keeps an
+unpriced id blocked until a human prices it. When ② lands, auto-pricing extends to those
+dimensions for free. (Overlay is `//go:embed`-ed → needs a release to take effect, so it is
+the *fallback* for not-yet-runtime dimensions, never the auto-pricing hot path.)
 
 ## 5. Phasing & rollout (each phase independently safe)
 
@@ -150,7 +176,7 @@ price writer; it triggers the planned one.
 | --- | --- | --- | --- |
 | **P0** | `SettingKeyPricedServingGateEnabled` (default **false**) + admission gate companion + reject-shape + structured log + tests + sentinel | **none** (gate off) | gate code reviewed; `served_zero_cost` baseline captured |
 | **P1** | Auto-pricing trigger wired to the unpriced signal (§4); price-source trust contract enforced | none to serving; prices start landing automatically | auto-pricing observed to fill real gaps within minutes; no mis-sourced price |
-| **P2** | Flip the default **per platform** (start with the catch-all platform, e.g. gemini/Vertex), with soak | unpriced ids now rejected instead of `$0`-served | per-platform: `served_zero_cost` for that platform reads ~0 over the soak window |
+| **P2** | Flip the default **per platform, gemini/Vertex first (D2)** — the catch-all hot spot — then roll the rest, each with soak | unpriced ids now rejected instead of `$0`-served | per-platform: `served_zero_cost` for that platform reads ~0 over the soak window |
 
 P2 is per-platform and reversible (flip the setting back). The manual catch-all "safety
 ritual" in `tokenkey-servable-model-refresh` (probe → price → soak → clear mapping) is
@@ -184,18 +210,38 @@ platform-scoped setting, used for staged rollout, not as a permanent bypass.
 - **Sentinel** (`scripts/sentinels/*.json`): pin the gate call site + `IsModelPriced` usage
   in the admission helper, so an upstream merge / refactor cannot silently drop the gate.
 - **Preflight test:** the R3 predicate-parity test + a gate-on/gate-off unit test (gate off ⇒
-  unpriced served as today; gate on ⇒ unpriced rejected 4xx, priced served).
+  unpriced served as today; gate on ⇒ unpriced rejected 404, priced served).
 - **Setting default test:** assert `SettingKeyPricedServingGateEnabled` cold-start default is
   `false` (the P0 safety invariant), mirroring the §9.1-style "default stays safe" guards.
 
-## 8. Open questions (for approval)
+## 8. Decisions (resolved — Jobs-view directive)
 
-1. **Reject status/code.** `403 model_not_priced` vs `404 model_not_found` vs `400`? (Lean
-   `403` — the model exists upstream but is not *permitted* until priced; distinguishable
-   from a true unknown-model `404`.)
-2. **P2 first platform.** Confirm gemini/Vertex (the catch-all hot spot) as the first
-   default-flip, others to follow.
-3. **Auto-pricing autonomy.** Fully auto-apply a litellm-sourced price, or auto-apply only
-   official-sourced and queue litellm-only for one-click human confirm? (Trust vs latency.)
-4. **Scope of P1 price writer.** Land "② runtime pricing" (`channel_model_pricing` gains the
-   write path) as the P1 dependency, or have P1 stage overlay fills until ② is ready?
+The four prior open questions are decided. Each reframed by "what does the user
+experience?" — three have an obvious answer; only D3 is a genuine taste call.
+
+- **D1 — Reject code: `404`, not `403`.** TK is a drop-in for the upstream APIs; their
+  "model not available" is `404 model_not_found`. A `403` reads to the client SDK as an
+  auth/permission failure → wrong retry path + support noise. The priced-vs-unknown
+  distinction is an **ops** concern → it lives in the body subcode `model_not_priced` + the
+  structured log, never in the HTTP status the client branches on. (Reframe: "distinguish
+  from 404" was the wrong goal — the client doesn't need the distinction; ops does, and gets
+  it out-of-band.)
+- **D2 — First default-flip platform: gemini/Vertex.** The fire is here — the empty-mapping
+  catch-all, the manual safety ritual, and the highest new-model cadence (imagen/veo/
+  gemini-N) with clear official price pages. Blast radius is one platform and reversible.
+  Prove it here, then roll the rest.
+- **D3 — Auto-pricing autonomy: two-tier, derived from source (the one real judgment).**
+  Official-sourced price → **fully automatic** (rubber-stamping an authoritative price is
+  theater). litellm-mirror-only → **one-click human confirm** (price pre-filled), because an
+  unattended wrong price mischarges customers and a wrong price destroys trust worse than a
+  few minutes of latency. The tier is *derived from the source*, not an operator flag — one
+  rule, no escape hatch.
+- **D4 — P1 price writer: `channel_model_pricing` for token/image now; do NOT block on the
+  full ②.** The channel writer already carries `token / per_request / image` — enough for
+  gemini chat + imagen, the bulk of the D2 hot spot — at runtime with no release. `video` /
+  per-second / thinking dimensions wait for ② and stay human-onboarded (overlay) meanwhile;
+  the gate just keeps those unpriced ids blocked until priced. P1 aligns with ② without
+  depending on its completion.
+
+These decisions make the gate shippable for the gemini/Vertex hot spot with **mostly-
+automatic** pricing — the point of the whole design.
