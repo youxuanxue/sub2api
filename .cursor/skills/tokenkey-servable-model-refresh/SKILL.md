@@ -29,10 +29,11 @@ description: >-
 **已达基线**——可机械化的步骤全在脚本里，prompt 不重复它们：
 
 - **机械化（脚本承载）**：候选派生（按 litellm vendor + 是否有价，分 chat/responses/image
-  家族，Gemini 另走 discovered + seed）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
+  家族，Gemini 另走 discovered + seed）、**24h 流量短路**（从 `usage_logs` 拉近窗成功流量、
+  与候选集求交、跳过 SSM 探测）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
   `servable`、dated 去重、Go map splice、分批避开 SSM 等待窗口、自动开 PR——全在
-  `refresh-servable-allowlist.py` / `probe-servable-models.sh`，`selftest` 子命令覆盖，
-  preflight `servable-allowlist generator selftest` 门禁 + sentinel 守 splice 标记。
+  `refresh-servable-allowlist.py` / `probe-servable-models.sh` / `probe-traffic-proven-models.sh`，
+  `selftest` 子命令覆盖，preflight `servable-allowlist generator selftest` 门禁 + sentinel 守 splice 标记。
 - **真判断（留给人/agent）**：① `inconclusive`（429/502/503）的取舍——它常是「该探测组没有
   这类账号」而非模型本身不可用（如 image 经 GPT专线组、专用 codex 池）；要不要给别的组 key
   扩探测再加回，是判断。② 审 PR diff 是否合理（突然大幅增删要查是不是探测设置坏了，看
@@ -56,6 +57,34 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 ```
 
 `run` 不带 `--open-pr` 只重写本地 Go 文件，便于先审 `git diff`。
+
+### 24h 流量短路（`--skip-proven-by-traffic`，加性优化、默认关、可灰度）
+
+全量探测约 162 模型 / 16 批 / 8–15 分钟。很多候选**近 24h 已被真实客流成功调用**，再探纯属浪费。
+`--skip-proven-by-traffic`（或 env `REFRESH_SKIP_PROVEN_BY_TRAFFIC=1`）在探测前先经 `run-probe.sh` 投递
+`probe-traffic-proven-models.sh`，只读聚合 `usage_logs` 近 `--traffic-hours`（默认 24）的成功流量，把
+**已被流量证明 servable 的候选直接判 servable 并移出探测批**，batch 数显著下降：
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --traffic-hours 48
+# probe 子命令同样支持；被跳过的模型以 servable 行写进 TSV，apply 仍完整
+python3 ops/pricing/refresh-servable-allowlist.py probe --skip-proven-by-traffic | tee /tmp/servable.tsv
+```
+
+跳过项显式打到 stderr 供人审：`[refresh] skipping N models proven by 24h traffic: anthropic/claude-opus-4-8, …`。
+
+**正确性契约（改动前必读，全是为了不引入假阳/假阴）**：
+
+- **纯加性**：流量成功=确凿 servable 正证据；**没流量 ≠ 不可服务**（可能只是没人调）——未命中流量的候选
+  **仍正常进探测批**，短路只删探测、绝不判 unsupported。默认关，保守全探仍是基线，开关用于灰度。
+- **只能跳/加候选集内模型**：proven 集与派生候选集求交，流量无法把候选集外（无价/未知）模型塞进 allowlist。
+- **平台桶按候选集定，不按服务账号**：Vertex 经 `accounts.platform='newapi'` 服务，所以流量里的
+  `gemini-2.5-pro` 按其**候选平台** `gemini` 入桶；`usage_logs` 行只需 model id 命中候选即可。
+- **deadlist 不会因一条流量复活**：skiplist/deadlist 早已从候选集剔除，proven 再过一遍
+  `validate_results_against_reprobe_ledger` 兜底。
+- `usage_logs` 一行 = 一次**计费**请求（不耗 token 的错误不落行）；查询再要求真实产出（token/图/视频）
+  排除 `$0` 占位行，确保不把空请求当 servable 证据。
 
 ## Gemini / Vertex 三族（newapi 第五平台，探测目标 us6）
 
