@@ -35,10 +35,22 @@ type kiroEndpoint struct {
 // to the legacy direct CodeWhisperer/Q endpoints, which remain LIVE as of
 // 2026-06-26 (q + codewhisperer.us-east-1.amazonaws.com resolve to the same IP
 // and still answer requests), so this is a FORWARD-COMPAT WATCH item, not an
-// outage. If AWS deprecates the direct endpoints in favour of the kiro.dev
-// gateway, migrating requires first capturing the IDE's HTTP request to
-// runtime.us-east-1.kiro.dev (path / x-amz-target / body / headers) — do NOT
-// swap the host blindly, the gateway protocol may differ.
+// outage.
+//
+// EMPIRICALLY VALIDATED (2026-06-26, edge-us6, real OAuth account kiro-us6-real):
+// the *.kiro.dev gateway is protocol-identical to the legacy hosts for TokenKey's
+// exact on-wire request (this file's headers + the KiroPayload body):
+//   - data plane: POST https://runtime.us-east-1.kiro.dev/generateAssistantResponse
+//     with X-Amz-Target=AmazonCodeWhispererStreamingService.GenerateAssistantResponse
+//     returned HTTP 200 + a real assistant event-stream (application/vnd.amazon.eventstream),
+//     identical in shape to legacy q/codewhisperer generateAssistantResponse.
+//   - control plane: POST https://management.us-east-1.kiro.dev/ListAvailableProfiles
+//     returned HTTP 200 with the SAME profileArn as legacy codewhisperer.
+// So migration is now a SAFE host swap (q/codewhisperer.us-east-1.amazonaws.com ->
+// runtime/management.us-east-1.kiro.dev, same path / x-amz-target / body / headers),
+// deferred only because the legacy hosts still answer. When AWS sunsets them, flip
+// the URLs below (keep AmzTarget=AmazonCodeWhispererStreamingService.GenerateAssistantResponse)
+// and re-run ops/kiro/probe_runtime_gateway.py from the serving edge to re-confirm.
 var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
