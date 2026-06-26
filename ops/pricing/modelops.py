@@ -458,9 +458,12 @@ def probe_env_name(account_id: str, model_id: str, overlay: dict[str, dict[str, 
 
 def run_probe_command(env_name: str, models: list[str]) -> str:
     env_value = f"{env_name}={' '.join(models)}"
+    # probe-servable-models.sh resolves every probe key through reserved
+    # __tk_probe_* groups; its companion library must ride along via --with.
     return (
         "bash ops/observability/run-probe.sh --target prod "
         "--script ops/pricing/probe-servable-models.sh "
+        "--with ops/pricing/probe_reserved_resources.sh "
         f"--env {shlex.quote(env_value)} --timeout-seconds 300"
     )
 

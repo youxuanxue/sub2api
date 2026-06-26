@@ -675,6 +675,12 @@ def live_probe(candidates: dict[str, list[str]]) -> str:
         # Re-probe the edge-servable set via the prod gateway per mirror sub-pool and WARN
         # on any model an edge serves but a prod mirror does not (edge通 prod不通). These rows
         # carry distinct platform tags that parse_results ignores — never the allowlist.
+        # NOTE: this only covers models actually edge-probed THIS run. A model short-
+        # circuited by 24h traffic (--skip-proven-by-traffic) is removed from candidates
+        # before live_probe, so it is absent from edge_servable and its prod relay health
+        # is NOT checked here. That is acceptable (relay health is warning-only and the
+        # model demonstrably served real traffic); run a full probe to relay-health-check
+        # every served model.
         edge_servable = _servable_tag("\n".join(edge_rows), "anthropic")
         if edge_servable:
             mrows: list[str] = []

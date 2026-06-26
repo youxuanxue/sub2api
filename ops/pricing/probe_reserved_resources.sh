@@ -357,8 +357,11 @@ tk_probe_prepare_catalog() { # $1=scope $2=platform $3=bind_kind $4=bind_val
 	if ! tk_probe_acquire_reuse_lock "$scope"; then
 		return 1
 	fi
-	tk_probe_ensure_group "$scope" "$platform"
-	tk_probe_ensure_key "$scope"
+	# Stop at the first failure (errexit is intentionally off, see header) so a
+	# failed group/key ensure surfaces ONE clean error instead of cascading into
+	# the downstream re-validation guards (3 stderr lines for the same root cause).
+	tk_probe_ensure_group "$scope" "$platform" || return 1
+	tk_probe_ensure_key "$scope" || return 1
 	case "$bind_kind" in
 	account_ids) tk_probe_bind_account_ids "$scope" "$bind_val" ;;
 	source_group) tk_probe_bind_from_group "$scope" "$bind_val" ;;
