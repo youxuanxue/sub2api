@@ -120,6 +120,7 @@ type UsageCache struct {
 	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
+	kiroFlight        singleflight.Group // Kiro 主动「查询」并发去重（仅 force=true 用，无正缓存）
 	openAIProbeCache  sync.Map           // accountID -> time.Time
 }
 
@@ -192,6 +193,11 @@ type UsageInfo struct {
 
 	// Antigravity 多模型配额
 	AntigravityQuota map[string]*AntigravityModelQuota `json:"antigravity_quota,omitempty"`
+
+	// Kiro（CodeWhisperer）credits/额度/重置日/订阅/试用，见
+	// account_usage_service_tk_kiro.go。其它平台的「用量窗口」是 5h/7d 滚动窗，
+	// kiro 是一个 credits 预算 + 月度重置日 + 可选试用额度，故单列一块。
+	KiroUsage *KiroUsageInfo `json:"kiro_usage,omitempty"`
 
 	// Antigravity 账号级信息
 	SubscriptionTier    string `json:"subscription_tier,omitempty"`     // 归一化订阅等级: FREE/PRO/ULTRA/UNKNOWN
@@ -322,6 +328,18 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
 	if account.Platform == PlatformAntigravity {
 		usage, err := s.getAntigravityUsage(ctx, account)
+		if err == nil {
+			s.tryClearRecoverableAccountError(ctx, account)
+		}
+		return usage, err
+	}
+
+	// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
+	// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。必须在 CanGetUsage()
+	// 之前分流——kiro 是 type=oauth，否则会误入下面的 Anthropic 路径用 kiro token
+	// 打 anthropic 端点必然失败。见 account_usage_service_tk_kiro.go。
+	if account.IsKiro() {
+		usage, err := s.getKiroUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -478,6 +496,13 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 	// 概览只能显示「-」。
 	if account.IsOpenAIOAuth() {
 		return s.buildPassiveOpenAIUsage(account), nil
+	}
+
+	// Kiro 账号：从 Extra 的 kiro_usage_* 被动采样重建 credits/订阅/试用，绝不
+	// 调用上游 GetUsageLimits——edge accounts overview 跨全部账号扇出，渲染概览
+	// 时不能打上游。运维点「查询」走 active 路径（getKiroUsage）回写这些键。
+	if account.IsKiro() {
+		return s.buildPassiveKiroUsage(account), nil
 	}
 
 	if !account.IsAnthropicOAuthOrSetupToken() {

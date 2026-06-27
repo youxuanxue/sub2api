@@ -4671,7 +4671,10 @@ export default {
         gemini3Image: 'G31FI',
         claude: 'Claude',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        kiroCredits: 'Credits',
+        kiroTrial: 'Trial',
+        kiroTrialExpires: 'Trial ends'
       },
       openaiQuotaReset: {
         count: 'Credits',

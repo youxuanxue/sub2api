@@ -114,6 +114,41 @@ describe('toUsageInfo', () => {
     expect(info?.seven_day_sonnet?.utilization).toBe(33)
     expect(info?.seven_day_sonnet?.resets_at).toBe('2026-06-22T14:00:00Z')
   })
+
+  it('lifts the edge kiro credits DTO into nested kiro_usage so the KiroUsageCell renders', () => {
+    const info = toUsageInfo(
+      acct({
+        platform: 'kiro',
+        type: 'oauth',
+        usage: {
+          source: 'passive',
+          kiro: {
+            current: 300,
+            limit: 1000,
+            percent: 30,
+            next_reset_date: '2026-07-01',
+            subscription_title: 'Kiro Pro',
+            trial_percent: 10,
+            trial_status: 'ACTIVE',
+            trial_expires_at: '2026-07-15T00:00:00Z'
+          }
+        }
+      })
+    )
+    expect(info?.kiro_usage?.percent).toBe(30)
+    expect(info?.kiro_usage?.limit).toBe(1000)
+    expect(info?.kiro_usage?.next_reset_date).toBe('2026-07-01')
+    expect(info?.kiro_usage?.subscription_title).toBe('Kiro Pro')
+    expect(info?.kiro_usage?.trial?.percent).toBe(10)
+    expect(info?.kiro_usage?.trial?.expires_at).toBe('2026-07-15T00:00:00Z')
+  })
+
+  it('leaves kiro_usage null when the edge reported no kiro block', () => {
+    const info = toUsageInfo(
+      acct({ usage: { source: 'passive', five_hour: { utilization: 10 } } })
+    )
+    expect(info?.kiro_usage ?? null).toBeNull()
+  })
 })
 
 describe('matchesStatusFilter', () => {

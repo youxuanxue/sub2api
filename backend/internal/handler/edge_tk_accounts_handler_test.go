@@ -475,6 +475,61 @@ func TestEdgeAccountsHandler_PopulatesOpenAIOAuthUsageWindows(t *testing.T) {
 	require.Equal(t, 34.0, got.Usage.SevenDay.Utilization)
 }
 
+func TestEdgeAccountsHandler_PopulatesKiroUsageWindows(t *testing.T) {
+	kiroAcct := service.Account{
+		ID:          11,
+		Name:        "edge-kiro-1",
+		Platform:    service.PlatformKiro,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		CreatedAt:   time.Now(),
+	}
+	stub := &edgeAccountsListerStub{accounts: []service.Account{kiroAcct}}
+	h := NewEdgeAccountsHandler(
+		stub,
+		fakeConcReader{m: map[int64]int{11: 1}},
+		nil,
+		nil,
+		fakeUsageReader{
+			passive: &service.UsageInfo{
+				Source: "passive",
+				KiroUsage: &service.KiroUsageInfo{
+					Current:           300,
+					Limit:             1000,
+					Percent:           30,
+					NextResetDate:     "2026-07-01",
+					SubscriptionTitle: "Kiro Pro",
+					Trial: &service.KiroTrialInfo{
+						Percent: 10,
+						Status:  "ACTIVE",
+					},
+				},
+			},
+		},
+	)
+	w := performEdgeAccountsRequest(t, h, "?platform=kiro")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Accounts, 1)
+	got := env.Data.Accounts[0]
+
+	require.NotNil(t, got.Usage)
+	require.Equal(t, "passive", got.Usage.Source)
+	require.NotNil(t, got.Usage.Kiro)
+	require.Equal(t, 300.0, got.Usage.Kiro.Current)
+	require.Equal(t, 1000.0, got.Usage.Kiro.Limit)
+	require.Equal(t, 30.0, got.Usage.Kiro.Percent)
+	require.Equal(t, "2026-07-01", got.Usage.Kiro.NextResetDate)
+	require.Equal(t, "Kiro Pro", got.Usage.Kiro.SubscriptionTitle)
+	require.Equal(t, 10.0, got.Usage.Kiro.TrialPercent)
+	require.Equal(t, "ACTIVE", got.Usage.Kiro.TrialStatus)
+}
+
 func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {
 	h := NewEdgeAccountsHandler(&edgeAccountsListerStub{}, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=bogus")

@@ -3859,7 +3859,10 @@ export default {
         gemini3Image: 'G31FI',
         claude: 'Claude',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        kiroCredits: '额度',
+        kiroTrial: '试用',
+        kiroTrialExpires: '试用到期'
       },
       openaiQuotaReset: {
         count: '次数',

@@ -56,9 +56,9 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 		if account == nil {
 			continue
 		}
-		// 仅被动用量可服务的账号才纳入（与单查 gate 一致）：Anthropic OAuth/SetupToken
-		// 或 OpenAI OAuth。其余（apikey 等）单查会报错，此处跳过让 cell 显示「-」。
-		if !account.IsAnthropicOAuthOrSetupToken() && !account.IsOpenAIOAuth() {
+		// 仅被动用量可服务的账号才纳入（与单查 gate 一致）：Anthropic OAuth/SetupToken、
+		// OpenAI OAuth 或 Kiro。其余（apikey 等）单查会报错，此处跳过让 cell 显示「-」。
+		if !account.IsAnthropicOAuthOrSetupToken() && !account.IsOpenAIOAuth() && !account.IsKiro() {
 			continue
 		}
 		// TK perf: the account is already fully loaded (GetByIDs above), so build
@@ -95,6 +95,12 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 	// sampling, never probing upstream — same source as GetPassiveUsage.
 	if account.IsOpenAIOAuth() {
 		return s.buildPassiveOpenAIUsage(account), nil
+	}
+
+	// Kiro: rebuilt from Extra's kiro_usage_* passive sampling, never probing
+	// upstream — mirrors GetPassiveUsage's kiro branch.
+	if account.IsKiro() {
+		return s.buildPassiveKiroUsage(account), nil
 	}
 
 	if !account.IsAnthropicOAuthOrSetupToken() {
