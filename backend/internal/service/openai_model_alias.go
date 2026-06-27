@@ -55,23 +55,6 @@ func normalizeKnownOpenAICodexModel(model string) string {
 		return ""
 	}
 
-	// GPT-5.6 billing tiers precede codexModelMap: wire ids such as chat-latest are
-	// not billing keys and must collapse to Sol/Terra/Luna before getNormalizedCodexModel.
-	if strings.Contains(normalized, "gpt-5.6") {
-		switch {
-		case strings.Contains(normalized, "luna"):
-			return "gpt-5.6-luna"
-		case strings.Contains(normalized, "terra"):
-			return "gpt-5.6-terra"
-		case strings.Contains(normalized, "chat"):
-			return "gpt-5.6-sol"
-		case strings.Contains(normalized, "sol") || normalized == "gpt-5.6":
-			return "gpt-5.6-sol"
-		default:
-			return "gpt-5.6-sol"
-		}
-	}
-
 	if mapped := getNormalizedCodexModel(normalized); mapped != "" {
 		return mapped
 	}
@@ -107,6 +90,25 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 }
 
+// normalizeOpenAIBillingModel maps OpenAI/Codex wire ids to billing tier keys.
+// Codex wire transform keeps ids such as gpt-5.6-chat-latest; billing collapses them to Sol/Terra/Luna.
+func normalizeOpenAIBillingModel(model string) string {
+	normalized := normalizeKnownOpenAICodexModel(model)
+	if normalized == "" || !strings.Contains(normalized, "gpt-5.6") {
+		return normalized
+	}
+	switch {
+	case strings.Contains(normalized, "luna"):
+		return "gpt-5.6-luna"
+	case strings.Contains(normalized, "terra"):
+		return "gpt-5.6-terra"
+	case strings.Contains(normalized, "chat"), strings.Contains(normalized, "sol"), normalized == "gpt-5.6":
+		return "gpt-5.6-sol"
+	default:
+		return "gpt-5.6-sol"
+	}
+}
+
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {
@@ -129,7 +131,7 @@ func appendUsageBillingModelCandidate(candidates []string, seen map[string]struc
 	if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
 		add(canonical)
 	}
-	if normalized := normalizeKnownOpenAICodexModel(trimmed); normalized != "" {
+	if normalized := normalizeOpenAIBillingModel(trimmed); normalized != "" {
 		add(normalized)
 	}
 	return candidates
