@@ -156,6 +156,26 @@ func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
 	require.Equal(t, int64(2), logRepo.singleCalls.Load(), "grok local 5h/7d windows come from usage logs")
 }
 
+func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {
+	acct := Account{ID: 77, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{77: 12.5}}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: []Account{acct}},
+		usageLogRepo: logRepo,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 77)
+
+	require.NoError(t, err)
+	require.Equal(t, "passive", usage.Source)
+	require.NotNil(t, usage.FiveHour)
+	require.NotNil(t, usage.FiveHour.WindowStats)
+	require.NotNil(t, usage.SevenDay)
+	require.NotNil(t, usage.SevenDay.WindowStats)
+	require.Equal(t, 12.5, usage.FiveHour.WindowStats.Cost)
+	require.Equal(t, int64(2), logRepo.singleCalls.Load())
+}
+
 func TestGetPassiveUsageBatch_EmptyAndNilSafe(t *testing.T) {
 	svc := &AccountUsageService{
 		accountRepo:  &passiveBatchAccountRepo{},
