@@ -258,8 +258,10 @@ probe_openai_endpoint() { # back-compat wrapper: openai family always targets PR
 
 # probe_edge_internal_compat: native edge-served OpenAI-compat probe. Runs ON an edge
 # host and hits the app container directly via the caddy container (busybox wget over the
-# docker network, bypassing the edge Caddy /v1/* CIDR restriction). Shared by the native
-# edge platforms grok + antigravity — only the emit-tag, container, and app URL differ.
+# docker network, bypassing the edge Caddy /v1/* CIDR restriction). Used by grok (the only
+# edge-internal native platform today); parametrized over emit-tag/container/app-url so a
+# future edge-internal platform can reuse it. NB antigravity does NOT use this — its
+# accounts are prod-served, so it probes the prod public gateway via probe_compat_endpoint.
 probe_edge_internal_compat() { # $1=tag $2=container $3=app-url $4=key $5=endpoint $6=models $7=jsonbody-template-fn
 	local tag="$1" container="$2" appurl="$3" key="$4" path="$5" models="$6" buildfn="$7" m hf bf code body
 	for m in $models; do
@@ -437,15 +439,17 @@ main() {
 			cfgerr grok "failed to prepare __tk_probe_grok_* (source_group=$PROBE_GROK_SOURCE_GROUP)"
 		fi
 	fi
-	# Antigravity family: native edge-served (accounts e.g. antigravity-us3/us4 in the
-	# "Google-Gemini" group). Same edge-internal transport as grok (caddy -> app:8080).
-	# Probe key is a TK api_key bound to the edge-side antigravity group; never printed.
+	# Antigravity family: accounts (e.g. antigravity-us3/us4 in the "Google-Gemini" group)
+	# live in the PROD DB and schedule from prod, so antigravity probes the PROD public
+	# gateway with external curl — same transport as gemini/zhipu, NOT the edge-internal
+	# wget hop (the "-usN" suffix is an upstream label, not an edge). Probe key is a TK
+	# api_key bound to the prod Google-Gemini group; never printed.
 	if [ -n "${ANTIGRAVITY_CHAT_MODELS:-}" ]; then
 		if tk_probe_catalog_key antigravity antigravity source_group "$PROBE_ANTIGRAVITY_SOURCE_GROUP"; then
 			agkey="$REPLY_KEY"
 			probe_compat_endpoint antigravity "$PROD" "$agkey" /v1/chat/completions "$ANTIGRAVITY_CHAT_MODELS" body_chat
 		else
-			cfgerr antigravity "failed to prepare __tk_probe_antigravity_* (source_group=$PROBE_ANTIGRAVITY_SOURCE_GROUP — this edge has no schedulable antigravity account; rotate to another edge)"
+			cfgerr antigravity "failed to prepare __tk_probe_antigravity_* (source_group=$PROBE_ANTIGRAVITY_SOURCE_GROUP — the prod Google-Gemini group has no schedulable antigravity account)"
 		fi
 	fi
 	# Gemini family: newapi/Vertex models. Live Vertex capacity moved from edge us6
