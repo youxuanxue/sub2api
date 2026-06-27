@@ -95,11 +95,11 @@
     {
       "platform": "gemini",
       "model": "gemini-2.5-flash-image",
-      "reason": "2026-06-23 edge-us6 /v1/chat/completions reprobe returned 429 inconclusive; baseline gemini-2.5-flash also returned 429, so current Vertex path is pool/quota limited.",
+      "reason": "2026-06-23 edge-us6 /v1/chat/completions reprobe returned 429 inconclusive; baseline gemini-2.5-flash also returned 429, so current Vertex path is pool/quota limited. gemini-*-image now ride the systematic gemini_chat_image family (chat/generateContent surface).",
       "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
-      "probe_family": "gemini_chat"
+      "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
@@ -108,7 +108,7 @@
       "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
-      "probe_family": "gemini_chat"
+      "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
@@ -117,7 +117,7 @@
       "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
-      "probe_family": "gemini_chat"
+      "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
@@ -126,7 +126,7 @@
       "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": true,
-      "probe_family": "gemini_chat"
+      "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",

@@ -100,9 +100,11 @@ python3 ops/pricing/refresh-servable-allowlist.py probe --skip-video | tee /tmp/
 ## Gemini / Vertex 三族（newapi 第五平台，探测目标 prod）
 
 gpt 经 prod 探测；claude **直探 edge 原生 OAuth 池**（见下文判断要点）；**gemini/Vertex 也经 prod 的 `google-vertex` 组探测**（live Vertex 账号
-ids 47/57/58/59 在 prod；旧 us6 `google` 组账号已软删、清空）。三族：
-`GEMINI_CHAT_MODELS`→`/v1/chat/completions`、`GEMINI_IMAGE_MODELS`→`/v1/images/generations`、
+ids 47/57/58/59 在 prod；旧 us6 `google` 组账号已软删、清空）。四族：
+`GEMINI_CHAT_MODELS`→`/v1/chat/completions`、`GEMINI_IMAGE_MODELS`→`/v1/images/generations`（**imagen-*** predict API）、
+`GEMINI_CHATIMAGE_MODELS`→`/v1/chat/completions`（**gemini-*-image / nano-banana** 经 chat/generateContent 出图，非 imagen predict 面）、
 `GEMINI_VIDEO_MODELS`→`/v1/video/generations`（异步 submit 200 即 servable，best-effort）。
+`split_gemini_families` 自动按名分流：`imagen-`→`gemini_image`、`image`/`nano-banana`→`gemini_chat_image`、其余 `gemini-`→`gemini_chat`、`veo-`→`gemini_video`；watchlist `probe_family` 可覆写。
 probe key 由 `__tk_probe_newapi_google_*` 自动 ensure（从 **google-vertex** 源组复制 schedulable 账号）。
 
 **走 prod 公网网关外部 curl**（与 openai/zhipu 同款），不再用 edge 内网 `docker exec wget`：Vertex 迁到
