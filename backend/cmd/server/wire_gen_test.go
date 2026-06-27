@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -59,16 +60,22 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		&service.OpsScheduledReportService{},
 		opsSystemLogSinkSvc,
 		schedulerSnapshotSvc,
+		nil, // schedulerRateLimitReaper
+		nil, // anthropicConfigReconciler
+		nil, // antigravityConfigReconciler
+		nil, // upstreamBalanceSentinel
 		tokenRefreshSvc,
 		accountExpirySvc,
 		proxyExpirySvc,
 		subscriptionExpirySvc,
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
+		nil, // holdReconciler
 		pricingSvc,
 		emailQueueSvc,
 		billingCacheSvc,
 		&service.UsageRecordWorkerPool{},
+		(*qaobs.Service)(nil), // qaCapture
 		&service.SubscriptionService{},
 		oauthSvc,
 		openAIOAuthSvc,
@@ -80,7 +87,15 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // backupSvc
 		nil, // paymentOrderExpiry
 		nil, // channelMonitorRunner
-		nil, // quotaFlusher
+		nil, // accountIncidentNotifier
+		nil, // pricingMissingNotifier
+		service.TKAuthServiceColdStartReady{},
+		service.TKGatewayPricingAvailabilityReady{},
+		service.TKPricingOverlayRuntimeReady{},
+		service.TKGatewayAnthropicSigPreemptReady{},
+		service.TKAnthropicSaturationReady{},
+		handler.TKGatewayHandlerModelListReady{},
+		service.TKUniversalModelsProviderReady{},
 	)
 
 	require.NotPanics(t, func() {

@@ -449,7 +449,10 @@ func TestAccountSupportsOpenAIImageCapability_EmptyRequirementDoesNotRejectGrok(
 	}
 
 	require.True(t, account.SupportsOpenAIImageCapability(""))
-	require.False(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityBasic))
+	// Grok is an OpenAI-compat platform and supports image generations via the xAI API
+	// (the route guard in tkOpenAICompatImageGenerationsHandler allows Grok groups, and
+	// IsOpenAICompatPlatform("grok") == true, so Basic capability is accepted).
+	require.True(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityBasic))
 }
 
 func TestAccountSupportsOpenAIEndpointCapability(t *testing.T) {

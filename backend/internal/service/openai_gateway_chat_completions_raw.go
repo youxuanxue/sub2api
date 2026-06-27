@@ -250,6 +250,21 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, error) {
 	if account.Platform == PlatformGrok {
+		// TK: API-key Grok accounts are prod→edge relay accounts. Their base_url
+		// points to a TK edge server (e.g. api-us4.tokenkey.dev), not to xAI, so
+		// they must skip the xAI host allowlist. An explicit base_url is required;
+		// if unset, the relay has nowhere to forward.
+		if account.Type == AccountTypeAPIKey {
+			rawBase := strings.TrimSpace(account.GetCredential("base_url"))
+			if rawBase == "" {
+				return "", fmt.Errorf("grok api-key relay: missing base_url")
+			}
+			base := strings.TrimRight(rawBase, "/")
+			if !strings.HasSuffix(base, "/v1") {
+				base += "/v1"
+			}
+			return base + "/chat/completions", nil
+		}
 		targetURL, err := xai.BuildChatCompletionsURL(account.GetGrokBaseURL())
 		if err != nil {
 			return "", fmt.Errorf("invalid grok base_url: %w", err)

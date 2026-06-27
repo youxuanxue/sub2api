@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"net/http"
-
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -36,16 +34,6 @@ func RegisterGatewayRoutes(
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
 
-	rejectGrokUnsupportedEndpoint := func(c *gin.Context, endpoint string) {
-		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"type":    "not_found_error",
-				"message": endpoint + " is not supported for Grok groups",
-			},
-		})
-	}
-
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
@@ -66,7 +54,7 @@ func RegisterGatewayRoutes(
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", tkOpenAICompatResponsesPOST(h))
 		gateway.POST("/responses/*subpath", tkOpenAICompatResponsesPOST(h))
-		gateway.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
+		gateway.GET("/responses", tkResponsesWebSocketHandler(h))
 		// OpenAI Chat Completions API: auto-route based on group platform
 		gateway.POST("/chat/completions", tkOpenAICompatChatCompletionsPOST(h))
 		gateway.POST("/embeddings", tkOpenAICompatEmbeddingsHandler(h))
@@ -100,7 +88,7 @@ func RegisterGatewayRoutes(
 	responsesHandler := tkOpenAICompatResponsesPOST(h)
 	r.POST("/responses", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
 	r.POST("/responses/*subpath", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
-	r.GET("/responses", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.ResponsesWebSocket)
+	r.GET("/responses", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkResponsesWebSocketHandler(h))
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
 	r.POST("/chat/completions", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatChatCompletionsPOST(h))
 	r.POST("/embeddings", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
@@ -114,13 +102,7 @@ func RegisterGatewayRoutes(
 	{
 		codexDirect.POST("/responses", responsesHandler)
 		codexDirect.POST("/responses/*subpath", responsesHandler)
-		codexDirect.GET("/responses", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformGrok {
-				rejectGrokUnsupportedEndpoint(c, "Responses WebSocket API")
-				return
-			}
-			h.OpenAIGateway.ResponsesWebSocket(c)
-		})
+		codexDirect.GET("/responses", tkResponsesWebSocketHandler(h))
 	}
 
 

@@ -94,8 +94,12 @@ func TestAccountGrokHelpers(t *testing.T) {
 // (grok+oauth only) and the expiry-window logic (no expiry -> refresh to prime;
 // far future -> skip; within window -> refresh).
 func TestGrokTokenRefresher_CanRefreshNeedsRefresh(t *testing.T) {
-	r := NewGrokTokenRefresher()
-	grok := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{}}
+	r := NewGrokTokenRefresher(nil)
+	// refresh_token must be present for NeedsRefresh to consider expiry at all;
+	// without one the refresher short-circuits to false (nothing to refresh with).
+	grok := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{
+		"refresh_token": "fake-rt-for-testing",
+	}}
 
 	if !r.CanRefresh(grok) {
 		t.Fatal("CanRefresh should be true for grok+oauth")
@@ -110,7 +114,8 @@ func TestGrokTokenRefresher_CanRefreshNeedsRefresh(t *testing.T) {
 	if !r.NeedsRefresh(grok, 5*time.Minute) {
 		t.Fatal("NeedsRefresh should be true when no expiry is recorded (prime path)")
 	}
-	grok.Credentials["expires_at"] = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	// Use 2h so we're well outside the 1h grokTokenRefreshSkew minimum window.
+	grok.Credentials["expires_at"] = strconv.FormatInt(time.Now().Add(2*time.Hour).Unix(), 10)
 	if r.NeedsRefresh(grok, 5*time.Minute) {
 		t.Fatal("NeedsRefresh should be false when expiry is far in the future")
 	}

@@ -17,9 +17,27 @@ func isOpenAICompatPlatform(platform string) bool {
 	return service.IsOpenAICompatPlatform(platform)
 }
 
+// tkRejectGrokEndpoint emits a 404 "not supported for Grok groups" response.
+// Grok is an OpenAI-compatible pool member for the Responses API only; the
+// Messages API and Chat Completions API are not supported.
+func tkRejectGrokEndpoint(c *gin.Context, endpoint string) {
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": gin.H{
+			"type":    "not_found_error",
+			"message": endpoint + " is not supported for Grok groups",
+		},
+	})
+}
+
 func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if isOpenAICompatPlatform(getGroupPlatform(c)) {
+		platform := getGroupPlatform(c)
+		if platform == service.PlatformGrok {
+			tkRejectGrokEndpoint(c, "/v1/messages")
+			return
+		}
+		if isOpenAICompatPlatform(platform) {
 			h.OpenAIGateway.Messages(c)
 			return
 		}
@@ -54,9 +72,26 @@ func tkOpenAICompatResponsesPOST(h *handler.Handlers) gin.HandlerFunc {
 	}
 }
 
+// tkResponsesWebSocketHandler wraps ResponsesWebSocket with a Grok rejection
+// gate. Grok only supports the Responses POST API (not WebSocket streaming).
+func tkResponsesWebSocketHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformGrok {
+			tkRejectGrokEndpoint(c, "Responses WebSocket API")
+			return
+		}
+		h.OpenAIGateway.ResponsesWebSocket(c)
+	}
+}
+
 func tkOpenAICompatChatCompletionsPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if isOpenAICompatPlatform(getGroupPlatform(c)) {
+		platform := getGroupPlatform(c)
+		if platform == service.PlatformGrok {
+			tkRejectGrokEndpoint(c, "/v1/chat/completions")
+			return
+		}
+		if isOpenAICompatPlatform(platform) {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
 		}

@@ -22,6 +22,22 @@ type openAISnapshotCacheStub struct {
 	filterPlatform string
 }
 
+// schedulerGroupRepoStubByID embeds GroupRepository to satisfy the interface
+// and returns a fixed platform for a given groupID from GetByID. Used by tests
+// that need resolveGroupPlatform to return a non-OpenAI platform without a real
+// DB or full scheduler snapshot.
+type schedulerGroupRepoStubByID struct {
+	GroupRepository
+	groups map[int64]string // groupID → platform
+}
+
+func (r *schedulerGroupRepoStubByID) GetByID(_ context.Context, id int64) (*Group, error) {
+	if p, ok := r.groups[id]; ok {
+		return &Group{ID: id, Platform: p}, nil
+	}
+	return nil, nil
+}
+
 type schedulerTestOpenAIAccountRepo struct {
 	AccountRepository
 	accounts []Account
@@ -489,24 +505,32 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_AllowsG
 
 	ctx := context.Background()
 	groupID := int64(10113)
-	accounts := []Account{
-		{
-			ID:          36041,
-			Platform:    PlatformGrok,
-			Type:        AccountTypeOAuth,
-			Status:      StatusActive,
-			Schedulable: true,
-			Concurrency: 1,
-			Priority:    0,
-		},
+	grokAccount := &Account{
+		ID: 36041, Platform: PlatformGrok, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
 	}
+	accounts := []Account{*grokAccount}
 	cfg := &config.Config{}
 	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	// Provide a snapshot so resolveGroupPlatform returns "grok" for this group,
+	// and ListSchedulableAccounts finds the grok account via the cache.
+	// accountsByID is populated so GetAccount hits cache instead of falling through
+	// to the nil accountRepo and panicking.
+	snapshotCache := &openAISnapshotCacheStub{
+		snapshotAccounts: []*Account{grokAccount},
+		accountsByID:     map[int64]*Account{grokAccount.ID: grokAccount},
+	}
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
 		cache:              &schedulerTestGatewayCache{},
 		cfg:                cfg,
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		schedulerSnapshot: &SchedulerSnapshotService{
+			cache: snapshotCache,
+			groupRepo: &schedulerGroupRepoStubByID{
+				groups: map[int64]string{groupID: PlatformGrok},
+			},
+		},
 	}
 
 	selection, decision, err := svc.SelectAccountWithSchedulerForCapability(
