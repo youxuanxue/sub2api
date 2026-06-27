@@ -435,6 +435,63 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|12|2099-03-07T12:00:00Z')
   })
 
+  it('Grok 平台复用 5h/7d usage 窗口展示本地统计', async () => {
+    getUsage.mockResolvedValue({
+      source: 'passive',
+      five_hour: {
+        utilization: 0,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: {
+          requests: 4,
+          tokens: 4096,
+          cost: 0.12,
+          standard_cost: 0.12,
+          user_cost: 0.10
+        }
+      },
+      seven_day: {
+        utilization: 0,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: {
+          requests: 9,
+          tokens: 8192,
+          cost: 0.24,
+          standard_cost: 0.24,
+          user_cost: 0.20
+        }
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2014,
+          platform: 'grok',
+          type: 'apikey',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true,
+          OpenAIQuotaResetCell: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(2014, 'passive')
+    expect(wrapper.text()).toContain('5h|0|4096')
+    expect(wrapper.text()).toContain('7d|0|8192')
+  })
+
   it('Anthropic OAuth 有列表 override 时手动刷新不回退为逐行 usage 请求', async () => {
     getUsage.mockResolvedValue({
       five_hour: {

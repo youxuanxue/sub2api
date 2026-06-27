@@ -296,6 +296,6 @@ export function useAccountUsageFetch(
 }
 
 export function showUsageWindowsForAccount(account: Account): boolean {
-  if (account.platform === 'gemini' || account.platform === 'kiro') return true
+  if (account.platform === 'gemini' || account.platform === 'kiro' || account.platform === 'grok') return true
   return account.type === 'oauth' || account.type === 'setup-token'
 }

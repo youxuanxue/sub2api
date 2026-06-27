@@ -66,14 +66,14 @@ func (r *passiveBatchUsageLogRepo) GetAccountWindowStatsBatch(_ context.Context,
 	r.batchCalls.Add(1)
 	out := make(map[int64]*usagestats.AccountStats, len(accountIDs))
 	for _, id := range accountIDs {
-		out[id] = &usagestats.AccountStats{StandardCost: r.cost[id], Requests: 1}
+		out[id] = &usagestats.AccountStats{Cost: r.cost[id], StandardCost: r.cost[id], Requests: 1}
 	}
 	return out, nil
 }
 
 func (r *passiveBatchUsageLogRepo) GetAccountWindowStats(_ context.Context, accountID int64, _ time.Time) (*usagestats.AccountStats, error) {
 	r.singleCalls.Add(1)
-	return &usagestats.AccountStats{StandardCost: r.cost[accountID], Requests: 1}, nil
+	return &usagestats.AccountStats{Cost: r.cost[accountID], StandardCost: r.cost[accountID], Requests: 1}, nil
 }
 
 func passiveAnthropicAccount(id int64, windowStart time.Time) Account {
@@ -137,6 +137,23 @@ func TestGetPassiveUsageBatch_EqualsSinglePerAccount(t *testing.T) {
 	// addWindowStats 命中缓存，零单查。
 	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "one window-stats batch query per distinct window start")
 	require.Zero(t, logRepo.singleCalls.Load(), "prefetched cache must spare per-account window-stats single queries")
+}
+
+func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
+	accounts := []Account{
+		{ID: 9, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive},
+	}
+	repo := &passiveBatchAccountRepo{accounts: accounts}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{9: 1.25}}
+	svc := &AccountUsageService{accountRepo: repo, usageLogRepo: logRepo, cache: NewUsageCache()}
+
+	got := svc.GetPassiveUsageBatch(context.Background(), []int64{9})
+
+	require.Len(t, got, 1)
+	require.NotNil(t, got[9].FiveHour)
+	require.NotNil(t, got[9].SevenDay)
+	require.Equal(t, 1.25, got[9].FiveHour.WindowStats.Cost)
+	require.Equal(t, int64(2), logRepo.singleCalls.Load(), "grok local 5h/7d windows come from usage logs")
 }
 
 func TestGetPassiveUsageBatch_EmptyAndNilSafe(t *testing.T) {

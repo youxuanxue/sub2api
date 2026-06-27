@@ -10,6 +10,7 @@ import type { Account } from '@/types'
 export function isBatchPassiveCapable(account: Account): boolean {
   if (account.platform === 'kiro') return true
   if (account.platform === 'openai' && account.type === 'oauth') return true
+  if (account.platform === 'grok') return true
   return (
     account.platform === 'anthropic' &&
     (account.type === 'oauth' || account.type === 'setup-token')

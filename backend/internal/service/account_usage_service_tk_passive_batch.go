@@ -57,8 +57,8 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 			continue
 		}
 		// 仅被动用量可服务的账号才纳入（与单查 gate 一致）：Anthropic OAuth/SetupToken、
-		// OpenAI OAuth 或 Kiro。其余（apikey 等）单查会报错，此处跳过让 cell 显示「-」。
-		if !account.IsAnthropicOAuthOrSetupToken() && !account.IsOpenAIOAuth() && !account.IsKiro() {
+		// OpenAI OAuth、Kiro 或 Grok。其余（apikey 等）单查会报错，此处跳过让 cell 显示「-」。
+		if !account.IsAnthropicOAuthOrSetupToken() && !account.IsOpenAIOAuth() && !account.IsKiro() && !account.IsGrok() {
 			continue
 		}
 		// TK perf: the account is already fully loaded (GetByIDs above), so build
@@ -101,6 +101,12 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 	// upstream — mirrors GetPassiveUsage's kiro branch.
 	if account.IsKiro() {
 		return s.buildPassiveKiroUsage(account), nil
+	}
+
+	// Grok/xAI has no upstream percentage quota API; expose local 5h/7d billing
+	// windows through the same passive batch path the account list already owns.
+	if account.IsGrok() {
+		return s.buildLocalWindowUsage(ctx, account), nil
 	}
 
 	if !account.IsAnthropicOAuthOrSetupToken() {

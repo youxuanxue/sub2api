@@ -317,6 +317,10 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 		return usage, err
 	}
 
+	if account.IsGrok() {
+		return s.buildLocalWindowUsage(ctx, account), nil
+	}
+
 	if account.Platform == PlatformGemini {
 		usage, err := s.getGeminiUsage(ctx, account)
 		if err == nil {
@@ -505,6 +509,13 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 		return s.buildPassiveKiroUsage(account), nil
 	}
 
+	// Grok/xAI does not expose the Codex-style upstream quota snapshot that OpenAI
+	// OAuth has, and it must not fall through to the Anthropic OAuth usage API.
+	// Surface local account billing windows so operators still see activity.
+	if account.IsGrok() {
+		return s.buildLocalWindowUsage(ctx, account), nil
+	}
+
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return nil, fmt.Errorf("passive usage only supported for Anthropic OAuth/SetupToken accounts")
 	}
@@ -550,6 +561,31 @@ func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageIn
 		usage.SevenDay = progress
 	}
 
+	return usage
+}
+
+func (s *AccountUsageService) buildLocalWindowUsage(ctx context.Context, account *Account) *UsageInfo {
+	now := time.Now()
+	usage := &UsageInfo{
+		Source:    "passive",
+		UpdatedAt: &now,
+	}
+	if account == nil || s.usageLogRepo == nil {
+		return usage
+	}
+
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+		usage.FiveHour = &UsageProgress{
+			Utilization: 0,
+			WindowStats: windowStatsFromAccountStats(stats),
+		}
+	}
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+		usage.SevenDay = &UsageProgress{
+			Utilization: 0,
+			WindowStats: windowStatsFromAccountStats(stats),
+		}
+	}
 	return usage
 }
 

@@ -24,7 +24,7 @@ describe('useTkAccountUsageBatch', () => {
     getBatchPassiveUsage.mockReset()
   })
 
-  it('sends passive batch rows (Anthropic, OpenAI OAuth, Kiro) and suppresses active self-fetch rows', async () => {
+  it('sends passive batch rows (Anthropic, OpenAI OAuth, Kiro, Grok) and suppresses active self-fetch rows', async () => {
     getBatchPassiveUsage.mockResolvedValue({ usage: { '1': usageA } })
     const { refreshUsageBatch, usageOverrideFor } = useTkAccountUsageBatch()
 
@@ -35,18 +35,20 @@ describe('useTkAccountUsageBatch', () => {
       acct(4, 'gemini', 'oauth'), // active-only on manual refresh
       acct(5, 'openai', 'oauth'), // passive batch (codex windows from Extra)
       acct(6, 'antigravity', 'oauth'), // active-only on manual refresh
-      acct(7, 'kiro', 'oauth') // passive batch like Anthropic
+      acct(7, 'kiro', 'oauth'), // passive batch like Anthropic
+      acct(8, 'grok', 'apikey') // local 5h/7d windows from usage logs
     ]
 
     await refreshUsageBatch(accounts)
 
     expect(getBatchPassiveUsage).toHaveBeenCalledTimes(1)
-    expect(getBatchPassiveUsage).toHaveBeenCalledWith([1, 2, 5, 7])
+    expect(getBatchPassiveUsage).toHaveBeenCalledWith([1, 2, 5, 7, 8])
 
     expect(usageOverrideFor(accounts[0])).toEqual(usageA)
     expect(usageOverrideFor(accounts[1])).toBeNull()
     expect(usageOverrideFor(accounts[4])).toBeNull()
     expect(usageOverrideFor(accounts[6])).toBeNull()
+    expect(usageOverrideFor(accounts[7])).toBeNull()
 
     expect(usageOverrideFor(accounts[2])).toBeUndefined()
 

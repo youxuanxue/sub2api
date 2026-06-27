@@ -976,9 +976,10 @@
         "export function usesPassiveUsageOnMount(account: Account): boolean",
         "export function canSelfFetchUsage(account: Account): boolean",
         "account.platform === 'kiro'",
-        "account.platform === 'openai' && account.type === 'oauth'"
+        "account.platform === 'openai' && account.type === 'oauth'",
+        "account.platform === 'grok'"
       ],
-      "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai rows on edge/prod account lists."
+      "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro, Grok). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai/grok rows on edge/prod account lists."
     },
     {
       "path": "frontend/src/composables/useTkAccountUsageBatch.ts",
@@ -990,7 +991,7 @@
         "function usageOverrideFor(account: Account): AccountUsageInfo | null | undefined",
         "return key in usageByAccountId.value ? usageByAccountId.value[key] : null"
       ],
-      "rationale": "TK composable that batches Anthropic / OpenAI OAuth / Kiro passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard; platform scoping lives in accountUsageBatch.tk.ts. If deleted or narrowed back to passive-only rows, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, the shared scoping import, the list-owned override function, and the present-with-null sentinel."
+      "rationale": "TK composable that batches Anthropic / OpenAI OAuth / Kiro / Grok passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard; platform scoping lives in accountUsageBatch.tk.ts. If deleted or narrowed back to passive-only rows, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, the shared scoping import, the list-owned override function, and the present-with-null sentinel."
     },
     {
       "path": "frontend/src/views/admin/AccountsView.vue",

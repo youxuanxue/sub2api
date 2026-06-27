@@ -192,6 +192,37 @@ func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthRebuildsCodexWindows(t *
 	}
 }
 
+func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {
+	t.Parallel()
+
+	acct := Account{ID: 77, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{77: 12.5}}
+	svc := &AccountUsageService{
+		accountRepo:  stubOpenAIAccountRepo{accounts: []Account{acct}},
+		usageLogRepo: logRepo,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 77)
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if usage.Source != "passive" {
+		t.Fatalf("Source = %q, want passive", usage.Source)
+	}
+	if usage.FiveHour == nil || usage.FiveHour.WindowStats == nil {
+		t.Fatalf("FiveHour local stats missing: %#v", usage.FiveHour)
+	}
+	if usage.SevenDay == nil || usage.SevenDay.WindowStats == nil {
+		t.Fatalf("SevenDay local stats missing: %#v", usage.SevenDay)
+	}
+	if usage.FiveHour.WindowStats.Cost != 12.5 {
+		t.Fatalf("FiveHour cost = %v, want 12.5", usage.FiveHour.WindowStats.Cost)
+	}
+	if logRepo.singleCalls.Load() != 2 {
+		t.Fatalf("GetAccountWindowStats calls = %d, want 2", logRepo.singleCalls.Load())
+	}
+}
+
 func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
