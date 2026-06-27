@@ -54,6 +54,21 @@ type GeminiMessagesCompatService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+	// TK: runtime priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md).
+	// This service holds neither settingService nor pricing services on the upstream
+	// constructor, so all are injected post-construction via SetPricedServingGateDeps
+	// (TK companion). nil = gate disabled (fail-open). The gate judges via
+	// tkBillingService.GetModelPricing (the same oracle billing uses to decide $0),
+	// NOT a catalog shadow predicate; tkPricingCatalog is retained for legacy/list uses.
+	tkSettingService         *SettingService
+	tkBillingService         *BillingService
+	tkPricingCatalog         *PricingCatalogService
+	tkPricingMissingNotifier PricingMissingNotifier
+	// tkPricingResolver mirrors the billing cost path's channel-pricing source
+	// (resolveChannelPricing ← resolver.Resolve). The gate probes it so a model
+	// priced ONLY via channel_model_pricing (no litellm/overlay/fallback base) is
+	// NOT falsely 404'd — keeping gate ⟺ billing on the channel source too (B1).
+	tkPricingResolver *ModelPricingResolver
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
@@ -605,6 +620,18 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	mappedModel := req.Model
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
+	}
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// No-op unless account.Platform is in the enabled set (gemini ships first).
+	// Forward serves an Anthropic /v1/messages ingress (writeClaudeError elsewhere),
+	// so the 404 body must be the ANTHROPIC envelope (BLOCKER4: byte-align to the
+	// client's wire protocol, not account.Platform). Judge originalModel — billing
+	// records on result.Model=originalModel here (forwardResultBillingModel), so the
+	// gate must use the exact key billing charges (BLOCKER1). See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
@@ -1158,6 +1185,18 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
+	}
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject unpriced
+	// models with a 404 BEFORE forward / stream start (SSE pre-flight). Native Gemini ingress
+	// (generateContent/streamGenerateContent) → Gemini 404 envelope. countTokens is EXEMPT
+	// (docs §4, BLOCKER5): it is zero-billing (Usage{}) and a never-hard-fail pre-flight, so
+	// gating it breaks that contract for no leak benefit. Judge originalModel — billing records
+	// result.Model=originalModel here, so the gate must use billing's exact key (BLOCKER1).
+	// No-op unless account.Platform is in the enabled set. See gateway_priced_serving_gate_tk.go.
+	if action != "countTokens" {
+		if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {
+			return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+		}
 	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 

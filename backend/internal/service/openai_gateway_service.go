@@ -410,6 +410,10 @@ type OpenAIGatewayService struct {
 	// TK: pricing-missing → Feishu notifier. Injected via
 	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
 	tkPricingMissingNotifier PricingMissingNotifier
+	// TK: pricing catalog membership predicate for the runtime priced-serving
+	// gate (docs/approved/priced-or-it-doesnt-ship.md). Injected via
+	// SetPricingCatalogService (TK companion). nil = gate disabled (fail-open).
+	tkPricingCatalog *PricingCatalogService
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -2792,6 +2796,17 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Model mapping applied: %s -> %s (account: %s, isCodexCLI: %v)", reqModel, billingModel, account.Name, isCodexCLI)
 		reqModel = billingModel
 		markPatchSet("model", billingModel)
+	}
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE any upstream forward / stream start
+	// (SSE pre-flight — cannot 404 mid-stream). Native openai ingress → OPENAI 404
+	// envelope (BLOCKER4). Judge billingModel — openai native bills on the mapped
+	// billingModel (the primary usageBillingModelCandidates key), so gate键=账键
+	// already; keep it (BLOCKER1 only flipped the native gemini/anthropic Forward
+	// paths to originalModel). No-op unless account.Platform is in the enabled set.
+	// See gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", billingModel, account.Platform)
 	}
 	upstreamModel := billingModel
 	isCompactRequest := isOpenAIResponsesCompactPath(c)
@@ -6596,6 +6611,21 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
 	s.tkNotifyServedZeroCost(cost, result, apiKey, input, billingModels, actualInputTokens, multiplier, accountRateMultiplier)
+	// TK 设计转向：按家族 floor 服务（cost>0 但走 Go 兜底而非真价）→ served_at_fallback 收敛告警。
+	// billingModel 取首候选（与 served_zero_cost 同源）；codex 多候选规范化下偶有噪声,可接受(纯观测)。
+	{
+		reqModel := result.Model
+		if input != nil && input.OriginalModel != "" {
+			reqModel = input.OriginalModel
+		}
+		fbUnits := int64(actualInputTokens) + int64(result.Usage.OutputTokens) +
+			int64(result.Usage.CacheCreationInputTokens) + int64(result.Usage.CacheReadInputTokens) +
+			int64(result.Usage.ImageOutputTokens)
+		if fbUnits <= 0 && result.ImageCount > 0 {
+			fbUnits = int64(result.ImageCount)
+		}
+		tkNotifyServedAtFallback(s.tkPricingMissingNotifier, s.billingService, cost, apiKey, firstUsageBillingModel(billingModels), reqModel, result.UpstreamModel, fbUnits)
+	}
 
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
 	if result.OpenAIWSMode {

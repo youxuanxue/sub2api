@@ -1384,6 +1384,13 @@ async function handleSubmit() {
     }
   }
 
+  // TK: 把计费基准拨到 requested/upstream 是影响计费的刻意动作（计费模型名可能与价格闸判定不一致而
+  // $0 漏计，见后端 B1 闸 docs/approved/priced-or-it-doesnt-ship.md），强制人类确认。
+  const riskyBillingSource = form.billing_model_source === 'requested' || form.billing_model_source === 'upstream'
+  if (riskyBillingSource && !window.confirm(t('admin.channels.form.billingModelSourceConfirm', '将「计费基准」设为按请求模型 / 最终模型计费，可能导致计费用的模型名与价格闸判定的不一致而产生 $0 漏计。确认继续吗？'))) {
+    return
+  }
+
   const { group_ids, model_pricing, model_mapping, features_config } = formToAPI()
 
   submitting.value = true
@@ -1397,6 +1404,7 @@ async function handleSubmit() {
         model_pricing,
         model_mapping: Object.keys(model_mapping).length > 0 ? model_mapping : {},
         billing_model_source: form.billing_model_source,
+        confirm_billing_model_source: riskyBillingSource,
         restrict_models: form.restrict_models,
         features_config,
         apply_pricing_to_account_stats: form.apply_pricing_to_account_stats,
@@ -1412,6 +1420,7 @@ async function handleSubmit() {
         model_pricing,
         model_mapping: Object.keys(model_mapping).length > 0 ? model_mapping : {},
         billing_model_source: form.billing_model_source,
+        confirm_billing_model_source: riskyBillingSource,
         restrict_models: form.restrict_models,
         features_config,
         apply_pricing_to_account_stats: form.apply_pricing_to_account_stats,

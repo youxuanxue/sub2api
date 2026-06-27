@@ -681,6 +681,7 @@ func TestAPIContracts(t *testing.T) {
 				"code": 0,
 				"message": "success",
 				"data": {
+					"priced_serving_gate_enabled": "",
 					"registration_enabled": true,
 					"risk_control_enabled": false,
 					"email_verify_enabled": false,
@@ -973,6 +974,7 @@ func TestAPIContracts(t *testing.T) {
 				"code": 0,
 				"message": "success",
 				"data": {
+					"priced_serving_gate_enabled": "",
 					"registration_enabled": true,
 					"risk_control_enabled": false,
 					"email_verify_enabled": false,

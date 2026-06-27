@@ -74,6 +74,14 @@ func pricingMissingReasonLabel(reason string) string {
 	switch reason {
 	case "negative_multiplier":
 		return "负倍率归零（价格有效但被负费率倍率清零）"
+	case tkPricedServingGateRejectReason:
+		// 运行期价格闸拒绝：与「已服务零计费」不同——该请求被 404 拒掉、未服务客户，
+		// 运维补价后即可放行（docs/approved/priced-or-it-doesnt-ship.md）。
+		return "模型未定价被准入闸拒绝（已返回 404、未服务；补价后放行）"
+	case tkServedAtFallbackReason:
+		// 按家族兜底 floor 计费（非真价、非 $0、未拒客户）。设计转向后的收敛信号：
+		// 补真价后自动改用真价，fallback 用量衰减到稳态（docs §4）。
+		return "模型按家族兜底价(floor)服务、非真价（未拒客户、未漏 $0；补真价后改用真价）"
 	default:
 		return "模型无价（倍率前成本为零）"
 	}
@@ -327,10 +335,36 @@ func (n *TKPricingMissingNotifier) currentTime() time.Time {
 	return time.Now()
 }
 
-// pricingMissingAdviceText 是两种卡片共用的运营动作脚注。
-const pricingMissingAdviceText = "说明：该流量**已照常服务、按零成本记录**（未拒绝客户）。运营动作：\n" +
+// pricingMissingActionSteps 是各类卡片共用的补价动作（与「是否已服务客户」无关）。
+const pricingMissingActionSteps = "运营动作：\n" +
 	"1. 热更止血：`python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>` 取价，再 `apply` 经 admin API 写入渠道定价（立即生效，无需发版）；\n" +
 	"2. 固化：`stage-overlay` 把 fill-only 条目写入 `tk_pricing_overlay.json` 提 PR（litellm 镜像补上后自动让位）。"
+
+// pricingMissingSituationText 按 Reason 给出「这次到底发生了什么」。运行期价格闸拒绝是
+// 404、未服务客户、未记账——与「已服务零计费」是相反的客户影响，绝不能共用「已照常服务」
+// 措辞（否则运维会把一次真实的 404 拒绝当成无害的零计费日志而低估）。
+func pricingMissingSituationText(reason string) string {
+	switch reason {
+	case tkPricedServingGateRejectReason:
+		return "说明：该请求已被运行期价格闸**返回 404 拒绝**（未服务客户、未记账）；补价后下次请求即放行。"
+	case tkServedAtFallbackReason:
+		return "说明：该请求已按**家族兜底价 floor 计费**（非真价、非 $0、未拒客户）；补真价后自动改用真价。"
+	default:
+		return "说明：该流量**已照常服务、按零成本记录**（未拒绝客户）。"
+	}
+}
+
+// pricingMissingFirstSeenHeadline 按 Reason 给首见卡的一句话归纳（served vs rejected）。
+func pricingMissingFirstSeenHeadline(reason string) string {
+	switch reason {
+	case tkPricedServingGateRejectReason:
+		return "首次发现该（platform, model）被价格闸拒绝（已返回 404、未服务）"
+	case tkServedAtFallbackReason:
+		return "首次发现该（platform, model）按家族兜底 floor 计费（非真价）"
+	default:
+		return "首次发现该（platform, model）已服务却零计费"
+	}
+}
 
 func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platform, model string, now time.Time) string {
 	requested := strings.TrimSpace(ev.RequestedModel)
@@ -345,7 +379,7 @@ func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platf
 	if ev.GroupID > 0 {
 		group = pricingMissingGroupLabel(ev.GroupID, ev.GroupName)
 	}
-	return fmt.Sprintf("**节点**：%s\n**原因**：%s\n**平台**：%s\n**计费模型**：%s\n**请求模型**：%s\n**上游模型**：%s\n**组**：%s\n**api_key**：#%d\n**本次计费单元**：%d\n**时间**：%s\n\n首次发现该（platform, model）已服务却零计费（24h 内同模型不再即时提醒，后续进周期摘要）。\n\n%s",
+	return fmt.Sprintf("**节点**：%s\n**原因**：%s\n**平台**：%s\n**计费模型**：%s\n**请求模型**：%s\n**上游模型**：%s\n**组**：%s\n**api_key**：#%d\n**本次计费单元**：%d\n**时间**：%s\n\n%s（24h 内同模型不再即时提醒，后续进周期摘要）。\n\n%s\n%s",
 		escapeFeishuText(site),
 		escapeFeishuText(pricingMissingReasonLabel(ev.Reason)),
 		escapeFeishuText(platform),
@@ -356,7 +390,9 @@ func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platf
 		ev.APIKeyID,
 		ev.Tokens,
 		escapeFeishuText(formatAlertTime(now)),
-		pricingMissingAdviceText,
+		pricingMissingFirstSeenHeadline(ev.Reason),
+		pricingMissingSituationText(ev.Reason),
+		pricingMissingActionSteps,
 	)
 }
 
@@ -380,7 +416,7 @@ func buildPricingMissingDigestText(site string, entries []*pricingMissingDigestE
 			len(e.apiKeyIDs),
 			escapeFeishuText(samples)))
 	}
-	lines = append(lines, "\n"+pricingMissingAdviceText)
+	lines = append(lines, "\n"+pricingMissingActionSteps)
 	return strings.Join(lines, "\n")
 }
 

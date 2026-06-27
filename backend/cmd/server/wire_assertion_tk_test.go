@@ -88,3 +88,47 @@ func TestProvideTKGatewayHandlerModelList_NilHandlerIsNoOp(t *testing.T) {
 		_ = handler.ProvideTKGatewayHandlerModelList(nil, nil)
 	})
 }
+
+// TestProvideTKPricingMissingNotifier_WiresPricedServingGate proves the
+// priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md) are
+// attached to all three forwarders by the same provider that wires the
+// pricing-missing notifier. Without this production-DI evidence wire could
+// silently dead-code the SetPricingCatalogService / SetPricedServingGateDeps
+// side effects and the gate would be off in prod while passing unit tests.
+func TestProvideTKPricingMissingNotifier_WiresPricedServingGate(t *testing.T) {
+	gw := &service.GatewayService{}
+	openaiGw := &service.OpenAIGatewayService{}
+	geminiCompat := &service.GeminiMessagesCompatService{}
+	require.False(t, gw.HasPricingCatalogService(), "baseline: GatewayService has no catalog")
+	require.False(t, openaiGw.HasPricingCatalogService(), "baseline: OpenAIGatewayService has no catalog")
+	require.False(t, geminiCompat.HasPricedServingGateDeps(), "baseline: gemini compat has no gate deps")
+
+	catalog := service.NewPricingCatalogService(nil)
+	setting := &service.SettingService{}
+	// The gate now judges via BillingService.GetModelPricing, so the provider must
+	// thread billing into the gemini compat forwarder (it holds none of the deps
+	// natively). A nil billing here would make HasPricedServingGateDeps false.
+	billing := service.NewBillingService(nil, nil)
+
+	n := service.ProvideTKPricingMissingNotifier(gw, openaiGw, geminiCompat, catalog, billing, setting, nil, nil)
+	require.NotNil(t, n)
+	t.Cleanup(n.Stop) // stop the digest ticker started by the provider
+
+	require.True(t, gw.HasPricingCatalogService(), "after Provide: GatewayService catalog wired")
+	require.True(t, openaiGw.HasPricingCatalogService(), "after Provide: OpenAIGatewayService catalog wired")
+	// HasPricedServingGateDeps now requires BOTH billing (the judgment oracle) and
+	// setting (the enable check) — proves the gemini compat gate can actually fire,
+	// not just that the catalog slot survived.
+	require.True(t, geminiCompat.HasPricedServingGateDeps(), "after Provide: gemini compat gate deps (billing+setting) wired")
+}
+
+// TestProvideTKPricingMissingNotifier_NilForwardersAreNoOp verifies the
+// nil-safety contract for degraded wiring.
+func TestProvideTKPricingMissingNotifier_NilForwardersAreNoOp(t *testing.T) {
+	require.NotPanics(t, func() {
+		n := service.ProvideTKPricingMissingNotifier(nil, nil, nil, nil, nil, nil, nil, nil)
+		if n != nil {
+			n.Stop()
+		}
+	})
+}

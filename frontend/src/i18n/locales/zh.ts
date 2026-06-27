@@ -2900,6 +2900,7 @@ export default {
         billingModelSourceRequested: '以请求模型计费',
         billingModelSourceUpstream: '以最终模型计费',
         billingModelSourceHint: '控制使用哪个模型名称进行定价查找',
+        billingModelSourceConfirm: '将「计费基准」设为按请求模型 / 最终模型计费，可能导致计费用的模型名与价格闸判定的不一致而产生 $0 漏计。确认继续吗？',
         selectedCount: '已选 {count} 个',
         searchGroups: '搜索分组...',
         noGroupsMatch: '没有匹配的分组',

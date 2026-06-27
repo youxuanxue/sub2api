@@ -121,7 +121,9 @@ func TestGetModelPricing_UnknownClaudeModelFallsBackToSonnet(t *testing.T) {
 func TestGetModelPricing_UnknownOpenAIModelReturnsError(t *testing.T) {
 	svc := newTestBillingService()
 
-	pricing, err := svc.GetModelPricing("gpt-unknown-model")
+	// Post-pivot: gpt-* now floors to gpt-5.4 (family median). A no-family-floor OpenAI id
+	// (o-series, not "gpt"-named) still has no fallback → ErrModelPricingUnavailable (the backstop).
+	pricing, err := svc.GetModelPricing("o5-unknown-preview")
 	require.Error(t, err)
 	require.Nil(t, pricing)
 	require.Contains(t, err.Error(), "pricing not found")
@@ -353,12 +355,15 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "claude generic model fallback sonnet", model: "claude-foo-bar", expectedInput: 3e-6},
 		{name: "claude fable 5 (above opus, $10)", model: "claude-fable-5", expectedInput: 10e-6},
 		{name: "claude fable 5 1m alias", model: "claude-fable-5[1m]", expectedInput: 10e-6},
-		{name: "gemini explicit fallback", model: "gemini-3-1-pro", expectedInput: 2e-6},
-		// upstream Wei-Shaw/sub2api#2486: unknown gemini-* must NOT bill $0; falls back to gemini-3.1-pro pricing.
-		{name: "gemini unknown falls back to 3.1-pro", model: "gemini-2.0-pro", expectedInput: 2e-6},
-		{name: "gemini-pro-agent falls back to 3.1-pro", model: "gemini-pro-agent", expectedInput: 2e-6},
-		{name: "models/gemini-pro-agent falls back to 3.1-pro", model: "models/gemini-pro-agent", expectedInput: 2e-6},
-		{name: "gemini-2.5-flash-unknown falls back to 3.1-pro", model: "gemini-2.5-flash-unknown-variant", expectedInput: 2e-6},
+		// Post-pivot (docs/approved/priced-or-it-doesnt-ship.md): gemini has a FAMILY-grained floor
+		// (pro vs flash-tier median). A gemini-* id with no real litellm/overlay price falls to this
+		// floor (never $0, never rejected) and fires served_at_fallback → fill. Real-priced gemini
+		// models resolve in GetModelPricing before this fallback.
+		{name: "gemini-*-pro unknown → pro family floor", model: "gemini-2.0-pro", expectedInput: 1.25e-6},
+		{name: "gemini-pro-agent → pro family floor", model: "gemini-pro-agent", expectedInput: 1.25e-6},
+		{name: "gemini-*-flash unknown → flash family floor", model: "gemini-9-flash-preview", expectedInput: 3e-7},
+		{name: "gemini-*-flash-lite unknown → flash-lite floor (S3: no 6x overcharge)", model: "gemini-9-flash-lite-x", expectedInput: 1e-7},
+		{name: "gemini unknown no tier → flash-tier median floor", model: "gemini-9-ultra", expectedInput: 3e-7},
 		{name: "openai gpt5.4", model: "gpt-5.4", expectedInput: 2.5e-6},
 		{name: "openai gpt5.4 mini", model: "gpt-5.4-mini", expectedInput: 7.5e-7},
 		{name: "openai gpt5.3 codex", model: "gpt-5.3-codex", expectedInput: 1.5e-6},
@@ -366,7 +371,15 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "openai legacy gpt5.1 falls back to gpt5.4", model: "gpt-5.1", expectedInput: 2.5e-6},
 		{name: "openai legacy gpt5.1 codex falls back to gpt5.3 codex", model: "gpt-5.1-codex", expectedInput: 1.5e-6},
 		{name: "openai legacy codex mini latest falls back to gpt5.3 codex", model: "codex-mini-latest", expectedInput: 1.5e-6},
-		{name: "openai unknown no fallback", model: "gpt-unknown-model", expectNilPricing: true},
+		// Post-pivot: gpt has a family-median floor; unknown gpt-* → gpt-5.4 floor (not nil). A
+		// non-gpt OpenAI id (o-series) still has no family floor → nil → gate reject backstop.
+		{name: "gpt-* unknown → gpt-5.4 family floor", model: "gpt-unknown-model", expectedInput: 2.5e-6},
+		{name: "openai o-series unknown → no family floor (nil)", model: "o5-preview", expectNilPricing: true},
+		// S2: non-chat gpt-* (image/audio/realtime/tts) are EXCLUDED from the chat floor → nil → reject
+		// backstop (token median would be the wrong billing mode).
+		{name: "gpt image unknown → excluded from chat floor (nil)", model: "gpt-image-2-unknown", expectNilPricing: true},
+		{name: "gpt audio unknown → excluded from chat floor (nil)", model: "gpt-audio-x-unknown", expectNilPricing: true},
+		{name: "gpt realtime unknown → excluded from chat floor (nil)", model: "gpt-realtime-x-unknown", expectNilPricing: true},
 		{
 			name:              "deepseek v4 pro",
 			model:             "deepseek-v4-pro",

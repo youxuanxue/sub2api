@@ -77,6 +77,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 	anthropicReq.Model = mappedModel
 
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// OpenAI /v1/chat/completions ingress (against an anthropic account) → OPENAI
+	// 404 envelope (BLOCKER4). Judge originalModel — billing records on
+	// result.Model=originalModel here, so the gate must use billing's exact key
+	// (BLOCKER1). No-op unless account.Platform is in the enabled set. See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
+
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),

@@ -33,6 +33,68 @@ func tkServedZeroCostReason(cost *CostBreakdown, billableUnits int64, multiplier
 	return "", false
 }
 
+// tkServedAtFallbackReason 是「按家族 floor 服务」的 PricingMissingNotifier reason（设计转向后的
+// 收敛信号：cost>0 但走的是 Go 家族 floor 而非真价，需补真价）。区别于 served_zero_cost 的 $0。
+const tkServedAtFallbackReason = "served_at_fallback"
+
+// tkNotifyServedAtFallback 触发「按家族 floor 服务」收敛告警：本次请求按 **非 $0 的 Go 家族 floor**
+// 计费（而非 litellm/overlay 真价），应补真价让 fallback 用量衰减到稳态（docs §4 收敛引擎）。两条
+// 计费 funnel（anthropic recordUsageCore + openai）共用。与 served_zero_cost（cost==0）互斥。
+// nil-safe，异步发送，绝不阻塞 funnel。
+//
+// 已知 narrow 误报（对抗复审 S1，接受为观测噪声、不影响计费）：调用方【未】跳过 channel 计费请求，
+// 而 IsServedViaFamilyFloor 不查渠道价 —— 故一个【基础价缺、但配了渠道价、且名字含 gemini/gpt/claude】
+// 的模型（按真实渠道价计费）会被误判为「走 floor」误发一张卡。这类很窄（渠道价多在无 floor 的 newapi），
+// 运维一眼可辨（该模型有渠道价、无需补），与 openai 多候选误报（N2）同性质。真正需补真价的「无渠道价、
+// 走 Go floor」是主路径，不漏报。
+func tkNotifyServedAtFallback(
+	notifier PricingMissingNotifier, billing *BillingService, cost *CostBreakdown,
+	apiKey *APIKey, billingModel, requestedModel, upstreamModel string, units int64,
+) {
+	if billing == nil || cost == nil || units <= 0 || cost.TotalCost <= 0 {
+		return // cost<=0 归 served_zero_cost；无计费单元 → 跳过
+	}
+	if !billing.IsServedViaFamilyFloor(billingModel) {
+		return // 有真价（或无 floor → 已被闸拒）→ 非「按 floor 服务」
+	}
+	fields := []zap.Field{
+		zap.String("component", "service.gateway"),
+		zap.String("reason", tkServedAtFallbackReason),
+		zap.String("billing_model", billingModel),
+		zap.String("requested_model", requestedModel),
+		zap.String("upstream_model", upstreamModel),
+		zap.Int64("billable_units", units),
+		zap.Float64("total_cost", cost.TotalCost),
+	}
+	if apiKey != nil {
+		fields = append(fields, zap.Int64("api_key_id", apiKey.ID))
+		if apiKey.Group != nil {
+			fields = append(fields, zap.Int64("group_id", apiKey.Group.ID), zap.String("group_platform", apiKey.Group.Platform))
+		}
+	}
+	logger.L().With(fields...).Warn("gateway_usage.served_at_fallback")
+
+	if notifier == nil {
+		return
+	}
+	ev := PricingMissingEvent{
+		Reason:         tkServedAtFallbackReason,
+		BillingModel:   billingModel,
+		RequestedModel: requestedModel,
+		UpstreamModel:  upstreamModel,
+		Tokens:         units,
+	}
+	if apiKey != nil {
+		ev.APIKeyID = apiKey.ID
+		if apiKey.Group != nil {
+			ev.GroupID = apiKey.Group.ID
+			ev.GroupName = apiKey.Group.Name
+			ev.Platform = apiKey.Group.Platform
+		}
+	}
+	notifier.NotifyPricingMissing(ev)
+}
+
 // tkClaudeUsageBillableUnits 估算计费单元：token 总量优先，回退图片张数。
 func tkClaudeUsageBillableUnits(u ClaudeUsage, imageCount int) int64 {
 	t := int64(u.InputTokens) + int64(u.OutputTokens) +

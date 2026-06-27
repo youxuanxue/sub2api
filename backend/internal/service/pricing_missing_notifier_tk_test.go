@@ -264,6 +264,36 @@ func TestOpenAITkNotifyServedZeroCost_FeedsNotifier(t *testing.T) {
 }
 
 func TestPricingMissingAdviceText_MentionsBothRemediationPaths(t *testing.T) {
-	require.True(t, strings.Contains(pricingMissingAdviceText, "apply-pricing-hotfix.py"))
-	require.True(t, strings.Contains(pricingMissingAdviceText, "tk_pricing_overlay.json"))
+	require.True(t, strings.Contains(pricingMissingActionSteps, "apply-pricing-hotfix.py"))
+	require.True(t, strings.Contains(pricingMissingActionSteps, "tk_pricing_overlay.json"))
+}
+
+// TestPricingMissingFirstSeenCard_GateRejectVsServed pins the R4 alert fix: a price-gate
+// rejection card must NOT claim the request was served — that would make ops under-react to a
+// real 404 (client rejected). The served-zero-cost card keeps the "served, not refused" framing.
+func TestPricingMissingFirstSeenCard_GateRejectVsServed(t *testing.T) {
+	now := time.Date(2026, 6, 10, 8, 0, 0, 0, time.UTC)
+
+	served := samplePricingMissingEvent() // Reason "" → served-zero-cost
+	servedBody := buildPricingMissingFirstSeenText("site", served, served.Platform, served.BillingModel, now)
+	require.Contains(t, servedBody, "已照常服务", "served-zero-cost card states service was NOT refused")
+	require.NotContains(t, servedBody, "返回 404 拒绝")
+
+	rejected := samplePricingMissingEvent()
+	rejected.Reason = tkPricedServingGateRejectReason
+	rejectedBody := buildPricingMissingFirstSeenText("site", rejected, rejected.Platform, rejected.BillingModel, now)
+	require.Contains(t, rejectedBody, "返回 404 拒绝", "gate-reject card must say the client was 404'd")
+	require.Contains(t, rejectedBody, "未服务", "gate-reject card must say the request was NOT served")
+	require.NotContains(t, rejectedBody, "已照常服务", "gate-reject card must NOT claim the request was served")
+	// both cards carry the same actionable remediation steps
+	require.Contains(t, rejectedBody, "apply-pricing-hotfix.py")
+
+	// served_at_fallback (post-pivot convergence signal): served at a family FLOOR (not $0, not 404).
+	fallback := samplePricingMissingEvent()
+	fallback.Reason = tkServedAtFallbackReason
+	fbBody := buildPricingMissingFirstSeenText("site", fallback, fallback.Platform, fallback.BillingModel, now)
+	require.Contains(t, fbBody, "家族兜底", "served_at_fallback card must say it billed at a family floor")
+	require.NotContains(t, fbBody, "返回 404 拒绝", "served_at_fallback was SERVED (not 404'd)")
+	require.NotContains(t, fbBody, "已照常服务、按零成本记录", "served_at_fallback is NOT $0 (floor>0)")
+	require.Contains(t, fbBody, "apply-pricing-hotfix.py", "convergence: same fill runbook")
 }

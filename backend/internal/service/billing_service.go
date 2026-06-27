@@ -259,13 +259,33 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:     false,
 	}
 
-	// Gemini 3.1 Pro
-	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
-		InputPricePerToken:         2e-6,   // $2 per MTok
-		OutputPricePerToken:        12e-6,  // $12 per MTok
-		CacheCreationPricePerToken: 2e-6,   // $2 per MTok
-		CacheReadPricePerToken:     0.2e-6, // $0.20 per MTok
-		SupportsCacheBreakdown:     false,
+	// Gemini family-grained floor (docs/approved/priced-or-it-doesnt-ship.md pivot: family floor +
+	// alert-on-fallback + converge, supersedes the C-era "no gemini fallback → reject"). A floor at
+	// the model's FAMILY median — NOT one flat rate — keeps mischarge small while never serving $0 and
+	// never rejecting a real gemini model; a served_at_fallback alert then drives ops/auto to fill the
+	// REAL price so fallback use decays to ~0. Values = current litellm gemini-2.5-{flash,pro}.
+	// getFallbackPricing maps: "pro" → pro floor; flash / flash-lite / unknown gemini → flash-tier
+	// median floor. (The earlier flat-rate concern is addressed by family granularity + leaning to the
+	// median tier, not by refusing to serve.)
+	s.fallbackPrices["gemini-2.5-flash"] = &ModelPricing{
+		InputPricePerToken:     3e-7,   // $0.30 per MTok
+		OutputPricePerToken:    2.5e-6, // $2.50 per MTok
+		CacheReadPricePerToken: 3e-8,   // $0.03 per MTok
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["gemini-2.5-pro"] = &ModelPricing{
+		InputPricePerToken:     1.25e-6, // $1.25 per MTok
+		OutputPricePerToken:    1e-5,    // $10 per MTok
+		CacheReadPricePerToken: 1.25e-7, // $0.125 per MTok
+		SupportsCacheBreakdown: false,
+	}
+	// flash-lite 是 flash 之下的独立子档（real in 1e-7/out 4e-7）；单独兜底避免把 flash-lite 类
+	// 未知模型按 flash 收（in 3e-7/out 2.5e-6 = 3x/6.25x 超收 —— 超收伤信任，对抗复审 S3）。
+	s.fallbackPrices["gemini-2.5-flash-lite"] = &ModelPricing{
+		InputPricePerToken:     1e-7, // $0.10 per MTok
+		OutputPricePerToken:    4e-7, // $0.40 per MTok
+		CacheReadPricePerToken: 1e-8, // $0.01 per MTok
+		SupportsCacheBreakdown: false,
 	}
 
 	// OpenAI GPT-5.4（业务指定价格）
@@ -560,13 +580,19 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if strings.Contains(modelLower, "claude") {
 		return s.fallbackPrices["claude-sonnet-4"]
 	}
-	// Gemini family fallback (upstream Wei-Shaw/sub2api#2486): any gemini-* model
-	// without an explicit LiteLLM or fallback entry — including new Google variants
-	// like gemini-pro-agent — must bill at the conservative paid-tier rate instead
-	// of returning nil (which causes calculateTokenCost to swallow the error and
-	// silently record ActualCost=0 with no quota deduction).
+	// Gemini family-grained floor (docs/approved/priced-or-it-doesnt-ship.md pivot). A gemini id with
+	// no real litellm/overlay price falls to its FAMILY median floor (never $0, never rejected); the
+	// served_at_fallback alert then drives a real-price fill. "pro" → pro floor; flash / flash-lite /
+	// unknown gemini → flash-tier median. (Family granularity + median tier bound the mischarge that a
+	// single flat rate would cause — that was the C-era objection, addressed here, not avoided.)
 	if strings.Contains(modelLower, "gemini") {
-		return s.fallbackPrices["gemini-3.1-pro"]
+		if strings.Contains(modelLower, "pro") {
+			return s.fallbackPrices["gemini-2.5-pro"]
+		}
+		if strings.Contains(modelLower, "flash-lite") || strings.Contains(modelLower, "flash-8b") {
+			return s.fallbackPrices["gemini-2.5-flash-lite"]
+		}
+		return s.fallbackPrices["gemini-2.5-flash"]
 	}
 
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
@@ -692,8 +718,39 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 			return s.fallbackPrices["gpt-5.3-codex"]
 		}
 	}
+	// GPT 家族中位 floor（docs/approved/priced-or-it-doesnt-ship.md pivot）：已知型号上面已返具体价；
+	// 其余【chat 形】gpt-*（新变体 / 未登记 codex 后缀）→ gpt-5.4-tier 中位 floor，而非「未知即拒」，
+	// 配 served_at_fallback 告警 + 快补真价（解 §9 R-openai 别名）。诚实标注（对抗复审 S2）：gpt 主线
+	// 中位 ≈ gpt-5.4，但 premium 未知（如未镜像的 gpt-5.5，real out 3e-5）会被【欠收 ~2×】——欠收是临时
+	// 小漏、由告警驱动几分钟内补真价。**非 chat 模式的 gpt（image/audio/realtime/transcribe/tts）排除在
+	// floor 外** → 它们走真价或 reject 兜底，绝不按 token 中位误计成错模式（real 价在 litellm，未知的该拒）。
+	// 真正异类的 OpenAI 模型（o 系列等）不含 "gpt" → 同样走真价或 reject。
+	if strings.Contains(modelLower, "gpt") &&
+		!strings.Contains(modelLower, "image") && !strings.Contains(modelLower, "audio") &&
+		!strings.Contains(modelLower, "realtime") && !strings.Contains(modelLower, "transcribe") &&
+		!strings.Contains(modelLower, "-tts") {
+		return s.fallbackPrices["gpt-5.4"]
+	}
 
 	return nil
+}
+
+// IsServedViaFamilyFloor reports whether `model` bills via a Go FAMILY-FLOOR fallback rather than a
+// real price (litellm mirror / overlay). True = the real price source has no (effective) entry for
+// the model BUT getFallbackPricing supplies a family floor — i.e. the request is being served at an
+// ESTIMATED floor and needs a real price filled. This is the convergence signal for the post-pivot
+// design (docs/approved/priced-or-it-doesnt-ship.md §4): served_at_fallback alert → ops/auto fill →
+// fallback use decays to ~0. Channel pricing is NOT consulted here (callers that bill via channel
+// skip this); a model with a real price, or with no floor at all (→ gate-rejected), returns false.
+func (s *BillingService) IsServedViaFamilyFloor(model string) bool {
+	if s == nil || s.pricingService == nil {
+		return false
+	}
+	lower := strings.ToLower(model)
+	if real := s.pricingService.GetModelPricing(lower); real != nil && !tkIsEffectivelyUnpriced(real) {
+		return false // has a real litellm/overlay price → not a floor
+	}
+	return s.getFallbackPricing(lower) != nil // no real price, but a Go family floor exists
 }
 
 // GetModelPricing 获取模型价格配置

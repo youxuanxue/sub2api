@@ -717,6 +717,11 @@ type GatewayService struct {
 	// TK: pricing-missing → Feishu notifier. Injected via
 	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
 	tkPricingMissingNotifier PricingMissingNotifier
+	// TK: pricing catalog membership predicate for the runtime priced-serving
+	// gate (docs/approved/priced-or-it-doesnt-ship.md). Injected via
+	// SetPricingCatalogService (TK companion) so the upstream constructor stays
+	// unchanged. nil = gate disabled (fail-open).
+	tkPricingCatalog *PricingCatalogService
 	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
 	// vendored CodeWhisperer EventStream protocol layer.
 	kiroGateway *KiroGatewayService
@@ -5296,6 +5301,22 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
 			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
 		}
+	}
+
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE any upstream forward / stream start (SSE
+	// pre-flight — cannot 404 mid-stream). This is the native /v1/messages
+	// catch-all重灾区 (空 model_mapping = allow-all). Runs on the post-mapping
+	// model, after the deprecated-model gate, so admin rewrites take precedence.
+	// Native anthropic ingress → ANTHROPIC 404 envelope (BLOCKER4). Judge
+	// originalModel — billing records on result.Model=originalModel
+	// (forwardResultBillingModel), so the gate must use billing's exact key, not
+	// mappedModel (BLOCKER1: catch-all {"*":priced} would else pass while billing
+	// $0s the unpriced original). No-op unless account.Platform is in the enabled
+	// set (gemini ships first; anthropic joins later per the rollout plan). See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
 	// TK: if this exact (mapped) Anthropic model name was recently confirmed
@@ -10176,6 +10197,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
 	s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
+	// TK 设计转向：按家族 floor 服务（cost>0 但走 Go 兜底而非真价）→ served_at_fallback 收敛告警。
+	tkNotifyServedAtFallback(s.tkPricingMissingNotifier, s.billingService, cost, apiKey, billingModel, requestedModel, result.UpstreamModel, tkClaudeUsageBillableUnits(result.Usage, result.ImageCount))
 
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)

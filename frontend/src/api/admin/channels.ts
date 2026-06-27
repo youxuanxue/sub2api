@@ -67,6 +67,8 @@ export interface CreateChannelRequest {
   model_pricing?: ChannelModelPricing[]
   model_mapping?: Record<string, Record<string, string>>
   billing_model_source?: string
+  // TK: 当 billing_model_source 为 requested/upstream 时必须为 true，否则后端 B1 闸拒绝（见 ChannelsView）
+  confirm_billing_model_source?: boolean
   restrict_models?: boolean
   features_config?: Record<string, unknown>
   apply_pricing_to_account_stats?: boolean
@@ -81,6 +83,8 @@ export interface UpdateChannelRequest {
   model_pricing?: ChannelModelPricing[]
   model_mapping?: Record<string, Record<string, string>>
   billing_model_source?: string
+  // TK: 当 billing_model_source 为 requested/upstream 时必须为 true，否则后端 B1 闸拒绝（见 ChannelsView）
+  confirm_billing_model_source?: boolean
   restrict_models?: boolean
   features_config?: Record<string, unknown>
   apply_pricing_to_account_stats?: boolean
