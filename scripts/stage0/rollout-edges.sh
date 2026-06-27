@@ -7,11 +7,15 @@
 # watch the run to completion, and verify the canonical acceptance marker
 # `tk_edge_post_deploy_smoke: OK phase=infra` in the run log.
 #
-# Default is sequential. --parallel N dispatches bounded batches after the
-# canary/prod gates have already passed, reducing all-rollout wall clock while
-# preserving fail-stop between batches. If any edge in a batch fails, the script
-# finishes verifying that already-dispatched batch, prints the failed edge(s),
-# and does not dispatch the next batch.
+# Default is sequential (--parallel 1) to reduce the online impact of edge
+# container swaps: restarting several edges at once shrinks prod's relay failover
+# pool and can surface 502s during the swap window. Raise --parallel only when
+# that impact is acceptable.
+#
+# --parallel N dispatches bounded batches after the canary/prod gates have already
+# passed, preserving fail-stop between batches. If any edge in a batch fails, the
+# script finishes verifying that already-dispatched batch, prints the failed
+# edge(s), and does not dispatch the next batch.
 #
 # Usage:
 #   bash scripts/stage0/rollout-edges.sh --tag 1.7.88 --skip uk1
