@@ -370,7 +370,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
-import { rollingWindowTs } from '@/utils/dashboardWindow.tk'
+import { dashboardWindowParams, rollingWindowTs } from '@/utils/dashboardWindow.tk'
 
 import {
   Chart as ChartJS,
@@ -664,6 +664,10 @@ const goToUserUsage = (item: UserSpendingRankingItem) => {
       user_id: String(item.user_id),
       start_date: startDate.value,
       end_date: endDate.value,
+      // The /admin/usage list parser only consumes absolute start_ts/end_ts (+
+      // date strings); it does NOT understand the server-TZ `range` token, so we
+      // forward only the rolling absolute window here. Server-TZ alignment of the
+      // usage-list drilldown itself is a separate change to parseUsageListTimeRange.
       ...(rollingWindowTs(activePreset.value) ?? {})
     }
   })
@@ -700,7 +704,7 @@ const loadDashboardStatsSnapshot = async () => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...(rollingWindowTs(activePreset.value) ?? {}),
+      ...(dashboardWindowParams(activePreset.value)),
       granularity: granularity.value,
       include_stats: true,
       include_trend: false,
@@ -725,7 +729,7 @@ const loadDashboardTrendSnapshot = async (currentSeq: number) => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...(rollingWindowTs(activePreset.value) ?? {}),
+      ...(dashboardWindowParams(activePreset.value)),
       granularity: granularity.value,
       include_stats: false,
       include_trend: true,
@@ -750,7 +754,7 @@ const loadDashboardModelStatsSnapshot = async (currentSeq: number) => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...(rollingWindowTs(activePreset.value) ?? {}),
+      ...(dashboardWindowParams(activePreset.value)),
       granularity: granularity.value,
       include_stats: false,
       include_trend: false,
@@ -784,7 +788,7 @@ const loadUserUsageTrend = async () => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...(rollingWindowTs(activePreset.value) ?? {}),
+      ...(dashboardWindowParams(activePreset.value)),
       granularity: granularity.value,
       include_stats: false,
       include_trend: false,
@@ -812,7 +816,7 @@ const loadUserSpendingRanking = async () => {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...(rollingWindowTs(activePreset.value) ?? {}),
+      ...(dashboardWindowParams(activePreset.value)),
       limit: rankingLimit
     })
     if (currentSeq !== rankingLoadSeq) return
