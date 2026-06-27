@@ -762,9 +762,11 @@ func TestBuildForUser_AuthorizedGroups_CrossGroup(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, ga.AuthorizedGroups, 1)
 	assert.Equal(t, int64(30), ga.AuthorizedGroups[0].ID)
-}
 
-// TestBuildForUser_AccountWhitelist_VendorPrefix exercises reuse of
+	require.NotNil(t, resp.AuthorizedGroupsByModel)
+	assert.Len(t, resp.AuthorizedGroupsByModel["gpt-5"], 2)
+	assert.Len(t, resp.AuthorizedGroupsByModel["gpt-a"], 1)
+}
 // stripVendorPrefixForCatalogLookup (PR #326). An account whitelisting an
 // OpenRouter-style "<vendor>/<model>" must still resolve to the LiteLLM
 // catalog's bare model_id row.
