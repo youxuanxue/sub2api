@@ -90,7 +90,12 @@ export default {
       noKeyHint: '你还没有可用的 API Key，先去控制台创建一个。',
       columns: {
         input: '输入（官方单价）',
-        output: '输出（官方单价）'
+        output: '输出（官方单价）',
+        authorizedGroups: '授权分组'
+      },
+      authorizedGroups: {
+        createKeyHint: '在 {group} 创建 API Key',
+        exclusive: '专属'
       },
       empty: {
         noAccess: {

@@ -193,6 +193,25 @@ type MePricingModel struct {
 	ContextWindow   int            `json:"context_window,omitempty"`
 	MaxOutputTokens int            `json:"max_output_tokens,omitempty"`
 	Capabilities    []string       `json:"capabilities"`
+	// AuthorizedGroups lists the caller's accessible groups (exclusive + public)
+	// that can serve this model — the "授权分组" column on the /pricing "my" view.
+	// Lets a user see at a glance which group/key to use, and (frontend) deep-link
+	// to /keys to create a key prefilled with that group. Empty/omitted on the
+	// public catalog. Sorted: target group first, then exclusive, then by name.
+	AuthorizedGroups []MePricingModelGroup `json:"authorized_groups,omitempty"`
+}
+
+// MePricingModelGroup is a per-model reference to one accessible group that can
+// serve the model. A trimmed MePricingGroupRef (no per-key flags) — just what the
+// "授权分组" column + create-key deep-link need.
+type MePricingModelGroup struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	Platform         string  `json:"platform"`
+	IsExclusive      bool    `json:"is_exclusive"`
+	IsCurrentForKey  bool    `json:"is_current_for_key"`
+	RateMultiplier   float64 `json:"rate_multiplier"`
+	SubscriptionType string  `json:"subscription_type,omitempty"`
 }
 
 // MePricingPrice mirrors the "your price" view in USD per 1k tokens (or
@@ -379,6 +398,10 @@ func (s *MePricingCatalogService) BuildForUser(
 	// pricing 页是官方定价目录；真实计费在网关按 effective 倍率执行，不受此影响。
 	const officialRate = 1.0
 	models := s.buildModelsForGroup(ctx, targetGroup, officialRate)
+
+	// 「授权分组」列：对每个模型标注该用户可访问分组中能服务它的分组集合，
+	// 方便用户看清该用什么 key/分组（前端可点击直达建 key）。
+	models = s.attachAuthorizedGroups(ctx, models, accessibleGroups, userRates, targetGroupID, opts.HideUserRateOverrides)
 
 	// HideUserRateOverrides：倍率提示字段回落到分组默认值（前端已不再渲染这些
 	// 字段——pricing 页与倍率彻底脱钩——但保留 #693 的口径以稳住 DTO 与测试）。
@@ -570,6 +593,77 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
 	return out
+}
+
+// attachAuthorizedGroups fills each model's AuthorizedGroups with the accessible
+// groups that can serve it. It reuses buildModelsForGroup per accessible group —
+// the exact channel + account-fallback serving logic — and inverts to
+// model_id -> []group, so the column can never diverge from what the gateway
+// actually schedules. K = len(accessibleGroups) is a single user's authorized
+// group count (small); BuildPublicCatalog is mtime-cached so the repeated
+// metadata join is cheap, and the target group's rows are reused (not rebuilt).
+// Rate=1.0 because only the served model_id SET matters here, not the price.
+func (s *MePricingCatalogService) attachAuthorizedGroups(
+	ctx context.Context,
+	models []MePricingModel,
+	accessibleGroups []Group,
+	userRates map[int64]float64,
+	targetGroupID int64,
+	hideOverrides bool,
+) []MePricingModel {
+	if s == nil || len(models) == 0 || len(accessibleGroups) == 0 {
+		return models
+	}
+	byModel := make(map[string][]MePricingModelGroup, len(models))
+	for i := range accessibleGroups {
+		g := accessibleGroups[i]
+		rate := g.RateMultiplier
+		if r, ok := userRates[g.ID]; ok && !hideOverrides {
+			rate = r
+		}
+		ref := MePricingModelGroup{
+			ID:               g.ID,
+			Name:             g.Name,
+			Platform:         g.Platform,
+			IsExclusive:      g.IsExclusive,
+			IsCurrentForKey:  g.ID == targetGroupID,
+			RateMultiplier:   rate,
+			SubscriptionType: g.SubscriptionType,
+		}
+		if g.ID == targetGroupID {
+			// Reuse the already-built target rows instead of rebuilding them.
+			for j := range models {
+				byModel[models[j].ModelID] = append(byModel[models[j].ModelID], ref)
+			}
+			continue
+		}
+		for _, m := range s.buildModelsForGroup(ctx, g, 1.0) {
+			byModel[m.ModelID] = append(byModel[m.ModelID], ref)
+		}
+	}
+	for i := range models {
+		groups := byModel[models[i].ModelID]
+		if len(groups) == 0 {
+			continue
+		}
+		sortAuthorizedGroups(groups)
+		models[i].AuthorizedGroups = groups
+	}
+	return models
+}
+
+// sortAuthorizedGroups orders the per-model group badges deterministically:
+// the current/target group first, then exclusive groups, then by name.
+func sortAuthorizedGroups(g []MePricingModelGroup) {
+	sort.SliceStable(g, func(i, j int) bool {
+		if g[i].IsCurrentForKey != g[j].IsCurrentForKey {
+			return g[i].IsCurrentForKey
+		}
+		if g[i].IsExclusive != g[j].IsExclusive {
+			return g[i].IsExclusive
+		}
+		return g[i].Name < g[j].Name
+	})
 }
 
 // fillAccountFallback inserts account-derived menu rows for each
