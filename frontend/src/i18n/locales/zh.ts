@@ -237,6 +237,7 @@ export default {
       notifyMe: '完成通知我',
       usuallyTakes: '通常 30–90 秒',
       noUrlHint: '任务已成功。视频结果不会长期保留，此处无法播放——如需查看请重新生成。',
+      expiredReload: '链接已过期，仅保留提示词——可复用提示词重新生成。',
       download: '下载',
       failedRefunded: '生成失败 — 已退你 {cost}。试试更短的片子或别的档位。',
       techDetails: '技术详情',

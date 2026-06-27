@@ -1010,7 +1010,14 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseDebouncedReload()
+  // Always refresh row metrics after the debounced table reload completes.
+  // Relying only on watch(loading) races with the initial onMounted load(): that
+  // load can finish while pendingTodayStatsRefresh is already true (user filtered
+  // early), consume the flag, and leave the debounced reload with no batch refresh.
+  void baseDebouncedReload().then(() => {
+    pendingTodayStatsRefresh.value = false
+    refreshAccountRowMetrics()
+  })
 }
 
 const handlePageChange = (page: number) => {

@@ -1,11 +1,39 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 import { createI18n } from 'vue-i18n'
 import en from '@/i18n/locales/en'
+import type { VideoTaskItem } from '@/composables/useMediaLibrary'
 import VideoStudio from '../VideoStudio.vue'
 
-// The component imports the gateway media client; never hit the network in a unit
-// test. gatewayVideoFetch is only reached via the lazy on-open URL refresh.
+const libraryMock = vi.hoisted(() => ({
+  usePersistedLibrary: true,
+  videoTasks: { value: [] as Array<Record<string, unknown>> },
+  patchVideoTaskSpy: vi.fn(),
+}))
+
+vi.mock('@/composables/useMediaLibrary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/composables/useMediaLibrary')>()
+  return {
+    ...actual,
+    useMediaLibrary: (userId: number | string) => {
+      if (libraryMock.usePersistedLibrary) {
+        return actual.useMediaLibrary(userId)
+      }
+      return {
+        images: ref([]),
+        videoTasks: libraryMock.videoTasks,
+        addImages: vi.fn(),
+        clearImages: vi.fn(),
+        upsertVideoTask: vi.fn(),
+        patchVideoTask: libraryMock.patchVideoTaskSpy,
+        removeVideoTask: vi.fn(),
+        clearVideoTasks: vi.fn(),
+      }
+    },
+  }
+})
+
 vi.mock('@/api/playground', () => ({
   gatewayVideoSubmit: vi.fn(),
   gatewayVideoFetch: vi.fn(async () => ({ done: true, video_url: 'https://s3.example/fresh.mp4' })),
@@ -27,8 +55,8 @@ const baseProps = {
   rateMultiplier: 1,
 }
 
-function seedSucceeded(url: string): void {
-  const task = {
+function baseTask(overrides: Partial<VideoTaskItem> = {}): VideoTaskItem {
+  return {
     id: 'vt_abc',
     prompt: 'a calm mountain lake at dawn',
     model: 'veo-3.1-generate-001',
@@ -38,11 +66,21 @@ function seedSucceeded(url: string): void {
     estCost: 4.8,
     keyId: 1,
     state: 'succeeded',
-    url,
+    url: 'https://cdn.example/upstream.mp4',
     submittedAtMs: Date.now(),
     elapsedS: 8,
+    ...overrides,
   }
-  window.localStorage.setItem(`tk_media_lib_v1:${USER_ID}`, JSON.stringify({ images: [], videoTasks: [task] }))
+}
+
+function seedPersisted(tasks: VideoTaskItem[]): void {
+  libraryMock.usePersistedLibrary = true
+  window.localStorage.setItem(`tk_media_lib_v1:${USER_ID}`, JSON.stringify({ images: [], videoTasks: tasks }))
+}
+
+function seedInSession(task: VideoTaskItem): void {
+  libraryMock.usePersistedLibrary = false
+  libraryMock.videoTasks.value = [task as unknown as Record<string, unknown>]
 }
 
 const mountStudio = () =>
@@ -55,6 +93,14 @@ const mountStudio = () =>
 describe('VideoStudio succeeded-task presentation', () => {
   beforeEach(() => {
     window.localStorage.clear()
+    libraryMock.usePersistedLibrary = true
+    libraryMock.videoTasks.value = []
+    libraryMock.patchVideoTaskSpy.mockReset()
+    libraryMock.patchVideoTaskSpy.mockImplementation((id: string, patch: Partial<VideoTaskItem>) => {
+      libraryMock.videoTasks.value = libraryMock.videoTasks.value.map((task) =>
+        task.id === id ? { ...task, ...patch } : task
+      )
+    })
     Object.defineProperty(URL, 'createObjectURL', {
       value: vi.fn(() => 'blob:https://studio.test/video-preview'),
       configurable: true,
@@ -65,29 +111,56 @@ describe('VideoStudio succeeded-task presentation', () => {
     })
   })
 
-  it('renders a poster tile, NOT an always-on inline <video>, for a succeeded task', () => {
-    // Bug 2: the old always-on <video> showed a black, poster-less 0:00 box.
-    seedSucceeded('https://s3.example/clip.mp4')
+  it('renders a poster tile, NOT an always-on inline <video>, for a fresh in-session task', () => {
+    seedInSession(baseTask({ url: 'https://s3.example/clip.mp4' }))
     const w = mountStudio()
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(true)
     expect(w.find('video').exists()).toBe(false)
-    // The per-card status badge is the in-page completion signal that replaced the
-    // stale global toast (Bug 1). The runtime-only i18n build returns the key path
-    // rather than the translation, so assert on the rendered key.
     expect(w.text()).toContain('statusSucceeded')
   })
 
   it('does not resurrect a persisted inline data: clip after reload', () => {
-    seedSucceeded('data:video/mp4;base64,AAAA')
+    seedPersisted([baseTask({ url: 'data:video/mp4;base64,AAAA' })])
     const w = mountStudio()
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
-    expect(w.text()).toContain('noUrlHint')
+    expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
     expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('shows prompt-only card for reloaded http upstream clips (no play tile)', () => {
+    seedPersisted([
+      baseTask({
+        id: 'vt_stale',
+        prompt: 'neon Tokyo alley in rain',
+        url: 'https://cdn.example/stale.mp4',
+      }),
+    ])
+    const w = mountStudio()
+    expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
+    expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
+    expect(w.text()).toContain('neon Tokyo alley in rain')
+    expect(w.text()).toContain('expiredReload')
+  })
+
+  it('closes the lightbox and marks the card expired when preview media fails', async () => {
+    seedInSession(baseTask())
+    const w = mountStudio()
+    await w.find('[data-testid="studio-video-play"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="studio-video-preview"] video').exists()).toBe(true)
+
+    await w.find('[data-testid="studio-video-preview"] video').trigger('error')
+    await flushPromises()
+
+    expect(w.find('[data-testid="studio-video-preview"]').exists()).toBe(false)
+    expect(libraryMock.patchVideoTaskSpy).toHaveBeenCalledWith('vt_abc', { urlExpired: true, url: '' })
+    expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
+    expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
   })
 
   it('plays an http upstream clip directly without re-fetching through TokenKey', async () => {
     const { gatewayVideoFetch } = await import('@/api/playground')
-    seedSucceeded('https://cdn.example/upstream.mp4')
+    seedInSession(baseTask())
     const w = mountStudio()
     await w.find('[data-testid="studio-video-play"]').trigger('click')
     await flushPromises()
@@ -98,10 +171,7 @@ describe('VideoStudio succeeded-task presentation', () => {
   })
 
   it('exposes a copy-link affordance in the lightbox ready state', async () => {
-    // The "看不到 S3 链接" regression: #860 dropped the open-in-new-tab anchor, so an
-    // URL-only card dead-ended. Once the URL is ready, the user must be able to
-    // grab the link itself — not only Download.
-    seedSucceeded('https://cdn.example/upstream.mp4')
+    seedInSession(baseTask())
     const w = mountStudio()
     await w.find('[data-testid="studio-video-play"]').trigger('click')
     await flushPromises()

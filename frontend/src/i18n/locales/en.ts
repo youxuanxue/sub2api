@@ -239,6 +239,7 @@ export default {
       notifyMe: 'Notify me when done',
       usuallyTakes: 'Usually 30–90s',
       noUrlHint: 'Task succeeded. Video results are not retained long-term, so it cannot be played here — generate again to view it.',
+      expiredReload: 'Link expired — only the prompt is kept. Reuse it to generate again.',
       download: 'Download',
       failedRefunded: 'Generation failed — {cost} refunded. Try a shorter clip or another tier.',
       techDetails: 'Technical details',
