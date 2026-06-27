@@ -6547,7 +6547,7 @@ export default {
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',
         openaiCodexUserAgent: 'OpenAI Codex UA',
-        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.2 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.2)',
+        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.3 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.3)',
         openaiCodexUserAgentHint: 'OpenAI OAuth 上游请求的 Codex User-Agent 兜底值；账号自定义 UA 优先，真实 Codex 客户端 UA 原样保留。留空使用内置默认值。',
         openaiAllowClaudeCodeCodexPlugin: '允许在 Claude Code 中使用 Codex 插件',
         openaiAllowClaudeCodeCodexPluginDesc:
