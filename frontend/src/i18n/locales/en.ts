@@ -27,7 +27,8 @@ export default {
       'Swipe horizontally or scroll below to see all columns. Model names wrap in the left column.',
     export: {
       button: 'Export CSV',
-      success: 'Pricing exported'
+      success: 'Pricing exported',
+      empty: 'Public catalog is empty — nothing to export'
     },
     tieredBadge: 'Tiered ×{n}',
     footer: {
