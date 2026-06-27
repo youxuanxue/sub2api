@@ -12,6 +12,13 @@
  * decode error) it falls back to the original src with a no-op revoke, so a caller
  * always gets something usable to hand to a <video :src>.
  */
+import type { VideoTaskItem } from '@/composables/useMediaLibrary'
+
+/** True when the task card may offer in-page playback (same session, non-expired url). */
+export function videoTaskPlaybackAvailable(task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired'>): boolean {
+  return task.state === 'succeeded' && !!task.url && !task.urlExpired
+}
+
 export interface VideoPlayback {
   /** URL ready for a <video :src> — http(s) upstream URL or a tab-local blob: URL. */
   url: string

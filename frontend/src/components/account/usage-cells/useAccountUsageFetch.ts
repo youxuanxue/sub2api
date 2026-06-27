@@ -67,7 +67,8 @@ export function useAccountUsageFetch(
     () => props.usageOverride,
     (v) => {
       if (v !== undefined) usageInfo.value = v
-    }
+    },
+    { immediate: true }
   )
 
   const isDesktopViewport = ref(

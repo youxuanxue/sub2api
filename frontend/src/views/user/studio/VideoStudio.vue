@@ -224,43 +224,47 @@
           <p v-if="task.errorMessage" class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{{ t('studio.video.stalled') }}</p>
         </div>
 
-        <!-- succeeded: poster tile → in-page lightbox playback. We deliberately do
-             NOT render an always-on <video> (it shows a black, poster-less 0:00 box
-             before play, and multiple cards could start competing video loads).
-             The clip plays only on demand in the lightbox, using the upstream URL
-             directly or a tab-local Blob URL for inline bytes. -->
+        <!-- succeeded: poster tile when playback is still available in this tab;
+             otherwise prompt-only (upstream http links are not replayed after reload). -->
         <div v-else-if="task.state === 'succeeded'" class="space-y-2">
-          <button
-            v-if="task.url"
-            type="button"
-            class="group relative block w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
-            :style="{ aspectRatio: posterAspect(task) }"
-            :title="t('studio.video.playHint')"
-            :aria-label="t('studio.video.play')"
-            data-testid="studio-video-play"
-            @click="openPreview(task)"
-          >
-            <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <span class="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 shadow-lg transition group-hover:scale-110 group-hover:bg-white">
-                <span aria-hidden="true" class="ml-1 text-2xl text-gray-900">▶</span>
+          <template v-if="videoTaskPlaybackAvailable(task)">
+            <button
+              type="button"
+              class="group relative block w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
+              :style="{ aspectRatio: posterAspect(task) }"
+              :title="t('studio.video.playHint')"
+              :aria-label="t('studio.video.play')"
+              data-testid="studio-video-play"
+              @click="openPreview(task)"
+            >
+              <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <span class="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 shadow-lg transition group-hover:scale-110 group-hover:bg-white">
+                  <span aria-hidden="true" class="ml-1 text-2xl text-gray-900">▶</span>
+                </span>
               </span>
-            </span>
-            <span class="pointer-events-none absolute bottom-2 left-2 rounded bg-black/55 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-white/90">{{ task.seconds }}s{{ task.aspectRatio ? ' · ' + task.aspectRatio : '' }}</span>
-          </button>
-          <p v-else class="rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{{ t('studio.video.noUrlHint') }}</p>
+              <span class="pointer-events-none absolute bottom-2 left-2 rounded bg-black/55 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-white/90">{{ task.seconds }}s{{ task.aspectRatio ? ' · ' + task.aspectRatio : '' }}</span>
+            </button>
+            <p class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.video.retentionHint') }}</p>
+          </template>
+          <div
+            v-else
+            class="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 dark:border-dark-600 dark:bg-dark-800/60"
+            data-testid="studio-video-expired"
+          >
+            <p class="whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-dark-100">{{ task.prompt }}</p>
+            <p class="mt-2 text-[11px] text-gray-400 dark:text-dark-500">
+              {{ task.urlExpired || !task.url ? t('studio.video.expiredReload') : t('studio.video.noUrlHint') }}
+            </p>
+          </div>
           <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
-            <span class="truncate" :title="task.prompt">{{ task.prompt }}</span>
+            <span v-if="videoTaskPlaybackAvailable(task)" class="truncate" :title="task.prompt">{{ task.prompt }}</span>
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
-            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
+            <button v-if="videoTaskPlaybackAvailable(task)" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
-          <!-- The clip plays from a short-lived upstream link (TokenKey no longer
-               rehosts video results), so nudge the user to grab it now rather than
-               discover it expired. -->
-          <p v-if="task.url" class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.video.retentionHint') }}</p>
         </div>
 
         <!-- failed: refund -->
@@ -345,7 +349,7 @@ import {
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
-import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
+import { videoPlaybackUrl, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
@@ -499,7 +503,7 @@ let copiedTimer: ReturnType<typeof setTimeout> | undefined
 let previewRevoke: () => void = () => {}
 
 async function openPreview(task: VideoTaskItem): Promise<void> {
-  if (!task.url) return
+  if (!videoTaskPlaybackAvailable(task)) return
   previewRevoke()
   preview.value = task
   previewUrl.value = ''
@@ -517,10 +521,12 @@ async function openPreview(task: VideoTaskItem): Promise<void> {
   previewState.value = playback.url ? 'ready' : 'expired'
 }
 
-// The <video> failed to load. Degrade to a translated "expired" message + a
-// retry / reuse-the-prompt path, instead of leaving a silent black box.
+// The <video> failed to load — mark the card prompt-only and close the lightbox
+// instead of trapping the user in an "expired" modal they already saw on the list.
 function onPreviewError(): void {
-  previewState.value = 'expired'
+  const task = preview.value
+  closePreview()
+  if (task) library.patchVideoTask(task.id, { urlExpired: true, url: '' })
 }
 
 // Re-attempt playback — recovers from a transient media error without forcing

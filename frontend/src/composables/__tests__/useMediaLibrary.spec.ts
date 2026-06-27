@@ -38,13 +38,34 @@ describe('useMediaLibrary video persistence', () => {
     expect(persisted.videoTasks[0].url).toBe('')
   })
 
-  it('preserves http upstream video URLs in localStorage', async () => {
+  it('strips http upstream video URLs from localStorage and marks urlExpired', async () => {
     const lib = useMediaLibrary(USER_ID)
     lib.upsertVideoTask(videoTask('https://cdn.example/video.mp4'))
+    expect(lib.videoTasks.value[0].url).toBe('https://cdn.example/video.mp4')
 
     await nextTick()
     const persisted = JSON.parse(window.localStorage.getItem(KEY) || '{}')
-    expect(persisted.videoTasks[0].url).toBe('https://cdn.example/video.mp4')
+    expect(persisted.videoTasks[0].url).toBe('')
+    expect(persisted.videoTasks[0].urlExpired).toBe(true)
+  })
+
+  it('reloads legacy persisted http video tasks as prompt-only (urlExpired)', () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        images: [],
+        videoTasks: [
+          {
+            ...videoTask('https://cdn.example/stale.mp4'),
+            prompt: 'neon alley rain',
+          },
+        ],
+      })
+    )
+    const lib = useMediaLibrary(USER_ID)
+    expect(lib.videoTasks.value[0].url).toBe('')
+    expect(lib.videoTasks.value[0].urlExpired).toBe(true)
+    expect(lib.videoTasks.value[0].prompt).toBe('neon alley rain')
   })
 })
 
