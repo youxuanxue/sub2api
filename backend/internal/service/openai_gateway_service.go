@@ -1510,7 +1510,7 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 			return false
 		}
 	}
-	if requireCompact && (!account.IsOpenAI() || openAICompactSupportTier(account) == 0) {
+	if requireCompact && (!account.IsOpenAI() || openAICompactSupportTier(account) == 0) { // compat-pool-exempt: compact is an OpenAI-native capability; newapi/grok never carry compact state
 		return false
 	}
 	return true
