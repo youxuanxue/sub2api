@@ -866,7 +866,7 @@ const formattedUpdatedAt = computed(() => {
 
 // ============================== group switcher ==============================
 //
-// TK: pricing 页（分组目录/所有目录）一律展示官方定价，与分组倍率/个人覆写
+// TK: pricing 页（分组目录/所有分组）一律展示官方定价，与分组倍率/个人覆写
 // 彻底脱钩——故不再有倍率提示（原 rateHint）、对比下拉不再拼 ×N 倍率角标。
 
 const groupFilterOptions = computed<MePricingGroupRef[]>(() => {

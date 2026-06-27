@@ -58,10 +58,10 @@ export default {
       apiKey: 'API Key',
       keyPlaceholder: 'All keys',
       group: 'Group',
-      publicCatalog: 'Public catalog',
+      publicCatalog: 'All groups',
       groupExclusiveOption: '{group} (exclusive)',
       search: 'Search',
-      activePublic: 'Viewing the public catalog',
+      activePublic: 'Viewing all groups',
       activeGroup: 'Viewing {group} group catalog',
       activeKeyGroup: 'Viewing {key} · {group}'
     },
@@ -82,7 +82,7 @@ export default {
     // multipliers.
     my: {
       tabMy: 'Group Catalog',
-      tabPublic: 'All Catalog',
+      tabPublic: 'All groups',
       title: 'Group Model Catalog',
       subtitle: 'Models available to the group of your selected API key, at official pricing',
       description:

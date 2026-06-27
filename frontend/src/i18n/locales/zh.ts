@@ -57,10 +57,10 @@ export default {
       apiKey: 'API Key',
       keyPlaceholder: '全部 Key',
       group: 'Group',
-      publicCatalog: '公开目录',
+      publicCatalog: '所有分组',
       groupExclusiveOption: '{group}（专属）',
       search: '搜索',
-      activePublic: '正在查看公开目录',
+      activePublic: '正在查看所有分组',
       activeGroup: '正在查看 {group} 的分组目录',
       activeKeyGroup: '正在查看 {key} · {group}'
     },
@@ -80,7 +80,7 @@ export default {
     // 展示官方定价，与分组倍率/个人覆写脱钩。
     my: {
       tabMy: '分组目录',
-      tabPublic: '所有目录',
+      tabPublic: '所有分组',
       title: '分组模型目录',
       subtitle: '当前 API Key 所属分组可调用的模型与官方定价',
       description:

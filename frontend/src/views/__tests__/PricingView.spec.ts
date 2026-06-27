@@ -83,15 +83,15 @@ vi.mock('vue-i18n', async () => {
     'pricing.filters.apiKey': 'API Key',
     'pricing.filters.keyPlaceholder': 'All keys',
     'pricing.filters.group': 'Group',
-    'pricing.filters.publicCatalog': 'Public catalog',
+    'pricing.filters.publicCatalog': 'All groups',
     'pricing.filters.groupExclusiveOption': '{group} (exclusive)',
     'pricing.filters.search': 'Search',
-    'pricing.filters.activePublic': 'Viewing the public catalog',
+    'pricing.filters.activePublic': 'Viewing all groups',
     'pricing.filters.activeGroup': 'Viewing {group} group catalog',
     'pricing.filters.activeKeyGroup': 'Viewing {key} · {group}',
     'common.loading': 'Loading',
     'pricing.my.tabMy': 'Group Catalog',
-    'pricing.my.tabPublic': 'All Catalog',
+    'pricing.my.tabPublic': 'All groups',
     'pricing.my.title': 'Group Model Catalog',
     'pricing.my.subtitle': '',
     'pricing.my.description': '',
@@ -389,7 +389,7 @@ describe('PricingView', () => {
     await flushPromises()
 
     expect(getPublicPricing).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('Viewing the public catalog')
+    expect(wrapper.text()).toContain('Viewing all groups')
     expect(wrapper.text()).toContain('public-model')
     expect(wrapper.find('[data-tk="pricing-filter-key"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="pricing-filter-group"]').exists()).toBe(true)
@@ -497,7 +497,7 @@ describe('PricingView', () => {
 
     expect(getMePricingCatalog).toHaveBeenCalledTimes(1)
     expect(getPublicPricing).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('Viewing the public catalog')
+    expect(wrapper.text()).toContain('Viewing all groups')
     expect(wrapper.text()).toContain('public-model')
   })
 
@@ -546,7 +546,7 @@ describe('PricingView', () => {
 
     // Switched to public, loaded it, and exported that catalog.
     expect(getPublicPricing).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('Viewing the public catalog')
+    expect(wrapper.text()).toContain('Viewing all groups')
     expect(exportPricingCsv).toHaveBeenCalledTimes(1)
     expect(exportPricingCsv.mock.calls[0][0]).toMatchObject({
       data: [expect.objectContaining({ model_id: 'public-model' })],
