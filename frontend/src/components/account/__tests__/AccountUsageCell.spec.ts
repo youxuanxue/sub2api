@@ -206,7 +206,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2000, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2000, 'passive')
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
   })
@@ -267,8 +267,8 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2001, undefined)
-    // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
+    expect(getUsage).toHaveBeenCalledWith(2001, 'passive')
+    // 单一数据源：始终使用被动 /usage API 返回值，忽略行内 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
   })
@@ -338,12 +338,12 @@ describe('AccountUsageCell', () => {
 
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenCalledWith(2010, undefined)
-    // 单一数据源：始终使用 /usage API 值
+    expect(getUsage).toHaveBeenCalledWith(2010, 'passive')
+    // 单一数据源：始终使用被动 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })
 
-  it('OpenAI OAuth 有列表 override 时不自动拉取但手动刷新会拉取', async () => {
+  it('OpenAI OAuth 有列表 override 时不自动拉取，手动刷新也交给 batch', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 21,
@@ -388,9 +388,51 @@ describe('AccountUsageCell', () => {
     await wrapper.setProps({ manualRefreshToken: 1 })
     await flushPromises()
 
+    expect(getUsage).not.toHaveBeenCalled()
+  })
+
+  it('Kiro 有列表 override 时不自动拉取，但手动刷新会拉 active usage', async () => {
+    getUsage.mockResolvedValue({
+      kiro_usage: {
+        current: 12,
+        limit: 100,
+        percent: 12,
+        next_reset_date: '2099-03-07T12:00:00Z',
+        subscription_title: 'Kiro Pro'
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2013,
+          platform: 'kiro',
+          type: 'oauth',
+          extra: {}
+        }),
+        usageOverride: null,
+        manualRefreshToken: 0
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'color'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(getUsage).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ manualRefreshToken: 1 })
+    await flushPromises()
+
     expect(getUsage).toHaveBeenCalledTimes(1)
-    expect(getUsage).toHaveBeenCalledWith(2011, undefined)
-    expect(wrapper.text()).toContain('5h|21|300')
+    expect(getUsage).toHaveBeenCalledWith(2013, 'active', true)
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|12|2099-03-07T12:00:00Z')
   })
 
   it('Anthropic OAuth 有列表 override 时手动刷新不回退为逐行 usage 请求', async () => {
@@ -486,7 +528,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-	expect(getUsage).toHaveBeenCalledWith(2002, undefined)
+	expect(getUsage).toHaveBeenCalledWith(2002, 'passive')
 	expect(wrapper.text()).toContain('5h|0|27700')
 	expect(wrapper.text()).toContain('7d|0|27700')
   })
@@ -618,7 +660,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-  expect(getUsage).toHaveBeenCalledWith(2004, undefined)
+  expect(getUsage).toHaveBeenCalledWith(2004, 'passive')
   expect(wrapper.text()).toContain('5h|100|106540000')
   expect(wrapper.text()).toContain('7d|100|106540000')
   })
