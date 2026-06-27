@@ -59,6 +59,7 @@ export default {
       keyPlaceholder: 'All keys',
       group: 'Group',
       publicCatalog: 'Public catalog',
+      groupExclusiveOption: '{group} (exclusive)',
       search: 'Search',
       activePublic: 'Viewing the public catalog',
       activeGroup: 'Viewing {group} group catalog',

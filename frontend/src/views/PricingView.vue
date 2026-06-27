@@ -112,7 +112,7 @@
                     :key="g.id"
                     :value="`group:${g.id}`"
                   >
-                    {{ g.name }}
+                    {{ groupFilterOptionLabel(g) }}
                   </option>
                 </select>
               </label>
@@ -335,8 +335,9 @@
                       {{ t('pricing.columns.capabilities') }}
                     </th>
                     <th
-                      v-if="viewMode === 'my'"
+                      v-if="showAuthorizedGroupsColumn"
                       scope="col"
+                      data-tk="pricing-col-authorized-groups"
                       class="sticky top-0 z-40 min-w-[12rem] bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
                     >
                       {{ t('pricing.my.columns.authorizedGroups') }}
@@ -457,7 +458,11 @@
                         >
                       </div>
                     </td>
-                    <td v-if="viewMode === 'my'" class="px-3 py-3 align-top">
+                    <td
+                      v-if="showAuthorizedGroupsColumn"
+                      data-tk="pricing-col-authorized-groups"
+                      class="px-3 py-3 align-top"
+                    >
                       <div class="flex flex-wrap gap-1.5">
                         <button
                           v-for="g in row.authorizedGroups || []"
@@ -589,7 +594,7 @@ interface NormalizedRow {
   perSecond?: number | null
   /** Input-token interval (阶梯) ladder, normalized from either catalog source. */
   tiers?: NormalizedTier[]
-  /** Accessible groups that can serve this model — "授权分组" column ('my' view only). */
+  /** Accessible groups that can serve this model — "授权分组" column when logged in. */
   authorizedGroups?: MePricingModelGroup[]
 }
 
@@ -657,6 +662,14 @@ function rowModality(billingMode?: string): PricingModality {
   return 'text'
 }
 
+function hasSavedAuthToken(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token')
+  } catch {
+    return false
+  }
+}
+
 // Public catalog state (unchanged from v1 — US-028 backing data).
 const publicCatalog = ref<PublicCatalogResponse | null>(null)
 
@@ -665,7 +678,29 @@ const myCatalog = ref<MePricingCatalogResponse | null>(null)
 const selectedKeyId = ref<number>(0)
 const selectedGroupId = ref<number>(0)
 
-const canShowCatalogFilters = computed(() => myCatalog.value != null)
+const canShowCatalogFilters = computed(
+  () =>
+    myCatalog.value != null || authStore.isAuthenticated || hasSavedAuthToken()
+)
+
+/** Logged-in users see the authorized-groups column on both my and public views. */
+const showAuthorizedGroupsColumn = computed(
+  () => authStore.isAuthenticated || hasSavedAuthToken()
+)
+
+const authorizedGroupsByModel = computed<Record<string, MePricingModelGroup[]>>(() => {
+  const fromIndex = myCatalog.value?.authorized_groups_by_model
+  if (fromIndex && Object.keys(fromIndex).length > 0) {
+    return fromIndex
+  }
+  const fromRows: Record<string, MePricingModelGroup[]> = {}
+  for (const m of myCatalog.value?.models ?? []) {
+    if (m.authorized_groups?.length) {
+      fromRows[m.model_id] = m.authorized_groups
+    }
+  }
+  return fromRows
+})
 
 // Admin-only "export platform pricing" — the public (在售目录/对外价) catalog only,
 // as a sales-friendly CSV. Always visible for admins regardless of the current
@@ -740,7 +775,8 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
         maxTokens: tt.max_tokens ?? null,
         inputPer1K: tt.input_per_1k_tokens ?? null,
         outputPer1K: tt.output_per_1k_tokens ?? null
-      }))
+      })),
+      authorizedGroups: authorizedGroupsByModel.value[m.model_id] ?? []
     }))
   }
   // 'my' view
@@ -835,8 +871,20 @@ const formattedUpdatedAt = computed(() => {
 
 const groupFilterOptions = computed<MePricingGroupRef[]>(() => {
   if (!myCatalog.value) return []
-  return myCatalog.value.accessible_groups
+  const groups = [...myCatalog.value.accessible_groups]
+  groups.sort((a, b) => {
+    if (a.is_exclusive !== b.is_exclusive) return a.is_exclusive ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return groups
 })
+
+function groupFilterOptionLabel(g: MePricingGroupRef): string {
+  if (g.is_exclusive) {
+    return t('pricing.filters.groupExclusiveOption', { group: g.name })
+  }
+  return g.name
+}
 
 const displayGroupValue = computed(() => {
   if (viewMode.value === 'public') return 'public'
@@ -949,14 +997,6 @@ async function loadMyCatalog(): Promise<void> {
   myCatalog.value = await getMePricingCatalog(params)
 }
 
-function hasSavedAuthToken(): boolean {
-  try {
-    return typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token')
-  } catch {
-    return false
-  }
-}
-
 async function loadInitialCatalog(): Promise<void> {
   if (!hasSavedAuthToken()) {
     viewMode.value = 'public'
@@ -1019,6 +1059,16 @@ function onPickGroup(e: Event): void {
   void load()
 }
 
+async function ensureMyCatalogForAuthHints(): Promise<void> {
+  if (!hasSavedAuthToken() && !authStore.isAuthenticated) return
+  if (myCatalog.value?.authorized_groups_by_model) return
+  try {
+    myCatalog.value = await getMePricingCatalog()
+  } catch {
+    // Public catalog still works without auth hints.
+  }
+}
+
 async function load(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
@@ -1028,7 +1078,7 @@ async function load(): Promise<void> {
     } else if (viewMode.value === 'my') {
       await loadMyCatalog()
     } else {
-      await loadPublicCatalog()
+      await Promise.all([ensureMyCatalogForAuthHints(), loadPublicCatalog()])
     }
   } catch (err) {
     const apiErr = err as { message?: string }

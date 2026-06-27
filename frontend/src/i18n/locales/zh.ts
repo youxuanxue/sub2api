@@ -58,6 +58,7 @@ export default {
       keyPlaceholder: '全部 Key',
       group: 'Group',
       publicCatalog: '公开目录',
+      groupExclusiveOption: '{group}（专属）',
       search: '搜索',
       activePublic: '正在查看公开目录',
       activeGroup: '正在查看 {group} 的分组目录',

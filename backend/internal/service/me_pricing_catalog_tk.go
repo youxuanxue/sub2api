@@ -165,7 +165,12 @@ type MePricingCatalogResponse struct {
 	Models           []MePricingModel     `json:"models"`
 	MyKeys           []MePricingKeyRef    `json:"my_keys"`
 	AccessibleGroups []MePricingGroupRef  `json:"accessible_groups"`
-	UpdatedAt        time.Time            `json:"updated_at"`
+	// AuthorizedGroupsByModel is the full model_id → accessible-groups index
+	// reused by the authenticated public-catalog view on /pricing (models[] only
+	// covers the target group's menu; the public catalog is wider). Same serving
+	// logic as per-row AuthorizedGroups — see buildAuthorizedGroupsIndex.
+	AuthorizedGroupsByModel map[string][]MePricingModelGroup `json:"authorized_groups_by_model,omitempty"`
+	UpdatedAt               time.Time                        `json:"updated_at"`
 }
 
 // MePricingTargetGroup describes the group the menu is currently scoped to.
@@ -194,10 +199,11 @@ type MePricingModel struct {
 	MaxOutputTokens int            `json:"max_output_tokens,omitempty"`
 	Capabilities    []string       `json:"capabilities"`
 	// AuthorizedGroups lists the caller's accessible groups (exclusive + public)
-	// that can serve this model — the "授权分组" column on the /pricing "my" view.
+	// that can serve this model — the "授权分组" column on /pricing when logged in
+	// (my view per-row; public view via authorized_groups_by_model lookup).
 	// Lets a user see at a glance which group/key to use, and (frontend) deep-link
-	// to /keys to create a key prefilled with that group. Empty/omitted on the
-	// public catalog. Sorted: target group first, then exclusive, then by name.
+	// to /keys to create a key prefilled with that group. Empty/omitted for guests.
+	// Sorted: target group first, then exclusive, then by name.
 	AuthorizedGroups []MePricingModelGroup `json:"authorized_groups,omitempty"`
 }
 
@@ -401,7 +407,10 @@ func (s *MePricingCatalogService) BuildForUser(
 
 	// 「授权分组」列：对每个模型标注该用户可访问分组中能服务它的分组集合，
 	// 方便用户看清该用什么 key/分组（前端可点击直达建 key）。
-	models = s.attachAuthorizedGroups(ctx, models, accessibleGroups, userRates, targetGroupID, opts.HideUserRateOverrides)
+	authByModel := s.buildAuthorizedGroupsIndex(
+		ctx, models, accessibleGroups, userRates, targetGroupID, opts.HideUserRateOverrides,
+	)
+	models = applyAuthorizedGroupsIndex(models, authByModel)
 
 	// HideUserRateOverrides：倍率提示字段回落到分组默认值（前端已不再渲染这些
 	// 字段——pricing 页与倍率彻底脱钩——但保留 #693 的口径以稳住 DTO 与测试）。
@@ -442,10 +451,11 @@ func (s *MePricingCatalogService) BuildForUser(
 			IsExclusive:      targetGroup.IsExclusive,
 			SubscriptionType: targetGroup.SubscriptionType,
 		},
-		Models:           models,
-		MyKeys:           myKeys,
-		AccessibleGroups: groupRefs,
-		UpdatedAt:        time.Now().UTC(),
+		Models:                  models,
+		MyKeys:                  myKeys,
+		AccessibleGroups:        groupRefs,
+		AuthorizedGroupsByModel: authByModel,
+		UpdatedAt:               time.Now().UTC(),
 	}, nil
 }
 
@@ -595,26 +605,22 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	return out
 }
 
-// attachAuthorizedGroups fills each model's AuthorizedGroups with the accessible
-// groups that can serve it. It reuses buildModelsForGroup per accessible group —
-// the exact channel + account-fallback serving logic — and inverts to
-// model_id -> []group, so the column can never diverge from what the gateway
-// actually schedules. K = len(accessibleGroups) is a single user's authorized
-// group count (small); BuildPublicCatalog is mtime-cached so the repeated
-// metadata join is cheap, and the target group's rows are reused (not rebuilt).
-// Rate=1.0 because only the served model_id SET matters here, not the price.
-func (s *MePricingCatalogService) attachAuthorizedGroups(
+// buildAuthorizedGroupsIndex inverts buildModelsForGroup across every accessible
+// group into model_id → []group. Reuses the target group's already-built rows
+// instead of rebuilding them. The index powers both the per-row AuthorizedGroups
+// on the "my" view and the authenticated public-catalog column (wider model set).
+func (s *MePricingCatalogService) buildAuthorizedGroupsIndex(
 	ctx context.Context,
-	models []MePricingModel,
+	targetModels []MePricingModel,
 	accessibleGroups []Group,
 	userRates map[int64]float64,
 	targetGroupID int64,
 	hideOverrides bool,
-) []MePricingModel {
-	if s == nil || len(models) == 0 || len(accessibleGroups) == 0 {
-		return models
+) map[string][]MePricingModelGroup {
+	if s == nil || len(accessibleGroups) == 0 {
+		return nil
 	}
-	byModel := make(map[string][]MePricingModelGroup, len(models))
+	byModel := make(map[string][]MePricingModelGroup)
 	for i := range accessibleGroups {
 		g := accessibleGroups[i]
 		rate := g.RateMultiplier
@@ -631,9 +637,8 @@ func (s *MePricingCatalogService) attachAuthorizedGroups(
 			SubscriptionType: g.SubscriptionType,
 		}
 		if g.ID == targetGroupID {
-			// Reuse the already-built target rows instead of rebuilding them.
-			for j := range models {
-				byModel[models[j].ModelID] = append(byModel[models[j].ModelID], ref)
+			for j := range targetModels {
+				byModel[targetModels[j].ModelID] = append(byModel[targetModels[j].ModelID], ref)
 			}
 			continue
 		}
@@ -641,13 +646,31 @@ func (s *MePricingCatalogService) attachAuthorizedGroups(
 			byModel[m.ModelID] = append(byModel[m.ModelID], ref)
 		}
 	}
-	for i := range models {
-		groups := byModel[models[i].ModelID]
+	for modelID, groups := range byModel {
 		if len(groups) == 0 {
+			delete(byModel, modelID)
 			continue
 		}
 		sortAuthorizedGroups(groups)
-		models[i].AuthorizedGroups = groups
+		byModel[modelID] = groups
+	}
+	if len(byModel) == 0 {
+		return nil
+	}
+	return byModel
+}
+
+func applyAuthorizedGroupsIndex(
+	models []MePricingModel,
+	byModel map[string][]MePricingModelGroup,
+) []MePricingModel {
+	if len(byModel) == 0 || len(models) == 0 {
+		return models
+	}
+	for i := range models {
+		if groups := byModel[models[i].ModelID]; len(groups) > 0 {
+			models[i].AuthorizedGroups = groups
+		}
 	}
 	return models
 }

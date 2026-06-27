@@ -74,8 +74,7 @@ export interface MePricingModel {
   context_window?: number
   max_output_tokens?: number
   capabilities: string[]
-  /** Accessible groups (exclusive + public) that can serve this model.
-   *  Only present on the authenticated "my" view; empty/omitted publicly. */
+  /** Accessible groups that can serve this model — "授权分组" column when logged in. */
   authorized_groups?: MePricingModelGroup[]
 }
 
@@ -114,6 +113,8 @@ export interface MePricingCatalogResponse {
   models: MePricingModel[]
   my_keys: MePricingKeyRef[]
   accessible_groups: MePricingGroupRef[]
+  /** Full model_id → authorized-groups index for the authenticated public catalog. */
+  authorized_groups_by_model?: Record<string, MePricingModelGroup[]>
   updated_at: string
 }
 

@@ -84,6 +84,7 @@ vi.mock('vue-i18n', async () => {
     'pricing.filters.keyPlaceholder': 'All keys',
     'pricing.filters.group': 'Group',
     'pricing.filters.publicCatalog': 'Public catalog',
+    'pricing.filters.groupExclusiveOption': '{group} (exclusive)',
     'pricing.filters.search': 'Search',
     'pricing.filters.activePublic': 'Viewing the public catalog',
     'pricing.filters.activeGroup': 'Viewing {group} group catalog',
@@ -109,7 +110,10 @@ vi.mock('vue-i18n', async () => {
     'pricing.perRequest': '/ request',
     'pricing.export.button': 'Export CSV',
     'pricing.export.success': 'Pricing exported',
-    'pricing.export.empty': 'Public catalog is empty — nothing to export'
+    'pricing.export.empty': 'Public catalog is empty — nothing to export',
+    'pricing.my.columns.authorizedGroups': 'Authorized Groups',
+    'pricing.my.authorizedGroups.createKeyHint': 'Create a key in {group}',
+    'pricing.my.authorizedGroups.exclusive': 'exclusive',
   }
   return {
     ...actual,
@@ -389,6 +393,98 @@ describe('PricingView', () => {
     expect(wrapper.text()).toContain('public-model')
     expect(wrapper.find('[data-tk="pricing-filter-key"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="pricing-filter-group"]').exists()).toBe(true)
+  })
+
+  it('shows authorized groups on the public catalog when logged in', async () => {
+    authState.isAuthenticated = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(
+      meCatalog({
+        authorized_groups_by_model: {
+          'public-only-model': [
+            {
+              id: 10,
+              name: 'Pro',
+              platform: 'newapi',
+              is_exclusive: true,
+              is_current_for_key: true,
+              rate_multiplier: 1.5,
+            },
+            {
+              id: 20,
+              name: 'Batch',
+              platform: 'newapi',
+              is_exclusive: false,
+              is_current_for_key: false,
+              rate_multiplier: 1,
+            },
+          ],
+        },
+      })
+    )
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('public-only-model')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-group"]').setValue('public')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Authorized Groups')
+    expect(wrapper.text()).toContain('Pro')
+    expect(wrapper.text()).toContain('Batch')
+    expect(wrapper.text()).toContain('exclusive')
+    expect(wrapper.find('[data-tk="pricing-col-authorized-groups"]').exists()).toBe(true)
+  })
+
+  it('labels exclusive groups in the group filter while viewing the public catalog', async () => {
+    authState.isAuthenticated = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(
+      meCatalog({
+        accessible_groups: [
+          {
+            id: 10,
+            name: 'Pro',
+            platform: 'newapi',
+            rate_multiplier: 1.5,
+            is_current_for_key: true,
+            is_exclusive: true,
+            subscription_type: 'standard',
+          },
+          {
+            id: 20,
+            name: 'Batch',
+            platform: 'newapi',
+            rate_multiplier: 1,
+            is_current_for_key: false,
+            is_exclusive: false,
+            subscription_type: 'standard',
+          },
+        ],
+      })
+    )
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('public-only-model')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-group"]').setValue('public')
+    await flushPromises()
+
+    const groupSelect = wrapper.get('[data-tk="pricing-filter-group"]')
+    expect(groupSelect.text()).toContain('Pro (exclusive)')
+    expect(groupSelect.text()).toContain('Batch')
+    expect(groupSelect.text()).not.toContain('Batch (exclusive)')
+  })
+
+  it('hides authorized groups on the public catalog for guests', async () => {
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('public-only-model')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Authorized Groups')
   })
 
   it('falls back to the public catalog when saved auth cannot load the user catalog', async () => {
