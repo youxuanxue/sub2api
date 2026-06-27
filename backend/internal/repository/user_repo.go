@@ -55,6 +55,11 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 	// 并避免基于 *sql.Tx 手动构造 ent client 导致的 ExecQuerier 断言错误。
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
+		if errors.Is(err, dbent.ErrTxStarted) {
+			// Repo was constructed with a tx-bound client (integration tests) but
+			// ctx carries no TxFromContext — write through r.client; caller owns commit.
+			return r.createUser(ctx, r.client, userIn)
+		}
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -187,6 +192,9 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 	// 使用 ent 事务包裹用户更新与 allowed_groups 同步，避免跨层事务不一致。
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return r.updateUser(ctx, r.client, userIn)
+		}
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
