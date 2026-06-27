@@ -254,6 +254,38 @@ func TestTkResolvedPricingChargeable(t *testing.T) {
 	}
 }
 
+// TestNotifyServedAtFallback pins the convergence-engine TRIGGER (the funnel→alert wiring's gating
+// logic, docs §4.2): served_at_fallback fires iff cost>0 AND the model is served via a family floor.
+// cost==0 is served_zero_cost's job; a real-priced model is not floored; nil notifier is safe.
+func TestNotifyServedAtFallback(t *testing.T) {
+	// billing knows only "real-priced" as a real price; gemini-x-unknown floors; no-family has none.
+	blob := []byte(`{"real-priced": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "test"}}`)
+	billing := newConsistencyBilling(t, blob)
+	apiKey := &APIKey{ID: 7}
+
+	// cost==0 → served_zero_cost's job, NOT served_at_fallback.
+	spy := &gateNotifierSpy{}
+	tkNotifyServedAtFallback(spy, billing, &CostBreakdown{TotalCost: 0}, apiKey, "gemini-x-unknown", "gemini-x-unknown", "", 100)
+	require.Empty(t, spy.events, "cost==0 must not fire served_at_fallback (that is served_zero_cost)")
+
+	// real-priced model (cost>0) → not served-via-floor → no alert.
+	spy = &gateNotifierSpy{}
+	tkNotifyServedAtFallback(spy, billing, &CostBreakdown{TotalCost: 1e-3}, apiKey, "real-priced", "real-priced", "", 100)
+	require.Empty(t, spy.events, "a model with a real price is not served-via-floor → no alert")
+
+	// floored model + cost>0 → fires exactly one served_at_fallback event with the floored model.
+	spy = &gateNotifierSpy{}
+	tkNotifyServedAtFallback(spy, billing, &CostBreakdown{TotalCost: 1e-3}, apiKey, "gemini-x-unknown", "gemini-x-orig", "gemini-up", 100)
+	require.Len(t, spy.events, 1, "a floored model billed at >$0 must fire served_at_fallback (convergence signal)")
+	require.Equal(t, tkServedAtFallbackReason, spy.events[0].Reason)
+	require.Equal(t, "gemini-x-unknown", spy.events[0].BillingModel)
+
+	// nil notifier is safe (log-only path).
+	require.NotPanics(t, func() {
+		tkNotifyServedAtFallback(nil, billing, &CostBreakdown{TotalCost: 1e-3}, apiKey, "gemini-x-unknown", "x", "", 100)
+	})
+}
+
 // (compile sanity for config import used by newGateSettingService elsewhere; the
 // helper lives in gateway_priced_serving_gate_tk_test.go in the same package.)
 var _ = config.Config{}
