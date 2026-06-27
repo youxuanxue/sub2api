@@ -15,6 +15,7 @@ import AnthropicUsageCell from './usage-cells/AnthropicUsageCell.vue'
 import OpenAIUsageCell from './usage-cells/OpenAIUsageCell.vue'
 import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
+import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
@@ -42,6 +43,10 @@ const activeCell = computed(() => {
 
   if (account.platform === 'gemini') {
     return GeminiUsageCell
+  }
+
+  if (account.platform === 'kiro') {
+    return KiroUsageCell
   }
 
   return null

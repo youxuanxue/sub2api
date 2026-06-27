@@ -347,6 +347,52 @@
         "kiroPlatform"
       ],
       "rationale": "Chinese i18n strings for the kiro account form. Kept paired with en.ts so the two locales never drift for kiro."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "if account.IsKiro() {",
+        "s.getKiroUsage(ctx, account, forceProbe)",
+        "return s.buildPassiveKiroUsage(account), nil"
+      ],
+      "rationale": "The kiro arms injected into the upstream-shaped usage service. GetUsage dispatches kiro to getKiroUsage BEFORE the CanGetUsage()/Anthropic path — kiro is type=oauth, so without this branch its token hits the Anthropic /api/oauth/usage endpoint and 401s (the original empty-usage-window bug for prod kiro mirror accounts). GetPassiveUsage rebuilds the kiro snapshot from Extra. An upstream merge that rewrites GetUsage/GetPassiveUsage must preserve both branches or kiro credits/到期 silently disappear from the admin UI."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_kiro.go",
+      "must_contain": [
+        "func (s *AccountUsageService) getKiroUsage",
+        "kiroproto.RefreshAccountInfo(account.toKiroProtoAccount())",
+        "func (s *AccountUsageService) buildPassiveKiroUsage",
+        "func buildKiroUsageFromInfo",
+        "func (s *AccountUsageService) syncKiroActiveToPassive"
+      ],
+      "rationale": "The kiro usage producer. getKiroUsage calls the vendored CodeWhisperer GetUsageLimits (RefreshAccountInfo) on the manual 查询 path and writes the snapshot back to passive Extra via syncKiroActiveToPassive; buildPassiveKiroUsage rebuilds it with no upstream call for the edge accounts overview; buildKiroUsageFromInfo maps kiro.AccountInfo (credits/重置/试用/订阅) onto UsageInfo.KiroUsage. Losing this file regresses kiro accounts to empty usage windows (no credits/额度/重置/试用 ever populated)."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_passive_batch.go",
+      "must_contain": [
+        "!account.IsKiro()",
+        "return s.buildPassiveKiroUsage(account), nil"
+      ],
+      "rationale": "The kiro arm of the edge accounts overview's passive batch. The platform gate must admit kiro (else kiro rows are skipped and the usage cell shows '-'), and getPassiveUsageForAccount must rebuild kiro from Extra in lockstep with GetPassiveUsage. Losing either drops kiro from prod's cross-edge overview even after a successful 查询 populated the passive cache."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_accounts_handler.go",
+      "must_contain": [
+        "type edgeKiroUsage struct",
+        "type edgeSubscription struct",
+        "func toEdgeSubscription",
+        "w.Kiro = &edgeKiroUsage{"
+      ],
+      "rationale": "The edge DTO's credential-free 订阅 projection (edgeSubscription = plan_type + subscription_expires_at, projected by toEdgeSubscription from credentials) and the kiro credits window (edgeKiroUsage, mapped in toEdgeUsageWindows). These carry openai's subscription 到期 + kiro's credits/重置/试用 across the edge→prod boundary so the overview's PlatformTypeBadge + KiroUsageCell can render them. Losing them blanks openai subscription 到期 and kiro credits on every prod-side edge account row."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_kiro_test.go",
+      "must_contain": [
+        "TestBuildKiroUsageFromInfo_MapsCreditsAndTrial",
+        "TestBuildPassiveKiroUsage_RoundTripFromExtra"
+      ],
+      "rationale": "Load-bearing QA evidence for the kiro usage mapping + passive round-trip (matches the *_tk_*_test.go hotspot-evidence rule). Guards the 0-1→0-100 percent scaling, trial expiry parsing, and the Extra round-trip the edge overview depends on."
     }
   ]
 }

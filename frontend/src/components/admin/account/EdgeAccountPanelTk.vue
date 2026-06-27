@@ -122,9 +122,18 @@
               <div v-if="acct.notes" class="mt-0.5 block max-w-xs whitespace-pre-wrap break-words text-xs text-gray-500 dark:text-gray-400" :title="acct.notes">{{ acct.notes }}</div>
             </td>
             <td class="px-4 py-1.5 align-top text-gray-600 dark:text-gray-300">
-              <span>{{ acct.platform }}</span>
-              <span class="text-gray-400 dark:text-gray-500"> / {{ acct.type }}</span>
-              <span v-if="acct.channel_type" class="text-gray-400 dark:text-gray-500"> · ch{{ acct.channel_type }}</span>
+              <PlatformTypeBadge
+                :platform="(acct.platform as AccountPlatform)"
+                :type="(acct.type as AccountType)"
+                :plan-type="acct.subscription?.plan_type"
+                :subscription-expires-at="acct.subscription?.expires_at"
+              />
+              <div v-if="acct.channel_type" class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">ch{{ acct.channel_type }}</div>
+              <!-- Operator-set account 到期 (the only expiry anthropic has; openai's
+                   subscription 到期 already shows in the badge above). -->
+              <div v-if="acct.expires_at" class="mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500">
+                {{ t('admin.accounts.columns.expiresAt') }} {{ formatDateOnly(acct.expires_at) }}
+              </div>
             </td>
             <td class="px-4 py-1.5 align-top">
               <AccountCapacityCell :account="accountVm(acct).accountLike" :today-stats="accountVm(acct).windowStats" />
@@ -203,17 +212,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import EdgeAccountActionMenuTk from '@/components/admin/account/EdgeAccountActionMenuTk.vue'
-import { formatRelativeTime } from '@/utils/format'
+import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
+import { formatRelativeTime, formatDateOnly } from '@/utils/format'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { Account, AccountUsageInfo } from '@/types'
+import type { Account, AccountUsageInfo, AccountPlatform, AccountType } from '@/types'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 import {
   schedulableCount,
@@ -233,6 +243,14 @@ const props = defineProps<{
   /** Edge data load state (from the panels composable). */
   loading?: boolean
   error?: string | null
+  /**
+   * Bumped by AccountsView.handleManualRefresh (the explicit 刷新 button ONLY — not
+   * the auto-refresh tick). On change this panel pulls live kiro credits once for
+   * each of its kiro accounts. kiro is the only platform without an organic passive
+   * refresh (anthropic/openai windows ride gateway response headers), so this is the
+   * one「刷新即拉一次」trigger that hits CodeWhisperer — bounded to operator clicks.
+   */
+  refreshKiroToken?: number
 }>()
 
 const emit = defineEmits<{
@@ -324,21 +342,46 @@ function toggleSchedulable(acct: EdgeAccountSummary) {
   void runOp(acct, () => adminAPI.edgeAccounts.setSchedulable(edgeId.value, acct.id, !acct.schedulable))
 }
 
+// Active-query one edge account's usage into the override map (force=true hits the
+// edge's GetUsage → upstream). Shared by the per-row menu「查询」and the manual-
+// refresh kiro pull; the latter is silent (best-effort, no global error toast).
+async function fetchActiveUsageInto(accountId: number, silent: boolean): Promise<void> {
+  if (!edgeId.value) return
+  try {
+    const usage = await adminAPI.edgeAccounts.getUsage(edgeId.value, accountId, 'active', true)
+    const next = new Map(activeUsage.value)
+    next.set(accountId, usage)
+    activeUsage.value = next
+  } catch {
+    if (!silent) appStore.showError(t('admin.accounts.edgePanel.queryFailed'))
+  }
+}
+
 async function onQueryUsage() {
   const a = menuAccount.value
   if (!a || !edgeId.value) return
   busyId.value = a.id
   try {
-    const usage = await adminAPI.edgeAccounts.getUsage(edgeId.value, a.id, 'active', true)
-    const next = new Map(activeUsage.value)
-    next.set(a.id, usage)
-    activeUsage.value = next
-  } catch {
-    appStore.showError(t('admin.accounts.edgePanel.queryFailed'))
+    await fetchActiveUsageInto(a.id, false)
   } finally {
     busyId.value = null
   }
 }
+
+// Explicit manual refresh (parent bumps refreshKiroToken): pull live credits once
+// for every kiro account in THIS panel. Only kiro — anthropic/openai windows stay
+// on the passive DTO (they refresh organically from gateway headers). The auto-
+// refresh tick never bumps this token, so kiro upstream calls stay bounded to the
+// operator's 刷新 clicks (the「仅按需」guarantee).
+watch(
+  () => props.refreshKiroToken,
+  (next, prev) => {
+    if (!next || next === prev) return
+    for (const a of props.edge?.accounts ?? []) {
+      if (a.platform === 'kiro') void fetchActiveUsageInto(a.id, true)
+    }
+  }
+)
 
 // --- "manage on edge" handoff (edge-level; credential-class management lives here) ---
 const managing = ref(false)

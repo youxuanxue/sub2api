@@ -207,6 +207,14 @@ type edgeAccountDTO struct {
 	// "passive" — read from persisted Extra samples, no upstream API call.
 	Usage *edgeUsageWindows `json:"usage,omitempty"`
 
+	// Subscription is the credential-free「订阅」projection (plan/tier + 上游订阅
+	// 到期). NON-SECRET derived strings explicitly whitelisted out of the otherwise
+	// credential-free DTO so the prod overview renders the same plan + 到期 badge
+	// (PlatformTypeBadge) the local accounts page shows. openai populates it from
+	// the ChatGPT entitlement (credentials.plan_type / subscription_expires_at, see
+	// openai_privacy_service.go); other platforms leave it nil.
+	Subscription *edgeSubscription `json:"subscription,omitempty"`
+
 	TierID *int64   `json:"tier_id,omitempty"`
 	Groups []string `json:"groups,omitempty"`
 
@@ -237,11 +245,34 @@ type edgeUsageWindows struct {
 	FiveHour       *edgeUsageProgress `json:"five_hour,omitempty"`
 	SevenDay       *edgeUsageProgress `json:"seven_day,omitempty"`
 	SevenDaySonnet *edgeUsageProgress `json:"seven_day_sonnet,omitempty"`
+	// Kiro credits/订阅/试用 (kiro platform only). kiro 没有 5h/7d 滚动窗，而是一个
+	// credits 预算 + 月度重置日 + 可选试用额度，故单列。
+	Kiro *edgeKiroUsage `json:"kiro,omitempty"`
 }
 
 type edgeUsageProgress struct {
 	Utilization float64    `json:"utilization"`
 	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+}
+
+// edgeKiroUsage is the wire shape of service.KiroUsageInfo's display subset: the
+// credits budget (current/limit/percent), the monthly reset date, the订阅 title,
+// and the optional trial allowance (percent + expiry + status).
+type edgeKiroUsage struct {
+	Current           float64    `json:"current,omitempty"`
+	Limit             float64    `json:"limit,omitempty"`
+	Percent           float64    `json:"percent,omitempty"`
+	NextResetDate     string     `json:"next_reset_date,omitempty"`
+	SubscriptionTitle string     `json:"subscription_title,omitempty"`
+	TrialPercent      float64    `json:"trial_percent,omitempty"`
+	TrialStatus       string     `json:"trial_status,omitempty"`
+	TrialExpiresAt    *time.Time `json:"trial_expires_at,omitempty"`
+}
+
+// edgeSubscription is the credential-free「订阅」projection — see edgeAccountDTO.Subscription.
+type edgeSubscription struct {
+	PlanType  string `json:"plan_type,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // edgeAccountsResponse is the data envelope returned to the prod aggregator.
@@ -378,10 +409,38 @@ func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
 	if u.SevenDaySonnet != nil {
 		w.SevenDaySonnet = &edgeUsageProgress{Utilization: u.SevenDaySonnet.Utilization, ResetsAt: u.SevenDaySonnet.ResetsAt}
 	}
-	if w.FiveHour == nil && w.SevenDay == nil && w.SevenDaySonnet == nil {
+	if k := u.KiroUsage; k != nil {
+		w.Kiro = &edgeKiroUsage{
+			Current:           k.Current,
+			Limit:             k.Limit,
+			Percent:           k.Percent,
+			NextResetDate:     k.NextResetDate,
+			SubscriptionTitle: k.SubscriptionTitle,
+		}
+		if k.Trial != nil {
+			w.Kiro.TrialPercent = k.Trial.Percent
+			w.Kiro.TrialStatus = k.Trial.Status
+			w.Kiro.TrialExpiresAt = k.Trial.ExpiresAt
+		}
+	}
+	if w.FiveHour == nil && w.SevenDay == nil && w.SevenDaySonnet == nil && w.Kiro == nil {
 		return nil
 	}
 	return w
+}
+
+// toEdgeSubscription projects the credential-free「订阅」snapshot (plan/tier +
+// upstream subscription expiry) from the account credentials. Returns nil when the
+// account has neither (e.g. anthropic OAuth, whose refresh tokens have no fixed
+// subscription expiry). The two strings are non-secret derived values, explicitly
+// whitelisted out of the otherwise credential-free DTO.
+func toEdgeSubscription(a *service.Account) *edgeSubscription {
+	planType := strings.TrimSpace(a.GetCredential("plan_type"))
+	expiresAt := strings.TrimSpace(a.GetCredential("subscription_expires_at"))
+	if planType == "" && expiresAt == "" {
+		return nil
+	}
+	return &edgeSubscription{PlanType: planType, ExpiresAt: expiresAt}
 }
 
 // collectRuntimeGauges batch-reads the live capacity/today gauges for the given
@@ -526,6 +585,7 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 		}
 	}
 	dto.ModelRateLimits = toEdgeModelRateLimits(a.ActiveModelRateLimits(time.Now()))
+	dto.Subscription = toEdgeSubscription(a)
 	return dto
 }
 

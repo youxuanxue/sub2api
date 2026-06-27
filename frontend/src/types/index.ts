@@ -1017,6 +1017,25 @@ export interface AccountUsageInfo {
   error_code?: string
 
   error?: string            // usage 获取失败时的错误信息
+
+  // Kiro（CodeWhisperer）credits/额度/重置日/订阅/试用（kiro 平台）
+  kiro_usage?: KiroUsageInfo | null
+}
+
+// Kiro credits 快照（对齐后端 service.KiroUsageInfo）。percent 为 0-100。
+export interface KiroUsageInfo {
+  current?: number
+  limit?: number
+  percent?: number
+  next_reset_date?: string
+  subscription_title?: string
+  trial?: {
+    current?: number
+    limit?: number
+    percent?: number
+    status?: string
+    expires_at?: string | null
+  } | null
 }
 
 // OpenAI Codex usage snapshot (from response headers)

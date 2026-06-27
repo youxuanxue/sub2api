@@ -402,11 +402,31 @@ export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
   if (!s.usage) return null
   const mk = (p?: { utilization: number; resets_at?: string | null }) =>
     p ? { utilization: p.utilization, resets_at: p.resets_at ?? null, remaining_seconds: 0 } : null
+  const k = s.usage.kiro
   return {
     source: s.usage.source === 'active' ? 'active' : 'passive',
     updated_at: null,
     five_hour: mk(s.usage.five_hour),
     seven_day: mk(s.usage.seven_day),
-    seven_day_sonnet: mk(s.usage.seven_day_sonnet)
+    seven_day_sonnet: mk(s.usage.seven_day_sonnet),
+    // Kiro credits/订阅/试用: lift the edge DTO's flat trial fields into the nested
+    // KiroUsageInfo shape AccountUsageInfo carries (same as the active getUsage JSON).
+    kiro_usage: k
+      ? {
+          current: k.current,
+          limit: k.limit,
+          percent: k.percent,
+          next_reset_date: k.next_reset_date,
+          subscription_title: k.subscription_title,
+          trial:
+            k.trial_percent != null || k.trial_expires_at || k.trial_status
+              ? {
+                  percent: k.trial_percent,
+                  status: k.trial_status,
+                  expires_at: k.trial_expires_at ?? null
+                }
+              : null
+        }
+      : null
   }
 }

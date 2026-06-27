@@ -204,6 +204,7 @@
               :edge="edgePanelForStub(row)"
               :loading="edgePanelsLoading"
               :error="edgePanelsError"
+              :refresh-kiro-token="kiroRefreshToken"
               @mutated="(acc) => { if (row.edge_id) { applyEdgeAccountUpdate(row.edge_id, acc); setEdgeExpanded(row.id, true) } }"
               @retry="() => refreshEdges({ force: true })"
             />
@@ -706,6 +707,10 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+// Bumped only by handleManualRefresh → tells each expanded EdgeAccountPanelTk to pull
+// live kiro credits once (kiro has no organic passive refresh). Never bumped on the
+// auto-refresh tick, so kiro upstream calls stay bounded to operator 刷新 clicks.
+const kiroRefreshToken = ref(0)
 
 // TK: batch passive-usage for the list, replacing the per-row /usage fan-out for
 // Anthropic OAuth/SetupToken rows. The cell renders usageOverrideFor(row) and
@@ -1172,6 +1177,11 @@ const handleManualRefresh = async () => {
   // (override path). Bump the token so the residual self-fetch platforms
   // (gemini/antigravity/openai cells) also refresh on explicit user refresh.
   usageManualRefreshToken.value += 1
+  // Edge kiro accounts have no organic passive refresh (credits come only from an
+  // explicit CodeWhisperer call), so an explicit user refresh also pulls live kiro
+  // credits once per kiro account in the expanded edge panels. Bumped ONLY here (not
+  // on the auto-refresh tick) so upstream calls stay bounded to operator clicks.
+  kiroRefreshToken.value += 1
 }
 
 const syncPendingListChanges = async () => {

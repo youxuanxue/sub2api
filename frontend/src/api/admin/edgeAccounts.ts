@@ -66,6 +66,9 @@ export interface EdgeAccountSummary {
   today_stats?: EdgeTodayStats
   // Passive 5h/7d usage windows (anthropic oauth/setup-token), source="passive".
   usage?: EdgeUsageWindows
+  // Credential-free 订阅 projection: plan/tier + 上游订阅到期 (openai entitlement).
+  // Non-secret derived strings; nil for platforms without a fixed subscription expiry.
+  subscription?: EdgeSubscription
   tier_id?: number
   groups?: string[]
 }
@@ -76,11 +79,31 @@ export interface EdgeUsageWindows {
   five_hour?: EdgeUsageProgress
   seven_day?: EdgeUsageProgress
   seven_day_sonnet?: EdgeUsageProgress
+  // Kiro credits/订阅/试用 (kiro platform only; mirrors backend edgeKiroUsage).
+  kiro?: EdgeKiroUsage
 }
 
 export interface EdgeUsageProgress {
   utilization: number
   resets_at?: string | null
+}
+
+/** Kiro credits snapshot for one account (mirrors backend edgeKiroUsage). */
+export interface EdgeKiroUsage {
+  current?: number
+  limit?: number
+  percent?: number
+  next_reset_date?: string
+  subscription_title?: string
+  trial_percent?: number
+  trial_status?: string
+  trial_expires_at?: string | null
+}
+
+/** Credential-free 订阅 projection (mirrors backend edgeSubscription). */
+export interface EdgeSubscription {
+  plan_type?: string
+  expires_at?: string
 }
 
 /** Today's usage for one account (mirrors backend WindowStats subset). */
