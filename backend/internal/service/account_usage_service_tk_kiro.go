@@ -130,10 +130,17 @@ func (s *AccountUsageService) syncKiroActiveToPassive(ctx context.Context, accou
 	}
 	ku := usage.KiroUsage
 	updates := map[string]any{
-		"kiro_usage_current":    ku.Current,
-		"kiro_usage_limit":      ku.Limit,
-		"kiro_usage_percent":    ku.Percent,
-		"kiro_usage_sampled_at": time.Now().UTC().Format(time.RFC3339),
+		"kiro_usage_current":      ku.Current,
+		"kiro_usage_limit":        ku.Limit,
+		"kiro_usage_percent":      ku.Percent,
+		"kiro_usage_sampled_at":   time.Now().UTC().Format(time.RFC3339),
+		"kiro_next_reset":         nil,
+		"kiro_subscription_title": nil,
+		"kiro_trial_current":      nil,
+		"kiro_trial_limit":        nil,
+		"kiro_trial_percent":      nil,
+		"kiro_trial_status":       nil,
+		"kiro_trial_expiry":       nil,
 	}
 	if ku.NextResetDate != "" {
 		updates["kiro_next_reset"] = ku.NextResetDate

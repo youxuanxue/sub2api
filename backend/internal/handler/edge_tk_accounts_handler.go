@@ -514,18 +514,19 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		g.windowCost = h.usage.GetAccountWindowCostsBatch(ctx, accounts)
 	}
 
-	// Passive 5h/7d usage windows: read from persisted Extra samples (no upstream
-	// API). anthropic OAuth/setup-token rebuild from passive_usage_* samples;
-	// openai OAuth (codex) rebuild from codex_*_used_percent samples. Both go
-	// through GetPassiveUsage, which dispatches by platform. Other platforms have
-	// no passive window source here, so they are skipped (the cell shows "-").
+	// Passive usage windows: read from persisted Extra samples (no upstream API).
+	// anthropic OAuth/setup-token rebuild from passive_usage_* samples; openai
+	// OAuth (codex) rebuild from codex_*_used_percent; kiro rebuilds its credits /
+	// trial snapshot from kiro_usage_*. All go through GetPassiveUsage, which
+	// dispatches by platform. Other platforms have no passive window source here,
+	// so they are skipped (the cell shows "-").
 	// One batch call prefetches the window stats per window-start bucket, so the
 	// passive path no longer fans out an aggregation per OAuth account.
 	if h.usage != nil {
 		ids := make([]int64, 0, len(accounts))
 		for i := range accounts {
 			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() && !acc.IsOpenAIOAuth() {
+			if !acc.IsAnthropicOAuthOrSetupToken() && !acc.IsOpenAIOAuth() && !acc.IsKiro() {
 				continue
 			}
 			ids = append(ids, acc.ID)

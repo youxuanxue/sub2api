@@ -9,6 +9,19 @@ import (
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 )
 
+type kiroPassiveSyncRepo struct {
+	AccountRepository
+	updates map[string]any
+}
+
+func (r *kiroPassiveSyncRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
+	r.updates = make(map[string]any, len(updates))
+	for k, v := range updates {
+		r.updates[k] = v
+	}
+	return nil
+}
+
 func TestBuildKiroUsageFromInfo_MapsCreditsAndTrial(t *testing.T) {
 	info := &kiroproto.AccountInfo{
 		SubscriptionTitle: "Kiro Pro",
@@ -141,5 +154,38 @@ func TestBuildPassiveKiroUsage_EmptyWhenNoSample(t *testing.T) {
 	usage := svc.buildPassiveKiroUsage(account)
 	if usage.KiroUsage != nil {
 		t.Fatalf("KiroUsage should be nil when never sampled, got %+v", usage.KiroUsage)
+	}
+}
+
+func TestSyncKiroActiveToPassive_ClearsStaleTrialAndSubscriptionKeys(t *testing.T) {
+	repo := &kiroPassiveSyncRepo{}
+	svc := &AccountUsageService{accountRepo: repo}
+
+	svc.syncKiroActiveToPassive(context.Background(), 42, &UsageInfo{
+		KiroUsage: &KiroUsageInfo{
+			Current: 100,
+			Limit:   1000,
+			Percent: 10,
+			// No subscription title, no trial, no next reset in the fresh snapshot.
+		},
+	})
+
+	if repo.updates == nil {
+		t.Fatal("expected UpdateExtra to be called")
+	}
+	if got := repo.updates["kiro_subscription_title"]; got != nil {
+		t.Fatalf("kiro_subscription_title = %v, want nil clear", got)
+	}
+	for _, key := range []string{
+		"kiro_trial_current",
+		"kiro_trial_limit",
+		"kiro_trial_percent",
+		"kiro_trial_status",
+		"kiro_trial_expiry",
+		"kiro_next_reset",
+	} {
+		if got, ok := repo.updates[key]; !ok || got != nil {
+			t.Fatalf("%s = %v (present=%v), want explicit nil clear", key, got, ok)
+		}
 	}
 }
