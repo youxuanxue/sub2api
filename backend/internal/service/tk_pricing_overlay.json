@@ -1299,5 +1299,44 @@
     "cache_read_input_token_cost": 0.0000005,
     "cache_creation_input_token_cost": 0.00000625,
     "source": "Bare gpt-5.6 alias bills as Sol (openai_codex_transform/openai_model_alias map gpt-5.6 -> gpt-5.6-sol). gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+  },
+  "gemini-3-flash": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.000003,
+    "source": "Gemini 3 Flash via antigravity. antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.1-pro-low": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.000012,
+    "source": "Gemini 3.1 Pro (low) via antigravity. antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.5-flash": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000015,
+    "output_cost_per_token": 0.000009,
+    "source": "Gemini 3.5 Flash via antigravity. antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-2.5-flash-image": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.039,
+    "source": "Gemini 2.5 Flash Image via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.1-flash-image": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.0672,
+    "source": "Gemini 3.1 Flash Image via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.1-flash-image-preview": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.0672,
+    "source": "Gemini 3.1 Flash Image (preview) via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
   }
 }
