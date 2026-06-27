@@ -1,8 +1,8 @@
 ---
 title: 定了价才能上 — serving 准入处的运行期价格闸
-status: draft
-approved_by: pending
-approved_at: pending
+status: approved
+approved_by: "xuejiao (design directive, 2026-06-27)"
+approved_at: 2026-06-27
 authors: [agent]
 created: 2026-06-26
 related_prs: [1016]
