@@ -170,7 +170,7 @@ func TestResolvePlan_FromPreset(t *testing.T) {
 		{Name: "p1", GroupID: 7, ValidityDays: 14, Balance: 3, Concurrency: 2},
 	}))
 
-	ps := NewTrialProvisionService(nil, nil, settingSvc, nil, nil, nil)
+	ps := NewTrialProvisionService(nil, nil, settingSvc, nil, nil, nil, nil, nil)
 	plan, err := ps.resolvePlan(ctx, &ProvisionTrialInput{PresetName: "p1"})
 	require.NoError(t, err)
 	require.Equal(t, int64(7), plan.GroupID)
@@ -181,14 +181,14 @@ func TestResolvePlan_FromPreset(t *testing.T) {
 
 func TestResolvePlan_UnknownPreset(t *testing.T) {
 	settingSvc, _ := newTrialSettingService(nil)
-	ps := NewTrialProvisionService(nil, nil, settingSvc, nil, nil, nil)
+	ps := NewTrialProvisionService(nil, nil, settingSvc, nil, nil, nil, nil, nil)
 	_, err := ps.resolvePlan(context.Background(), &ProvisionTrialInput{PresetName: "missing"})
 	require.Error(t, err)
 }
 
 func TestResolvePlan_InlineDefaultsConcurrencyAndValidity(t *testing.T) {
 	settingSvc, _ := newTrialSettingService(nil)
-	ps := NewTrialProvisionService(nil, nil, settingSvc, nil, nil, nil)
+	ps := NewTrialProvisionService(nil, nil, settingSvc, nil, nil, nil, nil, nil)
 	plan, err := ps.resolvePlan(context.Background(), &ProvisionTrialInput{
 		Plan: TrialPlan{GroupID: 4},
 	})
@@ -198,7 +198,7 @@ func TestResolvePlan_InlineDefaultsConcurrencyAndValidity(t *testing.T) {
 }
 
 func TestBuildRecipients_AutoCountAndCap(t *testing.T) {
-	ps := NewTrialProvisionService(nil, nil, nil, nil, nil, nil)
+	ps := NewTrialProvisionService(nil, nil, nil, nil, nil, nil, nil, nil)
 
 	rs, err := ps.buildRecipients(&ProvisionTrialInput{AutoCount: 3})
 	require.NoError(t, err)

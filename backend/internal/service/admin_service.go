@@ -754,11 +754,44 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if err := user.SetPassword(input.Password); err != nil {
 		return nil, err
 	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	if err := s.createUserWithOpeningBalance(ctx, user, BalanceGrantNoteAdminOpening); err != nil {
 		return nil, err
 	}
 	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
+}
+
+// createUserWithOpeningBalance persists a new user and, when it is created with a
+// positive opening balance, records that balance as an admin_balance journal row
+// in the SAME transaction so the credit shows in 充值和并发变动记录 and counts toward
+// 总充值 (previously an opening balance set straight on users.balance never produced
+// a journal row). Falls back to a plain create plus best-effort journal when no
+// ent client is wired (unit tests).
+func (s *adminServiceImpl) createUserWithOpeningBalance(ctx context.Context, user *User, notes string) error {
+	if user.Balance <= 0 || s.entClient == nil {
+		if err := s.userRepo.Create(ctx, user); err != nil {
+			return err
+		}
+		if user.Balance > 0 {
+			s.bestEffortBalanceLedger(ctx, user.ID, user.Balance, notes)
+		}
+		return nil
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := s.userRepo.Create(txCtx, user); err != nil {
+		return err
+	}
+	if err := writeBalanceGrantLedger(txCtx, tx.Client(), user.ID, user.Balance, notes); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userID int64) {
@@ -1048,10 +1081,17 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 		return nil, fmt.Errorf("balance cannot be negative, current balance: %.2f, requested operation would result in: %.2f", oldBalance, user.Balance)
 	}
 
-	if err := s.userRepo.Update(ctx, user); err != nil {
+	balanceDiff := user.Balance - oldBalance
+
+	// Persist the balance change and its 充值/扣款 journal row atomically. The
+	// redeem_codes journal (which drives 充值和并发变动记录 + 总充值) and users.balance
+	// must never diverge, so a failed journal insert now ROLLS BACK the balance
+	// change instead of being swallowed (previously the balance moved but the
+	// record could silently go missing).
+	if err := s.persistBalanceAdjustment(ctx, user, balanceDiff, notes); err != nil {
 		return nil, err
 	}
-	balanceDiff := user.Balance - oldBalance
+
 	if s.authCacheInvalidator != nil && balanceDiff != 0 {
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 	}
@@ -1066,30 +1106,48 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 		}()
 	}
 
-	if balanceDiff != 0 {
-		code, err := GenerateRedeemCode()
-		if err != nil {
-			logger.LegacyPrintf("service.admin", "failed to generate adjustment redeem code: %v", err)
-			return user, nil
-		}
+	return user, nil
+}
 
-		adjustmentRecord := &RedeemCode{
-			Code:   code,
-			Type:   AdjustmentTypeAdminBalance,
-			Value:  balanceDiff,
-			Status: StatusUsed,
-			UsedBy: &user.ID,
-			Notes:  notes,
-		}
-		now := time.Now()
-		adjustmentRecord.UsedAt = &now
-
-		if err := s.redeemCodeRepo.Create(ctx, adjustmentRecord); err != nil {
-			logger.LegacyPrintf("service.admin", "failed to create balance adjustment redeem code: %v", err)
-		}
+// persistBalanceAdjustment writes the new balance and, when it actually changed,
+// its admin_balance journal row in ONE transaction so users.balance and the
+// 充值和并发变动记录 panel can never diverge. With no ent client wired (unit tests),
+// it falls back to a non-transactional update plus a best-effort journal insert,
+// matching the historical behavior.
+func (s *adminServiceImpl) persistBalanceAdjustment(ctx context.Context, user *User, balanceDiff float64, notes string) error {
+	if balanceDiff == 0 {
+		return s.userRepo.Update(ctx, user)
 	}
 
-	return user, nil
+	if s.entClient == nil {
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			return err
+		}
+		s.bestEffortBalanceLedger(ctx, user.ID, balanceDiff, notes)
+		return nil
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := s.userRepo.Update(txCtx, user); err != nil {
+		return err
+	}
+	if err := writeBalanceGrantLedger(txCtx, tx.Client(), user.ID, balanceDiff, notes); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// bestEffortBalanceLedger records the adjustment via the redeem-code repository
+// without a transaction. Used only when no ent client is available (tests); the
+// production path uses persistBalanceAdjustment's atomic transaction.
+func (s *adminServiceImpl) bestEffortBalanceLedger(ctx context.Context, userID int64, amount float64, notes string) {
+	bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, userID, amount, notes, "service.admin")
 }
 
 func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error) {

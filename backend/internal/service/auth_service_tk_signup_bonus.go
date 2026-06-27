@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
@@ -17,12 +18,13 @@ import (
 // (key = signup_bonus_enabled / signup_bonus_balance, default $1.00 USD).
 //
 // Architecture notes (see docs/approved/user-cold-start.md §3 for full rationale):
-//   - Bonus is baked into the User.Balance field at INSERT time → atomic with
-//     user creation by virtue of being a single SQL statement (no extra Tx).
-//   - Audit log is best-effort (mirrors PromoService failure log pattern):
-//     write failure does NOT roll back the registration. The product invariant
-//     "user exists ↔ user.balance includes bonus" still holds because the bonus
-//     is part of the same INSERT row.
+//   - Signup bonus is baked into User.Balance at INSERT time. When entClient is
+//     wired (production), createUserWithSignupLedger commits user + redeem journal
+//     in one transaction so the credit appears in 充值和并发变动记录 / 总充值.
+//   - With no ent client (unit tests), create falls back to userRepo.Create plus
+//     bestEffortBalanceGrantLedger via redeemRepo — same shape as admin CreateUser.
+//   - Post-create structured audit log (logSignupBonusCredited) and trial-key
+//     issuance remain best-effort and never fail registration.
 //   - "Source" tags differentiate paths in logs ("email" / "oauth") so admins
 //     can distinguish signup channels without parsing the message string.
 
@@ -54,6 +56,51 @@ func (s *AuthService) tkApplyColdStartPostCreate(ctx context.Context, userID int
 	}
 	s.logSignupBonusCredited(userID, bonusUSD, source)
 	s.issueTrialKeyIfEnabled(ctx, userID)
+}
+
+// createUserWithSignupLedger inserts a new user and, when the user is created
+// with a positive opening balance (signup default + bonus), records that balance
+// as an admin_balance journal row in the SAME transaction. This closes the gap
+// where a signup credit moved users.balance but never appeared in 充值和并发变动记录
+// nor counted toward 总充值.
+//
+// It returns the user-create error unchanged so each register path keeps its
+// existing ErrEmailExists race handling. When the caller already opened a
+// transaction (e.g. the invitation-code OAuth path), the journal row joins that
+// transaction and the caller still owns the commit.
+func (s *AuthService) createUserWithSignupLedger(ctx context.Context, user *User) error {
+	if user == nil || user.Balance <= 0 {
+		return s.userRepo.Create(ctx, user)
+	}
+	if s.entClient == nil {
+		if err := s.userRepo.Create(ctx, user); err != nil {
+			return err
+		}
+		bestEffortBalanceGrantLedger(ctx, s.redeemRepo, user.ID, user.Balance, BalanceGrantNoteSignup, "service.auth")
+		return nil
+	}
+
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		if err := s.userRepo.Create(ctx, user); err != nil {
+			return err
+		}
+		return writeBalanceGrantLedger(ctx, tx.Client(), user.ID, user.Balance, BalanceGrantNoteSignup)
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := s.userRepo.Create(txCtx, user); err != nil {
+		return err
+	}
+	if err := writeBalanceGrantLedger(txCtx, tx.Client(), user.ID, user.Balance, BalanceGrantNoteSignup); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // applySignupBonusUSD reads the configured signup bonus and returns
