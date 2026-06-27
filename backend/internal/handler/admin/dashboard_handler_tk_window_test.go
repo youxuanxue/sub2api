@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -68,11 +69,48 @@ func TestParseAbsoluteRange_RejectsAndFallsBack(t *testing.T) {
 }
 
 // TestParseTimeRange_FallbackUnchanged ensures the legacy date-string + timezone
-// path is untouched when no absolute ts is supplied.
+// path is untouched when no absolute ts / named range is supplied.
 func TestParseTimeRange_FallbackUnchanged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c := ctxWithURL("/?start_date=2024-01-01&end_date=2024-01-02&timezone=UTC")
 	start, end := parseTimeRange(c)
 	require.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), start)
 	require.Equal(t, time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), end)
+}
+
+// TestParseNamedRange_ServerTZCanonical is the regression guard for the
+// "admin per-user 今日消费 ≠ customer 今日消费" bug: a calendar `range` preset must
+// resolve to the SERVER/billing timezone (matching the customer dashboard's
+// timezone.Today()), ignoring both the viewer `timezone` param and any
+// browser-local start_date/end_date that rides along.
+func TestParseNamedRange_ServerTZCanonical(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	today := timezone.Today()
+	thisMonth := timezone.StartOfMonth(timezone.Now())
+
+	cases := []struct {
+		name      string
+		rng       string
+		wantStart time.Time
+		wantEnd   time.Time
+	}{
+		{"today", "today", today, today.AddDate(0, 0, 1)},
+		{"yesterday", "yesterday", today.AddDate(0, 0, -1), today},
+		{"this_month", "this_month", thisMonth, thisMonth.AddDate(0, 1, 0)},
+		{"last_month", "last_month", thisMonth.AddDate(0, -1, 0), thisMonth},
+	}
+
+	// Every viewer timezone (and a bogus browser-local date) must yield the same
+	// canonical server-TZ window.
+	for _, tz := range []string{"Asia/Shanghai", "America/Los_Angeles", "UTC"} {
+		for _, tc := range cases {
+			t.Run(tc.name+"/"+tz, func(t *testing.T) {
+				url := fmt.Sprintf("/?range=%s&start_date=1999-01-01&end_date=1999-01-01&timezone=%s", tc.rng, tz)
+				start, end := parseTimeRange(ctxWithURL(url))
+				require.Equal(t, tc.wantStart, start)
+				require.Equal(t, tc.wantEnd, end)
+			})
+		}
+	}
 }
