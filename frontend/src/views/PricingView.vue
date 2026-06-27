@@ -247,7 +247,8 @@
             <button
               v-if="canExportPricing"
               type="button"
-              class="inline-flex items-center gap-1.5 self-start rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:self-auto"
+              :disabled="exporting"
+              class="inline-flex items-center gap-1.5 self-start rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:self-auto"
               data-tk="pricing-export-csv"
               @click="onExportPricing"
             >
@@ -621,14 +622,38 @@ const selectedGroupId = ref<number>(0)
 const canShowCatalogFilters = computed(() => myCatalog.value != null)
 
 // Admin-only "export platform pricing" — the public (在售目录/对外价) catalog only,
-// as a sales-friendly CSV. Hidden for non-admins and when there is nothing to export.
-const canExportPricing = computed(
-  () => authStore.isAdmin && viewMode.value === 'public' && (publicCatalog.value?.data.length ?? 0) > 0
-)
+// as a sales-friendly CSV. Always visible for admins regardless of the current
+// view; clicking switches to the public catalog first (and loads it if needed)
+// so the export always reflects 对外价, never a per-key/group Your-Menu view.
+const canExportPricing = computed(() => authStore.isAdmin)
 
-const onExportPricing = () => {
-  exportPricingCsv(publicCatalog.value)
-  appStore.showSuccess(t('pricing.export.success'))
+const exporting = ref(false)
+
+const onExportPricing = async (): Promise<void> => {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    // The CSV is always the public 对外价 catalog. If the admin is currently on
+    // a Your-Menu (my) view, switch to public and (re)load it before exporting.
+    if (viewMode.value !== 'public') {
+      viewMode.value = 'public'
+      selectedKeyId.value = 0
+      selectedGroupId.value = 0
+    }
+    if ((publicCatalog.value?.data.length ?? 0) === 0) {
+      await loadPublicCatalog()
+    }
+    if ((publicCatalog.value?.data.length ?? 0) === 0) {
+      appStore.showError(t('pricing.export.empty'))
+      return
+    }
+    exportPricingCsv(publicCatalog.value)
+    appStore.showSuccess(t('pricing.export.success'))
+  } catch {
+    appStore.showError(t('pricing.export.empty'))
+  } finally {
+    exporting.value = false
+  }
 }
 
 // ============================== hero copy ==============================
