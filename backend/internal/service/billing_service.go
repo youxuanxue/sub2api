@@ -306,13 +306,13 @@ func (s *BillingService) initFallbackPricing() {
 	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.4"]
 	// GPT-5.6 preview tiers (OpenAI 2026-06-26 list; mirror also carries real prices).
 	s.fallbackPrices["gpt-5.6-sol"] = &ModelPricing{
-		InputPricePerToken:         5e-6,
-		OutputPricePerToken:        3e-5,
-		CacheCreationPricePerToken: 6.25e-6,
-		CacheReadPricePerToken:     5e-7,
-		SupportsCacheBreakdown:     false,
-		LongContextInputThreshold:  openAIGPT54LongContextInputThreshold,
-		LongContextInputMultiplier: openAIGPT54LongContextInputMultiplier,
+		InputPricePerToken:          5e-6,
+		OutputPricePerToken:         3e-5,
+		CacheCreationPricePerToken:  6.25e-6,
+		CacheReadPricePerToken:      5e-7,
+		SupportsCacheBreakdown:      false,
+		LongContextInputThreshold:   openAIGPT54LongContextInputThreshold,
+		LongContextInputMultiplier:  openAIGPT54LongContextInputMultiplier,
 		LongContextOutputMultiplier: openAIGPT54LongContextOutputMultiplier,
 	}
 	s.fallbackPrices["gpt-5.6-terra"] = &ModelPricing{

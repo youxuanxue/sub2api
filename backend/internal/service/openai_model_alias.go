@@ -55,17 +55,9 @@ func normalizeKnownOpenAICodexModel(model string) string {
 		return ""
 	}
 
-	if mapped := getNormalizedCodexModel(normalized); mapped != "" {
-		return mapped
-	}
-	if strings.HasSuffix(normalized, "-openai-compact") {
-		if mapped := getNormalizedCodexModel(strings.TrimSuffix(normalized, "-openai-compact")); mapped != "" {
-			return mapped
-		}
-	}
-
-	switch {
-	case strings.Contains(normalized, "gpt-5.6"):
+	// GPT-5.6 billing tiers precede codexModelMap: wire ids such as chat-latest are
+	// not billing keys and must collapse to Sol/Terra/Luna before getNormalizedCodexModel.
+	if strings.Contains(normalized, "gpt-5.6") {
 		switch {
 		case strings.Contains(normalized, "luna"):
 			return "gpt-5.6-luna"
@@ -78,6 +70,18 @@ func normalizeKnownOpenAICodexModel(model string) string {
 		default:
 			return "gpt-5.6-sol"
 		}
+	}
+
+	if mapped := getNormalizedCodexModel(normalized); mapped != "" {
+		return mapped
+	}
+	if strings.HasSuffix(normalized, "-openai-compact") {
+		if mapped := getNormalizedCodexModel(strings.TrimSuffix(normalized, "-openai-compact")); mapped != "" {
+			return mapped
+		}
+	}
+
+	switch {
 	case strings.Contains(normalized, "gpt-5.5"):
 		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.4-mini"):

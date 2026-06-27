@@ -323,6 +323,8 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"openai", "gpt-5.6-sol", true},
 		{"openai", "gpt-5.6-terra", true},
 		{"openai", "gpt-5.6-luna", true},
+		{"openai", "gpt-5.6", true},
+		{"openai", "gpt-5.6-chat-latest", true},
 		{"openai", "gpt-5-mini", true},   // servable extra beyond canonical
 		{"openai", "gpt-5.2", false},     // canonical but probe-unservable (502)
 		{"openai", "gpt-image-2", false}, // not servable on a probeable path
