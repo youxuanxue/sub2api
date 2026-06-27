@@ -1,6 +1,7 @@
 package handler
 
 import (
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
@@ -259,6 +260,7 @@ func ProvideTrialProvisionHandler(
 	userRepo service.UserRepository,
 	userGroupRateRepo service.UserGroupRateRepository,
 	groupRepo service.GroupRepository,
+	entClient *dbent.Client,
 ) *admin.TrialProvisionHandler {
 	svc := service.NewTrialProvisionService(
 		subscriptionService,
@@ -267,6 +269,7 @@ func ProvideTrialProvisionHandler(
 		userRepo,
 		userGroupRateRepo,
 		groupRepo,
+		entClient,
 	)
 	return admin.NewTrialProvisionHandler(svc)
 }

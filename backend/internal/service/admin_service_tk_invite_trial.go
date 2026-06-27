@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
@@ -37,6 +38,7 @@ type TrialProvisionService struct {
 	userRepo            UserRepository
 	userGroupRateRepo   UserGroupRateRepository
 	groupRepo           GroupRepository
+	entClient           *dbent.Client // 用于把开户余额与流水写入同一事务
 }
 
 // NewTrialProvisionService constructs the provisioning service.
@@ -47,6 +49,7 @@ func NewTrialProvisionService(
 	userRepo UserRepository,
 	userGroupRateRepo UserGroupRateRepository,
 	groupRepo GroupRepository,
+	entClient *dbent.Client,
 ) *TrialProvisionService {
 	return &TrialProvisionService{
 		subscriptionService: subscriptionService,
@@ -55,7 +58,34 @@ func NewTrialProvisionService(
 		userRepo:            userRepo,
 		userGroupRateRepo:   userGroupRateRepo,
 		groupRepo:           groupRepo,
+		entClient:           entClient,
 	}
+}
+
+// createTrialUserWithLedger inserts the trial user and, when it is provisioned
+// with a positive opening balance, records that balance as an admin_balance
+// journal row in the SAME transaction so the trial credit shows in
+// 充值和并发变动记录 and counts toward 总充值. Falls back to a plain create when no
+// opening balance or no ent client (unit tests).
+func (s *TrialProvisionService) createTrialUserWithLedger(ctx context.Context, user *User) error {
+	if user.Balance <= 0 || s.entClient == nil {
+		return s.userRepo.Create(ctx, user)
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := s.userRepo.Create(txCtx, user); err != nil {
+		return err
+	}
+	if err := writeBalanceGrantLedger(txCtx, tx.Client(), user.ID, user.Balance, BalanceGrantNoteInviteTrial); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GetPresets returns the saved trial presets (passthrough to SettingService so
@@ -259,7 +289,7 @@ func (s *TrialProvisionService) provisionOne(
 		cred.Error = "set password: " + err.Error()
 		return cred
 	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	if err := s.createTrialUserWithLedger(ctx, user); err != nil {
 		cred.Error = "create user: " + err.Error()
 		return cred
 	}

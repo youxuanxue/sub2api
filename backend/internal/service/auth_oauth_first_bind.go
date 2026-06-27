@@ -81,6 +81,11 @@ ON CONFLICT (user_id, provider_type, grant_reason) DO NOTHING`,
 		if err := client.User.UpdateOneID(userID).AddBalance(providerDefaults.Balance).Exec(ctx); err != nil {
 			return fmt.Errorf("apply first bind balance default: %w", err)
 		}
+		// Journal the grant in the same tx so it shows in 充值和并发变动记录 and counts
+		// toward 总充值 instead of silently moving users.balance only.
+		if err := writeBalanceGrantLedger(ctx, client, userID, providerDefaults.Balance, BalanceGrantNoteOAuthFirstBind); err != nil {
+			return fmt.Errorf("record first bind balance grant: %w", err)
+		}
 	}
 	if providerDefaults.Concurrency != 0 {
 		if err := client.User.UpdateOneID(userID).AddConcurrency(providerDefaults.Concurrency).Exec(ctx); err != nil {
