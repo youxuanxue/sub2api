@@ -14,6 +14,8 @@ import {
   shouldShowEdgeAccountError,
   accountVm,
   toAccountLike,
+  parseEdgeOperatorExpiresAt,
+  edgeSubscriptionToCredentials,
   stripClassPrefix
 } from '@/utils/edgeAccounts.tk'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
@@ -405,6 +407,33 @@ describe('stripClassPrefix', () => {
     })
     expect(out.opus.rate_limited_at).toBe(reset)
     expect(out.AICredits.rate_limit_reset_at).toBe(reset)
+  })
+})
+
+describe('toAccountLike subscription + operator expiry', () => {
+  it('maps edge subscription snapshot into credentials for PlatformTypeBadge parity', () => {
+    const result = toAccountLike(
+      acct({
+        subscription: { plan_type: 'plus', expires_at: '2026-12-01T00:00:00Z' }
+      })
+    )
+    expect(result.credentials).toEqual({
+      plan_type: 'plus',
+      subscription_expires_at: '2026-12-01T00:00:00Z'
+    })
+  })
+
+  it('parses operator expires_at ISO into unix seconds', () => {
+    const iso = '2026-06-01T12:00:00.000Z'
+    expect(parseEdgeOperatorExpiresAt(iso)).toBe(Math.floor(Date.parse(iso) / 1000))
+    expect(toAccountLike(acct({ expires_at: iso })).expires_at).toBe(
+      parseEdgeOperatorExpiresAt(iso)
+    )
+  })
+
+  it('leaves credentials undefined when subscription is absent', () => {
+    expect(edgeSubscriptionToCredentials(undefined)).toBeUndefined()
+    expect(toAccountLike(acct({ subscription: undefined })).credentials).toBeUndefined()
   })
 })
 

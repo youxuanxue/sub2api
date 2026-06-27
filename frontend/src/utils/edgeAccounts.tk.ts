@@ -57,6 +57,25 @@ export function shouldShowEdgeAccountError(s: EdgeAccountSummary): boolean {
  */
 const ANTHROPIC_CLASS_PREFIX = 'anthropic:class:'
 
+/** Edge DTO RFC3339 → Account unix seconds (operator-set expires_at column). */
+export function parseEdgeOperatorExpiresAt(iso?: string | null): number | null {
+  if (!iso) return null
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return null
+  return Math.floor(ms / 1000)
+}
+
+/** Credential-free edge subscription → admin Account credentials projection. */
+export function edgeSubscriptionToCredentials(
+  subscription?: EdgeAccountSummary['subscription']
+): Record<string, unknown> | undefined {
+  if (!subscription) return undefined
+  const creds: Record<string, unknown> = {}
+  if (subscription.plan_type) creds.plan_type = subscription.plan_type
+  if (subscription.expires_at) creds.subscription_expires_at = subscription.expires_at
+  return Object.keys(creds).length > 0 ? creds : undefined
+}
+
 export function stripClassPrefix(
   m: Record<string, { rate_limited_at?: string; rate_limit_reset_at?: string; reason?: string }>
 ): Record<string, { rate_limited_at: string; rate_limit_reset_at: string }> {
@@ -78,9 +97,9 @@ export function stripClassPrefix(
  * Adapts a credential-free EdgeAccountSummary into the admin `Account` shape so
  * the read-only Edge Accounts page can reuse AccountCapacityCell verbatim (the
  * cell only reads capacity/gauge fields). Missing-but-required Account fields are
- * filled with inert defaults; `expires_at` is dropped (the edge DTO carries it as
- * an RFC3339 string while Account types it as a unix number, and the cell doesn't
- * read it). No side effects — pure mapping.
+ * filled with inert defaults. Maps edge subscription snapshot + operator expiry into
+ * the same credentials / expires_at fields the prod account list uses
+ * (PlatformTypeBadge + expires_at column). No side effects — pure mapping.
  */
 export function toAccountLike(s: EdgeAccountSummary): Account {
   return {
@@ -89,6 +108,7 @@ export function toAccountLike(s: EdgeAccountSummary): Account {
     platform: s.platform as Account['platform'],
     type: s.type as Account['type'],
     channel_type: s.channel_type,
+    credentials: edgeSubscriptionToCredentials(s.subscription),
     proxy_id: null,
     concurrency: s.concurrency,
     current_concurrency: s.current_concurrency,
@@ -97,7 +117,7 @@ export function toAccountLike(s: EdgeAccountSummary): Account {
     status: s.status as Account['status'],
     error_message: s.error_message ?? null,
     last_used_at: s.last_used_at ?? null,
-    expires_at: null,
+    expires_at: parseEdgeOperatorExpiresAt(s.expires_at),
     auto_pause_on_expired: false,
     created_at: s.created_at,
     updated_at: s.created_at,

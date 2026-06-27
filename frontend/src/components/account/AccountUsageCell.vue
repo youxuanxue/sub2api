@@ -33,7 +33,10 @@ const activeCell = computed(() => {
     return AnthropicUsageCell
   }
 
-  if (account.platform === 'openai' && account.type === 'oauth') {
+  if (
+    (account.platform === 'openai' && account.type === 'oauth') ||
+    account.platform === 'grok'
+  ) {
     return OpenAIUsageCell
   }
 

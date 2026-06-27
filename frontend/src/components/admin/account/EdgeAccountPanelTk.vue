@@ -125,14 +125,17 @@
               <PlatformTypeBadge
                 :platform="(acct.platform as AccountPlatform)"
                 :type="(acct.type as AccountType)"
-                :plan-type="acct.subscription?.plan_type"
-                :subscription-expires-at="acct.subscription?.expires_at"
+                :plan-type="(accountVm(acct).accountLike.credentials?.plan_type as string | undefined)"
+                :subscription-expires-at="(accountVm(acct).accountLike.credentials?.subscription_expires_at as string | undefined)"
               />
               <div v-if="acct.channel_type" class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">ch{{ acct.channel_type }}</div>
-              <!-- Operator-set account 到期 (the only expiry anthropic has; openai's
-                   subscription 到期 already shows in the badge above). -->
-              <div v-if="acct.expires_at" class="mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500">
-                {{ t('admin.accounts.columns.expiresAt') }} {{ formatDateOnly(acct.expires_at) }}
+              <!-- Operator-set account 到期 (same field as prod list expires_at column). -->
+              <div
+                v-if="accountVm(acct).accountLike.expires_at"
+                class="mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500"
+              >
+                {{ t('admin.accounts.columns.expiresAt') }}
+                {{ formatDateOnly(new Date(accountVm(acct).accountLike.expires_at! * 1000)) }}
               </div>
             </td>
             <td class="px-4 py-1.5 align-top">

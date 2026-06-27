@@ -538,6 +538,8 @@
       "path": "frontend/src/utils/edgeAccounts.tk.ts",
       "must_contain": [
         "export function toAccountLike",
+        "export function edgeSubscriptionToCredentials",
+        "parseEdgeOperatorExpiresAt(s.expires_at)",
         "export function stripClassPrefix",
         "export function toUsageInfo",
         "export function accountVm",
@@ -610,7 +612,7 @@
         "function canFetchUsageForAccount(props: AccountUsageCellProps): boolean",
         "function shouldAutoFetchUsageForAccount(props: AccountUsageCellProps): boolean",
         "if (props.usageOverride !== undefined) return false",
-        "if (props.usageOverride !== undefined && isAnthropicOAuthOrSetupToken.value) return"
+        "if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return"
       ],
       "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip mount/lazy self-fetch and render injected usage verbatim. The explicit manual-refresh guard prevents Anthropic OAuth/SetupToken rows owned by the list batch loader from falling back to per-row /usage after a refresh token bump. Split from AccountUsageCell.vue (B6 perf) — dropping these guards would re-enable per-row /usage fetches on Edge Accounts overview or the admin accounts list and hammer prod."
     },
@@ -976,16 +978,28 @@
       "rationale": "PR #803: the upstream-shaped axios response interceptor must reject with createApiError(...) (a real Error), NOT a plain object. This is the load-bearing injection point — an upstream merge that restores the original `Promise.reject({ status, code, message })` plain-object shape would compile fine and silently reintroduce the app-wide [object Object] rendering bug at every `e instanceof Error ? e.message : String(e)` call site. Anchoring the createApiError( call makes that revert fail the merge gate instead of shipping silently."
     },
     {
+      "path": "frontend/src/utils/accountUsageBatch.tk.ts",
+      "must_contain": [
+        "export function isBatchPassiveCapable(account: Account): boolean",
+        "export function usesPassiveUsageOnMount(account: Account): boolean",
+        "export function canSelfFetchUsage(account: Account): boolean",
+        "account.platform === 'kiro'",
+        "account.platform === 'openai' && account.type === 'oauth'",
+        "account.platform === 'grok'"
+      ],
+      "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro, Grok). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai/grok rows on edge/prod account lists."
+    },
+    {
       "path": "frontend/src/composables/useTkAccountUsageBatch.ts",
       "must_contain": [
         "export function useTkAccountUsageBatch(",
         "getBatchPassiveUsage(",
         "isBatchPassiveCapable",
-        "function canSelfFetchUsage(account: Account): boolean",
+        "from '@/utils/accountUsageBatch.tk'",
         "function usageOverrideFor(account: Account): AccountUsageInfo | null | undefined",
         "return key in usageByAccountId.value ? usageByAccountId.value[key] : null"
       ],
-      "rationale": "TK composable that batches Anthropic OAuth/SetupToken passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard + platform scoping; canSelfFetchUsage deliberately returns null overrides for active-only fetchable platforms until explicit user refresh, suppressing the historical mount-time N parallel /usage XHRs. If deleted or narrowed back to passive-only rows, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, the scoping predicate, the list-owned override function, and the present-with-null sentinel."
+      "rationale": "TK composable that batches Anthropic / OpenAI OAuth / Kiro / Grok passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard; platform scoping lives in accountUsageBatch.tk.ts. If deleted or narrowed back to passive-only rows, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, the shared scoping import, the list-owned override function, and the present-with-null sentinel."
     },
     {
       "path": "frontend/src/views/admin/AccountsView.vue",
@@ -1042,7 +1056,7 @@
         "adminAPI.edgeAccounts.clearRateLimit",
         "shouldShowEdgeAccountError(acct)",
         "PlatformTypeBadge",
-        ":subscription-expires-at=\"acct.subscription?.expires_at\"",
+        ":subscription-expires-at=\"(accountVm(acct).accountLike.credentials?.subscription_expires_at",
         "refreshKiroToken",
         "fetchActiveUsageInto"
       ],

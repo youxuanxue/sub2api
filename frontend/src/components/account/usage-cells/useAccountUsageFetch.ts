@@ -13,6 +13,11 @@ import type { Account, AccountUsageInfo } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import type { AccountUsageCellProps } from '../accountUsageCellProps'
+import {
+  canSelfFetchUsage as accountCanSelfFetchUsage,
+  isBatchPassiveCapable,
+  usesPassiveUsageOnMount as accountUsesPassiveUsageOnMount
+} from '@/utils/accountUsageBatch.tk'
 
 // Module-level cache shared across all usage cell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -29,19 +34,7 @@ export function clearAccountUsageCache(accountId?: number) {
 const desktopViewportQuery = '(min-width: 768px)'
 
 function canFetchUsageForAccount(props: AccountUsageCellProps): boolean {
-  if (props.account.platform === 'anthropic') {
-    return props.account.type === 'oauth' || props.account.type === 'setup-token'
-  }
-  if (props.account.platform === 'gemini') {
-    return true
-  }
-  if (props.account.platform === 'antigravity') {
-    return props.account.type === 'oauth'
-  }
-  if (props.account.platform === 'openai') {
-    return props.account.type === 'oauth'
-  }
-  return false
+  return accountCanSelfFetchUsage(props.account)
 }
 
 function shouldAutoFetchUsageForAccount(props: AccountUsageCellProps): boolean {
@@ -95,13 +88,6 @@ export function useAccountUsageFetch(
 
   const shouldLazyLoadOnMobile = computed(() => {
     return shouldFetchUsage.value && !isDesktopViewport.value
-  })
-
-  const isAnthropicOAuthOrSetupToken = computed(() => {
-    return (
-      props.account.platform === 'anthropic' &&
-      (props.account.type === 'oauth' || props.account.type === 'setup-token')
-    )
   })
 
   const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
@@ -220,7 +206,7 @@ export function useAccountUsageFetch(
     }
 
     if (!shouldAutoLoadUsageOnMount.value) return
-    const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
+    const source = accountUsesPassiveUsageOnMount(props.account) ? 'passive' : undefined
     requestAutoLoad(source)
   })
 
@@ -239,11 +225,22 @@ export function useAccountUsageFetch(
     (nextToken, prevToken) => {
       if (nextToken === prevToken) return
       if (!canFetchUsage.value) return
-      // AccountsView already refreshes Anthropic passive usage through the batch
-      // endpoint before bumping this token; do not reintroduce per-row fan-out.
-      if (props.usageOverride !== undefined && isAnthropicOAuthOrSetupToken.value) return
 
-      const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
+      // Kiro: explicit 刷新 pulls live credits once (#1031). Must run before the
+      // batch-passive early return (kiro is batch-capable but not batch-only on refresh).
+      if (props.account.platform === 'kiro') {
+        _usageCache.delete(props.account.id)
+        loadActiveUsage().catch((e) => {
+          console.error('Failed to refresh kiro usage after manual refresh:', e)
+        })
+        return
+      }
+
+      // AccountsView already refreshes Anthropic/OpenAI/Kiro passive usage through the
+      // batch endpoint before bumping this token; do not reintroduce per-row fan-out.
+      if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return
+
+      const source = accountUsesPassiveUsageOnMount(props.account) ? 'passive' : undefined
       _usageCache.delete(props.account.id)
       loadUsage({ source, bypassCache: true }).catch((e) => {
         console.error('Failed to refresh usage after manual refresh:', e)
@@ -299,6 +296,6 @@ export function useAccountUsageFetch(
 }
 
 export function showUsageWindowsForAccount(account: Account): boolean {
-  if (account.platform === 'gemini') return true
+  if (account.platform === 'gemini' || account.platform === 'kiro' || account.platform === 'grok') return true
   return account.type === 'oauth' || account.type === 'setup-token'
 }
