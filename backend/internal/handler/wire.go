@@ -260,6 +260,7 @@ func ProvideTrialProvisionHandler(
 	userRepo service.UserRepository,
 	userGroupRateRepo service.UserGroupRateRepository,
 	groupRepo service.GroupRepository,
+	redeemCodeRepo service.RedeemCodeRepository,
 	entClient *dbent.Client,
 ) *admin.TrialProvisionHandler {
 	svc := service.NewTrialProvisionService(
@@ -269,6 +270,7 @@ func ProvideTrialProvisionHandler(
 		userRepo,
 		userGroupRateRepo,
 		groupRepo,
+		redeemCodeRepo,
 		entClient,
 	)
 	return admin.NewTrialProvisionHandler(svc)

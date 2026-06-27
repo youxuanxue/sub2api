@@ -69,3 +69,49 @@ func TestAdminService_UpdateUserBalance_KeepsOperatorNote(t *testing.T) {
 	require.Equal(t, "线下转账补单", redeemRepo.created[0].Notes)
 	require.Equal(t, 500.0, redeemRepo.created[0].Value)
 }
+
+func TestAuthService_CreateUserWithSignupLedger_NilEntClient_BestEffortLedger(t *testing.T) {
+	userRepo := &userRepoStub{nextID: 77}
+	redeemRepo := &balanceRedeemRepoStub{redeemRepoStub: &redeemRepoStub{}}
+	svc := &AuthService{
+		userRepo:   userRepo,
+		redeemRepo: redeemRepo,
+	}
+
+	user := &User{
+		Email:    "signup-ledger@example.com",
+		Balance:  3.5,
+		Status:   StatusActive,
+		Role:     RoleUser,
+	}
+	require.NoError(t, user.SetPassword("pw-12345678"))
+	require.NoError(t, svc.createUserWithSignupLedger(context.Background(), user))
+
+	require.Len(t, redeemRepo.created, 1)
+	require.Equal(t, BalanceGrantNoteSignup, redeemRepo.created[0].Notes)
+	require.Equal(t, 3.5, redeemRepo.created[0].Value)
+	require.NotNil(t, redeemRepo.created[0].UsedBy)
+	require.Equal(t, int64(77), *redeemRepo.created[0].UsedBy)
+}
+
+func TestTrialProvisionService_CreateTrialUserWithLedger_NilEntClient_BestEffortLedger(t *testing.T) {
+	userRepo := &userRepoStub{nextID: 88}
+	redeemRepo := &balanceRedeemRepoStub{redeemRepoStub: &redeemRepoStub{}}
+	svc := &TrialProvisionService{
+		userRepo:       userRepo,
+		redeemCodeRepo: redeemRepo,
+	}
+
+	user := &User{
+		Email:    "trial-ledger@example.com",
+		Balance:  12,
+		Status:   StatusActive,
+		Role:     RoleUser,
+	}
+	require.NoError(t, user.SetPassword("pw-12345678"))
+	require.NoError(t, svc.createTrialUserWithLedger(context.Background(), user))
+
+	require.Len(t, redeemRepo.created, 1)
+	require.Equal(t, BalanceGrantNoteInviteTrial, redeemRepo.created[0].Notes)
+	require.Equal(t, 12.0, redeemRepo.created[0].Value)
+}

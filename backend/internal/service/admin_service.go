@@ -1147,27 +1147,7 @@ func (s *adminServiceImpl) persistBalanceAdjustment(ctx context.Context, user *U
 // without a transaction. Used only when no ent client is available (tests); the
 // production path uses persistBalanceAdjustment's atomic transaction.
 func (s *adminServiceImpl) bestEffortBalanceLedger(ctx context.Context, userID int64, amount float64, notes string) {
-	if s.redeemCodeRepo == nil {
-		return
-	}
-	code, err := GenerateRedeemCode()
-	if err != nil {
-		logger.LegacyPrintf("service.admin", "failed to generate adjustment redeem code: %v", err)
-		return
-	}
-	now := time.Now()
-	record := &RedeemCode{
-		Code:   code,
-		Type:   AdjustmentTypeAdminBalance,
-		Value:  amount,
-		Status: StatusUsed,
-		UsedBy: &userID,
-		UsedAt: &now,
-		Notes:  notes,
-	}
-	if err := s.redeemCodeRepo.Create(ctx, record); err != nil {
-		logger.LegacyPrintf("service.admin", "failed to create balance adjustment redeem code: %v", err)
-	}
+	bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, userID, amount, notes, "service.admin")
 }
 
 func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error) {

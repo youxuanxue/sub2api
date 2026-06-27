@@ -45,32 +45,32 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		return nil
 	}
 
+	// Reuse an outer ent transaction (e.g. balance-grant ledger paths) without
+	// opening/committing a nested tx — same pattern as Delete.
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		return r.createUser(ctx, existingTx.Client(), userIn)
+	}
+
 	// 统一使用 ent 的事务：保证用户与允许分组的更新原子化，
 	// 并避免基于 *sql.Tx 手动构造 ent client 导致的 ExecQuerier 断言错误。
 	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+	if err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	var txClient *dbent.Client
-	txCtx := ctx
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-		txCtx = dbent.NewTxContext(ctx, tx)
-	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
-		}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := r.createUser(txCtx, tx.Client(), userIn); err != nil {
+		return err
 	}
+	return tx.Commit()
+}
 
+func (r *userRepository) createUser(ctx context.Context, txClient *dbent.Client, userIn *service.User) error {
 	releaseEmailLock, err := lockRepositoryScopedKeys(
-		txCtx,
+		ctx,
 		txClient,
-		txAwareSQLExecutor(txCtx, r.sql, r.client),
+		txAwareSQLExecutor(ctx, r.sql, r.client),
 		normalizedEmailUniquenessLockKey(userIn.Email),
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 	}
 	defer releaseEmailLock()
 
-	if err := ensureNormalizedEmailAvailableWithClient(txCtx, txClient, 0, userIn.Email); err != nil {
+	if err := ensureNormalizedEmailAvailableWithClient(ctx, txClient, 0, userIn.Email); err != nil {
 		return err
 	}
 
@@ -96,22 +96,16 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
 		SetTrajExportEnabled(userIn.TrajExportEnabled).
-		Save(txCtx)
+		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
 	}
 
-	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, created.ID, userIn.AllowedGroups); err != nil {
+	if err := r.syncUserAllowedGroupsWithClient(ctx, txClient, created.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}
-	if err := ensureEmailAuthIdentityWithClient(txCtx, txClient, created.ID, created.Email, "user_repo_create"); err != nil {
+	if err := ensureEmailAuthIdentityWithClient(ctx, txClient, created.ID, created.Email, "user_repo_create"); err != nil {
 		return err
-	}
-
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
 
 	applyUserEntityToService(userIn, created)
@@ -184,31 +178,31 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		return nil
 	}
 
+	// Reuse an outer ent transaction (e.g. admin balance adjustment + ledger) without
+	// opening/committing a nested tx — same pattern as Delete.
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		return r.updateUser(ctx, existingTx.Client(), userIn)
+	}
+
 	// 使用 ent 事务包裹用户更新与 allowed_groups 同步，避免跨层事务不一致。
 	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+	if err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	var txClient *dbent.Client
-	txCtx := ctx
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-		txCtx = dbent.NewTxContext(ctx, tx)
-	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
-		}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := r.updateUser(txCtx, tx.Client(), userIn); err != nil {
+		return err
 	}
+	return tx.Commit()
+}
 
+func (r *userRepository) updateUser(ctx context.Context, txClient *dbent.Client, userIn *service.User) error {
 	releaseEmailLock, err := lockRepositoryScopedKeys(
-		txCtx,
+		ctx,
 		txClient,
-		txAwareSQLExecutor(txCtx, r.sql, r.client),
+		txAwareSQLExecutor(ctx, r.sql, r.client),
 		normalizedEmailUniquenessLockKey(userIn.Email),
 	)
 	if err != nil {
@@ -216,11 +210,11 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 	}
 	defer releaseEmailLock()
 
-	if err := ensureNormalizedEmailAvailableWithClient(txCtx, txClient, userIn.ID, userIn.Email); err != nil {
+	if err := ensureNormalizedEmailAvailableWithClient(ctx, txClient, userIn.ID, userIn.Email); err != nil {
 		return err
 	}
 
-	existing, err := clientFromContext(txCtx, txClient).User.Get(txCtx, userIn.ID)
+	existing, err := clientFromContext(ctx, txClient).User.Get(ctx, userIn.ID)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
@@ -254,22 +248,16 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 	if userIn.BalanceNotifyThreshold == nil {
 		updateOp = updateOp.ClearBalanceNotifyThreshold()
 	}
-	updated, err := updateOp.Save(txCtx)
+	updated, err := updateOp.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, service.ErrEmailExists)
 	}
 
-	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, updated.ID, userIn.AllowedGroups); err != nil {
+	if err := r.syncUserAllowedGroupsWithClient(ctx, txClient, updated.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}
-	if err := replaceEmailAuthIdentityWithClient(txCtx, txClient, updated.ID, oldEmail, updated.Email, "user_repo_update"); err != nil {
+	if err := replaceEmailAuthIdentityWithClient(ctx, txClient, updated.ID, oldEmail, updated.Email, "user_repo_update"); err != nil {
 		return err
-	}
-
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
 
 	userIn.UpdatedAt = updated.UpdatedAt

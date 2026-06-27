@@ -5,6 +5,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 // TokenKey: unified balance-change journal writer.
@@ -40,6 +41,33 @@ const (
 // so the journal row and the balance change are atomic. notes carries the source
 // tag (see the BalanceGrantNote* constants) or, for admin recharges, the
 // operator-supplied reason.
+// bestEffortBalanceGrantLedger records a balance grant via the redeem-code repository
+// without a transaction. Used only when no ent client is wired (unit tests); production
+// paths use writeBalanceGrantLedger inside the same tx as the balance mutation.
+func bestEffortBalanceGrantLedger(ctx context.Context, redeemCodeRepo RedeemCodeRepository, userID int64, amount float64, notes string, logComponent string) {
+	if redeemCodeRepo == nil || amount == 0 {
+		return
+	}
+	code, err := GenerateRedeemCode()
+	if err != nil {
+		logger.LegacyPrintf(logComponent, "failed to generate balance grant redeem code: %v", err)
+		return
+	}
+	now := time.Now()
+	record := &RedeemCode{
+		Code:   code,
+		Type:   AdjustmentTypeAdminBalance,
+		Value:  amount,
+		Status: StatusUsed,
+		UsedBy: &userID,
+		UsedAt: &now,
+		Notes:  notes,
+	}
+	if err := redeemCodeRepo.Create(ctx, record); err != nil {
+		logger.LegacyPrintf(logComponent, "failed to create balance grant redeem code: %v", err)
+	}
+}
+
 func writeBalanceGrantLedger(ctx context.Context, client *dbent.Client, userID int64, amount float64, notes string) error {
 	code, err := GenerateRedeemCode()
 	if err != nil {
