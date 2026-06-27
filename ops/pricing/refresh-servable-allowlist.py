@@ -88,7 +88,11 @@ GEMINI_EXCLUDE_RE = re.compile(r"gemma-|lyria-|deep-research|robotics|antigravit
 PROBE_FAMILIES_BY_PLATFORM = {
     "anthropic": ("anthropic",),
     "openai": ("openai_chat", "openai_responses", "openai_image"),
-    "gemini": ("gemini_chat", "gemini_image", "gemini_video"),
+    # gemini_chat_image: the generateContent image models (gemini-*-image,
+    # nano-banana) ride the /v1/chat/completions surface, NOT the imagen
+    # /v1/images/generations predict API — a distinct family so they probe the
+    # right endpoint. imagen-* stays in gemini_image.
+    "gemini": ("gemini_chat", "gemini_chat_image", "gemini_image", "gemini_video"),
 }
 # Inverse of PROBE_FAMILIES_BY_PLATFORM: probe-family -> allowlist platform.
 FAMILY_PLATFORM = {
@@ -141,7 +145,7 @@ def split_gemini_families(discovered: list[str]) -> dict[str, list[str]]:
     image -> /v1/images/generations, video -> /v1/video/generations. Exotic
     families (see GEMINI_EXCLUDE_RE) are dropped so the catch-all never $0-serves
     an unpriced niche model."""
-    fams: dict[str, list[str]] = {"gemini_chat": [], "gemini_image": [], "gemini_video": []}
+    fams: dict[str, list[str]] = {"gemini_chat": [], "gemini_chat_image": [], "gemini_image": [], "gemini_video": []}
     seen: set[str] = set()
     for mid in list(discovered) + list(GEMINI_PREDICT_MODELS):
         mid = mid.strip()
@@ -152,8 +156,13 @@ def split_gemini_families(discovered: list[str]) -> dict[str, list[str]]:
             continue
         if mid.startswith("veo-"):
             fams["gemini_video"].append(mid)
-        elif mid.startswith("imagen-") or "image" in mid or "nano-banana" in mid:
+        elif mid.startswith("imagen-"):
+            # imagen-* uses the /v1/images/generations predict API.
             fams["gemini_image"].append(mid)
+        elif "image" in mid or "nano-banana" in mid:
+            # gemini-*-image / nano-banana generate via the chat/generateContent
+            # surface, not the images predict API → probe through /v1/chat/completions.
+            fams["gemini_chat_image"].append(mid)
         elif mid.startswith("gemini-"):
             fams["gemini_chat"].append(mid)
         # other-vendor ids are ignored (not part of the google catch-all scope)
@@ -202,8 +211,10 @@ def _probe_family_for(platform: str, model: str, probe_family: str | None = None
     if platform == "gemini":
         if model.startswith("veo-"):
             return "gemini_video"
-        if model.startswith("imagen-") or "image" in model or "nano-banana" in model:
+        if model.startswith("imagen-"):
             return "gemini_image"
+        if "image" in model or "nano-banana" in model:
+            return "gemini_chat_image"
         return "gemini_chat"
     raise ValueError(f"{platform}/{model}: refresh tool cannot probe this platform")
 
@@ -344,6 +355,7 @@ def augment_candidates_with_watchlist(candidates: dict[str, list[str]], ledger: 
         ("openai_responses", ("openai",)),
         ("openai_image", ("openai",)),
         ("gemini_chat", ("gemini",)),
+        ("gemini_chat_image", ("gemini",)),
         ("gemini_image", ("gemini",)),
         ("gemini_video", ("gemini",)),
     ):
@@ -584,6 +596,7 @@ ENV_BY_FAMILY = (
     ("OPENAI_RESPONSES_MODELS", "openai_responses", "prod"),
     ("OPENAI_IMAGE_MODELS", "openai_image", "prod"),
     ("GEMINI_CHAT_MODELS", "gemini_chat", GEMINI_TARGET),
+    ("GEMINI_CHATIMAGE_MODELS", "gemini_chat_image", GEMINI_TARGET),
     ("GEMINI_IMAGE_MODELS", "gemini_image", GEMINI_TARGET),
     ("GEMINI_VIDEO_MODELS", "gemini_video", GEMINI_TARGET),
 )
@@ -805,8 +818,12 @@ def selftest() -> int:
     }
     aug = augment_candidates_with_watchlist(build_candidates(cat, ["gemini-3-pro-image-preview"]), ledger)
     assert "gpt-5.2" in aug["openai_chat"], aug["openai_chat"]
+    # watchlist probe_family override moves it from the base family (now
+    # gemini_chat_image for *-image ids) to the overridden gemini_chat, and out of
+    # all peers — proves the override wins over the systematic family routing.
     assert "gemini-3-pro-image-preview" in aug["gemini_chat"], aug["gemini_chat"]
     assert "gemini-3-pro-image-preview" not in aug["gemini_image"], aug["gemini_image"]
+    assert "gemini-3-pro-image-preview" not in aug["gemini_chat_image"], aug["gemini_chat_image"]
     assert "gpt-image-dead" not in aug["openai_image"], aug["openai_image"]
     validate_reprobe_ledger(
         ledger,
@@ -855,9 +872,11 @@ def selftest() -> int:
         "gemini-2.5-computer-use-preview-10-2025",
     ])
     assert g["gemini_chat"] == ["gemini-2.5-pro", "gemini-3-pro-preview"], g["gemini_chat"]
-    # discovered image models classified into the image family (alongside imagen seed)
+    # generateContent image models go to gemini_chat_image (chat surface), NOT the
+    # imagen predict family; imagen-* stays in gemini_image.
     for img in ("gemini-2.5-flash-image", "gemini-3-pro-image", "nano-banana-pro-preview"):
-        assert img in g["gemini_image"], (img, g["gemini_image"])
+        assert img in g["gemini_chat_image"], (img, g["gemini_chat_image"])
+        assert img not in g["gemini_image"], (img, g["gemini_image"])
     # predict seed always merged into video/image even with empty discovery
     assert "veo-3.1-generate-001" in g["gemini_video"], g["gemini_video"]
     assert "imagen-4.0-generate-001" in g["gemini_image"], g["gemini_image"]
@@ -941,8 +960,11 @@ def selftest() -> int:
     assert ("openai", "gpt-5.2") in real_members, "watchlist gpt-5.2 must be probed"
     assert ("openai", "codex-auto-review") in real_members, "watchlist codex-auto-review must be probed"
     assert ("gemini", "gemini-3-pro-preview") not in real_members, "skiplist gemini chat must be excluded"
-    assert "gemini-3-pro-image-preview" in real_cands["gemini_chat"], real_cands["gemini_chat"]
+    # gemini-*-image route to the gemini_chat_image family (chat/generateContent
+    # surface), not gemini_chat (text) or gemini_image (imagen predict API).
+    assert "gemini-3-pro-image-preview" in real_cands["gemini_chat_image"], real_cands["gemini_chat_image"]
     assert "gemini-3-pro-image-preview" not in real_cands["gemini_image"], real_cands["gemini_image"]
+    assert "gemini-3-pro-image-preview" not in real_cands["gemini_chat"], real_cands["gemini_chat"]
 
     probe_lib = REPO / "ops/pricing/probe_reserved_resources.sh"
     probe_test = REPO / "ops/pricing/test_probe_reserved_resources.sh"

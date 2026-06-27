@@ -10,7 +10,8 @@
 #   OPENAI_RESPONSES_MODELS  -> POST <prod>/v1/responses   (codex family)
 #   OPENAI_IMAGE_MODELS      -> POST <prod>/v1/images/generations (best-effort)
 #   GEMINI_CHAT_MODELS       -> POST app:8080/v1/chat/completions  (newapi/Vertex, edge-internal)
-#   GEMINI_IMAGE_MODELS      -> POST app:8080/v1/images/generations
+#   GEMINI_CHATIMAGE_MODELS  -> POST <prod>/v1/chat/completions  (gemini-*-image via chat/generateContent)
+#   GEMINI_IMAGE_MODELS      -> POST app:8080/v1/images/generations  (imagen-* predict API)
 #   GEMINI_VIDEO_MODELS      -> POST app:8080/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
 #     NB gemini families run ON the edge host and hit the app container directly
 #     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
@@ -421,10 +422,13 @@ main() {
 	# newapi families (zhipu/dashscope), NOT the edge-internal wget hop (that was only
 	# needed to bypass an edge Caddy /v1/* CIDR restriction; prod's gateway is public).
 	# emit tag stays `gemini` so parse_results maps results to the gemini allowlist.
-	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then
+	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_CHATIMAGE_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then
 		if tk_probe_catalog_key newapi_google newapi source_group "$PROBE_GEMINI_SOURCE_GROUP"; then
 			gkey="$REPLY_KEY"
 			[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
+			# gemini-*-image generate via the chat/generateContent surface, NOT the
+			# images predict API — probe through /v1/chat/completions (emit `gemini`).
+			[ -n "${GEMINI_CHATIMAGE_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/chat/completions "$GEMINI_CHATIMAGE_MODELS" body_chat
 			[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
 			[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
 		else
