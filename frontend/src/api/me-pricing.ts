@@ -53,6 +53,19 @@ export interface MePricingTier {
   cache_read_per_1k?: number
 }
 
+/** One accessible group that can serve a given model — the "授权分组" column.
+ *  Trimmed group ref (no per-key flags) for the per-model badge + create-key
+ *  deep-link. Absent on the public catalog. */
+export interface MePricingModelGroup {
+  id: number
+  name: string
+  platform: string
+  is_exclusive: boolean
+  is_current_for_key: boolean
+  rate_multiplier: number
+  subscription_type?: string
+}
+
 export interface MePricingModel {
   model_id: string
   vendor?: string
@@ -61,6 +74,9 @@ export interface MePricingModel {
   context_window?: number
   max_output_tokens?: number
   capabilities: string[]
+  /** Accessible groups (exclusive + public) that can serve this model.
+   *  Only present on the authenticated "my" view; empty/omitted publicly. */
+  authorized_groups?: MePricingModelGroup[]
 }
 
 export interface MePricingTargetGroup {

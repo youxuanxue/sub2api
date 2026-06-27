@@ -711,6 +711,59 @@ func TestBuildForUser_ChannelAndAccount_ChannelWins(t *testing.T) {
 	assert.InDelta(t, 0.0025, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9, "gpt-4o is account-only — catalog 0.0025 × 1.0 rate")
 }
 
+// TestBuildForUser_AuthorizedGroups_CrossGroup pins the "授权分组" column: each
+// model's AuthorizedGroups lists every accessible group that can serve it (not
+// just the target group), so the user can see which key/group to use. Ordering:
+// current/target group first, then exclusive, then by name.
+func TestBuildForUser_AuthorizedGroups_CrossGroup(t *testing.T) {
+	gTarget := mkGroupForMe(30, "GPT专属", "openai", 1.0)
+	gTarget.IsExclusive = true
+	gOther := mkGroupForMe(31, "GPT公开", "openai", 1.0) // public
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	// gpt-5 served by BOTH groups; gpt-a only by the target group.
+	chShared := mkChannelWithModel(100, "shared-ch",
+		[]AvailableGroupRef{{ID: 30, Platform: "openai"}, {ID: 31, Platform: "openai"}},
+		[]SupportedModel{mkSupportedModel("gpt-5", "openai", mkPricing(0.001, 0.002, 0))},
+	)
+	chTargetOnly := mkChannelWithModel(101, "target-ch",
+		[]AvailableGroupRef{{ID: 30, Platform: "openai"}},
+		[]SupportedModel{mkSupportedModel("gpt-a", "openai", mkPricing(0.001, 0.002, 0))},
+	)
+	catalog := &PublicCatalogResponse{Data: []PublicCatalogModel{
+		mkPublicCatalogModel("gpt-5", "OpenAI", 0.001, 0.002, 0),
+		mkPublicCatalogModel("gpt-a", "OpenAI", 0.001, 0.002, 0),
+	}}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gTarget, gOther}, keys: []APIKey{k1}},
+		&fakeChannelLister{channels: []AvailableChannel{chShared, chTargetOnly}},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+
+	// gpt-5 is served by the target group AND the other group → both listed,
+	// current/exclusive target first.
+	g5, ok := byID["gpt-5"]
+	require.True(t, ok)
+	require.Len(t, g5.AuthorizedGroups, 2, "gpt-5 served by both accessible groups")
+	assert.Equal(t, int64(30), g5.AuthorizedGroups[0].ID, "current/target group sorts first")
+	assert.True(t, g5.AuthorizedGroups[0].IsCurrentForKey)
+	assert.True(t, g5.AuthorizedGroups[0].IsExclusive, "target group is exclusive")
+	assert.Equal(t, int64(31), g5.AuthorizedGroups[1].ID)
+	assert.False(t, g5.AuthorizedGroups[1].IsCurrentForKey)
+
+	// gpt-a is only on the target group → single-group column.
+	ga, ok := byID["gpt-a"]
+	require.True(t, ok)
+	require.Len(t, ga.AuthorizedGroups, 1)
+	assert.Equal(t, int64(30), ga.AuthorizedGroups[0].ID)
+}
+
 // TestBuildForUser_AccountWhitelist_VendorPrefix exercises reuse of
 // stripVendorPrefixForCatalogLookup (PR #326). An account whitelisting an
 // OpenRouter-style "<vendor>/<model>" must still resolve to the LiteLLM

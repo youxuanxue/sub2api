@@ -92,7 +92,12 @@ export default {
       noKeyHint: 'You have no active API keys yet — create one in the console first.',
       columns: {
         input: 'Input (official price)',
-        output: 'Output (official price)'
+        output: 'Output (official price)',
+        authorizedGroups: 'Authorized Groups'
+      },
+      authorizedGroups: {
+        createKeyHint: 'Create an API key in {group}',
+        exclusive: 'exclusive'
       },
       empty: {
         noAccess: {

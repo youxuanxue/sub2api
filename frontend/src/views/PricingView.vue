@@ -334,6 +334,13 @@
                     >
                       {{ t('pricing.columns.capabilities') }}
                     </th>
+                    <th
+                      v-if="viewMode === 'my'"
+                      scope="col"
+                      class="sticky top-0 z-40 min-w-[12rem] bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.my.columns.authorizedGroups') }}
+                    </th>
                   </tr>
                 </thead>
                 <tbody
@@ -450,6 +457,34 @@
                         >
                       </div>
                     </td>
+                    <td v-if="viewMode === 'my'" class="px-3 py-3 align-top">
+                      <div class="flex flex-wrap gap-1.5">
+                        <button
+                          v-for="g in row.authorizedGroups || []"
+                          :key="g.id"
+                          type="button"
+                          :title="t('pricing.my.authorizedGroups.createKeyHint', { group: g.name })"
+                          class="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium transition-colors"
+                          :class="[
+                            g.is_exclusive
+                              ? 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 dark:border-primary-700/50 dark:bg-primary-900/30 dark:text-primary-200 dark:hover:bg-primary-900/50'
+                              : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-dark-700 dark:bg-dark-800/60 dark:text-dark-300 dark:hover:bg-dark-700',
+                            g.is_current_for_key ? 'ring-1 ring-primary-400/60' : ''
+                          ]"
+                          @click="onCreateKeyForGroup(g)"
+                        >
+                          <span>{{ g.name }}</span>
+                          <span v-if="g.is_exclusive" class="text-[10px] opacity-70">{{
+                            t('pricing.my.authorizedGroups.exclusive')
+                          }}</span>
+                        </button>
+                        <span
+                          v-if="!row.authorizedGroups || row.authorizedGroups.length === 0"
+                          class="text-xs text-gray-400"
+                          >—</span
+                        >
+                      </div>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -497,11 +532,13 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import {
   getMePricingCatalog,
   type MePricingCatalogResponse,
-  type MePricingGroupRef
+  type MePricingGroupRef,
+  type MePricingModelGroup
 } from '@/api/me-pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
@@ -515,6 +552,13 @@ import {
 import { exportPricingCsv } from '@/composables/useTkPricingExport'
 
 const { t } = useI18n()
+const router = useRouter()
+
+// 「授权分组」badge 点击：跳到 Keys 页并自动打开「创建密钥」面板、预置该分组。
+// 用路由 name（'Keys'）而非硬编码路径，避免 path 漂移。
+function onCreateKeyForGroup(g: MePricingModelGroup): void {
+  void router.push({ name: 'Keys', query: { create: '1', group_id: String(g.id) } })
+}
 const authStore = useAuthStore()
 const appStore = useAppStore()
 
@@ -545,6 +589,8 @@ interface NormalizedRow {
   perSecond?: number | null
   /** Input-token interval (阶梯) ladder, normalized from either catalog source. */
   tiers?: NormalizedTier[]
+  /** Accessible groups that can serve this model — "授权分组" column ('my' view only). */
+  authorizedGroups?: MePricingModelGroup[]
 }
 
 /** Normalized阶梯 bracket shared by public + my views (per-1k). */
@@ -719,7 +765,8 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       maxTokens: tt.max_tokens ?? null,
       inputPer1K: tt.input_per_1k ?? null,
       outputPer1K: tt.output_per_1k ?? null
-    }))
+    })),
+    authorizedGroups: m.authorized_groups ?? []
   }))
 })
 
