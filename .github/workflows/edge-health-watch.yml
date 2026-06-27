@@ -9,11 +9,9 @@ name: Edge Health Watch
 #
 # Read-only: GHA -> AWS STS (OIDC) -> SSM `docker logs` + `psql SELECT` via
 # scan-edge-health.sh. Never deploys, writes config, edits secrets, or mutates AWS.
-# The ONLY outbound side effect is a Feishu text post, and only when the actionable
-# (down/degraded/unreachable) OR posture (thin/idle-thin/no-accounts) edge set CHANGES
-# vs the previous run (state-diff dedup via the Actions cache) — so a multi-hour
-# incident or a chronically thin fleet does not re-spam, posture drift posts one 🟡
-# notice, and a recovery posts a green all-clear.
+# The ONLY outbound side effect is a Feishu text post when the actionable edge set
+# (down/degraded/unreachable) CHANGES vs the previous run. Posture (thin/no-accounts) is
+# not paged; recovery posts a green all-clear.
 #
 # Cadence caveat: GitHub scheduled workflows are best-effort and can run late or skip
 # under load — this is detection-latency insurance, not a hard SLA. If a tighter SLA
@@ -127,7 +125,7 @@ jobs:
 
           SHOULD=$(python3 -c "import json;print(json.load(open('decision.json'))['should_alert'])")
           if [ "$SHOULD" != "True" ]; then
-            echo "no actionable/posture set change since last run — not posting."
+            echo "no actionable set change since last run — not posting."
             exit 0
           fi
           if [ "$DRY_RUN" = "true" ]; then
