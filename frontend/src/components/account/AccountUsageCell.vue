@@ -33,6 +33,10 @@ const activeCell = computed(() => {
     return AnthropicUsageCell
   }
 
+  // grok (xAI) is OpenAI-wire compatible and reuses the OpenAI 5h/7d usage
+  // window display. TK grok accounts are apikey edge-relay stubs (not the
+  // upstream OAuth-direct grok with passive xAI quota headers), so they share
+  // OpenAIUsageCell rather than a dedicated grok cell.
   if (
     (account.platform === 'openai' && account.type === 'oauth') ||
     account.platform === 'grok'

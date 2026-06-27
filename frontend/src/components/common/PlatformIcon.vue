@@ -23,6 +23,12 @@
   <svg v-else-if="platform === 'newapi'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path d="M5 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm14 0a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM5 14a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm14 0a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM7.6 6.2l8.8 0v1.6h-8.8zM7.6 16.2l8.8 0v1.6h-8.8zM6.2 7.6l0 8.8h1.6v-8.8zM16.2 7.6l0 8.8h1.6v-8.8z" />
   </svg>
+  <!-- Grok/xAI logo mark -->
+  <svg v-else-if="platform === 'grok'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 18 18 4" />
+    <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h11v11" />
+    <path stroke-linecap="round" stroke-linejoin="round" d="M5 6l13 13" />
+  </svg>
   <!-- Fallback: generic platform icon -->
   <svg v-else :class="sizeClass" fill="currentColor" viewBox="0 0 24 24">
     <path

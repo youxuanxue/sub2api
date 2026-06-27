@@ -1,180 +1,448 @@
-// Package xai provides the minimal xAI / Grok (SuperGrok Heavy) OAuth refresh
-// helper used by the grok seventh platform. It is intentionally dependency-free
-// (only stdlib) so the service-layer GrokTokenRefresher can call it the same way
-// the Kiro refresher calls the vendored kiroproto.RefreshToken.
-//
-// Scope of this package (MINIMAL-v1): token REFRESH only. The interactive
-// authorization-code + PKCE loopback dance (the way an operator first mints a
-// refresh_token) is performed out-of-band by the xAI Grok CLI on the operator's
-// own machine; TokenKey only stores the resulting refresh_token and refreshes it
-// server-side from here. The authorize/PKCE half is deferred to phase-2.
-//
-// OAuth contract (confirmed against the public xAI Grok CLI client, client_id
-// b1a00492-073a-47ea-816f-4c329264a828):
-//   - discovery: GET https://auth.x.ai/.well-known/openid-configuration -> token_endpoint
-//   - refresh:   POST <token_endpoint> form {grant_type=refresh_token, client_id, refresh_token}
-//     Content-Type: application/x-www-form-urlencoded ; no client_secret, no scope
-//   - response:  {access_token, refresh_token (may be omitted -> keep old), expires_in (sec), ...}
-//   - the access_token is a plain Bearer to api.x.ai/v1 (no Codex/ChatGPT headers).
 package xai
 
 import (
-	"context"
-	"encoding/json"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 const (
-	// ClientID is the public xAI Grok CLI OAuth client ID (not a secret).
-	ClientID = "b1a00492-073a-47ea-816f-4c329264a828"
-	// Issuer is xAI's OAuth issuer.
-	Issuer = "https://auth.x.ai"
-	// DiscoveryURL is the OIDC discovery endpoint used to resolve the token endpoint.
-	DiscoveryURL = Issuer + "/.well-known/openid-configuration"
-	// DefaultAPIBaseURL is the default xAI (OpenAI-compatible) inference base URL.
-	DefaultAPIBaseURL = "https://api.x.ai/v1"
-	// Scope is the OAuth scope set xAI issues for Grok API access (for reference;
-	// the refresh grant itself does not send a scope param).
-	Scope = "openid profile email offline_access grok-cli:access api:access"
+	OAuthIssuer         = "https://auth.x.ai"
+	DiscoveryURL        = OAuthIssuer + "/.well-known/openid-configuration"
+	DefaultAuthorizeURL = OAuthIssuer + "/oauth2/authorize"
+	DefaultTokenURL     = OAuthIssuer + "/oauth2/token"
+	DefaultBaseURL      = "https://api.x.ai/v1"
+	DefaultCLIBaseURL   = "https://cli-chat-proxy.grok.com/v1"
+	DefaultClientID     = "b1a00492-073a-47ea-816f-4c329264a828"
+	DefaultScope        = "openid profile email offline_access grok-cli:access api:access"
+	DefaultRedirectURI  = "http://127.0.0.1:56121/callback"
+	SessionTTL          = 30 * time.Minute
 
-	// oauthHost is the trusted host suffix for OAuth endpoints (SSRF guard).
-	oauthHost = "x.ai"
+	EnvAuthorizeURL               = "XAI_OAUTH_AUTHORIZE_URL"
+	EnvTokenURL                   = "XAI_OAUTH_TOKEN_URL"
+	EnvClientID                   = "XAI_OAUTH_CLIENT_ID"
+	EnvScope                      = "XAI_OAUTH_SCOPE"
+	EnvRedirectURI                = "XAI_OAUTH_REDIRECT_URI"
+	EnvBaseURL                    = "XAI_BASE_URL"
+	EnvAllowUnsafeURLOverrides    = "XAI_ALLOW_UNSAFE_URL_OVERRIDES"
+	EnvUnsafeAllowHighConcurrency = "XAI_GROK_UNSAFE_ALLOW_CONCURRENCY_GT_ONE"
 )
 
-// RefreshLead is how long before access-token expiry a refresh should fire.
-const RefreshLead = 5 * time.Minute
+var (
+	oauthEndpointAllowedHosts = []string{"x.ai", "*.x.ai"}
+	baseURLAllowedHosts       = []string{"api.x.ai", "cli-chat-proxy.grok.com"}
+)
 
-// TokenResult is the outcome of a refresh.
-type TokenResult struct {
-	AccessToken  string
-	RefreshToken string // may be empty: when xAI omits rotation, caller keeps the old token
-	ExpiresIn    int    // seconds
-	// TokenEndpoint is the endpoint actually used; callers may cache it on the
-	// account credentials to avoid re-running discovery on every refresh.
-	TokenEndpoint string
+// OAuthSession stores one PKCE OAuth flow.
+type OAuthSession struct {
+	State         string    `json:"state"`
+	CodeVerifier  string    `json:"code_verifier"`
+	CodeChallenge string    `json:"code_challenge"`
+	ClientID      string    `json:"client_id,omitempty"`
+	Scope         string    `json:"scope,omitempty"`
+	ProxyURL      string    `json:"proxy_url,omitempty"`
+	RedirectURI   string    `json:"redirect_uri"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
-func httpClient(proxyURL string) *http.Client {
-	tr := &http.Transport{Proxy: http.ProxyFromEnvironment}
-	if p := strings.TrimSpace(proxyURL); p != "" {
-		if u, err := url.Parse(p); err == nil {
-			tr.Proxy = http.ProxyURL(u)
+// SessionStore manages xAI OAuth sessions in memory.
+type SessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]*OAuthSession
+	stopOnce sync.Once
+	stopCh   chan struct{}
+}
+
+func NewSessionStore() *SessionStore {
+	store := &SessionStore{
+		sessions: make(map[string]*OAuthSession),
+		stopCh:   make(chan struct{}),
+	}
+	go store.cleanup()
+	return store
+}
+
+func (s *SessionStore) Set(sessionID string, session *OAuthSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[sessionID] = session
+}
+
+func (s *SessionStore) Get(sessionID string) (*OAuthSession, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(session.CreatedAt) > SessionTTL {
+		return nil, false
+	}
+	return session, true
+}
+
+func (s *SessionStore) Delete(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, sessionID)
+}
+
+func (s *SessionStore) Stop() {
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+	})
+}
+
+func (s *SessionStore) cleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			for id, session := range s.sessions {
+				if time.Since(session.CreatedAt) > SessionTTL {
+					delete(s.sessions, id)
+				}
+			}
+			s.mu.Unlock()
 		}
 	}
-	return &http.Client{Timeout: 30 * time.Second, Transport: tr}
 }
 
-// validateEndpoint rejects an OAuth endpoint that is not https on an x.ai host,
-// guarding against a poisoned discovery document redirecting token POSTs.
-func validateEndpoint(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return "", fmt.Errorf("xai oauth: invalid endpoint %q", raw)
-	}
-	host := u.Hostname()
-	if host != oauthHost && !strings.HasSuffix(host, "."+oauthHost) {
-		return "", fmt.Errorf("xai oauth: endpoint host %q not under %s", host, oauthHost)
-	}
-	return raw, nil
+func EffectiveAuthorizeURL() string {
+	return envOrDefault(EnvAuthorizeURL, DefaultAuthorizeURL)
 }
 
-// Discover resolves the token_endpoint from xAI OIDC discovery.
-func Discover(ctx context.Context, proxyURL string) (tokenEndpoint string, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, DiscoveryURL, nil)
+func ValidatedAuthorizeURL() (string, error) {
+	return ValidateOAuthEndpointURL(EffectiveAuthorizeURL())
+}
+
+func EffectiveTokenURL() string {
+	return envOrDefault(EnvTokenURL, DefaultTokenURL)
+}
+
+func ValidatedTokenURL() (string, error) {
+	return ValidateOAuthEndpointURL(EffectiveTokenURL())
+}
+
+func EffectiveClientID() string {
+	return envOrDefault(EnvClientID, DefaultClientID)
+}
+
+func EffectiveScope() string {
+	return envOrDefault(EnvScope, DefaultScope)
+}
+
+func EffectiveRedirectURI(override string) string {
+	if trimmed := strings.TrimSpace(override); trimmed != "" {
+		return trimmed
+	}
+	return envOrDefault(EnvRedirectURI, DefaultRedirectURI)
+}
+
+func EffectiveBaseURL(override string) string {
+	if trimmed := strings.TrimSpace(override); trimmed != "" {
+		return strings.TrimRight(trimmed, "/")
+	}
+	return strings.TrimRight(envOrDefault(EnvBaseURL, DefaultBaseURL), "/")
+}
+
+func ValidatedBaseURL(override string) (string, error) {
+	return ValidateBaseURL(EffectiveBaseURL(override))
+}
+
+type RuntimeSanityCheck struct {
+	Value     string `json:"value"`
+	Valid     bool   `json:"valid"`
+	Error     string `json:"error,omitempty"`
+	IsDefault bool   `json:"is_default,omitempty"`
+}
+
+type RuntimeSanityReport struct {
+	BaseURL               RuntimeSanityCheck `json:"base_url"`
+	OAuthAuthorizeURL     RuntimeSanityCheck `json:"oauth_authorize_url"`
+	OAuthTokenURL         RuntimeSanityCheck `json:"oauth_token_url"`
+	OAuthRedirectURI      RuntimeSanityCheck `json:"oauth_redirect_uri"`
+	UnsafeURLOverrides    bool               `json:"unsafe_url_overrides"`
+	UnsafeHighConcurrency bool               `json:"unsafe_high_concurrency"`
+	PublicGatewayScope    string             `json:"public_gateway_scope"`
+	ProxyPolicy           string             `json:"proxy_policy"`
+}
+
+func RuntimeSanity() RuntimeSanityReport {
+	return RuntimeSanityReport{
+		BaseURL:               runtimeSanityCheck(EffectiveBaseURL(""), EnvBaseURL, ValidatedBaseURL),
+		OAuthAuthorizeURL:     runtimeSanityCheck(EffectiveAuthorizeURL(), EnvAuthorizeURL, func(string) (string, error) { return ValidatedAuthorizeURL() }),
+		OAuthTokenURL:         runtimeSanityCheck(EffectiveTokenURL(), EnvTokenURL, func(string) (string, error) { return ValidatedTokenURL() }),
+		OAuthRedirectURI:      runtimeSanityCheck(EffectiveRedirectURI(""), EnvRedirectURI, validateRedirectURI),
+		UnsafeURLOverrides:    AllowUnsafeURLOverrides(),
+		UnsafeHighConcurrency: AllowUnsafeHighConcurrency(),
+		PublicGatewayScope:    "responses_only",
+		ProxyPolicy:           "account_proxy_optional; upstream URL allowlists enforced unless unsafe overrides are enabled",
+	}
+}
+
+func runtimeSanityCheck(value string, envKey string, validate func(string) (string, error)) RuntimeSanityCheck {
+	normalized, err := validate(value)
+	check := RuntimeSanityCheck{
+		Value:     sanitizeRuntimeURLValue(normalized),
+		Valid:     err == nil,
+		IsDefault: strings.TrimSpace(os.Getenv(envKey)) == "",
+	}
 	if err != nil {
-		return "", fmt.Errorf("xai oauth discovery: build request: %w", err)
+		check.Value = sanitizeRuntimeURLValue(value)
+		check.Error = sanitizeRuntimeError(err.Error(), value)
 	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := httpClient(proxyURL).Do(req)
-	if err != nil {
-		return "", fmt.Errorf("xai oauth discovery: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("xai oauth discovery: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	var payload struct {
-		TokenEndpoint string `json:"token_endpoint"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", fmt.Errorf("xai oauth discovery: decode: %w", err)
-	}
-	return validateEndpoint(payload.TokenEndpoint)
+	return check
 }
 
-// RefreshToken exchanges a refresh_token for a fresh access token. When
-// tokenEndpoint is empty it is resolved via Discover first. A non-2xx response
-// (including invalid_grant / 403 entitlement gating) is returned as an error
-// whose text includes the upstream body, so the service layer can classify
-// rolling-revocation and the Heavy-only entitlement gate.
-func RefreshToken(ctx context.Context, refreshToken, tokenEndpoint, proxyURL string) (*TokenResult, error) {
-	refreshToken = strings.TrimSpace(refreshToken)
-	if refreshToken == "" {
-		return nil, fmt.Errorf("xai oauth refresh: refresh_token is required")
+func validateRedirectURI(raw string) (string, error) {
+	return urlvalidator.ValidateURLFormat(raw, true)
+}
+
+func sanitizeRuntimeURLValue(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return trimmed
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/")
+}
+
+func sanitizeRuntimeError(rawErr string, rawValue string) string {
+	redacted := logredact.RedactText(rawErr)
+	trimmedValue := strings.TrimSpace(rawValue)
+	if trimmedValue == "" {
+		return redacted
+	}
+	sanitizedValue := sanitizeRuntimeURLValue(trimmedValue)
+	redacted = strings.ReplaceAll(redacted, trimmedValue, sanitizedValue)
+	redacted = strings.ReplaceAll(redacted, logredact.RedactText(trimmedValue), sanitizedValue)
+	return redacted
+}
+
+func ValidateOAuthEndpointURL(raw string) (string, error) {
+	if AllowUnsafeURLOverrides() {
+		return urlvalidator.ValidateURLFormat(raw, true)
+	}
+	return urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		AllowedHosts:     oauthEndpointAllowedHosts,
+		RequireAllowlist: true,
+		AllowPrivate:     false,
+	})
+}
+
+func ValidateBaseURL(raw string) (string, error) {
+	if AllowUnsafeURLOverrides() {
+		return urlvalidator.ValidateURLFormat(raw, true)
+	}
+	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
+		AllowedHosts:     baseURLAllowedHosts,
+		RequireAllowlist: true,
+		AllowPrivate:     false,
+	})
+	if err != nil {
+		return "", err
+	}
+	return normalizeKnownBaseURLPath(normalized)
+}
+
+func normalizeKnownBaseURLPath(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid url: %s", raw)
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	if path == "" {
+		parsed.Path = "/v1"
+		parsed.RawPath = ""
+		return strings.TrimRight(parsed.String(), "/"), nil
+	}
+	if path != "/v1" {
+		return "", fmt.Errorf("base URL path must be /v1")
+	}
+	parsed.Path = path
+	parsed.RawPath = ""
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func AllowUnsafeURLOverrides() bool {
+	return envBool(EnvAllowUnsafeURLOverrides)
+}
+
+func AllowUnsafeHighConcurrency() bool {
+	return envBool(EnvUnsafeAllowHighConcurrency)
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func GenerateRandomBytes(n int) ([]byte, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func GenerateState() (string, error) {
+	bytes, err := GenerateRandomBytes(32)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func GenerateNonce() (string, error) {
+	bytes, err := GenerateRandomBytes(16)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func GenerateSessionID() (string, error) {
+	bytes, err := GenerateRandomBytes(16)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func GenerateCodeVerifier() (string, error) {
+	bytes, err := GenerateRandomBytes(32)
+	if err != nil {
+		return "", err
+	}
+	return base64URLEncode(bytes), nil
+}
+
+func GenerateCodeChallenge(verifier string) string {
+	hash := sha256.Sum256([]byte(verifier))
+	return base64URLEncode(hash[:])
+}
+
+func base64URLEncode(data []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(data), "=")
+}
+
+func BuildAuthorizationURL(state, codeChallenge, redirectURI, nonce string) (string, error) {
+	redirectURI = EffectiveRedirectURI(redirectURI)
+	authorizeURL, err := ValidatedAuthorizeURL()
+	if err != nil {
+		return "", fmt.Errorf("invalid authorize url: %w", err)
 	}
 
-	endpoint := strings.TrimSpace(tokenEndpoint)
-	if endpoint == "" {
-		discovered, err := Discover(ctx, proxyURL)
-		if err != nil {
-			return nil, err
+	params := url.Values{}
+	params.Set("response_type", "code")
+	params.Set("client_id", EffectiveClientID())
+	params.Set("redirect_uri", redirectURI)
+	params.Set("scope", EffectiveScope())
+	params.Set("state", state)
+	params.Set("nonce", nonce)
+	params.Set("code_challenge", codeChallenge)
+	params.Set("code_challenge_method", "S256")
+	params.Set("plan", "generic")
+	params.Set("referrer", "sub2api")
+
+	return fmt.Sprintf("%s?%s", authorizeURL, params.Encode()), nil
+}
+
+// AuthorizationInput is a parsed manual OAuth callback input.
+type AuthorizationInput struct {
+	Code          string
+	State         string
+	RequiresState bool
+}
+
+// ParseAuthorizationInput accepts a full callback URL, query string, or bare code.
+func ParseAuthorizationInput(raw string) AuthorizationInput {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return AuthorizationInput{}
+	}
+
+	if parsed, err := url.Parse(trimmed); err == nil && parsed != nil {
+		values := parsed.Query()
+		if code := strings.TrimSpace(values.Get("code")); code != "" {
+			return AuthorizationInput{
+				Code:          code,
+				State:         strings.TrimSpace(values.Get("state")),
+				RequiresState: true,
+			}
 		}
-		endpoint = discovered
-	} else {
-		validated, err := validateEndpoint(endpoint)
-		if err != nil {
-			return nil, err
+	}
+
+	queryCandidate := strings.TrimPrefix(trimmed, "?")
+	if strings.Contains(queryCandidate, "=") {
+		if values, err := url.ParseQuery(queryCandidate); err == nil {
+			if code := strings.TrimSpace(values.Get("code")); code != "" {
+				return AuthorizationInput{
+					Code:          code,
+					State:         strings.TrimSpace(values.Get("state")),
+					RequiresState: true,
+				}
+			}
 		}
-		endpoint = validated
 	}
 
-	form := url.Values{
-		"grant_type":    {"refresh_token"},
-		"client_id":     {ClientID},
-		"refresh_token": {refreshToken},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	return AuthorizationInput{Code: trimmed}
+}
+
+func BuildResponsesURL(baseURL string) (string, error) {
+	validatedBaseURL, err := ValidatedBaseURL(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("xai oauth refresh: build request: %w", err)
+		return "", fmt.Errorf("invalid base url: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
+	return validatedBaseURL + "/responses", nil
+}
 
-	resp, err := httpClient(proxyURL).Do(req)
+func BuildChatCompletionsURL(baseURL string) (string, error) {
+	validatedBaseURL, err := ValidatedBaseURL(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("xai oauth refresh: %w", err)
+		return "", fmt.Errorf("invalid base url: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Preserve the upstream body verbatim: invalid_grant (dead grant ->
-		// re-auth, never loop) and 403 (Heavy-only entitlement gate) are
-		// classified downstream by their text.
-		return nil, fmt.Errorf("xai oauth refresh: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
+	return validatedBaseURL + "/chat/completions", nil
+}
 
-	var payload struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("xai oauth refresh: decode: %w", err)
-	}
-	if strings.TrimSpace(payload.AccessToken) == "" {
-		return nil, fmt.Errorf("xai oauth refresh: empty access_token in response")
-	}
-	return &TokenResult{
-		AccessToken:   strings.TrimSpace(payload.AccessToken),
-		RefreshToken:  strings.TrimSpace(payload.RefreshToken),
-		ExpiresIn:     payload.ExpiresIn,
-		TokenEndpoint: endpoint,
-	}, nil
+// TokenResponse represents xAI OAuth token responses.
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
+	TokenType    string `json:"token_type,omitempty"`
+	ExpiresIn    int64  `json:"expires_in,omitempty"`
+	Scope        string `json:"scope,omitempty"`
 }
