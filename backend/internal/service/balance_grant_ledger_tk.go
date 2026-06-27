@@ -35,12 +35,6 @@ const (
 	BalanceGrantNoteOAuthFirstBind = "OAuth首次绑定默认余额"
 )
 
-// writeBalanceGrantLedger records a signed balance delta as a used admin_balance
-// redeem_code so it appears in the balance-history panel and the 总充值 aggregate.
-// client MUST be the transaction client of the same tx that mutates the balance,
-// so the journal row and the balance change are atomic. notes carries the source
-// tag (see the BalanceGrantNote* constants) or, for admin recharges, the
-// operator-supplied reason.
 // bestEffortBalanceGrantLedger records a balance grant via the redeem-code repository
 // without a transaction. Used only when no ent client is wired (unit tests); production
 // paths use writeBalanceGrantLedger inside the same tx as the balance mutation.
@@ -68,6 +62,12 @@ func bestEffortBalanceGrantLedger(ctx context.Context, redeemCodeRepo RedeemCode
 	}
 }
 
+// writeBalanceGrantLedger records a signed balance delta as a used admin_balance
+// redeem_code so it appears in the balance-history panel and the 总充值 aggregate.
+// client MUST be the transaction client of the same tx that mutates the balance,
+// so the journal row and the balance change are atomic. notes carries the source
+// tag (see the BalanceGrantNote* constants) or, for admin recharges, the
+// operator-supplied reason.
 func writeBalanceGrantLedger(ctx context.Context, client *dbent.Client, userID int64, amount float64, notes string) error {
 	code, err := GenerateRedeemCode()
 	if err != nil {
