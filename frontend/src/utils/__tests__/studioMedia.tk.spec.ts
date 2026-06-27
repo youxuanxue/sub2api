@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { videoPlaybackUrl } from '../studioMedia.tk'
+import { videoPlaybackUrl, videoTaskPlaybackAvailable } from '../studioMedia.tk'
 
 // jsdom does not implement URL.createObjectURL / revokeObjectURL, so we define them
 // per-test and restore after. (videoPlaybackUrl falls back to the original src when
@@ -8,6 +8,28 @@ const urlStatic = URL as unknown as {
   createObjectURL?: (b: Blob) => string
   revokeObjectURL?: (u: string) => void
 }
+
+describe('videoTaskPlaybackAvailable', () => {
+  it('is false for succeeded tasks whose upstream link was stripped on reload', () => {
+    expect(
+      videoTaskPlaybackAvailable({
+        state: 'succeeded',
+        url: '',
+        urlExpired: true,
+      })
+    ).toBe(false)
+  })
+
+  it('is true for succeeded tasks with a live in-tab url', () => {
+    expect(
+      videoTaskPlaybackAvailable({
+        state: 'succeeded',
+        url: 'https://cdn.example/fresh.mp4',
+        urlExpired: false,
+      })
+    ).toBe(true)
+  })
+})
 
 describe('videoPlaybackUrl', () => {
   afterEach(() => {

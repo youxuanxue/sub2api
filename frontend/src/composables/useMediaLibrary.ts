@@ -56,6 +56,8 @@ export interface VideoTaskItem {
   keyId: number
   state: VideoTaskState
   url: string
+  /** Set when an upstream http(s) link expired or was stripped on reload — card shows prompt only. */
+  urlExpired?: boolean
   submittedAtMs: number
   elapsedS: number
   errorMessage?: string
@@ -91,8 +93,18 @@ function loadPersisted(key: string): PersistShape {
 }
 
 function sanitizeVideoTaskForPersistence(task: VideoTaskItem): VideoTaskItem {
-  if (!/^data:video/i.test(task.url) && !task.url.startsWith('blob:')) return task
-  return { ...task, url: '' }
+  if (task.urlExpired && task.url) {
+    return { ...task, url: '' }
+  }
+  if (/^data:video/i.test(task.url) || task.url.startsWith('blob:')) {
+    return { ...task, url: '' }
+  }
+  // Upstream presigned http(s) links are short-lived (#944 — TokenKey is not a media CDN).
+  // Persist prompt/history only so a reload never offers a stale play tile.
+  if (/^https?:\/\//i.test(task.url)) {
+    return { ...task, url: '', urlExpired: true }
+  }
+  return task
 }
 
 function sanitizeVideoTasksForPersistence(tasks: VideoTaskItem[]): VideoTaskItem[] {

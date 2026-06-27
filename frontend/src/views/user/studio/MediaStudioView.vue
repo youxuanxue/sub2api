@@ -95,8 +95,16 @@
         <p v-if="modelsLoading" class="text-xs text-gray-400 dark:text-dark-500">{{ t('studio.loadingModels') }}</p>
       </div>
 
+      <div
+        v-if="!loadError && !probed"
+        class="flex min-h-[420px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-400"
+        data-testid="studio-bootstrap-loading"
+      >
+        {{ t('studio.loadingModels') }}
+      </div>
+
       <ChatStudio
-        v-if="userReady && !loadError && probed && view === 'chat'"
+        v-if="!loadError && probed && view === 'chat'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
@@ -344,12 +352,12 @@ async function bootstrap(): Promise<void> {
     await probeAllGroups()
     if (loadError.value) return
     // Seed with the historical default, then let the picker move to a key whose
-    // group actually serves the landing modality (view is 'image' at mount).
-    selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value ?? 'image', seed)
-    // Load the first key's live prices before mounting, so the model cards never
-    // flash an empty "no models" state while the catalog is in flight.
-    if (selectedKeyId.value != null) await loadPriceMap(selectedKeyId.value)
+    // group actually serves the landing modality (defaults to chat at mount).
+    selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value ?? 'chat', seed)
+    // Mount studios as soon as /v1/models is probed. Price catalog is only needed
+    // for image/video/bake-off; awaiting it blocked Chat on slow catalog fetches.
     probed.value = true
+    if (selectedKeyId.value != null) void loadPriceMap(selectedKeyId.value)
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')
   }

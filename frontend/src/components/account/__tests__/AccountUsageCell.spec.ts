@@ -435,6 +435,56 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|12|2099-03-07T12:00:00Z')
   })
 
+  it('OpenAI 列表 batch override 从 null 更新为数据时会渲染 5h/7d 窗口', async () => {
+    const passiveUsage = {
+      source: 'passive',
+      five_hour: {
+        utilization: 42,
+        resets_at: '2099-03-07T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: {
+          requests: 3,
+          tokens: 300,
+          cost: 0.03,
+          standard_cost: 0.03,
+          user_cost: 0.03
+        }
+      },
+      seven_day: null
+    }
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2014,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {}
+        }),
+        usageOverride: null,
+        manualRefreshToken: 0
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('-')
+    expect(getUsage).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ usageOverride: passiveUsage })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('5h|42|300')
+    expect(getUsage).not.toHaveBeenCalled()
+  })
+
   it('Grok 平台复用 5h/7d usage 窗口展示本地统计', async () => {
     getUsage.mockResolvedValue({
       source: 'passive',
