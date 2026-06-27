@@ -86,6 +86,17 @@ python3 ops/pricing/refresh-servable-allowlist.py probe --skip-proven-by-traffic
 - `usage_logs` 一行 = 一次**计费**请求（不耗 token 的错误不落行）；查询再要求真实产出（token/图/视频）
   排除 `$0` 占位行，确保不把空请求当 servable 证据。
 
+### 视频族跳过（`--skip-video`，省真实付费任务、默认关）
+
+video 族（`gemini_video` → veo）的一次 submit = **一条真实付费生成任务**（不像 chat 16 token、image ~1 张那样廉价）。日常刷 catalog/menu 通常只想确认 chat/image，没必要每次为 veo 烧钱。`--skip-video`（或 env `REFRESH_SKIP_VIDEO=1`）从 `run`/`probe` 的探测族里剔除所有 `*_video`：
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --skip-video
+python3 ops/pricing/refresh-servable-allowlist.py probe --skip-video | tee /tmp/servable.tsv
+```
+
+**正确性契约（关键，别破）**：splice 是**整平台块替换**——若只探 chat/image 而 video 族缺席，gemini 块会被重写成「chat+image」从而**丢掉已 servable 的 veo**。所以 `--skip-video` 不只是「不探 video」，还会把**当前 allowlist 里的 video 条目原样 carry-forward**（以 `平台\t模型\t000\tservable` 合成行回灌探测结果），`run`（parse_results）与 `probe`→`apply` 两条路都保住 veo。`live_probe` 用 `_probe_family_for` 判定 video 族，与正常探测同一分类器；`carried_forward_rows` 的 selftest + preflight `servable-allowlist generator selftest` 守住。只有真要刷 veo 可服务性 / 上架新 veo 时才省略本 flag（接受 submit 付费）。ark video 是另一条手动路径（见下「Volcengine / ark 三族」），本 flag 不管它——别给 ark probe 设 `ARK_VIDEO_MODELS` 即可。
+
 ## Gemini / Vertex 三族（newapi 第五平台，探测目标 prod）
 
 gpt 经 prod 探测；claude **直探 edge 原生 OAuth 池**（见下文判断要点）；**gemini/Vertex 也经 prod 的 `google-vertex` 组探测**（live Vertex 账号
@@ -101,11 +112,18 @@ edge native 平台如 **grok** 仍保留内网 wget。「对客 prod→edge rela
 
 - **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
   种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
+  > **实测（2026-06-27）**：live Vertex 账号 47/57/58/59 的 `model_pricing_status` 当前**为空**，
+  > `credentials` 只有 `{api_key, base_url, model_mapping}`；其 `model_mapping` 是**受限 7 键**
+  > （gemini-2.5-{pro,flash,flash-lite} + imagen-4.0×3 + veo-3.1-generate-001），与当前 Go gemini
+  > allowlist 完全一致、且全部已定价（litellm 镜像 + overlay）。故 model_pricing_status 为空时，
+  > **退回用 `model_mapping` keys 作 discovered**（即受限服务集本身）；想**扩**到 gemini-3 等需先改
+  > Vertex 账号 mapping（prod 写 + 上面的 catch-all 安全闸），不在只读刷新范围内。
   ```bash
-  # 先从 prod 某 Vertex 账号（google-vertex 组，如 id 47/57）拉发现清单（只读），存成 JSON 再喂给候选
-  # （model_pricing_status 是对象，键即模型名；工具取其 keys）
+  # model_pricing_status 为空时，用 model_mapping keys 作 discovered（只读，键即服务模型名）：
+  #   SELECT DISTINCT k FROM accounts a, jsonb_object_keys(a.credentials::jsonb->'model_mapping') k
+  #   WHERE a.id IN (47,57,58,59) AND jsonb_typeof(a.credentials::jsonb->'model_mapping')='object';
   python3 ops/pricing/refresh-servable-allowlist.py candidates --discovered /tmp/mps.json
-  python3 ops/pricing/refresh-servable-allowlist.py run --discovered /tmp/mps.json   # 探测+重写
+  python3 ops/pricing/refresh-servable-allowlist.py run --skip-video --discovered /tmp/mps.json   # 探测+重写（veo 跳过）
   ```
 - **范围 = 仅核心生成族**（chat/image/video）。`GEMINI_EXCLUDE_RE` 排除 gemma/lyria/deep-research/
   robotics/antigravity/computer-use/tts —— 避免清空 mapping 后这些未定价冷门模型被静默 $0 服务。
