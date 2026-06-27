@@ -23,6 +23,7 @@ func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
+// IsGrokAPIKey reports whether the account is a Grok account using API key credentials.
 func (a *Account) IsGrokAPIKey() bool {
 	return a.IsGrok() && a.Type == AccountTypeAPIKey
 }
@@ -33,7 +34,7 @@ func (a *Account) GetGrokBaseURL() string {
 	if base := strings.TrimSpace(a.GetCredential("base_url")); base != "" {
 		return strings.TrimRight(base, "/")
 	}
-	return xai.DefaultAPIBaseURL
+	return xai.DefaultBaseURL
 }
 
 // ---- Typed credential getters (Grok) ----

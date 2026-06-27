@@ -47,10 +47,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
 	schedulerSnapshotSvc := service.NewSchedulerSnapshotService(nil, nil, nil, nil, cfg)
-	// TK fix for upstream Wei-Shaw/sub2api#2538: nil repo makes Start() a no-op
-	// so this test does not spin a goroutine even though provideCleanup wires
-	// the Stop() call.
-	schedulerRateLimitReaperSvc := service.NewSchedulerRateLimitReaper(nil, cfg)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
 
 	cleanup := provideCleanup(
@@ -63,41 +59,28 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		&service.OpsScheduledReportService{},
 		opsSystemLogSinkSvc,
 		schedulerSnapshotSvc,
-		schedulerRateLimitReaperSvc,
-		nil, // anthropicConfigReconciler
-		nil, // antigravityConfigReconciler
-		nil, // upstreamBalanceSentinel
 		tokenRefreshSvc,
 		accountExpirySvc,
 		proxyExpirySvc,
 		subscriptionExpirySvc,
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
-		nil, // holdReconciler
 		pricingSvc,
 		emailQueueSvc,
 		billingCacheSvc,
 		&service.UsageRecordWorkerPool{},
-		nil, // qaCapture
 		&service.SubscriptionService{},
 		oauthSvc,
 		openAIOAuthSvc,
 		geminiOAuthSvc,
 		antigravityOAuthSvc,
-		nil,                                   // openAIGateway
-		nil,                                   // scheduledTestRunner
-		nil,                                   // backupSvc
-		nil,                                   // paymentOrderExpiry
-		nil,                                   // channelMonitorRunner
-		nil,                                   // accountIncidentNotifier
-		nil,                                   // pricingMissingNotifier
-		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
-		service.TKGatewayPricingAvailabilityReady{}, // TK: forces SetPricingAvailabilityService wiring
-		service.TKPricingOverlayRuntimeReady{},      // TK: forces runtime overlay (settings hot-push) wiring
-		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
-		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
-		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
-		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
+		nil, // grokOAuth
+		nil, // openAIGateway
+		nil, // scheduledTestRunner
+		nil, // backupSvc
+		nil, // paymentOrderExpiry
+		nil, // channelMonitorRunner
+		nil, // quotaFlusher
 	)
 
 	require.NotPanics(t, func() {

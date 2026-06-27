@@ -17,6 +17,7 @@ import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 
+
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
 const activeCell = computed(() => {
@@ -24,6 +25,7 @@ const activeCell = computed(() => {
 
   if (!showUsageWindowsForAccount(account)) {
     return PlainUsageCell
+
   }
 
   if (
@@ -54,4 +56,5 @@ const activeCell = computed(() => {
 
   return null
 })
+
 </script>

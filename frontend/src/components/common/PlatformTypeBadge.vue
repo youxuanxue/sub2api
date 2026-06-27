@@ -130,6 +130,8 @@ const platformClass = computed(() => {
       return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
     case 'newapi':
       return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400'
+    case 'grok':
+      return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
     default:
       return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
   }
@@ -147,6 +149,8 @@ const typeClass = computed(() => {
       return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
     case 'newapi':
       return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400'
+    case 'grok':
+      return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
     default:
       return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
   }

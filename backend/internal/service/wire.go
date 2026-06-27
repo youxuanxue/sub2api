@@ -65,6 +65,7 @@ func ProvideTokenRefreshService(
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
 	antigravityOAuthService *AntigravityOAuthService,
+	grokOAuthService *GrokOAuthService,
 	cacheInvalidator TokenCacheInvalidator,
 	schedulerCache SchedulerCache,
 	cfg *config.Config,
@@ -74,7 +75,7 @@ func ProvideTokenRefreshService(
 	refreshAPI *OAuthRefreshAPI,
 	runtimeBlocker AccountRuntimeBlocker,
 ) *TokenRefreshService {
-	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache)
+	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache, grokOAuthService)
 	// 注入 OpenAI privacy opt-out 依赖
 	svc.SetPrivacyDeps(privacyClientFactory, proxyRepo)
 	// 注入统一 OAuth 刷新 API（消除 TokenRefreshService 与 TokenProvider 之间的竞争条件）
@@ -126,6 +127,15 @@ func ProvideOpenAIQuotaService(
 	return NewOpenAIQuotaService(accountRepo, proxyRepo, tokenProvider, privacyClientFactory)
 }
 
+func ProvideGrokQuotaService(
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	tokenProvider *GrokTokenProvider,
+	httpUpstream HTTPUpstream,
+) *GrokQuotaService {
+	return NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream)
+}
+
 // ProvideGeminiTokenProvider creates GeminiTokenProvider with OAuthRefreshAPI injection
 func ProvideGeminiTokenProvider(
 	accountRepo AccountRepository,
@@ -154,6 +164,56 @@ func ProvideAntigravityTokenProvider(
 	p.SetRefreshPolicy(AntigravityProviderRefreshPolicy())
 	p.SetTempUnschedCache(tempUnschedCache)
 	return p
+}
+
+// ProvideGrokTokenProvider creates GrokTokenProvider with OAuthRefreshAPI injection.
+func ProvideGrokTokenProvider(
+	accountRepo AccountRepository,
+	tokenCache GeminiTokenCache,
+	grokOAuthService *GrokOAuthService,
+	refreshAPI *OAuthRefreshAPI,
+	tempUnschedCache TempUnschedCache,
+) *GrokTokenProvider {
+	p := NewGrokTokenProvider(accountRepo, tokenCache)
+	executor := NewGrokTokenRefresher(grokOAuthService)
+	p.SetRefreshAPI(refreshAPI, executor)
+	p.SetRefreshPolicy(AntigravityProviderRefreshPolicy())
+	p.SetTempUnschedCache(tempUnschedCache)
+	return p
+}
+
+// ProvideAdminService wraps NewAdminService and injects TK-only dependencies
+// (GrokOAuthService) that cannot be added to the upstream-shaped constructor
+// without revert-risk. Wire uses this instead of NewAdminService directly.
+func ProvideAdminService(
+	userRepo UserRepository,
+	groupRepo GroupRepository,
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	apiKeyRepo APIKeyRepository,
+	redeemCodeRepo RedeemCodeRepository,
+	userGroupRateRepo UserGroupRateRepository,
+	userRPMCache UserRPMCache,
+	billingCacheService *BillingCacheService,
+	proxyProber ProxyExitInfoProber,
+	proxyLatencyCache ProxyLatencyCache,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	entClient *dbent.Client,
+	settingService *SettingService,
+	defaultSubAssigner DefaultSubscriptionAssigner,
+	userSubRepo UserSubscriptionRepository,
+	privacyClientFactory PrivacyClientFactory,
+	runtimeBlocker AccountRuntimeBlocker,
+	availability *PricingAvailabilityService,
+	grokOAuthService *GrokOAuthService,
+) AdminService {
+	svc := NewAdminService(userRepo, groupRepo, accountRepo, proxyRepo, apiKeyRepo,
+		redeemCodeRepo, userGroupRateRepo, userRPMCache, billingCacheService,
+		proxyProber, proxyLatencyCache, authCacheInvalidator, entClient,
+		settingService, defaultSubAssigner, userSubRepo, privacyClientFactory,
+		runtimeBlocker, availability)
+	TkInjectGrokOAuthService(svc, grokOAuthService)
+	return svc
 }
 
 // ProvideDashboardAggregationService 创建并启动仪表盘聚合服务
@@ -548,6 +608,12 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	if err := svc.LoadAPIKeyACLTrustForwardedIPSetting(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load api key acl forwarded ip setting failed: %v", err)
 	}
+	if err := svc.MigrateOpenAIAllowClaudeCodeCodexPluginSetting(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: migrate openai allow Claude Code Codex plugin setting failed: %v", err)
+	}
+	if err := svc.MigrateCodexBodyFingerprintToSignals(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: migrate codex body fingerprint to signals failed: %v", err)
+	}
 	// TK: fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
 	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
 	svc.EnableSettingsPubSub(context.Background(), pubsub)
@@ -608,13 +674,14 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
-	NewAdminService,
+	ProvideAdminService,
 	NewGatewayService,
 	NewKiroGatewayService,
 	NewOpenAIGatewayService,
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
+	NewGrokOAuthService,
 	NewGeminiOAuthService,
 	NewGeminiQuotaService,
 	NewCompositeTokenCacheInvalidator,
@@ -624,8 +691,10 @@ var ProviderSet = wire.NewSet(
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
 	ProvideAntigravityTokenProvider,
+	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
+	ProvideGrokQuotaService,
 	ProvideClaudeTokenProvider,
 	NewAntigravityGatewayService,
 	ProvideRateLimitService,
@@ -671,6 +740,7 @@ var ProviderSet = wire.NewSet(
 	ProvideUsageCleanupService,
 	ProvideDeferredService,
 	NewAntigravityQuotaFetcher,
+	NewGrokQuotaFetcher,
 	NewUserAttributeService,
 	NewUsageCache,
 	NewTotpService,
@@ -742,6 +812,10 @@ var ProviderSet = wire.NewSet(
 	// post-construction. Returns the instance so provideCleanup
 	// (cmd/server/wire.go) can Stop() the ticker at shutdown.
 	ProvideTKPricingMissingNotifier,
+	// TokenKey: wires GrokOAuthService onto AdminService post-construction so
+	// grok OAuth accounts are validated at create/update time. Consumed by
+	// provideCleanup (cmd/server/wire.go) so wire forces evaluation.
+	ProvideTKAdminServiceGrok,
 )
 
 // TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
@@ -1072,4 +1146,21 @@ func ProvideTKPricingMissingNotifier(
 		geminiCompat.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
 	}
 	return n
+}
+
+// TKAdminServiceGrokReady is a wire sentinel: holding it proves that
+// TkInjectGrokOAuthService has been called on AdminService. provideCleanup
+// (cmd/server/wire.go) consumes it so wire forces evaluation of the side-effect.
+type TKAdminServiceGrokReady struct{}
+
+// ProvideTKAdminServiceGrok injects GrokOAuthService into AdminService
+// post-construction. AdminService uses it for validate-on-save when a grok
+// OAuth account is created or updated with a new refresh_token. The side-effect
+// is nil-safe; if either arg is nil the setter is a no-op.
+func ProvideTKAdminServiceGrok(
+	svc AdminService,
+	grokOAuth *GrokOAuthService,
+) TKAdminServiceGrokReady {
+	TkInjectGrokOAuthService(svc, grokOAuth)
+	return TKAdminServiceGrokReady{}
 }

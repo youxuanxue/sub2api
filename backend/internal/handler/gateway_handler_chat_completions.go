@@ -171,14 +171,15 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				// TK: an unservable model NAME (e.g. "gpt"/"opus" to an anthropic group)
-				// surfaces service.ErrUnsupportedModel → 400 invalid_request_error, not an
-				// empty-pool 429 retry signal that SDKs retry-storm (no_available_accounts_tk.go).
-				// Converges this anthropic-platform compat entry point with OpenAIGateway and the
-				// native /v1/messages path; empty-pool stays 429 (#575 parity), real faults 503.
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
-				h.chatCompletionsErrorResponse(c, tkStatus, tkType, tkMsg)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
+				if !cls.ModelNotFound {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				}
+				message := cls.Message
+				if !cls.ModelNotFound {
+					message = "No available accounts: " + err.Error()
+				}
+				h.chatCompletionsErrorResponse(c, cls.Status, cls.ErrType, message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))

@@ -3,12 +3,33 @@ package service
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
+
+// tkAdminServiceGrokOAuth is the setter for the TK-specific Grok OAuth dependency.
+// adminServiceImpl is defined in admin_service.go (upstream-shaped); adding a field
+// to that struct would be a revert-risk edit every upstream merge. Instead we use a
+// TK companion file (this one) with a separate field stored in a package-level map
+// keyed by *adminServiceImpl pointer, avoiding any upstream-file modification while
+// keeping the wiring explicit.
+//
+// In practice Wire resolves all providers before any service method is called, so the
+// store will be populated before the first CreateAccount call that needs it.
+var grokOAuthServiceStore = make(map[*adminServiceImpl]*GrokOAuthService)
+
+// TkInjectGrokOAuthService injects the GrokOAuthService into the AdminService.
+// Called once at Wire initialisation; Wire ensures this runs before any account-save.
+func TkInjectGrokOAuthService(svc AdminService, grokOAuthSvc *GrokOAuthService) {
+	if impl, ok := svc.(*adminServiceImpl); ok && impl != nil {
+		grokOAuthServiceStore[impl] = grokOAuthSvc
+	}
+}
+
+// tkGrokOAuthService retrieves the injected GrokOAuthService for this adminServiceImpl.
+func (s *adminServiceImpl) tkGrokOAuthService() *GrokOAuthService {
+	return grokOAuthServiceStore[s]
+}
 
 // resolveGrokTokenOnSave validates and primes a grok (seventh platform) OAuth
 // account at create time. The operator pastes a refresh_token (minted out-of-band
@@ -26,7 +47,7 @@ import (
 //
 // No-op for non-grok / non-oauth accounts. Mirrors resolveNewAPIMoonshotBaseURLOnSave
 // (a create-time network call that mutates credentials before persistence).
-func resolveGrokTokenOnSave(ctx context.Context, account *Account) error {
+func resolveGrokTokenOnSave(ctx context.Context, account *Account, grokOAuthSvc *GrokOAuthService) error {
 	if account == nil || account.Platform != PlatformGrok || account.Type != AccountTypeOAuth {
 		return nil
 	}
@@ -37,12 +58,11 @@ func resolveGrokTokenOnSave(ctx context.Context, account *Account) error {
 			"(paste the refresh_token obtained from the xAI Grok CLI login)")
 	}
 
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	if grokOAuthSvc == nil {
+		return fmt.Errorf("grok OAuth service unavailable")
 	}
 
-	res, err := xai.RefreshToken(ctx, refreshToken, account.GetGrokTokenEndpoint(), proxyURL)
+	tokenInfo, err := grokOAuthSvc.ValidateRefreshToken(ctx, refreshToken, account.ProxyID)
 	if err != nil {
 		return fmt.Errorf("grok refresh_token validation failed — the token must back a "+
 			"SuperGrok Heavy account (xAI gates OAuth API access to Heavy): %w", err)
@@ -51,18 +71,17 @@ func resolveGrokTokenOnSave(ctx context.Context, account *Account) error {
 	if account.Credentials == nil {
 		account.Credentials = map[string]any{}
 	}
-	account.Credentials["access_token"] = res.AccessToken
-	expiresIn := res.ExpiresIn
-	if expiresIn <= 0 {
-		expiresIn = grokDefaultExpiresIn
+	account.Credentials["access_token"] = tokenInfo.AccessToken
+	if tokenInfo.ExpiresAt > 0 {
+		account.Credentials["expires_at"] = time.Unix(tokenInfo.ExpiresAt, 0).UTC().Format(time.RFC3339)
+	} else {
+		account.Credentials["expires_at"] = time.Now().Add(grokDefaultAccessTokenTTL).UTC().Format(time.RFC3339)
 	}
-	account.Credentials["expires_at"] = strconv.FormatInt(
-		time.Now().Add(time.Duration(expiresIn)*time.Second).Unix(), 10)
-	if res.RefreshToken != "" {
-		account.Credentials["refresh_token"] = res.RefreshToken
+	if tokenInfo.RefreshToken != "" {
+		account.Credentials["refresh_token"] = tokenInfo.RefreshToken
 	}
-	if res.TokenEndpoint != "" {
-		account.Credentials["token_endpoint"] = res.TokenEndpoint
+	if tokenInfo.ClientID != "" {
+		account.Credentials["client_id"] = tokenInfo.ClientID
 	}
 	return nil
 }

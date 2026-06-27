@@ -515,7 +515,7 @@ func (s *SchedulerSnapshotService) rebuildByGroupIDs(ctx context.Context, groupI
 	if len(groupIDs) == 0 {
 		return nil
 	}
-	// Derive from the canonical scheduling-platform list — adding a sixth
+	// Derive from the canonical scheduling-platform list — adding a new
 	// platform must not require touching this call site. See the original
 	// regression context in account_tk_compat_pool.go::AllSchedulingPlatforms.
 	var firstErr error
