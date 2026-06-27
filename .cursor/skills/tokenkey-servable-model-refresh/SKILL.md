@@ -86,12 +86,25 @@ python3 ops/pricing/refresh-servable-allowlist.py probe --skip-proven-by-traffic
 - `usage_logs` 一行 = 一次**计费**请求（不耗 token 的错误不落行）；查询再要求真实产出（token/图/视频）
   排除 `$0` 占位行，确保不把空请求当 servable 证据。
 
+### 视频族跳过（`--skip-video`，省真实付费任务、默认关）
+
+video 族（`gemini_video` → veo）的一次 submit = **一条真实付费生成任务**（不像 chat 16 token、image ~1 张那样廉价）。日常刷 catalog/menu 通常只想确认 chat/image，没必要每次为 veo 烧钱。`--skip-video`（或 env `REFRESH_SKIP_VIDEO=1`）从 `run`/`probe` 的探测族里剔除所有 `*_video`：
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --skip-video
+python3 ops/pricing/refresh-servable-allowlist.py probe --skip-video | tee /tmp/servable.tsv
+```
+
+**正确性契约（关键，别破）**：splice 是**整平台块替换**——若只探 chat/image 而 video 族缺席，gemini 块会被重写成「chat+image」从而**丢掉已 servable 的 veo**。所以 `--skip-video` 不只是「不探 video」，还会把**当前 allowlist 里的 video 条目原样 carry-forward**（以 `平台\t模型\t000\tservable` 合成行回灌探测结果），`run`（parse_results）与 `probe`→`apply` 两条路都保住 veo。`live_probe` 用 `_probe_family_for` 判定 video 族，与正常探测同一分类器；`carried_forward_rows` 的 selftest + preflight `servable-allowlist generator selftest` 守住。只有真要刷 veo 可服务性 / 上架新 veo 时才省略本 flag（接受 submit 付费）。ark video 是另一条手动路径（见下「Volcengine / ark 三族」），本 flag 不管它——别给 ark probe 设 `ARK_VIDEO_MODELS` 即可。
+
 ## Gemini / Vertex 三族（newapi 第五平台，探测目标 prod）
 
 gpt 经 prod 探测；claude **直探 edge 原生 OAuth 池**（见下文判断要点）；**gemini/Vertex 也经 prod 的 `google-vertex` 组探测**（live Vertex 账号
-ids 47/57/58/59 在 prod；旧 us6 `google` 组账号已软删、清空）。三族：
-`GEMINI_CHAT_MODELS`→`/v1/chat/completions`、`GEMINI_IMAGE_MODELS`→`/v1/images/generations`、
+ids 47/57/58/59 在 prod；旧 us6 `google` 组账号已软删、清空）。四族：
+`GEMINI_CHAT_MODELS`→`/v1/chat/completions`、`GEMINI_IMAGE_MODELS`→`/v1/images/generations`（**imagen-*** predict API）、
+`GEMINI_CHATIMAGE_MODELS`→`/v1/chat/completions`（**gemini-*-image / nano-banana** 经 chat/generateContent 出图，非 imagen predict 面）、
 `GEMINI_VIDEO_MODELS`→`/v1/video/generations`（异步 submit 200 即 servable，best-effort）。
+`split_gemini_families` 自动按名分流：`imagen-`→`gemini_image`、`image`/`nano-banana`→`gemini_chat_image`、其余 `gemini-`→`gemini_chat`、`veo-`→`gemini_video`；watchlist `probe_family` 可覆写。
 probe key 由 `__tk_probe_newapi_google_*` 自动 ensure（从 **google-vertex** 源组复制 schedulable 账号）。
 
 **走 prod 公网网关外部 curl**（与 openai/zhipu 同款），不再用 edge 内网 `docker exec wget`：Vertex 迁到
@@ -101,11 +114,18 @@ edge native 平台如 **grok** 仍保留内网 wget。「对客 prod→edge rela
 
 - **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
   种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
+  > **实测（2026-06-27）**：live Vertex 账号 47/57/58/59 的 `model_pricing_status` 当前**为空**，
+  > `credentials` 只有 `{api_key, base_url, model_mapping}`；其 `model_mapping` 是**受限 7 键**
+  > （gemini-2.5-{pro,flash,flash-lite} + imagen-4.0×3 + veo-3.1-generate-001），与当前 Go gemini
+  > allowlist 完全一致、且全部已定价（litellm 镜像 + overlay）。故 model_pricing_status 为空时，
+  > **退回用 `model_mapping` keys 作 discovered**（即受限服务集本身）；想**扩**到 gemini-3 等需先改
+  > Vertex 账号 mapping（prod 写 + 上面的 catch-all 安全闸），不在只读刷新范围内。
   ```bash
-  # 先从 prod 某 Vertex 账号（google-vertex 组，如 id 47/57）拉发现清单（只读），存成 JSON 再喂给候选
-  # （model_pricing_status 是对象，键即模型名；工具取其 keys）
+  # model_pricing_status 为空时，用 model_mapping keys 作 discovered（只读，键即服务模型名）：
+  #   SELECT DISTINCT k FROM accounts a, jsonb_object_keys(a.credentials::jsonb->'model_mapping') k
+  #   WHERE a.id IN (47,57,58,59) AND jsonb_typeof(a.credentials::jsonb->'model_mapping')='object';
   python3 ops/pricing/refresh-servable-allowlist.py candidates --discovered /tmp/mps.json
-  python3 ops/pricing/refresh-servable-allowlist.py run --discovered /tmp/mps.json   # 探测+重写
+  python3 ops/pricing/refresh-servable-allowlist.py run --skip-video --discovered /tmp/mps.json   # 探测+重写（veo 跳过）
   ```
 - **范围 = 仅核心生成族**（chat/image/video）。`GEMINI_EXCLUDE_RE` 排除 gemma/lyria/deep-research/
   robotics/antigravity/computer-use/tts —— 避免清空 mapping 后这些未定价冷门模型被静默 $0 服务。
@@ -150,6 +170,37 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
   `volcengine` 行天然忽略（该 vendor 在公开目录是 passthrough）。本族是运营对账工具：输出与账号
   `model_mapping` 做差集 → 未开通的从 mapping 清掉，已开通∩未定价的先补价再放行（对照 deepseek-v4
   渠道定价样板，见 memory `volc_video_submit_200_and_ark_pricing_path`）。
+- **translation 族探测暂缺**（`doubao-seed-translation-*`）：bare chat 体（"hi"）与朴素翻译 prompt 都 400
+  （非 retired/not-found → inconclusive），Ark 翻译模型要一套**专属请求形**（翻译参数），new-api
+  volcengine adaptor 未收录其契约。**禁臆造**：拿到权威 shape 前不写猜测体（该模型在 prod 已定价+在服务，
+  只影响探测分类，不影响计费）。`probe-servable-models.sh` 的 ark chat 分支已留 NOTE。
+
+## Grok / Antigravity（原生平台，手维 allowlist，可探测但不在 `run` tuple）
+
+grok（第七平台）与 antigravity 的 Go allowlist 是**手维**的（`refresh-servable-allowlist.py` 的探测
+tuple 只有 anthropic/openai/gemini）。但 `probe-servable-models.sh` 现已支持二者实地探测——结果**不进
+`run` 自动 splice**（`parse_results` 只认三族），是运营对账/补全清单的依据：
+
+```bash
+# grok：edge 原生 OAuth 池（当前 us4），edge-internal wget，源组 "grok"
+bash ops/observability/run-probe.sh --target edge:us4 --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "GROK_CHAT_MODELS=grok-code-fast-1 grok-4.3 grok-build-0.1" --timeout-seconds 110
+
+# antigravity：账号在 PROD DB（"Google-Gemini" 组，如 antigravity-us3/us4），经 PROD 公网网关
+# 外部 curl（与 gemini/zhipu 同款，非 edge-internal——"-usN" 是上游标签不是 edge）
+bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "ANTIGRAVITY_CHAT_MODELS=gemini-2.5-flash gemini-3-flash gemini-pro-agent" --timeout-seconds 110
+```
+
+- **闸视角**：grok **无家族 floor** → 每个 servable grok 必须有真价（overlay），否则被价格闸拒；
+  antigravity 全是 `gemini-*` 命名 → 命中 **gemini 家族 floor**（按模型名、平台无关）→ 永不拒，
+  缺真价只走 `served_at_fallback` 告警收敛。
+- **allowlist 是手维 + 运营策展面**（antigravity 注释「gemini only per operator policy」）：探测发现
+  「servable 但未列」的 id（如实测 `gemini-3.5-flash` 200、却只列了 `-low`/`-extra-low` 变体且仅 floor 计价）
+  **先报运营定夺是否进公开菜单**，不要单方面改策展列表（无闸影响时尤其）。
+- grok imagine 图/视频族与 antigravity 图族（`gemini-*-image`）无对应 image/video 探测分支，暂只探 chat。
 
 ## 判断要点 / 坑
 

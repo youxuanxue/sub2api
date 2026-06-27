@@ -88,7 +88,11 @@ GEMINI_EXCLUDE_RE = re.compile(r"gemma-|lyria-|deep-research|robotics|antigravit
 PROBE_FAMILIES_BY_PLATFORM = {
     "anthropic": ("anthropic",),
     "openai": ("openai_chat", "openai_responses", "openai_image"),
-    "gemini": ("gemini_chat", "gemini_image", "gemini_video"),
+    # gemini_chat_image: the generateContent image models (gemini-*-image,
+    # nano-banana) ride the /v1/chat/completions surface, NOT the imagen
+    # /v1/images/generations predict API — a distinct family so they probe the
+    # right endpoint. imagen-* stays in gemini_image.
+    "gemini": ("gemini_chat", "gemini_chat_image", "gemini_image", "gemini_video"),
 }
 # Inverse of PROBE_FAMILIES_BY_PLATFORM: probe-family -> allowlist platform.
 FAMILY_PLATFORM = {
@@ -97,6 +101,12 @@ FAMILY_PLATFORM = {
     for family in families
 }
 GO_ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
+# Probe families that submit a REAL paid generation task (video). --skip-video
+# excludes them from live probing AND carries their current allowlist entries
+# forward un-probed, so a chat/image refresh never drops already-servable priced
+# veo/seedance ids. Derived from the family table so a future *_video family is
+# covered automatically.
+VIDEO_FAMILIES = frozenset(f for f in FAMILY_PLATFORM if f.endswith("_video"))
 REPROBE_LISTS = ("watchlist", "skiplist", "deadlist")
 
 
@@ -141,7 +151,7 @@ def split_gemini_families(discovered: list[str]) -> dict[str, list[str]]:
     image -> /v1/images/generations, video -> /v1/video/generations. Exotic
     families (see GEMINI_EXCLUDE_RE) are dropped so the catch-all never $0-serves
     an unpriced niche model."""
-    fams: dict[str, list[str]] = {"gemini_chat": [], "gemini_image": [], "gemini_video": []}
+    fams: dict[str, list[str]] = {"gemini_chat": [], "gemini_chat_image": [], "gemini_image": [], "gemini_video": []}
     seen: set[str] = set()
     for mid in list(discovered) + list(GEMINI_PREDICT_MODELS):
         mid = mid.strip()
@@ -152,8 +162,13 @@ def split_gemini_families(discovered: list[str]) -> dict[str, list[str]]:
             continue
         if mid.startswith("veo-"):
             fams["gemini_video"].append(mid)
-        elif mid.startswith("imagen-") or "image" in mid or "nano-banana" in mid:
+        elif mid.startswith("imagen-"):
+            # imagen-* uses the /v1/images/generations predict API.
             fams["gemini_image"].append(mid)
+        elif "image" in mid or "nano-banana" in mid:
+            # gemini-*-image / nano-banana generate via the chat/generateContent
+            # surface, not the images predict API → probe through /v1/chat/completions.
+            fams["gemini_chat_image"].append(mid)
         elif mid.startswith("gemini-"):
             fams["gemini_chat"].append(mid)
         # other-vendor ids are ignored (not part of the google catch-all scope)
@@ -202,8 +217,10 @@ def _probe_family_for(platform: str, model: str, probe_family: str | None = None
     if platform == "gemini":
         if model.startswith("veo-"):
             return "gemini_video"
-        if model.startswith("imagen-") or "image" in model or "nano-banana" in model:
+        if model.startswith("imagen-"):
             return "gemini_image"
+        if "image" in model or "nano-banana" in model:
+            return "gemini_chat_image"
         return "gemini_chat"
     raise ValueError(f"{platform}/{model}: refresh tool cannot probe this platform")
 
@@ -232,6 +249,23 @@ def _known_allowlist_members(text: str) -> set[tuple[str, str]]:
         for match in re.finditer(r'^\s*"([^"]+)":\s*\{\},', block, flags=re.MULTILINE):
             out.add((platform, match.group(1)))
     return out
+
+
+def carried_forward_rows(text: str, skip_families: set[str]) -> str:
+    """Emit current Go-allowlist members belonging to a SKIPPED probe family as
+    synthetic `servable` TSV rows (code 000). --skip-video uses this so a chat/image
+    refresh preserves already-servable video ids (veo …) verbatim instead of the
+    per-platform splice dropping them. Reuses _probe_family_for so the family
+    classification matches the live-probe path exactly."""
+    rows: list[str] = []
+    for platform, model in sorted(_known_allowlist_members(text)):
+        try:
+            fam = _probe_family_for(platform, model)
+        except ValueError:
+            continue  # platform the refresh tool does not probe (antigravity/grok)
+        if fam in skip_families:
+            rows.append(f"{platform}\t{model}\t000\tservable")
+    return "\n".join(rows)
 
 
 def _candidate_members(candidates: dict[str, list[str]]) -> set[tuple[str, str]]:
@@ -344,6 +378,7 @@ def augment_candidates_with_watchlist(candidates: dict[str, list[str]], ledger: 
         ("openai_responses", ("openai",)),
         ("openai_image", ("openai",)),
         ("gemini_chat", ("gemini",)),
+        ("gemini_chat_image", ("gemini",)),
         ("gemini_image", ("gemini",)),
         ("gemini_video", ("gemini",)),
     ):
@@ -584,6 +619,7 @@ ENV_BY_FAMILY = (
     ("OPENAI_RESPONSES_MODELS", "openai_responses", "prod"),
     ("OPENAI_IMAGE_MODELS", "openai_image", "prod"),
     ("GEMINI_CHAT_MODELS", "gemini_chat", GEMINI_TARGET),
+    ("GEMINI_CHATIMAGE_MODELS", "gemini_chat_image", GEMINI_TARGET),
     ("GEMINI_IMAGE_MODELS", "gemini_image", GEMINI_TARGET),
     ("GEMINI_VIDEO_MODELS", "gemini_video", GEMINI_TARGET),
 )
@@ -640,7 +676,7 @@ ANTHROPIC_PROD_MIRRORS = (
 )
 
 
-def live_probe(candidates: dict[str, list[str]]) -> str:
+def live_probe(candidates: dict[str, list[str]], skip_video: bool = False) -> str:
     if not RUN_PROBE.exists() or not PROBE.exists():
         raise SystemExit("FATAL: run-probe.sh or probe-servable-models.sh missing")
     rows: list[str] = []
@@ -699,17 +735,32 @@ def live_probe(candidates: dict[str, list[str]]) -> str:
 
     # Other families: one run-probe invocation per family-batch at a fixed target
     # (a single command spanning the whole catalog would exceed the SSM waiter window).
+    # --skip-video drops video families here (a submit = a REAL paid task) and the
+    # carried_forward_rows() tail below preserves their current allowlist entries.
+    active_families = [
+        (env_key, fam, target)
+        for env_key, fam, target in ENV_BY_FAMILY
+        if not (skip_video and fam in VIDEO_FAMILIES)
+    ]
     batches: list[tuple[str, list[str], str]] = []
-    for env_key, fam, target in ENV_BY_FAMILY:
+    for env_key, fam, target in active_families:
         for c in chunk(candidates.get(fam, []), BATCH_SIZE):
             batches.append((env_key, c, target))
-    total = sum(len(candidates.get(f, [])) for _, f, _ in ENV_BY_FAMILY)
+    total = sum(len(candidates.get(f, [])) for _, f, _ in active_families)
+    if skip_video:
+        skipped = sum(len(candidates.get(f, [])) for _, f, _ in ENV_BY_FAMILY if f in VIDEO_FAMILIES)
+        print(f"[refresh] --skip-video: NOT probing {skipped} video candidate(s) (real paid tasks); current video allowlist entries carried forward un-probed", file=sys.stderr)
     print(f"[refresh] probing {total} non-anthropic models in {len(batches)} batch(es) of <= {BATCH_SIZE} …", file=sys.stderr)
     for i, (env_key, models, target) in enumerate(batches, 1):
         print(f"[refresh] batch {i}/{len(batches)} ({env_key}@{target}: {len(models)}) …", file=sys.stderr)
         out = _run_probe_batch(["--env", f"{env_key}={' '.join(models)}"], target=target)
         if out:
             rows.append(out)
+    if skip_video:
+        cf = carried_forward_rows(GO_FILE.read_text(encoding="utf-8"), VIDEO_FAMILIES)
+        if cf:
+            rows.append(cf)
+            print(f"[refresh] --skip-video: carried forward {len(cf.splitlines())} existing video allowlist entry(ies)", file=sys.stderr)
     return "\n".join(rows)
 
 
@@ -805,8 +856,12 @@ def selftest() -> int:
     }
     aug = augment_candidates_with_watchlist(build_candidates(cat, ["gemini-3-pro-image-preview"]), ledger)
     assert "gpt-5.2" in aug["openai_chat"], aug["openai_chat"]
+    # watchlist probe_family override moves it from the base family (now
+    # gemini_chat_image for *-image ids) to the overridden gemini_chat, and out of
+    # all peers — proves the override wins over the systematic family routing.
     assert "gemini-3-pro-image-preview" in aug["gemini_chat"], aug["gemini_chat"]
     assert "gemini-3-pro-image-preview" not in aug["gemini_image"], aug["gemini_image"]
+    assert "gemini-3-pro-image-preview" not in aug["gemini_chat_image"], aug["gemini_chat_image"]
     assert "gpt-image-dead" not in aug["openai_image"], aug["openai_image"]
     validate_reprobe_ledger(
         ledger,
@@ -855,9 +910,11 @@ def selftest() -> int:
         "gemini-2.5-computer-use-preview-10-2025",
     ])
     assert g["gemini_chat"] == ["gemini-2.5-pro", "gemini-3-pro-preview"], g["gemini_chat"]
-    # discovered image models classified into the image family (alongside imagen seed)
+    # generateContent image models go to gemini_chat_image (chat surface), NOT the
+    # imagen predict family; imagen-* stays in gemini_image.
     for img in ("gemini-2.5-flash-image", "gemini-3-pro-image", "nano-banana-pro-preview"):
-        assert img in g["gemini_image"], (img, g["gemini_image"])
+        assert img in g["gemini_chat_image"], (img, g["gemini_chat_image"])
+        assert img not in g["gemini_image"], (img, g["gemini_image"])
     # predict seed always merged into video/image even with empty discovery
     assert "veo-3.1-generate-001" in g["gemini_video"], g["gemini_video"]
     assert "imagen-4.0-generate-001" in g["gemini_image"], g["gemini_image"]
@@ -929,6 +986,19 @@ def selftest() -> int:
     assert '"gemini-2.5-pro": {},' in gout, gout
     assert splice_go(gout, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"]) == gout, "gemini not idempotent"
 
+    # --skip-video carry-forward: a chat/image refresh must preserve existing video
+    # (veo) ids verbatim. carried_forward_rows emits ONLY the video-family members
+    # of the current allowlist as servable rows; chat/image ids are left to the probe.
+    skipv_sample = (
+        "x{\n\t// servable-allowlist:begin gemini\n"
+        '\t"gemini-2.5-pro": {},\n\t"imagen-4.0-generate-001": {},\n\t"veo-3.1-generate-001": {},\n'
+        "\t// servable-allowlist:end gemini\n}\n"
+    )
+    cf = carried_forward_rows(skipv_sample, VIDEO_FAMILIES)
+    assert cf == "gemini\tveo-3.1-generate-001\t000\tservable", cf
+    assert parse_results(cf)["gemini"] == {"veo-3.1-generate-001"}, parse_results(cf)
+    assert "gemini_video" in VIDEO_FAMILIES and not any(f.endswith("_chat") for f in VIDEO_FAMILIES), VIDEO_FAMILIES
+
     # The real machine ledger is part of preflight, not just a runtime input.
     # Include discovered fixtures so skiplist removal and watchlist
     # probe_family overrides are both exercised without prod.
@@ -941,8 +1011,11 @@ def selftest() -> int:
     assert ("openai", "gpt-5.2") in real_members, "watchlist gpt-5.2 must be probed"
     assert ("openai", "codex-auto-review") in real_members, "watchlist codex-auto-review must be probed"
     assert ("gemini", "gemini-3-pro-preview") not in real_members, "skiplist gemini chat must be excluded"
-    assert "gemini-3-pro-image-preview" in real_cands["gemini_chat"], real_cands["gemini_chat"]
+    # gemini-*-image route to the gemini_chat_image family (chat/generateContent
+    # surface), not gemini_chat (text) or gemini_image (imagen predict API).
+    assert "gemini-3-pro-image-preview" in real_cands["gemini_chat_image"], real_cands["gemini_chat_image"]
     assert "gemini-3-pro-image-preview" not in real_cands["gemini_image"], real_cands["gemini_image"]
+    assert "gemini-3-pro-image-preview" not in real_cands["gemini_chat"], real_cands["gemini_chat"]
 
     probe_lib = REPO / "ops/pricing/probe_reserved_resources.sh"
     probe_test = REPO / "ops/pricing/test_probe_reserved_resources.sh"
@@ -1024,10 +1097,16 @@ def main() -> int:
         "also enables it) so the conservative full probe stays the default."
     )
     HOURS_HELP = f"traffic short-circuit look-back window in hours (default {DEFAULT_TRAFFIC_HOURS})"
+    SKIP_VIDEO_HELP = (
+        "do NOT live-probe video families (gemini_video) — a video submit creates a "
+        "REAL paid generation task. Current video allowlist entries are carried "
+        "forward un-probed so they are not dropped. Env REFRESH_SKIP_VIDEO=1 also enables."
+    )
 
     def add_traffic_flags(p: argparse.ArgumentParser) -> None:
         p.add_argument("--skip-proven-by-traffic", action="store_true", help=SKIP_HELP)
         p.add_argument("--traffic-hours", type=int, default=DEFAULT_TRAFFIC_HOURS, help=HOURS_HELP)
+        p.add_argument("--skip-video", action="store_true", help=SKIP_VIDEO_HELP)
 
     ap_cand = sub.add_parser("candidates")
     ap_cand.add_argument("--discovered", help=DISC_HELP)
@@ -1046,6 +1125,10 @@ def main() -> int:
     def skip_proven_enabled() -> bool:
         return bool(getattr(args, "skip_proven_by_traffic", False)) or \
             os.environ.get("REFRESH_SKIP_PROVEN_BY_TRAFFIC", "") not in ("", "0", "false", "False")
+
+    def video_skip_enabled() -> bool:
+        return bool(getattr(args, "skip_video", False)) or \
+            os.environ.get("REFRESH_SKIP_VIDEO", "") not in ("", "0", "false", "False")
 
     def _report(final: dict[str, list[str]]) -> None:
         print(
@@ -1067,7 +1150,7 @@ def main() -> int:
         proven: dict[str, set[str]] = {}
         if skip_proven_enabled():
             cands, proven = short_circuit_by_traffic(cands, ledger, hours=args.traffic_hours)
-        probe_tsv = live_probe(cands)
+        probe_tsv = live_probe(cands, skip_video=video_skip_enabled())
         if proven:
             tsv = proven_as_tsv(proven)
             probe_tsv = f"{tsv}\n{probe_tsv}".strip() if probe_tsv else tsv
@@ -1086,7 +1169,7 @@ def main() -> int:
         proven: dict[str, set[str]] = {}
         if skip_proven_enabled():
             cands, proven = short_circuit_by_traffic(cands, ledger, hours=args.traffic_hours)
-        servable = parse_results(live_probe(cands))
+        servable = parse_results(live_probe(cands, skip_video=video_skip_enabled()))
         for platform, models in proven.items():
             servable.setdefault(platform, set()).update(models)
         final = write_allowlists(servable, ledger)

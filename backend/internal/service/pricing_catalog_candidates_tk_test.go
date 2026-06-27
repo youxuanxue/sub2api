@@ -143,12 +143,14 @@ func TestTkServableCandidateIDs(t *testing.T) {
 			"gemini-2.5-flash-lite",
 			"gemini-2.5-flash-thinking",
 			"gemini-3-flash",
-			"gemini-3.1-flash-image",
+			"gemini-3.1-flash-image", // served via antigravity pool (2026-06-27 image probe 200)
+			"gemini-3.5-flash",       // 2026-06-27 prod 200 → added
 			"gemini-3.5-flash-low",
 			"gemini-pro-agent",
 		} {
 			require.True(t, contains(ids, want), "servable antigravity gemini id %s present", want)
 		}
+		// gemini-2.5-pro stays off antigravity (no real 200 — served via gemini/Vertex instead).
 		for _, offPlatform := range []string{"claude-fable-5", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
 			require.False(t, contains(ids, offPlatform),
 				"%s must not leak into antigravity client/admin defaults without a 200 allowlist entry", offPlatform)

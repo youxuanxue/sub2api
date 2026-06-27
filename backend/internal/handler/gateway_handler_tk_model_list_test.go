@@ -144,7 +144,7 @@ func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t
 		"gemini-2.5-flash-thinking",
 		"gemini-3-flash",
 		"gemini-3-flash-agent",
-		"gemini-3.1-flash-image",
+		"gemini-3.1-flash-image", // served via antigravity pool (2026-06-27 image probe 200)
 		"gemini-3.1-pro-low",
 		"gemini-3.5-flash-extra-low",
 		"gemini-3.5-flash-low",

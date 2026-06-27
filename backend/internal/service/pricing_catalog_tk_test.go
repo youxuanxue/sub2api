@@ -337,11 +337,19 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"antigravity", "gemini-2.5-flash-lite", true},
 		{"antigravity", "gemini-2.5-flash-thinking", true},
 		{"antigravity", "gemini-3-flash", true},
-		{"antigravity", "gemini-3.1-flash-image", true},
+		{"antigravity", "gemini-3.5-flash", true}, // 2026-06-27 prod 200 → added to antigravity
 		{"antigravity", "gemini-3.5-flash-low", true},
 		{"antigravity", "gpt-oss-120b-medium", false}, // gpt-oss off antigravity (operator policy)
 		{"antigravity", "claude-sonnet-4-6", false},   // claude routed to anthropic
-		{"antigravity", "gemini-2.5-pro", false},      // 000 timeout at 2026-06-23 reprobe, not in antigravity set
+		{"antigravity", "gemini-2.5-pro", false},      // 000 timeout at 2026-06-23/06-27 reprobe, not in antigravity set
+		// gemini-*-image probed servable through the ANTIGRAVITY pool (2026-06-27) →
+		// listed under antigravity (group-serving rule), NOT the gemini/Vertex set
+		// (Vertex's constrained 7-key mapping does not serve them).
+		{"antigravity", "gemini-2.5-flash-image", true},
+		{"antigravity", "gemini-3-pro-image", true},
+		{"antigravity", "gemini-3.1-flash-image", true},
+		{"antigravity", "gemini-3.1-flash-image-preview", true},
+		{"vertex_ai-language-models", "gemini-3.1-flash-image", false}, // not served by gemini/Vertex accounts
 		// grok (xai vendor → grok platform): gated to the priced overlay set.
 		{"xai", "grok-4.3", true},
 		{"xai", "grok-4.20-0309-reasoning", true},
@@ -371,12 +379,16 @@ func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 	}
 	for _, want := range []string{
 		"gemini-2.5-flash",
+		"gemini-2.5-flash-image", // 2026-06-27 antigravity image probe 200 → added
 		"gemini-2.5-flash-lite",
 		"gemini-2.5-flash-thinking",
 		"gemini-3-flash",
 		"gemini-3-flash-agent",
-		"gemini-3.1-flash-image",
+		"gemini-3-pro-image",             // 2026-06-27 antigravity image probe 200 → added
+		"gemini-3.1-flash-image",         // served via antigravity pool
+		"gemini-3.1-flash-image-preview", // 2026-06-27 antigravity image probe 200 → added
 		"gemini-3.1-pro-low",
+		"gemini-3.5-flash", // 2026-06-27 prod 200 → added
 		"gemini-3.5-flash-extra-low",
 		"gemini-3.5-flash-low",
 		"gemini-pro-agent",
@@ -384,6 +396,8 @@ func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected antigravity menu to advertise %q", want)
 	}
+	// gemini-2.5-pro stays off antigravity (no real 200 — probe timeout 06-23 & 06-27);
+	// it is served via the gemini/Vertex pool instead.
 	for _, deny := range []string{"claude-sonnet-4-6", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
 		_, ok := set[deny]
 		assert.Falsef(t, ok, "antigravity menu must not advertise %q (routed off antigravity)", deny)
