@@ -713,7 +713,7 @@ const usageManualRefreshToken = ref(0)
 const kiroRefreshToken = ref(0)
 
 // TK: batch passive-usage for the list, replacing the per-row /usage fan-out for
-// Anthropic OAuth/SetupToken rows. The cell renders usageOverrideFor(row) and
+// Anthropic / OpenAI OAuth / Kiro rows. The cell renders usageOverrideFor(row) and
 // never self-fetches when an override is present (see useTkAccountUsageBatch).
 const { usageOverrideFor: accountUsageOverrideFor, refreshUsageBatch } = useTkAccountUsageBatch()
 
@@ -1173,9 +1173,9 @@ const refreshAccountsIncrementally = async () => {
 const handleManualRefresh = async () => {
   await load()
   await refreshEdges({ force: true })
-  // load() already starts the batch passive-usage refresh for Anthropic rows
-  // (override path). Bump the token so the residual self-fetch platforms
-  // (gemini/antigravity/openai cells) also refresh on explicit user refresh.
+  // load() already starts the batch passive-usage refresh for Anthropic/OpenAI/Kiro
+  // rows (override path). Bump the token so the residual self-fetch platforms
+  // (gemini/antigravity cells) also refresh on explicit user refresh.
   usageManualRefreshToken.value += 1
   // Edge kiro accounts have no organic passive refresh (credits come only from an
   // explicit CodeWhisperer call), so an explicit user refresh also pulls live kiro

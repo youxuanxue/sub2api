@@ -24,7 +24,7 @@ describe('useTkAccountUsageBatch', () => {
     getBatchPassiveUsage.mockReset()
   })
 
-  it('only sends Anthropic passive rows to the batch endpoint and suppresses active self-fetch rows', async () => {
+  it('sends passive batch rows (Anthropic, OpenAI OAuth, Kiro) and suppresses active self-fetch rows', async () => {
     getBatchPassiveUsage.mockResolvedValue({ usage: { '1': usageA } })
     const { refreshUsageBatch, usageOverrideFor } = useTkAccountUsageBatch()
 
@@ -33,29 +33,24 @@ describe('useTkAccountUsageBatch', () => {
       acct(2, 'anthropic', 'setup-token'),
       acct(3, 'anthropic', 'apikey'), // never self-fetches
       acct(4, 'gemini', 'oauth'), // active-only on manual refresh
-      acct(5, 'openai', 'oauth'), // active-only on manual refresh
-      acct(6, 'antigravity', 'oauth') // active-only on manual refresh
+      acct(5, 'openai', 'oauth'), // passive batch (codex windows from Extra)
+      acct(6, 'antigravity', 'oauth'), // active-only on manual refresh
+      acct(7, 'kiro', 'oauth') // passive batch like Anthropic
     ]
 
     await refreshUsageBatch(accounts)
 
-    // Only the two batch-capable IDs are sent upstream.
     expect(getBatchPassiveUsage).toHaveBeenCalledTimes(1)
-    expect(getBatchPassiveUsage).toHaveBeenCalledWith([1, 2])
+    expect(getBatchPassiveUsage).toHaveBeenCalledWith([1, 2, 5, 7])
 
-    // Capable rows: override defined (suppresses self-fetch). id 1 has data,
-    // id 2 omitted by server => null (still suppresses, shows "-").
     expect(usageOverrideFor(accounts[0])).toEqual(usageA)
     expect(usageOverrideFor(accounts[1])).toBeNull()
+    expect(usageOverrideFor(accounts[4])).toBeNull()
+    expect(usageOverrideFor(accounts[6])).toBeNull()
 
-    // Rows that never self-fetch usage are left alone.
     expect(usageOverrideFor(accounts[2])).toBeUndefined()
 
-    // Active-only platforms get a null override on list load, so mounting the
-    // table no longer fans out to per-row active usage probes.
     expect(usageOverrideFor(accounts[3])).toBeNull()
-    expect(usageOverrideFor(accounts[4])).toBeNull()
-    expect(usageOverrideFor(accounts[5])).toBeNull()
   })
 
   it('returns null override for a capable row before the batch resolves', () => {
@@ -67,7 +62,7 @@ describe('useTkAccountUsageBatch', () => {
 
   it('does not call the API when there are no passive batch-capable rows', async () => {
     const { refreshUsageBatch, usageOverrideFor } = useTkAccountUsageBatch()
-    const accounts = [acct(1, 'gemini', 'oauth'), acct(2, 'openai', 'oauth')]
+    const accounts = [acct(1, 'gemini', 'oauth'), acct(2, 'antigravity', 'oauth')]
     await refreshUsageBatch(accounts)
     expect(getBatchPassiveUsage).not.toHaveBeenCalled()
     expect(usageOverrideFor(accounts[0])).toBeNull()

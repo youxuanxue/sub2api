@@ -5,7 +5,7 @@
  * AccountUsageCell self-fetched GET /admin/accounts/:id/usage on mount, so a
  * page of N Anthropic OAuth/SetupToken rows fired N parallel XHRs (the client
  * usageLoadQueue is a no-op pass-through). This composable fetches all visible
- * Anthropic OAuth/SetupToken rows' passive usage in ONE POST
+ * Anthropic / OpenAI OAuth / Kiro passive rows in ONE POST
  * /admin/accounts/usage/batch call, and exposes a per-row override the cell
  * renders verbatim (usageOverride !== undefined => the cell never self-fetches).
  *
@@ -18,23 +18,10 @@
 import { ref } from 'vue'
 import { adminAPI } from '@/api'
 import type { Account, AccountUsageInfo } from '@/types'
-
-// Mirrors AccountUsageCell's source='passive' mount condition: only Anthropic
-// OAuth/SetupToken rows are served by the batch passive endpoint.
-function isBatchPassiveCapable(account: Account): boolean {
-  return (
-    account.platform === 'anthropic' &&
-    (account.type === 'oauth' || account.type === 'setup-token')
-  )
-}
-
-function canSelfFetchUsage(account: Account): boolean {
-  if (isBatchPassiveCapable(account)) return true
-  if (account.platform === 'gemini') return true
-  if (account.platform === 'antigravity') return account.type === 'oauth'
-  if (account.platform === 'openai') return account.type === 'oauth'
-  return false
-}
+import {
+  canSelfFetchUsage,
+  isBatchPassiveCapable
+} from '@/utils/accountUsageBatch.tk'
 
 export function useTkAccountUsageBatch() {
   // accountID(string) -> usage. Present-with-null is a deliberate signal to the
