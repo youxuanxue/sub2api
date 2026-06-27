@@ -15,29 +15,17 @@ multi-account edge (us5) buckled under concentrated failover load; ~3445 clients
 (scan-edge-health.sh, #640) only runs when a human remembers to run it. This turns
 "someone has to go look" into "Feishu shouts the moment an edge dies".
 
-Trigger model — three severities, all deduped by one state key. The severity answers
-the only question that matters: IS A REAL CLIENT BEING HURT RIGHT NOW?
+Trigger model — Feishu pages on actionable-set changes only (🔴/🟠/✅):
   🔴 critical: confirmed active harm — degraded, or a `down` edge ACTIVELY rejecting
-    (no_available_429>0; someone is eating 429s this minute) — OR an UNKNOWN-bad state
-    (unreachable / parse-error) we cannot clear. Treated critical because we can't rule
-    harm out, but the head says 需立即处理, NOT 客户端已受影响 — we don't claim confirmed
-    impact for an edge the probe simply couldn't reach.
-  🟠 warning (LEADING INDICATOR): a `down` edge whose pool just emptied (sched=0, accounts
-    exist) but has rejected ZERO clients yet (no_available_429==0). Nobody is hurt yet —
-    this is the step BEFORE an outage, not an outage. The 2026-06-09 alert read exactly
-    this shape (`sched=0 served200=639 noavail429=0 ratio=1.0`) and still shouted 🔴 宕机;
-    calling a not-yet-outage by the outage word spends the operator's trust. So it now
-    gets its own colour and the word 即将掉单, reserving 🔴/宕机 for active harm.
-  🟡 notice (POSTURE / provisioning risk): verdict thin / idle-thin (single-account SPOF)
-    and no-accounts (zero accounts provisioned, no rejected demand — e.g. us3/us4 awaiting
-    the add-accounts vs decommission decision). Chronic states that must not pin the fleet
-    to critical, but whose SET CHANGES are exactly the early warnings the 2026-06-07
-    incident lacked (an edge slipping 2→1 accounts is the step BEFORE down). Newly-appeared
-    posture edges are tagged 新 so "what changed" reads at a glance vs the chronic backdrop.
-The state key digests BOTH sets (`a:` / `p:` prefixed); the workflow alerts ONLY when
-the key changes vs the previous run — new breakage, escalation, posture drift, OR
-recovery — so a multi-hour incident (or a chronically thin fleet) does not re-spam
-every cycle, and a recovery posts a green all-clear.
+    (no_available_429>0) — OR unreachable / parse-error (cannot rule harm out).
+  🟠 warning: `down` with sched=0, accounts exist, but no_available_429==0 — pool
+    just emptied, nobody rejected yet (leading indicator, not an outage).
+  ✅ recovery: actionable set cleared since the previous run.
+Posture (thin / idle-thin / no-accounts) is NOT paged and NOT in the state key — see
+`scan-edge-health.sh` for provisioning/SPOF backlog; 🔴/🟠/✅ footers still list thin
+and no-accounts edges for context when an incident fires.
+The persisted key is actionable-only (`a:verdict:edge`, plus legacy unprefixed entries
+still read for recovery). Same actionable set => no re-alert across 15-minute cycles.
 
 Input (stdin): one verdict JSON object per line (scan-edge-health.sh --json).
 Args:
@@ -57,7 +45,6 @@ import json
 import sys
 
 ACTIONABLE = ("down", "degraded", "unreachable", "parse-error")
-POSTURE = ("thin", "idle-thin", "no-accounts")
 
 
 def _num(v, default=0):
@@ -98,6 +85,15 @@ def _minutes_from_window(window: str) -> float:
         return 0.0
 
 
+def _normalize_actionable_key(key: str) -> str:
+    """Actionable-only state key; strip legacy `p:` posture entries from old caches."""
+    parts = []
+    for part in (key or "").split("|"):
+        if part and not part.startswith("p:"):
+            parts.append(part)
+    return "|".join(sorted(parts))
+
+
 def _time_to_impact(r: dict, window: str) -> str:
     """The number behind '下一批即将掉单'. Without it the leading-indicator claim is a
     hollow 'trust me' — Jobs Q7. Estimate request arrival rate from the window's own
@@ -121,57 +117,34 @@ def _time_to_impact(r: dict, window: str) -> str:
 def build_decision(rows: list, prev_key: str, window: str) -> dict:
     """Pure: verdict rows + previous state key -> alert decision + message."""
     actionable = [r for r in rows if r.get("verdict") in ACTIONABLE]
-    posture = [r for r in rows if r.get("verdict") in POSTURE]
-    # Stable key: sorted "a:verdict:edge" (incident) + "p:verdict:edge" (posture).
-    # Same incident AND same posture => same key => no re-alert; any change (new edge
-    # down, an edge slipping to single-account, posture resolved, recovery) flips it.
-    key_parts = sorted(f"a:{r.get('verdict')}:{r.get('edge')}" for r in actionable) + \
-        sorted(f"p:{r.get('verdict')}:{r.get('edge')}" for r in posture)
-    key = "|".join(key_parts)  # "" when the fleet is fully clean
+    key = "|".join(sorted(f"a:{r.get('verdict')}:{r.get('edge')}" for r in actionable))
 
-    changed = key != (prev_key or "")
-    should_alert = changed  # breakage, escalation, posture drift, recovery all flip the key
+    prev_actionable = _normalize_actionable_key(prev_key)
+    changed = key != prev_actionable
+    should_alert = changed
 
-    # `idle-thin` (a single-account edge with no traffic) is a SPOF too — surface it
-    # in the thin context line, not silently dropped.
     thin = sorted(r.get("edge") for r in rows if r.get("verdict") in ("thin", "idle-thin"))
     no_accounts = sorted(r.get("edge") for r in rows if r.get("verdict") == "no-accounts")
     healthy = sorted(
         r.get("edge") for r in rows if r.get("verdict") in ("healthy", "idle")
     )
 
-    # Legacy keys (pre-posture) carried unprefixed actionable entries — treat any
-    # non-`p:` part as actionable so the first run after the format change still
-    # reads "there WAS an incident" for recovery semantics.
-    prev_parts = (prev_key or "").split("|")
-    prev_had_actionable = any(part and not part.startswith("p:") for part in prev_parts)
-    # Edges that were ALREADY in some posture bucket last run — used to tag only the
-    # newly-appeared posture edges with 新, so an actionable alert's posture footer reads
-    # "what changed" instead of re-dumping the same chronic SPOF/limbo list every cycle.
-    prev_posture_edges = {
-        part.split(":", 2)[2] for part in prev_parts
-        if part.startswith("p:") and part.count(":") >= 2
-    }
+    prev_had_actionable = bool(prev_actionable)
 
-    # Severity is gated on ACTIVE HARM, not on the bare verdict word: a `down` edge that
-    # has rejected nobody yet (leading indicator) is a 🟠 warning, not a 🔴 outage.
     active_harm = any(
         r.get("verdict") in ("unreachable", "parse-error", "degraded") for r in actionable
     ) or any(_down_kind(r) == "active" for r in actionable)
     if not actionable:
-        if posture:
-            # Incident over but provisioning risk remains => green recovery head if an
-            # incident just cleared, otherwise a posture-drift notice.
-            severity = "recovery" if prev_had_actionable else "notice"
-        else:
-            severity = "recovery" if (prev_key or "") else "ok"
+        severity = "recovery" if prev_had_actionable else "ok"
     elif active_harm:
         severity = "critical"
     else:
-        severity = "warning"  # only leading-indicator down(s): pool empty, nobody rejected yet
+        severity = "warning"
 
-    message = _format_message(actionable, thin, no_accounts, healthy, window, severity,
-                              prev_posture_edges)
+    if severity == "ok":
+        message = ""
+    else:
+        message = _format_message(actionable, thin, no_accounts, healthy, window, severity)
     return {
         "key": key,
         "actionable_count": len(actionable),
@@ -281,14 +254,8 @@ def _triage_block(actionable: list) -> list:
     return out
 
 
-def _mark_new(edges: list, prev_posture_edges: set) -> str:
-    """Tag edges that newly entered a posture bucket with 新, so the posture footer reads
-    'what changed' against the chronic backdrop instead of an undifferentiated list."""
-    return ", ".join(f"{e}(新)" if e not in (prev_posture_edges or set()) else e for e in edges)
-
-
 def _format_message(actionable: list, thin: list, no_accounts: list, healthy: list,
-                    window: str, severity: str, prev_posture_edges: set = frozenset()) -> str:
+                    window: str, severity: str) -> str:
     grouped: dict = {}
     for r in actionable:
         grouped.setdefault(_row_kind(r), []).append(r)
@@ -309,8 +276,6 @@ def _format_message(actionable: list, thin: list, no_accounts: list, healthy: li
             head = f"🔴 TokenKey 边缘健康 — {n} 个 edge 需立即处理（{present}）"
         else:  # warning: leading-indicator only — pool empty, nobody rejected yet
             head = f"🟠 TokenKey 边缘健康 — {n} 个 edge 即将掉单（预警·尚无客户端被拒）"
-    elif severity == "notice":
-        head = "🟡 TokenKey 边缘健康 — 账号配备风险变化（无宕机/降级）"
     else:
         head = "✅ TokenKey 边缘健康 — 全部恢复（无宕机/降级）"
     lines = [head, ""]
@@ -362,9 +327,9 @@ def _format_message(actionable: list, thin: list, no_accounts: list, healthy: li
     if (thin or no_accounts) and lines[-1] != "":
         lines.append("")
     if thin:
-        lines.append(f"薄边/SPOF（单账号，应补到 ≥2）: {_mark_new(thin, prev_posture_edges)}")
+        lines.append(f"薄边/SPOF（单账号，应补到 ≥2）: {', '.join(thin)}")
     if no_accounts:
-        lines.append(f"未配置账号（0 账号、无被拒流量——补号或下线，决策前不按宕机告警）: {_mark_new(no_accounts, prev_posture_edges)}")
+        lines.append(f"未配置账号（0 账号、无被拒流量——补号或下线，决策前不按宕机告警）: {', '.join(no_accounts)}")
     if healthy:
         lines.append(f"健康: {', '.join(healthy)}")
     lines.append("")
@@ -435,7 +400,16 @@ _case(
     {"should_alert": True, "severity": "recovery", "actionable_count": 0},
 )
 _case(
-    "incident recovers but SPOF posture remains => green recovery head, key keeps posture",
+    "incident recovers but SPOF posture remains => green recovery, actionable key clears",
+    [
+        {"edge": "uk2", "verdict": "healthy", "schedulable_accounts": 2},
+        {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
+    ],
+    "a:down:uk2",
+    {"should_alert": True, "severity": "recovery", "actionable_count": 0},
+)
+_case(
+    "legacy prev key with p: posture suffix => same as actionable-only prev",
     [
         {"edge": "uk2", "verdict": "healthy", "schedulable_accounts": 2},
         {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
@@ -453,24 +427,34 @@ _case(
     {"should_alert": False, "severity": "ok", "actionable_count": 0},
 )
 _case(
-    "posture drift: thin set first seen => ONE notice alert",
+    "posture drift: thin set first seen => silent (ok, empty message)",
     [
         {"edge": "uk1", "verdict": "thin", "schedulable_accounts": 1},
         {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
         {"edge": "prod", "verdict": "healthy"},
     ],
     "",
-    {"should_alert": True, "severity": "notice", "actionable_count": 0},
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
 )
 _case(
-    "chronic thin unchanged => silence (deduped via p: key)",
+    "chronic thin unchanged => silence",
+    [
+        {"edge": "uk1", "verdict": "thin", "schedulable_accounts": 1},
+        {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
+        {"edge": "prod", "verdict": "healthy"},
+    ],
+    "",
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
+)
+_case(
+    "legacy p:-only prev key migrates silently => no false recovery page",
     [
         {"edge": "uk1", "verdict": "thin", "schedulable_accounts": 1},
         {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
         {"edge": "prod", "verdict": "healthy"},
     ],
     "p:thin:uk1|p:thin:us2",
-    {"should_alert": False, "severity": "notice", "actionable_count": 0},
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
 )
 _case(
     "uk2/uk3 zero-account posture unchanged => silence, NOT chronic critical",
@@ -479,17 +463,17 @@ _case(
         {"edge": "uk3", "verdict": "no-accounts", "schedulable_accounts": 0, "total_accounts": 0},
         {"edge": "prod", "verdict": "healthy"},
     ],
-    "p:no-accounts:uk2|p:no-accounts:uk3",
-    {"should_alert": False, "severity": "notice", "actionable_count": 0},
+    "",
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
 )
 _case(
-    "posture resolved (account added, SPOF gone) => notice alert announces the change",
+    "posture resolved (account added) => silent when no actionable change",
     [
         {"edge": "uk1", "verdict": "healthy", "schedulable_accounts": 2},
         {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
     ],
-    "p:thin:uk1|p:thin:us2",
-    {"should_alert": True, "severity": "notice", "actionable_count": 0},
+    "",
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
 )
 _case(
     "unreachable edge => critical actionable",
@@ -583,16 +567,6 @@ _msg_case(
     ["排查三连"],
 )
 _msg_case(
-    "posture-only (thin + no-accounts) => 🟡 notice head with both posture lines",
-    [
-        {"edge": "uk1", "verdict": "thin", "schedulable_accounts": 1},
-        {"edge": "uk2", "verdict": "no-accounts", "schedulable_accounts": 0, "total_accounts": 0},
-        {"edge": "prod", "verdict": "healthy", "schedulable_accounts": 14},
-    ],
-    ["🟡", "账号配备风险变化", "薄边/SPOF（单账号，应补到 ≥2）: uk1", "未配置账号（0 账号", "uk2"],
-    ["🔴", "全部恢复", "宕机（down）"],
-)
-_msg_case(
     "incident cleared with posture residue => ✅ recovery head + posture lines",
     [
         {"edge": "uk2", "verdict": "healthy", "schedulable_accounts": 2},
@@ -600,7 +574,18 @@ _msg_case(
     ],
     ["✅", "全部恢复", "薄边/SPOF（单账号，应补到 ≥2）: us2"],
     ["🔴", "🟡"],
-    prev_key="a:down:uk2|p:thin:us2",
+    prev_key="a:down:uk2",
+)
+_msg_case(
+    "actionable alert footer lists posture without (新) tags",
+    [
+        {"edge": "us3", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 0,
+         "served_200": 0, "no_available_429": 32},
+        {"edge": "us5", "verdict": "thin", "schedulable_accounts": 1},
+        {"edge": "us6", "verdict": "no-accounts", "schedulable_accounts": 0, "total_accounts": 0},
+    ],
+    ["🔴", "薄边/SPOF（单账号，应补到 ≥2）: us5", "未配置账号（0 账号", "us6"],
+    ["(新)", "🟡"],
 )
 _msg_case(
     "unreachable => 探测不可达 action, no runbook",
@@ -645,18 +630,6 @@ _msg_case(
     ["⏱", "无流量经过", "未知"],
     ["单/分"],  # no rate invented when there is no traffic to estimate from
 )
-_msg_case(
-    "posture marks newly-appeared edges with 新, leaves chronic ones bare",
-    [
-        {"edge": "uk9", "verdict": "thin", "schedulable_accounts": 1},   # new this run
-        {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},   # already in prev key
-        {"edge": "prod", "verdict": "healthy", "schedulable_accounts": 14},
-    ],
-    ["uk9(新)", "us2"],
-    ["us2(新)"],  # chronic edge is NOT re-flagged as new
-    prev_key="p:thin:us2",
-)
-
 
 def _run_selftest() -> int:
     failures = 0
