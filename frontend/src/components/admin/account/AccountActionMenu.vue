@@ -36,7 +36,7 @@
               <Icon name="shield" size="sm" />
               {{ t('admin.accounts.setPrivacy') }}
             </button>
-            <button v-if="isAnthropic" @click="$emit('set-tier', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+            <button v-if="canSetTier" @click="$emit('set-tier', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="chart" size="sm" />
               {{ t('admin.accounts.setTierDialog.menuItem') }}
             </button>
@@ -86,7 +86,16 @@ const hasRecoverableState = computed(() => {
 const isAntigravityOAuth = computed(() => props.account?.platform === 'antigravity' && props.account?.type === 'oauth')
 const isOpenAIOAuth = computed(() => props.account?.platform === 'openai' && props.account?.type === 'oauth')
 const supportsPrivacy = computed(() => isAntigravityOAuth.value || isOpenAIOAuth.value)
-const isAnthropic = computed(() => props.account?.platform === 'anthropic')
+// Tier (5h window / session control) only applies to anthropic OAUTH and
+// setup-token accounts — mirrors backend AccountTierService.applyTier, which
+// rejects api-key / mirror-stub accounts (e.g. prod cc-<edge> stubs whose
+// concurrency is reconciler-mirrored, not tier-driven). Without this the menu
+// offered "设置 Tier" on stubs where the apply call always errors out.
+const canSetTier = computed(
+  () =>
+    props.account?.platform === 'anthropic' &&
+    (props.account?.type === 'oauth' || props.account?.type === 'setup-token')
+)
 const hasQuotaLimit = computed(() => {
   return (props.account?.type === 'apikey' || props.account?.type === 'bedrock') && (
     (props.account?.quota_limit ?? 0) > 0 ||
