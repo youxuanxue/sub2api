@@ -459,6 +459,14 @@
       "rationale": "TK-only modal for the admin 'Set Tier' action. Thin template that renders the tier options and the local-deployment-only scope warning (applying a tier writes ONLY this deployment's DB; fleet fan-out still needs the ops/anthropic pipeline). Guards against silent upstream-merge deletion."
     },
     {
+      "path": "frontend/src/components/admin/account/AccountActionMenu.vue",
+      "must_contain": [
+        "canSetTier",
+        "props.account?.type === 'oauth' || props.account?.type === 'setup-token'"
+      ],
+      "rationale": "TK-only '设置 Tier' menu entry point lives in this upstream-shaped action menu. The canSetTier gate restricts the action to platform=anthropic AND type in {oauth, setup-token}, mirroring backend AccountTierService.applyTier — which rejects api-key / mirror-stub accounts (e.g. prod cc-<edge> stubs whose concurrency is reconciler-mirrored, not tier-driven). Without this anchor an upstream merge could silently revert the gate to a broader condition (e.g. any anthropic account), re-exposing a tier action that always errors out on stubs. The type-restriction substring is the load-bearing semantic; pinning it makes the regression a hard CI failure instead of a silent clobber. Companion regression test: AccountActionMenu.spec.ts."
+    },
+    {
       "path": "frontend/src/api/admin/tier.ts",
       "must_contain": [
         "/admin/tiers",
