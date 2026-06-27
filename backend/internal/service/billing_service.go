@@ -304,6 +304,32 @@ func (s *BillingService) initFallbackPricing() {
 	}
 	// GPT-5.5 暂无独立定价，回退到 GPT-5.4
 	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.4"]
+	// GPT-5.6 preview tiers (OpenAI 2026-06-26 list; mirror also carries real prices).
+	s.fallbackPrices["gpt-5.6-sol"] = &ModelPricing{
+		InputPricePerToken:         5e-6,
+		OutputPricePerToken:        3e-5,
+		CacheCreationPricePerToken: 6.25e-6,
+		CacheReadPricePerToken:     5e-7,
+		SupportsCacheBreakdown:     false,
+		LongContextInputThreshold:  openAIGPT54LongContextInputThreshold,
+		LongContextInputMultiplier: openAIGPT54LongContextInputMultiplier,
+		LongContextOutputMultiplier: openAIGPT54LongContextOutputMultiplier,
+	}
+	s.fallbackPrices["gpt-5.6-terra"] = &ModelPricing{
+		InputPricePerToken:         2.5e-6,
+		OutputPricePerToken:        1.5e-5,
+		CacheCreationPricePerToken: 3.125e-6,
+		CacheReadPricePerToken:     2.5e-7,
+		SupportsCacheBreakdown:     false,
+	}
+	s.fallbackPrices["gpt-5.6-luna"] = &ModelPricing{
+		InputPricePerToken:         1e-6,
+		OutputPricePerToken:        6e-6,
+		CacheCreationPricePerToken: 1.25e-6,
+		CacheReadPricePerToken:     1e-7,
+		SupportsCacheBreakdown:     false,
+	}
+	s.fallbackPrices["gpt-5.6-chat-latest"] = s.fallbackPrices["gpt-5.6-sol"]
 
 	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
 		InputPricePerToken:     7.5e-7,
@@ -704,6 +730,12 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// OpenAI（GPT-5 / Codex 族）：仅匹配已知型号，避免未知 OpenAI 型号误计价。
 	if normalized := normalizeKnownOpenAICodexModel(modelLower); normalized != "" {
 		switch normalized {
+		case "gpt-5.6-sol":
+			return s.fallbackPrices["gpt-5.6-sol"]
+		case "gpt-5.6-terra":
+			return s.fallbackPrices["gpt-5.6-terra"]
+		case "gpt-5.6-luna":
+			return s.fallbackPrices["gpt-5.6-luna"]
 		case "gpt-5.5":
 			return s.fallbackPrices["gpt-5.5"]
 		case "gpt-5.4-mini":
@@ -1128,7 +1160,7 @@ func isOpenAIGPT54Model(model string) bool {
 	// normalizeCodexModel 的默认兜底把非 OpenAI 模型（claude-*、gemini-*、gpt-4o）
 	// 误识别为 gpt-5.4。
 	normalized := normalizeKnownOpenAICodexModel(model)
-	return normalized == "gpt-5.4" || normalized == "gpt-5.5"
+	return normalized == "gpt-5.4" || normalized == "gpt-5.5" || strings.HasPrefix(normalized, "gpt-5.6")
 }
 
 // CalculateCostWithConfig 使用配置中的默认倍率计算费用
