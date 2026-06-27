@@ -5,11 +5,15 @@ import PricingView from '../PricingView.vue'
 import type { PublicCatalogResponse } from '@/api/pricing'
 import type { MePricingCatalogResponse } from '@/api/me-pricing'
 
-const { getPublicPricing, getMePricingCatalog, authState } = vi.hoisted(() => ({
-  getPublicPricing: vi.fn(),
-  getMePricingCatalog: vi.fn(),
-  authState: { isAuthenticated: false, isAdmin: false },
-}))
+const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, showSuccess, showError } =
+  vi.hoisted(() => ({
+    getPublicPricing: vi.fn(),
+    getMePricingCatalog: vi.fn(),
+    authState: { isAuthenticated: false, isAdmin: false },
+    exportPricingCsv: vi.fn(),
+    showSuccess: vi.fn(),
+    showError: vi.fn(),
+  }))
 
 vi.mock('@/api/pricing', () => ({
   getPublicPricing,
@@ -17,6 +21,10 @@ vi.mock('@/api/pricing', () => ({
 
 vi.mock('@/api/me-pricing', () => ({
   getMePricingCatalog,
+}))
+
+vi.mock('@/composables/useTkPricingExport', () => ({
+  exportPricingCsv,
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -33,6 +41,8 @@ vi.mock('@/stores/app', () => ({
       backend_mode_enabled: false,
     },
     fetchPublicSettings: vi.fn(),
+    showSuccess,
+    showError,
   }),
 }))
 
@@ -96,7 +106,10 @@ vi.mock('vue-i18n', async () => {
     'pricing.my.exploreBanner.message': 'Viewing {group} catalog',
     'pricing.my.exploreBanner.cta': 'Create key in {group}',
     'pricing.my.noKeyHint': '',
-    'pricing.perRequest': '/ request'
+    'pricing.perRequest': '/ request',
+    'pricing.export.button': 'Export CSV',
+    'pricing.export.success': 'Pricing exported',
+    'pricing.export.empty': 'Public catalog is empty — nothing to export'
   }
   return {
     ...actual,
@@ -211,6 +224,9 @@ describe('PricingView', () => {
   beforeEach(() => {
     getPublicPricing.mockReset()
     getMePricingCatalog.mockReset()
+    exportPricingCsv.mockReset()
+    showSuccess.mockReset()
+    showError.mockReset()
     localStorage.clear()
     authState.isAuthenticated = false
     authState.isAdmin = false
@@ -387,5 +403,77 @@ describe('PricingView', () => {
     expect(getPublicPricing).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('Viewing the public catalog')
     expect(wrapper.text()).toContain('public-model')
+  })
+
+  it('shows the export button to admins even on a Your-Menu (my) view', async () => {
+    authState.isAuthenticated = true
+    authState.isAdmin = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(meCatalog())
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    // Landed on the my-view (Your-Menu), yet the admin export button is visible.
+    expect(wrapper.text()).toContain('Viewing default · Pro')
+    expect(wrapper.find('[data-tk="pricing-export-csv"]').exists()).toBe(true)
+  })
+
+  it('hides the export button from non-admins', async () => {
+    authState.isAuthenticated = true
+    authState.isAdmin = false
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(meCatalog())
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-tk="pricing-export-csv"]').exists()).toBe(false)
+  })
+
+  it('export from a my-view auto-switches to the public catalog then exports', async () => {
+    authState.isAuthenticated = true
+    authState.isAdmin = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(meCatalog())
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('public-model')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    // Sanity: started on the my-view and the public catalog was NOT fetched yet.
+    expect(wrapper.text()).toContain('Viewing default · Pro')
+    expect(getPublicPricing).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-tk="pricing-export-csv"]').trigger('click')
+    await flushPromises()
+
+    // Switched to public, loaded it, and exported that catalog.
+    expect(getPublicPricing).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('Viewing the public catalog')
+    expect(exportPricingCsv).toHaveBeenCalledTimes(1)
+    expect(exportPricingCsv.mock.calls[0][0]).toMatchObject({
+      data: [expect.objectContaining({ model_id: 'public-model' })],
+    })
+    expect(showSuccess).toHaveBeenCalledTimes(1)
+    expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('export surfaces an error when the public catalog is empty', async () => {
+    authState.isAuthenticated = true
+    authState.isAdmin = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(meCatalog())
+    getPublicPricing.mockResolvedValue(publicCatalog([]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-export-csv"]').trigger('click')
+    await flushPromises()
+
+    expect(getPublicPricing).toHaveBeenCalledTimes(1)
+    expect(exportPricingCsv).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledTimes(1)
   })
 })

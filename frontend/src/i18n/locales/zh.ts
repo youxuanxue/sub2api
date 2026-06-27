@@ -26,7 +26,8 @@ export default {
     tableHint: '可左右滑动或横向滚动查看全部列；左侧模型名称支持换行显示。',
     export: {
       button: '导出 CSV',
-      success: '定价已导出'
+      success: '定价已导出',
+      empty: '对外价目录为空，无可导出内容'
     },
     tieredBadge: '阶梯 ×{n}',
     footer: {
