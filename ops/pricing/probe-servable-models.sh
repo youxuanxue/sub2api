@@ -15,6 +15,7 @@
 #     NB gemini families run ON the edge host and hit the app container directly
 #     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
 #   GROK_CHAT_MODELS         -> POST app:8080/v1/chat/completions  (native grok, edge-internal)
+#   ANTIGRAVITY_CHAT_MODELS  -> POST <prod>/v1/chat/completions  (native antigravity, PROD gateway)
 #     NB grok lives on its native edge pool (currently edge-us4). Like gemini,
 #     the edge-local probe hits the app container directly instead of the public
 #     Caddy path. Use run-probe with --target edge:us4 and a key bound to the
@@ -75,6 +76,7 @@
 #   PROBE_GROK_SOURCE_GROUP  default grok (verified edge native grok group; CASE-SENSITIVE)
 #   GROK_APP_CONTAINER       default tokenkey-caddy
 #   GROK_APP_URL             default http://tokenkey:8080
+#   PROBE_ANTIGRAVITY_SOURCE_GROUP default Google-Gemini (PROD antigravity group; CASE-SENSITIVE)
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
 # Output: one TSV line per model on stdout (keys never printed):
@@ -140,6 +142,11 @@ PROBE_GROK_SOURCE_GROUP="${PROBE_GROK_SOURCE_GROUP:-grok}"
 # families — no edge-internal wget hop is needed (prod's Caddy is not CIDR-restricted).
 GROK_APP_CONTAINER="${GROK_APP_CONTAINER:-tokenkey-caddy}"
 GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
+# antigravity accounts (e.g. antigravity-us3/us4 in the "Google-Gemini" group) live in
+# the PROD DB and are scheduled from prod, so antigravity probes the PROD public gateway
+# with external curl — same transport as gemini/zhipu (prod Caddy is not CIDR-restricted),
+# NOT the edge-internal wget hop. The "-usN" suffix is an upstream label, not an edge.
+PROBE_ANTIGRAVITY_SOURCE_GROUP="${PROBE_ANTIGRAVITY_SOURCE_GROUP:-Google-Gemini}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
@@ -248,19 +255,27 @@ probe_openai_endpoint() { # back-compat wrapper: openai family always targets PR
 	probe_compat_endpoint openai "$PROD" "$1" "$2" "$3" "$4"
 }
 
-probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
-	local key="$1" path="$2" models="$3" buildfn="$4" m hf bf code body
+# probe_edge_internal_compat: native edge-served OpenAI-compat probe. Runs ON an edge
+# host and hits the app container directly via the caddy container (busybox wget over the
+# docker network, bypassing the edge Caddy /v1/* CIDR restriction). Shared by the native
+# edge platforms grok + antigravity — only the emit-tag, container, and app URL differ.
+probe_edge_internal_compat() { # $1=tag $2=container $3=app-url $4=key $5=endpoint $6=models $7=jsonbody-template-fn
+	local tag="$1" container="$2" appurl="$3" key="$4" path="$5" models="$6" buildfn="$7" m hf bf code body
 	for m in $models; do
 		hf="$(mktemp)"; bf="$(mktemp)"; body="$($buildfn "$m")"
-		sudo docker exec "$GROK_APP_CONTAINER" wget -S -q -O - --timeout=90 \
+		sudo docker exec "$container" wget -S -q -O - --timeout=90 \
 			--header="Authorization: Bearer $key" --header='content-type: application/json' \
-			--post-data="$body" "$GROK_APP_URL$path" >"$bf" 2>"$hf" || true
+			--post-data="$body" "$appurl$path" >"$bf" 2>"$hf" || true # preflight-allow: swallow (status parsed from -S header file)
 		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$' || true)" # preflight-allow: swallow (no status line -> code stays empty -> next line sets 000)
 		[ -z "$code" ] && code=000
-		emit grok "$m" "$code" "$(verdict "$code" "$bf")"
+		emit "$tag" "$m" "$code" "$(verdict "$code" "$bf")"
 		rm -f "$hf" "$bf"
 		sleep "$REQ_SLEEP"
 	done
+}
+
+probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn (back-compat wrapper)
+	probe_edge_internal_compat grok "$GROK_APP_CONTAINER" "$GROK_APP_URL" "$1" "$2" "$3" "$4"
 }
 
 body_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
@@ -376,6 +391,12 @@ main() {
 		if [ -z "$arkkey" ] || [ -z "$arkbase" ]; then
 			cfgerr volcengine "no api_key/base_url on ark account id=$arkacct (ARK_ACCOUNT_ID)"
 		else
+			# NOTE: doubao-seed-translation-* 400s on the bare chat probe AND on a plain
+			# translate prompt — Ark's translation models need a proprietary request shape
+			# (translation params) not documented in the new-api volcengine adaptor. Until
+			# that authoritative shape is known it stays inconclusive (the model is priced +
+			# served in prod regardless; this only affects probe classification). Do NOT ship
+			# a guessed shape. See SKILL.md "translation 族探测" note.
 			[ -n "${ARK_CHAT_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/chat/completions "$ARK_CHAT_MODELS" body_chat
 			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_img
 			[ -n "${ARK_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/contents/generations/tasks "$ARK_VIDEO_MODELS" body_ark_video
@@ -413,6 +434,17 @@ main() {
 			probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
 		else
 			cfgerr grok "failed to prepare __tk_probe_grok_* (source_group=$PROBE_GROK_SOURCE_GROUP)"
+		fi
+	fi
+	# Antigravity family: native edge-served (accounts e.g. antigravity-us3/us4 in the
+	# "Google-Gemini" group). Same edge-internal transport as grok (caddy -> app:8080).
+	# Probe key is a TK api_key bound to the edge-side antigravity group; never printed.
+	if [ -n "${ANTIGRAVITY_CHAT_MODELS:-}" ]; then
+		if tk_probe_catalog_key antigravity antigravity source_group "$PROBE_ANTIGRAVITY_SOURCE_GROUP"; then
+			agkey="$REPLY_KEY"
+			probe_compat_endpoint antigravity "$PROD" "$agkey" /v1/chat/completions "$ANTIGRAVITY_CHAT_MODELS" body_chat
+		else
+			cfgerr antigravity "failed to prepare __tk_probe_antigravity_* (source_group=$PROBE_ANTIGRAVITY_SOURCE_GROUP — this edge has no schedulable antigravity account; rotate to another edge)"
 		fi
 	fi
 	# Gemini family: newapi/Vertex models. Live Vertex capacity moved from edge us6

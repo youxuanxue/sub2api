@@ -168,6 +168,37 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
   `volcengine` 行天然忽略（该 vendor 在公开目录是 passthrough）。本族是运营对账工具：输出与账号
   `model_mapping` 做差集 → 未开通的从 mapping 清掉，已开通∩未定价的先补价再放行（对照 deepseek-v4
   渠道定价样板，见 memory `volc_video_submit_200_and_ark_pricing_path`）。
+- **translation 族探测暂缺**（`doubao-seed-translation-*`）：bare chat 体（"hi"）与朴素翻译 prompt 都 400
+  （非 retired/not-found → inconclusive），Ark 翻译模型要一套**专属请求形**（翻译参数），new-api
+  volcengine adaptor 未收录其契约。**禁臆造**：拿到权威 shape 前不写猜测体（该模型在 prod 已定价+在服务，
+  只影响探测分类，不影响计费）。`probe-servable-models.sh` 的 ark chat 分支已留 NOTE。
+
+## Grok / Antigravity（原生平台，手维 allowlist，可探测但不在 `run` tuple）
+
+grok（第七平台）与 antigravity 的 Go allowlist 是**手维**的（`refresh-servable-allowlist.py` 的探测
+tuple 只有 anthropic/openai/gemini）。但 `probe-servable-models.sh` 现已支持二者实地探测——结果**不进
+`run` 自动 splice**（`parse_results` 只认三族），是运营对账/补全清单的依据：
+
+```bash
+# grok：edge 原生 OAuth 池（当前 us4），edge-internal wget，源组 "grok"
+bash ops/observability/run-probe.sh --target edge:us4 --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "GROK_CHAT_MODELS=grok-code-fast-1 grok-4.3 grok-build-0.1" --timeout-seconds 110
+
+# antigravity：账号在 PROD DB（"Google-Gemini" 组，如 antigravity-us3/us4），经 PROD 公网网关
+# 外部 curl（与 gemini/zhipu 同款，非 edge-internal——"-usN" 是上游标签不是 edge）
+bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "ANTIGRAVITY_CHAT_MODELS=gemini-2.5-flash gemini-3-flash gemini-pro-agent" --timeout-seconds 110
+```
+
+- **闸视角**：grok **无家族 floor** → 每个 servable grok 必须有真价（overlay），否则被价格闸拒；
+  antigravity 全是 `gemini-*` 命名 → 命中 **gemini 家族 floor**（按模型名、平台无关）→ 永不拒，
+  缺真价只走 `served_at_fallback` 告警收敛。
+- **allowlist 是手维 + 运营策展面**（antigravity 注释「gemini only per operator policy」）：探测发现
+  「servable 但未列」的 id（如实测 `gemini-3.5-flash` 200、却只列了 `-low`/`-extra-low` 变体且仅 floor 计价）
+  **先报运营定夺是否进公开菜单**，不要单方面改策展列表（无闸影响时尤其）。
+- grok imagine 图/视频族与 antigravity 图族（`gemini-*-image`）无对应 image/video 探测分支，暂只探 chat。
 
 ## 判断要点 / 坑
 
