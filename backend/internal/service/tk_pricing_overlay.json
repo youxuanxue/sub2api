@@ -1338,5 +1338,11 @@
     "mode": "image_generation",
     "output_cost_per_image": 0.0672,
     "source": "Gemini 3.1 Flash Image (preview) via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3-pro-image": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.134,
+    "source": "Gemini 3 Pro Image via antigravity (per-image display /bin/zsh.134 = 1K/2K official Vertex rate, 1120 output tokens; = TK getDefaultImagePrice hardcoded fallback). Ref docs/accounts/google_vertex_pricing_20260619.md. Serves as itself (migration 049 identity mapping; -preview maps into it). Gemini-native image bills via the /v1/chat/completions token path, so this is the display figure. Surfaced by audit-display-coverage 2026-06-27."
   }
 }
