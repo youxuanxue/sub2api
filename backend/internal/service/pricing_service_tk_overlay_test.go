@@ -94,6 +94,33 @@ func TestTKPricingOverlay_FillsAntigravityGeminiThinking(t *testing.T) {
 	require.True(t, thinking.SupportsPromptCaching)
 }
 
+// TestTKPricingOverlay_FillsGeminiProAgent verifies the Antigravity Gemini 3.1 Pro
+// High wire id (gemini-pro-agent) has a concrete price. Without this overlay entry the
+// model was servable but billed $0 (upstream Wei-Shaw/sub2api#2486).
+func TestTKPricingOverlay_FillsGeminiProAgent(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"gemini-2.5-pro": {
+			"input_cost_per_token": 0.00000125,
+			"output_cost_per_token": 0.00001,
+			"cache_read_input_token_cost": 0.000000125,
+			"litellm_provider": "vertex_ai-language-models",
+			"mode": "chat"
+		}
+	}`)
+
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	proAgent := data["gemini-pro-agent"]
+	require.NotNil(t, proAgent, "overlay must inject gemini-pro-agent")
+	require.Equal(t, "antigravity", proAgent.LiteLLMProvider)
+	require.Equal(t, "chat", proAgent.Mode)
+	require.InDelta(t, 2e-6, proAgent.InputCostPerToken, 1e-15)
+	require.InDelta(t, 1.2e-5, proAgent.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 2e-7, proAgent.CacheReadInputTokenCost, 1e-15)
+}
+
 // TestTKPricingOverlay_ZeroPlaceholderIsReplaced verifies the absent-or-zero fill:
 // a source entry whose every cost field is 0.0 (litellm's "cost unknown" shape —
 // the exact prod state of deepseek-v3-2-251201 under volcengine, which billed 683

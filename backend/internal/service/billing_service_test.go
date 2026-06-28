@@ -34,6 +34,13 @@ func TestCalculateCost_BasicComputation(t *testing.T) {
 	require.InDelta(t, expectedInput+expectedOutput, cost.ActualCost, 1e-10)
 }
 
+func TestCalculateCost_GeminiProAgent_FallbackFloorNonZero(t *testing.T) {
+	svc := newTestBillingService()
+	cost, err := svc.CalculateCost("gemini-pro-agent", UsageTokens{InputTokens: 1000, OutputTokens: 500}, 1.0)
+	require.NoError(t, err)
+	require.Greater(t, cost.ActualCost, 0.0, "Wei-Shaw/sub2api#2486: gemini-pro-agent must never bill $0 via nil pricing")
+}
+
 func TestCalculateCost_WithCacheTokens(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -360,7 +367,8 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		// floor (never $0, never rejected) and fires served_at_fallback → fill. Real-priced gemini
 		// models resolve in GetModelPricing before this fallback.
 		{name: "gemini-*-pro unknown → pro family floor", model: "gemini-2.0-pro", expectedInput: 1.25e-6},
-		{name: "gemini-pro-agent → pro family floor", model: "gemini-pro-agent", expectedInput: 1.25e-6},
+		// Wei-Shaw/sub2api#2486: gemini-pro-agent falls back to pro family floor (never $0).
+		{name: "gemini-pro-agent falls back to pro family floor", model: "gemini-pro-agent", expectedInput: 1.25e-6},
 		{name: "gemini-*-flash unknown → flash family floor", model: "gemini-9-flash-preview", expectedInput: 3e-7},
 		{name: "gemini-*-flash-lite unknown → flash-lite floor (S3: no 6x overcharge)", model: "gemini-9-flash-lite-x", expectedInput: 1e-7},
 		{name: "gemini unknown no tier → flash-tier median floor", model: "gemini-9-ultra", expectedInput: 3e-7},
