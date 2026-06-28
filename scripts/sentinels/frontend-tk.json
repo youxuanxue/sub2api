@@ -82,9 +82,20 @@
       "must_contain": [
         "syncAdminUiZoom",
         "TK_ADMIN_UI_ZOOM",
-        "document.documentElement.style.zoom"
+        "document.documentElement.style.zoom",
+        "tk-admin-ui-zoom",
+        "admin-ui-zoom.tk.css"
       ],
-      "rationale": "Persistent admin shell (PR #935) owns AppLayout once for all /admin/* routes. TK applies documentElement zoom here so dense admin tables fit without per-session browser scaling; an upstream merge that rewrites the shell file could silently drop the zoom hook while admin-shell-layout still passes."
+      "rationale": "Persistent admin shell (PR #935) owns AppLayout once for all /admin/* routes. TK applies documentElement zoom here so dense admin tables fit without per-session browser scaling; the tk-admin-ui-zoom class + admin-ui-zoom.tk.css compensate vh-based heights that would otherwise leave bottom whitespace at 80% zoom. An upstream merge that rewrites the shell file could silently drop the zoom hook while admin-shell-layout still passes."
+    },
+    {
+      "path": "frontend/src/styles/admin-ui-zoom.tk.css",
+      "must_contain": [
+        "html.tk-admin-ui-zoom .min-h-screen",
+        "html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode)",
+        "var(--tk-admin-ui-zoom)"
+      ],
+      "rationale": "Viewport-height compensation for AdminShellView document zoom. Without these rules, min-h-screen / TablePageLayout 100vh calcs stay in unzoomed viewport units and admin pages show ~20% blank space at the bottom."
     },
     {
       "path": "frontend/src/views/user/studio/BakeOff.vue",

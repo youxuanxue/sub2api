@@ -25,6 +25,8 @@ vi.mock('@/components/layout/AppLayout.vue', () => ({
 describe('AdminShellView', () => {
   afterEach(() => {
     document.documentElement.style.zoom = ''
+    document.documentElement.classList.remove('tk-admin-ui-zoom')
+    document.documentElement.style.removeProperty('--tk-admin-ui-zoom')
     route.name = 'AdminAccounts'
     route.query = {}
   })
@@ -32,6 +34,10 @@ describe('AdminShellView', () => {
   it('applies the admin UI zoom on mount for normal admin routes', () => {
     mount(AdminShellView)
     expect(document.documentElement.style.zoom).toBe(String(TK_ADMIN_UI_ZOOM))
+    expect(document.documentElement.classList.contains('tk-admin-ui-zoom')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--tk-admin-ui-zoom')).toBe(
+      String(TK_ADMIN_UI_ZOOM)
+    )
   })
 
   it('clears zoom for ops fullscreen shellless mode', () => {
@@ -39,6 +45,8 @@ describe('AdminShellView', () => {
     route.query = { fullscreen: '1' }
     mount(AdminShellView)
     expect(document.documentElement.style.zoom).toBe('')
+    expect(document.documentElement.classList.contains('tk-admin-ui-zoom')).toBe(false)
+    expect(document.documentElement.style.getPropertyValue('--tk-admin-ui-zoom')).toBe('')
   })
 
   it('restores zoom when leaving ops fullscreen', async () => {
@@ -50,6 +58,7 @@ describe('AdminShellView', () => {
     route.query = {}
     await wrapper.vm.$nextTick()
     expect(document.documentElement.style.zoom).toBe(String(TK_ADMIN_UI_ZOOM))
+    expect(document.documentElement.classList.contains('tk-admin-ui-zoom')).toBe(true)
   })
 
   it('clears zoom on unmount so user routes stay at 100%', () => {
@@ -57,5 +66,7 @@ describe('AdminShellView', () => {
     expect(document.documentElement.style.zoom).toBe(String(TK_ADMIN_UI_ZOOM))
     wrapper.unmount()
     expect(document.documentElement.style.zoom).toBe('')
+    expect(document.documentElement.classList.contains('tk-admin-ui-zoom')).toBe(false)
+    expect(document.documentElement.style.getPropertyValue('--tk-admin-ui-zoom')).toBe('')
   })
 })
