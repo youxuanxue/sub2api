@@ -6,9 +6,10 @@
       "path": "frontend/src/constants/layout.ts",
       "must_contain": [
         "TK_SIDEBAR_WIDTH_CLASS",
-        "TK_SIDEBAR_MAIN_MARGIN_CLASS"
+        "TK_SIDEBAR_MAIN_MARGIN_CLASS",
+        "TK_ADMIN_UI_ZOOM"
       ],
-      "rationale": "Single source of truth for TK sidebar geometry. AppSidebar.vue / AppLayout.vue import these so upstream-shaped layout files stay close to upstream; if either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
+      "rationale": "Single source of truth for TK sidebar geometry and admin-shell default zoom. AppSidebar.vue / AppLayout.vue import the sidebar constants so upstream-shaped layout files stay close to upstream; AdminShellView imports TK_ADMIN_UI_ZOOM for the ops default 80% scale. If either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
     },
     {
       "path": "frontend/src/composables/useTkExportPanel.ts",
@@ -75,6 +76,15 @@
         "@/views/admin/AdminShellView.vue"
       ],
       "rationale": "TK-isolated admin route subtree (extracted from router/index.ts to minimize upstream-merge conflicts, see CLAUDE.md §5). The `adminRoutes` export is the contract index.ts spreads; the AdminShellView import is the persistent-shell nesting (PR #935) that the admin-shell-layout guard depends on. Anchor both so a refactor or merge that flattens the shell or breaks the export is caught at preflight time rather than in prod."
+    },
+    {
+      "path": "frontend/src/views/admin/AdminShellView.vue",
+      "must_contain": [
+        "syncAdminUiZoom",
+        "TK_ADMIN_UI_ZOOM",
+        "document.documentElement.style.zoom"
+      ],
+      "rationale": "Persistent admin shell (PR #935) owns AppLayout once for all /admin/* routes. TK applies documentElement zoom here so dense admin tables fit without per-session browser scaling; an upstream merge that rewrites the shell file could silently drop the zoom hook while admin-shell-layout still passes."
     },
     {
       "path": "frontend/src/views/user/studio/BakeOff.vue",
