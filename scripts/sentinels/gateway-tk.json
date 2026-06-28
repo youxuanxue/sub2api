@@ -3489,6 +3489,16 @@
         "if s, e, ok := parseNamedRange(c); ok {"
       ],
       "rationale": "parseTimeRange MUST consult parseNamedRange (server-TZ calendar presets) after parseAbsoluteRange and before the viewer-timezone date-string fallback. If this injection line is dropped on an upstream merge, the resolver in dashboard_handler_tk_window.go is orphaned and admin calendar presets silently revert to browser-timezone windows — the cross-surface 今日消费 mismatch returns with no compile error."
+    },
+    {
+      "path": "backend/internal/pkg/timezone/timezone.go",
+      "must_contain": [
+        "userTZ is ignored",
+        "_ = userTZ",
+        "return ParseInLocation(layout, value)",
+        "return StartOfDay(t)"
+      ],
+      "rationale": "Billing-day boundaries MUST use the server-configured timezone only. ParseInUserLocation / NowInUserLocation / StartOfDayInUserLocation keep the userTZ parameter for API compatibility but ignore it — an upstream merge that restores client-timezone parsing would silently desync admin groups today_cost, account today-stats, dashboard calendar windows, and usage date filters while still compiling. Pins the ignore-and-delegate implementation in this upstream-shaped file."
     }
   ]
 }
