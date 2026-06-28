@@ -500,3 +500,47 @@ func TestPricingCatalogService_NilReceiverIsSafe(t *testing.T) {
 	assert.Equal(t, "list", resp.Object)
 	assert.Empty(t, resp.Data)
 }
+
+func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T) {
+	// The upstream price mirror carries antigravity-served wire ids under the
+	// vertex_ai vendor; without re-attribution the gemini gate (constrained Vertex
+	// allowlist) drops them from the public catalog (#1029/#1030 follow-up — same
+	// class as the gpt-5.6 display gap, on the antigravity surface).
+	in := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
+		{ModelID: "gemini-3.5-flash", Vendor: "vertex_ai-language-models"},               // antigravity-exclusive, mirror-vendored
+		{ModelID: "gemini-3-pro-image", Vendor: "antigravity"},                           // antigravity-exclusive, overlay-injected
+		{ModelID: "gemini-2.5-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
+		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // gemini allowlist
+		{ModelID: "gemini-9-experimental-unlisted", Vendor: "vertex_ai-language-models"}, // in NO allowlist -> dropped
+	}}
+	out := FilterPublicCatalogToServable(in)
+	require.NotNil(t, out)
+	byID := map[string]PublicCatalogModel{}
+	for _, m := range out.Data {
+		byID[m.ModelID] = m
+	}
+
+	// antigravity-exclusive, mirror-vendored: survives + re-attributed to antigravity
+	m, ok := byID["gemini-3.5-flash"]
+	require.True(t, ok, "antigravity-exclusive gemini-* must survive the public filter")
+	assert.Equal(t, "antigravity", m.Vendor, "re-attributed to antigravity vendor")
+	// antigravity-exclusive, already overlay-injected as antigravity: survives unchanged
+	m, ok = byID["gemini-3-pro-image"]
+	require.True(t, ok)
+	assert.Equal(t, "antigravity", m.Vendor)
+	// dual-listed: survives, vendor NOT changed (genuinely Vertex-served too)
+	m, ok = byID["gemini-2.5-flash"]
+	require.True(t, ok, "dual-listed gemini survives")
+	assert.Equal(t, "vertex_ai-language-models", m.Vendor, "dual-listed keeps gemini vendor")
+	// plain gemini-allowlist model: survives, untouched
+	_, ok = byID["imagen-4.0-generate-001"]
+	assert.True(t, ok)
+	// vertex_ai model in NO allowlist: still dropped (the gemini gate stays strict)
+	_, ok = byID["gemini-9-experimental-unlisted"]
+	assert.False(t, ok, "vertex_ai model in no allowlist is still dropped")
+
+	// pure-function unit
+	assert.Equal(t, "antigravity", presentationVendorForServable("gemini-3.5-flash", "vertex_ai-language-models"))
+	assert.Equal(t, "vertex_ai-language-models", presentationVendorForServable("gemini-2.5-flash", "vertex_ai-language-models"))
+	assert.Equal(t, "openai", presentationVendorForServable("gpt-5.6-sol", "openai")) // non-antigravity untouched
+}

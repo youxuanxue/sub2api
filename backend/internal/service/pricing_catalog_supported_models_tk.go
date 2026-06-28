@@ -265,12 +265,43 @@ func FilterPublicCatalogToServable(resp *PublicCatalogResponse) *PublicCatalogRe
 	out := *resp // shallow copy: Object/UpdatedAt carried, Data replaced
 	filtered := make([]PublicCatalogModel, 0, len(resp.Data))
 	for _, m := range resp.Data {
+		// m is a by-value copy of the row — re-tagging its vendor here is
+		// presentation-only and never mutates the caller's cached BuildPublicCatalog.
+		m.Vendor = presentationVendorForServable(m.ModelID, m.Vendor)
 		if isPublicCatalogModelSupported(m.Vendor, m.ModelID) {
 			filtered = append(filtered, m)
 		}
 	}
 	out.Data = filtered
 	return &out
+}
+
+// presentationVendorForServable re-tags antigravity-served wire ids that the
+// upstream price mirror carries under a gemini/vertex vendor. The mirror routes
+// names like gemini-3.5-flash / gemini-3-pro-image / gemini-*-image to the
+// PlatformGemini gate, whose allowlist (the constrained Vertex 7-key set) lacks
+// them — so the public catalog silently drops them even though antigravity serves
+// them and the overlay/source prices them (#1029/#1030 follow-up: same class as
+// the gpt-5.6 display gap, on a different surface). A model that is in the
+// antigravity allowlist but NOT the gemini allowlist is antigravity-EXCLUSIVE:
+// re-attribute it to the antigravity vendor so it passes the antigravity gate and
+// displays under the correct (antigravity-served) vendor. Dual-listed ids (e.g.
+// gemini-2.5-flash, in BOTH sets) are genuinely Vertex-served too and keep the
+// gemini vendor. Presentation-only by construction (the caller copies rows by
+// value), so IsModelPriced / the Your-Menu metadata join are untouched.
+// ("public catalog" = the catalog behind GET /api/v1/public/pricing; the UI labels
+// that view 「所有分组 / All groups」 since #1037 — symbol names stay publicCatalog.)
+func presentationVendorForServable(modelID, vendor string) string {
+	if _, ag := supportedAntigravityCatalogModels[modelID]; !ag {
+		return vendor
+	}
+	if _, gem := supportedGeminiCatalogModels[modelID]; gem {
+		return vendor // dual-listed: genuinely Vertex-served, keep gemini vendor
+	}
+	if inferPlatformFromVendor(vendor) == PlatformGemini {
+		return PlatformAntigravity
+	}
+	return vendor
 }
 
 // supportedCatalogModelIDsForPlatform returns the empirically-servable model
