@@ -1,6 +1,8 @@
 /* TK: compensate viewport-based heights when AdminShellView applies document zoom.
    CSS zoom scales visual output but vh / min-h-screen stay in unzoomed viewport
-   units, leaving ~(1 - zoom) * 100vh blank space at the bottom of admin pages. */
+   units. Pass 1: scale shell wrappers. Pass 2: flex-fill admin table pages so
+   TablePageLayout consumes the space below filters/pagination instead of leaving
+   a dead band above main bottom padding. */
 
 html.tk-admin-ui-zoom,
 html.tk-admin-ui-zoom body {
@@ -11,6 +13,30 @@ html.tk-admin-ui-zoom .min-h-screen {
   min-height: calc(100vh / var(--tk-admin-ui-zoom));
 }
 
+/* AppLayout: header + main stack fills the compensated viewport. */
+html.tk-admin-ui-zoom .min-h-screen.bg-gray-50 > .relative.min-h-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh / var(--tk-admin-ui-zoom));
+}
+
+html.tk-admin-ui-zoom main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (min-width: 1024px) {
+  html.tk-admin-ui-zoom main {
+    padding-bottom: 1rem;
+  }
+}
+
+/* Flex fill beats vh subtraction — chrome/padding drift under zoom caused the
+   post-#1047 gap below pagination on /admin/accounts. */
 html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode) {
-  height: calc((100vh - 64px - 4rem) / var(--tk-admin-ui-zoom));
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
 }
