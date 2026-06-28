@@ -588,6 +588,22 @@
         "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go:TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete",
         "backend/internal/service/gateway_forward_as_responses_test.go:TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2232",
+      "severity": "high",
+      "summary": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges multipart/JSON edit requests to the ChatGPT Responses image_generation tool with action=edit (source image + optional mask as data URLs), instead of failing on unsupported native /images/edits passthrough.",
+      "fixed_by": [
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/service/openai_images.go",
+        "backend/internal/service/openai_images_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#2232",
+        "backend/internal/service/openai_images_responses.go:action = \"edit\"",
+        "backend/internal/service/openai_images.go:forwardOpenAIImagesOAuth",
+        "backend/internal/service/openai_images_test.go:TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI"
+      ]
     }
   ]
 }

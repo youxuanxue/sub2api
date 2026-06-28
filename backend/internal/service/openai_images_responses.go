@@ -368,6 +368,8 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 
 	action := "generate"
 	if parsed.IsEdits() {
+		// TK: See upstream Wei-Shaw/sub2api#2232 — OAuth /v1/images/edits bridges to Responses
+		// image_generation with action=edit (multipart/JSON input + optional mask), not native passthrough.
 		action = "edit"
 	}
 	tool := []byte(`{"type":"image_generation","action":"","model":""}`)
