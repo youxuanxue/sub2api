@@ -3327,7 +3327,7 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 }
 
 // GetAllGroupUsageSummary returns today's and cumulative actual_cost for every group.
-// todayStart is the start-of-day in the caller's timezone (UTC-based).
+// todayStart is the start-of-day in the server-configured timezone.
 //
 // TK perf: the legacy query below SUMs total_cost over the ENTIRE usage_logs table
 // on every GroupsView load. It is now served from the per-(group, day) rollup

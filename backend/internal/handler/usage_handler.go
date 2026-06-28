@@ -386,10 +386,10 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
-// parseUserTimeRange parses start_date, end_date query parameters for user dashboard
-// Uses user's timezone if provided, otherwise falls back to server timezone
+// parseUserTimeRange parses start_date, end_date query parameters for user dashboard.
+// Day boundaries use the server-configured timezone (timezone query param is ignored).
 func parseUserTimeRange(c *gin.Context) (time.Time, time.Time) {
-	userTZ := c.Query("timezone") // Get user's timezone from request
+	userTZ := c.Query("timezone")
 	now := timezone.NowInUserLocation(userTZ)
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")

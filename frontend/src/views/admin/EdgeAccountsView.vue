@@ -314,7 +314,7 @@
                     <span v-if="acct.channel_type" class="text-gray-400 dark:text-gray-500"> · ch{{ acct.channel_type }}</span>
                   </td>
                   <td class="px-4 py-2 align-top">
-                    <AccountCapacityCell :account="accountVm(acct).accountLike" :today-stats="accountVm(acct).windowStats" />
+                    <AccountCapacityCell :account="accountVm(acct).accountLike" />
                   </td>
                   <td class="px-4 py-2 align-top">
                     <AccountUsageCell

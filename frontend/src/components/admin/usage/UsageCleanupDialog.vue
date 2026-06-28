@@ -227,14 +227,6 @@ const formatRange = (task: UsageCleanupTask) => {
   return `${start} ~ ${end}`
 }
 
-const getUserTimezone = () => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
-  }
-}
-
 const loadTasks = async () => {
   if (!props.show) return
   tasksLoading.value = true
@@ -293,7 +285,6 @@ const buildPayload = (): CreateUsageCleanupTaskRequest | null => {
   const payload: CreateUsageCleanupTaskRequest = {
     start_date: localStartDate.value,
     end_date: localEndDate.value,
-    timezone: getUserTimezone()
   }
 
   if (localFilters.value.user_id && localFilters.value.user_id > 0) {
