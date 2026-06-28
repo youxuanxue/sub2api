@@ -485,9 +485,11 @@
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/billing_service.go",
-        "backend/internal/service/billing_service_test.go"
+        "backend/internal/service/billing_service_test.go",
+        "backend/internal/service/pricing_service_tk_overlay_test.go",
+        "backend/internal/service/tk_pricing_overlay.json"
       ],
-      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction)."
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2487",

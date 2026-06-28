@@ -6,8 +6,8 @@
   "counts": {
     "needs_review": 480,
     "needs_prod_validation": 1,
-    "fixed": 39,
     "medium": 139,
+    "fixed": 39,
     "not_applicable": 1,
     "low": 125,
     "unknown_low_signal": 502
@@ -8081,7 +8081,7 @@
         "billing_usage"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction).",
+      "rationale": "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent.",
       "updated_at": "2026-05-15T03:55:24Z"
     },
     {

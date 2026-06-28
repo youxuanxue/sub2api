@@ -627,6 +627,8 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// served_at_fallback alert then drives a real-price fill. "pro" → pro floor; flash / flash-lite /
 	// unknown gemini → flash-tier median. (Family granularity + median tier bound the mischarge that a
 	// single flat rate would cause — that was the C-era objection, addressed here, not avoided.)
+	// TK: See upstream Wei-Shaw/sub2api#2486 — gemini-pro-agent and other unknown gemini-* ids must
+	// never return nil here; nil caused calculateTokenCost to record ActualCost=0 with no quota deduction.
 	if strings.Contains(modelLower, "gemini") {
 		if strings.Contains(modelLower, "pro") {
 			return s.fallbackPrices["gemini-2.5-pro"]
