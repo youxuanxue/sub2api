@@ -23,13 +23,10 @@ import (
 //
 //	total_cost[g] = SUM(rollup.actual_cost WHERE bucket_date < serverToday)   -- completed server-TZ days
 //	              + SUM(raw.actual_cost    WHERE created_at  >= serverToday)   -- the remainder not yet rolled up
-//	today_cost[g] = SUM(raw.actual_cost    WHERE created_at  >= userTodayStart)
+//	today_cost[g] = SUM(raw.actual_cost    WHERE created_at  >= serverTodayStart)
 //
-// The rollup buckets by SERVER-TZ day, so the rollup/raw split for total_cost
-// uses the server-TZ start-of-today; a row is in exactly one side (rollup if its
-// server-TZ date < today, raw otherwise). today_cost uses the caller's user-TZ
-// todayStart, which may differ from the server TZ — both are narrow, index-bounded
-// reads of recent usage_logs (createdAt index), unlike the legacy full-table scan.
+// The rollup buckets by SERVER-TZ day; today_cost uses the same server-TZ
+// day boundary as accounts today-stats and admin list surfaces.
 func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, bool, error) {
 	var done bool
 	if err := scanSingleRow(ctx, r.sql,
@@ -49,7 +46,7 @@ func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, to
 
 	// $1 = server-TZ today date (rollup completed-day boundary)
 	// $2 = server-TZ start-of-today instant (raw remainder boundary for total_cost)
-	// $3 = caller's user-TZ start-of-today instant (raw boundary for today_cost)
+	// $3 = server-TZ start-of-today instant (today_cost boundary; same as accounts today-stats)
 	query := `
 		SELECT
 			g.id,

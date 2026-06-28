@@ -228,14 +228,6 @@ function loadInitialSortState(): { sort_by: string; sort_order: 'asc' | 'desc' }
 
 const sortState = reactive(loadInitialSortState())
 
-function userTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
-  }
-}
-
 function buildParams(): ListAffiliateRecordsParams {
   return {
     page: pagination.page,
@@ -245,7 +237,6 @@ function buildParams(): ListAffiliateRecordsParams {
     end_at: filters.end_at || undefined,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
-    timezone: userTimezone(),
   }
 }
 

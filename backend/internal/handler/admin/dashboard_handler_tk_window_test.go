@@ -68,14 +68,18 @@ func TestParseAbsoluteRange_RejectsAndFallsBack(t *testing.T) {
 	}
 }
 
-// TestParseTimeRange_FallbackUnchanged ensures the legacy date-string + timezone
-// path is untouched when no absolute ts / named range is supplied.
-func TestParseTimeRange_FallbackUnchanged(t *testing.T) {
+// TestParseTimeRange_DateStringUsesServerTZ ensures manual start_date/end_date
+// parsing ignores the viewer timezone query param and uses server TZ instead.
+func TestParseTimeRange_DateStringUsesServerTZ(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
+	t.Cleanup(func() { _ = timezone.Init("UTC") })
+
 	gin.SetMode(gin.TestMode)
-	c := ctxWithURL("/?start_date=2024-01-01&end_date=2024-01-02&timezone=UTC")
+	c := ctxWithURL("/?start_date=2024-01-01&end_date=2024-01-02&timezone=Asia/Shanghai")
+	loc := timezone.Location()
 	start, end := parseTimeRange(c)
-	require.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), start)
-	require.Equal(t, time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), end)
+	require.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, loc), start)
+	require.Equal(t, time.Date(2024, 1, 3, 0, 0, 0, 0, loc), end)
 }
 
 // TestParseNamedRange_ServerTZCanonical is the regression guard for the

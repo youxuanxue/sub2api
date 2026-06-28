@@ -502,7 +502,6 @@ function getDateParams(): string {
     params.set('end_date', end)
   }
   params.set('days', String(dailyUsageDays.value))
-  params.set('timezone', getBrowserTimezone())
   return params.toString()
 }
 
@@ -835,14 +834,6 @@ function formatDate(iso: string | null | undefined): string {
   const d = new Date(iso)
   const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
   return d.toLocaleDateString(loc, { year: 'numeric', month: 'long', day: 'numeric' })
-}
-
-function getBrowserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
 }
 
 // ==================== API Query ====================

@@ -3690,9 +3690,6 @@ export default {
           exceeded: 'Quota exceeded, account paused',
           normal: 'Quota normal'
         },
-        today: {
-          tooltip: "Today's usage: {requests} requests · billed {cost}"
-        },
       },
       tempUnschedulable: {
         title: 'Temp Unschedulable',

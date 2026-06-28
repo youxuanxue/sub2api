@@ -39,7 +39,7 @@
         "WHERE gd.bucket_date > DATE '",
         "func (r *usageLogRepository) groupDailyMetricsBackfilled("
       ],
-      "rationale": "groupUsageSummaryFromRollup's exact rollup/raw decomposition: total_cost = SUM(rollup completed days, bucket_date < server-today) + SUM(raw remainder, created_at >= server-today); today_cost = SUM(raw, created_at >= user-today). getGroupStatsFromRollup is the Dashboard/Usage group-distribution twin: it uses completed-day usage_dashboard_group_daily metrics plus raw head/tail spans, gated by groupDailyMetricsBackfilled so old cost-only rows are never trusted for requests/tokens. A refactor that drops the bounds, raw split, or metrics-backfill gate would double-count/miss rows or silently return zero historical tokens."
+      "rationale": "groupUsageSummaryFromRollup's exact rollup/raw decomposition: total_cost = SUM(rollup completed days, bucket_date < server-today) + SUM(raw remainder, created_at >= server-today); today_cost = SUM(raw, created_at >= server-today start) using the same server-TZ day boundary as accounts today-stats. getGroupStatsFromRollup is the Dashboard/Usage group-distribution twin: it uses completed-day usage_dashboard_group_daily metrics plus raw head/tail spans, gated by groupDailyMetricsBackfilled so old cost-only rows are never trusted for requests/tokens. A refactor that drops the bounds, raw split, or metrics-backfill gate would double-count/miss rows or silently return zero historical tokens."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo_tk_group.go",

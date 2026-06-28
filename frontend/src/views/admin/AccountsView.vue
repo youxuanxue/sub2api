@@ -294,7 +294,7 @@
             </div>
           </template>
           <template #cell-capacity="{ row }">
-            <AccountCapacityCell :account="row" :today-stats="todayStatsByAccountId[String(row.id)] ?? null" />
+            <AccountCapacityCell :account="row" />
           </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
@@ -736,12 +736,8 @@ const buildDefaultTodayStats = (): WindowStats => ({
 })
 
 const refreshTodayStatsBatch = async () => {
-  // Why this checks these columns:
-  // - today_stats column shows dedicated today's metrics.
-  // - usage column also embeds today's stats for Key/Bedrock rows.
-  // - capacity column now embeds a today usage badge for ALL account types.
-  // So we only skip fetching when ALL three columns are hidden.
-  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage') && hiddenColumns.has('capacity')) {
+  // today_stats column and usage column embed today's metrics; capacity does not.
+  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
     todayStatsLoading.value = false
     todayStatsError.value = null
     return

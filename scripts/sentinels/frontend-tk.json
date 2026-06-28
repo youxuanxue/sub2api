@@ -653,10 +653,13 @@
     {
       "path": "frontend/src/components/account/AccountCapacityCell.vue",
       "must_contain": [
+        "CapacityBadge :color-class=\"concurrencyClass\""
+      ],
+      "must_not_contain": [
         "todayStats",
         "capacity.today.tooltip"
       ],
-      "rationale": "TK adds a today-usage badge (tokens·$cost) for ALL account types in the capacity column (admin accounts page + edge accounts page). The `todayStats` prop and the `admin.accounts.capacity.today.tooltip` i18n key are the TK-only contract; an upstream merge that rewrites this capacity cell could silently drop the today-usage badge — it would compile fine, just lose the feature (and the deliberate 0-value grey-out that surfaces anomalies like kiro's current 0-billing). Sentinel guards that the badge survives upstream convergence."
+      "rationale": "TK removed the today-usage badge from the capacity column — today metrics (tokens, account billing, user billing) live only in the dedicated 今日统计 column to avoid duplicating the same numbers. must_not_contain blocks an upstream merge from re-embedding tokens·$cost in capacity; must_contain keeps the concurrency capacity badge wired."
     },
     {
       "path": "frontend/src/views/admin/GroupsView.vue",

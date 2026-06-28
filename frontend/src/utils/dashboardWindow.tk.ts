@@ -20,7 +20,8 @@
  * named `range` for these presets and let the backend resolve it in the server
  * timezone (see backend dashboard_handler_tk_window.go) — one canonical "today"
  * for every viewer. A manual custom date pick (preset === null) still flows
- * through the date-string path.
+ * through the start_date/end_date path, parsed in the server-configured timezone
+ * on the backend.
  */
 
 const HOUR_MS = 60 * 60 * 1000

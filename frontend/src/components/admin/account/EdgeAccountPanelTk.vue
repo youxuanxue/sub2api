@@ -139,7 +139,7 @@
               </div>
             </td>
             <td class="px-4 py-1.5 align-top">
-              <AccountCapacityCell :account="accountVm(acct).accountLike" :today-stats="accountVm(acct).windowStats" />
+              <AccountCapacityCell :account="accountVm(acct).accountLike" />
             </td>
             <td class="px-4 py-1.5 align-top">
               <AccountUsageCell
