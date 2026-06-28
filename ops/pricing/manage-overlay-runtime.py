@@ -93,16 +93,37 @@ def drift_is_clean(drift: dict) -> bool:
 # --- AWS / SSM I/O: resolve_prod_instance + run_shell_b64 live in ops/stage0/ssm_execution.py
 
 
-def read_runtime_blob(instance_id: str) -> dict:
-    shell = f"{PSQL} -c \"SELECT value FROM settings WHERE key='{SETTING_KEY}';\""
-    b64 = base64.b64encode(shell.encode()).decode()
-    out = _SSM.run_shell_b64(instance_id, b64, "overlay check: read runtime settings").strip()
+def _decode_runtime_value(out: str) -> dict:
+    """Decode the host-side `SELECT value … | gzip | base64` output back to the
+    overlay dict. Empty output (no settings row, or an empty value) -> {}. Raises
+    on a corrupt gzip/base64/JSON payload (read_runtime_blob wraps it with fail())."""
+    out = out.strip()
     if not out:
         return {}
+    raw = gzip.decompress(base64.b64decode(out)).decode("utf-8").strip()
+    if not raw:
+        return {}
+    return json.loads(raw)
+
+
+def read_runtime_blob(instance_id: str) -> dict:
+    # The runtime overlay blob is ~80KB+ JSON; piping the raw SELECT to SSM stdout
+    # truncates at AWS GetCommandInvocation's ~24KiB cap (surfaces as an
+    # "Unterminated string" JSON error once the overlay outgrows ~24KiB — which it
+    # has). gzip|base64 the value ON THE HOST first: ~80KB -> ~13KB compressed,
+    # well under the cap; decode + gunzip client-side. Mirrors the sync-runtime
+    # WRITE path, which already gzips for exactly this reason. (json.JSONDecodeError
+    # is a ValueError subclass, so it is covered by the except below.)
+    shell = (
+        f"{PSQL} -c \"SELECT value FROM settings WHERE key='{SETTING_KEY}';\""
+        " | gzip -c | base64 | tr -d '\\n'"
+    )
+    b64 = base64.b64encode(shell.encode()).decode()
+    out = _SSM.run_shell_b64(instance_id, b64, "overlay check: read runtime settings (gzip)")
     try:
-        return json.loads(out)
-    except json.JSONDecodeError as e:
-        fail(f"runtime settings blob is not valid JSON: {e}")
+        return _decode_runtime_value(out)
+    except (OSError, ValueError) as e:
+        fail(f"runtime settings blob decode failed (host gzip|base64 read-back): {e}")
 
 
 def load_repo_overlay() -> dict:
@@ -239,6 +260,18 @@ def cmd_selftest(_args) -> int:
             print(f"  FAIL {name}: got {got} want {want}")
         else:
             print(f"  PASS {name}")
+    # _decode_runtime_value: the >24KiB gzip read-back round-trip (the fix). The
+    # host pipes `SELECT value | gzip | base64`; this must reconstruct the dict.
+    try:
+        blob = {"_meta": {"n": "x"}, "m": {"input_cost_per_token": 1e-6}}
+        enc = base64.b64encode(gzip.compress((json.dumps(blob) + "\n").encode())).decode()
+        assert _decode_runtime_value(enc) == blob
+        assert _decode_runtime_value("") == {}                                              # no command output
+        assert _decode_runtime_value(base64.b64encode(gzip.compress(b"")).decode()) == {}   # settings row absent
+        print("  PASS decode-runtime-value gzip read-back round-trip")
+    except AssertionError:
+        ok = False
+        print("  FAIL decode-runtime-value gzip read-back round-trip")
     print("selftest ok" if ok else "selftest FAILED")
     return 0 if ok else 1
 
