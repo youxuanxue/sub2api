@@ -5,9 +5,8 @@
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
     "needs_review": 480,
-    "needs_prod_validation": 1,
+    "fixed": 40,
     "medium": 139,
-    "fixed": 39,
     "not_applicable": 1,
     "low": 125,
     "unknown_low_signal": 502
@@ -6001,22 +6000,6 @@
       "updated_at": "2026-03-18T06:53:36Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2232",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2232",
-      "title": "Bug：/v1/images/edits 使用 gpt-image-2 通过 OAuth 账号转发失败",
-      "impact": "needs_prod_validation",
-      "categories": [
-        "rate_limit_cooldown",
-        "image_oauth",
-        "account_pool_health",
-        "ops_observability",
-        "compatibility"
-      ],
-      "tokenkey_status": "needs_tokenkey_review",
-      "rationale": "OpenAI OAuth images/edits gpt-image-2 remains a user-facing image path; validate against current image/edit bridge behavior.",
-      "updated_at": "2026-06-15T14:21:51Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#1048",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1048",
       "title": "功能建议：建议新增gemini的openai兼容协议。openclaw中gemini的原生v1beta协议无法使用",
@@ -7958,6 +7941,22 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Account scheduling now queries the account_groups join table for the requested group; balance-group requests should not schedule ungrouped accounts.",
       "updated_at": "2026-05-05T18:45:31Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2232",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2232",
+      "title": "Bug：/v1/images/edits 使用 gpt-image-2 通过 OAuth 账号转发失败",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth",
+        "account_pool_health",
+        "ops_observability",
+        "compatibility"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges multipart/JSON edit requests to the ChatGPT Responses image_generation tool with action=edit (source image + optional mask as data URLs), instead of failing on unsupported native /images/edits passthrough.",
+      "updated_at": "2026-06-15T14:21:51Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2245",
