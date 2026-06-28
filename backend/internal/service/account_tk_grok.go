@@ -1,48 +1,24 @@
 package service
 
-import (
-	"strings"
-	"time"
+import "time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-)
+// grokDefaultExpiresIn is the conservative access-token lifetime (seconds)
+// assumed when xAI omits expires_in, so NeedsRefresh still fires on a sane
+// cadence. Used by the stdlib-only pkg/xai refresh path
+// (admin_service_tk_grok_save.go).
+const grokDefaultExpiresIn = 3600
 
-// IsGrok reports whether the account is a Grok (seventh platform) account.
-//
-// Unlike Kiro, xAI / Grok speaks the OpenAI-compatible wire protocol, so a grok
-// account is an OpenAI-compat pool member (see engine.OpenAICompatPlatforms) and
-// reuses the OpenAI-compat routing/scheduling/forward path. It differs from the
-// openai (Codex) platform only in its OAuth refresh endpoint (auth.x.ai) and its
-// inference base URL (api.x.ai/v1) — and crucially it forwards like the APIKey
-// branch (plain Bearer + base_url), NOT the ChatGPT/Codex OAuth branch.
-func (a *Account) IsGrok() bool {
-	return a.Platform == PlatformGrok
-}
+// TokenKey-unique Grok (seventh platform) account helpers. The base grok
+// predicates and credential getters (IsGrok / IsGrokOAuth / GetGrokBaseURL /
+// GetGrokAccessToken / GetGrokRefreshToken) live in account.go; this companion
+// only adds the helpers TokenKey needs on top of them (edge-relay API-key
+// detection + the refresh-token endpoint/expiry getters used by the
+// stdlib-only pkg/xai refresh path in admin_service_tk_grok_save.go).
 
-func (a *Account) IsGrokOAuth() bool {
-	return a.IsGrok() && a.Type == AccountTypeOAuth
-}
-
+// IsGrokAPIKey reports a grok edge-relay stub account (platform=grok, type=apikey).
 func (a *Account) IsGrokAPIKey() bool {
 	return a.IsGrok() && a.Type == AccountTypeAPIKey
 }
-
-// GetGrokBaseURL returns the xAI inference base URL for this account, honoring a
-// per-account credentials.base_url override and defaulting to api.x.ai/v1.
-func (a *Account) GetGrokBaseURL() string {
-	if base := strings.TrimSpace(a.GetCredential("base_url")); base != "" {
-		return strings.TrimRight(base, "/")
-	}
-	return xai.DefaultAPIBaseURL
-}
-
-// ---- Typed credential getters (Grok) ----
-
-// GetGrokAccessToken returns the xAI OAuth access token (a plain Bearer to api.x.ai/v1).
-func (a *Account) GetGrokAccessToken() string { return a.GetCredential("access_token") }
-
-// GetGrokRefreshToken returns the xAI OAuth refresh token.
-func (a *Account) GetGrokRefreshToken() string { return a.GetCredential("refresh_token") }
 
 // GetGrokTokenEndpoint returns the cached OIDC token_endpoint (optional; empty
 // triggers discovery on the next refresh).

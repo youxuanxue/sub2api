@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -185,6 +186,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// Grok (seventh platform): observe the xAI passive-quota rate-limit headers on
+	// every response (success or error) so the quota snapshot the admin panel /
+	// auto-pause path read stays fresh. No-op for non-grok accounts.
+	if account.IsGrok() {
+		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+	}
 
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
