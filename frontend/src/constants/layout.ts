@@ -23,3 +23,10 @@ export const TK_SIDEBAR_WIDTH_CLASS = 'w-44'
  * literal rather than computed from the width token.
  */
 export const TK_SIDEBAR_MAIN_MARGIN_CLASS = 'lg:ml-44'
+
+/**
+ * Default visual scale for the admin shell. Ops feedback: dense admin tables
+ * (e.g. /admin/accounts) only fit at ~80% browser zoom on typical monitors;
+ * apply here so operators do not need manual Cmd/Ctrl+- on every session.
+ */
+export const TK_ADMIN_UI_ZOOM = 0.8
