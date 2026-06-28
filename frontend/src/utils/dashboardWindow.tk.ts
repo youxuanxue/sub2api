@@ -17,8 +17,11 @@
  * window refer to a different calendar day than the customer's own dashboard
  * whenever the operator's browser timezone differed from the server, so the two
  * surfaces reported different totals for the same user/day. We therefore send a
- * A manual custom date pick (preset === null) still flows through the
- * start_date/end_date path, parsed in the server-configured timezone on the backend.
+ * named `range` for these presets and let the backend resolve it in the server
+ * timezone (see backend dashboard_handler_tk_window.go) — one canonical "today"
+ * for every viewer. A manual custom date pick (preset === null) still flows
+ * through the start_date/end_date path, parsed in the server-configured timezone
+ * on the backend.
  */
 
 const HOUR_MS = 60 * 60 * 1000
