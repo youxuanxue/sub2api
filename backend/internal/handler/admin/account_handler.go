@@ -2132,8 +2132,24 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
 			return
 		}
-		models := make([]openai.Model, 0, len(mapping))
+		// Deterministic order: pin the grok chat-probe default first, then
+		// alphabetical. Iterating the mapping map directly is non-deterministic
+		// and makes the admin selector (and its test) flaky.
+		ids := make([]string, 0, len(mapping))
 		for requestedModel := range mapping {
+			ids = append(ids, requestedModel)
+		}
+		sort.SliceStable(ids, func(i, j int) bool {
+			if ids[i] == service.GrokDefaultTestModelID {
+				return true
+			}
+			if ids[j] == service.GrokDefaultTestModelID {
+				return false
+			}
+			return ids[i] < ids[j]
+		})
+		models := make([]openai.Model, 0, len(ids))
+		for _, requestedModel := range ids {
 			models = append(models, openai.Model{
 				ID:          requestedModel,
 				Object:      "model",
