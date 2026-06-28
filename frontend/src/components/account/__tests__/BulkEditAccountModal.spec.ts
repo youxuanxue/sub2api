@@ -25,6 +25,31 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
+// Antigravity (like anthropic/openai/gemini) is API-backed after R-003: the model
+// whitelist selector derives its candidates from the self-healing
+// models-list-candidates endpoint, not a static list. Mock it with a realistic
+// antigravity candidate set (Gemini — including image models — plus Claude, and
+// NO GPT) so the platform-scoped whitelist renders deterministically.
+vi.mock('@/api/admin/groups', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/admin/groups')>()
+  return {
+    ...actual,
+    getModelsListCandidates: vi.fn(async (_id: number, platform?: string) => {
+      if (platform === 'antigravity') {
+        return [
+          'gemini-3.1-flash-image',
+          'gemini-2.5-flash-image',
+          'gemini-3-flash',
+          'gemini-2.5-pro',
+          'claude-sonnet-4-6',
+          'claude-opus-4-6'
+        ]
+      }
+      return []
+    })
+  }
+})
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -90,10 +115,13 @@ describe('BulkEditAccountModal', () => {
 
   it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {
     const wrapper = mountModal()
+    // Let the antigravity servable-models fetch resolve so the candidate list populates.
+    await flushPromises()
     const selector = wrapper.findComponent(ModelWhitelistSelector)
     expect(selector.exists()).toBe(true)
 
     await selector.find('div.cursor-pointer').trigger('click')
+    await flushPromises()
 
     expect(wrapper.text()).toContain('gemini-3.1-flash-image')
     expect(wrapper.text()).toContain('gemini-2.5-flash-image')

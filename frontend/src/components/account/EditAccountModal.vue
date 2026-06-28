@@ -1821,6 +1821,48 @@
         </div>
       </div>
 
+      <!-- OpenAI Codex image-generation bridge (account-level tri-state override) -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.openai.codexImageGenerationBridge') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.codexImageGenerationBridgeDesc') }}
+          </p>
+        </div>
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button
+            v-for="option in codexImageGenerationBridgeOptions"
+            :key="option.value"
+            type="button"
+            :data-testid="`codex-image-bridge-${option.value}`"
+            @click="codexImageGenerationBridgeMode = option.value"
+            :class="[
+              'flex flex-col items-start rounded-lg border px-3 py-2 text-left transition-colors',
+              codexImageGenerationBridgeMode === option.value
+                ? 'border-primary-500 bg-primary-50 dark:border-primary-500 dark:bg-primary-900/20'
+                : 'border-gray-200 hover:border-gray-300 dark:border-dark-600 dark:hover:border-dark-500'
+            ]"
+          >
+            <span
+              :class="[
+                'text-sm font-medium',
+                codexImageGenerationBridgeMode === option.value
+                  ? 'text-primary-700 dark:text-primary-300'
+                  : 'text-gray-700 dark:text-gray-200'
+              ]"
+            >
+              {{ option.label }}
+            </span>
+            <span class="mt-0.5 text-[11px] leading-tight text-gray-500 dark:text-gray-400">
+              {{ option.desc }}
+            </span>
+          </button>
+        </div>
+      </div>
+
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
@@ -2890,6 +2932,29 @@ const openAICompactModeOptions = computed(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
   { value: 'force_off', label: t('admin.accounts.openai.compactModeForceOff') }
+])
+
+// Account-level tri-state override for the Codex image-generation bridge.
+// `inherit` writes no override (follow channel/global); `enabled`/`disabled`
+// pin the account policy. Submit logic lives in handleSubmit (codex_image_generation_bridge).
+const codexImageGenerationBridgeOptions = computed<
+  { value: CodexImageGenerationBridgeMode; label: string; desc: string }[]
+>(() => [
+  {
+    value: 'inherit',
+    label: t('admin.accounts.openai.codexImageGenerationBridgeInherit'),
+    desc: t('admin.accounts.openai.codexImageGenerationBridgeInheritDesc')
+  },
+  {
+    value: 'enabled',
+    label: t('admin.accounts.openai.codexImageGenerationBridgeEnabled'),
+    desc: t('admin.accounts.openai.codexImageGenerationBridgeEnabledDesc')
+  },
+  {
+    value: 'disabled',
+    label: t('admin.accounts.openai.codexImageGenerationBridgeDisabled'),
+    desc: t('admin.accounts.openai.codexImageGenerationBridgeDisabledDesc')
+  }
 ])
 
 const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
@@ -4121,7 +4186,12 @@ const handleSubmit = async () => {
           newCredentials.mirror_platform = 'grok'
         }
         if (shouldApplyModelMapping) {
-          const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+          // Persist BOTH whitelist passthrough entries and real remaps. The mode
+          // toggle is only a view switch; an account holding both (e.g. a gpt-5.2
+          // whitelist entry + a gpt-latest→gpt-5.2 remap) must not lose the hidden
+          // remaps when the whitelist is edited. Matches the oauth/anthropic submit
+          // paths, which all use the 'combined' helper.
+          const modelMapping = buildModelRestrictionMapping()
           if (modelMapping) {
             newCredentials.model_mapping = modelMapping
           } else {

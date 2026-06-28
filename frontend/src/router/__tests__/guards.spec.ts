@@ -78,6 +78,12 @@ function simulateGuard(
       authState.isAuthenticated &&
       (toPath === '/login' || toPath === '/register')
     ) {
+      // Mirror router/index.ts: in backend mode, non-admin users are NOT redirected
+      // away from login/register — they are blocked from every protected route, so a
+      // redirect to /dashboard would bounce back to /login (infinite loop).
+      if (authState.backendModeEnabled && !authState.isAdmin) {
+        return null
+      }
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
     }
     if (authState.backendModeEnabled && !authState.isAuthenticated) {
