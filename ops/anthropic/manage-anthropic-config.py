@@ -590,6 +590,10 @@ def render_runtime_sync_shell(ua_version: str, mimicry_manifest_json: str | None
         "  for id in $ids; do fk=\"fingerprint:${id}\"; out=\"$($RC DEL \"$fk\" 2>&1 || true)\"; "
         "echo \"DEL ${fk} => ${out}\"; done\n"
         "fi\n"
+        "echo '=== redis_tls_fingerprint_profiles_invalidate ==='\n"
+        "out=\"$($RC DEL tls_fingerprint_profiles 2>&1 || true)\"; echo \"DEL tls_fingerprint_profiles => ${out}\"\n"
+        "out=\"$($RC PUBLISH tls_fingerprint_profiles_updated sync-runtime 2>&1 || true)\"; "
+        "echo \"PUBLISH tls_fingerprint_profiles_updated => ${out}\"\n"
         "echo '=== settings_after ==='\n"
         f"$PSQL -c \"SELECT row_to_json(t) FROM (SELECT key, value FROM settings "
         f"WHERE key IN ('{ua_key}', '{mimicry_key}')) t;\"\n"
@@ -2066,9 +2070,10 @@ def cmd_plan_guard_drift_fix(args: argparse.Namespace) -> int:
             fail(f"guard drift account {account_name!r} on {edge_id} has unknown tier {tier_key!r}")
         edge = _find_edge(snap, edge_id)
         account = _find_edge_account(edge, account_name)
+        actual_name = str(account.get("name") or account_name)
         baseline = tiers[tier_key]
         step = len(actions) + 1
-        actions.append(_build_tier_action(edge_id, account_name, baseline, tier_key, step))
+        actions.append(_build_tier_action(edge_id, actual_name, baseline, tier_key, step))
         befores.append({"edge_id": edge_id, "drift": drift, **_account_before(account)})
 
     plan = {
@@ -2329,8 +2334,10 @@ def _find_edge(snap: dict, edge_id: str) -> dict:
 
 
 def _find_edge_account(edge: dict, account_name: str) -> dict:
+    want = account_name.strip()
     for a in edge.get("oauth_accounts", []):
-        if a.get("name") == account_name:
+        live = str(a.get("name") or "").strip()
+        if live == want or a.get("name") == account_name:
             return a
     fail(f"account {account_name!r} not found in edge oauth_accounts")
     return {}  # unreachable

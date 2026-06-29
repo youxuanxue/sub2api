@@ -22,6 +22,8 @@ class RuntimeSyncShellTest(unittest.TestCase):
         self.assertIn("claude_code_user_agent_version", shell)
         self.assertIn("claude_code_http_mimicry_manifest", shell)
         self.assertIn("fingerprint:${id}", shell)
+        self.assertIn("DEL tls_fingerprint_profiles", shell)
+        self.assertIn("PUBLISH tls_fingerprint_profiles_updated", shell)
 
     def test_render_runtime_sync_shell_persists_valid_json_manifest(self) -> None:
         # Regression: the manifest UPSERT must be delivered as base64 SQL piped to
@@ -161,6 +163,54 @@ class GuardDriftPlanTest(unittest.TestCase):
             self.assertFalse(plan["noop"])
             self.assertEqual(len(plan["actions"]), 1)
             self.assertTrue(plan["intent"]["force_template_rewrite"])
+
+    def test_plan_guard_drift_fix_matches_account_name_with_leading_space(self) -> None:
+        baseline = mgr._load_tier_baselines()["l3"]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            snap = {
+                "version": mgr.SNAPSHOT_VERSION,
+                "captured_at": "2026-05-27T00:00:00Z",
+                "edges": {
+                    "us4": {
+                        "deployable": True,
+                        "oauth_accounts": [{
+                            "id": 9,
+                            "name": " or-1-f",
+                            "stability_tier": "l3",
+                            **{k: baseline[k] for k in mgr._TIER_BASELINE_FIELDS},
+                        }],
+                    },
+                },
+            }
+            snap_path = tmp_path / "snap.json"
+            snap_path.write_text(json.dumps(snap))
+            check_path = tmp_path / "check.json"
+            check_path.write_text(json.dumps({
+                "guards": [{
+                    "report": {
+                        "selector": {"edge_id": "us4"},
+                        "items": [{
+                            "status": "drift",
+                            "account_name": "or-1-f",
+                            "baseline_tier": "l3",
+                            "diffs": [{"path": "/tls_profile/description"}],
+                        }],
+                    },
+                }],
+            }))
+            plan_path = tmp_path / "plan.json"
+            rc = mgr.cmd_plan_guard_drift_fix(
+                __import__("argparse").Namespace(
+                    snapshot=str(snap_path),
+                    check_report=str(check_path),
+                    allow_planned=False,
+                    out=str(plan_path),
+                )
+            )
+            self.assertEqual(rc, 0)
+            plan = json.loads(plan_path.read_text())
+            self.assertEqual(" or-1-f", plan["actions"][0]["variables"]["account_name"])
 
 
 class HttpUaDriftTest(unittest.TestCase):
