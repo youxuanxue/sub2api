@@ -107,8 +107,7 @@ async function enforceQuota(db: IDBDatabase, userId: string, incomingBytes: numb
 }
 
 /**
- * Persist media bytes from an in-tab src (data: URI or blob:). http(s) is skipped
- * here — callers may fetch+cache separately when CORS allows.
+ * Persist media bytes from an in-tab src (data: URI or blob:).
  */
 export async function cacheStudioBlobFromSrc(
   userId: string | number,
@@ -128,6 +127,34 @@ export async function cacheStudioBlobFromSrc(
     }
   }
   if (!blob || blob.size === 0) return false
+  return putBlobRecord(userId, kind, itemId, blob)
+}
+
+/** Fetch an upstream http(s) clip when CORS allows and mirror into IndexedDB. */
+export async function cacheStudioBlobFromHttpUrl(
+  userId: string | number,
+  kind: StudioBlobKind,
+  itemId: string,
+  url: string
+): Promise<boolean> {
+  if (!url || !/^https?:\/\//i.test(url) || typeof fetch !== 'function') return false
+  try {
+    const res = await fetch(url, { mode: 'cors' })
+    if (!res.ok) return false
+    const blob = await res.blob()
+    if (!blob.size) return false
+    return putBlobRecord(userId, kind, itemId, blob)
+  } catch {
+    return false
+  }
+}
+
+async function putBlobRecord(
+  userId: string | number,
+  kind: StudioBlobKind,
+  itemId: string,
+  blob: Blob
+): Promise<boolean> {
   try {
     const db = await openDb()
     await enforceQuota(db, String(userId), blob.size)

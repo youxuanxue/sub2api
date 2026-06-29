@@ -19,6 +19,7 @@
  */
 import { ref, watch, type Ref } from 'vue'
 import {
+  cacheStudioBlobFromHttpUrl,
   cacheStudioBlobFromSrc,
   deleteStudioBlob,
   getStudioBlobObjectUrl,
@@ -196,7 +197,9 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
 
   async function cacheInlineMedia(kind: 'image' | 'video', itemId: string, src: string): Promise<void> {
     if (!src) return
-    const ok = await cacheStudioBlobFromSrc(userId, kind, itemId, src)
+    const ok = /^https?:\/\//i.test(src)
+      ? await cacheStudioBlobFromHttpUrl(userId, kind, itemId, src)
+      : await cacheStudioBlobFromSrc(userId, kind, itemId, src)
     if (!ok) return
     if (kind === 'image') {
       const idx = images.value.findIndex((it) => it.id === itemId)
