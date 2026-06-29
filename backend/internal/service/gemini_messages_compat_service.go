@@ -2801,6 +2801,21 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"text": text,
 							})
 						}
+						if inline, ok := pm["inlineData"].(map[string]any); ok {
+							if markdown := geminiInlineDataToImageMarkdown(inline); markdown != "" {
+								contentBlocks = append(contentBlocks, map[string]any{
+									"type": "text",
+									"text": markdown,
+								})
+							}
+						} else if inline, ok := pm["inline_data"].(map[string]any); ok {
+							if markdown := geminiInlineDataToImageMarkdown(inline); markdown != "" {
+								contentBlocks = append(contentBlocks, map[string]any{
+									"type": "text",
+									"text": markdown,
+								})
+							}
+						}
 						if fc, ok := pm["functionCall"].(map[string]any); ok {
 							name, _ := fc["name"].(string)
 							if strings.TrimSpace(name) == "" {
@@ -2841,6 +2856,31 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 	}
 
 	return resp, usage
+}
+
+// geminiInlineDataToImageMarkdown mirrors antigravity/new-api: gemini-native image
+// models return inline bytes in candidates[].content.parts[].inlineData; chat
+// completions clients (ImageStudio extractChatImageItems) expect markdown in
+// choices[].message.content.
+func geminiInlineDataToImageMarkdown(inline map[string]any) string {
+	if inline == nil {
+		return ""
+	}
+	data, _ := inline["data"].(string)
+	if data == "" {
+		return ""
+	}
+	mime, _ := inline["mimeType"].(string)
+	if mime == "" {
+		mime, _ = inline["mime_type"].(string)
+	}
+	if mime == "" {
+		mime = "image/png"
+	}
+	if !strings.HasPrefix(strings.ToLower(mime), "image/") {
+		return ""
+	}
+	return fmt.Sprintf("![image](data:%s;base64,%s)", mime, data)
 }
 
 func extractGeminiUsage(data []byte) *ClaudeUsage {

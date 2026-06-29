@@ -157,7 +157,41 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 		}
 	}
 
+	// Image-generation endpoints enforce groups.allow_image_generation after routing.
+	// Without this gate the resolver can land on a newapi vendor group that serves
+	// imagen/seedream but still has the column at default false (migration 134 only
+	// backfilled openai/gemini/antigravity), yielding a confusing permission_error.
+	if universalShapeRequiresImageGenerationEnabled(shape) {
+		imageEligible := filterGroupsAllowImageGeneration(eligible)
+		if len(imageEligible) == 0 {
+			return nil, ErrUniversalNoEntitledGroup
+		}
+		eligible = imageEligible
+	}
+
 	return pickUniversalBackingGroup(eligible), nil
+}
+
+func universalShapeRequiresImageGenerationEnabled(shape UniversalShape) bool {
+	switch shape {
+	case ShapeOpenAIImages, ShapeOpenAIImagesEdit:
+		return true
+	default:
+		return false
+	}
+}
+
+func filterGroupsAllowImageGeneration(groups []Group) []Group {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]Group, 0, len(groups))
+	for _, g := range groups {
+		if g.AllowImageGeneration {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // span 取（带缓存的）用户权限跨度。命中且未过期 → 0 次 DB；未命中走 singleflight 合并重算。

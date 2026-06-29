@@ -1928,6 +1928,37 @@ func TestAnthropicToResponsesResponse_NoCacheTokens(t *testing.T) {
 	assert.Nil(t, out.Usage.InputTokensDetails)
 }
 
+func TestAnthropicToResponsesResponse_AssistantImageBlockBecomesMarkdown(t *testing.T) {
+	resp := &AnthropicResponse{
+		ID:    "msg_img",
+		Model: "gemini-3.1-flash-image",
+		Content: []AnthropicContentBlock{
+			{
+				Type: "image",
+				Source: &AnthropicImageSource{
+					Type:      "base64",
+					MediaType: "image/png",
+					Data:      "QUJD",
+				},
+			},
+		},
+		StopReason: "end_turn",
+	}
+
+	out := AnthropicToResponsesResponse(resp)
+	require.Len(t, out.Output, 1)
+	require.Equal(t, "message", out.Output[0].Type)
+	require.Len(t, out.Output[0].Content, 1)
+	require.Equal(t, "output_text", out.Output[0].Content[0].Type)
+	require.Equal(t, "![image](data:image/png;base64,QUJD)", out.Output[0].Content[0].Text)
+
+	chat := ResponsesToChatCompletions(out, resp.Model)
+	require.Len(t, chat.Choices, 1)
+	var contentText string
+	require.NoError(t, json.Unmarshal(chat.Choices[0].Message.Content, &contentText))
+	require.Contains(t, contentText, "![image](data:image/png;base64,QUJD)")
+}
+
 func TestAnthropicEventToResponses_CacheTokensRoundTripFromMessageStart(t *testing.T) {
 	state := NewAnthropicEventToResponsesState()
 

@@ -27,7 +27,13 @@ func grp(id int64, platform string, sortOrder int, sub bool) Group {
 	if sub {
 		st = SubscriptionTypeSubscription
 	}
-	return Group{ID: id, Platform: platform, Status: StatusActive, SortOrder: sortOrder, SubscriptionType: st}
+	return Group{ID: id, Platform: platform, Status: StatusActive, SortOrder: sortOrder, SubscriptionType: st, AllowImageGeneration: true}
+}
+
+func grpNoImage(id int64, platform string, sortOrder int, sub bool) Group {
+	g := grp(id, platform, sortOrder, sub)
+	g.AllowImageGeneration = false
+	return g
 }
 
 func universalKey(userID int64) *APIKey {

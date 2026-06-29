@@ -981,3 +981,40 @@ func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicConte
 	}
 	return events
 }
+
+func TestConvertGeminiToClaudeMessage_EmbedsInlineImageMarkdown(t *testing.T) {
+	t.Parallel()
+
+	geminiResp := map[string]any{
+		"candidates": []any{
+			map[string]any{
+				"content": map[string]any{
+					"parts": []any{
+						map[string]any{
+							"inlineData": map[string]any{
+								"mimeType": "image/jpeg",
+								"data":     "aGVsbG8=",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	claudeMap, _ := convertGeminiToClaudeMessage(geminiResp, "gemini-3.1-flash-image", nil)
+	content, ok := claudeMap["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	block, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "text", block["type"])
+	require.Equal(t, "![image](data:image/jpeg;base64,aGVsbG8=)", block["text"])
+
+	chatResp, _, err := geminiResponseToChatCompletions(geminiResp, "gemini-3.1-flash-image", nil, nil)
+	require.NoError(t, err)
+	require.Len(t, chatResp.Choices, 1)
+	var contentText string
+	require.NoError(t, json.Unmarshal(chatResp.Choices[0].Message.Content, &contentText))
+	require.Contains(t, contentText, "![image](data:image/jpeg;base64,aGVsbG8=)")
+}

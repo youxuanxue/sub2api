@@ -131,6 +131,27 @@ describe('extractChatImageItems (gemini image via /v1/chat/completions)', () => 
     ])
   })
 
+  it('handles text parts and anthropic image blocks in structured content arrays', () => {
+    expect(
+      extractChatImageItems(
+        chat([{ type: 'text', text: '![image](data:image/jpeg;base64,aGVsbG8=)' }])
+      )
+    ).toEqual([{ src: 'data:image/jpeg;base64,aGVsbG8=' }])
+    expect(
+      extractChatImageItems(
+        chat([
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: 'QQ==' }
+          }
+        ])
+      )
+    ).toEqual([{ src: 'data:image/png;base64,QQ==' }])
+    expect(
+      extractChatImageItems(chat('see ![img](https://cdn.example/gen.png)'))
+    ).toEqual([{ src: 'https://cdn.example/gen.png' }])
+  })
+
   it('returns empty for text-only / malformed responses', () => {
     expect(extractChatImageItems(chat('just text, no image'))).toEqual([])
     expect(extractChatImageItems(null)).toEqual([])
