@@ -139,7 +139,7 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 var DefaultHeaders = map[string]string{
 	"User-Agent":                                "claude-cli/2.1.195 (external, sdk-cli)",
 	"X-Stainless-Lang":                          "js",
-	"X-Stainless-Package-Version":               "0.106.0",
+	"X-Stainless-Package-Version":               "0.94.0",
 	"X-Stainless-OS":                            "MacOS",
 	"X-Stainless-Arch":                          "arm64",
 	"X-Stainless-Runtime":                       "node",
