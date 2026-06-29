@@ -94,7 +94,7 @@ resolve_smoke_phase() {
   fi
   case "${OPERATION}" in
     smoke) echo "full" ;;
-    upgrade|rollback) echo "infra" ;;
+    upgrade|rollback) echo "full" ;;
     *) echo "" ;;
   esac
 }
@@ -102,9 +102,9 @@ resolve_smoke_phase() {
 PHASE="$(resolve_smoke_phase)"
 if [[ -n "${PHASE}" ]]; then
   case "${PHASE}" in
-    infra|main-via-edge|full) ;;
+    infra|edge-native-oauth|main-via-edge|full) ;;
     *)
-      echo "dispatch-edge-deploy: invalid --smoke-phase=${PHASE} (want infra|main-via-edge|full)" >&2
+      echo "dispatch-edge-deploy: invalid --smoke-phase=${PHASE} (want infra|edge-native-oauth|main-via-edge|full)" >&2
       exit 1
       ;;
   esac

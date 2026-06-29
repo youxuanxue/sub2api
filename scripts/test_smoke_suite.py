@@ -11,6 +11,7 @@ import unittest
 
 from scripts.stage0.smoke_suite import (
     edge_phase_gateway_suite,
+    edge_phase_runs_native_oauth,
     needs_chat_model,
     normalize_suite,
     pick_model,
@@ -57,13 +58,19 @@ class SmokeSuiteTest(unittest.TestCase):
     def test_edge_chat_model_gate(self) -> None:
         self.assertFalse(needs_chat_model("main-via-edge", "infra"))
         self.assertFalse(needs_chat_model("main-via-edge", "api"))
-        self.assertTrue(needs_chat_model("infra", "api"))
+        self.assertFalse(needs_chat_model("infra", "api"))
         self.assertFalse(needs_chat_model("full", "infra"))
 
     def test_edge_phase_gateway_suite(self) -> None:
         self.assertEqual(edge_phase_gateway_suite("main-via-edge"), "main-via-edge")
-        self.assertEqual(edge_phase_gateway_suite("full"), "main-via-edge")
+        self.assertIsNone(edge_phase_gateway_suite("full"))
         self.assertIsNone(edge_phase_gateway_suite("infra"))
+
+    def test_edge_phase_native_oauth(self) -> None:
+        self.assertTrue(edge_phase_runs_native_oauth("full"))
+        self.assertTrue(edge_phase_runs_native_oauth("edge-native-oauth"))
+        self.assertFalse(edge_phase_runs_native_oauth("infra"))
+        self.assertFalse(edge_phase_runs_native_oauth("main-via-edge"))
 
 
 class SoftDegradeOrExitTest(unittest.TestCase):

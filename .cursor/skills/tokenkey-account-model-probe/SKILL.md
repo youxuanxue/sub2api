@@ -14,7 +14,7 @@ Use `ops/observability/run-probe.sh`; do not SSH manually.
 ```bash
 bash ops/observability/run-probe.sh \
   --target prod \
-  --script .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh \
+  --script ops/stage0/probe_account_model.sh \
   --env ACCOUNT_ID=<account_id> \
   --env MODEL=<model> \
   --env ENDPOINT=messages
@@ -25,7 +25,7 @@ For an edge account:
 ```bash
 bash ops/observability/run-probe.sh \
   --target edge:<edge_id> \
-  --script .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh \
+  --script ops/stage0/probe_account_model.sh \
   --env ACCOUNT_ID=<account_id> \
   --env MODEL=<model> \
   --env ENDPOINT=messages

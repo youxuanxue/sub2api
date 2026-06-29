@@ -47,7 +47,7 @@ class RolloutEdgesTest(unittest.TestCase):
                   c) run=103 ;;
                   *) run=199 ;;
                 esac
-                echo "dispatch-edge-deploy: platform=lightsail workflow=deploy-edge-lightsail-stage0.yml edge=$edge op=upgrade tag=1.2.3 smoke_phase=infra"
+                echo "dispatch-edge-deploy: platform=lightsail workflow=deploy-edge-lightsail-stage0.yml edge=$edge op=upgrade tag=1.2.3 smoke_phase=full"
                 echo "https://github.com/o/r/actions/runs/$run"
                 """
             ),
@@ -78,7 +78,7 @@ class RolloutEdgesTest(unittest.TestCase):
                   run="$3"
                   if [ "$4" = "--log" ]; then
                     echo "log $run" >> events.log
-                    echo "tk_edge_post_deploy_smoke: OK phase=infra"
+                    echo "tk_edge_post_deploy_smoke: OK phase=full"
                     exit 0
                   fi
                   if [ "$run" = "{fail_run}" ]; then

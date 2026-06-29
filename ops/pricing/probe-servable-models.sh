@@ -198,10 +198,15 @@ verdict() { # $1=code $2=bodyfile -> echoes verdict
 # group) and relayed straight to Anthropic — no prod cc-* mirror hop. Key is the reserved
 # __tk_probe_anthropic_key bound to the edge `default` accounts; never printed.
 probe_anthropic_internal() { # $1=key  (models from $ANTHROPIC_MODELS)
-	local key="$1" m hf bf code body
+	local key="$1" m hf bf code body realistic_py
+	realistic_py="${SCRIPT_DIR}/../stage0/smoke_anthropic_realistic.py"
 	for m in $ANTHROPIC_MODELS; do
 		hf="$(mktemp)"; bf="$(mktemp)"
-		body="{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}"
+		if [[ -f "$realistic_py" ]]; then
+			body="$(python3 "$realistic_py" --model "$m" --max-tokens 32 --prompt hi)"
+		else
+			body="{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}"
+		fi
 		sudo docker exec "$ANTHROPIC_APP_CONTAINER" wget -S -q -O - --timeout=90 \
 			--header="x-api-key: $key" --header='anthropic-version: 2023-06-01' \
 			--header='anthropic-beta: claude-code-20250219' --header='X-App: cli' \
@@ -222,14 +227,20 @@ probe_anthropic_internal() { # $1=key  (models from $ANTHROPIC_MODELS)
 # ignores — these rows never enter the allowlist; the orchestrator only diffs them
 # against the edge-native servable set to warn on "edge serves but prod relay doesn't".
 probe_anthropic_prod_mirror() { # $1=key $2=emit-tag  (models from $ANTHROPIC_PROD_MIRROR_MODELS)
-	local key="$1" tag="$2" m f code
+	local key="$1" tag="$2" m f code realistic_py
+	realistic_py="${SCRIPT_DIR}/../stage0/smoke_anthropic_realistic.py"
 	for m in $ANTHROPIC_PROD_MIRROR_MODELS; do
 		f="$(mktemp)"
+		if [[ -f "$realistic_py" ]]; then
+			payload="$(python3 "$realistic_py" --model "$m" --max-tokens 32 --prompt hi)"
+		else
+			payload="{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}"
+		fi
 		code="$(curl -s -o "$f" -w '%{http_code}' -m 75 -X POST "$PROD/v1/messages" \
 			-H "x-api-key: $key" -H 'anthropic-version: 2023-06-01' \
 			-H 'anthropic-beta: claude-code-20250219' -H 'X-App: cli' \
 			-H "User-Agent: $UA" -H 'content-type: application/json' \
-			--data-binary "{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}")"
+			--data-binary "$payload")"
 		emit "$tag" "$m" "$code" "$(verdict "$code" "$f")"
 		rm -f "$f"
 		sleep "$REQ_SLEEP"
