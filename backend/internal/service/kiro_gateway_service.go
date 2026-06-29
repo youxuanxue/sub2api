@@ -128,6 +128,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		thinkingBuf string
 		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
+		redactor    kiroproto.InlineThinkingRedactor
 	)
 
 	callback := &kiroproto.KiroStreamCallback{
@@ -135,7 +136,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			if isThinking {
 				thinkingBuf += text
 			} else {
-				visible, inlineThinking := kiroproto.ExtractThinkingFromContent(text)
+				visible, inlineThinking := redactor.Push(text)
 				if inlineThinking != "" {
 					thinkingBuf += inlineThinking
 				}
@@ -160,6 +161,10 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	}
 	if callbackErr != nil {
 		return nil, fmt.Errorf("kiro stream error: %w", callbackErr)
+	}
+	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
+		textBuf += visible
+		thinkingBuf += inlineThinking
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
@@ -235,6 +240,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
 		firstTokMs  *int
+		redactor    kiroproto.InlineThinkingRedactor
 	)
 
 	markFirstToken := func() {
@@ -259,7 +265,7 @@ func (s *KiroGatewayService) forwardStreaming(
 				thinkingBuf += text
 				enc.writeThinkingDelta(text)
 			} else {
-				visible, inlineThinking := kiroproto.ExtractThinkingFromContent(text)
+				visible, inlineThinking := redactor.Push(text)
 				if inlineThinking != "" {
 					thinkingBuf += inlineThinking
 					enc.writeThinkingDelta(inlineThinking)
@@ -307,6 +313,16 @@ func (s *KiroGatewayService) forwardStreaming(
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
 	// inputTokens was already computed for the encoder (message_start.usage); reuse
 	// it for the ForwardResult so the two never drift.
+	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
+		if inlineThinking != "" {
+			thinkingBuf += inlineThinking
+			enc.writeThinkingDelta(inlineThinking)
+		}
+		if visible != "" {
+			textBuf += visible
+			enc.writeTextDelta(visible)
+		}
+	}
 	inputTokens := enc.inputTokens
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 

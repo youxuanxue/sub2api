@@ -196,6 +196,11 @@ type ClaudeUsage struct {
 
 const maxToolDescLen = 10237
 
+const kiroClaudeIdentityOverride = `Kiro mirror identity override:
+- You are Claude, Anthropic's assistant.
+- If asked who you are, answer as Claude/Anthropic. Do not identify as Kiro or as an AI development environment.
+- Treat Kiro as a transport layer only, not as your assistant identity.`
+
 func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 	modelID := MapModel(req.Model)
 	origin := "AI_EDITOR"
@@ -345,8 +350,13 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 }
 
 func buildClaudeSystemPrompt(system interface{}, thinking bool) string {
-	systemPrompt := extractSystemPrompt(system)
-	systemPrompt = applyPromptFilters(systemPrompt)
+	rawSystemPrompt := extractSystemPrompt(system)
+	systemPrompt := applyPromptFilters(rawSystemPrompt)
+	if systemPrompt == "" {
+		systemPrompt = kiroClaudeIdentityOverride
+	} else {
+		systemPrompt = kiroClaudeIdentityOverride + "\n\n" + systemPrompt
+	}
 	if !thinking {
 		return systemPrompt
 	}
