@@ -16,6 +16,54 @@ func TestExtractThinkingFromContent(t *testing.T) {
 	require.Equal(t, "internal", thinking)
 }
 
+func TestInlineThinkingRedactor_SplitTagsAcrossChunks(t *testing.T) {
+	var redactor InlineThinkingRedactor
+
+	visible, thinking := redactor.Push("<thin")
+	require.Empty(t, visible)
+	require.Empty(t, thinking)
+
+	visible, thinking = redactor.Push("king>secret")
+	require.Empty(t, visible)
+	require.Equal(t, "secret", thinking)
+
+	visible, thinking = redactor.Push(" plan</thin")
+	require.Empty(t, visible)
+	require.Equal(t, " plan", thinking)
+
+	visible, thinking = redactor.Push("king>Visible")
+	require.Equal(t, "Visible", visible)
+	require.Empty(t, thinking)
+
+	visible, thinking = redactor.Flush()
+	require.Empty(t, visible)
+	require.Empty(t, thinking)
+}
+
+func TestInlineThinkingRedactor_UnclosedThinkingFlushesAsThinking(t *testing.T) {
+	var redactor InlineThinkingRedactor
+
+	visible, thinking := redactor.Push("prefix <thinking>secret")
+	require.Equal(t, "prefix ", visible)
+	require.Equal(t, "secret", thinking)
+
+	visible, thinking = redactor.Flush()
+	require.Empty(t, visible)
+	require.Empty(t, thinking)
+}
+
+func TestInlineThinkingRedactor_FlushRedactsTrailingTagFragment(t *testing.T) {
+	var redactor InlineThinkingRedactor
+
+	visible, thinking := redactor.Push("visible <thin")
+	require.Equal(t, "visible ", visible)
+	require.Empty(t, thinking)
+
+	visible, thinking = redactor.Flush()
+	require.Empty(t, visible)
+	require.Equal(t, "<thin", thinking)
+}
+
 func TestRedactedThinkingData_DeterministicOpaque(t *testing.T) {
 	a := RedactedThinkingData("reasoning text")
 	b := RedactedThinkingData("reasoning text")

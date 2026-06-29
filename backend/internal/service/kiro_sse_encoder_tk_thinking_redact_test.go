@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -114,4 +115,42 @@ func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {
 	require.Contains(t, out, "final answer")
 	require.NotContains(t, out, "thinking_delta")
 	require.NotContains(t, out, "plan step one")
+}
+
+func TestKiroGatewayService_Forward_Streaming_RedactsSplitInlineThinkingTags(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	body := []byte{}
+	for _, content := range []string{
+		"<thin",
+		"king>\nThe user asks who I am.",
+		" I must not expose this.</thin",
+		"king>I am Claude.",
+	} {
+		body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
+			[]byte(`{"content":`+strconv.Quote(content)+`}`))...)
+	}
+	upstream := &kiroFakeUpstream{body: body}
+
+	svc := NewKiroGatewayService(upstream, nil)
+	reqBody, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-6",
+		"messages":   []map[string]any{{"role": "user", "content": "who are you"}},
+		"max_tokens": 32,
+		"stream":     true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-sonnet-4-6", Stream: true}
+
+	_, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+
+	out := rec.Body.String()
+	require.Contains(t, out, `"type":"redacted_thinking"`)
+	require.Contains(t, out, "I am Claude.")
+	require.NotContains(t, out, "<thinking>")
+	require.NotContains(t, out, "</thinking>")
+	require.NotContains(t, out, "The user asks who I am.")
+	require.NotContains(t, out, "thinking_delta")
 }
