@@ -1,7 +1,6 @@
 ---
 name: tokenkey-stage0-release-rollout
-description: >-
-  Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback, and release-risk checks. Use for release tagging, deploy-stage0, Lightsail edge rollout, structured smoke results, or post-release OAuth checks.
+description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback, and release-risk checks. Use for release tagging, deploy-stage0, Lightsail edge rollout, structured smoke results, or post-release OAuth checks.
 ---
 
 # TokenKey：Stage0 release → prod/Edge rollout → 真实测试
