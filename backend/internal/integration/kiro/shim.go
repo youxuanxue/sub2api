@@ -144,9 +144,9 @@ func defaultSystemVersion() string {
 	}
 }
 
-// Prompt filtering is disabled in the vendored default to avoid depending on
-// TokenKey settings; a later PR can wire these to admin-configurable knobs.
-func GetFilterClaudeCode() bool      { return false }
+// Prompt filtering: Claude Code system prompts are preserved (Anthropic OAuth parity)
+// with env/boundary noise stripped. Other filters stay off until wired to settings.
+func GetFilterClaudeCode() bool { return true }
 func GetFilterStripBoundaries() bool { return false }
 func GetFilterEnvNoise() bool        { return false }
 

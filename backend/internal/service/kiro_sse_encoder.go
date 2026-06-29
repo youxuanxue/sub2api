@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 )
@@ -14,7 +15,7 @@ type kiroBlockKind int
 
 const (
 	kiroBlockNone kiroBlockKind = iota
-	kiroBlockThinking
+	kiroBlockRedactedThinking
 	kiroBlockText
 	kiroBlockToolUse
 )
@@ -37,11 +38,13 @@ type kiroSSEEncoder struct {
 	// recorded every streamed Kiro request at input=0 → systematic under-billing.
 	inputTokens int
 
-	started     bool          // message_start has been emitted
-	openBlock   kiroBlockKind // currently open content block
-	blockIndex  int           // index of the currently open / next block
-	stopReason  string        // accumulated stop reason ("end_turn" / "tool_use")
-	emittedText bool          // any text/thinking/tool block emitted
+	started           bool          // message_start has been emitted
+	openBlock         kiroBlockKind // currently open content block
+	blockIndex        int           // index of the currently open / next block
+	stopReason        string        // accumulated stop reason ("end_turn" / "tool_use")
+	emittedText       bool          // any text/thinking/tool block emitted
+	pendingThinking   strings.Builder
+	redactedThinkingEmitted bool
 }
 
 func (e *kiroSSEEncoder) writeEvent(eventType string, payload any) {
@@ -79,6 +82,37 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 	})
 }
 
+// flushRedactedThinking emits a single opaque redacted_thinking block for all
+// reasoning accumulated so far. Matches Anthropic OAuth + redact-thinking: the
+// client sees encrypted-style data, not plaintext thinking_delta events.
+func (e *kiroSSEEncoder) flushRedactedThinking() {
+	if e.redactedThinkingEmitted || e.pendingThinking.Len() == 0 {
+		return
+	}
+	e.writeMessageStart()
+	if e.openBlock != kiroBlockNone {
+		e.closeOpenBlock()
+	}
+
+	data := kiroproto.RedactedThinkingData(e.pendingThinking.String())
+	e.writeEvent("content_block_start", map[string]any{
+		"type":  "content_block_start",
+		"index": e.blockIndex,
+		"content_block": map[string]any{
+			"type": "redacted_thinking",
+			"data": data,
+		},
+	})
+	e.writeEvent("content_block_stop", map[string]any{
+		"type":  "content_block_stop",
+		"index": e.blockIndex,
+	})
+	e.openBlock = kiroBlockNone
+	e.blockIndex++
+	e.emittedText = true
+	e.redactedThinkingEmitted = true
+}
+
 // ensureBlock opens a content block of the requested kind, closing any
 // previously open block of a different kind first. It lazily emits message_start
 // on first content so that an upstream failure occurring before any content
@@ -88,13 +122,14 @@ func (e *kiroSSEEncoder) ensureBlock(kind kiroBlockKind) {
 	if e.openBlock == kind {
 		return
 	}
+	if kind != kiroBlockRedactedThinking {
+		e.flushRedactedThinking()
+	}
 	e.writeMessageStart()
 	e.closeOpenBlock()
 
 	var cb map[string]any
 	switch kind {
-	case kiroBlockThinking:
-		cb = map[string]any{"type": "thinking", "thinking": "", "signature": ""}
 	case kiroBlockText:
 		cb = map[string]any{"type": "text", "text": ""}
 	default:
@@ -125,18 +160,14 @@ func (e *kiroSSEEncoder) writeThinkingDelta(text string) {
 	if text == "" {
 		return
 	}
-	e.ensureBlock(kiroBlockThinking)
-	e.writeEvent("content_block_delta", map[string]any{
-		"type":  "content_block_delta",
-		"index": e.blockIndex,
-		"delta": map[string]any{"type": "thinking_delta", "thinking": text},
-	})
+	e.pendingThinking.WriteString(text)
 }
 
 // writeToolUse emits a complete tool_use block (start + input_json_delta + stop).
 // Kiro delivers tool uses whole (not incrementally), so the input is serialized
 // as a single partial_json delta.
 func (e *kiroSSEEncoder) writeToolUse(tu kiroproto.KiroToolUse) {
+	e.flushRedactedThinking()
 	e.writeMessageStart()
 	e.closeOpenBlock()
 	e.stopReason = "tool_use"
@@ -183,6 +214,7 @@ func (e *kiroSSEEncoder) closeOpenBlock() {
 }
 
 func (e *kiroSSEEncoder) writeMessageDelta(outputTokens int) {
+	e.flushRedactedThinking()
 	stop := e.stopReason
 	if stop == "" {
 		stop = "end_turn"
