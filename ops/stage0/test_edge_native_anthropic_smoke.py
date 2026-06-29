@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for edge_native_anthropic_smoke.sh model parsing."""
+"""Tests for edge_native_anthropic_smoke.sh model/account parsing."""
 from __future__ import annotations
 
 import os
@@ -13,7 +13,11 @@ _SCRIPT = pathlib.Path(__file__).resolve().parent / "edge_native_anthropic_smoke
 
 
 class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
-    def _run_smoke(self, models: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def _run_smoke(
+        self,
+        models: str,
+        account_rows: str = "66|kiro",
+    ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory(prefix="edge-native-smoke-test-") as td:
             tmpdir = pathlib.Path(td)
             bin_dir = tmpdir / "bin"
@@ -25,7 +29,7 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
-                    printf '%s\n' "${FAKE_ACCOUNT_IDS:-66}"
+                    printf '%s\n' "${FAKE_ACCOUNT_ROWS:-66|kiro}"
                     """
                 )
             )
@@ -67,6 +71,7 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
                 "PROBE_ACCOUNT_MODEL_SH": str(probe),
                 "SMOKE_ANTHROPIC_REALISTIC_PY": str(realistic),
                 "PROBE_MODEL_LOG": str(model_log),
+                "FAKE_ACCOUNT_ROWS": account_rows,
             }
             proc = subprocess.run(
                 ["bash", str(_SCRIPT)],
@@ -83,6 +88,7 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(logged_models, ["claude-sonnet-4-6"])
+        self.assertIn("probe account_id=66 platform=kiro model=claude-sonnet-4-6", proc.stdout)
         self.assertIn("OK served=1", proc.stdout)
         self.assertNotIn("no models configured", proc.stderr)
 
@@ -91,6 +97,15 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(logged_models, ["claude-a", "claude-b"])
+        self.assertIn("OK served=2", proc.stdout)
+
+    def test_multiple_native_account_rows_are_probed_with_platforms(self) -> None:
+        proc, logged_models = self._run_smoke("claude-sonnet-4-6", "11|anthropic\n66|kiro")
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(logged_models, ["claude-sonnet-4-6", "claude-sonnet-4-6"])
+        self.assertIn("probe account_id=11 platform=anthropic model=claude-sonnet-4-6", proc.stdout)
+        self.assertIn("probe account_id=66 platform=kiro model=claude-sonnet-4-6", proc.stdout)
         self.assertIn("OK served=2", proc.stdout)
 
 
