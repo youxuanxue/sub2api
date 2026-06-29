@@ -39,7 +39,7 @@ const (
 
 	// DefaultGrokCLIVersion is the upstream grok-cli semver TokenKey watches for OAuth relay
 	// fingerprint drift (npm @xai-official/grok). Bump via tokenkey-grok-fingerprint-alignment.
-	DefaultGrokCLIVersion = "0.1.220"
+	DefaultGrokCLIVersion = "0.2.73"
 )
 
 var (

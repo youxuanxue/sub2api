@@ -77,7 +77,7 @@
     "stainless_runtime": "node",
     "stainless_runtime_version": "v24.3.0",
     "stainless_lang": "js",
-    "stainless_package_version": "0.94.0",
+    "stainless_package_version": "0.106.0",
     "ja3_raw": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-21,29-23-24,0",
     "ja3_hash": "d871d02cecbde59abbf8f4806134addf",
     "ja4": "t13d1714h1_5b57614c22b0_43ade6aba3df",
