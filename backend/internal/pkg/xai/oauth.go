@@ -36,6 +36,10 @@ const (
 	EnvBaseURL                    = "XAI_BASE_URL"
 	EnvAllowUnsafeURLOverrides    = "XAI_ALLOW_UNSAFE_URL_OVERRIDES"
 	EnvUnsafeAllowHighConcurrency = "XAI_GROK_UNSAFE_ALLOW_CONCURRENCY_GT_ONE"
+
+	// DefaultGrokCLIVersion is the upstream grok-cli semver TokenKey watches for OAuth relay
+	// fingerprint drift (npm @xai-official/grok). Bump via tokenkey-grok-fingerprint-alignment.
+	DefaultGrokCLIVersion = "0.1.220"
 )
 
 var (

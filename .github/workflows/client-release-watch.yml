@@ -1,0 +1,289 @@
+name: Client Release Watch
+
+# Poll public release channels for Claude Code, Codex, Antigravity, Kiro, Gemini CLI, Grok CLI, etc.;
+# compare against TokenKey fingerprint pins; open/update tracking issues when upstream
+# ships a newer client version so operators can run the matching alignment skill early.
+
+on:
+  schedule:
+    # 07:11 Asia/Shanghai. GitHub cron is UTC. Offset from cc/upstream issue watchdogs.
+    - cron: "11 23 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Scan and write reports but do NOT open/update GitHub issues or cache PR"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: client-release-watch
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      has_drift: ${{ steps.watch.outputs.has_drift }}
+      drift_count: ${{ steps.watch.outputs.drift_count }}
+      cache_changed: ${{ steps.watch.outputs.cache_changed }}
+      cache_pr_url: ${{ steps.cache_pr.outputs.cache_pr_url }}
+    steps:
+      - name: Check required token
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          if [ -z "${UPSTREAM_MERGE_GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates and cache PR branches."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Configure authenticated origin
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: git remote set-url origin "https://x-access-token:${UPSTREAM_MERGE_GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "tk-client-release-watch[bot]"
+          git config user.email "client-release-watch@tokenkey.dev"
+
+      - name: Scan upstream client releases
+        id: watch
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          python3 scripts/fingerprint/client_release_watch.py \
+            --git-sha "$SHA" \
+            --run-url "$RUN_URL" \
+            --report-json .cache/fingerprint/client-release-watch/report.json \
+            --report-md .cache/fingerprint/client-release-watch/report.md \
+            --state .cache/fingerprint/client-release-watch.json || WATCH_EXIT=$?
+          WATCH_EXIT="${WATCH_EXIT:-0}"
+          python3 -m json.tool .cache/fingerprint/client-release-watch/report.json >/dev/null
+          HAS_DRIFT="$(python3 -c "import json;print('true' if json.load(open('.cache/fingerprint/client-release-watch/report.json'))['summary']['has_actionable_drift'] else 'false')")"
+          DRIFT_COUNT="$(python3 -c "import json;print(json.load(open('.cache/fingerprint/client-release-watch/report.json'))['summary']['drift_count'])")"
+          {
+            echo "has_drift=$HAS_DRIFT"
+            echo "drift_count=$DRIFT_COUNT"
+          } >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- .cache/fingerprint/client-release-watch.json; then
+            echo "cache_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Open or update drift tracking issues
+        if: inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+          import subprocess
+
+          report = json.loads(pathlib.Path('.cache/fingerprint/client-release-watch/report.json').read_text(encoding='utf-8'))
+
+          def sh(args, **kwargs):
+              return subprocess.run(args, text=True, check=True, capture_output=True, **kwargs)
+
+          def label_safe(value: str) -> str:
+              return re.sub(r'[^A-Za-z0-9_.:-]+', '-', value)[:50] or 'unknown'
+
+          def ensure_label(name: str, color: str, description: str) -> None:
+              subprocess.run(
+                  ['gh', 'label', 'create', name, '--color', color, '--description', description[:100]],
+                  text=True,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              )
+
+          base_labels = {
+              'client-release-watch': ('BFD4F2', 'Client release watch signal'),
+              'automated': ('C5DEF5', 'Automated signal'),
+              'needs-triage': ('FBCA04', 'Needs human triage'),
+              'client-release:drift': ('D73A4A', 'Upstream client newer than TokenKey pin'),
+              'client-release:aligned': ('0E8A16', 'Client release aligned with pin'),
+          }
+          for name, (color, desc) in base_labels.items():
+              ensure_label(name, color, desc)
+
+          for item in report.get('platforms') or []:
+              platform_id = item['id']
+              platform_label = f"client-release:{label_safe(platform_id)}"
+              ensure_label(platform_label, 'BFD4F2', f'Client release watch platform {platform_id}')
+
+              upstream = item.get('upstream_latest') or 'unknown'
+              sig = f"client-release-{platform_id}-{upstream}"
+              sig_label = f"client-release-sig:{label_safe(sig)}"
+              ensure_label(sig_label, 'BFD4F2', 'Client release watch signature')
+
+              title = f"[client-release] {item.get('name')} upstream {upstream} > pin {item.get('pinned') or 'n/a'}"[:250]
+              body_lines = [
+                  '## Client release watch finding',
+                  '',
+                  f"- Platform: `{platform_id}`",
+                  f"- Pinned: `{item.get('pinned')}`",
+                  f"- Upstream latest: `{upstream}`",
+                  f"- Status: `{item.get('status')}`",
+                  f"- Pin path: `{item.get('pin_path')}`",
+                  f"- Alignment skill: `{item.get('skill')}`",
+                  f"- Watchdog run: {report.get('run_url') or 'n/a'}",
+                  f"- Signature: `{sig}`",
+                  '',
+                  '## Upstream sources',
+                  '',
+              ]
+              for label, info in (item.get('upstream_sources') or {}).items():
+                  body_lines.append(f"- {label}: `{info.get('version')}` — {info.get('url')}")
+              if item.get('fetch_errors'):
+                  body_lines.extend(['', '## Fetch errors', ''])
+                  body_lines.extend(f"- {err}" for err in item['fetch_errors'])
+              body_lines.extend([
+                  '',
+                  '## Expected follow-up',
+                  '',
+                  f"1. Local routing: `bash ops/fingerprint/client-release-watch.sh plan`",
+                  f"2. Load skill in Cursor: `{item.get('skill')}` (or `tokenkey-fingerprint-alignment-all` for one PR)",
+                  f"3. Run that skill's capture commands — do not bump pins from release metadata alone.",
+              ])
+              body_path = pathlib.Path(f'.cache/fingerprint/client-release-watch/issue-{platform_id}.md')
+              body_path.write_text('\n'.join(body_lines) + '\n', encoding='utf-8')
+
+              if item.get('drift') and not item.get('issue_suppressed'):
+                  labels = ','.join([
+                      'client-release-watch', 'automated', 'needs-triage',
+                      'client-release:drift', platform_label, sig_label,
+                  ])
+                  existing = sh([
+                      'gh', 'issue', 'list', '--state', 'open', '--label', sig_label,
+                      '--json', 'number', '--limit', '1', '--jq', '.[0].number // empty',
+                  ]).stdout.strip()
+                  if existing:
+                      sh(['gh', 'issue', 'comment', existing, '--body-file', str(body_path)])
+                      sh(['gh', 'issue', 'edit', existing, '--add-label', labels])
+                      print(f'updated drift issue #{existing} for {platform_id}')
+                  else:
+                      sh(['gh', 'issue', 'create', '--title', title, '--body-file', str(body_path), '--label', labels])
+                      print(f'created drift issue for {platform_id}')
+              else:
+                  existing_raw = sh([
+                      'gh', 'issue', 'list', '--state', 'open', '--label', platform_label,
+                      '--json', 'number,labels', '--limit', '20',
+                  ]).stdout.strip()
+                  if not existing_raw or existing_raw == '[]':
+                      continue
+                  for row in json.loads(existing_raw):
+                      number = str(row['number'])
+                      labels = {lbl['name'] for lbl in row.get('labels') or []}
+                      if 'client-release:drift' not in labels:
+                          continue
+                      comment = '\n'.join([
+                          'Watchdog now reports this platform as aligned with upstream (or not ahead of the pin).',
+                          '',
+                          f"- Platform: `{platform_id}`",
+                          f"- Pinned: `{item.get('pinned')}`",
+                          f"- Upstream latest: `{upstream}`",
+                          f"- Watchdog run: {report.get('run_url') or 'n/a'}",
+                      ]) + '\n'
+                      sh(['gh', 'issue', 'comment', number, '--body', comment])
+                      subprocess.run([
+                          'gh', 'issue', 'edit', number,
+                          '--add-label', 'client-release:aligned',
+                          '--remove-label', 'client-release:drift',
+                      ], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      sh(['gh', 'issue', 'close', number, '--comment', 'Closing because upstream is no longer ahead of the TokenKey pin.'])
+                      print(f'closed drift issue #{number} for {platform_id}')
+          PY
+
+      - name: Create or update cache refresh PR
+        id: cache_pr
+        if: inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "cache_pr_url=" >> "$GITHUB_OUTPUT"
+          meta_changed=false
+          if ! git diff --quiet -- scripts/fingerprint/client_release_watch.py .github/workflows/client-release-watch.yml; then
+            meta_changed=true
+          fi
+          if [ "${{ steps.watch.outputs.cache_changed }}" != "true" ] && [ "$meta_changed" != "true" ]; then
+            echo "No client-release-watch cache changes to propose."
+            exit 0
+          fi
+
+          BRANCH="chore/client-release-watch-cache"
+          git checkout -B "$BRANCH"
+          git add -f .cache/fingerprint/client-release-watch.json scripts/fingerprint/client_release_watch.py scripts/fingerprint/test_client_release_watch.py .github/workflows/client-release-watch.yml
+          git commit -m "chore: refresh client release watch cache"
+          git push --force-with-lease origin "$BRANCH"
+
+          cat > .cache/fingerprint/client-release-watch/cache-pr-body.md <<'EOF'
+          ## Summary
+          - Refresh `.cache/fingerprint/client-release-watch.json` from the latest upstream client release poll.
+          - Keep the client release watch script/workflow in sync when they changed in the same run.
+
+          ## Watchdog report
+          EOF
+          cat .cache/fingerprint/client-release-watch/report.md >> .cache/fingerprint/client-release-watch/cache-pr-body.md
+          cat >> .cache/fingerprint/client-release-watch/cache-pr-body.md <<'EOF'
+
+          ## Test plan
+          - [x] `python3 scripts/fingerprint/client_release_watch.py --selftest`
+          - [x] `python3 -m unittest discover -s scripts/fingerprint -p 'test_*.py'`
+          - [x] `python3 -m json.tool .cache/fingerprint/client-release-watch/report.json`
+          EOF
+
+          EXISTING="$(gh pr list --state open --base main --head "$BRANCH" --json number,url --jq '.[0] // empty')"
+          if [ -n "$EXISTING" ]; then
+            NUMBER="$(jq -r '.number' <<<"$EXISTING")"
+            URL="$(jq -r '.url' <<<"$EXISTING")"
+            gh pr edit "$NUMBER" --title "chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md
+          else
+            URL="$(gh pr create --base main --head "$BRANCH" --title "chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md)"
+          fi
+          echo "cache_pr_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "cache PR: $URL"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-release-watch-${{ github.run_id }}
+          path: |
+            .cache/fingerprint/client-release-watch/report.json
+            .cache/fingerprint/client-release-watch/report.md
+            .cache/fingerprint/client-release-watch.json
+          if-no-files-found: ignore
+
+  contract:
+    needs: scan
+    if: always() && needs.scan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Summarize run
+        run: |
+          echo "drift_count=${{ needs.scan.outputs.drift_count }}"
+          echo "has_drift=${{ needs.scan.outputs.has_drift }}"
+          echo "cache_pr_url=${{ needs.scan.outputs.cache_pr_url }}"
