@@ -140,6 +140,16 @@ export default {
     viewPricing: '查看价格',
     via: '经 {vendor}',
     keyNoModality: '此模式无可用模型',
+    saveReminder: '生成结果保存在本机浏览器（约 7 天），仍请立即下载；清缓存或换设备后会丢失。',
+    universalKeyBadge: '全能 Key',
+    playback: {
+      inlineLocal: '本机缓存 · 刷新后仍可预览（约 7 天）',
+      upstreamCorsOk: '上游直链 · 已探测可缓存 · 仍请下载',
+      upstreamCorsBlocked: '上游直链 · 跨域不可缓存 · 刷新后不可预览 · 请立即下载',
+      expired: '预览已失效 · 仅保留提示词',
+      unknown: '存储方式未知 · 请立即下载',
+      label: '预览来源',
+    },
     needsApikeyAccount: '需要 apikey 类型账号',
     badge: {
       draft: '草稿',
@@ -201,7 +211,7 @@ export default {
       usePrompt: '用此 prompt',
       useAsInput: '用作输入',
       enlargeHint: '点击放大预览',
-      expiredReload: '预览不会在刷新后保留——用提示词重新生成。',
+      expiredReload: '本机预览已过期——可下载保存，或用提示词重新生成（需再次计费）。',
       close: '关闭',
       inputImageLabel: '输入图片（图生图）',
       inputUpload: '上传图片',
@@ -220,6 +230,8 @@ export default {
     video: {
       modelLabel: '模型',
       modelEmpty: '当前分组暂无可用的视频模型。',
+      modelEmptySwitchKey: '视频模型（Veo / Seedance）通常在 Vertex 或 VolcEngine 分组。请在上方切换到带「视频」能力的 API 密钥。',
+      modelEmptyAllKeys: '你的所有密钥分组均未开通视频模型。可在价格页查看支持的分组，或联系管理员开通。',
       samplePrompt: '霓虹东京小巷，慢推镜头，雨，反射光，电影感',
       perSecondUnit: ' /秒',
       promptPlaceholder: '描述你想要的视频…',
@@ -261,7 +273,8 @@ export default {
       retry: '重试',
       copyLink: '复制链接',
       copied: '已复制',
-      retentionHint: '上游临时链接 · 请及时下载'
+      retentionHint: '请立即下载保存 · 本机可短期预览，上游链接会过期',
+      previewBuffering: '正在缓冲视频…',
     },
     chat: {
       model: '模型',

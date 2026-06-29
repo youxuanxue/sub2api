@@ -131,6 +131,7 @@
         :key-id="selectedKeyId"
         :keys="keys"
         :rate-multiplier="1"
+        :any-key-serves-video="anyKeyServesVideo"
         @spent="refreshBalance"
       />
       <BakeOff
@@ -161,13 +162,20 @@ import BakeOff from '@/views/user/studio/BakeOff.vue'
 import { keysAPI } from '@/api/keys'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
 import { getMePricingCatalog } from '@/api/me-pricing'
+import { getPublicPricing } from '@/api/pricing'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
+import {
+  entitledModelIds,
+  isUniversalKey,
+  priceMapFromPublicCatalog,
+} from '@/utils/studioUniversalKey.tk'
 import {
   groupServes,
   pickModalityKey,
   type ModalityKeyOption,
   type PickerModality,
   type MediaPrice,
+  type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -197,6 +205,9 @@ const gatewayBase = ref('')
 // group up front so the picker (and the dropdown annotations) can reason about
 // EVERY key's modality, not just the one currently selected.
 const groupModelSets = ref<Map<string, Set<string>>>(new Map())
+/** Cross-group entitlement index (me/pricing-catalog authorized_groups_by_model). */
+const userEntitledIds = ref<Set<string>>(new Set())
+const universalPriceMap = ref<MediaPriceMap>(new Map())
 // Live per-model price for the SELECTED key's group (getMePricingCatalog) — the
 // single source of media prices (no hardcoding, so prices can't drift).
 const priceMap = ref<Map<string, MediaPrice>>(new Map())
@@ -219,7 +230,12 @@ function groupKeyOf(k: ApiKey): string {
   return k.group?.id != null ? `g${k.group.id}` : `k${k.id}`
 }
 function availableIdsOf(k: ApiKey): Set<string> {
+  if (isUniversalKey(k)) return userEntitledIds.value
   return groupModelSets.value.get(groupKeyOf(k)) ?? new Set<string>()
+}
+
+function keyServesModality(k: ApiKey, modality: PickerModality): boolean {
+  return groupServes(modality, availableIdsOf(k))
 }
 
 // Model pool of the currently selected key — what the child studios resolve
@@ -227,6 +243,8 @@ function availableIdsOf(k: ApiKey): Set<string> {
 const availableIds = computed<Set<string>>(() =>
   selectedKey.value ? availableIdsOf(selectedKey.value) : new Set<string>()
 )
+
+const anyKeyServesVideo = computed(() => keys.value.some((k) => keyServesModality(k, 'video')))
 
 // The single modality the picker can optimize a key for. Bake-off has its OWN
 // internal image/video toggle, so no single key serves both of its sub-modes —
@@ -245,15 +263,25 @@ function modalityOptions(): ModalityKeyOption[] {
 }
 
 function keyLabel(k: ApiKey): string {
-  const group = k.group?.name || t('studio.defaultGroup')
+  const group = isUniversalKey(k) ? t('studio.universalKeyBadge') : k.group?.name || t('studio.defaultGroup')
   const base = `${k.name || k.id} · ${group}`
-  // Once probed, flag keys whose group can't serve the active modality so the
-  // user isn't left guessing which key to pick. Skipped on bake-off (dual modality).
   const m = pickerModality.value
-  if (probed.value && m && !groupServes(m, availableIdsOf(k))) {
+  if (probed.value && m && !keyServesModality(k, m)) {
     return `${base} · ${t('studio.keyNoModality')}`
   }
   return base
+}
+
+async function loadUserEntitlement(): Promise<void> {
+  try {
+    const [meCatalog, publicCatalog] = await Promise.all([getMePricingCatalog(), getPublicPricing()])
+    const entitled = entitledModelIds(meCatalog)
+    userEntitledIds.value = entitled
+    universalPriceMap.value = priceMapFromPublicCatalog(publicCatalog.data || [], entitled)
+  } catch {
+    userEntitledIds.value = new Set()
+    universalPriceMap.value = new Map()
+  }
 }
 
 async function refreshBalance(): Promise<void> {
@@ -304,6 +332,11 @@ async function probeAllGroups(): Promise<void> {
 // rateMultiplier=1. A model with no per_image/per_second price is simply omitted
 // (priced ∩ servable). Failure → empty map (models hide) rather than stale prices.
 async function loadPriceMap(keyId: number): Promise<void> {
+  const k = keys.value.find((x) => x.id === keyId)
+  if (k && isUniversalKey(k)) {
+    priceMap.value = new Map(universalPriceMap.value)
+    return
+  }
   try {
     const catalog = await getMePricingCatalog({ apiKeyId: keyId })
     const next = new Map<string, MediaPrice>()
@@ -349,7 +382,7 @@ async function bootstrap(): Promise<void> {
       loadError.value = t('studio.noApiKey')
       return
     }
-    await probeAllGroups()
+    await Promise.all([probeAllGroups(), loadUserEntitlement()])
     if (loadError.value) return
     // Seed with the historical default, then let the picker move to a key whose
     // group actually serves the landing modality (defaults to chat at mount).

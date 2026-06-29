@@ -11,13 +11,20 @@
  * key is resolved from the live key list at runtime (useVideoTaskPoll). A
  * deleted key simply means the task can no longer be polled.
  *
- * Storage is best-effort. Inline data: payloads stay browser-local instead of
- * being written to localStorage: video tasks (data:video / blob:) and now images
- * (data: src with no s3Key — gemini-native, or imagen/gpt-image under the #944
- * pass-through default) are sanitized before persistence. A residual
- * QuotaExceededError still trims the oldest image entries and retries.
+ * Storage is best-effort. Inline data: payloads are NOT written to localStorage
+ * (gemini-native / pass-through #944 images, data:video clips) — they are mirrored
+ * into IndexedDB (`studioBlobCache.tk.ts`) keyed by item id so a reload can still
+ * show thumbnails / replay video without TokenKey hosting media. A residual
+ * QuotaExceededError on localStorage still trims the oldest metadata entries.
  */
 import { ref, watch, type Ref } from 'vue'
+import {
+  cacheStudioBlobFromSrc,
+  deleteStudioBlob,
+  getStudioBlobObjectUrl,
+  pruneStudioBlobCache,
+} from '@/utils/studioBlobCache.tk'
+import type { StudioPlaybackStorage } from '@/utils/studioPlaybackStorage.tk'
 
 export type VideoTaskState = 'processing' | 'succeeded' | 'failed'
 
@@ -30,9 +37,11 @@ export interface ImageHistoryItem {
    * one from this key (POST /v1/images/presign) so persisted thumbnails don't break.
    * Absent for inline data: URI images (gemini-native, or imagen/gpt-image under the
    * #944 pass-through default) — those carry the bytes inline and are NOT persisted
-   * (sanitizeImageForPersistence blanks src), so on reload they show a regenerate hint.
+   * (sanitizeImageForPersistence blanks src); bytes may still live in IndexedDB.
    */
   s3Key?: string
+  /** True when bytes were written to the browser blob cache (reload hydration). */
+  blobCached?: boolean
   prompt: string
   revisedPrompt?: string
   model: string
@@ -58,6 +67,10 @@ export interface VideoTaskItem {
   url: string
   /** Set when an upstream http(s) link expired or was stripped on reload — card shows prompt only. */
   urlExpired?: boolean
+  /** True when clip bytes were written to IndexedDB (reload playback). */
+  blobCached?: boolean
+  /** How replay / browser cache behaves for this clip (diagnostics). */
+  playbackStorage?: StudioPlaybackStorage
   submittedAtMs: number
   elapsedS: number
   errorMessage?: string
@@ -161,6 +174,10 @@ export interface MediaLibrary {
   patchVideoTask: (id: string, patch: Partial<VideoTaskItem>) => void
   removeVideoTask: (id: string) => void
   clearVideoTasks: () => void
+  /** Rehydrate empty src/url from IndexedDB after reload; call once on Studio mount. */
+  hydrateFromBlobCache: () => Promise<void>
+  /** Best-effort mirror of inline media into IndexedDB (generation / poll terminal). */
+  cacheInlineMedia: (kind: 'image' | 'video', itemId: string, src: string) => Promise<void>
 }
 
 export function useMediaLibrary(userId: number | string): MediaLibrary {
@@ -177,12 +194,39 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     { deep: true }
   )
 
+  async function cacheInlineMedia(kind: 'image' | 'video', itemId: string, src: string): Promise<void> {
+    if (!src) return
+    const ok = await cacheStudioBlobFromSrc(userId, kind, itemId, src)
+    if (!ok) return
+    if (kind === 'image') {
+      const idx = images.value.findIndex((it) => it.id === itemId)
+      if (idx >= 0) {
+        const next = [...images.value]
+        next[idx] = { ...next[idx], blobCached: true }
+        images.value = next
+      }
+    } else {
+      const idx = videoTasks.value.findIndex((t) => t.id === itemId)
+      if (idx >= 0) {
+        const next = [...videoTasks.value]
+        next[idx] = { ...next[idx], blobCached: true, urlExpired: false }
+        videoTasks.value = next
+      }
+    }
+  }
+
   function addImages(items: ImageHistoryItem[]): void {
     if (!items.length) return
     images.value = [...items, ...images.value].slice(0, IMAGE_CAP)
+    for (const it of items) {
+      if (it.src && /^data:/i.test(it.src)) void cacheInlineMedia('image', it.id, it.src)
+    }
   }
 
   function clearImages(): void {
+    for (const it of images.value) {
+      if (it.blobCached) void deleteStudioBlob(userId, 'image', it.id)
+    }
     images.value = []
   }
 
@@ -195,6 +239,9 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     } else {
       videoTasks.value = [task, ...videoTasks.value].slice(0, VIDEO_CAP)
     }
+    if (task.state === 'succeeded' && task.url && (/^data:video/i.test(task.url) || task.url.startsWith('blob:'))) {
+      void cacheInlineMedia('video', task.id, task.url)
+    }
   }
 
   function patchVideoTask(id: string, patch: Partial<VideoTaskItem>): void {
@@ -203,14 +250,50 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     const next = [...videoTasks.value]
     next[idx] = { ...next[idx], ...patch }
     videoTasks.value = next
+    const merged = next[idx]
+    if (merged.state === 'succeeded' && merged.url && (/^data:video/i.test(merged.url) || merged.url.startsWith('blob:'))) {
+      void cacheInlineMedia('video', id, merged.url)
+    }
   }
 
   function removeVideoTask(id: string): void {
+    const task = videoTasks.value.find((t) => t.id === id)
+    if (task?.blobCached) void deleteStudioBlob(userId, 'video', id)
     videoTasks.value = videoTasks.value.filter((t) => t.id !== id)
   }
 
   function clearVideoTasks(): void {
+    for (const t of videoTasks.value) {
+      if (t.blobCached) void deleteStudioBlob(userId, 'video', t.id)
+    }
     videoTasks.value = []
+  }
+
+  async function hydrateFromBlobCache(): Promise<void> {
+    await pruneStudioBlobCache(userId)
+    let imagesChanged = false
+    const nextImages = [...images.value]
+    for (let i = 0; i < nextImages.length; i++) {
+      const it = nextImages[i]
+      if (it.src || it.s3Key) continue
+      const blobUrl = await getStudioBlobObjectUrl(userId, 'image', it.id)
+      if (!blobUrl) continue
+      nextImages[i] = { ...it, src: blobUrl, blobCached: true }
+      imagesChanged = true
+    }
+    if (imagesChanged) images.value = nextImages
+
+    let videosChanged = false
+    const nextVideos = [...videoTasks.value]
+    for (let i = 0; i < nextVideos.length; i++) {
+      const t = nextVideos[i]
+      if (t.url || t.state !== 'succeeded') continue
+      const blobUrl = await getStudioBlobObjectUrl(userId, 'video', t.id)
+      if (!blobUrl) continue
+      nextVideos[i] = { ...t, url: blobUrl, blobCached: true, urlExpired: false }
+      videosChanged = true
+    }
+    if (videosChanged) videoTasks.value = nextVideos
   }
 
   return {
@@ -222,5 +305,7 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     patchVideoTask,
     removeVideoTask,
     clearVideoTasks,
+    hydrateFromBlobCache,
+    cacheInlineMedia,
   }
 }
