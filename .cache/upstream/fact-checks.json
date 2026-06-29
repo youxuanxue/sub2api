@@ -604,6 +604,23 @@
         "backend/internal/service/openai_images.go:forwardOpenAIImagesOAuth",
         "backend/internal/service/openai_images_test.go:TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2413",
+      "severity": "high",
+      "summary": "OpenAI OAuth 403 with HTML body (OpenAI access-denied page on gpt-image-2 / image paths, not just CF/Arkose keywords) skips the 403 counter and temp_unschedulable cooldown via openAIIsHTMLBody; complements #1824 keyword matching so healthy OAuth accounts are not evicted from the pool.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go",
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:Wei-Shaw/sub2api#2413",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:func openAIIsHTMLBody",
+        "backend/internal/service/ratelimit_service.go:openai_403_html_body_skip_cooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403OpenAIAccessDeniedHTMLSkipsCooldown"
+      ]
     }
   ]
 }
