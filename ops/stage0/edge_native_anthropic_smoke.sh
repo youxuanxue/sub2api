@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# edge_native_anthropic_smoke.sh — realistic per-account Anthropic OAuth smoke on an edge host.
+# edge_native_anthropic_smoke.sh — realistic per-account Anthropic/Kiro native smoke on an edge host.
 #
-# Runs ON the edge machine (SSM / run-probe). For each schedulable native OAuth account
-# in the default group, binds a reserved __tk_probe_* key and sends one in-container
-# /v1/messages request with Claude Code-shaped payload (smoke_anthropic_realistic.py).
+# Runs ON the edge machine (SSM / run-probe). For each schedulable native /v1/messages
+# account (Anthropic OAuth in the default group, plus Kiro's platform-wide pool), binds
+# a reserved __tk_probe_* key and sends one in-container request with Claude Code-shaped
+# payload (smoke_anthropic_realistic.py).
 #
 # Env:
 #   ANTHROPIC_MODELS          space/comma separated model ids (default: claude-sonnet-4-6)
-#   ANTHROPIC_SOURCE_GROUP    edge OAuth pool group name (default: default)
+#   ANTHROPIC_SOURCE_GROUP    edge Anthropic OAuth pool group name (default: default)
 #   PROBE_ACCOUNT_MODEL_SH    path to probe_account_model.sh (default: same dir)
 #   SMOKE_ANTHROPIC_REALISTIC_PY  path to payload builder (default: same dir)
 set -euo pipefail
@@ -45,35 +46,42 @@ fi
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
-account_ids="$("${PSQL[@]}" -c "
+account_rows="$("${PSQL[@]}" -c "
 SELECT a.id
+     , a.platform
 FROM accounts a
-JOIN account_groups ag ON ag.account_id = a.id
-JOIN groups g ON g.id = ag.group_id
-WHERE a.platform = 'anthropic'
+LEFT JOIN account_groups ag ON ag.account_id = a.id
+LEFT JOIN groups g ON g.id = ag.group_id
+  AND g.name = '${ANTHROPIC_SOURCE_GROUP//\'/''}'
+  AND g.deleted_at IS NULL
+WHERE a.platform IN ('anthropic', 'kiro')
   AND a.deleted_at IS NULL
   AND a.schedulable = true
   AND a.status = 'active'
   AND a.type IN ('oauth', 'setup_token')
-  AND g.name = '${ANTHROPIC_SOURCE_GROUP//\'/''}'
-  AND g.deleted_at IS NULL
+  AND (
+    (a.platform = 'anthropic' AND g.id IS NOT NULL)
+    OR a.platform = 'kiro'
+  )
+GROUP BY a.id, a.platform
 ORDER BY a.id;
-" | tr -d '[:space:]' | sed 's/|/ /g')"
+" | awk 'NF {print}')"
 
-if [[ -z "${account_ids// }" ]]; then
-  echo "tk_edge_native_anthropic_smoke: no schedulable anthropic OAuth accounts in group=${ANTHROPIC_SOURCE_GROUP}" >&2
+if [[ -z "${account_rows// }" ]]; then
+  echo "tk_edge_native_anthropic_smoke: no schedulable anthropic OAuth accounts in group=${ANTHROPIC_SOURCE_GROUP} and no schedulable kiro accounts" >&2
   exit 1
 fi
 
-echo "tk_edge_native_anthropic_smoke: group=${ANTHROPIC_SOURCE_GROUP} models=${models[*]} accounts=${account_ids}"
+echo "tk_edge_native_anthropic_smoke: group=${ANTHROPIC_SOURCE_GROUP} models=${models[*]} accounts=${account_rows//$'\n'/ }"
 
 hard_fail=0
 soft_only=0
 served=0
 
-for account_id in ${account_ids}; do
+while IFS='|' read -r account_id account_platform; do
+  [[ -n "${account_id}" ]] || continue
   for model in "${models[@]}"; do
-    echo "tk_edge_native_anthropic_smoke: probe account_id=${account_id} model=${model}"
+    echo "tk_edge_native_anthropic_smoke: probe account_id=${account_id} platform=${account_platform} model=${model}"
   probe_json="$(
     SMOKE_ANTHROPIC_REALISTIC_PY="$REALISTIC_PY" \
     TK_SMOKE_ANTHROPIC_REALISTIC=1 \
@@ -86,7 +94,7 @@ for account_id in ${account_ids}; do
   )"
     verdict="$(jq -r '.verdict // empty' <<<"$probe_json")"
     http_code="$(jq -r '.http_code // empty' <<<"$probe_json")"
-    echo "tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} verdict=${verdict} http=${http_code}"
+    echo "tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} verdict=${verdict} http=${http_code}"
 
     case "$verdict" in
       servable|uncorrelated_success)
@@ -94,35 +102,35 @@ for account_id in ${account_ids}; do
         ;;
       upstream_rejected)
         if [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
-          echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} auth rejected (HTTP ${http_code}) — re-OAuth or fix credentials" >&2
+          echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} auth rejected (HTTP ${http_code}) — re-OAuth or fix credentials" >&2
           jq -c '{verdict,http_code,target_account:{id,name,error_message},response:{body_excerpt}}' <<<"$probe_json" >&2 || true
           hard_fail=1
         else
-          echo "::warning::tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} upstream HTTP ${http_code} (not deploy-blocking)" >&2
+          echo "::warning::tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} upstream HTTP ${http_code} (not deploy-blocking)" >&2
           soft_only=1
         fi
         ;;
       gateway_rejected)
         if [[ "$http_code" == "429" ]]; then
-          echo "::warning::tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} rate-limited / pool exhausted (HTTP 429) — not a deploy regression" >&2
+          echo "::warning::tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} rate-limited / pool exhausted (HTTP 429) — not a deploy regression" >&2
           soft_only=1
         else
-          echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} gateway rejected HTTP ${http_code}" >&2
+          echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} gateway rejected HTTP ${http_code}" >&2
           hard_fail=1
         fi
         ;;
       wrong_account|setup_error)
-        echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} probe ${verdict}" >&2
+        echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} probe ${verdict}" >&2
         jq -c '{verdict,error,probe}' <<<"$probe_json" >&2 || true
         hard_fail=1
         ;;
       *)
-        echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} model=${model} unknown verdict=${verdict}" >&2
+        echo "::error::tk_edge_native_anthropic_smoke: account_id=${account_id} platform=${account_platform} model=${model} unknown verdict=${verdict}" >&2
         hard_fail=1
         ;;
     esac
   done
-done
+done <<<"$account_rows"
 
 if [[ "$hard_fail" -ne 0 ]]; then
   exit 1
