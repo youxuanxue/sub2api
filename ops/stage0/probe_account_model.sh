@@ -159,20 +159,19 @@ trap cleanup EXIT
 
 if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
   GROUP_ID="$("${PSQL[@]}" -c "
-INSERT INTO groups (
-  name, description, platform, rate_multiplier, is_exclusive, status,
-  subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
-) VALUES (
-  '$(sql_escape "$GROUP_NAME")',
-  'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
-  '$(sql_escape "$PLATFORM")',
-  1.0, true, 'active',
-  'standard', 30, false,
-  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
-)
-ON CONFLICT (name) WHERE (deleted_at IS NULL)
-DO UPDATE SET
+SELECT COALESCE((
+  SELECT id::text
+  FROM groups
+  WHERE name = '$(sql_escape "$GROUP_NAME")'
+    AND deleted_at IS NULL
+  ORDER BY id
+  LIMIT 1
+), '');
+" | tr -d '\n')"
+  if [[ -n "$GROUP_ID" ]]; then
+    GROUP_ID="$("${PSQL[@]}" -c "
+UPDATE groups
+SET
   description = 'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
   platform = '$(sql_escape "$PLATFORM")',
   rate_multiplier = 1.0,
@@ -186,8 +185,28 @@ DO UPDATE SET
   sort_order = 2147483000,
   rpm_limit = 0,
   updated_at = NOW()
+WHERE id = ${GROUP_ID}
+  AND name = '$(sql_escape "$GROUP_NAME")'
+  AND deleted_at IS NULL
 RETURNING id;
 " | tr -d '[:space:]')"
+  else
+    GROUP_ID="$("${PSQL[@]}" -c "
+INSERT INTO groups (
+  name, description, platform, rate_multiplier, is_exclusive, status,
+  subscription_type, default_validity_days, claude_code_only,
+  model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
+) VALUES (
+  '$(sql_escape "$GROUP_NAME")',
+  'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
+  '$(sql_escape "$PLATFORM")',
+  1.0, true, 'active',
+  'standard', 30, false,
+  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
+)
+RETURNING id;
+" | tr -d '[:space:]')"
+  fi
 else
   GROUP_ID="$("${PSQL[@]}" -c "
 INSERT INTO groups (
@@ -206,7 +225,7 @@ INSERT INTO groups (
 fi
 
 if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
-  fail_json "failed to prepare probe group"
+  fail_json "failed to prepare probe group name=${GROUP_NAME} platform=${PLATFORM}"
 fi
 
 "${PSQL[@]}" -c "
