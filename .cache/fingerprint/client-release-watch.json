@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-06-29T06:06:58Z",
-  "git_sha": "",
+  "updated_at": "2026-06-29T06:52:09Z",
+  "git_sha": "e607489fdf94d45155cb38d9d70b78383fc3c4ab",
   "platforms": {
     "claude-code": {
       "pinned": "2.1.195",
