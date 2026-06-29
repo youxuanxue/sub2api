@@ -135,7 +135,11 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			if isThinking {
 				thinkingBuf += text
 			} else {
-				textBuf += text
+				visible, inlineThinking := kiroproto.ExtractThinkingFromContent(text)
+				if inlineThinking != "" {
+					thinkingBuf += inlineThinking
+				}
+				textBuf += visible
 			}
 		},
 		OnToolUse: func(tu kiroproto.KiroToolUse) {
@@ -255,8 +259,15 @@ func (s *KiroGatewayService) forwardStreaming(
 				thinkingBuf += text
 				enc.writeThinkingDelta(text)
 			} else {
-				textBuf += text
-				enc.writeTextDelta(text)
+				visible, inlineThinking := kiroproto.ExtractThinkingFromContent(text)
+				if inlineThinking != "" {
+					thinkingBuf += inlineThinking
+					enc.writeThinkingDelta(inlineThinking)
+				}
+				if visible != "" {
+					textBuf += visible
+					enc.writeTextDelta(visible)
+				}
 			}
 		},
 		OnToolUse: func(tu kiroproto.KiroToolUse) {

@@ -54,6 +54,8 @@ CRITICAL_HTTP_FIELDS = frozenset(
         "mimic.cli_version",
         "mimic.stainless_package_version",
         "canonical.stainless_package_version",
+        "mimic.stainless_runtime_version",
+        "canonical.stainless_runtime_version",
         "betas.sonnet_mimicry",
         "betas.haiku_mimicry",
         # Identity banner drift means spoofed clients no longer look like real
@@ -192,6 +194,9 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
             "user_agent": mimic_ua,
             "stainless_package_version": _extract_map_string(
                 constants_src, "X-Stainless-Package-Version"
+            ),
+            "stainless_runtime_version": _extract_map_string(
+                constants_src, "X-Stainless-Runtime-Version"
             ),
             "stainless_os": _extract_map_string(constants_src, "X-Stainless-OS"),
         },
@@ -474,6 +479,61 @@ def diff_baseline_vs_capture(
             critical="mimic.stainless_package_version" in CRITICAL_HTTP_FIELDS,
         )
     )
+
+    def _cap_stainless_header(field: str) -> str:
+        http = capture.get("http") or {}
+        for variant in ("haiku", "sonnet", "opus"):
+            rec = http.get(variant) or {}
+            xs = rec.get("x_stainless") or {}
+            if isinstance(xs, dict):
+                val = str(xs.get(field) or "").strip()
+                if val:
+                    return val
+        return ""
+
+    cap_runtime = _cap_stainless_header("X-Stainless-Runtime-Version")
+    canon_runtime = baseline["canonical_http"]["stainless_runtime_version"]
+    mimic_runtime = baseline["mimic_http"]["stainless_runtime_version"]
+    if not cap_runtime:
+        rows.append(
+            DiffRow(
+                "canonical.stainless_runtime_version",
+                canon_runtime,
+                "",
+                "missing_capture",
+                critical="canonical.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+                note="Run HTTP mitm capture with --http for runtime version",
+            )
+        )
+        rows.append(
+            DiffRow(
+                "mimic.stainless_runtime_version",
+                mimic_runtime,
+                "",
+                "missing_capture",
+                critical="mimic.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+                note="Run HTTP mitm capture with --http for runtime version",
+            )
+        )
+    else:
+        rows.append(
+            DiffRow(
+                "canonical.stainless_runtime_version",
+                canon_runtime,
+                cap_runtime,
+                "match" if canon_runtime == cap_runtime else "mismatch",
+                critical="canonical.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+            )
+        )
+        rows.append(
+            DiffRow(
+                "mimic.stainless_runtime_version",
+                mimic_runtime,
+                cap_runtime,
+                "match" if mimic_runtime == cap_runtime else "mismatch",
+                critical="mimic.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+            )
+        )
 
     http = capture.get("http") or {}
     variants = capture.get("http_variants") or {}
