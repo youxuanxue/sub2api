@@ -550,7 +550,7 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 | 类型 | 名字 | 用途 |
 |---|---|---|
 | secret | `TK_SMOKE_API_KEY` | main-via-edge：经 prod 调度打到 Edge 的 key |
-| var | `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS` | 可选，main-via-edge / Edge self-smoke 模型清单 |
+| var | `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS` | 可选，edge-native OAuth 烟测与可选 main-via-edge 的模型清单 |
 
 **代码内固定（无需在 Edge Environment 配置）：**
 

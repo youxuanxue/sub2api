@@ -2,9 +2,10 @@
 # Edge post-deploy smoke — infra SSM probes + optional main-gateway-via-edge suite.
 #
 # Phases (EDGE_SMOKE_PHASE / workflow smoke_phase):
-#   infra           — external /health, runner allowlist 403, SSM compose + optional local api smoke
-#   main-via-edge   — GATEWAY_SMOKE_SUITE=main-via-edge via post_deploy_smoke.sh (prod base URL)
-#   full            — infra then main-via-edge
+#   infra              — external /health, runner allowlist 403, SSM compose health
+#   edge-native-oauth  — in-container per-account Anthropic OAuth probe (realistic CC shape)
+#   main-via-edge      — legacy prod-gateway relay smoke (optional; no formulaic edge curl)
+#   full               — infra + edge-native-oauth
 #
 # Gateway business probes live in ops/stage0/post_deploy_smoke.sh (single runner).
 #
@@ -46,9 +47,9 @@ if [[ -z "${EDGE_INSTANCE_ID}" ]]; then
 fi
 
 case "${EDGE_SMOKE_PHASE}" in
-  infra|main-via-edge|full) ;;
+  infra|edge-native-oauth|main-via-edge|full) ;;
   *)
-    echo "tk_edge_post_deploy_smoke: EDGE_SMOKE_PHASE must be infra|main-via-edge|full, got ${EDGE_SMOKE_PHASE}" >&2
+    echo "tk_edge_post_deploy_smoke: EDGE_SMOKE_PHASE must be infra|edge-native-oauth|main-via-edge|full, got ${EDGE_SMOKE_PHASE}" >&2
     exit 1
     ;;
 esac
@@ -98,16 +99,9 @@ run_infra_smoke() {
   )
 
   if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
-    if [[ -z "${EDGE_SSM_PREFIX}" ]]; then
-      echo "tk_edge_post_deploy_smoke: EDGE_SSM_PREFIX is required for EDGE_SELF_SMOKE_MODE=api" >&2
-      exit 1
-    fi
-    ssm_commands+=(
-      "EDGE_KEY=\$(aws ssm get-parameter --region \"${AWS_CLI_REGION}\" --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
-      "sudo docker compose -f docker-compose.yml --env-file .env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e GATEWAY_SMOKE_SUITE=quick -e TK_SMOKE_SKIP_FRONTEND=1 -e TK_SMOKE_ANTHROPIC_MODELS=\"${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}\" -e TK_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
-    )
+    echo "tk_edge_post_deploy_smoke: EDGE_SELF_SMOKE_MODE=api uses edge-native oauth smoke (not post_deploy_smoke)"
   else
-    echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api after Edge upstream/key setup)"
+    echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api to enable native oauth probe)"
   fi
 
   jq -n --argjson commands "$(printf '%s\n' "${ssm_commands[@]}" | jq -R . | jq -s .)" '{commands:$commands}' > "${tmpdir}/edge-ssm.json"
@@ -175,6 +169,22 @@ run_infra_smoke() {
   fi
 }
 
+run_edge_native_anthropic_smoke() {
+  echo "tk_edge_post_deploy_smoke: edge-native anthropic oauth smoke edge=${EDGE_ID} models=${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  bash "${REPO_ROOT}/ops/observability/run-probe.sh" \
+    --target "edge:${EDGE_ID}" \
+    --comment "edge-native-anthropic-smoke edge=${EDGE_ID}" \
+    --timeout-seconds 600 \
+    --script "${SCRIPT_DIR}/edge_native_anthropic_smoke.sh" \
+    --with "${SCRIPT_DIR}/probe_account_model.sh" \
+    --with "${SCRIPT_DIR}/smoke_anthropic_realistic.py" \
+    --env "ANTHROPIC_MODELS=${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}" \
+    --env "ANTHROPIC_SOURCE_GROUP=default" \
+    --env "REQUEST_TIMEOUT_SECONDS=45" \
+    --env "MAX_TOKENS=32"
+}
+
 run_main_via_edge_smoke() {
   if [[ -z "${TK_SMOKE_API_KEY}" ]]; then
     echo "tk_edge_post_deploy_smoke: TK_SMOKE_API_KEY not set; skipping main-gateway-via-edge smoke"
@@ -233,13 +243,19 @@ echo "tk_edge_post_deploy_smoke: edge=${EDGE_ID} edge_api=${EDGE_API_URL} phase=
 case "${EDGE_SMOKE_PHASE}" in
   infra)
     run_infra_smoke
+  if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
+    run_edge_native_anthropic_smoke
+  fi
+    ;;
+  edge-native-oauth)
+    run_edge_native_anthropic_smoke
     ;;
   main-via-edge)
     run_main_via_edge_smoke
     ;;
   full)
     run_infra_smoke
-    run_main_via_edge_smoke
+    run_edge_native_anthropic_smoke
     ;;
 esac
 

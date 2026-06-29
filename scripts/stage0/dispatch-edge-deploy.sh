@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
-#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra]
+#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase full|infra|edge-native-oauth|main-via-edge]
 #
 # Resolves platform via scripts/stage0/resolve-edge-deploy-route.py and calls
 # gh workflow run on deploy-edge-lightsail-stage0.yml (EC2 edge path removed 2026-06-07).
@@ -94,7 +94,7 @@ resolve_smoke_phase() {
   fi
   case "${OPERATION}" in
     smoke) echo "full" ;;
-    upgrade|rollback) echo "infra" ;;
+    upgrade|rollback) echo "full" ;;
     *) echo "" ;;
   esac
 }
@@ -102,9 +102,9 @@ resolve_smoke_phase() {
 PHASE="$(resolve_smoke_phase)"
 if [[ -n "${PHASE}" ]]; then
   case "${PHASE}" in
-    infra|main-via-edge|full) ;;
+    infra|edge-native-oauth|main-via-edge|full) ;;
     *)
-      echo "dispatch-edge-deploy: invalid --smoke-phase=${PHASE} (want infra|main-via-edge|full)" >&2
+      echo "dispatch-edge-deploy: invalid --smoke-phase=${PHASE} (want infra|edge-native-oauth|main-via-edge|full)" >&2
       exit 1
       ;;
   esac

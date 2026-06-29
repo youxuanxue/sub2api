@@ -1078,6 +1078,8 @@ for _smoke_script in \
   ./ops/stage0/smoke_env.sh \
   ./ops/stage0/load_smoke_github_env.sh \
   ./ops/stage0/smoke_lib.sh \
+  ./ops/stage0/probe_account_model.sh \
+  ./ops/stage0/edge_native_anthropic_smoke.sh \
   ./ops/stage0/post_deploy_smoke.sh \
   ./ops/stage0/edge_post_deploy_smoke.sh \
   ./scripts/stage0/dispatch-edge-deploy.sh; do

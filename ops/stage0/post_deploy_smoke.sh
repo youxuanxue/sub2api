@@ -208,26 +208,13 @@ if ! smoke_suite_runs messages; then
 else
 for model in "${anthropic_models[@]}"; do
 smoke_assert_anthropic_model_listed_or_warn "$tmpdir/models.json" "${model}"
-expect_anthropic="E2E-ANTHROPIC-OK"
 claude_ua="$(smoke_default_claude_user_agent)"
-# Claude Code client shape: required by ClaudeCodeValidator (Step 4) so that
-# groups with claude_code_only=true (e.g. cc-edges in prod) accept the smoke
-# request. See backend/internal/service/claude_code_validator.go.
-#  - system: Dice similarity >= 0.5 vs canonical Claude Code prompts
-#  - anthropic-beta + X-App: non-empty (canonical claude-code-20250219)
-#  - metadata.user_id: JSON form parsable by ParseMetadataUserID
-claude_cc_system="You are Claude Code, Anthropic's official CLI for Claude."
-claude_cc_meta_user_id='{"device_id":"0000000000000000000000000000000000000000000000000000000000000001","account_uuid":"","session_id":"00000000-0000-0000-0000-000000000001"}'
-apayload="$(jq -n \
-  --arg m "${model}" \
-  --arg x "${expect_anthropic}" \
-  --arg sys "${claude_cc_system}" \
-  --arg uid "${claude_cc_meta_user_id}" \
-  '{model:$m,max_tokens:96,
-    system:[{type:"text",text:$sys}],
-    messages:[{role:"user",content:("Reply with exactly: " + $x)}],
-    metadata:{user_id:$uid}}')"
-
+realistic_py="${SCRIPT_DIR}/smoke_anthropic_realistic.py"
+if [[ ! -f "${realistic_py}" ]]; then
+  echo "tk_post_deploy_smoke: missing ${realistic_py}" >&2
+  exit 1
+fi
+apayload="$(python3 "${realistic_py}" --model "${model}" --max-tokens 32 --prompt hi)"
 msg_http=$(curl -sS -o "$tmpdir/msg.json" -w "%{http_code}" \
   -H "x-api-key: ${API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
@@ -253,8 +240,8 @@ fi
 echo "tk_post_deploy_smoke: /v1/messages shape type=${msg_type} role=${msg_role} content=${msg_content_count} stop_reason=${msg_stop} usage_keys=${msg_usage_keys}"
 
 msg_text="$(jq -r '[.content[]? | select(.type == "text") | .text] | add // empty' "$tmpdir/msg.json")"
-if ! printf '%s' "${msg_text}" | grep -Fq "${expect_anthropic}"; then
-  echo "tk_post_deploy_smoke: messages response missing expected marker '${expect_anthropic}' (text below)" >&2
+if [[ -z "${msg_text}" ]]; then
+  echo "tk_post_deploy_smoke: messages response has no assistant text (realistic CC probe)" >&2
   printf '%s\n' "${msg_text}" >&2
   exit 1
 fi
