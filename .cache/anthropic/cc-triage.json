@@ -4,10 +4,10 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded; gateway-relevance filtered",
   "rationale": "TokenKey-local triage cache for anthropics/claude-code issues, filtered for gateway/relay relevance. Most claude-code issues are client-side (IDE/terminal/MCP) and are marked not_applicable. Only human-pinned MANUAL_TRIAGE high/critical entries become fix candidates.",
   "counts": {
-    "needs_review": 368,
-    "medium": 9,
-    "not_applicable": 744,
-    "unknown_low_signal": 300
+    "needs_review": 372,
+    "medium": 8,
+    "not_applicable": 771,
+    "unknown_low_signal": 307
   },
   "issues": [
     {
@@ -105,6 +105,19 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-28T04:37:30Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#32503",
+      "url": "https://github.com/anthropics/claude-code/issues/32503",
+      "title": "[BUG] /usage command fails with rate_limit_error when checking usage data",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit",
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-28T23:47:31Z"
     },
     {
       "upstream": "anthropics/claude-code#33704",
@@ -253,19 +266,6 @@
       "updated_at": "2026-06-28T22:25:12Z"
     },
     {
-      "upstream": "anthropics/claude-code#42765",
-      "url": "https://github.com/anthropics/claude-code/issues/42765",
-      "title": "[BUG] OAuth redirect_uri uses localhost instead of 127.0.0.1, violating RFC 8252 Section 7.3",
-      "impact": "needs_review",
-      "categories": [
-        "auth_token",
-        "prompt_caching"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T09:10:59Z"
-    },
-    {
       "upstream": "anthropics/claude-code#42873",
       "url": "https://github.com/anthropics/claude-code/issues/42873",
       "title": "[DOCS] `/claude-api` skill docs omit agent design guidance topics",
@@ -327,6 +327,18 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-26T22:29:13Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#48164",
+      "url": "https://github.com/anthropics/claude-code/issues/48164",
+      "title": "[BUG] Claude CLI: URL-mode elicitation/create not supported — server-initiated OAuth flows fails with not supported error",
+      "impact": "needs_review",
+      "categories": [
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T06:04:13Z"
     },
     {
       "upstream": "anthropics/claude-code#49268",
@@ -547,6 +559,18 @@
       "updated_at": "2026-06-28T12:19:48Z"
     },
     {
+      "upstream": "anthropics/claude-code#53223",
+      "url": "https://github.com/anthropics/claude-code/issues/53223",
+      "title": "[BUG][SECURITY] CLAUDE.md/AGENTS.md instruction compliance is architecturally unenforced — documented security consequences and 10+ independent reports",
+      "impact": "needs_review",
+      "categories": [
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T07:58:53Z"
+    },
+    {
       "upstream": "anthropics/claude-code#53231",
       "url": "https://github.com/anthropics/claude-code/issues/53231",
       "title": "`# userEmail` and `# currentDate` auto-injected into MEMORY.md context cannot be suppressed",
@@ -569,18 +593,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-26T14:57:58Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#53915",
-      "url": "https://github.com/anthropics/claude-code/issues/53915",
-      "title": "[BUG] API Error: Server is temporarily limiting requests (not your usage limit) · Rate limited",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T08:52:31Z"
     },
     {
       "upstream": "anthropics/claude-code#54171",
@@ -929,6 +941,20 @@
       "updated_at": "2026-06-26T23:08:46Z"
     },
     {
+      "upstream": "anthropics/claude-code#63171",
+      "url": "https://github.com/anthropics/claude-code/issues/63171",
+      "title": "[Windows] Cowork OpenTelemetry exporter does not initialize - zero events emitted to any destination, including loopback",
+      "impact": "needs_review",
+      "categories": [
+        "request_shape_400",
+        "auth_token",
+        "prompt_caching"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T08:19:43Z"
+    },
+    {
       "upstream": "anthropics/claude-code#63375",
       "url": "https://github.com/anthropics/claude-code/issues/63375",
       "title": "[BUG] Slash command (/usage) during in-flight advisor() call splits assistant message in JSONL, permanently 400s the session (v2.1.154; repro of stale-closed #50527)",
@@ -939,19 +965,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-28T22:25:05Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#63447",
-      "url": "https://github.com/anthropics/claude-code/issues/63447",
-      "title": "context_window_size reported as 200000 for claude-opus-4-8 (1M-context model) → \"100% context used\" clamps prematurely",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle",
-        "prompt_caching"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T06:23:08Z"
     },
     {
       "upstream": "anthropics/claude-code#63470",
@@ -1039,7 +1052,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T14:23:49Z"
+      "updated_at": "2026-06-29T02:56:52Z"
     },
     {
       "upstream": "anthropics/claude-code#63879",
@@ -1201,18 +1214,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-27T16:49:14Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#65162",
-      "url": "https://github.com/anthropics/claude-code/issues/65162",
-      "title": "[MODEL] Uses PowerShell here-string (@'...'@) inside the Bash tool on Windows, silently corrupting a git commit message",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T09:20:38Z"
     },
     {
       "upstream": "anthropics/claude-code#65241",
@@ -1736,7 +1737,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T10:47:19Z"
+      "updated_at": "2026-06-29T08:25:17Z"
     },
     {
       "upstream": "anthropics/claude-code#65894",
@@ -1874,6 +1875,18 @@
       "updated_at": "2026-06-28T22:25:04Z"
     },
     {
+      "upstream": "anthropics/claude-code#65961",
+      "url": "https://github.com/anthropics/claude-code/issues/65961",
+      "title": "[MODEL] Claude verbose code comments by default — ignores instructions to stop.",
+      "impact": "needs_review",
+      "categories": [
+        "model_lifecycle"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T03:31:51Z"
+    },
+    {
       "upstream": "anthropics/claude-code#65966",
       "url": "https://github.com/anthropics/claude-code/issues/65966",
       "title": "[Re-raise] 5 stale-closed issues re-verified against the bundle: 2 provider-parity items hold (corrected), 2 token items withdrawn/reframed, + 4 new findings",
@@ -1972,18 +1985,6 @@
       "updated_at": "2026-06-27T07:03:23Z"
     },
     {
-      "upstream": "anthropics/claude-code#67307",
-      "url": "https://github.com/anthropics/claude-code/issues/67307",
-      "title": "Opus 4.8 intermittently emits malformed tool calls: stray `count`/`call` token, then tool call without `antml:` prefix rendered as plain text",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T06:19:33Z"
-    },
-    {
       "upstream": "anthropics/claude-code#67433",
       "url": "https://github.com/anthropics/claude-code/issues/67433",
       "title": "[Bug] Off-heap memory leak: RSS grows 400–500 MB/min while idle, reaches multi-GB",
@@ -2059,6 +2060,19 @@
       "updated_at": "2026-06-28T02:59:32Z"
     },
     {
+      "upstream": "anthropics/claude-code#68213",
+      "url": "https://github.com/anthropics/claude-code/issues/68213",
+      "title": "[BUG] claude-opus-4-8 fabricates user messages inside thinking blocks and replies to them (~26 min self-conversation; session restart does not help, only model rollback does)",
+      "impact": "needs_review",
+      "categories": [
+        "request_shape_400",
+        "model_lifecycle"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T08:20:58Z"
+    },
+    {
       "upstream": "anthropics/claude-code#68399",
       "url": "https://github.com/anthropics/claude-code/issues/68399",
       "title": "[BUG] No hook event fires for sandbox network permission popup in v2.1.120 (regression from v2.1.76)",
@@ -2080,7 +2094,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T16:45:53Z"
+      "updated_at": "2026-06-29T01:41:19Z"
     },
     {
       "upstream": "anthropics/claude-code#69179",
@@ -2215,28 +2229,18 @@
       "updated_at": "2026-06-26T22:14:03Z"
     },
     {
-      "upstream": "anthropics/claude-code#70609",
-      "url": "https://github.com/anthropics/claude-code/issues/70609",
-      "title": "[BUG] Pro plan + usage credits enabled, Claude Code still capped at 200K instead of 1M (Opus 4.8)",
+      "upstream": "anthropics/claude-code#70459",
+      "url": "https://github.com/anthropics/claude-code/issues/70459",
+      "title": "Auto-compaction: two compounding cost bugs — stale precompute keeps ~200k tokens verbatim, and that prefix is repeatedly cache-created instead of cache-read",
       "impact": "needs_review",
       "categories": [
-        "model_lifecycle"
+        "request_shape_400",
+        "model_lifecycle",
+        "prompt_caching"
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T06:25:54Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#70651",
-      "url": "https://github.com/anthropics/claude-code/issues/70651",
-      "title": "Context compacted automatically on session resume before any user prompt",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T07:06:40Z"
+      "updated_at": "2026-06-29T01:37:15Z"
     },
     {
       "upstream": "anthropics/claude-code#70810",
@@ -2455,6 +2459,18 @@
       "updated_at": "2026-06-28T05:46:01Z"
     },
     {
+      "upstream": "anthropics/claude-code#71011",
+      "url": "https://github.com/anthropics/claude-code/issues/71011",
+      "title": "[FEATURE] Claude Desktop should offer to re-auth with MCP if auth has expired",
+      "impact": "needs_review",
+      "categories": [
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T07:59:01Z"
+    },
+    {
       "upstream": "anthropics/claude-code#71018",
       "url": "https://github.com/anthropics/claude-code/issues/71018",
       "title": "[Bug][aup] Deploying Cloudflare geo-block vhost config wrongly flagged while auditing public web surfaces (req_011CcFF32qKzPjFMr8joyTJY)",
@@ -2576,20 +2592,6 @@
       "updated_at": "2026-06-26T14:09:49Z"
     },
     {
-      "upstream": "anthropics/claude-code#71301",
-      "url": "https://github.com/anthropics/claude-code/issues/71301",
-      "title": "[BUG] /context over-counts memory files and custom agents in 2.1.191; 2.1.179 reports sane estimates",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle",
-        "prompt_caching",
-        "new_endpoints"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T07:06:51Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71336",
       "url": "https://github.com/anthropics/claude-code/issues/71336",
       "title": "[Bug][aup] Crypto trading bot dev blocked: on-chain fund transfer + win-rate strategy optimization (req_011CbtwB2y4nUGFSzGgxGMR9)",
@@ -2673,42 +2675,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-27T10:06:50Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71529",
-      "url": "https://github.com/anthropics/claude-code/issues/71529",
-      "title": "[BUG] Claude presents unverified inferences as facts and treats the audited system's own files as proof of its integrity during security audits",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T06:46:33Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71544",
-      "url": "https://github.com/anthropics/claude-code/issues/71544",
-      "title": "[Bug] Claude Code uses downgraded model instead of selected Opus 4.8",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T08:01:41Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71550",
-      "url": "https://github.com/anthropics/claude-code/issues/71550",
-      "title": "[BUG] Anthropic.claude-code 2.1.193 linux-x64 platform files missing (404) on openvsx.org",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T08:40:02Z"
     },
     {
       "upstream": "anthropics/claude-code#71566",
@@ -2830,18 +2796,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-26T15:57:16Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71610",
-      "url": "https://github.com/anthropics/claude-code/issues/71610",
-      "title": "claude mcp login skips the 401 / WWW-Authenticate discovery step and only probes the RS own PRM path",
-      "impact": "needs_review",
-      "categories": [
-        "auth_token"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T15:06:40Z"
     },
     {
       "upstream": "anthropics/claude-code#71612",
@@ -3185,7 +3139,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T15:49:58Z"
+      "updated_at": "2026-06-29T06:34:53Z"
     },
     {
       "upstream": "anthropics/claude-code#71715",
@@ -3368,7 +3322,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T00:01:50Z"
+      "updated_at": "2026-06-29T00:14:34Z"
     },
     {
       "upstream": "anthropics/claude-code#71767",
@@ -3505,7 +3459,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-27T14:52:49Z"
+      "updated_at": "2026-06-29T00:07:28Z"
     },
     {
       "upstream": "anthropics/claude-code#71817",
@@ -3710,7 +3664,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-27T21:08:21Z"
+      "updated_at": "2026-06-29T10:32:13Z"
     },
     {
       "upstream": "anthropics/claude-code#71884",
@@ -3939,7 +3893,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T03:59:05Z"
+      "updated_at": "2026-06-29T08:47:03Z"
     },
     {
       "upstream": "anthropics/claude-code#71952",
@@ -4193,7 +4147,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T11:26:05Z"
+      "updated_at": "2026-06-29T00:31:48Z"
     },
     {
       "upstream": "anthropics/claude-code#72036",
@@ -4268,18 +4222,6 @@
       "updated_at": "2026-06-28T13:42:56Z"
     },
     {
-      "upstream": "anthropics/claude-code#72060",
-      "url": "https://github.com/anthropics/claude-code/issues/72060",
-      "title": "[BUG] Don't surface never-connected first-party connectors (Gmail/Calendar/Drive) as startup action items in Claude Code",
-      "impact": "needs_review",
-      "categories": [
-        "auth_token"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T14:11:13Z"
-    },
-    {
       "upstream": "anthropics/claude-code#72078",
       "url": "https://github.com/anthropics/claude-code/issues/72078",
       "title": "[Bug][cyber] Safety block on drone USB/RNDIS interface enumeration during defensive firmware analysis (req_011CcUFpr7jdLiNHaV11xjm4)",
@@ -4328,18 +4270,6 @@
       "updated_at": "2026-06-28T17:08:59Z"
     },
     {
-      "upstream": "anthropics/claude-code#72108",
-      "url": "https://github.com/anthropics/claude-code/issues/72108",
-      "title": "VS Code mcp.json MCP servers not accessible to Claude Code extension tools",
-      "impact": "needs_review",
-      "categories": [
-        "model_lifecycle"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T17:19:32Z"
-    },
-    {
       "upstream": "anthropics/claude-code#72110",
       "url": "https://github.com/anthropics/claude-code/issues/72110",
       "title": "[FEATURE] add time to JSONL \"usage\" property",
@@ -4361,7 +4291,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T19:07:38Z"
+      "updated_at": "2026-06-29T00:01:22Z"
     },
     {
       "upstream": "anthropics/claude-code#72112",
@@ -4373,7 +4303,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T18:09:26Z"
+      "updated_at": "2026-06-29T08:23:47Z"
     },
     {
       "upstream": "anthropics/claude-code#72117",
@@ -4496,6 +4426,127 @@
       "updated_at": "2026-06-28T21:19:37Z"
     },
     {
+      "upstream": "anthropics/claude-code#72169",
+      "url": "https://github.com/anthropics/claude-code/issues/72169",
+      "title": "[BUG] Remote container proxy blocks releases.astral.sh:443, preventing uv from downloading Python versions.",
+      "impact": "needs_review",
+      "categories": [
+        "fingerprint_ua"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T00:13:57Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72182",
+      "url": "https://github.com/anthropics/claude-code/issues/72182",
+      "title": "Claude repeatedly ignored explicit user directives and substituted its own judgment — session 2026-06-28",
+      "impact": "needs_review",
+      "categories": [
+        "model_lifecycle"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T02:09:55Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72187",
+      "url": "https://github.com/anthropics/claude-code/issues/72187",
+      "title": "[BUG] Claude proceeds with unrequested actions after milestone completion without confirmation",
+      "impact": "needs_review",
+      "categories": [
+        "new_endpoints"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T05:23:22Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72189",
+      "url": "https://github.com/anthropics/claude-code/issues/72189",
+      "title": "[Bug] Anthropic API Error: Server Rate Limiting During Normal Usage",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T02:47:26Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72199",
+      "url": "https://github.com/anthropics/claude-code/issues/72199",
+      "title": "Remote Control: `Session creation failed` regression — was working, now fails 3× on enable (macOS, v2.1.193)",
+      "impact": "needs_review",
+      "categories": [
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T04:57:56Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72203",
+      "url": "https://github.com/anthropics/claude-code/issues/72203",
+      "title": "[BUG] Successful auto-retry after api_error orphans the assistant turn: stop_hook_summary + next user message get parented to the api_error node instead of the recovered reply",
+      "impact": "needs_review",
+      "categories": [
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T07:42:16Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72218",
+      "url": "https://github.com/anthropics/claude-code/issues/72218",
+      "title": "[BUG] /context undercounts the active --agent persona + agent-memory injected into system (breakdown identical to a bare session)",
+      "impact": "needs_review",
+      "categories": [
+        "model_lifecycle"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T07:38:15Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72220",
+      "url": "https://github.com/anthropics/claude-code/issues/72220",
+      "title": "[Bug] Claude Opus 4.8 fabricates human prompts and conflates assistant reasoning with user instructions",
+      "impact": "needs_review",
+      "categories": [
+        "model_lifecycle"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T07:56:19Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72230",
+      "url": "https://github.com/anthropics/claude-code/issues/72230",
+      "title": "[BUG] 2026-06-29 14:52:24.517 [info] From claude: 2026-06-29T09:22:24.518Z [DEBUG] Broken symlink or missing file encountered for settings.json at path: C:\\Program Files\\ClaudeCode\\managed-settings.json",
+      "impact": "needs_review",
+      "categories": [
+        "auth_token"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T09:37:27Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72231",
+      "url": "https://github.com/anthropics/claude-code/issues/72231",
+      "title": "Opus 4.8 on Vertex (CLAUDE_CODE_USE_VERTEX) returns empty thinking — display:\"summarized\" honored on direct but dropped on Vertex",
+      "impact": "needs_review",
+      "categories": [
+        "beta_header_drift",
+        "model_lifecycle"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-29T10:12:34Z"
+    },
+    {
       "upstream": "anthropics/claude-code#22264",
       "url": "https://github.com/anthropics/claude-code/issues/22264",
       "title": "Sibling tool call errored: parallel tool calls cascade-fail when one fails",
@@ -4578,18 +4629,6 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "Possible gateway compatibility/streaming impact, but not a high-severity relay signal in this pass.",
       "updated_at": "2026-06-27T20:01:34Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71537",
-      "url": "https://github.com/anthropics/claude-code/issues/71537",
-      "title": "[FEATURE] Expose effort level to model's reasoning",
-      "impact": "medium",
-      "categories": [
-        "effort_structured"
-      ],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "Possible gateway compatibility/streaming impact, but not a high-severity relay signal in this pass.",
-      "updated_at": "2026-06-26T07:24:19Z"
     },
     {
       "upstream": "anthropics/claude-code#71830",
@@ -4734,6 +4773,18 @@
       "updated_at": "2026-06-27T16:01:47Z"
     },
     {
+      "upstream": "anthropics/claude-code#14836",
+      "url": "https://github.com/anthropics/claude-code/issues/14836",
+      "title": "[BUG] /skills command doesn't find skills in symlinked directories",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T07:08:34Z"
+    },
+    {
       "upstream": "anthropics/claude-code#16157",
       "url": "https://github.com/anthropics/claude-code/issues/16157",
       "title": "[BUG] Instantly hitting usage limits with Max subscription",
@@ -4846,7 +4897,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (ide, mcp, slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T19:11:22Z"
+      "updated_at": "2026-06-29T09:59:03Z"
     },
     {
       "upstream": "anthropics/claude-code#18467",
@@ -5223,6 +5274,19 @@
       "updated_at": "2026-06-26T10:22:27Z"
     },
     {
+      "upstream": "anthropics/claude-code#3301",
+      "url": "https://github.com/anthropics/claude-code/issues/3301",
+      "title": "[BUG] Environment Contributions warning continuously reappears",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T08:28:04Z"
+    },
+    {
       "upstream": "anthropics/claude-code#33707",
       "url": "https://github.com/anthropics/claude-code/issues/33707",
       "title": "[DOCS] Plugin marketplace docs omit Git submodule-backed plugin source support",
@@ -5246,7 +5310,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T03:09:44Z"
+      "updated_at": "2026-06-29T07:56:27Z"
     },
     {
       "upstream": "anthropics/claude-code#34275",
@@ -5693,7 +5757,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, plugin, install, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T19:38:38Z"
+      "updated_at": "2026-06-29T00:31:18Z"
     },
     {
       "upstream": "anthropics/claude-code#42317",
@@ -5800,6 +5864,19 @@
       "updated_at": "2026-06-27T07:44:19Z"
     },
     {
+      "upstream": "anthropics/claude-code#43698",
+      "url": "https://github.com/anthropics/claude-code/issues/43698",
+      "title": "[FEATURE] Multi-device Cowork: Allow concurrent Cowork agents on multiple machines under a single account",
+      "impact": "not_applicable",
+      "categories": [
+        "mcp",
+        "install"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (mcp, install); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T09:58:09Z"
+    },
+    {
       "upstream": "anthropics/claude-code#43989",
       "url": "https://github.com/anthropics/claude-code/issues/43989",
       "title": "v2.1.92 regression: autocompact threshold reduced to 400k on Opus 4.6 (1M context)",
@@ -5886,19 +5963,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (ide, terminal, install); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-26T18:14:18Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#47023",
-      "url": "https://github.com/anthropics/claude-code/issues/47023",
-      "title": "[PROPOSAL] Expose compact/session lifecycle hooks for external memory layers",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "slash_hook"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:46:24Z"
     },
     {
       "upstream": "anthropics/claude-code#47083",
@@ -6031,6 +6095,18 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T10:46:56Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#49790",
+      "url": "https://github.com/anthropics/claude-code/issues/49790",
+      "title": "Feature request: Claude Desktop SSH remote — session should survive client disconnect (reconnect/resume)",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:29:27Z"
     },
     {
       "upstream": "anthropics/claude-code#49835",
@@ -6177,7 +6253,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T04:18:56Z"
+      "updated_at": "2026-06-29T01:20:33Z"
     },
     {
       "upstream": "anthropics/claude-code#50724",
@@ -6545,7 +6621,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T14:41:57Z"
+      "updated_at": "2026-06-29T05:02:04Z"
     },
     {
       "upstream": "anthropics/claude-code#52945",
@@ -7120,6 +7196,19 @@
       "updated_at": "2026-06-28T22:25:09Z"
     },
     {
+      "upstream": "anthropics/claude-code#60097",
+      "url": "https://github.com/anthropics/claude-code/issues/60097",
+      "title": "[Desktop] Display current worktree/cwd name in app UI (statusLine equivalent)",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T09:57:17Z"
+    },
+    {
       "upstream": "anthropics/claude-code#60400",
       "url": "https://github.com/anthropics/claude-code/issues/60400",
       "title": "[DOCS] Background subagent docs omit elapsed duration shown in completion notifications",
@@ -7233,6 +7322,19 @@
       "updated_at": "2026-06-27T20:55:18Z"
     },
     {
+      "upstream": "anthropics/claude-code#60755",
+      "url": "https://github.com/anthropics/claude-code/issues/60755",
+      "title": "[FEATURE] Setting to disable copy-on-selection in the agents view (TUI)",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T09:44:50Z"
+    },
+    {
       "upstream": "anthropics/claude-code#60829",
       "url": "https://github.com/anthropics/claude-code/issues/60829",
       "title": "[Bug] Claude outputs duplicate instructions and repeats text on terminal resize/scroll",
@@ -7243,6 +7345,18 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-27T22:24:59Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#61092",
+      "url": "https://github.com/anthropics/claude-code/issues/61092",
+      "title": "[FEATURE] Complex bash commands in the approval prompt render as a wall of mangled text",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T07:39:16Z"
     },
     {
       "upstream": "anthropics/claude-code#61147",
@@ -7616,7 +7730,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T18:34:23Z"
+      "updated_at": "2026-06-29T05:50:45Z"
     },
     {
       "upstream": "anthropics/claude-code#63903",
@@ -7730,6 +7844,19 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-27T22:25:02Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#64301",
+      "url": "https://github.com/anthropics/claude-code/issues/64301",
+      "title": "Bash sandbox (bubblewrap) corrupts `!` to `\\!` in commands, making the sandbox unusable for agentic workflows",
+      "impact": "not_applicable",
+      "categories": [
+        "slash_hook",
+        "install"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (slash_hook, install); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T03:34:05Z"
     },
     {
       "upstream": "anthropics/claude-code#64334",
@@ -7907,19 +8034,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T10:47:18Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#65076",
-      "url": "https://github.com/anthropics/claude-code/issues/65076",
-      "title": "[BUG] Claude Code Desktop eager loading MCPs while Claude Code CLI lazy loading",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "mcp"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, mcp); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:15:24Z"
     },
     {
       "upstream": "anthropics/claude-code#65114",
@@ -8953,18 +9067,6 @@
       "updated_at": "2026-06-27T22:25:25Z"
     },
     {
-      "upstream": "anthropics/claude-code#65781",
-      "url": "https://github.com/anthropics/claude-code/issues/65781",
-      "title": "[Bug] Escape key closes /btw modal and unintentionally rejects pending file edits",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:45:07Z"
-    },
-    {
       "upstream": "anthropics/claude-code#65783",
       "url": "https://github.com/anthropics/claude-code/issues/65783",
       "title": "[DOCS] Permission docs omit deny-rule tool-name glob semantics for `\"*\"` and unknown tool warnings",
@@ -9167,7 +9269,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T20:58:45Z"
+      "updated_at": "2026-06-29T09:54:40Z"
     },
     {
       "upstream": "anthropics/claude-code#65836",
@@ -9722,18 +9824,6 @@
       "updated_at": "2026-06-28T20:05:29Z"
     },
     {
-      "upstream": "anthropics/claude-code#66950",
-      "url": "https://github.com/anthropics/claude-code/issues/66950",
-      "title": "[Bug] Infinite token consumption loop causing session lockup",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:22:01Z"
-    },
-    {
       "upstream": "anthropics/claude-code#67220",
       "url": "https://github.com/anthropics/claude-code/issues/67220",
       "title": "[FEATURE] Native Windows toast notifications (a `windows_toast` channel for `preferredNotifChannel`)",
@@ -9994,19 +10084,6 @@
       "updated_at": "2026-06-26T13:09:13Z"
     },
     {
-      "upstream": "anthropics/claude-code#69336",
-      "url": "https://github.com/anthropics/claude-code/issues/69336",
-      "title": "[BUG] API Error: Connection closed mid-response — occurs immediately in new context window",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:47:10Z"
-    },
-    {
       "upstream": "anthropics/claude-code#69415",
       "url": "https://github.com/anthropics/claude-code/issues/69415",
       "title": "[BUG] API Error: Connection closed mid-response ==> frequent enough to make Claude Code unusable for any task",
@@ -10047,6 +10124,20 @@
       "updated_at": "2026-06-26T14:58:46Z"
     },
     {
+      "upstream": "anthropics/claude-code#69542",
+      "url": "https://github.com/anthropics/claude-code/issues/69542",
+      "title": "Claude in Chrome (desktop/web app): a new tab group is created for every session instead of reusing the previous session's tab",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "mcp"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, mcp); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T00:33:44Z"
+    },
+    {
       "upstream": "anthropics/claude-code#69551",
       "url": "https://github.com/anthropics/claude-code/issues/69551",
       "title": "[BUG] Workflow synthesis report contains incomplete and garbage data.",
@@ -10058,18 +10149,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T10:05:23Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#69568",
-      "url": "https://github.com/anthropics/claude-code/issues/69568",
-      "title": "[Bug] Resume/fork includes completed-turn thinking signatures, inflating context usage to near limits",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:27:51Z"
     },
     {
       "upstream": "anthropics/claude-code#69750",
@@ -10161,6 +10240,19 @@
       "updated_at": "2026-06-28T20:58:18Z"
     },
     {
+      "upstream": "anthropics/claude-code#70329",
+      "url": "https://github.com/anthropics/claude-code/issues/70329",
+      "title": "Session auto-title latches onto an interrupted first message and never regenerates",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T07:25:45Z"
+    },
+    {
       "upstream": "anthropics/claude-code#70463",
       "url": "https://github.com/anthropics/claude-code/issues/70463",
       "title": "[BUG] 5 hour usage limit reached - but I have not used Claude in over a day",
@@ -10198,7 +10290,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T09:21:51Z"
+      "updated_at": "2026-06-29T09:26:16Z"
     },
     {
       "upstream": "anthropics/claude-code#70591",
@@ -10344,6 +10436,18 @@
       "updated_at": "2026-06-27T14:50:24Z"
     },
     {
+      "upstream": "anthropics/claude-code#71072",
+      "url": "https://github.com/anthropics/claude-code/issues/71072",
+      "title": "[BUG] Path-based rules not applied when file is accessed via a symlinked path",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T05:34:47Z"
+    },
+    {
       "upstream": "anthropics/claude-code#71262",
       "url": "https://github.com/anthropics/claude-code/issues/71262",
       "title": "[BUG] Login with charleshoward55@gmail.com routes to wrong free with different gmail account — Max subscriber locked out",
@@ -10366,6 +10470,19 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T05:45:31Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#71312",
+      "url": "https://github.com/anthropics/claude-code/issues/71312",
+      "title": "[Bug] OTEL Export functionality disabled or non-functional",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T09:34:01Z"
     },
     {
       "upstream": "anthropics/claude-code#71369",
@@ -10393,19 +10510,6 @@
       "updated_at": "2026-06-28T15:46:30Z"
     },
     {
-      "upstream": "anthropics/claude-code#71433",
-      "url": "https://github.com/anthropics/claude-code/issues/71433",
-      "title": "[FEATURE] EnterWorktree should refuse or auto-uniquify a contested worktree path",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "slash_hook"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:53:50Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71446",
       "url": "https://github.com/anthropics/claude-code/issues/71446",
       "title": "[BUG] Recently Opus feels like old sonnet, Sonnet is even worse",
@@ -10416,6 +10520,20 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-26T15:49:08Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#71455",
+      "url": "https://github.com/anthropics/claude-code/issues/71455",
+      "title": "[BUG] [platform::intellij] Regression of #10813: 'Slow operations are prohibited on EDT' in DiagnosticTools.openVirtualFileFromPath (macOS, plugin 0.1.14-beta)",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "mcp",
+        "plugin"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, mcp, plugin); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T03:22:56Z"
     },
     {
       "upstream": "anthropics/claude-code#71464",
@@ -10491,18 +10609,17 @@
       "updated_at": "2026-06-27T07:05:57Z"
     },
     {
-      "upstream": "anthropics/claude-code#71500",
-      "url": "https://github.com/anthropics/claude-code/issues/71500",
-      "title": "VS Code extension: sessions sidebar omits externally-created session transcripts (regression in 2.1.187–2.1.191)",
+      "upstream": "anthropics/claude-code#71483",
+      "url": "https://github.com/anthropics/claude-code/issues/71483",
+      "title": "Feature request: option for neutral/static spinner text instead of randomized whimsical verbs",
       "impact": "not_applicable",
       "categories": [
-        "ide",
-        "install",
-        "platform"
+        "terminal",
+        "slash_hook"
       ],
       "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, install, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:23:32Z"
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T03:46:23Z"
     },
     {
       "upstream": "anthropics/claude-code#71510",
@@ -10517,18 +10634,6 @@
       "updated_at": "2026-06-26T21:30:42Z"
     },
     {
-      "upstream": "anthropics/claude-code#71512",
-      "url": "https://github.com/anthropics/claude-code/issues/71512",
-      "title": "[FEATURE] Log reasoning effort level in JSONL transcripts",
-      "impact": "not_applicable",
-      "categories": [
-        "plugin"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (plugin); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:23:37Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71517",
       "url": "https://github.com/anthropics/claude-code/issues/71517",
       "title": "[BUG] out of credits in 3 days, as a hobbyist.",
@@ -10539,100 +10644,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-27T06:32:15Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71519",
-      "url": "https://github.com/anthropics/claude-code/issues/71519",
-      "title": "[BUG] Fucking cursor disappears in the fucking console",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:18:14Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71527",
-      "url": "https://github.com/anthropics/claude-code/issues/71527",
-      "title": "[BUG] Inconsistent Context Window Between CLI and VSCode plugin",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal",
-        "plugin",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal, plugin, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T06:17:14Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71528",
-      "url": "https://github.com/anthropics/claude-code/issues/71528",
-      "title": "Desktop app crashes when clicking hamburger menu (☰)",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T06:21:39Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71532",
-      "url": "https://github.com/anthropics/claude-code/issues/71532",
-      "title": "[BUG] Remote Control environments stay green/online and duplicate on mobile after all local processes exit",
-      "impact": "not_applicable",
-      "categories": [
-        "slash_hook",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (slash_hook, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:10:52Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71533",
-      "url": "https://github.com/anthropics/claude-code/issues/71533",
-      "title": "[Bug] Guest passes unavailable on Claude Max (20x) plan despite plan recognition",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T06:59:15Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71534",
-      "url": "https://github.com/anthropics/claude-code/issues/71534",
-      "title": "Accepting the \"non-flickering version\" opt-in corrupts the native Windows CLI binary into bare Bun",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal",
-        "install",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal, install, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:02:00Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71536",
-      "url": "https://github.com/anthropics/claude-code/issues/71536",
-      "title": "[BUG] Desktop app: left sidebar (Claude Code / Chat / Cowork) completely missing",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "install",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, install, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:08:16Z"
     },
     {
       "upstream": "anthropics/claude-code#71539",
@@ -10647,34 +10658,6 @@
       "updated_at": "2026-06-26T22:22:33Z"
     },
     {
-      "upstream": "anthropics/claude-code#71540",
-      "url": "https://github.com/anthropics/claude-code/issues/71540",
-      "title": "[FEATURE] VS Code extension: support custom working directory (cwd) different from workspace root",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal",
-        "slash_hook",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal, slash_hook, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:37:24Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71541",
-      "url": "https://github.com/anthropics/claude-code/issues/71541",
-      "title": "[BUG]",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T07:50:15Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71542",
       "url": "https://github.com/anthropics/claude-code/issues/71542",
       "title": "GitHub connector links repositories successfully but Claude cannot access content for ANY repository (account-wide, public and private alike) — recent regression",
@@ -10686,59 +10669,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T18:52:37Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71545",
-      "url": "https://github.com/anthropics/claude-code/issues/71545",
-      "title": "[FEATURE] reopen last session at start",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "slash_hook"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:06:11Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71547",
-      "url": "https://github.com/anthropics/claude-code/issues/71547",
-      "title": "AskUserQuestion dialog auto-submits on mouse click without confirmation",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:14:36Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71548",
-      "url": "https://github.com/anthropics/claude-code/issues/71548",
-      "title": "[BUG] Filesystem Breakoff",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "mcp",
-        "install",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, mcp, install, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:10:48Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71549",
-      "url": "https://github.com/anthropics/claude-code/issues/71549",
-      "title": "[BUG] Activity heatmap and streak counters do not reflect actual daily usage",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:22:29Z"
     },
     {
       "upstream": "anthropics/claude-code#71551",
@@ -10755,30 +10685,6 @@
       "updated_at": "2026-06-28T16:06:51Z"
     },
     {
-      "upstream": "anthropics/claude-code#71552",
-      "url": "https://github.com/anthropics/claude-code/issues/71552",
-      "title": "Feature: allow a hook or the model to set the session title",
-      "impact": "not_applicable",
-      "categories": [
-        "slash_hook"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T08:58:01Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71553",
-      "url": "https://github.com/anthropics/claude-code/issues/71553",
-      "title": "[BUG] Workflow by-name launch fails on Windows: resolved script is rewritten to CRLF and rejected by the approval gate",
-      "impact": "not_applicable",
-      "categories": [
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:03:23Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71555",
       "url": "https://github.com/anthropics/claude-code/issues/71555",
       "title": "[Bug] Overly broad cybersecurity content filter flags legitimate debugging tasks",
@@ -10789,18 +10695,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-26T14:24:33Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71556",
-      "url": "https://github.com/anthropics/claude-code/issues/71556",
-      "title": "[BUG] Claude loses access to GitHub Repository",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:16:40Z"
     },
     {
       "upstream": "anthropics/claude-code#71557",
@@ -10815,44 +10709,6 @@
       "updated_at": "2026-06-26T18:59:50Z"
     },
     {
-      "upstream": "anthropics/claude-code#71558",
-      "url": "https://github.com/anthropics/claude-code/issues/71558",
-      "title": "[BUG] no copy possible in claude code cli",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:35:00Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71559",
-      "url": "https://github.com/anthropics/claude-code/issues/71559",
-      "title": "[FEATURE] Browser automation (Claude in Chrome) can't target a browser on the same host as the shell/dev tools",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "mcp",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, mcp, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:41:19Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71560",
-      "url": "https://github.com/anthropics/claude-code/issues/71560",
-      "title": "[Bug] Agent hallucination: incorrect assumptions and false conclusions during task execution",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:40:09Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71562",
       "url": "https://github.com/anthropics/claude-code/issues/71562",
       "title": "[BUG] hasTrustDialogAccepted never persisted to ~/.claude.json despite repeated interactive sessions",
@@ -10863,18 +10719,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-27T03:42:25Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71563",
-      "url": "https://github.com/anthropics/claude-code/issues/71563",
-      "title": "[Feature Request] Implement automatic `/scrutinize` and `/ponytail-review` analysis on initial code generation",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-26T09:40:33Z"
     },
     {
       "upstream": "anthropics/claude-code#71564",
@@ -12095,19 +11939,6 @@
       "updated_at": "2026-06-28T18:10:29Z"
     },
     {
-      "upstream": "anthropics/claude-code#71725",
-      "url": "https://github.com/anthropics/claude-code/issues/71725",
-      "title": "[Bug] GitHub MCP Server Connection Failed",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "mcp"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, mcp); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T00:46:35Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71726",
       "url": "https://github.com/anthropics/claude-code/issues/71726",
       "title": "[FEATURE] Desktop app: inject queued messages mid-task between tool calls (CLI steering parity)",
@@ -12392,7 +12223,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (plugin, slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T12:42:29Z"
+      "updated_at": "2026-06-29T09:00:06Z"
     },
     {
       "upstream": "anthropics/claude-code#71769",
@@ -12428,7 +12259,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (plugin); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T12:42:20Z"
+      "updated_at": "2026-06-29T09:00:19Z"
     },
     {
       "upstream": "anthropics/claude-code#71774",
@@ -12643,7 +12474,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (ide, terminal, slash_hook); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T18:09:58Z"
+      "updated_at": "2026-06-29T07:05:34Z"
     },
     {
       "upstream": "anthropics/claude-code#71804",
@@ -12766,7 +12597,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T16:51:51Z"
+      "updated_at": "2026-06-29T02:39:52Z"
     },
     {
       "upstream": "anthropics/claude-code#71822",
@@ -12964,19 +12795,6 @@
       "updated_at": "2026-06-27T22:21:50Z"
     },
     {
-      "upstream": "anthropics/claude-code#71914",
-      "url": "https://github.com/anthropics/claude-code/issues/71914",
-      "title": "[BUG] Gmail intigration fail.",
-      "impact": "not_applicable",
-      "categories": [
-        "terminal",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-27T22:36:10Z"
-    },
-    {
       "upstream": "anthropics/claude-code#71921",
       "url": "https://github.com/anthropics/claude-code/issues/71921",
       "title": "[Feature Request] Improve UI affordance for clickable options to prevent accidental selection",
@@ -13039,19 +12857,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (mcp, platform); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T00:01:48Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71928",
-      "url": "https://github.com/anthropics/claude-code/issues/71928",
-      "title": "[FEATURE] Collapsible Sticky Prompt Block in the VS Code Extension Panel",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T00:00:13Z"
     },
     {
       "upstream": "anthropics/claude-code#71931",
@@ -13283,7 +13088,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T15:01:26Z"
+      "updated_at": "2026-06-29T01:35:35Z"
     },
     {
       "upstream": "anthropics/claude-code#72013",
@@ -13296,22 +13101,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T07:30:15Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#72016",
-      "url": "https://github.com/anthropics/claude-code/issues/72016",
-      "title": "[BUG] Claude in Chrome: navigate + screenshot denied on ALL domains; persists through reinstall, Claude Code restart, and claude.ai allowlist",
-      "impact": "not_applicable",
-      "categories": [
-        "ide",
-        "terminal",
-        "mcp",
-        "install",
-        "platform"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (ide, terminal, mcp, install, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T16:18:26Z"
     },
     {
       "upstream": "anthropics/claude-code#72019",
@@ -13697,7 +13486,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T15:16:11Z"
+      "updated_at": "2026-06-29T05:28:24Z"
     },
     {
       "upstream": "anthropics/claude-code#72067",
@@ -13723,7 +13512,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (plugin, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T15:35:53Z"
+      "updated_at": "2026-06-29T06:49:49Z"
     },
     {
       "upstream": "anthropics/claude-code#72080",
@@ -13762,18 +13551,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
       "updated_at": "2026-06-28T15:46:27Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#72107",
-      "url": "https://github.com/anthropics/claude-code/issues/72107",
-      "title": "añadir mexem",
-      "impact": "not_applicable",
-      "categories": [
-        "mcp"
-      ],
-      "tokenkey_status": "not_applicable",
-      "rationale": "Client-side claude-code concern (mcp); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T17:12:28Z"
     },
     {
       "upstream": "anthropics/claude-code#72109",
@@ -13904,7 +13681,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (ide, terminal, plugin, platform); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T21:20:12Z"
+      "updated_at": "2026-06-29T00:14:53Z"
     },
     {
       "upstream": "anthropics/claude-code#72130",
@@ -14016,7 +13793,7 @@
       ],
       "tokenkey_status": "not_applicable",
       "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
-      "updated_at": "2026-06-28T21:28:10Z"
+      "updated_at": "2026-06-29T05:22:14Z"
     },
     {
       "upstream": "anthropics/claude-code#72154",
@@ -14129,6 +13906,611 @@
       "updated_at": "2026-06-28T23:32:19Z"
     },
     {
+      "upstream": "anthropics/claude-code#72167",
+      "url": "https://github.com/anthropics/claude-code/issues/72167",
+      "title": "[BUG] VSCode extension sessions not appearing in sidebar after closing",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-28T23:53:18Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72168",
+      "url": "https://github.com/anthropics/claude-code/issues/72168",
+      "title": "[Bug] False positive security flag for local telnet connection",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T00:22:28Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72172",
+      "url": "https://github.com/anthropics/claude-code/issues/72172",
+      "title": "[Bug] Unintended cybersecurity content filtering in conversation summary skill",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T00:43:59Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72173",
+      "url": "https://github.com/anthropics/claude-code/issues/72173",
+      "title": "CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 no longer preserves text selection in VS Code terminal",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:34:33Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72174",
+      "url": "https://github.com/anthropics/claude-code/issues/72174",
+      "title": "[BUG] ├─── ✂ ─── 1 lines hidden ─────────────────────┤",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T04:51:47Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72175",
+      "url": "https://github.com/anthropics/claude-code/issues/72175",
+      "title": "TUI leaks malformed truecolor escape `\\x1b[38;2;NaN;NaN;NaNm` into prompt buffer (shows as `aN;NaNm`) during background-workflow/auto-mode redraw",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T01:12:33Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72177",
+      "url": "https://github.com/anthropics/claude-code/issues/72177",
+      "title": "[FEATURE] Add keyboard shortcut (Ctrl+Enter) to send messages on Android with physical keyboard",
+      "impact": "not_applicable",
+      "categories": [
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T01:30:55Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72178",
+      "url": "https://github.com/anthropics/claude-code/issues/72178",
+      "title": "[BUG] Cards declined",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T01:48:25Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72179",
+      "url": "https://github.com/anthropics/claude-code/issues/72179",
+      "title": "[BUG] Claude Code desktop app not showing Chat or Co-Work history",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "install",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, install, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T01:52:03Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72180",
+      "url": "https://github.com/anthropics/claude-code/issues/72180",
+      "title": "Tool calls intermittently emitted as literal text instead of being executed — silent task stalls on Opus 4.8 / Sonnet 4.6",
+      "impact": "not_applicable",
+      "categories": [
+        "plugin"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (plugin); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:11:19Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72181",
+      "url": "https://github.com/anthropics/claude-code/issues/72181",
+      "title": "Desktop app: No way to remove entries from the \"Recent\" folders list",
+      "impact": "not_applicable",
+      "categories": [
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T01:58:40Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72183",
+      "url": "https://github.com/anthropics/claude-code/issues/72183",
+      "title": "Agent declares a fix verified from an indirect proxy signal (log/count) instead of the actual displayed output, re-presenting a result the user already reported as broken",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:16:10Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72184",
+      "url": "https://github.com/anthropics/claude-code/issues/72184",
+      "title": "[Feature Request] Add granular setting to disable coaching hints in agent view",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:26:57Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72186",
+      "url": "https://github.com/anthropics/claude-code/issues/72186",
+      "title": "Agent verifies a fix with a standalone reproduction configured differently from the live path, producing a false 'verified' on still-wrong output",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:38:00Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72188",
+      "url": "https://github.com/anthropics/claude-code/issues/72188",
+      "title": "[Bug] Terminal focus-in event consumed as prompt denial in permission dialog",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:50:04Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72190",
+      "url": "https://github.com/anthropics/claude-code/issues/72190",
+      "title": "iPadOS app: selecting text in a long remote macOS session auto-scrolls to top and deselects",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:48:42Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72192",
+      "url": "https://github.com/anthropics/claude-code/issues/72192",
+      "title": "[Bug] Ambiguous error message when request processing fails",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T02:55:47Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72193",
+      "url": "https://github.com/anthropics/claude-code/issues/72193",
+      "title": "claude.exe exits with code 0, zero output on stdout/stderr, for any command",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook",
+        "install",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook, install, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T03:11:05Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72195",
+      "url": "https://github.com/anthropics/claude-code/issues/72195",
+      "title": "[BUG] Scheduled task fires (lastRunAt updates) but no session is spawned",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T03:17:20Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72196",
+      "url": "https://github.com/anthropics/claude-code/issues/72196",
+      "title": "[Bug] Model behavior degradation or unexpected responses",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T03:30:49Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72197",
+      "url": "https://github.com/anthropics/claude-code/issues/72197",
+      "title": "[BUG] Title: Sessions not syncing across computers (Pro account)",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T05:43:16Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72198",
+      "url": "https://github.com/anthropics/claude-code/issues/72198",
+      "title": "Feature request: Register Claude Code as a native agent provider in VS Code's Chat/Agents view",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "mcp",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, mcp, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T04:49:03Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72200",
+      "url": "https://github.com/anthropics/claude-code/issues/72200",
+      "title": "Input corruption: first keystrokes at a fresh prompt scrambled in VS Code integrated terminal (Windows)",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T05:29:49Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72204",
+      "url": "https://github.com/anthropics/claude-code/issues/72204",
+      "title": "[BUG] Windows desktop: idle session's activity dot keeps blinking forever AND burns ~10% CPU in the background (runaway loop, cleared only by restarting the app)",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "plugin",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, plugin, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:14:48Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72205",
+      "url": "https://github.com/anthropics/claude-code/issues/72205",
+      "title": "Inconsistent effort level naming: /effort max vs effortLevel: xhigh in settings",
+      "impact": "not_applicable",
+      "categories": [
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:03:32Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72206",
+      "url": "https://github.com/anthropics/claude-code/issues/72206",
+      "title": "Pattern + proposal: adversarial self-review via a fresh sub-agent to counter author-blindness (a concrete fix for #32301)",
+      "impact": "not_applicable",
+      "categories": [
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:10:57Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72207",
+      "url": "https://github.com/anthropics/claude-code/issues/72207",
+      "title": "[Bug] Claude 3 Opus model refusing tasks and deflecting responsibility",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:12:01Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72208",
+      "url": "https://github.com/anthropics/claude-code/issues/72208",
+      "title": "[FEATURE] Desktop: orange session attention dot should clear on open (and add 'Mark as read') — currently it only clears when you send a reply, which feels like being forced to respond",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:31:41Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72209",
+      "url": "https://github.com/anthropics/claude-code/issues/72209",
+      "title": "[FEATURE] VSCode extension: distinct per-tab color to tell Claude Code sessions apart",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:27:55Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72210",
+      "url": "https://github.com/anthropics/claude-code/issues/72210",
+      "title": "[FEATURE] VSCode extension: replace the static Claude tab icon with a live session-status indicator",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:33:00Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72211",
+      "url": "https://github.com/anthropics/claude-code/issues/72211",
+      "title": "[Billing/Account] MAX plan usage draining with zero activity — Fin unable to escalate, 1 week no human response",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:34:59Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72212",
+      "url": "https://github.com/anthropics/claude-code/issues/72212",
+      "title": "[Feature Request] Allow pinning background sessions by default via CLI option",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:48:46Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72213",
+      "url": "https://github.com/anthropics/claude-code/issues/72213",
+      "title": "[FEATURE] Feature: API/CLI to programmatically open new Claude Code conversation sessions in VS Code",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "plugin"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, plugin); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:52:16Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72214",
+      "url": "https://github.com/anthropics/claude-code/issues/72214",
+      "title": "Feature request: delete sessions from --resume picker",
+      "impact": "not_applicable",
+      "categories": [
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T06:57:38Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72215",
+      "url": "https://github.com/anthropics/claude-code/issues/72215",
+      "title": "[BUG] Fullscreen render mode: no scrollbar and scrolling fully broken (arrows/PageUp/PageDown do nothing) once output exceeds one screen",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T09:31:27Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72217",
+      "url": "https://github.com/anthropics/claude-code/issues/72217",
+      "title": "[BUG] Write post-write verification false-positives on WSL2 / local ext4 — bogus \"bytes on disk\" (== len(path)+96, or 0) and false \"silently truncated\" for files that are correct",
+      "impact": "not_applicable",
+      "categories": [
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T07:37:41Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72219",
+      "url": "https://github.com/anthropics/claude-code/issues/72219",
+      "title": "[Bug] Claude incorrectly interpreting non-existent user instructions in thinking blocks",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T07:53:56Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72221",
+      "url": "https://github.com/anthropics/claude-code/issues/72221",
+      "title": "macOS arm64: 2+ concurrent background agents cause daemon supervisor 'signal war' (cause=signal, leases=2) — ~52s respawn, reconnect flicker + red agents",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook",
+        "install"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook, install); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T08:00:48Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72222",
+      "url": "https://github.com/anthropics/claude-code/issues/72222",
+      "title": "[Feature Request] Ask Questions tool should not cancel on single <ESC> press in vim mode",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T08:10:17Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72223",
+      "url": "https://github.com/anthropics/claude-code/issues/72223",
+      "title": "[BUG] Conversation history shows \"now\" for old conversations, breaking sort order in VS Code extension",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T08:17:36Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72226",
+      "url": "https://github.com/anthropics/claude-code/issues/72226",
+      "title": "[BUG] Failed to decode JSON: JSON message exceeded maximum buffer size of 1048576 bytes...",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T09:17:22Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72228",
+      "url": "https://github.com/anthropics/claude-code/issues/72228",
+      "title": "MCP tool calls silently drop parameters emitted after a long parameter value (v2.1.195)",
+      "impact": "not_applicable",
+      "categories": [
+        "mcp",
+        "slash_hook",
+        "install"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (mcp, slash_hook, install); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T10:08:04Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72232",
+      "url": "https://github.com/anthropics/claude-code/issues/72232",
+      "title": "[Feature Request] Display message queue count in Claude Code CLI",
+      "impact": "not_applicable",
+      "categories": [
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T10:22:24Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72233",
+      "url": "https://github.com/anthropics/claude-code/issues/72233",
+      "title": "[Bug] Background daemon supervisor respawns every ~52s on macOS Apple Silicon, causing agent disconnects and task failures",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "install"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, install); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T10:28:30Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72234",
+      "url": "https://github.com/anthropics/claude-code/issues/72234",
+      "title": "[BUG] VS Code plan-review comments are not forwarded to Claude Code",
+      "impact": "not_applicable",
+      "categories": [
+        "ide",
+        "terminal"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (ide, terminal); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T10:29:49Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72235",
+      "url": "https://github.com/anthropics/claude-code/issues/72235",
+      "title": "Paste (right-click / Ctrl+Shift+V) broken in WezTerm on WSL2 — regression from older versions",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook",
+        "platform"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook, platform); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T10:34:03Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72236",
+      "url": "https://github.com/anthropics/claude-code/issues/72236",
+      "title": "[BUG] @file reference bypasses PreToolUse hooks (e.g. .env read block)",
+      "impact": "not_applicable",
+      "categories": [
+        "terminal",
+        "slash_hook"
+      ],
+      "tokenkey_status": "not_applicable",
+      "rationale": "Client-side claude-code concern (terminal, slash_hook); not a gateway/relay relevance signal.",
+      "updated_at": "2026-06-29T10:30:57Z"
+    },
+    {
       "upstream": "anthropics/claude-code#8473",
       "url": "https://github.com/anthropics/claude-code/issues/8473",
       "title": "[BUG] Error: Failed to load usage data",
@@ -14171,7 +14553,7 @@
       "categories": [],
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-28T05:57:14Z"
+      "updated_at": "2026-06-29T01:19:55Z"
     },
     {
       "upstream": "anthropics/claude-code#18027",
@@ -14202,16 +14584,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
       "updated_at": "2026-06-27T20:39:15Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#23626",
-      "url": "https://github.com/anthropics/claude-code/issues/23626",
-      "title": "[FEATURE] Support diff comparison against branches other than main",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_applicable",
-      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-26T09:14:16Z"
     },
     {
       "upstream": "anthropics/claude-code#28043",
@@ -14564,6 +14936,16 @@
       "updated_at": "2026-06-26T22:29:10Z"
     },
     {
+      "upstream": "anthropics/claude-code#60848",
+      "url": "https://github.com/anthropics/claude-code/issues/60848",
+      "title": "Ambiguous 'Don't ask me again' option in session resume prompt",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T02:04:43Z"
+    },
+    {
       "upstream": "anthropics/claude-code#61888",
       "url": "https://github.com/anthropics/claude-code/issues/61888",
       "title": "[FEATURE] Add a strict scope / guardrails mode to prevent unrelated changes",
@@ -14912,6 +15294,16 @@
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
       "updated_at": "2026-06-27T08:54:28Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#69238",
+      "url": "https://github.com/anthropics/claude-code/issues/69238",
+      "title": "[BUG] No response from API error when Advisor is triggered",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T08:57:20Z"
     },
     {
       "upstream": "anthropics/claude-code#69691",
@@ -15522,36 +15914,6 @@
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
       "updated_at": "2026-06-28T05:45:12Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71525",
-      "url": "https://github.com/anthropics/claude-code/issues/71525",
-      "title": "Auto-mode classifier treats a stale memory note as a standing authorization boundary",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_applicable",
-      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-26T06:29:46Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71535",
-      "url": "https://github.com/anthropics/claude-code/issues/71535",
-      "title": "[BUG] Claude Desktop: computer_use.node blocks main thread indefinitely on iCloud/OneDrive-evicted app bundles (performSpotlightQuery callback)",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_applicable",
-      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-26T07:42:19Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#71565",
-      "url": "https://github.com/anthropics/claude-code/issues/71565",
-      "title": "Security disclosure submitted to security@anthropic.com — GPI-1: Geometric Prior Injection (CVE pending MITRE assignment)",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_applicable",
-      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-26T09:49:27Z"
     },
     {
       "upstream": "anthropics/claude-code#71567",
@@ -17021,7 +17383,7 @@
       "categories": [],
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-28T20:01:30Z"
+      "updated_at": "2026-06-29T00:31:36Z"
     },
     {
       "upstream": "anthropics/claude-code#72122",
@@ -17041,7 +17403,7 @@
       "categories": [],
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-28T22:28:29Z"
+      "updated_at": "2026-06-29T00:31:23Z"
     },
     {
       "upstream": "anthropics/claude-code#72132",
@@ -17151,7 +17513,97 @@
       "categories": [],
       "tokenkey_status": "not_applicable",
       "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
-      "updated_at": "2026-06-28T23:05:26Z"
+      "updated_at": "2026-06-29T05:24:13Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72170",
+      "url": "https://github.com/anthropics/claude-code/issues/72170",
+      "title": "Agent resolves an ambiguous case identifier by recent-context bias instead of the literal exact match, then executes on the wrong target",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T00:35:04Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72176",
+      "url": "https://github.com/anthropics/claude-code/issues/72176",
+      "title": "Feature request: roll over unused weekly usage to the next week (within the billing month)",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T01:27:04Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72185",
+      "url": "https://github.com/anthropics/claude-code/issues/72185",
+      "title": "[FEATURE] Session list UX improvements: sorting, search, rename, and deletion",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T02:25:25Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72191",
+      "url": "https://github.com/anthropics/claude-code/issues/72191",
+      "title": "Agent builds a new parallel implementation that reintroduces an already-solved bug instead of discovering and using the existing working tool",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T02:52:22Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72201",
+      "url": "https://github.com/anthropics/claude-code/issues/72201",
+      "title": "[Bug][cyber] Safety block halted H.264 NAL-unit forensics: diagnosing CABAC corruption from suspicious NAL typ (req_011CcWyQ9hrc9xzACDwmp8mY)",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T05:31:30Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72202",
+      "url": "https://github.com/anthropics/claude-code/issues/72202",
+      "title": "[Bug][cyber] H.264 decoder debug blocked while inspecting CABAC corruption and unknown NAL types (req_011CcWya3V5wtjqdrbgxJhpd)",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T05:31:02Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72225",
+      "url": "https://github.com/anthropics/claude-code/issues/72225",
+      "title": "Disable references to Orwell ( animal farm ) and Brave New World",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T08:46:12Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#72229",
+      "url": "https://github.com/anthropics/claude-code/issues/72229",
+      "title": "[MODEL] Claude inefficiently builds the same project twice in a single tool call",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T09:33:51Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#895",
+      "url": "https://github.com/anthropics/claude-code/issues/895",
+      "title": "Error: InputValidationError: Write failed due to the following issue: The required parameter `content` is missing",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_applicable",
+      "rationale": "No gateway/relay-relevant keywords; treated as not-our-surface.",
+      "updated_at": "2026-06-29T10:08:03Z"
     }
   ]
 }
