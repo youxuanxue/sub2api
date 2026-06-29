@@ -159,38 +159,20 @@ trap cleanup EXIT
 
 if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
   GROUP_ID="$("${PSQL[@]}" -c "
-WITH existing AS (
-  SELECT id
-  FROM groups
-  WHERE name = '$(sql_escape "$GROUP_NAME")'
-    AND deleted_at IS NULL
-  ORDER BY id
-  LIMIT 1
-),
-inserted AS (
-  INSERT INTO groups (
-    name, description, platform, rate_multiplier, is_exclusive, status,
-    subscription_type, default_validity_days, claude_code_only,
-    model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
-  )
-  SELECT
-    '$(sql_escape "$GROUP_NAME")',
-    'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
-    '$(sql_escape "$PLATFORM")',
-    1.0, true, 'active',
-    'standard', 30, false,
-    false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
-  WHERE NOT EXISTS (SELECT 1 FROM existing)
-  RETURNING id
-),
-picked AS (
-  SELECT id FROM inserted
-  UNION ALL
-  SELECT id FROM existing
-  LIMIT 1
+INSERT INTO groups (
+  name, description, platform, rate_multiplier, is_exclusive, status,
+  subscription_type, default_validity_days, claude_code_only,
+  model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
+) VALUES (
+  '$(sql_escape "$GROUP_NAME")',
+  'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
+  '$(sql_escape "$PLATFORM")',
+  1.0, true, 'active',
+  'standard', 30, false,
+  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
 )
-UPDATE groups g
-SET
+ON CONFLICT (name) WHERE (deleted_at IS NULL)
+DO UPDATE SET
   description = 'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
   platform = '$(sql_escape "$PLATFORM")',
   rate_multiplier = 1.0,
@@ -204,9 +186,7 @@ SET
   sort_order = 2147483000,
   rpm_limit = 0,
   updated_at = NOW()
-FROM picked
-WHERE g.id = picked.id
-RETURNING g.id;
+RETURNING id;
 " | tr -d '[:space:]')"
 else
   GROUP_ID="$("${PSQL[@]}" -c "
