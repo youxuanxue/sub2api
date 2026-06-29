@@ -474,11 +474,12 @@
       "upstream": "Wei-Shaw/sub2api#2413",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go",
         "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
-        "scripts/sentinels/gateway-tk.json"
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
       ],
-      "summary": "Same fix as #1824: Cherry Studio gpt-image-2 traffic hits per-request Cloudflare challenges on OpenAI OAuth; the body keyword match in handleOpenAI403 now keeps the account schedulable for non-image traffic instead of writing temp_unschedulable on the first hit."
+      "summary": "OpenAI OAuth 403 with HTML body (OpenAI access-denied page on gpt-image-2 / image paths, not just CF/Arkose keywords) skips the 403 counter and temp_unschedulable cooldown via openAIIsHTMLBody; complements #1824 keyword matching so healthy OAuth accounts are not evicted from the pool."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2478",
