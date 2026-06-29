@@ -11,7 +11,8 @@ import (
 
 type kiroPassiveSyncRepo struct {
 	AccountRepository
-	updates map[string]any
+	updates     map[string]any
+	credentials map[string]any
 }
 
 func (r *kiroPassiveSyncRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
@@ -19,6 +20,11 @@ func (r *kiroPassiveSyncRepo) UpdateExtra(_ context.Context, _ int64, updates ma
 	for k, v := range updates {
 		r.updates[k] = v
 	}
+	return nil
+}
+
+func (r *kiroPassiveSyncRepo) UpdateCredentials(_ context.Context, _ int64, credentials map[string]any) error {
+	r.credentials = cloneCredentials(credentials)
 	return nil
 }
 
@@ -187,5 +193,49 @@ func TestSyncKiroActiveToPassive_ClearsStaleTrialAndSubscriptionKeys(t *testing.
 		if got, ok := repo.updates[key]; !ok || got != nil {
 			t.Fatalf("%s = %v (present=%v), want explicit nil clear", key, got, ok)
 		}
+	}
+}
+
+func TestPersistKiroProfileArnIfChanged_WritesResolvedArn(t *testing.T) {
+	repo := &kiroPassiveSyncRepo{}
+	svc := &AccountUsageService{accountRepo: repo}
+	account := &Account{
+		ID:          7,
+		Platform:    PlatformKiro,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "tok"},
+	}
+	kiroAcct := &kiroproto.Account{ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/fresh"}
+
+	svc.persistKiroProfileArnIfChanged(context.Background(), account, kiroAcct)
+
+	if repo.credentials == nil {
+		t.Fatal("expected UpdateCredentials")
+	}
+	if got := repo.credentials["profile_arn"]; got != "arn:aws:codewhisperer:us-east-1:1:profile/fresh" {
+		t.Fatalf("profile_arn = %v, want fresh ARN", got)
+	}
+	if got := account.GetKiroProfileArn(); got != "arn:aws:codewhisperer:us-east-1:1:profile/fresh" {
+		t.Fatalf("in-memory profile_arn = %q", got)
+	}
+}
+
+func TestPersistKiroProfileArnIfChanged_SkipsWhenUnchanged(t *testing.T) {
+	repo := &kiroPassiveSyncRepo{}
+	svc := &AccountUsageService{accountRepo: repo}
+	account := &Account{
+		ID:       7,
+		Platform: PlatformKiro,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"profile_arn": "arn:aws:codewhisperer:us-east-1:1:profile/same",
+		},
+	}
+	kiroAcct := &kiroproto.Account{ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/same"}
+
+	svc.persistKiroProfileArnIfChanged(context.Background(), account, kiroAcct)
+
+	if repo.credentials != nil {
+		t.Fatalf("unexpected credential write: %+v", repo.credentials)
 	}
 }

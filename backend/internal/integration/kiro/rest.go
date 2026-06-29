@@ -38,6 +38,23 @@ func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestA
 // instead folded into getUsageLimits (userInfo{email,userId} + subscriptionInfo),
 // which TK already parses. kiro.GetUserInfo has no caller in TK anyway.
 func kiroRestFetch(account *Account, method, path, body string, withParn bool) ([]byte, error) {
+	if withParn {
+		if err := ensureProfileArn(account); err != nil {
+			return nil, err
+		}
+	}
+	data, err := kiroRestFetchBases(account, method, path, body, withParn)
+	if withParn && isInvalidProfileArnError(err) {
+		logWarnf("[KiroREST] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
+		account.ProfileArn = ""
+		if resolveErr := ensureProfileArn(account); resolveErr == nil {
+			return kiroRestFetchBases(account, method, path, body, withParn)
+		}
+	}
+	return data, err
+}
+
+func kiroRestFetchBases(account *Account, method, path, body string, withParn bool) ([]byte, error) {
 	var lastErr error
 	for _, base := range kiroRestBases() {
 		u := base + path
@@ -73,6 +90,28 @@ func kiroRestFetch(account *Account, method, path, body string, withParn bool) (
 		return data, nil
 	}
 	return nil, lastErr
+}
+
+func ensureProfileArn(account *Account) error {
+	if account == nil {
+		return fmt.Errorf("account is nil")
+	}
+	_, err := ResolveProfileArn(account)
+	return err
+}
+
+func isInvalidProfileArnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "invalid profilearn")
+}
+
+func accountEmail(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	return account.Email
 }
 
 // GetUsageLimits 获取账户使用量和订阅信息

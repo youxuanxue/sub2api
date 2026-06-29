@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
@@ -66,13 +67,16 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 
 	flightKey := fmt.Sprintf("kiro-usage:%d", account.ID)
 	result, flightErr, _ := s.cache.kiroFlight.Do(flightKey, func() (any, error) {
-		info, err := kiroproto.RefreshAccountInfo(account.toKiroProtoAccount())
+		kiroAcct := account.toKiroProtoAccount()
+		info, err := kiroproto.RefreshAccountInfo(kiroAcct)
 		if err != nil {
 			slog.Warn("kiro usage fetch failed, returning degraded response", "account_id", account.ID, "error", err)
 			passive.Error = fmt.Sprintf("usage API error: %v", err)
 			enrichUsageWithAccountError(passive, account)
 			return passive, nil
 		}
+
+		s.persistKiroProfileArnIfChanged(ctx, account, kiroAcct)
 
 		usage := buildKiroUsageFromInfo(info)
 		s.syncKiroActiveToPassive(ctx, account.ID, usage)
@@ -87,6 +91,23 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 		return passive, nil
 	}
 	return usage, nil
+}
+
+// persistKiroProfileArnIfChanged writes a freshly resolved profile_arn back to account
+// credentials so subsequent usage/gateway calls do not repeat ListAvailableProfiles or
+// keep sending a stale ARN that triggers HTTP 400 Invalid profileArn.
+func (s *AccountUsageService) persistKiroProfileArnIfChanged(ctx context.Context, account *Account, kiroAcct *kiroproto.Account) {
+	if s == nil || account == nil || kiroAcct == nil {
+		return
+	}
+	resolved := strings.TrimSpace(kiroAcct.ProfileArn)
+	if resolved == "" || resolved == account.GetKiroProfileArn() {
+		return
+	}
+	merged := MergeCredentials(account.Credentials, map[string]any{"profile_arn": resolved})
+	if err := persistAccountCredentials(ctx, s.accountRepo, account, merged); err != nil {
+		slog.Warn("persist_kiro_profile_arn_failed", "account_id", account.ID, "error", err)
+	}
 }
 
 // buildKiroUsageFromInfo maps the vendored kiro.AccountInfo (GetUsageLimits result)
