@@ -155,20 +155,40 @@ export function extractChatImageItems(resp: unknown): PlaygroundImageItem[] {
     if (/^https?:\/\//i.test(url)) items.push({ src: url })
     else pushDataUri(url)
   }
+  const pushMarkdownImagesFromText = (text: string): void => {
+    const dataRe = /\(\s*(data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+)\s*\)/gi
+    let mm: RegExpExecArray | null
+    while ((mm = dataRe.exec(text)) !== null) pushDataUri(mm[1])
+    const httpRe = /!\[[^\]]*\]\(\s*(https?:\/\/[^\s)]+)\s*\)/gi
+    while ((mm = httpRe.exec(text)) !== null) pushUrl(mm[1])
+  }
+  const pushAnthropicImagePart = (part: Record<string, unknown>): void => {
+    const source = asRecord(part.source)
+    if (!source || source.type !== 'base64') return
+    const data = typeof source.data === 'string' ? source.data : ''
+    if (!withinInlineB64Cap(data)) return
+    const mime =
+      typeof source.media_type === 'string' && source.media_type.startsWith('image')
+        ? source.media_type
+        : 'image/png'
+    items.push({ src: `data:${mime};base64,${data}` })
+  }
   for (const choice of choices) {
     const message = asRecord(asRecord(choice)?.message)
     if (!message) continue
     const content = message.content
     if (typeof content === 'string') {
-      // markdown ![…](data:image/…;base64,…) — pull every data: image URI out.
-      const re = /\(\s*(data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+)\s*\)/gi
-      let mm: RegExpExecArray | null
-      while ((mm = re.exec(content)) !== null) pushDataUri(mm[1])
+      pushMarkdownImagesFromText(content)
     } else if (Array.isArray(content)) {
-      // structured parts: {type:'image_url', image_url:{url}} or {inline_data:{data,mime_type}}.
       for (const part of content) {
         const p = asRecord(part)
         if (!p) continue
+        if (typeof p.text === 'string') {
+          pushMarkdownImagesFromText(p.text)
+        }
+        if (p.type === 'image') {
+          pushAnthropicImagePart(p)
+        }
         const imageUrl = asRecord(p.image_url)
         if (typeof imageUrl?.url === 'string') pushUrl(imageUrl.url)
         else if (typeof p.image_url === 'string') pushUrl(p.image_url)

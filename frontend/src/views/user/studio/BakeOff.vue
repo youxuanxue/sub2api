@@ -183,8 +183,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
-import { extractImageItems, extractVideoTaskId, videoStateFromFetch, extractVideoUrl } from '@/constants/playgroundMedia.tk'
+import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
+import {
+  extractChatImageItems,
+  extractImageItems,
+  extractVideoTaskId,
+  isGeminiNativeImageModel,
+  videoStateFromFetch,
+  extractVideoUrl,
+} from '@/constants/playgroundMedia.tk'
 import {
   VIDEO_DURATION_DEFAULT,
   videoDurationDefault,
@@ -215,7 +222,10 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 
 const MAX_PANELS = 4
-const DEFAULT_IMAGE_SIZE = '1024x1024'
+/** Imagen / seedream: ratio code on /v1/images/generations (see ImageStudio sentSize). */
+const DEFAULT_IMAGEN_SIZE = '1:1'
+/** Gemini-native image: aspect_ratio via /v1/chat/completions extra_body.google.image_config. */
+const DEFAULT_GEMINI_ASPECT = '1:1'
 
 const modality = ref<StudioModality>('video')
 const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
@@ -321,7 +331,7 @@ function panelSeconds(r: { model: { videoDurations?: number[] } }): number {
 const totalCost = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+      return sum + estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGEN_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
     }
     return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier })
   }, 0)
@@ -378,7 +388,7 @@ async function run(): Promise<void> {
     vendorLabel: r.model.vendorLabel,
     cost:
       modality.value === 'image'
-        ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+        ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGEN_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
         : estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier }),
     seconds: modality.value === 'video' ? panelSeconds(r) : undefined,
     state: 'processing',
@@ -389,8 +399,7 @@ async function run(): Promise<void> {
       await Promise.all(
         panels.value.map(async (panel) => {
           try {
-            const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, { model: panel.servedId, prompt: text, size: DEFAULT_IMAGE_SIZE, n: 1 })
-            const items = extractImageItems(raw)
+            const items = await generateBakeoffImage(panel.servedId, text)
             if (!items.length) throw new Error('no_image')
             panel.src = items[0].src
             panel.state = 'succeeded'
@@ -439,6 +448,25 @@ async function run(): Promise<void> {
   } finally {
     running.value = false
   }
+}
+
+/** Route like ImageStudio: gemini-native via chat; imagen/seedream via /v1/images/generations. */
+async function generateBakeoffImage(modelId: string, prompt: string) {
+  if (isGeminiNativeImageModel(modelId)) {
+    const raw = await gatewayGeminiImageViaChat(props.apiKey, props.gatewayBase, {
+      model: modelId,
+      prompt,
+      aspectRatio: DEFAULT_GEMINI_ASPECT,
+    })
+    return extractChatImageItems(raw)
+  }
+  const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
+    model: modelId,
+    prompt,
+    size: DEFAULT_IMAGEN_SIZE,
+    n: 1,
+  })
+  return extractImageItems(raw)
 }
 
 function mapError(e: unknown): void {

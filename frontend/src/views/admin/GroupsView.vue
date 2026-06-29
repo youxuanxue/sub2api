@@ -752,11 +752,7 @@
 
         <!-- 图片生成计费配置 -->
         <div
-          v-if="
-            createForm.platform === 'antigravity' ||
-            createForm.platform === 'gemini' ||
-            createForm.platform === 'openai'
-          "
+          v-if="supportsGroupImagePricing(createForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -2110,11 +2106,7 @@
 
         <!-- 图片生成计费配置 -->
         <div
-          v-if="
-            editForm.platform === 'antigravity' ||
-            editForm.platform === 'gemini' ||
-            editForm.platform === 'openai'
-          "
+          v-if="supportsGroupImagePricing(editForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -3204,6 +3196,7 @@ import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 import { usePlatformOptions } from "@/composables/usePlatformOptions";
 import { isOpenAICompatPlatform, hasMessagesDispatchConfig } from "@/constants/gatewayPlatforms";
+import { supportsGroupImagePricing } from "@/constants/groupImagePricing.tk";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,

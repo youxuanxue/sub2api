@@ -86,6 +86,38 @@ func TestResolve_ImagenPicksVertexNewapiGroup(t *testing.T) {
 	}
 }
 
+// imagen 不得落到 allow_image_generation=false 的 newapi 组; 应优先/仅选已开生图的组。
+func TestResolve_ImagenSkipsGroupWithoutImageGenerationPermission(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grpNoImage(16, PlatformNewAPI, 10, false),
+		grp(17, PlatformNewAPI, 20, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		16: {"imagen-4.0-fast-generate-001"},
+		17: {"imagen-4.0-fast-generate-001"},
+	}))
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIImages, "imagen-4.0-fast-generate-001", "")
+	if err != nil || g == nil || g.ID != 17 {
+		t.Fatalf("imagen 应跳过未开生图的 gid=16 并落 gid=17, got=%v err=%v", g, err)
+	}
+}
+
+// 若所有可服务 imagen 的组都未开生图,解析失败(403 套餐语义),而非事后 permission_error。
+func TestResolve_ImagenNoImageEnabledGroupReturnsNoEntitled(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{grpNoImage(16, PlatformNewAPI, 10, false)}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		16: {"imagen-4.0-fast-generate-001"},
+	}))
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIImages, "imagen-4.0-fast-generate-001", "")
+	if err != ErrUniversalNoEntitledGroup || g != nil {
+		t.Fatalf("无 allow_image_generation 组应 ErrUniversalNoEntitledGroup, got=%v err=%v", g, err)
+	}
+}
+
 // 回归:原生 anthropic 组(nil served)claude-* 仍正常解析(按 tiebreaker)。
 func TestResolve_NativeAnthropicRegression(t *testing.T) {
 	ctx := context.Background()

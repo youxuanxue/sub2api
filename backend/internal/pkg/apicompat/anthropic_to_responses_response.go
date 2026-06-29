@@ -50,6 +50,13 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 					Text: block.Text,
 				})
 			}
+		case "image":
+			if uri := anthropicImageToDataURI(block.Source); uri != "" {
+				msgParts = append(msgParts, ResponsesContentPart{
+					Type: "output_text",
+					Text: fmt.Sprintf("![image](%s)", uri),
+				})
+			}
 		case "tool_use":
 			args := "{}"
 			if len(block.Input) > 0 {

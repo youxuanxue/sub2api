@@ -3262,7 +3262,9 @@
         "func NewUniversalRoutingResolver(",
         "func (r *UniversalRoutingResolver) Resolve(",
         "var ErrUniversalNoEntitledGroup",
-        "func pickUniversalBackingGroup("
+        "func pickUniversalBackingGroup(",
+        "universalShapeRequiresImageGenerationEnabled",
+        "filterGroupsAllowImageGeneration"
       ],
       "rationale": "Universal Key (全能 Key) per-request resolver: maps a routing_mode=universal key to a concrete backing group from the owner's live entitlement span (GetAvailableGroups, short-TTL cached), filtered by endpoint-shape candidate platforms, with deterministic pick (subscription-held -> sort_order -> id). docs/approved/universal-key-routing.md. Dropping this file disables universal-key routing entirely (every universal key would fall through with a nil group). Pins the constructor, Resolve entrypoint, the no-entitled-group sentinel error, and the deterministic picker."
     },

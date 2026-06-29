@@ -104,7 +104,9 @@
       "must_contain": [
         "data-testid=\"bakeoff-tier\"",
         "data-testid=\"studio-bakeoff-run\"",
-        "data-testid=\"bakeoff-panel\""
+        "data-testid=\"bakeoff-panel\"",
+        "gatewayGeminiImageViaChat",
+        "isGeminiNativeImageModel"
       ],
       "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here."
     },
@@ -817,6 +819,15 @@
         "extractChatImageItems"
       ],
       "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow. isGeminiNativeImageModel classifies gemini-*-image / nano-banana ids as 'image' (mirrors backend isImageGenerationModel) — they are served via /v1/chat/completions (verified prod: the image returns as ![image](data:…) markdown for antigravity + newapi groups), so extractChatImageItems is the ONLY parser pulling that inline image out of the chat response; dropping either silently regresses gemini-native image in the Studio."
+    },
+    {
+      "path": "frontend/src/constants/groupImagePricing.tk.ts",
+      "must_contain": [
+        "GROUP_IMAGE_PRICING_PLATFORMS",
+        "'newapi'",
+        "supportsGroupImagePricing"
+      ],
+      "rationale": "Admin GroupsView gates the 图片生成计费 section (allow_image_generation + image price tiers) through supportsGroupImagePricing. newapi media groups (Vertex imagen/veo, Seedream) need the same toggle migration 134 gave openai/gemini/antigravity; omitting newapi here hides the only operator-facing control and forces SQL backfills for every new media group."
     },
     {
       "path": "frontend/src/views/user/studio/ChatStudio.vue",
