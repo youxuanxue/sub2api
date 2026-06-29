@@ -158,7 +158,7 @@ var canonicalHTTPObservedStatic = Fingerprint{
 	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v24.3.0",
+	StainlessRuntimeVersion: "v26.3.0",
 }
 
 // IsCanonicalTLSProfileName reports whether name is the TokenKey canonical

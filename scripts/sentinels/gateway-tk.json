@@ -1881,17 +1881,17 @@
       "path": "backend/internal/pkg/claude/constants.go",
       "must_contain": [
         "(external, sdk-cli)",
-        "v24.3.0"
+        "v26.3.0"
       ],
-      "rationale": "Single-source-of-truth for the Claude Code mimicry identity: DefaultHeaders must carry the canonical UA suffix (external, sdk-cli) and node v24.3.0 so a fingerprint-fallback request stays consistent with the single canonical TLS ClientHello. An upstream merge reverting these to the old Linux/(external, cli)/v24.13.0 values reintroduces a self-contradicting TLS-vs-HTTP fingerprint. Also locked by identity_canonical_consistency_test.go."
+      "rationale": "Single-source-of-truth for the Claude Code mimicry identity: DefaultHeaders must carry the canonical UA suffix (external, sdk-cli) and node v26.3.0 so a fingerprint-fallback request stays consistent with the single canonical TLS ClientHello. An upstream merge reverting these to the old Linux/(external, cli)/v24.13.0 values reintroduces a self-contradicting TLS-vs-HTTP fingerprint. Also locked by identity_canonical_consistency_test.go."
     },
     {
       "path": "backend/internal/service/identity_service.go",
       "must_contain": [
         "(external, sdk-cli)",
-        "v24.3.0"
+        "v26.3.0"
       ],
-      "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, sdk-cli) and node v24.3.0. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
+      "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, sdk-cli) and node v26.3.0. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video.go",

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "platform": "grok-cli",
+  "captured_at": "20260629T091437Z",
+  "installed_cli": "/opt/homebrew/bin/grok",
+  "installed_version": "0.2.73",
+  "pinned_version": "0.2.73",
+  "rows": [
+    {
+      "field": "default_grok_cli_version",
+      "pinned": "0.2.73",
+      "installed": "0.2.73",
+      "status": "match"
+    }
+  ],
+  "aligned": true
+}

@@ -109,9 +109,21 @@ python3 ops/antigravity/capture_antigravity_fingerprint.py check --bundle .antig
 > `ua_version: missing_capture`；`platform` 会报 `DARWIN_ARM64` vs `PLATFORM_UNSPECIFIED`。
 > 要把 CLI 也纳入对齐需单独扩 baseline；当前 TK 仅镜像 **IDE**，CLI 抓包用于交叉验证工具链。
 
-## 真实 IDE 校验（无需 on-wire；2026-06-12 实证）
+## 真实 IDE 校验（无需 on-wire mitm）
 
-想直接抓**真实 Antigravity IDE**（`brew install --cask antigravity`，2.0.11）的 on-wire 流量会**撞墙**，记录如下省得重踩：
+想直接抓**真实 Antigravity IDE** on-wire HTTP 会**撞墙**（`language_server` 直连 Google、无视 HTTP 代理）。替代路径（按推荐顺序）：
+
+1. **Spawn 校验（默认，版本-only bump）** — 读运行中 `language_server` 的 `--override_ide_version` / `--subclient_type hub` / `--override_user_agent_name`：
+   ```bash
+   bash ops/antigravity/validate-antigravity-spawn.sh check env
+   bash ops/antigravity/validate-antigravity-spawn.sh capture
+   ```
+   产物：`.cache/fingerprint/antigravity-spawn/*.json`。2026-06-12 changelog `ide-validate` 同源；#1063 的 2.2.1 bump 适用此路径。
+2. **Admin 热推** — 运行时 `antigravity_user_agent_version`，不发版。
+3. **TUN on-wire（仅格式破坏性漂移）** — ClashX TUN + mitm，2026-06-13 已用过一次（`/hub/`、去 gl-node）；重且脆，非常规版本 bump 不做。
+4. **`agy` CLI mitm** — 仅 toolchain 交叉验证，**不是 IDE 基线**（UA 带 `/cli/` 段）。
+
+旧节「真实 IDE 校验（无需 on-wire；2026-06-12 实证）」细节仍适用；spawn 脚本把该流程机械化。
 
 - IDE 的 Go `language_server`（真正的 cloudcode-pa 客户端）**直连 Google、无视一切 HTTP 代理**——`HTTP(S)_PROXY` 环境变量、macOS 系统代理、`.zshrc`、VS Code `http.proxy` 设了都没用，它照样 `dial tcp <google-ip>:443`。所以 **proxy-env 的 mitm 抓不到 IDE**；唯一能抓的是系统级 TUN（如 ClashX Pro 增强模式把直连引到本地 mitmproxy），重且脆。
 - **不用抓也能校验**——IDE 启动 `language_server` 的命令行就是权威身份来源（IDE 主进程日志 / `ps` 可见）：

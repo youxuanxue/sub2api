@@ -18,10 +18,11 @@ Layer 1：`bash ops/fingerprint/client-release-watch.sh scan --plan` 发现 `gro
 
 Upstream：`npm @xai-official/grok`。
 
-## 流程（capture 脚本待建）
+## 流程
 
-1. 确认本机 grok CLI 版本：`npm view @xai-official/grok version` 或已安装 CLI
-2. bump `DefaultGrokCLIVersion` 与 Chat 路径透传的 `grok-cli/*` 相关常量（若观测到联动）
-3. `go test -tags=unit ./internal/pkg/xai/...` → `scripts/preflight.sh`
+1. 升级本机 CLI：`npm i -g @xai-official/grok@<target>`（**不是** npm 上的 `grok-cli` 包）
+2. `bash ops/xai/capture-grok-fingerprint.sh check env`
+3. `bash ops/xai/capture-grok-fingerprint.sh capture`（写入 `.cache/fingerprint/grok-cli/*.bundle.json`）
+4. 有 drift 时 bump `DefaultGrokCLIVersion` + `go test -tags=unit ./internal/pkg/xai/...` → `scripts/preflight.sh`
 
-**禁止**仅凭 npm release 改 pin；OAuth relay 仍须一次真实授权/转发探针验证后再合 PR。
+**禁止**仅凭 npm release 改 pin；至少对照本机 `grok --version`（capture 脚本）后再合 PR。

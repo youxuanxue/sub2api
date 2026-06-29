@@ -1,6 +1,6 @@
 {
   "name": "tk_canonical_cc_oauth",
-  "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id intentionally decoupled from cc CLI patch version: TLS ClientHello stays byte-identical across cc patch releases (baseline ja3_hash=d871d02cecbde59abbf8f4806134addf, captured from cc 2.1.142 onward), so a new patch release never triggers a rename. HTTP observed.user_agent below is a compile-time snapshot; the live wire UA is driven at runtime by SettingService.GetClaudeCodeUserAgentVersion (admin setting → env CLAUDE_CODE_USER_AGENT_VERSION → compile default). runtime=node v24.3.0 darwin/arm64.",
+  "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id intentionally decoupled from cc CLI patch version: TLS ClientHello stays byte-identical across cc patch releases (baseline ja3_hash=d871d02cecbde59abbf8f4806134addf, captured from cc 2.1.142 onward), so a new patch release never triggers a rename. HTTP observed.user_agent below is a compile-time snapshot; the live wire UA is driven at runtime by SettingService.GetClaudeCodeUserAgentVersion (admin setting → env CLAUDE_CODE_USER_AGENT_VERSION → compile default). runtime=node v26.3.0 darwin/arm64.",
   "enable_grease": false,
   "cipher_suites": [
     4865,
@@ -75,7 +75,7 @@
     "stainless_os": "MacOS",
     "stainless_arch": "arm64",
     "stainless_runtime": "node",
-    "stainless_runtime_version": "v24.3.0",
+    "stainless_runtime_version": "v26.3.0",
     "stainless_lang": "js",
     "stainless_package_version": "0.94.0",
     "ja3_raw": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-21,29-23-24,0",
