@@ -5,10 +5,11 @@ import { ref } from 'vue'
 import en from '@/i18n/locales/en'
 import MediaStudioView from '../MediaStudioView.vue'
 
-const { listKeys, gatewayListModels, getMePricingCatalog } = vi.hoisted(() => ({
+const { listKeys, gatewayListModels, getMePricingCatalog, getPublicPricing } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   gatewayListModels: vi.fn(),
   getMePricingCatalog: vi.fn(),
+  getPublicPricing: vi.fn(),
 }))
 
 vi.mock('@/api/keys', () => ({
@@ -22,6 +23,10 @@ vi.mock('@/api/playground', () => ({
 
 vi.mock('@/api/me-pricing', () => ({
   getMePricingCatalog,
+}))
+
+vi.mock('@/api/pricing', () => ({
+  getPublicPricing,
 }))
 
 const fetchPublicSettings = vi.fn(async () => undefined)
@@ -73,21 +78,26 @@ describe('MediaStudioView bootstrap', () => {
     listKeys.mockReset()
     gatewayListModels.mockReset()
     getMePricingCatalog.mockReset()
+    getPublicPricing.mockReset()
     fetchPublicSettings.mockClear()
 
     listKeys.mockResolvedValue({
       items: [{ id: 1, name: 'trial', key: 'sk-test', group: { id: 10, name: 'default' } }],
     })
     gatewayListModels.mockResolvedValue({ data: [{ id: 'gpt-4o' }] })
+    getPublicPricing.mockResolvedValue({ data: [] })
   })
 
-  it('mounts ChatStudio after model probe without waiting for the price catalog', async () => {
+  it('mounts ChatStudio after model probe without waiting for the per-key price catalog', async () => {
     let resolveCatalog!: (value: { models: [] }) => void
-    getMePricingCatalog.mockReturnValue(
-      new Promise<{ models: [] }>((resolve) => {
-        resolveCatalog = resolve
-      })
-    )
+    getMePricingCatalog.mockImplementation((opts?: { apiKeyId?: number }) => {
+      if (opts?.apiKeyId != null) {
+        return new Promise<{ models: [] }>((resolve) => {
+          resolveCatalog = resolve
+        })
+      }
+      return Promise.resolve({ authorized_groups_by_model: {}, models: [] })
+    })
 
     const wrapper = mount(MediaStudioView, {
       global: {
@@ -102,5 +112,32 @@ describe('MediaStudioView bootstrap', () => {
 
     resolveCatalog({ models: [] })
     await flushPromises()
+  })
+
+  it('loads entitlement index for universal keys without per-key pricing catalog', async () => {
+    listKeys.mockResolvedValue({
+      items: [{ id: 9, name: 'universal', key: 'sk-uni', routing_mode: 'universal', group_id: null }],
+    })
+    getMePricingCatalog.mockResolvedValue({
+      authorized_groups_by_model: {
+        'veo-3.1-generate-001': [{ group_id: 3, group_name: 'vertex' }],
+      },
+      models: [],
+    })
+    getPublicPricing.mockResolvedValue({
+      data: [{ model_id: 'veo-3.1-generate-001', pricing: { output_cost_per_second: 0.5 } }],
+    })
+    gatewayListModels.mockResolvedValue({ data: [] })
+
+    const wrapper = mount(MediaStudioView, {
+      global: { plugins: [i18n], stubs: { 'router-link': true } },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    expect(getMePricingCatalog).toHaveBeenCalled()
+    expect(getPublicPricing).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('studio.universalKeyBadge')
+    expect(getMePricingCatalog).not.toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 9 }))
   })
 })

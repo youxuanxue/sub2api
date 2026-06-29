@@ -142,6 +142,16 @@ export default {
     viewPricing: 'See pricing',
     via: 'via {vendor}',
     keyNoModality: 'no models for this mode',
+    saveReminder: 'Results stay in this browser for about 7 days — download now; clearing cache or switching devices will lose them.',
+    universalKeyBadge: 'Universal key',
+    playback: {
+      inlineLocal: 'Local cache · preview survives reload (~7 days)',
+      upstreamCorsOk: 'Upstream URL · CORS fetch OK · download anyway',
+      upstreamCorsBlocked: 'Upstream URL · CORS blocks cache · no preview after reload · download now',
+      expired: 'Preview gone · prompt only kept',
+      unknown: 'Storage unknown · download now',
+      label: 'Preview source',
+    },
     needsApikeyAccount: 'Needs an API-key account',
     badge: {
       draft: 'Draft',
@@ -203,7 +213,7 @@ export default {
       usePrompt: 'Use prompt',
       useAsInput: 'Use as input',
       enlargeHint: 'Click to enlarge',
-      expiredReload: 'Preview not kept after reload — use the prompt to make it again.',
+      expiredReload: 'Local preview expired — download to keep, or reuse the prompt (billed again).',
       close: 'Close',
       inputImageLabel: 'Input image (image-to-image)',
       inputUpload: 'Upload image',
@@ -222,6 +232,8 @@ export default {
     video: {
       modelLabel: 'Model',
       modelEmpty: 'No video models are available for this group yet.',
+      modelEmptySwitchKey: 'Video models (Veo / Seedance) live on Vertex or VolcEngine groups. Switch to an API key that serves video above.',
+      modelEmptyAllKeys: 'None of your key groups expose video models yet. See pricing for supported groups or ask an admin.',
       samplePrompt: 'A neon Tokyo alley, slow push-in, rain, reflections, cinematic',
       perSecondUnit: ' /s',
       promptPlaceholder: 'Describe the video…',
@@ -263,7 +275,8 @@ export default {
       retry: 'Try again',
       copyLink: 'Copy link',
       copied: 'Copied',
-      retentionHint: 'Temporary upstream link · download soon'
+      retentionHint: 'Download now · short local preview; upstream links expire',
+      previewBuffering: 'Buffering video…',
     },
     chat: {
       model: 'Model',

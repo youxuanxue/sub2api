@@ -29,6 +29,8 @@ vi.mock('@/composables/useMediaLibrary', async (importOriginal) => {
         patchVideoTask: libraryMock.patchVideoTaskSpy,
         removeVideoTask: vi.fn(),
         clearVideoTasks: vi.fn(),
+        hydrateFromBlobCache: vi.fn(async () => undefined),
+        cacheInlineMedia: vi.fn(async () => undefined),
       }
     },
   }
@@ -37,6 +39,15 @@ vi.mock('@/composables/useMediaLibrary', async (importOriginal) => {
 vi.mock('@/api/playground', () => ({
   gatewayVideoSubmit: vi.fn(),
   gatewayVideoFetch: vi.fn(async () => ({ done: true, video_url: 'https://s3.example/fresh.mp4' })),
+}))
+
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({
+    showWarning: vi.fn(),
+    showSuccess: vi.fn(),
+    showError: vi.fn(),
+    showInfo: vi.fn(),
+  }),
 }))
 
 const i18n = createI18n({ legacy: false, locale: 'en', fallbackWarn: false, missingWarn: false, messages: { en } })
@@ -119,7 +130,7 @@ describe('VideoStudio succeeded-task presentation', () => {
     expect(w.text()).toContain('statusSucceeded')
   })
 
-  it('does not resurrect a persisted inline data: clip after reload', () => {
+  it('does not resurrect a persisted inline data: clip after reload when blob cache is empty', () => {
     seedPersisted([baseTask({ url: 'data:video/mp4;base64,AAAA' })])
     const w = mountStudio()
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
@@ -139,7 +150,7 @@ describe('VideoStudio succeeded-task presentation', () => {
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
     expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
     expect(w.text()).toContain('neon Tokyo alley in rain')
-    expect(w.text()).toContain('expiredReload')
+    expect(w.text()).toContain('studio.playback.expired')
   })
 
   it('closes the lightbox and marks the card expired when preview media fails', async () => {

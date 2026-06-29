@@ -1,6 +1,15 @@
 import { nextTick } from 'vue'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMediaLibrary, type ImageHistoryItem, type VideoTaskItem } from '../useMediaLibrary'
+
+vi.mock('@/utils/studioBlobCache.tk', () => ({
+  cacheStudioBlobFromSrc: vi.fn(async () => true),
+  getStudioBlobObjectUrl: vi.fn(async (_u: string | number, kind: string, id: string) =>
+    kind === 'image' && id === 'img-reload' ? 'blob:cached-image' : ''
+  ),
+  deleteStudioBlob: vi.fn(async () => undefined),
+  pruneStudioBlobCache: vi.fn(async () => undefined),
+}))
 
 const USER_ID = 'media-lib-test'
 const KEY = `tk_media_lib_v1:${USER_ID}`
@@ -97,5 +106,19 @@ describe('useMediaLibrary image persistence', () => {
     const byId = Object.fromEntries(persisted.images.map((i: ImageHistoryItem) => [i.id, i.src]))
     expect(byId['img-http']).toBe('https://cdn.example/a.png')
     expect(byId['img-offloaded']).toBe('https://s3.example/presigned')
+  })
+
+  it('hydrates blank inline image src from the blob cache after reload', async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        images: [{ ...imageItem('img-reload', ''), prompt: 'reload me' }],
+        videoTasks: [],
+      })
+    )
+    const lib = useMediaLibrary(USER_ID)
+    expect(lib.images.value[0].src).toBe('')
+    await lib.hydrateFromBlobCache()
+    expect(lib.images.value[0].src).toBe('blob:cached-image')
   })
 })

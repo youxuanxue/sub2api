@@ -175,6 +175,10 @@
           </button>
         </div>
       </div>
+      <div v-if="library.images.value.length" class="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100" data-testid="studio-image-save-reminder">
+        <span aria-hidden="true">⬇</span>
+        {{ t('studio.saveReminder') }}
+      </div>
       <div v-if="!library.images.value.length" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
         {{ t('studio.image.emptyHint') }}
       </div>
@@ -504,7 +508,7 @@ async function refreshOffloadedImageUrls(): Promise<void> {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  void refreshOffloadedImageUrls()
+  void library.hydrateFromBlobCache().then(() => refreshOffloadedImageUrls())
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 

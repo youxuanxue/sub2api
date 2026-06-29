@@ -2,9 +2,11 @@
   <div class="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
     <!-- LEFT: orchestration -->
     <div class="space-y-4">
-      <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
-        {{ t('studio.video.modelEmpty') }}
-        <router-link class="mt-1 block font-medium text-primary-600 underline dark:text-primary-400" to="/pricing">
+      <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400" data-testid="studio-video-model-empty">
+        <p>{{ t('studio.video.modelEmpty') }}</p>
+        <p v-if="anyKeyServesVideo" class="mt-2 font-medium text-amber-800 dark:text-amber-200">{{ t('studio.video.modelEmptySwitchKey') }}</p>
+        <p v-else class="mt-2 text-xs text-gray-400 dark:text-dark-500">{{ t('studio.video.modelEmptyAllKeys') }}</p>
+        <router-link class="mt-2 block font-medium text-primary-600 underline dark:text-primary-400" to="/pricing">
           {{ t('studio.viewPricing') }}
         </router-link>
       </div>
@@ -169,6 +171,10 @@
       <!-- Results header + bulk clear (matches the image surface). Shown only when
            there is history; the per-card status badge is the source of truth for
            each task's state — there is no global completion banner to go stale. -->
+      <div v-if="library.videoTasks.value.length" class="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100" data-testid="studio-video-save-reminder">
+        <span aria-hidden="true">⬇</span>
+        {{ t('studio.saveReminder') }}
+      </div>
       <div v-if="library.videoTasks.value.length" class="flex items-center justify-between px-1">
         <span class="text-sm font-semibold text-gray-700 dark:text-dark-200">{{ t('studio.video.resultsTitle') }}</span>
         <button type="button" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" data-testid="studio-video-clear-all" @click="clearAll">{{ t('studio.clear') }}</button>
@@ -244,7 +250,17 @@
               </span>
               <span class="pointer-events-none absolute bottom-2 left-2 rounded bg-black/55 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-white/90">{{ task.seconds }}s{{ task.aspectRatio ? ' · ' + task.aspectRatio : '' }}</span>
             </button>
-            <p class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.video.retentionHint') }}</p>
+            <p
+              v-if="playbackStorageKind(task) !== 'unknown'"
+              class="inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium leading-snug"
+              :class="playbackBadgeClass(task)"
+              data-testid="studio-video-playback-badge"
+              :data-playback-storage="playbackStorageKind(task)"
+            >
+              <span class="shrink-0 opacity-80">{{ t('studio.playback.label') }}:</span>
+              <span>{{ playbackHint(task) }}</span>
+            </p>
+            <p v-else class="text-[10px] text-gray-400 dark:text-dark-500">{{ playbackHint(task) }}</p>
           </template>
           <div
             v-else
@@ -252,8 +268,18 @@
             data-testid="studio-video-expired"
           >
             <p class="whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-dark-100">{{ task.prompt }}</p>
-            <p class="mt-2 text-[11px] text-gray-400 dark:text-dark-500">
-              {{ task.urlExpired || !task.url ? t('studio.video.expiredReload') : t('studio.video.noUrlHint') }}
+            <p
+              v-if="playbackStorageKind(task) !== 'unknown'"
+              class="mt-2 inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium leading-snug"
+              :class="playbackBadgeClass(task)"
+              data-testid="studio-video-playback-badge"
+              :data-playback-storage="playbackStorageKind(task)"
+            >
+              <span class="shrink-0 opacity-80">{{ t('studio.playback.label') }}:</span>
+              <span>{{ playbackHint(task) }}</span>
+            </p>
+            <p v-else class="mt-2 text-[11px] text-gray-400 dark:text-dark-500">
+              {{ playbackHint(task) }}
             </p>
           </div>
           <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
@@ -295,16 +321,19 @@
             {{ t('studio.video.close') }} ✕
           </button>
         </div>
-        <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closePreview">
+        <div class="relative flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closePreview">
           <video
             v-if="previewState === 'ready' && previewUrl"
             :src="previewUrl"
             controls
             autoplay
             playsinline
+            preload="auto"
             class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
+            @loadeddata="previewMediaReady = true"
             @error="onPreviewError"
           ></video>
+          <div v-if="previewState === 'ready' && previewUrl && !previewMediaReady" class="absolute text-sm text-white/80">{{ t('studio.video.previewBuffering') }}</div>
           <div v-else-if="previewState === 'loading'" class="text-sm text-white/80">{{ t('studio.video.loadingPreview') }}</div>
           <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
             <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
@@ -350,9 +379,15 @@ import {
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
 import { videoPlaybackUrl, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
+import {
+  resolveVideoPlaybackStorage,
+  studioPlaybackStorageI18nKey,
+  type StudioPlaybackStorage,
+} from '@/utils/studioPlaybackStorage.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
+import { useAppStore } from '@/stores/app'
 import type { ApiKey } from '@/types'
 
 const props = defineProps<{
@@ -365,10 +400,13 @@ const props = defineProps<{
   keyId: number | null
   keys: ApiKey[]
   rateMultiplier: number
+  /** True when another key in the dropdown serves video (empty-state hint). */
+  anyKeyServesVideo?: boolean
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
+const appStore = useAppStore()
 const library = useMediaLibrary(props.userId)
 
 const models = computed(() => resolveAvailableModels('video', props.availableIds, props.priceMap))
@@ -414,10 +452,51 @@ const formula = computed(() => {
   return t('studio.video.formula', { rate: formatUsd(selected.value.perSecond || 0), seconds: duration.value })
 })
 
+function playbackStorageKind(task: VideoTaskItem): StudioPlaybackStorage {
+  return task.playbackStorage ?? (task.urlExpired || !task.url ? 'expired' : 'unknown')
+}
+
+function playbackBadgeClass(task: VideoTaskItem): string {
+  switch (playbackStorageKind(task)) {
+    case 'inline-local':
+      return 'bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-200'
+    case 'upstream-cors-ok':
+      return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200'
+    case 'upstream-cors-blocked':
+      return 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+    case 'expired':
+      return 'bg-gray-100 text-gray-600 dark:bg-dark-800 dark:text-dark-300'
+    default:
+      return 'bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-dark-400'
+  }
+}
+
+function playbackHint(task: VideoTaskItem): string {
+  return t(studioPlaybackStorageI18nKey(playbackStorageKind(task)))
+}
+
+async function tagVideoPlayback(taskId: string, url: string): Promise<void> {
+  if (!url) {
+    library.patchVideoTask(taskId, { playbackStorage: 'expired' })
+    return
+  }
+  const storage = await resolveVideoPlaybackStorage(url)
+  library.patchVideoTask(taskId, { playbackStorage: storage })
+  if (storage === 'upstream-cors-blocked') {
+    appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000)
+  }
+  if (storage === 'inline-local' || storage === 'upstream-cors-ok') {
+    void library.cacheInlineMedia('video', taskId, url)
+  }
+}
+
 const poll = useVideoTaskPoll({
   gatewayBase: () => props.gatewayBase,
   resolveKey: (keyId) => props.keys.find((k) => k.id === keyId)?.key,
-  patch: library.patchVideoTask,
+  patch: (id, patch) => {
+    library.patchVideoTask(id, patch)
+    if (patch.url) void tagVideoPlayback(id, patch.url)
+  },
   onTerminal: (task, state) => {
     emit('spent')
     // The per-card status badge IS the in-page completion signal (no banner to go
@@ -495,6 +574,7 @@ async function enableNotify(): Promise<void> {
 
 // ---- In-page video lightbox ---------------------------------------------------
 const preview = ref<VideoTaskItem | null>(null)
+const previewMediaReady = ref(false)
 const previewUrl = ref('')
 const previewState = ref<'loading' | 'ready' | 'expired'>('loading')
 // Transient "copied" confirmation for the copy-link button (no toast/banner).
@@ -508,6 +588,7 @@ async function openPreview(task: VideoTaskItem): Promise<void> {
   preview.value = task
   previewUrl.value = ''
   previewState.value = 'loading'
+  previewMediaReady.value = false
   // Playback must not turn TokenKey into a media server: http(s) upstream URLs go
   // straight to the browser; an inline data:video result becomes a tab-local Blob
   // URL we revoke on close. Shared with Bake-Off via videoPlaybackUrl.
@@ -555,6 +636,7 @@ function closePreview(): void {
   previewRevoke = () => {}
   preview.value = null
   previewUrl.value = ''
+  previewMediaReady.value = false
   copied.value = false
 }
 
@@ -606,6 +688,7 @@ async function generate(): Promise<void> {
       elapsedS: 0,
     }
     library.upsertVideoTask(task)
+    if (task.url) void tagVideoPlayback(task.id, task.url)
     emit('spent') // balance reserved by the pre-flight hold
     if (state === 'processing') poll.resume(task)
   } catch (e) {
@@ -630,6 +713,7 @@ onMounted(() => {
   for (const task of library.videoTasks.value) {
     if (task.state === 'processing') poll.resume(task)
   }
+  void library.hydrateFromBlobCache()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
