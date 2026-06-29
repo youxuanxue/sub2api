@@ -827,6 +827,26 @@ else
     echo "  ok: codex version pins mutually consistent across UA/gateway/probe/en/zh"
 fi
 
+# ---- sub2api: client release watch -------------------------------------------
+# Daily CI polls upstream client releases (Claude Code / cc-stainless / Codex /
+# codex-vscode / Gemini CLI / Grok CLI / Antigravity / Kiro IDE / Kiro CLI) and
+# opens tracking issues when upstream is ahead of TokenKey pins.
+# The script's selftest + unit tests keep pin readers and semver logic honest.
+echo ""
+echo "=== sub2api: client release watch ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for client release watch check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/fingerprint/client_release_watch.py --selftest --quiet; then
+    echo "  FAIL: client_release_watch.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 -m unittest discover -s scripts/fingerprint -p 'test_*.py' -q; then
+    echo "  FAIL: client release watch unit tests failed"
+    errors=$((errors + 1))
+else
+    echo "  ok: client release watch engine self-test + unit tests"
+fi
+
 # ---- sub2api: sentinel registry update gate ---------------------------------
 # Existing sentinel checks prove current guarded literals still exist. This gate
 # proves PRs that modify guarded/hotspot files also update the matching registry,

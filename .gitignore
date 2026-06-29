@@ -100,6 +100,9 @@ temp/
 # .cache/anthropic-cc-issue-watchdog/ (stays ignored).
 !.cache/anthropic/
 !.cache/anthropic/**
+# Whitelisted: client release watch cache (refreshed by client-release-watch.yml).
+!.cache/fingerprint/
+!.cache/fingerprint/**
 .dev/
 .serena/
 

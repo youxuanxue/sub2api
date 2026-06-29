@@ -1,10 +1,21 @@
 ---
 name: tokenkey-fingerprint-alignment-all
 description: >-
-  Run the combined TokenKey fingerprint refresh for Claude Code, Kiro, Antigravity, and Codex. Use when multiple client fingerprints need one orchestrated capture/diff report and one PR; use platform-specific skills for single-client refreshes.
+  Run the combined TokenKey fingerprint refresh for Claude Code, Kiro, Antigravity, Codex, Gemini CLI, and Grok CLI. Enter after client-release-watch reports drift, or when capture-all finds actionable fingerprint drift; use platform-specific skills for single-client refreshes.
 ---
 
 # TokenKey：全平台指纹对齐（umbrella）
+
+## 两层入口（版本发现 → 指纹对齐）
+
+1. **版本发现（Layer 1）** — `bash ops/fingerprint/client-release-watch.sh scan --plan`
+   轮询 GitHub/npm/Homebrew 的客户端 release，对比 TokenKey pin。**只报警、不 capture、不 bump**。
+   输出会指向应加载的 skill（本 umbrella 或单平台 skill）。
+2. **指纹对齐（Layer 2，本 skill）** — 在 Cursor **加载本 skill 或单平台 skill 后**，跑
+   `capture-all-fingerprints.sh` 做真实 capture/diff，再合一个 PR。
+
+CI 里 `.github/workflows/client-release-watch.yml` 跑 Layer 1 并开 tracking issue；
+人工/agent  remediation 从 Layer 1 的 skill 路由进入 Layer 2。
 
 一次对齐**所有**客户端指纹，合一个 PR。四条引擎**机制不同必须独立**——cc 主动重定向到
 自建 collector + cc0 MITM；kiro 被动 pcap（端点硬编码不可重定向）；antigravity 用 mitmproxy
@@ -13,10 +24,12 @@ description: >-
 能跑，但门禁是 `check` 不是 `capture`（与前三条机制不同，故仍是独立引擎，只是并入本 umbrella 编排）。
 本 skill 只统一**编排 + PR**。
 
-关联：`tokenkey-cc-fingerprint-alignment`（cc 单平台）、`tokenkey-kiro-fingerprint-alignment`
-（kiro 单平台）、`tokenkey-antigravity-fingerprint-alignment`（antigravity 单平台）、
-`tokenkey-codex-fingerprint-alignment`（codex / OpenAI 单平台；读本机 codex CLI、无 mitm，
-机制不同但已并入本 umbrella，单独刷新时用此 skill）、
+关联：`ops/fingerprint/client-release-watch.sh`（Layer 1 版本发现，含 cc-stainless / gemini-cli / grok-cli / kiro-cli / codex-vscode 族）、
+`tokenkey-cc-fingerprint-alignment`（cc + Stainless SDK 单平台）、`tokenkey-kiro-fingerprint-alignment`
+（kiro IDE/CLI 单平台）、`tokenkey-antigravity-fingerprint-alignment`（antigravity 单平台）、
+`tokenkey-codex-fingerprint-alignment`（codex CLI + VS Code 族；读本机 codex CLI、无 mitm）、
+`tokenkey-gemini-fingerprint-alignment`（gemini-cli UA pin）、
+`tokenkey-grok-fingerprint-alignment`（grok-cli OAuth pin）、
 `docs/accounts/kiro-tls-fingerprint-alignment-design.md`、`docs/antigravity-fingerprint-changelog.md`。
 
 ## 流程

@@ -48,6 +48,8 @@ const (
 // regardless of which layer builds the User-Agent.
 const (
 	DefaultKiroIDEVersion = "0.11.107"
+	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
+	DefaultKiroCLIVersion = "2.10.0"
 	DefaultSystemVersion  = "darwin#24.0.0"
 	DefaultNodeVersion    = "22.22.0"
 )
