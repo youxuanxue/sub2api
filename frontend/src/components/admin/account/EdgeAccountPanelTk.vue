@@ -92,15 +92,15 @@
       <table class="min-w-full divide-y divide-primary-100 text-sm dark:divide-dark-700">
         <thead class="bg-primary-50/60 text-xs uppercase tracking-wide text-gray-500 dark:bg-dark-900 dark:text-gray-400">
           <tr>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.name') }}</th>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.platformType') }}</th>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.capacity') }}</th>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.usageWindows') }}</th>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.state') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.name') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.platformType') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.capacity') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.status') }}</th>
             <th class="px-4 py-1.5 text-center font-medium">{{ t('admin.accounts.columns.schedulable') }}</th>
-            <th class="px-4 py-1.5 text-right font-medium">{{ t('admin.edgeAccounts.columns.priority') }}</th>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.groups') }}</th>
-            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.edgeAccounts.columns.lastUsed') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.todayStats') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.groups') }}</th>
+            <th class="px-4 py-1.5 text-left font-medium">{{ t('admin.accounts.columns.usageWindows') }}</th>
+            <th class="px-4 py-1.5 text-right font-medium">{{ t('admin.accounts.columns.priority') }}</th>
             <th class="px-4 py-1.5 text-right font-medium">{{ t('admin.accounts.edgePanel.actions') }}</th>
           </tr>
         </thead>
@@ -142,13 +142,6 @@
               <AccountCapacityCell :account="accountVm(acct).accountLike" />
             </td>
             <td class="px-4 py-1.5 align-top">
-              <AccountUsageCell
-                :account="accountVm(acct).accountLike"
-                :today-stats="accountVm(acct).windowStats"
-                :usage-override="usageOverrideFor(acct)"
-              />
-            </td>
-            <td class="px-4 py-1.5 align-top">
               <AccountStatusIndicator :account="accountVm(acct).accountLike" />
             </td>
             <td class="px-4 py-1.5 text-center align-top">
@@ -163,12 +156,20 @@
                 <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[acct.schedulable ? 'translate-x-4' : 'translate-x-0']" />
               </button>
             </td>
-            <td class="px-4 py-1.5 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
+            <td class="px-4 py-1.5 align-top">
+              <AccountTodayStatsCell :stats="accountVm(acct).windowStats" />
+            </td>
             <td class="px-4 py-1.5 align-top text-gray-600 dark:text-gray-300">
               <span v-if="acct.groups && acct.groups.length">{{ acct.groups.join(', ') }}</span>
               <span v-else class="text-gray-300 dark:text-gray-600">—</span>
             </td>
-            <td class="px-4 py-1.5 align-top text-xs text-gray-500 dark:text-gray-400">{{ acct.last_used_at ? formatRelativeTime(acct.last_used_at) : '—' }}</td>
+            <td class="px-4 py-1.5 align-top">
+              <AccountUsageCell
+                :account="accountVm(acct).accountLike"
+                :usage-override="usageOverrideFor(acct)"
+              />
+            </td>
+            <td class="px-4 py-1.5 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
             <td class="px-4 py-1.5 text-right align-top">
               <button
                 type="button"
@@ -219,11 +220,12 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import EdgeAccountActionMenuTk from '@/components/admin/account/EdgeAccountActionMenuTk.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
-import { formatRelativeTime, formatDateOnly } from '@/utils/format'
+import { formatDateOnly } from '@/utils/format'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import type { Account, AccountUsageInfo, AccountPlatform, AccountType } from '@/types'
