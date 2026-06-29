@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
@@ -97,17 +96,7 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 // credentials so subsequent usage/gateway calls do not repeat ListAvailableProfiles or
 // keep sending a stale ARN that triggers HTTP 400 Invalid profileArn.
 func (s *AccountUsageService) persistKiroProfileArnIfChanged(ctx context.Context, account *Account, kiroAcct *kiroproto.Account) {
-	if s == nil || account == nil || kiroAcct == nil {
-		return
-	}
-	resolved := strings.TrimSpace(kiroAcct.ProfileArn)
-	if resolved == "" || resolved == account.GetKiroProfileArn() {
-		return
-	}
-	merged := MergeCredentials(account.Credentials, map[string]any{"profile_arn": resolved})
-	if err := persistAccountCredentials(ctx, s.accountRepo, account, merged); err != nil {
-		slog.Warn("persist_kiro_profile_arn_failed", "account_id", account.ID, "error", err)
-	}
+	PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
 }
 
 // buildKiroUsageFromInfo maps the vendored kiro.AccountInfo (GetUsageLimits result)

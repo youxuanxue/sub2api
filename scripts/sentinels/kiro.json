@@ -108,6 +108,8 @@
       "path": "backend/internal/integration/kiro/client.go",
       "must_contain": [
         "func CallKiroAPIWithDoer",
+        "func callKiroAPIOnce",
+        "stale profileArn",
         "func parseEventStream",
         "HTTPDoer",
         "runtime.us-east-1.kiro.dev"
@@ -120,6 +122,7 @@
         "kiroManagementAPIBase",
         "management.us-east-1.kiro.dev",
         "func ensureProfileArn",
+        "func reresolveProfileArnAfterStale",
         "func kiroRestFetch"
       ],
       "rationale": "Control-plane calls (ListAvailableProfiles / ListAvailableModels / getUsageLimits) routed through management.us-east-1.kiro.dev first with a codewhisperer.* fallback via kiroRestFetch (edge-us6 smoke-validated equivalent). A missing profileArn is the classic Kiro IDC-login 403 cause, so losing the management base or its fallback silently reintroduces 403s once codewhisperer.* is deprecated."
@@ -128,6 +131,7 @@
       "path": "backend/internal/service/account_tk_kiro.go",
       "must_contain": [
         "func (a *Account) IsKiro()",
+        "PersistKiroProfileArnIfChanged",
         "toKiroProtoAccount",
         "func (a *Account) isKiroTLSFingerprintEnabled()",
         "CanonicalKiroTLSProfileName"
@@ -154,6 +158,7 @@
       "must_contain": [
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
+        "PersistKiroProfileArnIfChanged",
         "kiroproto.EstimateInputTokens",
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",

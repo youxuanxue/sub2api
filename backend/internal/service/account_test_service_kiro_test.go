@@ -28,7 +28,7 @@ func TestAccountTestService_KiroOAuthUsesKiroGateway(t *testing.T) {
 
 	svc := &AccountTestService{
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
-		kiroGatewayService: NewKiroGatewayService(upstream, nil),
+		kiroGatewayService: NewKiroGatewayService(upstream, nil, nil),
 	}
 
 	err := svc.TestAccountConnection(ctx, account.ID, "claude-sonnet-4-5-20250929", "hi", AccountTestModeDefault)
