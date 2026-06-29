@@ -39,23 +39,3 @@ export function priceMapFromPublicCatalog(
   }
   return map
 }
-
-/** Partial prices from the me-catalog target group only — prefer priceMapFromPublicCatalog for universal keys. */
-export function priceMapFromEntitledCatalog(
-  catalog: MePricingCatalogResponse | null,
-  entitled: ReadonlySet<string>
-): MediaPriceMap {
-  const map = new Map<string, MediaPrice>()
-  if (!catalog) return map
-  for (const m of catalog.models || []) {
-    if (!entitled.has(m.model_id)) continue
-    const perImage = m.your_price?.per_image
-    const perSecond = m.your_price?.per_second
-    if (perImage != null || perSecond != null) {
-      map.set(m.model_id, { perImage: perImage ?? undefined, perSecond: perSecond ?? undefined })
-    }
-  }
-  // Index keys may include models priced only on other groups — merge any row
-  // from the full public-facing catalog payload when present on sibling calls.
-  return map
-}
