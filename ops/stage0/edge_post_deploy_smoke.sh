@@ -175,12 +175,14 @@ run_edge_native_anthropic_smoke() {
   bash "${REPO_ROOT}/ops/observability/run-probe.sh" \
     --target "edge:${EDGE_ID}" \
     --comment "edge-native-anthropic-smoke edge=${EDGE_ID}" \
-    --timeout-seconds 360 \
+    --timeout-seconds 600 \
     --script "${SCRIPT_DIR}/edge_native_anthropic_smoke.sh" \
     --with "${SCRIPT_DIR}/probe_account_model.sh" \
     --with "${SCRIPT_DIR}/smoke_anthropic_realistic.py" \
     --env "ANTHROPIC_MODELS=${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}" \
-    --env "ANTHROPIC_SOURCE_GROUP=default"
+    --env "ANTHROPIC_SOURCE_GROUP=default" \
+    --env "REQUEST_TIMEOUT_SECONDS=45" \
+    --env "MAX_TOKENS=32"
 }
 
 run_main_via_edge_smoke() {

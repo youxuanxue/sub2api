@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
-#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra]
+#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase full|infra|edge-native-oauth|main-via-edge]
 #
 # Resolves platform via scripts/stage0/resolve-edge-deploy-route.py and calls
 # gh workflow run on deploy-edge-lightsail-stage0.yml (EC2 edge path removed 2026-06-07).

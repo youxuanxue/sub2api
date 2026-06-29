@@ -143,10 +143,10 @@ aws ssm put-parameter --region "<lightsail_region>" \
 
 - `EDGE_ACME_EMAIL`
 - `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`（current prod main-gateway egress；**workflow 没有默认值**）
-- `TK_SMOKE_API_KEY`（secret）— **仅**计划跑 `operation=smoke`（含 main-via-edge）的 edge 需要。
+- `TK_SMOKE_API_KEY`（secret）— **仅**计划跑 `operation=smoke` 且显式 `smoke_phase=main-via-edge` 的 edge 需要。
   当前 prod 惯例：**只**在 `edge-uk1` / `edge-us1` 配置即可；其它 edge（如 us2/us3/us4）
-  **可不配**——缺 secret 时 `edge_post_deploy_smoke.sh` 跳过 main-via-edge 段，provision/upgrade
-  的 infra 路径不受影响。GitHub secret 只写不可读，无法从 uk1 机械复制。
+  **可不配**——缺 secret 时 `edge_post_deploy_smoke.sh` 跳过 main-via-edge 段；upgrade/rollback
+  默认 `full`（infra + 容器内 edge-native OAuth 探针）不依赖该 key。GitHub secret 只写不可读，无法从 uk1 机械复制。
 
 Smoke base URL 与 Edge 本机默认 model 清单在代码内固定（`https://api.tokenkey.dev` / `claude-sonnet-4-6`），无需 Environment var；如需覆盖，使用 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`。
 
@@ -310,9 +310,10 @@ gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 
 
 接 `ops/stage0/external_health.sh` + `ops/stage0/edge_post_deploy_smoke.sh`（与 EC2 共用）。
 
-**Smoke 范围（operator 选择）**：全量 smoke + main-via-edge 目前只对 **uk1 / us1** 启用（需
-`TK_SMOKE_API_KEY`）。其它 Lightsail edge  provision 完成后以 DNS + 可选
-`curl https://api-<id>.tokenkey.dev/health` 或 `operation=smoke`（无 canary 时仅 infra 段）验收即可。
+**Smoke 范围（operator 选择）**：可选 `main-via-edge`（经 prod 中转，需 `TK_SMOKE_API_KEY`）目前只对 **uk1 / us1** 启用。
+其它 Lightsail edge provision 完成后以 DNS + 可选 `curl https://api-<id>.tokenkey.dev/health` 验收；
+`operation=upgrade` / `rollback` / 默认 `operation=smoke` 走 **full**（infra + edge 容器内 per-account OAuth 拟真探针），workflow log 应含 `tk_edge_post_deploy_smoke: OK phase=full`。
+仅基础设施门禁时用 `smoke_phase=infra`。
 
 ## 5) Upgrade / Rollback
 
