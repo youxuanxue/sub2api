@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +115,23 @@ func (a *Account) GetKiroExpiresAt() *time.Time { return a.GetCredentialAsTime("
 // kiroDefaultRegion is the fallback AWS region used when the account has no
 // explicit region credential.
 const kiroDefaultRegion = "us-east-1"
+
+// PersistKiroProfileArnIfChanged writes a freshly resolved profile_arn back to account
+// credentials so subsequent usage/gateway calls do not repeat ListAvailableProfiles or
+// keep sending a stale ARN that triggers HTTP 400 Invalid profileArn.
+func PersistKiroProfileArnIfChanged(ctx context.Context, repo AccountRepository, account *Account, kiroAcct *kiroproto.Account) {
+	if repo == nil || account == nil || kiroAcct == nil {
+		return
+	}
+	resolved := strings.TrimSpace(kiroAcct.ProfileArn)
+	if resolved == "" || resolved == account.GetKiroProfileArn() {
+		return
+	}
+	merged := MergeCredentials(account.Credentials, map[string]any{"profile_arn": resolved})
+	if err := persistAccountCredentials(ctx, repo, account, merged); err != nil {
+		slog.Warn("persist_kiro_profile_arn_failed", "account_id", account.ID, "error", err)
+	}
+}
 
 // toKiroProtoAccount maps the business Account onto the vendored kiroproto.Account
 // shape consumed by internal/integration/kiro. The vendored ID field is a string,

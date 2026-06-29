@@ -46,8 +46,7 @@ func kiroRestFetch(account *Account, method, path, body string, withParn bool) (
 	data, err := kiroRestFetchBases(account, method, path, body, withParn)
 	if withParn && isInvalidProfileArnError(err) {
 		logWarnf("[KiroREST] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
-		account.ProfileArn = ""
-		if resolveErr := ensureProfileArn(account); resolveErr == nil {
+		if resolveErr := reresolveProfileArnAfterStale(account); resolveErr == nil {
 			return kiroRestFetchBases(account, method, path, body, withParn)
 		}
 	}
@@ -98,6 +97,16 @@ func ensureProfileArn(account *Account) error {
 	}
 	_, err := ResolveProfileArn(account)
 	return err
+}
+
+// reresolveProfileArnAfterStale clears a cached profileArn and fetches a fresh one.
+// Used when upstream returns HTTP 400 Invalid profileArn for REST and chat paths.
+func reresolveProfileArnAfterStale(account *Account) error {
+	if account == nil {
+		return fmt.Errorf("account is nil")
+	}
+	account.ProfileArn = ""
+	return ensureProfileArn(account)
 }
 
 func isInvalidProfileArnError(err error) bool {

@@ -30,16 +30,19 @@ import (
 type KiroGatewayService struct {
 	httpUpstream        HTTPUpstream
 	tlsFPProfileService *TLSFingerprintProfileService
+	accountRepo         AccountRepository
 }
 
 // NewKiroGatewayService constructs a KiroGatewayService.
 func NewKiroGatewayService(
 	httpUpstream HTTPUpstream,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	accountRepo AccountRepository,
 ) *KiroGatewayService {
 	return &KiroGatewayService{
 		httpUpstream:        httpUpstream,
 		tlsFPProfileService: tlsFPProfileService,
+		accountRepo:         accountRepo,
 	}
 }
 
@@ -106,9 +109,17 @@ func (s *KiroGatewayService) Forward(
 	}
 
 	if req.Stream {
-		return s.forwardStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+		result, err := s.forwardStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+		if err == nil {
+			PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
+		}
+		return result, err
 	}
-	return s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+	result, err := s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+	if err == nil {
+		PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
+	}
+	return result, err
 }
 
 // forwardNonStreaming accumulates text/thinking/tool-use then writes a single

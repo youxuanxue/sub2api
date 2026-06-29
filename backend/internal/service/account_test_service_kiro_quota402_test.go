@@ -30,7 +30,7 @@ func TestAccountTestService_Kiro402ReachedLimitTriggersIncidentAlert(t *testing.
 
 	account := newEdgeUS4KiroAccount()
 	testSvc := &AccountTestService{
-		kiroGatewayService: NewKiroGatewayService(upstream, nil),
+		kiroGatewayService: NewKiroGatewayService(upstream, nil, nil),
 		rateLimitService:   svc,
 	}
 	err := testSvc.testKiroAccountConnection(c, account, KiroDefaultTestModel, "hi")

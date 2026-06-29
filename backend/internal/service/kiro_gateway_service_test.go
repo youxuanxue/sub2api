@@ -144,7 +144,7 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 		[]byte(`{"content":"hello world","inputTokens":12,"outputTokens":5}`))
 	upstream := &kiroFakeUpstream{body: frame}
 
-	svc := NewKiroGatewayService(upstream, nil)
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4",
@@ -185,7 +185,7 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 		[]byte(`{"content":"hi there","inputTokens":8,"outputTokens":3}`))
 	upstream := &kiroFakeUpstream{body: frame}
 
-	svc := NewKiroGatewayService(upstream, nil)
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4",
@@ -248,7 +248,7 @@ func TestKiroGatewayService_Forward_Streaming_InvalidModel_NoEmpty200(t *testing
 		status: http.StatusBadRequest,
 		body:   `{"reason":"INVALID_MODEL_ID","message":"model not found"}`,
 	}
-	svc := NewKiroGatewayService(upstream, nil)
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-haiku-4.5",
@@ -284,7 +284,7 @@ func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 		status: http.StatusBadRequest,
 		body:   `{"reason":"INVALID_MODEL_ID"}`,
 	}
-	svc := NewKiroGatewayService(upstream, nil)
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":    "claude-haiku-4.5",
@@ -367,7 +367,7 @@ func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {
 	})
 
 	svc := &GatewayService{
-		kiroGateway:      NewKiroGatewayService(upstream, nil),
+		kiroGateway:      NewKiroGatewayService(upstream, nil, nil),
 		rateLimitService: rateLimit,
 	}
 	body, _ := json.Marshal(map[string]any{

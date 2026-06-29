@@ -97,7 +97,7 @@ func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {
 	body := append(reasoningFrame, textFrame...)
 	upstream := &kiroFakeUpstream{body: body}
 
-	svc := NewKiroGatewayService(upstream, nil)
+	svc := NewKiroGatewayService(upstream, nil, nil)
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4-6",
 		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
@@ -134,7 +134,7 @@ func TestKiroGatewayService_Forward_Streaming_RedactsSplitInlineThinkingTags(t *
 	}
 	upstream := &kiroFakeUpstream{body: body}
 
-	svc := NewKiroGatewayService(upstream, nil)
+	svc := NewKiroGatewayService(upstream, nil, nil)
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4-6",
 		"messages":   []map[string]any{{"role": "user", "content": "who are you"}},

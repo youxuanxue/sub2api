@@ -397,20 +397,26 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 	}
 
 	if payload != nil && strings.TrimSpace(payload.ProfileArn) == "" {
-		if profileArn, err := ResolveProfileArn(account); err == nil {
-			payload.ProfileArn = profileArn
+		if err := ensureProfileArn(account); err != nil {
+			logWarnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail(account), err)
 		} else {
-			accountEmail := "<nil>"
-			if account != nil {
-				accountEmail = account.Email
-			}
-			logWarnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail, err)
+			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
 		}
 	}
 
-	// Build endpoint list ordered by configuration.
 	endpoints := getSortedEndpoints(GetPreferredEndpoint())
+	err := callKiroAPIOnce(doer, account, payload, callback, endpoints)
+	if isInvalidProfileArnError(err) {
+		logWarnf("[KiroAPI] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
+		if resolveErr := reresolveProfileArnAfterStale(account); resolveErr == nil && payload != nil {
+			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
+			return callKiroAPIOnce(doer, account, payload, callback, endpoints)
+		}
+	}
+	return err
+}
 
+func callKiroAPIOnce(doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback, endpoints []kiroEndpoint) error {
 	var lastErr error
 	for _, ep := range endpoints {
 		// Update the origin field for the selected endpoint.
