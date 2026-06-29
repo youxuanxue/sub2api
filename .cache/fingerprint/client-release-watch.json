@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-06-29T06:06:58Z",
+  "updated_at": "2026-06-29T07:23:49Z",
   "git_sha": "",
   "platforms": {
     "claude-code": {
@@ -23,9 +23,9 @@
       }
     },
     "cc-stainless": {
-      "pinned": "0.94.0",
+      "pinned": "0.106.0",
       "upstream_latest": "0.106.0",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @anthropic-ai/sdk": {
           "version": "0.106.0",
@@ -36,9 +36,9 @@
       }
     },
     "codex": {
-      "pinned": "0.142.3",
+      "pinned": "0.142.4",
       "upstream_latest": "0.142.4",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @openai/codex": {
           "version": "0.142.4",
@@ -55,9 +55,9 @@
       }
     },
     "codex-vscode": {
-      "pinned": "0.142.3",
+      "pinned": "0.142.4",
       "upstream_latest": "0.142.4",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @openai/codex": {
           "version": "0.142.4",
@@ -74,9 +74,9 @@
       }
     },
     "gemini-cli": {
-      "pinned": "0.1.5",
+      "pinned": "0.49.0",
       "upstream_latest": "0.49.0",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @google/gemini-cli": {
           "version": "0.49.0",
@@ -87,9 +87,9 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.1.220",
+      "pinned": "0.2.73",
       "upstream_latest": "0.2.73",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @xai-official/grok": {
           "version": "0.2.73",
@@ -100,9 +100,9 @@
       }
     },
     "antigravity": {
-      "pinned": "2.0.11",
+      "pinned": "2.2.1",
       "upstream_latest": "2.2.1",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "Homebrew cask antigravity": {
           "version": "2.2.1",
@@ -113,9 +113,9 @@
       }
     },
     "kiro": {
-      "pinned": "0.11.107",
+      "pinned": "0.12.333",
       "upstream_latest": "0.12.333",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "Homebrew cask kiro": {
           "version": "0.12.333",

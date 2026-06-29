@@ -47,7 +47,7 @@ const (
 // internal/integration/kiro so the on-wire fingerprint stays consistent
 // regardless of which layer builds the User-Agent.
 const (
-	DefaultKiroIDEVersion = "0.11.107"
+	DefaultKiroIDEVersion = "0.12.333"
 	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
 	DefaultKiroCLIVersion = "2.10.0"
 	DefaultSystemVersion  = "darwin#24.0.0"

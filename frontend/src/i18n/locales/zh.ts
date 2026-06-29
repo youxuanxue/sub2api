@@ -6603,10 +6603,10 @@ export default {
         anthropicRequestNormalize: 'Anthropic 请求归一化',
         anthropicRequestNormalizeHint: '默认开启，在转发前修复客户端的两类常见错误：(1) tool_choice 为 OpenAI 风格字符串（"auto" / "required" / "none"）时改写成 Anthropic 必需的 object 形态；(2) 同时启用 thinking 且 tool_choice 强制工具使用（any / tool）时，删除 thinking 以保留客户端的强制工具使用意图。未知的 tool_choice 字符串保留原样，让上游继续暴露客户端 bug。',
         antigravityUserAgentVersion: 'Antigravity UA 版本',
-        antigravityUserAgentVersionPlaceholder: '1.23.2',
-        antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',
+        antigravityUserAgentVersionPlaceholder: '2.2.1',
+        antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 2.2.1；填写后后台设置优先。',
         openaiCodexUserAgent: 'OpenAI Codex UA',
-        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.3 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.3)',
+        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.4 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.4)',
         openaiCodexUserAgentHint: 'OpenAI OAuth 上游请求的 Codex User-Agent 兜底值；账号自定义 UA 优先，真实 Codex 客户端 UA 原样保留。留空使用内置默认值。',
         openaiAllowClaudeCodeCodexPlugin: '允许在 Claude Code 中使用 Codex 插件',
         openaiAllowClaudeCodeCodexPluginDesc:

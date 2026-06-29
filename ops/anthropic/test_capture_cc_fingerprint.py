@@ -30,7 +30,11 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             .read_text(encoding="utf-8")
         )["cc_version"]
         self.assertEqual(baseline["canonical_http"]["default_version"], source_cc)
-        self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
+        source_stainless = json.loads(
+            (mod.REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json")
+            .read_text(encoding="utf-8")
+        )["observed"]["stainless_package_version"]
+        self.assertEqual(baseline["mimic_http"]["stainless_package_version"], source_stainless)
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
         self.assertIn("thinking-token-count-2026-05-13", baseline["betas"]["haiku_mimicry"])

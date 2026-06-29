@@ -34,10 +34,9 @@ const (
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
 	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
-	// 2026-06-13 真机 on-wire 抓包（真实 Antigravity IDE 2.0.11）对齐：UA 形如
-	// `antigravity/hub/2.0.11 darwin/arm64`，版本即 IDE app 版本（--override_ide_version）。
-	// 随 IDE 自更新而变，运行时可经 admin 设置 antigravity_user_agent_version 热推覆盖。
-	DefaultUserAgentVersion = "2.0.11"
+	// 2026-06-29 client-release-watch：Homebrew cask antigravity 2.2.1；UA 版本随 IDE 自更新，
+	// 运行时可经 admin 设置 antigravity_user_agent_version 热推覆盖。
+	DefaultUserAgentVersion = "2.2.1"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"

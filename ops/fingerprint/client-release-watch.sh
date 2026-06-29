@@ -42,7 +42,11 @@ case "$cmd" in
     if ((plan)); then
       args+=(--plan)
     fi
-    python3 "$PY" "${args[@]}"
+    if ((${#args[@]})); then
+      python3 "$PY" "${args[@]}"
+    else
+      python3 "$PY"
+    fi
     ;;
   plan)
     report="$REPO_ROOT/.cache/fingerprint/client-release-watch/report.json"

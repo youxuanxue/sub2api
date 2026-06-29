@@ -154,7 +154,7 @@ func GetCanonicalUserAgentForContext(ctx context.Context) string {
 // releases.
 var canonicalHTTPObservedStatic = Fingerprint{
 	StainlessLang:           "js",
-	StainlessPackageVersion: "0.94.0",
+	StainlessPackageVersion: "0.106.0",
 	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",

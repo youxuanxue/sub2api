@@ -107,7 +107,7 @@ type kiroClientConfig struct {
 // kiroDefaultClientVersion is the canonical KiroIDE version baked into the
 // User-Agent. Keep in lockstep with internal/pkg/kiro.DefaultKiroIDEVersion
 // (that package is the TK-side authority + sentinel/test-guarded source).
-const kiroDefaultClientVersion = "0.11.107"
+const kiroDefaultClientVersion = "0.12.333"
 
 // kiroUserAgentVersionEnv lets operators bump the on-wire KiroIDE version
 // without a code change / image rebuild when the upstream Kiro client ships a
