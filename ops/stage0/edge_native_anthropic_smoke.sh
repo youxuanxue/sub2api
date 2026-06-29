@@ -30,9 +30,13 @@ fi
 command -v jq >/dev/null 2>&1 || { echo "tk_edge_native_anthropic_smoke: jq required" >&2; exit 1; }
 
 models=()
-while IFS= read -r m; do
+_models_raw="${ANTHROPIC_MODELS_RAW//$'\r'/ }"
+_models_raw="${_models_raw//$'\n'/ }"
+_models_raw="${_models_raw//$'\t'/ }"
+_models_raw="${_models_raw//,/ }"
+for m in ${_models_raw}; do
   [[ -n "$m" ]] && models+=("$m")
-done < <(printf '%s' "${ANTHROPIC_MODELS_RAW//,/ }" | tr '\r' ' ')
+done
 
 if [[ "${#models[@]}" -eq 0 ]]; then
   echo "tk_edge_native_anthropic_smoke: no models configured" >&2
