@@ -40,6 +40,14 @@ class ProbeAccountModelTest(unittest.TestCase):
         self.assertIn("fail_json \"${message}: ${err:-psql failed}\"", script)
         self.assertIn("no numeric id returned", script)
 
+    def test_app_container_auto_resolves_blue_green(self) -> None:
+        script = _SCRIPT.read_text()
+
+        self.assertIn('APP_CONTAINER="${APP_CONTAINER:-auto}"', script)
+        self.assertIn("resolve_app_container() {", script)
+        self.assertIn("/var/lib/tokenkey/active-color", script)
+        self.assertIn("app container not running", script)
+
 
 if __name__ == "__main__":
     unittest.main()

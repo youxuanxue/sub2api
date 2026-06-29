@@ -11,7 +11,7 @@ TK_SMOKE_ANTHROPIC_REALISTIC="${TK_SMOKE_ANTHROPIC_REALISTIC:-1}"
 ACCOUNT_ID="${ACCOUNT_ID:-}"
 MODEL="${MODEL:-}"
 ENDPOINT="${ENDPOINT:-messages}"
-APP_CONTAINER="${APP_CONTAINER:-tokenkey}"
+APP_CONTAINER="${APP_CONTAINER:-auto}"
 APP_URL="${APP_URL:-http://localhost:8080}"
 MAX_TOKENS="${MAX_TOKENS:-32}"
 PROMPT_TEXT="${PROMPT_TEXT:-hi}"
@@ -59,6 +59,36 @@ psql_capture_numeric() {
   fi
   printf -v "$dest" '%s' "$value"
 }
+
+resolve_app_container() {
+  if [[ "$APP_CONTAINER" != "auto" ]]; then
+    return 0
+  fi
+  if [[ -r /var/lib/tokenkey/active-color ]]; then
+    local color
+    color="$(sed -n '1p' /var/lib/tokenkey/active-color 2>/dev/null | tr -d '[:space:]')"
+    case "$color" in
+      blue|green)
+        if sudo docker inspect "tokenkey-$color" >/dev/null 2>&1; then
+          APP_CONTAINER="tokenkey-$color"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+  for candidate in tokenkey tokenkey-blue tokenkey-green; do
+    if sudo docker inspect "$candidate" >/dev/null 2>&1; then
+      APP_CONTAINER="$candidate"
+      return 0
+    fi
+  done
+  APP_CONTAINER="tokenkey"
+}
+
+resolve_app_container
+if ! sudo docker inspect "$APP_CONTAINER" >/dev/null 2>&1; then
+  fail_json "app container not running: ${APP_CONTAINER}"
+fi
 
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
   fail_json "ACCOUNT_ID must be numeric"
