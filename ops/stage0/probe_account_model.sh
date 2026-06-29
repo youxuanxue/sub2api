@@ -24,7 +24,7 @@ LOG_WINDOW="${LOG_WINDOW:-3m}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
 PROBE_USER_ID=1
 
-PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 
 sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
@@ -37,6 +37,27 @@ import json, sys
 print(json.dumps({"verdict": "setup_error", "error": sys.argv[1]}, ensure_ascii=False))
 PY
   exit 0
+}
+
+psql_capture_numeric() {
+  local dest="$1"
+  local message="$2"
+  local query="$3"
+  local errfile out value excerpt
+  errfile="$(mktemp)"
+  if ! out="$("${PSQL[@]}" -c "$query" 2>"$errfile")"; then
+    local err
+    err="$(tr '\n' ' ' <"$errfile" | sed -E 's/[[:space:]]+/ /g; s/(password|token|secret|key)[^ ]*/\1=<redacted>/Ig' | cut -c1-240)"
+    rm -f "$errfile"
+    fail_json "${message}: ${err:-psql failed}"
+  fi
+  rm -f "$errfile"
+  value="$(printf '%s\n' "$out" | awk '/^[[:space:]]*[0-9]+[[:space:]]*$/ {gsub(/[[:space:]]/, ""); print; found=1; exit} END {exit found ? 0 : 1}' || true)"
+  if [[ -z "$value" ]]; then
+    excerpt="$(printf '%s' "$out" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | cut -c1-240)"
+    fail_json "${message}: no numeric id returned${excerpt:+ (stdout=${excerpt})}"
+  fi
+  printf -v "$dest" '%s' "$value"
 }
 
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
@@ -169,7 +190,7 @@ SELECT COALESCE((
 ), '');
 " | tr -d '\n')"
   if [[ -n "$GROUP_ID" ]]; then
-    GROUP_ID="$("${PSQL[@]}" -c "
+    psql_capture_numeric GROUP_ID "failed to update probe group name=${GROUP_NAME} platform=${PLATFORM}" "
 UPDATE groups
 SET
   description = 'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
@@ -182,6 +203,9 @@ SET
   claude_code_only = false,
   model_routing_enabled = false,
   model_routing = '{}'::jsonb,
+  supported_model_scopes = '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+  messages_dispatch_model_config = '{}'::jsonb,
+  models_list_config = '{}'::jsonb,
   sort_order = 2147483000,
   rpm_limit = 0,
   updated_at = NOW()
@@ -189,39 +213,47 @@ WHERE id = ${GROUP_ID}
   AND name = '$(sql_escape "$GROUP_NAME")'
   AND deleted_at IS NULL
 RETURNING id;
-" | tr -d '[:space:]')"
+"
   else
-    GROUP_ID="$("${PSQL[@]}" -c "
+    psql_capture_numeric GROUP_ID "failed to insert probe group name=${GROUP_NAME} platform=${PLATFORM}" "
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
+  model_routing_enabled, model_routing, supported_model_scopes,
+  messages_dispatch_model_config, models_list_config,
+  sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
   '$(sql_escape "$GROUP_NAME")',
   'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
   '$(sql_escape "$PLATFORM")',
   1.0, true, 'active',
   'standard', 30, false,
-  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
+  false, '{}'::jsonb, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+  '{}'::jsonb, '{}'::jsonb,
+  2147483000, 0, NOW(), NOW()
 )
 RETURNING id;
-" | tr -d '[:space:]')"
+"
   fi
 else
-  GROUP_ID="$("${PSQL[@]}" -c "
+  psql_capture_numeric GROUP_ID "failed to insert one-off probe group name=${GROUP_NAME} platform=${PLATFORM}" "
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
+  model_routing_enabled, model_routing, supported_model_scopes,
+  messages_dispatch_model_config, models_list_config,
+  sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
 	  '$(sql_escape "$GROUP_NAME")',
 	  'exclusive temporary account/model probe; direct probe key only; excluded from universal routing',
 	  '$(sql_escape "$PLATFORM")',
 	  1.0, true, 'active',
 	  'standard', 30, false,
-	  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
+	  false, '{}'::jsonb, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+	  '{}'::jsonb, '{}'::jsonb,
+	  2147483000, 0, NOW(), NOW()
 	) RETURNING id;
-" | tr -d '[:space:]')"
+"
 fi
 
 if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
@@ -283,7 +315,7 @@ import secrets
 print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
 PY
 )"
-    API_KEY_ID="$("${PSQL[@]}" -c "
+    psql_capture_numeric API_KEY_ID "failed to insert probe API key name=${KEY_NAME} group_id=${GROUP_ID}" "
 INSERT INTO api_keys (
   user_id, key, name, group_id, status, routing_mode,
   quota, quota_used, rate_limit_5h, rate_limit_1d, rate_limit_7d,
@@ -298,10 +330,10 @@ INSERT INTO api_keys (
   0, 0, 0, 0, 0,
   0, 0, 0, NOW(), NOW()
 ) RETURNING id;
-" | tr -d '[:space:]')"
+"
   fi
 else
-  API_KEY_ID="$("${PSQL[@]}" -c "
+  psql_capture_numeric API_KEY_ID "failed to insert one-off probe API key name=${KEY_NAME} group_id=${GROUP_ID}" "
 INSERT INTO api_keys (
   user_id, key, name, group_id, status, routing_mode,
   quota, quota_used, rate_limit_5h, rate_limit_1d, rate_limit_7d,
@@ -316,7 +348,7 @@ INSERT INTO api_keys (
   0, 0, 0, 0, 0,
   0, 0, 0, NOW(), NOW()
 ) RETURNING id;
-" | tr -d '[:space:]')"
+"
 fi
 
 if [[ ! "$API_KEY_ID" =~ ^[0-9]+$ ]]; then
