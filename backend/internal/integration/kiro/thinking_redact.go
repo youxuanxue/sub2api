@@ -33,7 +33,7 @@ func ExtractThinkingFromContent(content string) (visible string, thinking string
 			break
 		}
 		end += start
-		reasoning.WriteString(result[start+len("<thinking>") : end])
+		_, _ = reasoning.WriteString(result[start+len("<thinking>") : end])
 		result = result[:start] + result[end+len("</thinking>"):]
 	}
 

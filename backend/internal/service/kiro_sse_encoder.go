@@ -38,12 +38,12 @@ type kiroSSEEncoder struct {
 	// recorded every streamed Kiro request at input=0 → systematic under-billing.
 	inputTokens int
 
-	started           bool          // message_start has been emitted
-	openBlock         kiroBlockKind // currently open content block
-	blockIndex        int           // index of the currently open / next block
-	stopReason        string        // accumulated stop reason ("end_turn" / "tool_use")
-	emittedText       bool          // any text/thinking/tool block emitted
-	pendingThinking   strings.Builder
+	started                 bool          // message_start has been emitted
+	openBlock               kiroBlockKind // currently open content block
+	blockIndex              int           // index of the currently open / next block
+	stopReason              string        // accumulated stop reason ("end_turn" / "tool_use")
+	emittedText             bool          // any text/thinking/tool block emitted
+	pendingThinking         strings.Builder
 	redactedThinkingEmitted bool
 }
 
@@ -160,7 +160,7 @@ func (e *kiroSSEEncoder) writeThinkingDelta(text string) {
 	if text == "" {
 		return
 	}
-	e.pendingThinking.WriteString(text)
+	_, _ = e.pendingThinking.WriteString(text)
 }
 
 // writeToolUse emits a complete tool_use block (start + input_json_delta + stop).
