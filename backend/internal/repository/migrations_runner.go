@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 	"github.com/Wei-Shaw/sub2api/migrations"
 )
 
@@ -55,6 +56,8 @@ const paymentOrdersOutTradeNoUniqueMigration = "120_enforce_payment_orders_out_t
 const paymentOrdersOutTradeNoUniqueIndex = "paymentorder_out_trade_no_unique"
 const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_dedup_key_index_notx.sql"
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
+const opsSystemLogsAPIKeyIDIndexMigration = "155_add_ops_system_logs_api_key_id_index_notx.sql"
+const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs (api_key_id, created_at DESC)`
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -214,6 +217,24 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 		if nonTx {
 			if err := prepareNonTransactionalMigration(ctx, db, name); err != nil {
 				return fmt.Errorf("prepare migration %s: %w", name, err)
+			}
+
+			if name == opsSystemLogsAPIKeyIDIndexMigration {
+				partitioned, err := pgpartition.IsPartitioned(ctx, db, "ops_system_logs")
+				if err != nil {
+					return fmt.Errorf("check ops_system_logs partition state for migration %s: %w", name, err)
+				}
+				if partitioned {
+					// PG rejects online index build on partitioned parents; tk_035 may
+					// already be applied on prod before upstream 155 lands.
+					if _, err := db.ExecContext(ctx, opsSystemLogsAPIKeyIDIndexDDL); err != nil {
+						return fmt.Errorf("apply migration %s (partitioned fallback): %w", name, err)
+					}
+					if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
+						return fmt.Errorf("record migration %s (non-tx): %w", name, err)
+					}
+					continue
+				}
 			}
 
 			// *_notx.sql：用于 CREATE/DROP INDEX CONCURRENTLY 场景，必须非事务执行。
