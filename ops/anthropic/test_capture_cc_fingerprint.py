@@ -53,9 +53,25 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             "http": {
                 "haiku": {
                     "anthropic_beta": ",".join(baseline["betas"]["haiku_mimicry"]),
+                    "x_stainless": {
+                        "X-Stainless-Runtime-Version": baseline["canonical_http"][
+                            "stainless_runtime_version"
+                        ],
+                        "X-Stainless-Package-Version": baseline["canonical_http"][
+                            "stainless_package_version"
+                        ],
+                    },
                 },
                 "sonnet": {
                     "anthropic_beta": ",".join(baseline["betas"]["sonnet_mimicry"]),
+                    "x_stainless": {
+                        "X-Stainless-Runtime-Version": baseline["canonical_http"][
+                            "stainless_runtime_version"
+                        ],
+                        "X-Stainless-Package-Version": baseline["canonical_http"][
+                            "stainless_package_version"
+                        ],
+                    },
                 },
             },
             "system": {
@@ -86,6 +102,38 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         self.assertTrue(mod.has_actionable_mismatch(rows))
         stainless_rows = [r for r in rows if "stainless" in r.field]
         self.assertTrue(any(r.status == "mismatch" for r in stainless_rows))
+
+    def test_diff_flags_runtime_mismatch(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = {
+            "schema_version": 1,
+            "cc_version": baseline["canonical_http"]["default_version"],
+            "tls": {
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "stainless_package_version": baseline["canonical_http"]["stainless_package_version"],
+            },
+            "http": {
+                "haiku": {
+                    "x_stainless": {"X-Stainless-Runtime-Version": "v24.3.0"},
+                },
+            },
+        }
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        self.assertTrue(mod.has_actionable_mismatch(rows))
+        runtime_rows = [r for r in rows if "runtime_version" in r.field]
+        self.assertTrue(any(r.status == "mismatch" for r in runtime_rows))
+
+    def test_june27_http_bundle_runtime_matches_baseline(self) -> None:
+        bundle_path = mod.REPO_ROOT / ".tls_list/20260627T020627Z-cc-capture.bundle.json"
+        if not bundle_path.is_file():
+            self.skipTest("6/27 capture bundle not present locally")
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = mod.load_capture_bundle(bundle_path)
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        runtime_rows = [r for r in rows if "runtime_version" in r.field]
+        self.assertTrue(runtime_rows, "expected runtime_version diff rows")
+        self.assertTrue(all(r.status == "match" for r in runtime_rows))
 
     def test_diff_flags_ja3_mismatch_with_tls_action_note(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)

@@ -17,11 +17,11 @@ Layer 1：`bash ops/fingerprint/client-release-watch.sh scan --plan` 发现 `gem
 
 Upstream：`npm @google/gemini-cli`。
 
-## 流程（capture 脚本待建）
+## 流程
 
-1. 安装/确认本机 `@google/gemini-cli` 版本：`npm view @google/gemini-cli version`
-2. 对照 `internal/pkg/geminicli/constants.go` 中 `GeminiCLIUserAgent` 的 semver
-3. bump UA 字面量 + 相关测试断言
-4. `go test -tags=unit ./internal/pkg/geminicli/...` → `scripts/preflight.sh`
+1. 升级本机 CLI 到与 pin 相同或更新版本：`npm i -g @google/gemini-cli@<target>`
+2. `bash ops/geminicli/capture-gemini-fingerprint.sh check env`
+3. `bash ops/geminicli/capture-gemini-fingerprint.sh capture`（写入 `.cache/fingerprint/gemini-cli/*.bundle.json`）
+4. 有 drift 时 bump `GeminiCLIUserAgent` + `go test -tags=unit ./internal/pkg/geminicli/...` → `scripts/preflight.sh`
 
-**禁止**仅凭 npm release 改 pin；至少对照本机 CLI `--version` 或一次真实 gateway 探针后再合 PR。
+**禁止**仅凭 npm release 改 pin；至少对照本机 `gemini --version`（capture 脚本）后再合 PR。

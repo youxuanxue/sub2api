@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "platform": "gemini-cli",
+  "captured_at": "20260629T091437Z",
+  "installed_cli": "/opt/homebrew/bin/gemini",
+  "installed_version": "0.49.0",
+  "pinned_user_agent": "GeminiCLI/0.49.0/gemini-2.0-flash (darwin; arm64)",
+  "pinned_version": "0.49.0",
+  "rows": [
+    {
+      "field": "user_agent_version",
+      "pinned": "0.49.0",
+      "installed": "0.49.0",
+      "status": "match"
+    }
+  ],
+  "aligned": true
+}

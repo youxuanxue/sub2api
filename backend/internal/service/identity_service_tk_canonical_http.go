@@ -154,11 +154,11 @@ func GetCanonicalUserAgentForContext(ctx context.Context) string {
 // releases.
 var canonicalHTTPObservedStatic = Fingerprint{
 	StainlessLang:           "js",
-	StainlessPackageVersion: "0.106.0",
+	StainlessPackageVersion: "0.94.0",
 	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v24.3.0",
+	StainlessRuntimeVersion: "v26.3.0",
 }
 
 // IsCanonicalTLSProfileName reports whether name is the TokenKey canonical
