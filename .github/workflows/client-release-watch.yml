@@ -134,9 +134,10 @@ jobs:
               ensure_label(platform_label, 'BFD4F2', f'Client release watch platform {platform_id}')
 
               upstream = item.get('upstream_latest') or 'unknown'
-              sig = f"client-release-{platform_id}-{upstream}"
-              sig_label = f"client-release-sig:{label_safe(sig)}"
-              ensure_label(sig_label, 'BFD4F2', 'Client release watch signature')
+              issue_signature = f"client-release-{platform_id}-{upstream}"
+              sig = f"{platform_id}-{upstream}"
+              sig_label = label_safe(f"cr-sig:{sig}")
+              ensure_label(sig_label, 'BFD4F2', f'Client release watch signature {sig}')
 
               title = f"[client-release] {item.get('name')} upstream {upstream} > pin {item.get('pinned') or 'n/a'}"[:250]
               body_lines = [
@@ -149,7 +150,7 @@ jobs:
                   f"- Pin path: `{item.get('pin_path')}`",
                   f"- Alignment skill: `{item.get('skill')}`",
                   f"- Watchdog run: {report.get('run_url') or 'n/a'}",
-                  f"- Signature: `{sig}`",
+                  f"- Signature: `{issue_signature}`",
                   '',
                   '## Upstream sources',
                   '',
