@@ -117,6 +117,11 @@ def request(flow: http.HTTPFlow) -> None:
             "system": body.get("system"),
             "messages": _summarize_messages(body.get("messages")),
         },
+        # Full wire subset for gateway normalize replay (Go tkNormalizeAnthropicCCGeoStego).
+        "body_wire": {
+            "system": body.get("system"),
+            "messages": body.get("messages"),
+        },
     }
     with open(LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")

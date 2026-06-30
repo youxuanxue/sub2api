@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 OPS = Path(__file__).resolve().parent
+REPO_ROOT = OPS.parents[1]
 PROBE = OPS / "probe_cc_geo_stego.py"
 
 
@@ -78,6 +79,16 @@ class TestProbeCCGeoStego(unittest.TestCase):
         rows = json.loads(cp.stdout)
         self.assertFalse(rows[0]["needs_normalize"])
         self.assertEqual(cp.returncode, 0)
+
+    def test_check_gateway_fixture_passes(self) -> None:
+        fixture = OPS / "testdata" / "cc_geo_probe_fixture.jsonl"
+        cp = subprocess.run(
+            [sys.executable, str(PROBE), str(fixture.resolve()), "--check-gateway"],
+            cwd=str(REPO_ROOT / "backend"),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, cp.returncode, cp.stdout + cp.stderr)
 
     def test_date_change_attachment_slash_needs_normalize(self) -> None:
         rec = {

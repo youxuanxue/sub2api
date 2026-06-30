@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -138,4 +141,70 @@ func TestForwardCountTokensAnthropicAPIKeyPassthrough_NormalizesCCGeoStego(t *te
 	require.Contains(t, string(upstream.lastBody), "Today's date is 2026-06-30.")
 	require.NotContains(t, string(upstream.lastBody), "\u2019")
 	require.NotContains(t, string(upstream.lastBody), "/06/")
+}
+
+// TestTkProbeCCGeoGatewayCoverageJSONL is invoked by ops/anthropic/probe_cc_geo_stego.py
+// --check-gateway via TOKENKEY_CC_GEO_PROBE_JSONL=<capture.jsonl>.
+func TestTkProbeCCGeoGatewayCoverageJSONL(t *testing.T) {
+	path := os.Getenv("TOKENKEY_CC_GEO_PROBE_JSONL")
+	if path == "" {
+		t.Skip("TOKENKEY_CC_GEO_PROBE_JSONL not set")
+	}
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		scenario, _ := rec["scenario"].(string)
+		baseURL, _ := rec["base_url"].(string)
+		host, _ := rec["host"].(string)
+		bodyWire, _ := rec["body_wire"].(map[string]any)
+		if bodyWire == nil {
+			continue
+		}
+		wire := map[string]any{
+			"system":   bodyWire["system"],
+			"messages": bodyWire["messages"],
+		}
+		if wire["system"] == nil && wire["messages"] == nil {
+			continue
+		}
+		bodyBytes, err := json.Marshal(wire)
+		require.NoError(t, err)
+
+		out, changed := tkNormalizeAnthropicCCGeoStego(bodyBytes)
+		_, still := tkNormalizeAnthropicCCGeoStego(out)
+		require.False(t, still, "normalize not idempotent for scenario=%s", scenario)
+
+		isFirstPartyControl := strings.Contains(baseURL, "api.anthropic.com") &&
+			strings.Contains(host, "anthropic.com")
+		if isFirstPartyControl {
+			require.False(t, changed, "first-party anthropic.com control must stay untouched: %s", scenario)
+			continue
+		}
+		// Outbound wire after normalize must not retain CC geo stego in date lines.
+		require.False(t, tkWireStillHasCCGeoStegoDateSignals(out),
+			"gateway left geo stego in output for scenario=%s", scenario)
+	}
+}
+
+var tkWireCCGeoStegoSlashDateRE = regexp.MustCompile(`Today's date is \d{4}/\d{2}/\d{2}\.`)
+
+func tkWireStillHasCCGeoStegoDateSignals(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if tkWireCCGeoStegoSlashDateRE.Match(body) {
+		return true
+	}
+	if strings.Contains(string(body), "Today\u2019s") ||
+		strings.Contains(string(body), "Today\u02bcs") ||
+		strings.Contains(string(body), "Today\u02b9s") {
+		return true
+	}
+	return false
 }
