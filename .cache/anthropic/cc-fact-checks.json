@@ -57,6 +57,25 @@
         "backend/internal/service/gateway_service.go:if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {",
         "backend/internal/service/gateway_anthropic_context_window_alias_tk_test.go:func TestTkStripContextWindowModelAlias"
       ]
+    },
+    {
+      "upstream": "anthropics/claude-code#63792, anthropics/claude-code#10199",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api (ToolSearch historical thinking pre-filter)",
+      "summary": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns, signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified', forcing a client strip-and-retry storm every turn. TokenKey proactively downgrades historical assistant thinking blocks to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking and tool_use blocks. Wired on OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks.",
+      "fixed_by": [
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func TkPrefilterToolSearchHistoricalThinking",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkBodyHasToolSearchTools",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkStripHistoricalAssistantThinking",
+        "backend/internal/service/gateway_service.go:TkPrefilterToolSearchHistoricalThinking(body, reqModel)",
+        "backend/internal/service/gateway_service.go:TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go:func TestTkPrefilterToolSearchHistoricalThinking_StripsHistoricalToolCoupledThinking"
+      ]
     }
   ]
 }

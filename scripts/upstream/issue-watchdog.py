@@ -71,6 +71,27 @@ def issue_url(upstream: str) -> str:
     return f"https://github.com/{repo}/issues/{number}"
 
 
+def issue_numbers_in_upstream(upstream: str) -> set[int]:
+    """All `#NNNN` issue numbers referenced in an upstream field.
+
+    Handles multi-issue fact-check rows such as
+    `anthropics/claude-code#60168, #63885, anthropics/claude-code#64777`.
+    """
+    nums = [int(m) for m in re.findall(r"#([0-9]+)", upstream or "")]
+    return set(nums)
+
+
+def upstream_check_covers_entry(check_upstream: str, entry_upstream: str) -> bool:
+    """True when a fact-check/fix `upstream` field covers a triage row."""
+    if check_upstream == entry_upstream:
+        return True
+    try:
+        entry_num = issue_number(entry_upstream)
+    except ValueError:
+        return False
+    return entry_num in issue_numbers_in_upstream(check_upstream)
+
+
 def sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, capture_output=True, check=check)
 
@@ -127,7 +148,7 @@ def update_triage_fixed(triage: dict[str, Any], check: dict[str, Any]) -> bool:
     upstream = check["upstream"]
     changed = False
     for entry in triage.get("issues", []):
-        if entry.get("upstream") != upstream:
+        if not upstream_check_covers_entry(upstream, entry.get("upstream", "")):
             continue
         if entry.get("impact") != "fixed":
             entry["impact"] = "fixed"

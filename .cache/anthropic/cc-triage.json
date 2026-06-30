@@ -4,24 +4,13 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded; gateway-relevance filtered",
   "rationale": "TokenKey-local triage cache for anthropics/claude-code issues, filtered for gateway/relay relevance. Most claude-code issues are client-side (IDE/terminal/MCP) and are marked not_applicable. Only human-pinned MANUAL_TRIAGE high/critical entries become fix candidates.",
   "counts": {
-    "needs_review": 372,
+    "fixed": 2,
+    "needs_review": 370,
     "medium": 8,
     "not_applicable": 771,
     "unknown_low_signal": 307
   },
   "issues": [
-    {
-      "upstream": "anthropics/claude-code#10199",
-      "url": "https://github.com/anthropics/claude-code/issues/10199",
-      "title": "[BUG] API Error 400 - Thinking Block Modification Error",
-      "impact": "needs_review",
-      "categories": [
-        "request_shape_400"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-26T18:01:18Z"
-    },
     {
       "upstream": "anthropics/claude-code#18028",
       "url": "https://github.com/anthropics/claude-code/issues/18028",
@@ -1016,19 +1005,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-26T22:29:42Z"
-    },
-    {
-      "upstream": "anthropics/claude-code#63792",
-      "url": "https://github.com/anthropics/claude-code/issues/63792",
-      "title": "Opus 4.8 + dynamic tool loading (ToolSearch) re-modifies signed thinking blocks → \"messages.N.content.M ... cannot be modified\" 400 storm → strip-and-retry every turn",
-      "impact": "needs_review",
-      "categories": [
-        "request_shape_400",
-        "prompt_caching"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Gateway/relay-relevant keyword match; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-28T10:47:10Z"
     },
     {
       "upstream": "anthropics/claude-code#63817",
@@ -4641,6 +4617,31 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "Possible gateway compatibility/streaming impact, but not a high-severity relay signal in this pass.",
       "updated_at": "2026-06-27T18:46:54Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#10199",
+      "url": "https://github.com/anthropics/claude-code/issues/10199",
+      "title": "[BUG] API Error 400 - Thinking Block Modification Error",
+      "impact": "fixed",
+      "categories": [
+        "request_shape_400"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns, signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified', forcing a client strip-and-retry storm every turn. TokenKey proactively downgrades historical assistant thinking blocks to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking and tool_use blocks. Wired on OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks. Fixed by youxuanxue/sub2api (ToolSearch historical thinking pre-filter).",
+      "updated_at": "2026-06-26T18:01:18Z"
+    },
+    {
+      "upstream": "anthropics/claude-code#63792",
+      "url": "https://github.com/anthropics/claude-code/issues/63792",
+      "title": "Opus 4.8 + dynamic tool loading (ToolSearch) re-modifies signed thinking blocks → \"messages.N.content.M ... cannot be modified\" 400 storm → strip-and-retry every turn",
+      "impact": "fixed",
+      "categories": [
+        "request_shape_400",
+        "prompt_caching"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns, signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified', forcing a client strip-and-retry storm every turn. TokenKey proactively downgrades historical assistant thinking blocks to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking and tool_use blocks. Wired on OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks. Fixed by youxuanxue/sub2api (ToolSearch historical thinking pre-filter).",
+      "updated_at": "2026-06-28T10:47:10Z"
     },
     {
       "upstream": "anthropics/claude-code#10071",

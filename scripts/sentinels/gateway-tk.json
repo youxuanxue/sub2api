@@ -2067,6 +2067,23 @@
       "rationale": "Pure, fork-only UTF-8 / lone-surrogate sanitizer core (claude-code #60168 / #63885 / #64777), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). TkSanitizeRequestBodyUTF8 rewrites lone JSON surrogate escapes and invalid raw UTF-8 to U+FFFD while preserving valid pairs / escaped backslashes and returning clean bodies byte-identical (changed=false, zero alloc). Anchor the two pure functions + the logging wrapper so an upstream refactor that consolidates body rewrites cannot delete this surface and silently re-expose the 'str is not valid UTF-8: surrogate' 400. Exhaustively covered by gateway_request_tk_utf8_test.go."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_toolsearch_thinking.go",
+      "must_contain": [
+        "func TkPrefilterToolSearchHistoricalThinking(body []byte, mappedModel string) []byte {",
+        "func tkBodyHasToolSearchTools(body []byte) bool {",
+        "func tkStripHistoricalAssistantThinking(body []byte) []byte {"
+      ],
+      "rationale": "Pure, fork-only ToolSearch historical signed-thinking pre-filter (claude-code #63792 / #10199), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). When dynamic tool loading re-serializes prior assistant turns, stale signed thinking blocks trigger upstream 400 'cannot be modified' and a client strip-and-retry storm every turn. TkPrefilterToolSearchHistoricalThinking downgrades historical assistant thinking to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking. Anchor the gate + stripper so an upstream merge cannot delete this surface and silently re-expose the per-turn double round-trip. Exhaustively covered by gateway_request_tk_toolsearch_thinking_test.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "TkPrefilterToolSearchHistoricalThinking(body, reqModel)",
+        "TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)"
+      ],
+      "rationale": "Wiring of the ToolSearch historical thinking pre-filter (claude-code #63792 / #10199) into OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks / UTF-8 sanitize. One-line hooks in an upstream-shaped file compile clean if dropped, silently re-exposing the per-turn 400 + strip-and-retry storm. Anchor both call shapes; the pure filter is guarded by gateway_request_tk_toolsearch_thinking.go."
+    },
+    {
       "path": "backend/internal/server/http.go",
       "must_contain": [
         "tkResolveTrustedProxies(cfg.Server.TrustedProxies)"
