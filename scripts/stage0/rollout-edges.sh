@@ -2,10 +2,10 @@
 # rollout-edges.sh — fail-stop Edge rollout for a released tag.
 #
 # Mechanizes the tokenkey-stage0-release-rollout skill step "其余 deployable
-# Edge upgrade（full smoke）": for each deployable edge (minus --skip, normally
+# Edge upgrade（infra only）": for each deployable edge (minus --skip, normally
 # the canary already upgraded), dispatch an upgrade via dispatch-edge-deploy.sh,
 # watch the run to completion, and verify the canonical acceptance marker
-# `tk_edge_post_deploy_smoke: OK phase=full` in the run log.
+# `tk_edge_post_deploy_smoke: OK phase=infra` in the run log.
 #
 # Default is sequential (--parallel 1) to reduce the online impact of edge
 # container swaps: restarting several edges at once shrinks prod's relay failover
@@ -147,7 +147,7 @@ watch_run() {
   return 1
 }
 
-# verify_smoke_marker — confirm the canonical full-smoke marker in the run log,
+# verify_smoke_marker — confirm the canonical infra-smoke marker in the run log,
 # RETRYING when the log is reachable but the marker is absent. A run that
 # watch_run already confirmed completed/success can still expose a PARTIAL log
 # for a few seconds: `gh run view --log` returns the earlier steps before the
@@ -167,7 +167,7 @@ verify_smoke_marker() {
   for attempt in 1 2 3 4 5 6; do
     if log="$(gh run view "$run_id" --log 2>/dev/null)" && [ -n "$log" ]; then
       got_log=1
-      if printf '%s' "$log" | grep -q 'tk_edge_post_deploy_smoke: OK phase=full'; then
+      if printf '%s' "$log" | grep -q 'tk_edge_post_deploy_smoke: OK phase=infra'; then
         return 0
       fi
     fi
@@ -181,7 +181,7 @@ dispatch_edge() {
   echo "rollout-edges: dispatching edge=$EDGE" >&2
   T0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if ! DISPATCH_OUT="$(bash scripts/stage0/dispatch-edge-deploy.sh \
-        --edge-id "$EDGE" --operation upgrade --tag "$TAG" 2>&1)"; then
+        --edge-id "$EDGE" --operation upgrade --tag "$TAG" --smoke-phase infra 2>&1)"; then
     printf '%s\n' "$DISPATCH_OUT" >&2
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (dispatch)" >&2
     return 2
