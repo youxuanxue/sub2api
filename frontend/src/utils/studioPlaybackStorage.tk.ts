@@ -71,6 +71,30 @@ export function videoTaskPlaybackStorageKind(
   return task.playbackStorage ?? (task.urlExpired || !task.url ? 'expired' : 'unknown')
 }
 
+export interface TagStudioVideoPlaybackDeps {
+  patchVideoTask: (id: string, patch: Partial<VideoTaskItem>) => void
+  cacheInlineMedia: (kind: 'video', itemId: string, src: string) => Promise<void>
+  onUpstreamCorsBlocked?: () => void
+}
+
+/** Classify upstream playback storage and mirror inline clips into IndexedDB when safe. */
+export async function tagStudioVideoPlayback(
+  deps: TagStudioVideoPlaybackDeps,
+  taskId: string,
+  url: string
+): Promise<void> {
+  if (!url) {
+    deps.patchVideoTask(taskId, { playbackStorage: 'expired' })
+    return
+  }
+  const storage = await resolveVideoPlaybackStorage(url)
+  deps.patchVideoTask(taskId, { playbackStorage: storage })
+  if (storage === 'upstream-cors-blocked') deps.onUpstreamCorsBlocked?.()
+  if (storage === 'inline-local' || storage === 'upstream-cors-ok') {
+    void deps.cacheInlineMedia('video', taskId, url)
+  }
+}
+
 /** Tailwind classes for the honest playback-source badge (Image / Video / Bake-Off). */
 export function studioPlaybackBadgeClass(storage: StudioPlaybackStorage): string {
   switch (storage) {
