@@ -174,9 +174,12 @@
         <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(p.cost) }}</span>
-            <StudioPlaybackBadge v-if="modality === 'video' && bakePanelVideoPlayable(p)" :task="panelPlaybackTask(p)!" />
+            <StudioPlaybackBadge
+              v-if="modality === 'video' && p.state === 'succeeded' && panelPlaybackTask(p)"
+              :task="panelPlaybackTask(p)!"
+            />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button
               v-if="modality === 'image' && p.src"
               type="button"
@@ -185,15 +188,24 @@
             >
               {{ t('studio.image.download') }}
             </button>
-            <button
-              v-else-if="modality === 'video' && p.state === 'succeeded' && p.url"
-              type="button"
-              class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
-              data-testid="bakeoff-video-download"
-              @click="downloadMedia(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`)"
-            >
-              {{ t('studio.video.download') }}
-            </button>
+            <template v-else-if="modality === 'video' && p.state === 'succeeded' && p.url">
+              <button
+                type="button"
+                class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
+                data-testid="bakeoff-video-download"
+                @click="downloadCardVideo(p.url, `tokenkey-${p.taskId || p.modelId}.mp4`, p.urlExpired)"
+              >
+                {{ t('studio.video.download') }}
+              </button>
+              <button
+                type="button"
+                class="text-[11px] font-medium text-gray-500 dark:text-dark-300"
+                data-testid="bakeoff-video-copy-card-link"
+                @click="copyCardLink(p.url)"
+              >
+                {{ copiedUrl === p.url ? t('studio.video.copied') : t('studio.video.copyLink') }}
+              </button>
+            </template>
             <span v-if="p.elapsedS != null && p.state !== 'idle'" class="text-xs text-gray-500 dark:text-dark-400">⏱ {{ p.elapsedS }}s</span>
           </div>
         </div>
@@ -275,73 +287,58 @@
               </div>
               <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
               <div class="mt-1 flex items-center justify-between gap-2">
-                <StudioPlaybackBadge v-if="videoTaskPlaybackAvailable(task)" :task="task" />
+                <StudioPlaybackBadge v-if="task.state === 'succeeded'" :task="task" />
                 <span class="ml-auto text-xs font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
               </div>
-              <button
-                v-if="task.state === 'succeeded' && task.url"
-                type="button"
-                class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
-                @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)"
-              >
-                {{ t('studio.video.download') }}
-              </button>
+              <div v-if="task.state === 'succeeded' && task.url" class="mt-1 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
+                  data-testid="bakeoff-history-video-download"
+                  @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
+                >
+                  {{ t('studio.video.download') }}
+                </button>
+                <button
+                  type="button"
+                  class="text-[10px] font-medium text-gray-500 dark:text-dark-300"
+                  data-testid="bakeoff-history-video-copy-link"
+                  @click="copyCardLink(task.url)"
+                >
+                  {{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </template>
     </div>
 
-    <!-- In-page video lightbox: plays one panel on demand (http URL direct, inline
-         data:video as a tab-local Blob via the shared videoPlaybackUrl) instead of
-         rendering MAX_PANELS always-on <video> elements. -->
-    <Teleport to="body">
-      <div
-        v-if="videoPreviewOpen"
-        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
-        data-testid="bakeoff-video-preview"
-        @click.self="closeVideoPreview"
-      >
-        <div class="flex items-center justify-end p-3">
-          <button type="button" class="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20" data-testid="bakeoff-video-preview-close" @click="closeVideoPreview">
-            {{ t('studio.video.close') }} ✕
-          </button>
-        </div>
-        <div class="relative flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closeVideoPreview">
-          <video
-            v-if="videoPreviewState === 'ready' && videoPreviewUrl"
-            :src="videoPreviewUrl"
-            controls
-            autoplay
-            playsinline
-            preload="auto"
-            class="h-full max-h-full w-full max-w-full rounded-lg bg-black object-contain shadow-2xl"
-            @loadeddata="videoPreviewMediaReady = true"
-            @error="onVideoPreviewError"
-          ></video>
-          <div v-if="videoPreviewState === 'ready' && videoPreviewUrl && !videoPreviewMediaReady" class="absolute text-sm text-white/80">{{ t('studio.video.previewBuffering') }}</div>
-          <div v-else-if="videoPreviewState === 'loading'" class="text-sm text-white/80">{{ t('studio.video.loadingPreview') }}</div>
-          <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
-            <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
-            <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
-            <div class="mt-3 flex items-center justify-center gap-2">
-              <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="retryVideoPreview">{{ t('studio.video.retry') }}</button>
-            </div>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center justify-center gap-3 p-4">
-          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreviewLabel">{{ videoPreviewLabel }}</span>
-          <span v-if="videoPreviewCost != null" class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(videoPreviewCost) }}</span>
-          <button v-if="videoPreviewDownloadUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(videoPreviewDownloadUrl, `tokenkey-bakeoff-preview.mp4`)">{{ t('studio.video.download') }}</button>
-          <button v-if="videoPreviewState === 'ready' && videoPreviewUrl" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" data-testid="bakeoff-video-copy-link" @click="copyVideoPreviewLink">{{ copiedPreviewLink ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
-        </div>
-      </div>
-    </Teleport>
+    <StudioVideoPreviewLightbox
+      :open="previewOpen"
+      :preview-state="previewState"
+      :preview-url="previewUrl"
+      :download-url="previewDownloadUrl"
+      :download-filename="previewDownloadFilename"
+      :label="previewLabel"
+      :cost="previewCost"
+      :preview-media-ready="previewMediaReady"
+      :copied-link="previewCopiedLink"
+      test-id="bakeoff-video-preview"
+      close-test-id="bakeoff-video-preview-close"
+      copy-link-test-id="bakeoff-video-copy-link"
+      @close="closePreviewLightbox"
+      @error="onPreviewError"
+      @retry="retryPreviewLightbox"
+      @copy-link="copyPreviewLink"
+      @download="downloadPreview"
+      @media-ready="onPreviewMediaReady"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit, gatewayImagePresign } from '@/api/playground'
 import {
@@ -366,17 +363,19 @@ import {
   groupVideoHistoryByBatch,
   imageHistoryItemAvailable,
   shouldShowStudioSaveReminder,
-  videoPlaybackUrl,
   videoTaskPlaybackAvailable,
 } from '@/utils/studioMedia.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
-import { resolveVideoPlaybackStorage } from '@/utils/studioPlaybackStorage.tk'
+import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
 import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
+import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { useAppStore } from '@/stores/app'
 import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll } from '@/composables/useVideoTaskPoll'
 import { useMediaLibrary, type ImageHistoryItem, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import type { ApiKey } from '@/types'
@@ -396,6 +395,8 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(warnExpiredDownload)
 
 const MAX_PANELS = 6
 /** Imagen / seedream: ratio code on /v1/images/generations (see ImageStudio sentSize). */
@@ -439,19 +440,14 @@ const activeRunTs = ref<number | null>(null)
 
 const library = useMediaLibrary(props.userId)
 
-async function tagVideoPlayback(taskId: string, url: string): Promise<void> {
-  if (!url) {
-    library.patchVideoTask(taskId, { playbackStorage: 'expired' })
-    return
-  }
-  const storage = await resolveVideoPlaybackStorage(url)
-  library.patchVideoTask(taskId, { playbackStorage: storage })
-  if (storage === 'upstream-cors-blocked') {
-    appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000)
-  }
-  if (storage === 'inline-local' || storage === 'upstream-cors-ok') {
-    void library.cacheInlineMedia('video', taskId, url)
-  }
+const playbackDeps = {
+  patchVideoTask: (id: string, patch: Partial<VideoTaskItem>) => library.patchVideoTask(id, patch),
+  cacheInlineMedia: library.cacheInlineMedia.bind(library),
+  onUpstreamCorsBlocked: () => appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000),
+}
+
+function tagVideoPlayback(taskId: string, url: string): void {
+  void tagStudioVideoPlayback(playbackDeps, taskId, url)
 }
 
 function patchVideoTask(id: string, patch: Partial<VideoTaskItem>): void {
@@ -517,6 +513,51 @@ function panelPlaybackTask(p: BakePanel): Pick<VideoTaskItem, 'playbackStorage' 
   }
 }
 
+// ---- In-page video lightbox (shared with VideoStudio) -------------------------
+const {
+  open: previewOpen,
+  previewUrl,
+  downloadUrl: previewDownloadUrl,
+  downloadFilename: previewDownloadFilename,
+  label: previewLabel,
+  cost: previewCost,
+  previewState,
+  previewMediaReady,
+  copiedLink: previewCopiedLink,
+  openPreview: openPreviewLightbox,
+  closePreview: closePreviewLightbox,
+  onPreviewError,
+  retryPreview: retryPreviewLightbox,
+  onPreviewMediaReady,
+  copyPreviewLink,
+  downloadPreview,
+} = useStudioVideoPreview({
+  onUrlExpired: (id) => patchVideoTask(id, { urlExpired: true }),
+  onExpiredDownload: warnExpiredDownload,
+})
+
+function openVideoPreviewFromUrl(label: string, cost: number, url: string, taskId?: string, urlExpired?: boolean): void {
+  openPreviewLightbox({
+    url,
+    label,
+    cost,
+    taskId,
+    urlExpired,
+    downloadFilename: taskId ? `tokenkey-${taskId}.mp4` : 'tokenkey-bakeoff-preview.mp4',
+  })
+}
+
+function openVideoPreview(panel: BakePanel): void {
+  if (panel.state !== 'succeeded' || !panel.url) return
+  if (!videoTaskPlaybackAvailable({ state: panel.state, url: panel.url ?? '', urlExpired: panel.urlExpired })) return
+  openVideoPreviewFromUrl(panel.label, panel.cost, panel.url, panel.taskId, panel.urlExpired)
+}
+
+function openVideoHistoryPreview(task: VideoTaskItem): void {
+  if (!videoTaskPlaybackAvailable(task) || !task.url) return
+  openVideoPreviewFromUrl(modelLabel(task.model), task.estCost, task.url, task.id, task.urlExpired)
+}
+
 function downloadImage(src: string, id: string): void {
   downloadMedia(src, `tokenkey-${id}.png`)
 }
@@ -525,92 +566,6 @@ function modelLabel(modelId: string): string {
   const hit = models.value.find((r) => r.model.modelId === modelId || r.servedId === modelId)
   return hit?.model.displayName ?? modelId
 }
-
-// ---- In-page video lightbox (on-demand playback; no always-on <video>) ----------
-const videoPreviewOpen = ref(false)
-const videoPreviewUrl = ref('')
-const videoPreviewRawUrl = ref('')
-const videoPreviewTaskId = ref<string | undefined>()
-const videoPreviewLabel = ref('')
-const videoPreviewCost = ref<number | null>(null)
-const videoPreviewState = ref<'loading' | 'ready' | 'expired'>('loading')
-const videoPreviewMediaReady = ref(false)
-const copiedPreviewLink = ref(false)
-let videoPreviewRevoke: () => void = () => {}
-let copiedPreviewTimer: ReturnType<typeof setTimeout> | undefined
-
-const videoPreviewDownloadUrl = computed(() => videoPreviewRawUrl.value || videoPreviewUrl.value)
-
-function openVideoPreviewFromUrl(label: string, cost: number, url: string, taskId?: string): void {
-  if (!url) return
-  videoPreviewRevoke()
-  videoPreviewOpen.value = true
-  videoPreviewLabel.value = label
-  videoPreviewCost.value = cost
-  videoPreviewRawUrl.value = url
-  videoPreviewTaskId.value = taskId
-  videoPreviewUrl.value = ''
-  videoPreviewState.value = 'loading'
-  videoPreviewMediaReady.value = false
-  const playback = videoPlaybackUrl(url)
-  videoPreviewRevoke = playback.revoke
-  videoPreviewUrl.value = playback.url
-  videoPreviewState.value = playback.url ? 'ready' : 'expired'
-}
-
-function openVideoPreview(panel: BakePanel): void {
-  if (panel.state !== 'succeeded' || !panel.url) return
-  if (!videoTaskPlaybackAvailable({ state: panel.state, url: panel.url, urlExpired: panel.urlExpired })) return
-  openVideoPreviewFromUrl(panel.label, panel.cost, panel.url, panel.taskId)
-}
-
-function openVideoHistoryPreview(task: VideoTaskItem): void {
-  if (!videoTaskPlaybackAvailable(task) || !task.url) return
-  openVideoPreviewFromUrl(modelLabel(task.model), task.estCost, task.url, task.id)
-}
-
-function onVideoPreviewError(): void {
-  const taskId = videoPreviewTaskId.value
-  closeVideoPreview()
-  if (taskId) patchVideoTask(taskId, { urlExpired: true })
-}
-
-function retryVideoPreview(): void {
-  if (!videoPreviewRawUrl.value) return
-  openVideoPreviewFromUrl(
-    videoPreviewLabel.value,
-    videoPreviewCost.value ?? 0,
-    videoPreviewRawUrl.value,
-    videoPreviewTaskId.value
-  )
-}
-
-async function copyVideoPreviewLink(): Promise<void> {
-  if (!videoPreviewUrl.value) return
-  try {
-    await navigator.clipboard?.writeText(videoPreviewUrl.value)
-    copiedPreviewLink.value = true
-    if (copiedPreviewTimer) clearTimeout(copiedPreviewTimer)
-    copiedPreviewTimer = setTimeout(() => (copiedPreviewLink.value = false), 1500)
-  } catch {
-    /* clipboard unavailable — Download still works */
-  }
-}
-
-function closeVideoPreview(): void {
-  videoPreviewRevoke()
-  videoPreviewRevoke = () => {}
-  videoPreviewOpen.value = false
-  videoPreviewLabel.value = ''
-  videoPreviewCost.value = null
-  videoPreviewRawUrl.value = ''
-  videoPreviewTaskId.value = undefined
-  videoPreviewUrl.value = ''
-  videoPreviewState.value = 'loading'
-  videoPreviewMediaReady.value = false
-}
-
-onBeforeUnmount(closeVideoPreview)
 
 function selectedResolved() {
   return models.value.filter((r) => selectedModelIds.value.includes(r.model.modelId))

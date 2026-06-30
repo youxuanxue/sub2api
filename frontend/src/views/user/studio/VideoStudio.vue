@@ -258,8 +258,8 @@
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
             <button v-if="videoTaskPlaybackAvailable(task)" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
-            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" data-testid="studio-video-download" @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)">{{ t('studio.video.download') }}</button>
-            <button v-if="task.url" type="button" class="text-gray-500 dark:text-dark-300" data-testid="studio-video-copy-card-link" @click="copyTaskLink(task.url)">{{ copiedTaskUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
+            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" data-testid="studio-video-download" @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)">{{ t('studio.video.download') }}</button>
+            <button v-if="task.url" type="button" class="text-gray-500 dark:text-dark-300" data-testid="studio-video-copy-card-link" @click="copyCardLink(task.url)">{{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
@@ -277,58 +277,26 @@
       </div>
     </div>
 
-    <!-- Lightbox: in-page playback (replaces the always-on black inline player and
-         the open-in-new-tab dead-end that 404'd for data: veo clips). HTTP video
-         URLs go straight to the browser; inline data:video results become a
-         temporary Blob URL for this tab only. -->
-    <Teleport to="body">
-      <div
-        v-if="preview"
-        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
-        data-testid="studio-video-preview"
-        @click.self="closePreview"
-      >
-        <div class="flex items-center justify-end p-3">
-          <button type="button" class="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20" data-testid="studio-video-preview-close" :aria-label="t('studio.video.close')" @click="closePreview">
-            {{ t('studio.video.close') }} ✕
-          </button>
-        </div>
-        <div class="relative flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closePreview">
-          <video
-            v-if="previewState === 'ready' && previewUrl"
-            :src="previewUrl"
-            controls
-            autoplay
-            playsinline
-            preload="auto"
-            class="h-full max-h-full w-full max-w-full rounded-lg bg-black object-contain shadow-2xl"
-            @loadeddata="previewMediaReady = true"
-            @error="onPreviewError"
-          ></video>
-          <div v-if="previewState === 'ready' && previewUrl && !previewMediaReady" class="absolute text-sm text-white/80">{{ t('studio.video.previewBuffering') }}</div>
-          <div v-else-if="previewState === 'loading'" class="text-sm text-white/80">{{ t('studio.video.loadingPreview') }}</div>
-          <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
-            <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
-            <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
-            <div class="mt-3 flex items-center justify-center gap-2">
-              <!-- A media error can be transient (one-off network blip), so offer a
-                   retry before pushing the user to (re-)pay to regenerate. -->
-              <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="retryPreview">{{ t('studio.video.retry') }}</button>
-              <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
-            </div>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center justify-center gap-3 p-4">
-          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="preview.prompt">{{ preview.prompt }}</span>
-          <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.estCost) }}</span>
-          <button v-if="previewState === 'ready' && previewUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(previewUrl, `tokenkey-${preview.id}.mp4`)">{{ t('studio.video.download') }}</button>
-          <!-- Restore a way to grab the link itself (the #860 rework dropped the
-               open-in-new-tab anchor → the "看不到链接" report). -->
-          <button v-if="previewState === 'ready' && previewUrl" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" data-testid="studio-video-copy-link" @click="copyPreviewLink">{{ copied ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
-          <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
-        </div>
-      </div>
-    </Teleport>
+    <StudioVideoPreviewLightbox
+      :open="previewOpen"
+      :preview-state="previewState"
+      :preview-url="previewUrl"
+      :download-url="previewDownloadUrl"
+      :download-filename="previewDownloadFilename"
+      :label="previewLabel"
+      :subtitle="previewSubtitle"
+      :cost="previewCost"
+      :preview-media-ready="previewMediaReady"
+      :copied-link="previewCopiedLink"
+      show-reuse-prompt
+      @close="closePreviewLightbox"
+      @error="onPreviewError"
+      @retry="retryPreviewLightbox"
+      @reuse="reuseAndClosePreview"
+      @copy-link="copyPreviewLink"
+      @download="downloadPreview"
+      @media-ready="onPreviewMediaReady"
+    />
   </div>
 </template>
 
@@ -349,16 +317,16 @@ import {
   type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
-import { downloadMedia } from '@/utils/studioDownload.tk'
-import { videoPlaybackUrl, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
-import {
-  resolveVideoPlaybackStorage,
-} from '@/utils/studioPlaybackStorage.tk'
+import { videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
+import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
+import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
+import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
 import { useAppStore } from '@/stores/app'
 import type { ApiKey } from '@/types'
@@ -380,6 +348,8 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(warnExpiredDownload)
 const library = useMediaLibrary(props.userId)
 
 const models = computed(() => resolveAvailableModels('video', props.availableIds, props.priceMap))
@@ -425,19 +395,14 @@ const formula = computed(() => {
   return t('studio.video.formula', { rate: formatUsd(selected.value.perSecond || 0), seconds: duration.value })
 })
 
-async function tagVideoPlayback(taskId: string, url: string): Promise<void> {
-  if (!url) {
-    library.patchVideoTask(taskId, { playbackStorage: 'expired' })
-    return
-  }
-  const storage = await resolveVideoPlaybackStorage(url)
-  library.patchVideoTask(taskId, { playbackStorage: storage })
-  if (storage === 'upstream-cors-blocked') {
-    appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000)
-  }
-  if (storage === 'inline-local' || storage === 'upstream-cors-ok') {
-    void library.cacheInlineMedia('video', taskId, url)
-  }
+const playbackDeps = {
+  patchVideoTask: (id: string, patch: Partial<VideoTaskItem>) => library.patchVideoTask(id, patch),
+  cacheInlineMedia: library.cacheInlineMedia.bind(library),
+  onUpstreamCorsBlocked: () => appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000),
+}
+
+function tagVideoPlayback(taskId: string, url: string): void {
+  void tagStudioVideoPlayback(playbackDeps, taskId, url)
 }
 
 const poll = useVideoTaskPoll({
@@ -504,17 +469,14 @@ function reuse(task: VideoTaskItem): void {
 }
 
 function removeTask(id: string): void {
-  // Stop the poll loop BEFORE dropping the task, otherwise clearing an in-flight
-  // task leaves a phantom poller (setTimeout + AbortController) running until the
-  // component unmounts — it would keep patching a task that no longer exists.
   poll.stop(id)
-  if (preview.value?.id === id) closePreview()
+  if (previewTaskId.value === id) closePreviewLightbox()
   library.removeVideoTask(id)
 }
 
 function clearAll(): void {
-  closePreview()
-  poll.stopAll() // drop any in-flight pollers so cleared tasks leave no phantoms
+  closePreviewLightbox()
+  poll.stopAll()
   library.clearVideoTasks()
 }
 
@@ -522,97 +484,53 @@ async function enableNotify(): Promise<void> {
   notifyState.value = (await requestVideoNotifyPermission()) ? 'granted' : 'denied'
 }
 
-// ---- In-page video lightbox ---------------------------------------------------
-const preview = ref<VideoTaskItem | null>(null)
-const previewMediaReady = ref(false)
-const previewUrl = ref('')
-const previewState = ref<'loading' | 'ready' | 'expired'>('loading')
-// Transient "copied" confirmation for the copy-link button (no toast/banner).
-const copied = ref(false)
-const copiedTaskUrl = ref('')
-let copiedTimer: ReturnType<typeof setTimeout> | undefined
-let copiedTaskTimer: ReturnType<typeof setTimeout> | undefined
-let previewRevoke: () => void = () => {}
+const previewTask = ref<VideoTaskItem | null>(null)
+const {
+  open: previewOpen,
+  previewUrl,
+  downloadUrl: previewDownloadUrl,
+  downloadFilename: previewDownloadFilename,
+  label: previewLabel,
+  subtitle: previewSubtitle,
+  cost: previewCost,
+  previewState,
+  previewMediaReady,
+  copiedLink: previewCopiedLink,
+  taskId: previewTaskId,
+  openPreview: openPreviewLightbox,
+  closePreview: closePreviewLightbox,
+  onPreviewError,
+  retryPreview: retryPreviewLightbox,
+  onPreviewMediaReady,
+  copyPreviewLink,
+  downloadPreview,
+} = useStudioVideoPreview({
+  onUrlExpired: (id) => library.patchVideoTask(id, { urlExpired: true }),
+  onExpiredDownload: warnExpiredDownload,
+})
 
-async function openPreview(task: VideoTaskItem): Promise<void> {
+function openPreview(task: VideoTaskItem): void {
   if (!videoTaskPlaybackAvailable(task)) return
-  previewRevoke()
-  preview.value = task
-  previewUrl.value = ''
-  previewState.value = 'loading'
-  previewMediaReady.value = false
-  // Playback must not turn TokenKey into a media server: http(s) upstream URLs go
-  // straight to the browser; an inline data:video result becomes a tab-local Blob
-  // URL we revoke on close. Shared with Bake-Off via videoPlaybackUrl.
-  const playback = videoPlaybackUrl(task.url)
-  previewRevoke = playback.revoke
-  if (preview.value?.id !== task.id) {
-    playback.revoke()
-    return
-  }
-  previewUrl.value = playback.url
-  previewState.value = playback.url ? 'ready' : 'expired'
+  previewTask.value = task
+  openPreviewLightbox({
+    url: task.url,
+    label: task.model,
+    subtitle: task.prompt,
+    cost: task.estCost,
+    taskId: task.id,
+    urlExpired: task.urlExpired,
+    downloadFilename: `tokenkey-${task.id}.mp4`,
+  })
 }
 
-// The <video> failed to load — mark the card prompt-only and close the lightbox
-// instead of trapping the user in an "expired" modal they already saw on the list.
-// Keep the live-session URL so the card can still offer Download / Copy.
-// localStorage persistence continues to strip http(s) links on reload.
-function onPreviewError(): void {
-  const task = preview.value
-  closePreview()
-  if (task) library.patchVideoTask(task.id, { urlExpired: true })
-}
-
-// Re-attempt playback — recovers from a transient media error without forcing
-// the user to close, re-click, or pay to regenerate.
-function retryPreview(): void {
-  if (preview.value) void openPreview(preview.value)
-}
-
-// Copy the active preview URL to the clipboard. Best-effort: an insecure context
-// or a denied permission is a no-op (Download remains the fallback), so the copy
-// affordance never throws into the UI.
-async function copyPreviewLink(): Promise<void> {
-  if (!previewUrl.value) return
-  try {
-    await navigator.clipboard?.writeText(previewUrl.value)
-    copied.value = true
-    if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => (copied.value = false), 1500)
-  } catch {
-    /* clipboard unavailable / blocked — silent, Download still works */
-  }
-}
-
-async function copyTaskLink(url: string): Promise<void> {
-  if (!url) return
-  try {
-    await navigator.clipboard?.writeText(url)
-    copiedTaskUrl.value = url
-    if (copiedTaskTimer) clearTimeout(copiedTaskTimer)
-    copiedTaskTimer = setTimeout(() => (copiedTaskUrl.value = ''), 1500)
-  } catch {
-    /* clipboard unavailable / blocked — Download still works */
-  }
-}
-
-function closePreview(): void {
-  previewRevoke()
-  previewRevoke = () => {}
-  preview.value = null
-  previewUrl.value = ''
-  previewMediaReady.value = false
-  copied.value = false
-}
-
-function reuseAndClose(task: VideoTaskItem | null): void {
-  if (task) reuse(task)
-  closePreview()
+function reuseAndClosePreview(): void {
+  if (previewTask.value) reuse(previewTask.value)
+  closePreviewLightbox()
+  previewTask.value = null
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && preview.value) closePreview()
+  if (e.key === 'Escape' && previewOpen.value) closePreviewLightbox()
 }
 
 async function generate(): Promise<void> {
@@ -683,9 +601,6 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  if (copiedTimer) clearTimeout(copiedTimer)
-  if (copiedTaskTimer) clearTimeout(copiedTaskTimer)
-  previewRevoke()
 })
 </script>
 

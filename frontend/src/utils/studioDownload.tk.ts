@@ -26,3 +26,14 @@ export function downloadMedia(url: string, filename: string): void {
     window.open(url, '_blank')
   }
 }
+
+/** Best-effort clipboard copy of an upstream / inline media URL. */
+export async function copyMediaLink(url: string): Promise<boolean> {
+  if (!url) return false
+  try {
+    await navigator.clipboard?.writeText(url)
+    return true
+  } catch {
+    return false
+  }
+}

@@ -110,7 +110,12 @@
         "test-id=\"studio-bakeoff-save-reminder\"",
         "data-testid=\"bakeoff-history\"",
         "gatewayGeminiImageViaChat",
-        "isGeminiNativeImageModel"
+        "isGeminiNativeImageModel",
+        "StudioVideoPreviewLightbox",
+        "useStudioVideoPreview",
+        "useStudioVideoCardActions",
+        "data-testid=\"bakeoff-video-copy-card-link\"",
+        "test-id=\"bakeoff-video-preview\""
       ],
       "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here."
     },
@@ -959,14 +964,14 @@
         "data-testid=\"studio-video-model\"",
         "data-testid=\"studio-video-generate\"",
         "data-testid=\"studio-video-play\"",
-        "data-testid=\"studio-video-preview\"",
-        "data-testid=\"studio-video-copy-link\"",
         "data-testid=\"studio-video-download\"",
         "data-testid=\"studio-video-copy-card-link\"",
         "StudioLocalSaveBanner",
         "test-id=\"studio-video-save-reminder\"",
         "StudioVideoUnavailable",
-        "videoPlaybackUrl"
+        "StudioVideoPreviewLightbox",
+        "useStudioVideoPreview",
+        "useStudioVideoCardActions"
       ],
       "must_not_contain": [
         "poll.refreshUrl"
@@ -985,6 +990,49 @@
         "revokeObjectURL"
       ],
       "rationale": "Shared Studio video-playback resolver enforcing the #944 'TokenKey is not a media CDN' rule for EVERY on-demand video surface (VideoStudio lightbox + Bake-Off panels). videoPlaybackUrl hands http(s) upstream URLs straight to the browser and converts an inline data:video result (the one response already delivered to this tab) into a tab-local Blob URL with a revoke() — never re-fetching or rehosting. Deleting/inlining this back into a single view risks one surface (e.g. Bake-Off) regressing to an always-on <video> that competes loads and black-boxes pre-play; the data:video + createObjectURL + revokeObjectURL anchors pin the conversion + cleanup."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoPreview.ts",
+      "must_contain": [
+        "export function useStudioVideoPreview",
+        "videoPlaybackUrl",
+        "copyMediaLink",
+        "onPreviewError",
+        "downloadPreview",
+        "onUrlExpired",
+        "urlExpired"
+      ],
+      "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, preview error -> urlExpired (lightbox stays open), retry, copy-link (raw upstream url), and expired download guard so surfaces cannot drift after playback fixes."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoCardActions.ts",
+      "must_contain": [
+        "export function useStudioVideoCardActions",
+        "copyMediaLink",
+        "downloadMedia",
+        "copyCardLink",
+        "downloadCardVideo"
+      ],
+      "rationale": "Shared card-level copy-link + download actions for VideoStudio and BakeOff succeeded panels. urlExpired download path warns instead of opening a dead upstream tab."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioVideoPreviewLightbox.vue",
+      "must_contain": [
+        "'studio-video-preview'",
+        "'studio-video-preview-close'",
+        "'studio-video-copy-link'",
+        "@error",
+        "studio.video.retry",
+        "emit('download')"
+      ],
+      "rationale": "Shared Teleport lightbox UI for Studio video playback. VideoStudio and BakeOff mount this instead of duplicating inline video + error/retry/download affordances."
+    },
+    {
+      "path": "frontend/src/utils/studioPlaybackStorage.tk.ts",
+      "must_contain": [
+        "export async function tagStudioVideoPlayback"
+      ],
+      "rationale": "Shared playback-storage tagging after video task url arrives — used by VideoStudio and BakeOff instead of duplicating CORS probe + IndexedDB mirror wiring."
     },
     {
       "path": "frontend/src/constants/mediaTiers.tk.ts",

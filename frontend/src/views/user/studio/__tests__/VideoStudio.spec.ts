@@ -153,7 +153,7 @@ describe('VideoStudio succeeded-task presentation', () => {
     expect(w.text()).toContain('studio.playback.expired')
   })
 
-  it('closes the lightbox and marks the card expired when preview media fails', async () => {
+  it('keeps the lightbox open and marks the card expired when preview media fails', async () => {
     seedInSession(baseTask())
     const w = mountStudio()
     await w.find('[data-testid="studio-video-play"]').trigger('click')
@@ -163,7 +163,8 @@ describe('VideoStudio succeeded-task presentation', () => {
     await w.find('[data-testid="studio-video-preview"] video').trigger('error')
     await flushPromises()
 
-    expect(w.find('[data-testid="studio-video-preview"]').exists()).toBe(false)
+    expect(w.find('[data-testid="studio-video-preview"]').exists()).toBe(true)
+    expect(w.findAll('[data-testid="studio-video-copy-link"]').length).toBeGreaterThan(0)
     expect(libraryMock.patchVideoTaskSpy).toHaveBeenCalledWith('vt_abc', { urlExpired: true })
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
     expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
