@@ -22,7 +22,9 @@ export function imageHistoryItemAvailable(img: Pick<ImageHistoryItem, 'src'>): b
   return !!img.src?.trim()
 }
 
-/** True when the task card may offer in-page playback (same session, non-expired url). */
+/** True when the task card may offer in-page playback (same session, non-expired url).
+ *  `urlExpired` is set only when a reload stripped the http url from storage — not when
+ *  the lightbox fails to play an upstream CORS-blocked clip in the current tab. */
 export function videoTaskPlaybackAvailable(task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired'>): boolean {
   return task.state === 'succeeded' && !!task.url && !task.urlExpired
 }

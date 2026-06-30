@@ -228,6 +228,7 @@ export default {
       reversePrompt: '从图片生成提示词',
       reversing: '识别中…',
       reverseEmpty: '未能从图片生成提示词。',
+      revisedPromptHint: '模型实际使用的提示词：{text}',
       generate: '生成 · {cost}',
       generateTopUp: '生成 · {cost} — 去充值',
       generating: '生成中…',

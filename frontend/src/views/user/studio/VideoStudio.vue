@@ -326,6 +326,7 @@ import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUn
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
 import { useAppStore } from '@/stores/app'
@@ -505,7 +506,6 @@ const {
   copyPreviewLink,
   downloadPreview,
 } = useStudioVideoPreview({
-  onUrlExpired: (id) => library.patchVideoTask(id, { urlExpired: true }),
   onExpiredDownload: warnExpiredDownload,
 })
 
@@ -597,7 +597,7 @@ onMounted(() => {
   for (const task of library.videoTasks.value) {
     if (task.state === 'processing') poll.resume(task)
   }
-  void library.hydrateFromBlobCache()
+  void mountStudioVideoLibrary(library)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)

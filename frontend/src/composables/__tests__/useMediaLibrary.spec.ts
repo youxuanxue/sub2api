@@ -4,9 +4,12 @@ import { useMediaLibrary, type ImageHistoryItem, type VideoTaskItem } from '../u
 
 vi.mock('@/utils/studioBlobCache.tk', () => ({
   cacheStudioBlobFromSrc: vi.fn(async () => true),
-  getStudioBlobObjectUrl: vi.fn(async (_u: string | number, kind: string, id: string) =>
-    kind === 'image' && id === 'img-reload' ? 'blob:cached-image' : ''
-  ),
+  cacheStudioBlobFromHttpUrl: vi.fn(async () => true),
+  getStudioBlobObjectUrl: vi.fn(async (_u: string | number, kind: string, id: string) => {
+    if (kind === 'image' && id === 'img-reload') return 'blob:cached-image'
+    if (kind === 'video' && id === 'vt-reload') return 'blob:cached-video'
+    return ''
+  }),
   deleteStudioBlob: vi.fn(async () => undefined),
   pruneStudioBlobCache: vi.fn(async () => undefined),
 }))
@@ -76,6 +79,38 @@ describe('useMediaLibrary video persistence', () => {
     expect(lib.videoTasks.value[0].urlExpired).toBe(true)
     expect(lib.videoTasks.value[0].prompt).toBe('neon alley rain')
   })
+
+  it('hydrates blank video url from IndexedDB after reload', async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        images: [],
+        videoTasks: [
+          {
+            ...videoTask(''),
+            id: 'vt-reload',
+            url: '',
+            urlExpired: true,
+            blobCached: true,
+          },
+        ],
+      })
+    )
+    const lib = useMediaLibrary(USER_ID)
+    expect(lib.videoTasks.value[0].url).toBe('')
+    await lib.hydrateFromBlobCache()
+    expect(lib.videoTasks.value[0].url).toBe('blob:cached-video')
+    expect(lib.videoTasks.value[0].urlExpired).toBe(false)
+  })
+
+  it('rehydrateVideoFromBlob restores playback url from IndexedDB', async () => {
+    const lib = useMediaLibrary(USER_ID)
+    lib.upsertVideoTask({ ...videoTask(''), id: 'vt-reload', url: '', urlExpired: true })
+    const ok = await lib.rehydrateVideoFromBlob('vt-reload')
+    expect(ok).toBe(true)
+    expect(lib.videoTasks.value[0].url).toBe('blob:cached-video')
+    expect(lib.videoTasks.value[0].urlExpired).toBe(false)
+  })
 })
 
 describe('useMediaLibrary image persistence', () => {
@@ -94,7 +129,7 @@ describe('useMediaLibrary image persistence', () => {
     expect(persisted.images[0].prompt).toBe('a cat')
   })
 
-  it('preserves offloaded (s3Key) and http image URLs in localStorage', async () => {
+  it('strips http and s3Key presigned src from localStorage (reload via IDB/presign)', async () => {
     const lib = useMediaLibrary(USER_ID)
     lib.addImages([
       imageItem('img-http', 'https://cdn.example/a.png'),
@@ -103,9 +138,42 @@ describe('useMediaLibrary image persistence', () => {
 
     await nextTick()
     const persisted = JSON.parse(window.localStorage.getItem(KEY) || '{}')
-    const byId = Object.fromEntries(persisted.images.map((i: ImageHistoryItem) => [i.id, i.src]))
-    expect(byId['img-http']).toBe('https://cdn.example/a.png')
-    expect(byId['img-offloaded']).toBe('https://s3.example/presigned')
+    const byId = Object.fromEntries(persisted.images.map((i: ImageHistoryItem) => [i.id, i]))
+    expect(byId['img-http'].src).toBe('')
+    expect(byId['img-offloaded'].src).toBe('')
+    expect(byId['img-offloaded'].s3Key).toBe('media/images/abc.png')
+  })
+
+  it('does not persist blob: src after IndexedDB hydration (second reload safe)', async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        images: [{ ...imageItem('img-reload', 'blob:http://localhost/dead'), blobCached: true }],
+        videoTasks: [],
+      })
+    )
+    const lib = useMediaLibrary(USER_ID)
+    expect(lib.images.value[0].src).toBe('')
+    await lib.hydrateFromBlobCache()
+    expect(lib.images.value[0].src).toBe('blob:cached-image')
+
+    await nextTick()
+    const persisted = JSON.parse(window.localStorage.getItem(KEY) || '{}')
+    expect(persisted.images[0].src).toBe('')
+  })
+
+  it('hydrates legacy persisted http image src from the blob cache after reload', async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        images: [{ ...imageItem('img-reload', 'https://cdn.example/stale.png'), prompt: 'reload me' }],
+        videoTasks: [],
+      })
+    )
+    const lib = useMediaLibrary(USER_ID)
+    expect(lib.images.value[0].src).toBe('')
+    await lib.hydrateFromBlobCache()
+    expect(lib.images.value[0].src).toBe('blob:cached-image')
   })
 
   it('hydrates blank inline image src from the blob cache after reload', async () => {

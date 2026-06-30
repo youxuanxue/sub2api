@@ -309,9 +309,9 @@ describe('BakeOff image routing', () => {
 
     expect(wrapper.find('[data-testid="bakeoff-video-preview"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-testid="bakeoff-video-copy-link"]').length).toBeGreaterThan(0)
-    expect(libraryMock.patchVideoTask).toHaveBeenCalledWith('vt_panel_a', { urlExpired: true })
-    expect(panelEls[0].find('[data-testid="bakeoff-video-play"]').exists()).toBe(false)
-    expect(panelEls[0].find('[data-testid="bakeoff-video-expired"]').exists()).toBe(true)
+    expect(libraryMock.patchVideoTask).not.toHaveBeenCalledWith('vt_panel_a', { urlExpired: true })
+    expect(panelEls[0].find('[data-testid="bakeoff-video-play"]').exists()).toBe(true)
+    expect(panelEls[0].find('[data-testid="bakeoff-video-expired"]').exists()).toBe(false)
     expect(panelEls[0].find('[data-testid="bakeoff-video-download"]').exists()).toBe(true)
     expect(panelEls[0].find('[data-testid="bakeoff-video-copy-card-link"]').exists()).toBe(true)
     expect(panelEls[1].find('[data-testid="bakeoff-video-play"]').exists()).toBe(true)
@@ -342,7 +342,7 @@ describe('BakeOff image routing', () => {
     vi.unstubAllGlobals()
   })
 
-  it('warns instead of opening a new tab when downloading an expired panel url', async () => {
+  it('panel download still uses upstream url after lightbox playback fails', async () => {
     vi.mocked(playground.gatewayVideoSubmit)
       .mockResolvedValueOnce({ id: 'vt_panel_a', status: 'succeeded', url: 'https://cdn.example/a.mp4' })
       .mockResolvedValueOnce({ id: 'vt_panel_b', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
@@ -368,8 +368,8 @@ describe('BakeOff image routing', () => {
     appStoreMock.showWarning.mockClear()
     downloadSpy.mockClear()
     await panelEls[0].get('[data-testid="bakeoff-video-download"]').trigger('click')
-    expect(appStoreMock.showWarning).toHaveBeenCalled()
-    expect(downloadSpy).not.toHaveBeenCalled()
+    expect(downloadSpy).toHaveBeenCalledWith('https://cdn.example/a.mp4', 'tokenkey-vt_panel_a.mp4')
+    expect(appStoreMock.showWarning).not.toHaveBeenCalled()
     downloadSpy.mockRestore()
   })
 

@@ -16,13 +16,16 @@ export interface StudioVideoPreviewSource {
 }
 
 export interface UseStudioVideoPreviewOptions {
-  onUrlExpired?: (taskId: string) => void
+  /** Toast when lightbox download is blocked (playback failed or persisted url stripped). */
   onExpiredDownload?: () => void
 }
 
 /**
  * Shared in-page video lightbox state for VideoStudio and BakeOff.
  * http(s) URLs play directly; inline data:video becomes a tab-local Blob URL.
+ *
+ * Lightbox playback failure is session-local (`previewState === 'expired'`) and must
+ * not mutate library/panel task cards — card poster SSOT stays on the raw upstream url.
  */
 export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}) {
   const open = ref(false)
@@ -83,14 +86,12 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   }
 
   function onPreviewError(): void {
-    const id = taskId.value
     previewRevoke()
     previewRevoke = () => {}
     previewUrl.value = ''
     previewState.value = 'expired'
     previewMediaReady.value = false
     urlExpired.value = true
-    if (id) options.onUrlExpired?.(id)
   }
 
   function retryPreview(): void {
@@ -121,9 +122,8 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   }
 
   function downloadPreview(): void {
-    const url = downloadUrl.value
-    if (!url) return
-    if (urlExpired.value) {
+    const url = rawUrl.value
+    if (!url) {
       options.onExpiredDownload?.()
       return
     }

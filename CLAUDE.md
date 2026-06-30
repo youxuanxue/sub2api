@@ -336,6 +336,24 @@ section only records sub2api-specific choices.
   The "submodule first" order is enforced by preflight § 2 (warns on offline,
   fails if SHA missing locally) and by `dev-rules/rules/dev-rules-convention.mdc`.
 
+## Studio SSOT（`/studio` Image / Video / BakeOff）
+
+`/studio` 三页（`ImageStudio` / `VideoStudio` / `BakeOff`）共享的历史、预览、下载、重载行为**禁止**在页面内各写一套。Owner 如下（#1092 视频 SSOT + 图片 SSOT 扩展）：
+
+| 意图 | Owner | 消费方 |
+| --- | --- | --- |
+| 媒体历史持久化（localStorage 元数据 + IndexedDB 镜像） | `composables/useMediaLibrary.ts` + `utils/studioBlobCache.tk.ts` | Image / Video / BakeOff |
+| 图片历史 mount（IDB hydrate → s3Key presign → thumb error 回退） | `composables/useStudioImageLibrary.ts` | ImageStudio, BakeOff |
+| 视频历史 mount（IDB hydrate → replay error 回退） | `composables/useStudioVideoLibrary.ts` | VideoStudio, BakeOff |
+| 图片 lightbox 状态 | `composables/useStudioImagePreview.ts` + `components/StudioImagePreviewLightbox.vue` | ImageStudio |
+| 图片 history id / ephemeral src / revised_prompt tooltip | `utils/studioImageHistory.tk.ts` | useMediaLibrary, ImageStudio, BakeOff |
+| 视频 lightbox 状态 + 过期播放守卫 | `composables/useStudioVideoPreview.ts` + `components/StudioVideoPreviewLightbox.vue` | VideoStudio, BakeOff |
+| 视频卡片 copy-link / 下载 | `composables/useStudioVideoCardActions.ts` + `utils/studioDownload.tk.ts` | VideoStudio, BakeOff |
+| 视频 playback 分类 + IDB 镜像 | `utils/studioPlaybackStorage.tk.ts` (`tagStudioVideoPlayback`) | VideoStudio, BakeOff |
+| 视频 tab-local Blob 播放 | `utils/studioMedia.tk.ts` (`videoPlaybackUrl`) | lightbox + BakeOff 面板 |
+
+新增 Studio 行为时：先查上表能否扩展 owner；若 Image **与** Video **与** BakeOff 任两者都需要，必须进共享 composable/组件并在 `scripts/sentinels/frontend-tk.json` 加锚点。宪法原则见 `dev-rules/global/CLAUDE.md` §5.1。
+
 ## Agent skills（Cursor / Claude Code）
 
 技能正文只在 [.cursor/skills/](.cursor/skills/) 下各目录的 `SKILL.md`。仓库根的 `.claude/skills` **仅为**指向 `.cursor/skills` 的 symlink（不要在 `.claude/skills/` 下创建真实文件或副本）。全局禁令见 **`dev-rules/global/CLAUDE.md`** §4「Agent Skills」。

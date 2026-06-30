@@ -235,7 +235,13 @@
                 <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: img.vendorLabel }) }}</span>
               </div>
               <div v-if="imageHistoryItemAvailable(img)" class="overflow-hidden rounded-lg">
-                <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
+                <img
+                  :src="img.src"
+                  :alt="img.prompt"
+                  class="aspect-square w-full object-cover"
+                  loading="lazy"
+                  @error="onImageHistoryThumbError(img.id)"
+                />
               </div>
               <StudioImageExpired v-else compact />
               <div class="mt-1 flex items-center justify-between gap-2">
@@ -340,7 +346,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit, gatewayImagePresign } from '@/api/playground'
+import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
 import {
   extractChatImageItems,
   extractImageItems,
@@ -378,6 +384,9 @@ import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActio
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll } from '@/composables/useVideoTaskPoll'
 import { useMediaLibrary, type ImageHistoryItem, type VideoTaskItem } from '@/composables/useMediaLibrary'
+import { studioImageHistoryId } from '@/utils/studioImageHistory.tk'
+import { mountStudioImageLibrary, onStudioImageThumbError } from '@/composables/useStudioImageLibrary'
+import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'
 import type { ApiKey } from '@/types'
 
 const props = defineProps<{
@@ -532,7 +541,6 @@ const {
   copyPreviewLink,
   downloadPreview,
 } = useStudioVideoPreview({
-  onUrlExpired: (id) => patchVideoTask(id, { urlExpired: true }),
   onExpiredDownload: warnExpiredDownload,
 })
 
@@ -683,7 +691,7 @@ async function run(): Promise<void> {
     if (modality.value === 'image') {
       const historyBatch: ImageHistoryItem[] = []
       await Promise.all(
-        panels.value.map(async (panel, index) => {
+        panels.value.map(async (panel) => {
           try {
             const items = await generateBakeoffImage(panel.servedId, text)
             if (!items.length) throw new Error('no_image')
@@ -691,7 +699,7 @@ async function run(): Promise<void> {
             panel.src = it.src
             panel.state = 'succeeded'
             historyBatch.push({
-              id: `${runTs}-${panel.modelId}-${index}`,
+              id: studioImageHistoryId(),
               src: it.src,
               s3Key: it.s3Key,
               prompt: text,
@@ -791,26 +799,15 @@ function mapError(e: unknown): void {
   }
 }
 
-async function refreshOffloadedImageUrls(): Promise<void> {
-  if (!props.apiKey) return
-  const stale = library.images.value.filter((it) => it.s3Key)
-  if (!stale.length) return
-  await Promise.all(
-    stale.map(async (it) => {
-      try {
-        const url = await gatewayImagePresign(props.apiKey, props.gatewayBase, it.s3Key as string)
-        if (url) it.src = url
-      } catch {
-        /* history is best-effort */
-      }
-    })
-  )
+function onImageHistoryThumbError(itemId: string): void {
+  void onStudioImageThumbError(library, itemId)
 }
 
 onMounted(() => {
   for (const task of library.videoTasks.value) {
     if (task.state === 'processing') poll.resume(task)
   }
-  void library.hydrateFromBlobCache().then(() => refreshOffloadedImageUrls())
+  void mountStudioImageLibrary(props.apiKey, props.gatewayBase, library)
+  void mountStudioVideoLibrary(library)
 })
 </script>

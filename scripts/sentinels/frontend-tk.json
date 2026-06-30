@@ -114,6 +114,9 @@
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
         "useStudioVideoCardActions",
+        "mountStudioImageLibrary",
+        "mountStudioVideoLibrary",
+        "onStudioImageThumbError",
         "data-testid=\"bakeoff-video-copy-card-link\"",
         "test-id=\"bakeoff-video-preview\""
       ],
@@ -953,10 +956,12 @@
         "StudioLocalSaveBanner",
         "test-id=\"studio-image-save-reminder\"",
         "StudioImageExpired",
-        "refreshOffloadedImageUrls",
+        "mountStudioImageLibrary",
+        "useStudioImagePreview",
+        "StudioImagePreviewLightbox",
         "pricesFlat"
       ],
-      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (mediaTiers.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. refreshOffloadedImageUrls anchors the onMounted re-presign of persisted offloaded images: offloaded image src is a short-lived presigned S3 link, so a reloaded session must re-mint from the stored s3Key (POST /v1/images/presign) — dropping this call leaves a reopened Studio with dead (expired) image thumbnails. pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
+      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (mediaTiers.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
     },
     {
       "path": "frontend/src/views/user/studio/VideoStudio.vue",
@@ -971,7 +976,8 @@
         "StudioVideoUnavailable",
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
-        "useStudioVideoCardActions"
+        "useStudioVideoCardActions",
+        "mountStudioVideoLibrary"
       ],
       "must_not_contain": [
         "poll.refreshUrl"
@@ -999,10 +1005,10 @@
         "copyMediaLink",
         "onPreviewError",
         "downloadPreview",
-        "onUrlExpired",
-        "urlExpired"
+        "previewState",
+        "rawUrl"
       ],
-      "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, preview error -> urlExpired (lightbox stays open), retry, copy-link (raw upstream url), and expired download guard so surfaces cannot drift after playback fixes."
+      "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, session-local preview error (lightbox stays open; card poster SSOT unchanged), retry, copy-link (raw upstream url), and download via rawUrl so surfaces cannot drift after playback fixes."
     },
     {
       "path": "frontend/src/composables/useStudioVideoCardActions.ts",
@@ -1026,6 +1032,54 @@
         "emit('download')"
       ],
       "rationale": "Shared Teleport lightbox UI for Studio video playback. VideoStudio and BakeOff mount this instead of duplicating inline video + error/retry/download affordances."
+    },
+    {
+      "path": "frontend/src/composables/useStudioImageLibrary.ts",
+      "must_contain": [
+        "export async function mountStudioImageLibrary",
+        "export async function refreshStudioOffloadedImageUrls",
+        "export async function onStudioImageThumbError",
+        "gatewayImagePresign"
+      ],
+      "rationale": "Single reload path for Studio image history (ImageStudio + BakeOff): IndexedDB hydrate, s3Key re-presign, and thumbnail error -> IDB rehydrate. Prevents duplicate mount logic and the blob:/http localStorage persistence bug that broke previews on second refresh."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoLibrary.ts",
+      "must_contain": [
+        "export async function mountStudioVideoLibrary",
+        "export async function onStudioVideoReplayError",
+        "hydrateFromBlobCache",
+        "rehydrateVideoFromBlob"
+      ],
+      "rationale": "Single reload path for Studio video history (VideoStudio + BakeOff): IndexedDB hydrate after reload and on-demand IDB rehydrate before showing expired placeholders. Mirrors useStudioImageLibrary without s3Key presign — video passthrough keeps http urls out of localStorage (#944)."
+    },
+    {
+      "path": "frontend/src/composables/useStudioImagePreview.ts",
+      "must_contain": [
+        "export function useStudioImagePreview",
+        "imageHistoryItemAvailable",
+        "closePreview"
+      ],
+      "rationale": "Shared in-page image lightbox state for ImageStudio (mirrors useStudioVideoPreview from #1092). data: URIs cannot open in a new tab; preview stays in-page with Escape-to-close."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioImagePreviewLightbox.vue",
+      "must_contain": [
+        "'studio-image-preview'",
+        "'studio-image-preview-close'",
+        "emit('download', preview)",
+        "emit('reuse', preview)"
+      ],
+      "rationale": "Shared Teleport lightbox UI for Studio image playback. ImageStudio mounts this instead of duplicating inline preview + footer actions."
+    },
+    {
+      "path": "frontend/src/utils/studioImageHistory.tk.ts",
+      "must_contain": [
+        "export function studioImageHistoryId",
+        "export function isEphemeralImageSrc",
+        "export function imageHistoryPromptTitle"
+      ],
+      "rationale": "Shared image-history helpers: unique row ids (Vue :key), ephemeral-src persistence guard, and revised_prompt tooltip text. Used by useMediaLibrary sanitizers and ImageStudio/BakeOff history cards."
     },
     {
       "path": "frontend/src/utils/studioPlaybackStorage.tk.ts",

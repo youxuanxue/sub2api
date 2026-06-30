@@ -230,6 +230,7 @@ export default {
       reversePrompt: 'Generate prompt from image',
       reversing: 'Reading image…',
       reverseEmpty: 'Could not derive a prompt from the image.',
+      revisedPromptHint: 'Prompt the model actually used: {text}',
       generate: 'Generate · {cost}',
       generateTopUp: 'Generate · {cost} — top up',
       generating: 'Generating…',
