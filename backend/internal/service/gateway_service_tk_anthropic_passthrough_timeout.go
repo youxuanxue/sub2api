@@ -49,22 +49,3 @@ func copyAnthropicPassthroughHeaders(dst http.Header, src http.Header, allowTime
 		}
 	}
 }
-
-func collectAnthropicPassthroughTimeoutHeaders(h http.Header) []string {
-	if h == nil {
-		return nil
-	}
-	var matched []string
-	for key, values := range h {
-		lowerKey := strings.ToLower(strings.TrimSpace(key))
-		if !isAnthropicPassthroughTimeoutHeader(lowerKey) {
-			continue
-		}
-		entry := lowerKey
-		if len(values) > 0 {
-			entry = lowerKey + "=" + strings.Join(values, "|")
-		}
-		matched = append(matched, entry)
-	}
-	return matched
-}
