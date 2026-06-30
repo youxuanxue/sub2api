@@ -27,7 +27,6 @@ const libraryMock = vi.hoisted(() => ({
   hydrateFromBlobCache: vi.fn(async () => undefined),
   cacheInlineMedia: vi.fn(async () => undefined),
   rehydrateImageFromBlob: vi.fn(async () => false),
-  rehydrateVideoFromBlob: vi.fn(async () => false),
 }))
 
 const appStoreMock = vi.hoisted(() => ({

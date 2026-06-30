@@ -103,14 +103,6 @@ describe('useMediaLibrary video persistence', () => {
     expect(lib.videoTasks.value[0].urlExpired).toBe(false)
   })
 
-  it('rehydrateVideoFromBlob restores playback url from IndexedDB', async () => {
-    const lib = useMediaLibrary(USER_ID)
-    lib.upsertVideoTask({ ...videoTask(''), id: 'vt-reload', url: '', urlExpired: true })
-    const ok = await lib.rehydrateVideoFromBlob('vt-reload')
-    expect(ok).toBe(true)
-    expect(lib.videoTasks.value[0].url).toBe('blob:cached-video')
-    expect(lib.videoTasks.value[0].urlExpired).toBe(false)
-  })
 })
 
 describe('useMediaLibrary image persistence', () => {

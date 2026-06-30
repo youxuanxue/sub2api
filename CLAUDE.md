@@ -344,7 +344,7 @@ section only records sub2api-specific choices.
 | --- | --- | --- |
 | 媒体历史持久化（localStorage 元数据 + IndexedDB 镜像） | `composables/useMediaLibrary.ts` + `utils/studioBlobCache.tk.ts` | Image / Video / BakeOff |
 | 图片历史 mount（IDB hydrate → s3Key presign → thumb error 回退） | `composables/useStudioImageLibrary.ts` | ImageStudio, BakeOff |
-| 视频历史 mount（IDB hydrate → replay error 回退） | `composables/useStudioVideoLibrary.ts` | VideoStudio, BakeOff |
+| 视频历史 mount（IDB hydrate） | `composables/useStudioVideoLibrary.ts` | VideoStudio, BakeOff |
 | 图片 lightbox 状态 | `composables/useStudioImagePreview.ts` + `components/StudioImagePreviewLightbox.vue` | ImageStudio |
 | 图片 history id / ephemeral src / revised_prompt tooltip | `utils/studioImageHistory.tk.ts` | useMediaLibrary, ImageStudio, BakeOff |
 | 视频 lightbox 状态 + 过期播放守卫 | `composables/useStudioVideoPreview.ts` + `components/StudioVideoPreviewLightbox.vue` | VideoStudio, BakeOff |

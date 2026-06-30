@@ -1052,11 +1052,9 @@
       "path": "frontend/src/composables/useStudioVideoLibrary.ts",
       "must_contain": [
         "export async function mountStudioVideoLibrary",
-        "export async function onStudioVideoReplayError",
-        "hydrateFromBlobCache",
-        "rehydrateVideoFromBlob"
+        "hydrateFromBlobCache"
       ],
-      "rationale": "Single reload path for Studio video history (VideoStudio + BakeOff): IndexedDB hydrate after reload and on-demand IDB rehydrate before showing expired placeholders. Mirrors useStudioImageLibrary without s3Key presign — video passthrough keeps http urls out of localStorage (#944)."
+      "rationale": "Single reload path for Studio video history (VideoStudio + BakeOff): IndexedDB hydrate after reload. Mirrors useStudioImageLibrary without s3Key presign — video passthrough keeps http urls out of localStorage (#944)."
     },
     {
       "path": "frontend/src/composables/useStudioImagePreview.ts",

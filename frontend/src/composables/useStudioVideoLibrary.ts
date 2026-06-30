@@ -1,6 +1,6 @@
 import type { MediaLibrary } from '@/composables/useMediaLibrary'
 
-export type StudioVideoLibrary = Pick<MediaLibrary, 'hydrateFromBlobCache' | 'rehydrateVideoFromBlob'>
+export type StudioVideoLibrary = Pick<MediaLibrary, 'hydrateFromBlobCache'>
 
 /**
  * Rehydrate IndexedDB-mirrored video clips after reload.
@@ -9,12 +9,4 @@ export type StudioVideoLibrary = Pick<MediaLibrary, 'hydrateFromBlobCache' | 're
  */
 export async function mountStudioVideoLibrary(library: StudioVideoLibrary): Promise<void> {
   await library.hydrateFromBlobCache()
-}
-
-/** Play / card replay: try IndexedDB mirror before showing expired placeholder. */
-export async function onStudioVideoReplayError(
-  library: StudioVideoLibrary,
-  taskId: string
-): Promise<boolean> {
-  return library.rehydrateVideoFromBlob(taskId)
 }

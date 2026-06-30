@@ -189,8 +189,6 @@ export interface MediaLibrary {
   cacheInlineMedia: (kind: 'image' | 'video', itemId: string, src: string) => Promise<void>
   /** On <img> error: try IndexedDB mirror, else mark thumbnail unavailable. */
   rehydrateImageFromBlob: (id: string) => Promise<boolean>
-  /** On stale/empty video url: try IndexedDB mirror, else mark clip unavailable. */
-  rehydrateVideoFromBlob: (id: string) => Promise<boolean>
 }
 
 export function useMediaLibrary(userId: number | string): MediaLibrary {
@@ -333,21 +331,6 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     return true
   }
 
-  async function rehydrateVideoFromBlob(id: string): Promise<boolean> {
-    const idx = videoTasks.value.findIndex((t) => t.id === id)
-    if (idx < 0) return false
-    const blobUrl = await getStudioBlobObjectUrl(userId, 'video', id)
-    const next = [...videoTasks.value]
-    if (!blobUrl) {
-      next[idx] = { ...next[idx], url: '', urlExpired: true }
-      videoTasks.value = next
-      return false
-    }
-    next[idx] = { ...next[idx], url: blobUrl, blobCached: true, urlExpired: false }
-    videoTasks.value = next
-    return true
-  }
-
   return {
     images,
     videoTasks,
@@ -360,6 +343,5 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     hydrateFromBlobCache,
     cacheInlineMedia,
     rehydrateImageFromBlob,
-    rehydrateVideoFromBlob,
   }
 }
