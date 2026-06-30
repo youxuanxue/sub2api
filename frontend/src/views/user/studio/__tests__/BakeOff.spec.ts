@@ -19,8 +19,12 @@ const libraryMock = vi.hoisted(() => ({
   cacheInlineMedia: vi.fn(async () => undefined),
 }))
 
+const appStoreMock = vi.hoisted(() => ({
+  showWarning: vi.fn(),
+}))
+
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showWarning: vi.fn() }),
+  useAppStore: () => appStoreMock,
 }))
 
 vi.mock('@/api/playground', () => ({
@@ -279,7 +283,7 @@ describe('BakeOff image routing', () => {
     )
   })
 
-  it('closes the panel lightbox and marks the task expired when preview media fails', async () => {
+  it('keeps the lightbox open with copy-link fallback when preview media fails', async () => {
     vi.mocked(playground.gatewayVideoSubmit)
       .mockResolvedValueOnce({ id: 'vt_panel_a', status: 'succeeded', url: 'https://cdn.example/a.mp4' })
       .mockResolvedValueOnce({ id: 'vt_panel_b', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
@@ -303,12 +307,70 @@ describe('BakeOff image routing', () => {
     await wrapper.find('[data-testid="bakeoff-video-preview"] video').trigger('error')
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="bakeoff-video-preview"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="bakeoff-video-preview"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid="bakeoff-video-copy-link"]').length).toBeGreaterThan(0)
     expect(libraryMock.patchVideoTask).toHaveBeenCalledWith('vt_panel_a', { urlExpired: true })
     expect(panelEls[0].find('[data-testid="bakeoff-video-play"]').exists()).toBe(false)
     expect(panelEls[0].find('[data-testid="bakeoff-video-expired"]').exists()).toBe(true)
     expect(panelEls[0].find('[data-testid="bakeoff-video-download"]').exists()).toBe(true)
+    expect(panelEls[0].find('[data-testid="bakeoff-video-copy-card-link"]').exists()).toBe(true)
     expect(panelEls[1].find('[data-testid="bakeoff-video-play"]').exists()).toBe(true)
+  })
+
+  it('exposes card-level copy-link for succeeded video panels', async () => {
+    vi.mocked(playground.gatewayVideoSubmit)
+      .mockResolvedValueOnce({ id: 'vt_panel_a', status: 'succeeded', url: 'https://cdn.example/a.mp4' })
+      .mockResolvedValueOnce({ id: 'vt_panel_b', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
+
+    const writeText = vi.fn(async () => undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true, teleport: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="bakeoff-panel"]')[0].get('[data-testid="bakeoff-video-copy-card-link"]').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith('https://cdn.example/a.mp4')
+    vi.unstubAllGlobals()
+  })
+
+  it('warns instead of opening a new tab when downloading an expired panel url', async () => {
+    vi.mocked(playground.gatewayVideoSubmit)
+      .mockResolvedValueOnce({ id: 'vt_panel_a', status: 'succeeded', url: 'https://cdn.example/a.mp4' })
+      .mockResolvedValueOnce({ id: 'vt_panel_b', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
+    const downloadSpy = vi.spyOn(await import('@/utils/studioDownload.tk'), 'downloadMedia')
+
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true, teleport: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    const panelEls = wrapper.findAll('[data-testid="bakeoff-panel"]')
+    await panelEls[0].get('[data-testid="bakeoff-video-play"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="bakeoff-video-preview"] video').trigger('error')
+    await flushPromises()
+
+    appStoreMock.showWarning.mockClear()
+    downloadSpy.mockClear()
+    await panelEls[0].get('[data-testid="bakeoff-video-download"]').trigger('click')
+    expect(appStoreMock.showWarning).toHaveBeenCalled()
+    expect(downloadSpy).not.toHaveBeenCalled()
+    downloadSpy.mockRestore()
   })
 
   it('converts inline data:video panel urls to blob playback in the lightbox', async () => {

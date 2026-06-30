@@ -56,3 +56,19 @@ describe('downloadMedia', () => {
     expect(openSpy).toHaveBeenCalledWith('https://cdn.example.com/v.mp4', '_blank')
   })
 })
+
+describe('copyMediaLink', () => {
+  it('returns false on empty url', async () => {
+    const { copyMediaLink } = await import('@/utils/studioDownload.tk')
+    expect(await copyMediaLink('')).toBe(false)
+  })
+
+  it('writes url to clipboard', async () => {
+    const writeText = vi.fn(async () => undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    const { copyMediaLink } = await import('@/utils/studioDownload.tk')
+    expect(await copyMediaLink('https://cdn.example/v.mp4')).toBe(true)
+    expect(writeText).toHaveBeenCalledWith('https://cdn.example/v.mp4')
+    vi.unstubAllGlobals()
+  })
+})

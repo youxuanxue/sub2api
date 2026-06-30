@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { copyMediaLink, downloadMedia } from '@/utils/studioDownload.tk'
 import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
 
 export type StudioVideoPreviewState = 'loading' | 'ready' | 'expired'
@@ -8,6 +9,7 @@ export interface StudioVideoPreviewSource {
   label: string
   cost: number
   taskId?: string
+  urlExpired?: boolean
   /** Shown under the label in the lightbox footer (e.g. full prompt). */
   subtitle?: string
   downloadFilename?: string
@@ -15,6 +17,7 @@ export interface StudioVideoPreviewSource {
 
 export interface UseStudioVideoPreviewOptions {
   onUrlExpired?: (taskId: string) => void
+  onExpiredDownload?: () => void
 }
 
 /**
@@ -33,11 +36,13 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   const previewState = ref<StudioVideoPreviewState>('loading')
   const previewMediaReady = ref(false)
   const copiedLink = ref(false)
+  const urlExpired = ref(false)
 
   let previewRevoke: () => void = () => {}
   let copiedTimer: ReturnType<typeof setTimeout> | undefined
 
   const downloadUrl = computed(() => rawUrl.value || previewUrl.value)
+  const copyLinkUrl = computed(() => rawUrl.value || previewUrl.value)
 
   function openPreview(source: StudioVideoPreviewSource): void {
     if (!source.url) return
@@ -48,6 +53,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     cost.value = source.cost
     rawUrl.value = source.url
     taskId.value = source.taskId
+    urlExpired.value = source.urlExpired ?? false
     downloadFilename.value = source.downloadFilename ?? 'tokenkey-preview.mp4'
     previewUrl.value = ''
     previewState.value = 'loading'
@@ -69,6 +75,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     cost.value = null
     rawUrl.value = ''
     taskId.value = undefined
+    urlExpired.value = false
     previewUrl.value = ''
     previewState.value = 'loading'
     previewMediaReady.value = false
@@ -77,7 +84,12 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
 
   function onPreviewError(): void {
     const id = taskId.value
-    closePreview()
+    previewRevoke()
+    previewRevoke = () => {}
+    previewUrl.value = ''
+    previewState.value = 'expired'
+    previewMediaReady.value = false
+    urlExpired.value = true
     if (id) options.onUrlExpired?.(id)
   }
 
@@ -88,6 +100,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
       label: label.value,
       cost: cost.value ?? 0,
       taskId: taskId.value,
+      urlExpired: urlExpired.value,
       subtitle: subtitle.value,
       downloadFilename: downloadFilename.value,
     })
@@ -98,15 +111,23 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   }
 
   async function copyPreviewLink(): Promise<void> {
-    if (!previewUrl.value) return
-    try {
-      await navigator.clipboard?.writeText(previewUrl.value)
+    const url = copyLinkUrl.value
+    if (!url) return
+    if (await copyMediaLink(url)) {
       copiedLink.value = true
       if (copiedTimer) clearTimeout(copiedTimer)
       copiedTimer = setTimeout(() => (copiedLink.value = false), 1500)
-    } catch {
-      /* clipboard unavailable — Download still works */
     }
+  }
+
+  function downloadPreview(): void {
+    const url = downloadUrl.value
+    if (!url) return
+    if (urlExpired.value) {
+      options.onExpiredDownload?.()
+      return
+    }
+    downloadMedia(url, downloadFilename.value)
   }
 
   onBeforeUnmount(closePreview)
@@ -121,14 +142,17 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     cost,
     downloadFilename,
     downloadUrl,
+    copyLinkUrl,
     previewState,
     previewMediaReady,
     copiedLink,
+    urlExpired,
     openPreview,
     closePreview,
     onPreviewError,
     retryPreview,
     onPreviewMediaReady,
     copyPreviewLink,
+    downloadPreview,
   }
 }

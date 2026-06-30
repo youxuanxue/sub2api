@@ -258,8 +258,8 @@
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
             <button v-if="videoTaskPlaybackAvailable(task)" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
-            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" data-testid="studio-video-download" @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)">{{ t('studio.video.download') }}</button>
-            <button v-if="task.url" type="button" class="text-gray-500 dark:text-dark-300" data-testid="studio-video-copy-card-link" @click="copyTaskLink(task.url)">{{ copiedTaskUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
+            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" data-testid="studio-video-download" @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)">{{ t('studio.video.download') }}</button>
+            <button v-if="task.url" type="button" class="text-gray-500 dark:text-dark-300" data-testid="studio-video-copy-card-link" @click="copyCardLink(task.url)">{{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
@@ -294,6 +294,7 @@
       @retry="retryPreviewLightbox"
       @reuse="reuseAndClosePreview"
       @copy-link="copyPreviewLink"
+      @download="downloadPreview"
       @media-ready="onPreviewMediaReady"
     />
   </div>
@@ -316,7 +317,6 @@ import {
   type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
-import { downloadMedia } from '@/utils/studioDownload.tk'
 import { videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
@@ -325,6 +325,7 @@ import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVid
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
+import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
 import { useAppStore } from '@/stores/app'
@@ -347,6 +348,8 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(warnExpiredDownload)
 const library = useMediaLibrary(props.userId)
 
 const models = computed(() => resolveAvailableModels('video', props.availableIds, props.priceMap))
@@ -500,8 +503,10 @@ const {
   retryPreview: retryPreviewLightbox,
   onPreviewMediaReady,
   copyPreviewLink,
+  downloadPreview,
 } = useStudioVideoPreview({
   onUrlExpired: (id) => library.patchVideoTask(id, { urlExpired: true }),
+  onExpiredDownload: warnExpiredDownload,
 })
 
 function openPreview(task: VideoTaskItem): void {
@@ -513,6 +518,7 @@ function openPreview(task: VideoTaskItem): void {
     subtitle: task.prompt,
     cost: task.estCost,
     taskId: task.id,
+    urlExpired: task.urlExpired,
     downloadFilename: `tokenkey-${task.id}.mp4`,
   })
 }
@@ -521,22 +527,6 @@ function reuseAndClosePreview(): void {
   if (previewTask.value) reuse(previewTask.value)
   closePreviewLightbox()
   previewTask.value = null
-}
-
-// Transient "copied" confirmation for the card copy-link button (no toast/banner).
-const copiedTaskUrl = ref('')
-let copiedTaskTimer: ReturnType<typeof setTimeout> | undefined
-
-async function copyTaskLink(url: string): Promise<void> {
-  if (!url) return
-  try {
-    await navigator.clipboard?.writeText(url)
-    copiedTaskUrl.value = url
-    if (copiedTaskTimer) clearTimeout(copiedTaskTimer)
-    copiedTaskTimer = setTimeout(() => (copiedTaskUrl.value = ''), 1500)
-  } catch {
-    /* clipboard unavailable / blocked — Download still works */
-  }
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -611,7 +601,6 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  if (copiedTaskTimer) clearTimeout(copiedTaskTimer)
 })
 </script>
 

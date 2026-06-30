@@ -65,4 +65,20 @@ describe('StudioVideoPreviewLightbox', () => {
     const wrapper = mountLightbox({ previewState: 'expired', previewUrl: '' })
     expect(wrapper.text()).toContain('studio.video.retry')
   })
+
+  it('emits download when footer download is clicked', async () => {
+    const wrapper = mountLightbox()
+    const buttons = wrapper.findAll('button').filter((b) => b.text().includes('studio.video.download'))
+    await buttons[0].trigger('click')
+    expect(wrapper.emitted('download')).toHaveLength(1)
+  })
+
+  it('shows copy-link in expired state when downloadUrl is set', () => {
+    const wrapper = mountLightbox({
+      previewState: 'expired',
+      previewUrl: '',
+      downloadUrl: 'https://cdn.example/clip.mp4',
+    })
+    expect(wrapper.find('[data-testid="studio-video-copy-link"]').exists()).toBe(true)
+  })
 })

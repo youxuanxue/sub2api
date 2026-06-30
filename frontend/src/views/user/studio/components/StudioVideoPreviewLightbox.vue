@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
-import { downloadMedia } from '@/utils/studioDownload.tk'
 import type { StudioVideoPreviewState } from '@/composables/useStudioVideoPreview'
 
-const props = defineProps<{
+defineProps<{
   open: boolean
   previewState: StudioVideoPreviewState
   previewUrl: string
@@ -27,15 +26,11 @@ const emit = defineEmits<{
   retry: []
   reuse: []
   'copy-link': []
+  download: []
   'media-ready': []
 }>()
 
 const { t } = useI18n()
-
-function onDownload(): void {
-  if (!props.downloadUrl) return
-  downloadMedia(props.downloadUrl, props.downloadFilename)
-}
 </script>
 
 <template>
@@ -81,13 +76,22 @@ function onDownload(): void {
         <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
           <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
           <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
-          <div class="mt-3 flex items-center justify-center gap-2">
+          <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
               class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100"
               @click="emit('retry')"
             >
               {{ t('studio.video.retry') }}
+            </button>
+            <button
+              v-if="downloadUrl"
+              type="button"
+              class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
+              :data-testid="copyLinkTestId ?? 'studio-video-copy-link'"
+              @click="emit('copy-link')"
+            >
+              {{ copiedLink ? t('studio.video.copied') : t('studio.video.copyLink') }}
             </button>
             <button
               v-if="showReusePrompt"
@@ -109,12 +113,12 @@ function onDownload(): void {
           v-if="downloadUrl"
           type="button"
           class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100"
-          @click="onDownload"
+          @click="emit('download')"
         >
           {{ t('studio.video.download') }}
         </button>
         <button
-          v-if="previewState === 'ready' && previewUrl"
+          v-if="downloadUrl"
           type="button"
           class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
           :data-testid="copyLinkTestId ?? 'studio-video-copy-link'"

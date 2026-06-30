@@ -113,6 +113,8 @@
         "isGeminiNativeImageModel",
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
+        "useStudioVideoCardActions",
+        "data-testid=\"bakeoff-video-copy-card-link\"",
         "test-id=\"bakeoff-video-preview\""
       ],
       "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here."
@@ -968,7 +970,8 @@
         "test-id=\"studio-video-save-reminder\"",
         "StudioVideoUnavailable",
         "StudioVideoPreviewLightbox",
-        "useStudioVideoPreview"
+        "useStudioVideoPreview",
+        "useStudioVideoCardActions"
       ],
       "must_not_contain": [
         "poll.refreshUrl"
@@ -993,10 +996,24 @@
       "must_contain": [
         "export function useStudioVideoPreview",
         "videoPlaybackUrl",
+        "copyMediaLink",
         "onPreviewError",
-        "onUrlExpired"
+        "downloadPreview",
+        "onUrlExpired",
+        "urlExpired"
       ],
-      "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, preview error -> urlExpired, retry, and copy-link so surfaces cannot drift after playback fixes."
+      "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, preview error -> urlExpired (lightbox stays open), retry, copy-link (raw upstream url), and expired download guard so surfaces cannot drift after playback fixes."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoCardActions.ts",
+      "must_contain": [
+        "export function useStudioVideoCardActions",
+        "copyMediaLink",
+        "downloadMedia",
+        "copyCardLink",
+        "downloadCardVideo"
+      ],
+      "rationale": "Shared card-level copy-link + download actions for VideoStudio and BakeOff succeeded panels. urlExpired download path warns instead of opening a dead upstream tab."
     },
     {
       "path": "frontend/src/views/user/studio/components/StudioVideoPreviewLightbox.vue",
@@ -1005,7 +1022,8 @@
         "'studio-video-preview-close'",
         "'studio-video-copy-link'",
         "@error",
-        "studio.video.retry"
+        "studio.video.retry",
+        "emit('download')"
       ],
       "rationale": "Shared Teleport lightbox UI for Studio video playback. VideoStudio and BakeOff mount this instead of duplicating inline video + error/retry/download affordances."
     },
