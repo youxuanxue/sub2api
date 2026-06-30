@@ -18,6 +18,11 @@ func newEdgeUS4KiroAccount() *Account {
 		Name:     "kiro-us4-real",
 		Platform: PlatformKiro,
 		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "at",
+			"refresh_token": "rt",
+			"profile_arn":   "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+		},
 	}
 }
 

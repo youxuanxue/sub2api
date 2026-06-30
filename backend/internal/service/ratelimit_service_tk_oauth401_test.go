@@ -359,6 +359,7 @@ func newKiroOAuth401Account(id int64, expiresAt time.Time) *Account {
 			"client_id":     "cid",
 			"client_secret": "secret",
 			"region":        "us-east-1",
+			"profile_arn":   "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
 		},
 	}
 }

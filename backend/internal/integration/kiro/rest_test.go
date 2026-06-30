@@ -143,6 +143,9 @@ func TestIsInvalidProfileArnError(t *testing.T) {
 	if !isInvalidProfileArnError(fmt.Errorf(`HTTP 400 from https://codewhisperer.us-east-1.amazonaws.com: {"message":"Invalid profileArn."}`)) {
 		t.Fatal("expected invalid profileArn detection")
 	}
+	if !isInvalidProfileArnError(fmt.Errorf(`HTTP 400 from https://runtime.us-east-1.kiro.dev: {"message":"profileArn is required for this request."}`)) {
+		t.Fatal("expected missing profileArn detection")
+	}
 	if isInvalidProfileArnError(fmt.Errorf("HTTP 401: unauthorized")) {
 		t.Fatal("401 should not match invalid profileArn")
 	}

@@ -397,18 +397,20 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 	}
 
 	if payload != nil && strings.TrimSpace(payload.ProfileArn) == "" {
-		if err := ensureProfileArn(account); err != nil {
-			logWarnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail(account), err)
-		} else {
-			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
+		if err := ensureProfileArnWithDoer(account, doer); err != nil {
+			return fmt.Errorf("resolve profileArn: %w", err)
 		}
+		payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
+	}
+	if payload != nil && strings.TrimSpace(payload.ProfileArn) == "" {
+		return fmt.Errorf("profileArn is required for Kiro requests")
 	}
 
 	endpoints := getSortedEndpoints(GetPreferredEndpoint())
 	err := callKiroAPIOnce(doer, account, payload, callback, endpoints)
 	if isInvalidProfileArnError(err) {
 		logWarnf("[KiroAPI] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
-		if resolveErr := reresolveProfileArnAfterStale(account); resolveErr == nil && payload != nil {
+		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil && payload != nil {
 			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
 			return callKiroAPIOnce(doer, account, payload, callback, endpoints)
 		}
