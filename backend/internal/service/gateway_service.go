@@ -5375,6 +5375,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if err := replaceBody(FilterThinkingBlocks(body, reqModel)); err != nil {
 		return nil, err
 	}
+	// TK: ToolSearch dynamic tool loading re-serializes historical signed thinking
+	// blocks (claude-code #63792 / #10199) → upstream 400 "cannot be modified" +
+	// client strip-and-retry storm. Pre-filter historical assistant thinking before
+	// the first upstream call when ToolSearch tools are present.
+	if err := replaceBody(TkPrefilterToolSearchHistoricalThinking(body, reqModel)); err != nil {
+		return nil, err
+	}
 	// Chinese LLM thinking.type 协议差异补正（如 MiniMax 只接受 adaptive；Anthropic-SDK
 	// 客户端默认发 enabled）。仅对 passback-required 上游生效（claude-* 不会进来）。
 	if ResolveThinkingProtocol(reqModel) == ThinkingProtocolPassbackRequired {
@@ -6107,6 +6114,8 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, err
 		}
 	}
+	// TK: ToolSearch + stale signed thinking pre-filter (claude-code #63792 / #10199).
+	input.Body = TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)
 
 	// Sticky routing: for non-Claude-Code clients hitting Anthropic API Key,
 	// derive + inject metadata.user_id so upstream prompt cache can bucket
