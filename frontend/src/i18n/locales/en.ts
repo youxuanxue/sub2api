@@ -230,6 +230,7 @@ export default {
       reversePrompt: 'Generate prompt from image',
       reversing: 'Reading image…',
       reverseEmpty: 'Could not derive a prompt from the image.',
+      revisedPromptHint: 'Prompt the model actually used: {text}',
       generate: 'Generate · {cost}',
       generateTopUp: 'Generate · {cost} — top up',
       generating: 'Generating…',
@@ -285,6 +286,9 @@ export default {
       copied: 'Copied',
       retentionHint: 'Download now · short local preview; upstream links expire',
       previewBuffering: 'Buffering video…',
+      checkingPreview: 'Checking whether in-page preview is available…',
+      downloadOnlyTitle: 'Video ready',
+      downloadOnlyHint: 'This source cannot be previewed in the browser. Download to watch locally.',
     },
     chat: {
       model: 'Model',

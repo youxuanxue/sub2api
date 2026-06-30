@@ -20,8 +20,18 @@ describe('videoTaskPlaybackStorageKind', () => {
     expect(videoTaskPlaybackStorageKind({ url: '', urlExpired: true })).toBe('expired')
   })
 
-  it('prefers persisted playbackStorage', () => {
+  it('prefers persisted playbackStorage when url is still present', () => {
     expect(videoTaskPlaybackStorageKind({ url: 'https://x/v.mp4', playbackStorage: 'inline-local' })).toBe('inline-local')
+  })
+
+  it('ignores stale playbackStorage after reload stripped the url', () => {
+    expect(
+      videoTaskPlaybackStorageKind({
+        url: '',
+        urlExpired: true,
+        playbackStorage: 'upstream-cors-ok',
+      })
+    ).toBe('expired')
   })
 })
 

@@ -227,10 +227,9 @@
           <p v-if="task.errorMessage" class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{{ t('studio.video.stalled') }}</p>
         </div>
 
-        <!-- succeeded: poster tile when playback is still available in this tab;
-             otherwise prompt-only (upstream http links are not replayed after reload). -->
+        <!-- succeeded: play tile only when inline preview is eligible; CORS-blocked upstream → download-first. -->
         <div v-else-if="task.state === 'succeeded'" class="space-y-2">
-          <template v-if="videoTaskPlaybackAvailable(task)">
+          <template v-if="videoTaskCardPresentation(task) === 'inline-play'">
             <button
               type="button"
               class="group relative block w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
@@ -251,15 +250,44 @@
               <StudioPlaybackBadge :task="task" />
             </div>
           </template>
+          <StudioVideoPreviewChecking
+            v-else-if="videoTaskCardPresentation(task) === 'loading'"
+            :aspect-ratio="posterAspect(task)"
+            :seconds="task.seconds"
+            :aspect-label="task.aspectRatio"
+          />
+          <StudioVideoDownloadCard
+            v-else-if="videoTaskCardPresentation(task) === 'download-only'"
+            :prompt="task.prompt"
+            :task="task"
+            :seconds="task.seconds"
+            :aspect-label="task.aspectRatio"
+            :copied="copiedUrl === task.url"
+            @download="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
+            @copy-link="copyCardLink(task.url)"
+          />
           <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
           <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
-            <span v-if="videoTaskPlaybackAvailable(task)" class="truncate" :title="task.prompt">{{ task.prompt }}</span>
+            <span v-if="videoTaskCardPresentation(task) === 'inline-play'" class="truncate" :title="task.prompt">{{ task.prompt }}</span>
+            <span v-else-if="videoTaskCardPresentation(task) === 'loading'" class="truncate" :title="task.prompt">{{ task.prompt }}</span>
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
-            <button v-if="videoTaskPlaybackAvailable(task)" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
-            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" data-testid="studio-video-download" @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)">{{ t('studio.video.download') }}</button>
-            <button v-if="task.url" type="button" class="text-gray-500 dark:text-dark-300" data-testid="studio-video-copy-card-link" @click="copyCardLink(task.url)">{{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
+            <button v-if="videoTaskCardPresentation(task) === 'inline-play'" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
+            <button
+              v-if="task.url && videoTaskCardPresentation(task) !== 'download-only'"
+              type="button"
+              class="text-primary-600 dark:text-primary-300"
+              data-testid="studio-video-download"
+              @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
+            >{{ t('studio.video.download') }}</button>
+            <button
+              v-if="task.url && videoTaskCardPresentation(task) !== 'download-only'"
+              type="button"
+              class="text-gray-500 dark:text-dark-300"
+              data-testid="studio-video-copy-card-link"
+              @click="copyCardLink(task.url)"
+            >{{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
@@ -317,15 +345,18 @@ import {
   type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
-import { videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
+import { videoTaskCardPresentation, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
+import StudioVideoDownloadCard from '@/views/user/studio/components/StudioVideoDownloadCard.vue'
+import StudioVideoPreviewChecking from '@/views/user/studio/components/StudioVideoPreviewChecking.vue'
 import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
 import { useAppStore } from '@/stores/app'
@@ -505,7 +536,6 @@ const {
   copyPreviewLink,
   downloadPreview,
 } = useStudioVideoPreview({
-  onUrlExpired: (id) => library.patchVideoTask(id, { urlExpired: true }),
   onExpiredDownload: warnExpiredDownload,
 })
 
@@ -597,7 +627,7 @@ onMounted(() => {
   for (const task of library.videoTasks.value) {
     if (task.state === 'processing') poll.resume(task)
   }
-  void library.hydrateFromBlobCache()
+  void mountStudioVideoLibrary(library)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)

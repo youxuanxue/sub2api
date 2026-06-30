@@ -228,6 +228,7 @@ export default {
       reversePrompt: '从图片生成提示词',
       reversing: '识别中…',
       reverseEmpty: '未能从图片生成提示词。',
+      revisedPromptHint: '模型实际使用的提示词：{text}',
       generate: '生成 · {cost}',
       generateTopUp: '生成 · {cost} — 去充值',
       generating: '生成中…',
@@ -283,6 +284,9 @@ export default {
       copied: '已复制',
       retentionHint: '请立即下载保存 · 本机可短期预览，上游链接会过期',
       previewBuffering: '正在缓冲视频…',
+      checkingPreview: '正在检查能否在页面内预览…',
+      downloadOnlyTitle: '视频已生成',
+      downloadOnlyHint: '此来源不支持在页面内播放，请下载到本地观看。',
     },
     chat: {
       model: '模型',

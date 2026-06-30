@@ -11,12 +11,22 @@ const libraryMock = vi.hoisted(() => ({
   videoTasks: { value: [] as VideoTaskItem[] },
   addImages: vi.fn(),
   clearImages: vi.fn(),
-  upsertVideoTask: vi.fn(),
-  patchVideoTask: vi.fn(),
+  upsertVideoTask: vi.fn((task: VideoTaskItem) => {
+    const idx = libraryMock.videoTasks.value.findIndex((t) => t.id === task.id)
+    if (idx >= 0) libraryMock.videoTasks.value[idx] = task
+    else libraryMock.videoTasks.value.push(task)
+  }),
+  patchVideoTask: vi.fn((id: string, patch: Partial<VideoTaskItem>) => {
+    const idx = libraryMock.videoTasks.value.findIndex((t) => t.id === id)
+    if (idx >= 0) {
+      libraryMock.videoTasks.value[idx] = { ...libraryMock.videoTasks.value[idx], ...patch }
+    }
+  }),
   removeVideoTask: vi.fn(),
   clearVideoTasks: vi.fn(),
   hydrateFromBlobCache: vi.fn(async () => undefined),
   cacheInlineMedia: vi.fn(async () => undefined),
+  rehydrateImageFromBlob: vi.fn(async () => false),
 }))
 
 const appStoreMock = vi.hoisted(() => ({
@@ -33,6 +43,28 @@ vi.mock('@/api/playground', () => ({
   gatewayVideoSubmit: vi.fn(),
   gatewayImagePresign: vi.fn(),
 }))
+
+vi.mock('@/utils/studioPlaybackStorage.tk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/studioPlaybackStorage.tk')>()
+  return {
+    ...actual,
+    tagStudioVideoPlayback: vi.fn(async (deps, taskId, url) => {
+      if (!url) {
+        deps.patchVideoTask(taskId, { playbackStorage: 'expired' })
+        return
+      }
+      if (/^data:video/i.test(url) || url.startsWith('blob:')) {
+        deps.patchVideoTask(taskId, { playbackStorage: 'inline-local' })
+        return
+      }
+      if (/^https?:\/\//i.test(url)) {
+        deps.patchVideoTask(taskId, { playbackStorage: 'upstream-cors-ok' })
+        return
+      }
+      deps.patchVideoTask(taskId, { playbackStorage: 'unknown' })
+    }),
+  }
+})
 
 vi.mock('@/composables/useMediaLibrary', () => ({
   useMediaLibrary: () => libraryMock,
@@ -251,6 +283,7 @@ describe('BakeOff image routing', () => {
         keyId: 1,
         state: 'succeeded',
         url: 'https://cdn.example/a.mp4',
+        playbackStorage: 'upstream-cors-ok',
         submittedAtMs: batchMs,
         elapsedS: 8,
       },
@@ -264,6 +297,7 @@ describe('BakeOff image routing', () => {
         keyId: 1,
         state: 'succeeded',
         url: 'https://cdn.example/b.mp4',
+        playbackStorage: 'upstream-cors-ok',
         submittedAtMs: batchMs,
         elapsedS: 10,
       },
@@ -273,7 +307,7 @@ describe('BakeOff image routing', () => {
       global: { plugins: [i18n], stubs: { RouterLink: true, teleport: true } },
     })
 
-    await wrapper.get('[data-testid="bakeoff-history-item"] button').trigger('click')
+    await wrapper.get('[data-testid="bakeoff-history-video-play"]').trigger('click')
     await flushPromises()
 
     const previewVideo = wrapper.get('[data-testid="bakeoff-video-preview"] video')
@@ -309,9 +343,9 @@ describe('BakeOff image routing', () => {
 
     expect(wrapper.find('[data-testid="bakeoff-video-preview"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-testid="bakeoff-video-copy-link"]').length).toBeGreaterThan(0)
-    expect(libraryMock.patchVideoTask).toHaveBeenCalledWith('vt_panel_a', { urlExpired: true })
-    expect(panelEls[0].find('[data-testid="bakeoff-video-play"]').exists()).toBe(false)
-    expect(panelEls[0].find('[data-testid="bakeoff-video-expired"]').exists()).toBe(true)
+    expect(libraryMock.patchVideoTask).not.toHaveBeenCalledWith('vt_panel_a', { urlExpired: true })
+    expect(panelEls[0].find('[data-testid="bakeoff-video-play"]').exists()).toBe(true)
+    expect(panelEls[0].find('[data-testid="bakeoff-video-expired"]').exists()).toBe(false)
     expect(panelEls[0].find('[data-testid="bakeoff-video-download"]').exists()).toBe(true)
     expect(panelEls[0].find('[data-testid="bakeoff-video-copy-card-link"]').exists()).toBe(true)
     expect(panelEls[1].find('[data-testid="bakeoff-video-play"]').exists()).toBe(true)
@@ -342,7 +376,7 @@ describe('BakeOff image routing', () => {
     vi.unstubAllGlobals()
   })
 
-  it('warns instead of opening a new tab when downloading an expired panel url', async () => {
+  it('panel download still uses upstream url after lightbox playback fails', async () => {
     vi.mocked(playground.gatewayVideoSubmit)
       .mockResolvedValueOnce({ id: 'vt_panel_a', status: 'succeeded', url: 'https://cdn.example/a.mp4' })
       .mockResolvedValueOnce({ id: 'vt_panel_b', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
@@ -368,8 +402,8 @@ describe('BakeOff image routing', () => {
     appStoreMock.showWarning.mockClear()
     downloadSpy.mockClear()
     await panelEls[0].get('[data-testid="bakeoff-video-download"]').trigger('click')
-    expect(appStoreMock.showWarning).toHaveBeenCalled()
-    expect(downloadSpy).not.toHaveBeenCalled()
+    expect(downloadSpy).toHaveBeenCalledWith('https://cdn.example/a.mp4', 'tokenkey-vt_panel_a.mp4')
+    expect(appStoreMock.showWarning).not.toHaveBeenCalled()
     downloadSpy.mockRestore()
   })
 

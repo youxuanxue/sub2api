@@ -26,6 +26,7 @@ import {
   pruneStudioBlobCache,
 } from '@/utils/studioBlobCache.tk'
 import type { StudioPlaybackStorage } from '@/utils/studioPlaybackStorage.tk'
+import { isEphemeralImageSrc } from '@/utils/studioImageHistory.tk'
 
 export type VideoTaskState = 'processing' | 'succeeded' | 'failed'
 
@@ -96,7 +97,9 @@ function loadPersisted(key: string): PersistShape {
     if (!raw) return { images: [], videoTasks: [] }
     const parsed = JSON.parse(raw) as Partial<PersistShape> | null
     return {
-      images: Array.isArray(parsed?.images) ? (parsed!.images as ImageHistoryItem[]) : [],
+      images: Array.isArray(parsed?.images)
+        ? (parsed!.images as ImageHistoryItem[]).map(normalizeLoadedImage)
+        : [],
       videoTasks: Array.isArray(parsed?.videoTasks)
         ? (parsed!.videoTasks as VideoTaskItem[]).map(sanitizeVideoTaskForPersistence)
         : [],
@@ -126,17 +129,22 @@ function sanitizeVideoTasksForPersistence(tasks: VideoTaskItem[]): VideoTaskItem
 }
 
 /**
- * Inline data: image bytes (gemini-native, or imagen/gpt-image once image S3
- * offload is off — the #944 pass-through default) must NOT be persisted: a multi-MB
- * base64 string per image blows the ~5-10MB localStorage budget and silently evicts
- * real history through the degradation loop below. Mirror the data:video sanitizer:
- * blank the src on the PERSISTED copy only — the in-memory images.value keeps the
- * full data: src so the current session's grid + lightbox still render browser-local.
- * Offloaded (s3Key) and http(s) images are tiny + re-mintable, so they persist as-is.
+ * Inline / blob / upstream http(s) thumbnails must NOT be persisted in localStorage:
+ * data: blows the quota; blob: URLs die on reload; presigned http links expire.
+ * Bytes (or s3Key for gateway offload) are the reload path — IndexedDB mirror and/or
+ * POST /v1/images/presign on Studio mount.
  */
 function sanitizeImageForPersistence(item: ImageHistoryItem): ImageHistoryItem {
-  if (item.s3Key || !/^data:/i.test(item.src)) return item
-  return { ...item, src: '' }
+  if (item.s3Key) return { ...item, src: '' }
+  if (isEphemeralImageSrc(item.src)) return { ...item, src: '' }
+  return item
+}
+
+/** Strip legacy persisted blob:/http src so reload always rehydrates from IDB / presign. */
+function normalizeLoadedImage(item: ImageHistoryItem): ImageHistoryItem {
+  if (item.s3Key) return { ...item, src: '' }
+  if (isEphemeralImageSrc(item.src)) return { ...item, src: '' }
+  return item
 }
 
 /**
@@ -179,6 +187,8 @@ export interface MediaLibrary {
   hydrateFromBlobCache: () => Promise<void>
   /** Best-effort mirror of inline media into IndexedDB (generation / poll terminal). */
   cacheInlineMedia: (kind: 'image' | 'video', itemId: string, src: string) => Promise<void>
+  /** On <img> error: try IndexedDB mirror, else mark thumbnail unavailable. */
+  rehydrateImageFromBlob: (id: string) => Promise<boolean>
 }
 
 export function useMediaLibrary(userId: number | string): MediaLibrary {
@@ -222,7 +232,9 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     if (!items.length) return
     images.value = [...items, ...images.value].slice(0, IMAGE_CAP)
     for (const it of items) {
-      if (it.src && /^data:/i.test(it.src)) void cacheInlineMedia('image', it.id, it.src)
+      if (it.src && (/^data:/i.test(it.src) || /^https?:\/\//i.test(it.src))) {
+        void cacheInlineMedia('image', it.id, it.src)
+      }
     }
   }
 
@@ -278,7 +290,10 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     const nextImages = [...images.value]
     for (let i = 0; i < nextImages.length; i++) {
       const it = nextImages[i]
-      if (it.src || it.s3Key) continue
+      if (it.s3Key) continue
+      const needsBlob =
+        !it.src?.trim() || it.src.startsWith('blob:') || /^https?:\/\//i.test(it.src)
+      if (!needsBlob) continue
       const blobUrl = await getStudioBlobObjectUrl(userId, 'image', it.id)
       if (!blobUrl) continue
       nextImages[i] = { ...it, src: blobUrl, blobCached: true }
@@ -299,6 +314,23 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     if (videosChanged) videoTasks.value = nextVideos
   }
 
+  async function rehydrateImageFromBlob(id: string): Promise<boolean> {
+    const idx = images.value.findIndex((it) => it.id === id)
+    if (idx < 0) return false
+    const it = images.value[idx]
+    if (it.s3Key) return false
+    const blobUrl = await getStudioBlobObjectUrl(userId, 'image', id)
+    const next = [...images.value]
+    if (!blobUrl) {
+      next[idx] = { ...next[idx], src: '' }
+      images.value = next
+      return false
+    }
+    next[idx] = { ...next[idx], src: blobUrl, blobCached: true }
+    images.value = next
+    return true
+  }
+
   return {
     images,
     videoTasks,
@@ -310,5 +342,6 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     clearVideoTasks,
     hydrateFromBlobCache,
     cacheInlineMedia,
+    rehydrateImageFromBlob,
   }
 }

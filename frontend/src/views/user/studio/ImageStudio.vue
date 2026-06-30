@@ -193,7 +193,13 @@
                  (data: or http) without leaving the page. -->
             <template v-if="imageHistoryItemAvailable(img)">
               <button type="button" class="block w-full cursor-zoom-in" :title="t('studio.image.enlargeHint')" data-testid="studio-image-thumb" @click="openPreview(img)">
-                <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
+                <img
+                  :src="img.src"
+                  :alt="img.prompt"
+                  class="aspect-square w-full object-cover"
+                  loading="lazy"
+                  @error="onThumbError(img)"
+                />
               </button>
               <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/40 p-1.5 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
                 <button type="button" class="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-gray-800 hover:bg-white" @click="download(img)">{{ t('studio.image.download') }}</button>
@@ -210,45 +216,31 @@
             </StudioImageExpired>
           </div>
           <figcaption class="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-gray-500 dark:text-dark-400">
-            <span class="truncate" :title="img.prompt">{{ img.prompt }}</span>
+            <div class="min-w-0 flex-1">
+              <span class="block truncate" :title="imagePromptTitle(img)">{{ img.prompt }}</span>
+              <span class="block truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="img.model">{{ img.model }}</span>
+            </div>
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(img.cost) }}</span>
           </figcaption>
         </figure>
       </div>
     </div>
 
-    <!-- Lightbox: full-resolution in-page preview (replaces the broken open-in-new-tab). -->
-    <Teleport to="body">
-      <div
-        v-if="preview"
-        class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
-        data-testid="studio-image-preview"
-        @click.self="closePreview"
-      >
-        <div class="flex items-center justify-end p-3">
-          <button type="button" class="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20" data-testid="studio-image-preview-close" @click="closePreview">
-            {{ t('studio.image.close') }} ✕
-          </button>
-        </div>
-        <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closePreview">
-          <img :src="preview.src" :alt="preview.prompt" class="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
-        </div>
-        <div class="flex flex-wrap items-center justify-center gap-3 p-4">
-          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="preview.prompt">{{ preview.prompt }}</span>
-          <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(preview.cost) }}</span>
-          <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="download(preview)">{{ t('studio.image.download') }}</button>
-          <button type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="reuseAndClose(preview)">{{ t('studio.image.usePrompt') }}</button>
-          <button v-if="supportsImageInput" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" @click="useAsInputAndClose(preview)">{{ t('studio.image.useAsInput') }}</button>
-        </div>
-      </div>
-    </Teleport>
+    <StudioImagePreviewLightbox
+      :preview="preview"
+      :show-use-as-input="supportsImageInput"
+      @close="closePreview"
+      @download="download"
+      @reuse="reuseAndClose"
+      @use-as-input="useAsInputAndClose"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt, gatewayImagePresign } from '@/api/playground'
+import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt } from '@/api/playground'
 import { extractImageItems, extractChatImageItems, pickVisionChatModel } from '@/constants/playgroundMedia.tk'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import {
@@ -268,8 +260,16 @@ import {
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
 import { imageHistoryItemAvailable } from '@/utils/studioMedia.tk'
+import {
+  imageHistoryPromptTitle,
+  matchImageHistoryModel,
+  studioImageHistoryId,
+} from '@/utils/studioImageHistory.tk'
+import { mountStudioImageLibrary, onStudioImageThumbError } from '@/composables/useStudioImageLibrary'
+import { useStudioImagePreview } from '@/composables/useStudioImagePreview'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
+import StudioImagePreviewLightbox from '@/views/user/studio/components/StudioImagePreviewLightbox.vue'
 import { useMediaLibrary, type ImageHistoryItem } from '@/composables/useMediaLibrary'
 
 const props = defineProps<{
@@ -285,6 +285,7 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
 const library = useMediaLibrary(props.userId)
+const { preview, openPreview, closePreview } = useStudioImagePreview()
 
 const models = computed(() => resolveAvailableModels('image', props.availableIds, props.priceMap))
 const selectedModelId = ref<string>('')
@@ -417,6 +418,16 @@ watch(
 function reuse(img: ImageHistoryItem): void {
   prompt.value = img.prompt
   userEditedPrompt.value = true
+  const match = matchImageHistoryModel(models.value, img.model)
+  if (match) selectedModelId.value = match.model.modelId
+}
+
+function imagePromptTitle(img: ImageHistoryItem): string {
+  return imageHistoryPromptTitle(img, (text) => t('studio.image.revisedPromptHint', { text }))
+}
+
+function onThumbError(img: ImageHistoryItem): void {
+  void onStudioImageThumbError(library, img.id)
 }
 
 // Drop a staged input image when switching to a model that can't consume it,
@@ -461,54 +472,14 @@ function download(img: ImageHistoryItem): void {
   downloadMedia(img.src, `tokenkey-${img.id}.png`)
 }
 
-// In-page lightbox: clicking a thumbnail opens the full image here instead of a
-// new tab (data: URIs can't be navigated to top-level — they 404 to about:blank).
-const preview = ref<ImageHistoryItem | null>(null)
-function openPreview(img: ImageHistoryItem): void {
-  // A reloaded inline image has an empty src (its bytes were not persisted); there
-  // is nothing to enlarge, so don't open an empty lightbox.
-  if (!img.src) return
-  preview.value = img
-}
-function closePreview(): void {
-  preview.value = null
-}
 function reuseAndClose(img: ImageHistoryItem): void {
   reuse(img)
   closePreview()
 }
-function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && preview.value) closePreview()
-}
-/**
- * Re-mint fresh presigned URLs for persisted offloaded images. Studio history is
- * localStorage-backed, but a presigned URL is intentionally short-lived, so on a
- * reload the stored `src` for an offloaded image may have expired (broken <img>).
- * For every persisted image carrying an s3Key, re-presign from the key (no
- * re-generation, no re-bill) and patch `src`.
- * Best-effort — a failure keeps the cached URL, at worst a stale thumbnail.
- */
-async function refreshOffloadedImageUrls(): Promise<void> {
-  if (!props.apiKey) return
-  const stale = library.images.value.filter((it) => it.s3Key)
-  if (!stale.length) return
-  await Promise.all(
-    stale.map(async (it) => {
-      try {
-        const url = await gatewayImagePresign(props.apiKey, props.gatewayBase, it.s3Key as string)
-        if (url) it.src = url // deep watch in useMediaLibrary persists the refresh
-      } catch {
-        /* keep the cached URL — history is a convenience, not correctness */
-      }
-    })
-  )
-}
 
 onMounted(() => {
-  window.addEventListener('keydown', onKeydown)
-  void library.hydrateFromBlobCache().then(() => refreshOffloadedImageUrls())
+  void mountStudioImageLibrary(props.apiKey, props.gatewayBase, library)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 // Batch export: browsers throttle a burst of synchronous downloads, so stagger
 // each save. Order matches the on-screen grid (newest first).
@@ -556,8 +527,8 @@ async function generate(): Promise<void> {
       rateMultiplier: props.rateMultiplier,
     })
     const ts = Date.now()
-    const history: ImageHistoryItem[] = items.map((it, i) => ({
-      id: `${ts}-${i}-${Math.round(perImage * 1e6)}`,
+    const history: ImageHistoryItem[] = items.map((it) => ({
+      id: studioImageHistoryId(),
       src: it.src,
       s3Key: it.s3Key,
       prompt: text,

@@ -30,9 +30,8 @@ describe('useStudioVideoPreview', () => {
     expect(preview.previewState.value).toBe('ready')
   })
 
-  it('calls onUrlExpired with task id after preview error and keeps lightbox open', () => {
-    const onUrlExpired = vi.fn()
-    const preview = useStudioVideoPreview({ onUrlExpired })
+  it('marks lightbox expired after preview error without mutating library tasks', () => {
+    const preview = useStudioVideoPreview()
     preview.openPreview({
       url: 'https://cdn.example/clip.mp4',
       label: 'Seedance',
@@ -40,10 +39,10 @@ describe('useStudioVideoPreview', () => {
       taskId: 'vt_err',
     })
     preview.onPreviewError()
-    expect(onUrlExpired).toHaveBeenCalledWith('vt_err')
     expect(preview.open.value).toBe(true)
     expect(preview.previewState.value).toBe('expired')
     expect(preview.urlExpired.value).toBe(true)
+    expect(preview.rawUrl.value).toBe('https://cdn.example/clip.mp4')
   })
 
   it('copyPreviewLink writes raw upstream url even when playback uses blob', async () => {
@@ -61,7 +60,7 @@ describe('useStudioVideoPreview', () => {
     vi.unstubAllGlobals()
   })
 
-  it('downloadPreview invokes onExpiredDownload instead of downloading when url expired', () => {
+  it('downloadPreview still uses raw upstream url after lightbox playback fails', () => {
     const onExpiredDownload = vi.fn()
     const downloadSpy = vi.spyOn(studioDownload, 'downloadMedia')
     const preview = useStudioVideoPreview({ onExpiredDownload })
@@ -70,8 +69,18 @@ describe('useStudioVideoPreview', () => {
       label: 'Seedance',
       cost: 1,
       taskId: 'vt_err',
-      urlExpired: true,
     })
+    preview.onPreviewError()
+    preview.downloadPreview()
+    expect(downloadSpy).toHaveBeenCalledWith('https://cdn.example/clip.mp4', 'tokenkey-preview.mp4')
+    expect(onExpiredDownload).not.toHaveBeenCalled()
+    downloadSpy.mockRestore()
+  })
+
+  it('downloadPreview invokes onExpiredDownload when no raw url is available', () => {
+    const onExpiredDownload = vi.fn()
+    const downloadSpy = vi.spyOn(studioDownload, 'downloadMedia')
+    const preview = useStudioVideoPreview({ onExpiredDownload })
     preview.downloadPreview()
     expect(onExpiredDownload).toHaveBeenCalled()
     expect(downloadSpy).not.toHaveBeenCalled()
