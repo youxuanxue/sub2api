@@ -28,11 +28,37 @@ mkdir -p "$OUT_DIR"
 LOG="$OUT_DIR/capture.jsonl"
 : >"$LOG"
 
+# Neutral config dir: do not inherit ~/.claude/settings.json ANTHROPIC_BASE_URL (tokenkey.dev).
+GEO_CONFIG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tk-cc-geo-config.XXXXXX")"
+echo '{}' >"$GEO_CONFIG_DIR/settings.json"
+cleanup_geo_config() { rm -rf "$GEO_CONFIG_DIR"; }
+trap cleanup_geo_config EXIT
+
+TOKENKEY_AUTH_TOKEN=""
+if [[ -f "${HOME}/.claude/settings.json" ]]; then
+  TOKENKEY_AUTH_TOKEN="$(python3 - <<'PY'
+import json, os
+p = os.path.expanduser("~/.claude/settings.json")
+try:
+    print(json.load(open(p)).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "") or "")
+except Exception:
+    print("")
+PY
+)"
+fi
+CC0_OVERLAY="${CC0_USER_OVERLAY:-$HOME/.cache/cc0/claude-user-overlay}"
+
 invoke_claude() {
   local tz="$1" base_url="$2"
-  local out err
+  local out err config_dir auth_token=""
   out="$(mktemp "${TMPDIR:-/tmp}/geo-claude.out.XXXXXX")"
   err="$(mktemp "${TMPDIR:-/tmp}/geo-claude.err.XXXXXX")"
+  config_dir="$GEO_CONFIG_DIR"
+  if [[ "$base_url" == *"api.anthropic.com"* ]]; then
+    config_dir="$CC0_OVERLAY"
+  elif [[ "$base_url" == *"tokenkey.dev"* && -n "$TOKENKEY_AUTH_TOKEN" ]]; then
+    auth_token="$TOKENKEY_AUTH_TOKEN"
+  fi
   (
     cd /tmp || exit 1
     # Neutral cwd: avoid sub2api SessionStart short-circuit.
@@ -41,12 +67,14 @@ invoke_claude() {
       HOME="$HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" \
       PATH="$PATH" SHELL="${SHELL:-/bin/sh}" TERM="${TERM:-xterm-256color}" \
       LANG="${LANG:-en_US.UTF-8}" TZ="$tz" \
+      CLAUDE_CONFIG_DIR="$config_dir" \
       HTTP_PROXY="http://127.0.0.1:${MITM_PORT}" \
       HTTPS_PROXY="http://127.0.0.1:${MITM_PORT}" \
       http_proxy="http://127.0.0.1:${MITM_PORT}" \
       https_proxy="http://127.0.0.1:${MITM_PORT}" \
       NO_PROXY="" no_proxy="" \
       ANTHROPIC_BASE_URL="$base_url" \
+      ANTHROPIC_AUTH_TOKEN="$auth_token" \
       NODE_EXTRA_CA_CERTS="$CA" \
       NODE_TLS_REJECT_UNAUTHORIZED=0 \
       CLAUDE_CODE_REMOTE_SEND_KEEPALIVES=true \
