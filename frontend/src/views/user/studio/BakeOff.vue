@@ -174,9 +174,12 @@
         <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(p.cost) }}</span>
-            <StudioPlaybackBadge v-if="modality === 'video' && bakePanelVideoPlayable(p)" :task="panelPlaybackTask(p)!" />
+            <StudioPlaybackBadge
+              v-if="modality === 'video' && p.state === 'succeeded' && panelPlaybackTask(p)"
+              :task="panelPlaybackTask(p)!"
+            />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button
               v-if="modality === 'image' && p.src"
               type="button"
@@ -185,15 +188,24 @@
             >
               {{ t('studio.image.download') }}
             </button>
-            <button
-              v-else-if="modality === 'video' && p.state === 'succeeded' && p.url"
-              type="button"
-              class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
-              data-testid="bakeoff-video-download"
-              @click="downloadMedia(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`)"
-            >
-              {{ t('studio.video.download') }}
-            </button>
+            <template v-else-if="modality === 'video' && p.state === 'succeeded' && p.url">
+              <button
+                type="button"
+                class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
+                data-testid="bakeoff-video-download"
+                @click="downloadPanelVideo(p)"
+              >
+                {{ t('studio.video.download') }}
+              </button>
+              <button
+                type="button"
+                class="text-[11px] font-medium text-gray-500 dark:text-dark-300"
+                data-testid="bakeoff-video-copy-card-link"
+                @click="copyPanelLink(p.url!)"
+              >
+                {{ copiedPanelUrl === p.url ? t('studio.video.copied') : t('studio.video.copyLink') }}
+              </button>
+            </template>
             <span v-if="p.elapsedS != null && p.state !== 'idle'" class="text-xs text-gray-500 dark:text-dark-400">⏱ {{ p.elapsedS }}s</span>
           </div>
         </div>
@@ -275,17 +287,27 @@
               </div>
               <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
               <div class="mt-1 flex items-center justify-between gap-2">
-                <StudioPlaybackBadge v-if="videoTaskPlaybackAvailable(task)" :task="task" />
+                <StudioPlaybackBadge v-if="task.state === 'succeeded'" :task="task" />
                 <span class="ml-auto text-xs font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
               </div>
-              <button
-                v-if="task.state === 'succeeded' && task.url"
-                type="button"
-                class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
-                @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)"
-              >
-                {{ t('studio.video.download') }}
-              </button>
+              <div v-if="task.state === 'succeeded' && task.url" class="mt-1 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
+                  data-testid="bakeoff-history-video-download"
+                  @click="downloadHistoryVideo(task)"
+                >
+                  {{ t('studio.video.download') }}
+                </button>
+                <button
+                  type="button"
+                  class="text-[10px] font-medium text-gray-500 dark:text-dark-300"
+                  data-testid="bakeoff-history-video-copy-link"
+                  @click="copyPanelLink(task.url)"
+                >
+                  {{ copiedPanelUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -324,16 +346,40 @@
           <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
             <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
             <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
-            <div class="mt-3 flex items-center justify-center gap-2">
+            <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
               <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="retryVideoPreview">{{ t('studio.video.retry') }}</button>
+              <button
+                v-if="videoPreviewRawUrl"
+                type="button"
+                class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
+                data-testid="bakeoff-video-copy-link"
+                @click="copyVideoPreviewLink"
+              >
+                {{ copiedPreviewLink ? t('studio.video.copied') : t('studio.video.copyLink') }}
+              </button>
             </div>
           </div>
         </div>
         <div class="flex flex-wrap items-center justify-center gap-3 p-4">
           <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreviewLabel">{{ videoPreviewLabel }}</span>
           <span v-if="videoPreviewCost != null" class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(videoPreviewCost) }}</span>
-          <button v-if="videoPreviewDownloadUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(videoPreviewDownloadUrl, `tokenkey-bakeoff-preview.mp4`)">{{ t('studio.video.download') }}</button>
-          <button v-if="videoPreviewState === 'ready' && videoPreviewUrl" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" data-testid="bakeoff-video-copy-link" @click="copyVideoPreviewLink">{{ copiedPreviewLink ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
+          <button
+            v-if="videoPreviewDownloadUrl"
+            type="button"
+            class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100"
+            @click="downloadPreviewVideo"
+          >
+            {{ t('studio.video.download') }}
+          </button>
+          <button
+            v-if="videoPreviewRawUrl"
+            type="button"
+            class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
+            data-testid="bakeoff-video-copy-link"
+            @click="copyVideoPreviewLink"
+          >
+            {{ copiedPreviewLink ? t('studio.video.copied') : t('studio.video.copyLink') }}
+          </button>
         </div>
       </div>
     </Teleport>
@@ -369,7 +415,7 @@ import {
   videoPlaybackUrl,
   videoTaskPlaybackAvailable,
 } from '@/utils/studioMedia.tk'
-import { downloadMedia } from '@/utils/studioDownload.tk'
+import { copyMediaLink, downloadMedia } from '@/utils/studioDownload.tk'
 import { resolveVideoPlaybackStorage } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
@@ -571,7 +617,11 @@ function openVideoHistoryPreview(task: VideoTaskItem): void {
 
 function onVideoPreviewError(): void {
   const taskId = videoPreviewTaskId.value
-  closeVideoPreview()
+  videoPreviewRevoke()
+  videoPreviewRevoke = () => {}
+  videoPreviewUrl.value = ''
+  videoPreviewState.value = 'expired'
+  videoPreviewMediaReady.value = false
   if (taskId) patchVideoTask(taskId, { urlExpired: true })
 }
 
@@ -586,15 +636,57 @@ function retryVideoPreview(): void {
 }
 
 async function copyVideoPreviewLink(): Promise<void> {
-  if (!videoPreviewUrl.value) return
-  try {
-    await navigator.clipboard?.writeText(videoPreviewUrl.value)
+  const url = videoPreviewRawUrl.value
+  if (!url) return
+  if (await copyMediaLink(url)) {
     copiedPreviewLink.value = true
     if (copiedPreviewTimer) clearTimeout(copiedPreviewTimer)
     copiedPreviewTimer = setTimeout(() => (copiedPreviewLink.value = false), 1500)
-  } catch {
-    /* clipboard unavailable — Download still works */
   }
+}
+
+const copiedPanelUrl = ref('')
+let copiedPanelTimer: ReturnType<typeof setTimeout> | undefined
+
+async function copyPanelLink(url: string): Promise<void> {
+  if (!url) return
+  if (await copyMediaLink(url)) {
+    copiedPanelUrl.value = url
+    if (copiedPanelTimer) clearTimeout(copiedPanelTimer)
+    copiedPanelTimer = setTimeout(() => (copiedPanelUrl.value = ''), 1500)
+  }
+}
+
+function downloadPanelVideo(panel: BakePanel): void {
+  if (!panel.url) return
+  if (panel.urlExpired) {
+    appStore.showWarning(t('studio.video.expiredHint'), 8000)
+    return
+  }
+  downloadMedia(panel.url, `tokenkey-${panel.taskId || panel.modelId}.mp4`)
+}
+
+function downloadHistoryVideo(task: VideoTaskItem): void {
+  if (!task.url) return
+  if (task.urlExpired) {
+    appStore.showWarning(t('studio.video.expiredHint'), 8000)
+    return
+  }
+  downloadMedia(task.url, `tokenkey-${task.id}.mp4`)
+}
+
+function downloadPreviewVideo(): void {
+  const url = videoPreviewDownloadUrl.value
+  if (!url) return
+  const panel = panels.value.find((p) => p.taskId === videoPreviewTaskId.value)
+  const task = videoPreviewTaskId.value
+    ? library.videoTasks.value.find((row) => row.id === videoPreviewTaskId.value)
+    : undefined
+  if (panel?.urlExpired || task?.urlExpired) {
+    appStore.showWarning(t('studio.video.expiredHint'), 8000)
+    return
+  }
+  downloadMedia(url, `tokenkey-${videoPreviewTaskId.value || 'bakeoff-preview'}.mp4`)
 }
 
 function closeVideoPreview(): void {

@@ -105,6 +105,8 @@
         "data-testid=\"bakeoff-tier\"",
         "data-testid=\"studio-bakeoff-run\"",
         "data-testid=\"bakeoff-panel\"",
+        "data-testid=\"bakeoff-video-copy-card-link\"",
+        "data-testid=\"bakeoff-video-copy-link\"",
         "useMediaLibrary",
         "StudioLocalSaveBanner",
         "test-id=\"studio-bakeoff-save-reminder\"",
