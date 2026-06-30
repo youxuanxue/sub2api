@@ -175,10 +175,7 @@
           </button>
         </div>
       </div>
-      <div v-if="library.images.value.length" class="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100" data-testid="studio-image-save-reminder">
-        <span aria-hidden="true">⬇</span>
-        {{ t('studio.saveReminder') }}
-      </div>
+      <StudioLocalSaveBanner v-if="library.images.value.length" test-id="studio-image-save-reminder" class="mb-3" />
       <div v-if="!library.images.value.length" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
         {{ t('studio.image.emptyHint') }}
       </div>
@@ -194,7 +191,7 @@
                  browsers block top-level navigation to data: URLs (→ about:blank,
                  the "click shows nothing" report). A lightbox previews every src
                  (data: or http) without leaving the page. -->
-            <template v-if="img.src">
+            <template v-if="imageHistoryItemAvailable(img)">
               <button type="button" class="block w-full cursor-zoom-in" :title="t('studio.image.enlargeHint')" data-testid="studio-image-thumb" @click="openPreview(img)">
                 <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
               </button>
@@ -208,11 +205,9 @@
                  not persisted to localStorage (#944 pass-through default — the gateway
                  does not rehost generated images), so after a reload there is no
                  thumbnail to show. Offer a regenerate path instead of a broken <img>. -->
-            <div v-else class="flex aspect-square w-full flex-col items-center justify-center gap-1 bg-gray-50 px-2 text-center dark:bg-dark-800" data-testid="studio-image-expired">
-              <span aria-hidden="true" class="text-2xl text-gray-300 dark:text-dark-600">🖼</span>
-              <span class="text-[10px] leading-tight text-gray-400 dark:text-dark-500">{{ t('studio.image.expiredReload') }}</span>
+            <StudioImageExpired v-else>
               <button type="button" class="mt-1 rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-medium text-gray-700 ring-1 ring-gray-200 hover:bg-white dark:bg-dark-700 dark:text-dark-200 dark:ring-dark-600" @click="reuse(img)">{{ t('studio.image.usePrompt') }}</button>
-            </div>
+            </StudioImageExpired>
           </div>
           <figcaption class="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-gray-500 dark:text-dark-400">
             <span class="truncate" :title="img.prompt">{{ img.prompt }}</span>
@@ -272,6 +267,9 @@ import {
 } from '@/utils/mediaCostEstimate.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
+import { imageHistoryItemAvailable } from '@/utils/studioMedia.tk'
+import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
+import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
 import { useMediaLibrary, type ImageHistoryItem } from '@/composables/useMediaLibrary'
 
 const props = defineProps<{

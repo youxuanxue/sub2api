@@ -142,7 +142,8 @@ export default {
     viewPricing: 'See pricing',
     via: 'via {vendor}',
     keyNoModality: 'no models for this mode',
-    saveReminder: 'Results stay in this browser for about 7 days — download now; clearing cache or switching devices will lose them.',
+    saveReminderTitle: 'Download your results now',
+    saveReminder: 'Stored only in this browser (~7 days). Clearing cache, private mode, or switching devices removes previews — download files to keep them.',
     universalKeyBadge: 'Universal key',
     playback: {
       inlineLocal: 'Local cache · preview survives reload (~7 days)',
@@ -176,10 +177,16 @@ export default {
       pickModels: 'Compare:',
       run: 'Generate across {count}',
       running: 'Generating…',
+      regenerate: 'Regenerate',
+      regenerateChanged: 'Generate with new prompt',
+      clearResults: 'Clear current view',
+      historyTitle: 'Past comparisons',
+      maxModelsHint: 'Compare up to {max} models at once — deselect one to add another.',
       totalCost: 'Total ≈ {cost}',
       cannotAfford: 'Balance too low for this run.',
       generating: 'Generating…',
-      failed: 'Failed'
+      failed: 'Failed',
+      panelError: 'Generation failed'
     },
     cost: {
       thisGeneration: 'This generation',
@@ -194,6 +201,7 @@ export default {
       unpriced: 'This model is not available for generation right now.',
       rate_limited: 'Too many requests — slow down and try again shortly.',
       unauthorized: 'Your API key is invalid or expired.',
+      unsupported_model: 'This key/group cannot serve that model — switch keys or deselect it.',
       generic: 'Generation failed. Please try again.'
     },
     image: {
