@@ -146,7 +146,7 @@ aws ssm put-parameter --region "<lightsail_region>" \
 - `TK_SMOKE_API_KEY`（secret）— **仅**计划跑 `operation=smoke` 且显式 `smoke_phase=main-via-edge` 的 edge 需要。
   当前 prod 惯例：**只**在 `edge-uk1` / `edge-us1` 配置即可；其它 edge（如 us2/us3/us4）
   **可不配**——缺 secret 时 `edge_post_deploy_smoke.sh` 跳过 main-via-edge 段；upgrade/rollback
-  默认 `full`（infra + 容器内 edge-native OAuth 探针）不依赖该 key。GitHub secret 只写不可读，无法从 uk1 机械复制。
+  默认 upgrade/rollback 走 **infra**；显式 `--smoke-phase full` 才跑容器内 edge-native OAuth 探针，不依赖该 key。GitHub secret 只写不可读，无法从 uk1 机械复制。
 
 Smoke base URL 与 Edge 本机默认 model 清单在代码内固定（`https://api.tokenkey.dev` / `claude-sonnet-4-6`），无需 Environment var；如需覆盖，使用 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`。
 
@@ -312,8 +312,7 @@ gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 
 
 **Smoke 范围（operator 选择）**：可选 `main-via-edge`（经 prod 中转，需 `TK_SMOKE_API_KEY`）目前只对 **uk1 / us1** 启用。
 其它 Lightsail edge provision 完成后以 DNS + 可选 `curl https://api-<id>.tokenkey.dev/health` 验收；
-`operation=upgrade` / `rollback` / 默认 `operation=smoke` 走 **full**（infra + edge 容器内 per-account OAuth 拟真探针），workflow log 应含 `tk_edge_post_deploy_smoke: OK phase=full`。
-仅基础设施门禁时用 `smoke_phase=infra`。
+`operation=upgrade` / `rollback` 默认 **infra**（workflow log：`tk_edge_post_deploy_smoke: OK phase=infra`）；首次 OAuth 拟真验收显式 `--smoke-phase full`。默认 `operation=smoke` 仍为 **full**。
 
 ## 5) Upgrade / Rollback
 
