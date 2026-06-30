@@ -1,7 +1,7 @@
 ---
 name: tokenkey-cc-fingerprint-alignment
 description: >-
-  Capture real Claude Code TLS/HTTP fingerprints and diff/fix TokenKey constants. Use after cc version changes, ingress UA cohort drift, OAuth mimicry/beta/stainless drift, or refreshing tk_canonical_cc_oauth alignment.
+  Capture real Claude Code TLS/HTTP fingerprints and diff/fix TokenKey constants. Use after cc version changes, ingress UA cohort drift, OAuth mimicry/beta/stainless drift, CC geo-stego body drift (system/messages/system-reminder), or refreshing tk_canonical_cc_oauth alignment.
 ---
 
 # TokenKey：cc 指纹对齐（抓包 → diff → 修代码 → PR）
@@ -63,6 +63,8 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
 | system prompt 锚点抓取 + diff（身份 banner + 计费前缀） | 机械 | mitm addon 记 `system_anchors` → `capture_cc_fingerprint.py check` 的 `system.*` 行 |
+| CC geo-stego wire body 矩阵（system / messages `<system-reminder>` / date_change） | 机械 | `bash ops/anthropic/probe_cc_geo_stego_direct.sh` → `probe_cc_geo_stego.py` |
+| geo-stego 归一化目标 vs 客户端实测 diff | 机械 | `probe_cc_geo_stego.py --check`（`needs_normalize=true` → 扩展 `gateway_request_tk_cc_geo_stego.go`） |
 | system prompt 副本单一源守卫（Go 3+ 处不漂） | 机械 | `python3 scripts/sentinels/check-cc-system-prompt.py`（preflight 内）|
 | 多请求 beta 一致性校验（haiku/sonnet/opus 各 N 次） | 机械 | `bash ops/anthropic/capture-http-comprehensive.sh` |
 | bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py` / `check-tls` |
@@ -172,6 +174,65 @@ bash ops/anthropic/capture-http-comprehensive.sh
 
 任一 model 族出现 `WARN`（多种 beta）→ 在 PR / spec-delta 中记录分布，**禁止**在未抓包证据下改 beta 常量。
 
+### 2.6 Geo stego / wire body shape（**仅 claude CLI + mitm，无 cc0/gost**）
+
+CC ≥2.1.91 在**非** `api.anthropic.com` 的 `ANTHROPIC_BASE_URL` 下，把地域信号写进 **出站 JSON body**，不是 HTTP header。动态实测（2026-06）结论：
+
+| 表面 | 典型内容 | TokenKey 是否应改写 |
+|---|---|---|
+| `system[]` | Agent SDK 身份 banner；`-p` 模式通常**不含** `# currentDate` | 扫描但多数 no-op |
+| `messages[].content[].text` | `<system-reminder>` + `# currentDate` + `Today's date is …` | **是**（主战场） |
+| `messages[].content[].attachment` | `type=date_change` 的 `newDate` | **是** |
+| `# Environment` / billing block | 本机 TZ、proxy 字符串 | **否**（客户端环境自述，非隐写） |
+
+**触发器：** cc patch bump 后怀疑 geo 分支变化；Reddit/社区报新引号码点或日期格式；或 TokenKey 网关 normalize 回归。
+
+**环境（ deliberately 不用 cc0-here / gost）：**
+
+```bash
+~/.local/bin/claude --version          # ground truth cc patch
+# mitm CA 一次性：mitmproxy --version
+# OAuth + 默认 ANTHROPIC_BASE_URL 来自 ~/.claude/settings.json；矩阵内按场景覆盖
+```
+
+**一键矩阵采集 + 报告：**
+
+```bash
+cd "$REPO_ROOT"
+bash ops/anthropic/probe_cc_geo_stego_direct.sh
+# 输出：.tls_list/geo-stego-direct-*/capture.jsonl + report.txt + report.json
+```
+
+默认场景（可用 `TOKENKEY_CC_GEO_SCENARIOS="name|tz|base_url,..."` 覆盖）：
+
+| scenario | TZ | ANTHROPIC_BASE_URL | 预期客户端信号（2026-06 实测） |
+|---|---|---|---|
+| `shanghai_tokenkey` | Asia/Shanghai | `https://api.tokenkey.dev` | 日期 `/` + 通常 ASCII `'` |
+| `utc_tokenkey` | UTC | `https://api.tokenkey.dev` | 日期 `-` |
+| `shanghai_official` | Asia/Shanghai | `https://api.anthropic.com` | 无 geo 分支（对照组） |
+| `shanghai_mirror` | Asia/Shanghai | `https://api.aicodemirror.com` | 日期 `/` + U+2019 |
+
+CC 读 **`ANTHROPIC_BASE_URL` hostname** 选 geo 分支（不是 `http_proxy` 字符串）。probe 在 `/tmp` 下跑 `claude -p`，HTTPS 经 `mitmdump` 截获完整 body。
+
+**解读 `report.txt`：**
+
+- `surface=messages[…].content[…].text` + `needs_normalize=true` → 必须在 TokenKey 出站改写（见 `gateway_request_tk_cc_geo_stego.go`）。
+- `apostrophe=RIGHT_SINGLE_QUOTATION_U+2019` / `format=SLASH` → 应对齐为 ASCII `'` + `ISO_DASH`。
+- `surface=system[…]` 命中但 messages 也有 → **以 messages 为准** 开 PR；system-only 命中先记 evidence，勿单独改 banner 常量。
+- `--check` 非零 = 仍有场景需 normalize 规则覆盖。
+
+**修复清单（geo body，常规风险）：**
+
+1. 扩展 `gateway_request_tk_cc_geo_stego.go` 纯函数 + `gateway_request_tk_cc_geo_stego_test.go` table cases（先跑 probe 拿真实 line 作 fixture）。
+2. 确认三条出站路径均已挂接：`tkNormalizeAnthropicRequestBody`、API Key passthrough Forward、count_tokens API Key passthrough（见 `gateway_service.go`）。
+3. 更新 `scripts/sentinels/gateway-tk.json` rationale / `must_contain`（load-bearing）。
+4. `go test -tags=unit ./internal/service -run TestTkNormalizeCCGeo` + `python3 -m unittest ops/anthropic/test_probe_cc_geo_stego.py`。
+5. PR commit 带 `Web impact: none`；**不写** beta/UA spec-delta（与 §4.1–4.2 无关）。
+
+> **与 §2.4 的分工：** §2.4 `capture --http` 仍走 cc0+gost 链，抓 **HTTP headers + system 锚点**；§2.6 专抓 **body 地域隐写**，工具链独立，避免把 cc0 依赖混进 geo 判定。
+
+> **与 §4.3 的分工：** §4.3 对齐 **身份 banner** 锚点（防 403）；§2.6 对齐 **currentDate 行**（防 CN 客户端 + US edge 不一致）。勿用 system banner 规则去改 `<system-reminder>` 日期行。
+
 > **双峰（bimodal）beta 不再被当成硬 mismatch。** `bundle-from-artifacts` 现在把每个 model 族的**全量** beta 分布写进 bundle 的 `http_variants`（不再 last-wins 取一条样本）。`diff` / `check` 对一个族的判定规则：
 > - 单一 beta 集合 → 老逻辑 `OK` / `FAIL`。
 > - 出现 ≥2 种 beta 集合且 baseline 命中其中之一 → `INVESTIGATE`（`needs_investigation`，**不**计入 `has_actionable_mismatch`，`check` 退 0）。报告里给出 `[Nx] <beta>` 计数分布 + #429 提示。
@@ -192,6 +253,8 @@ bash ops/anthropic/capture-http-comprehensive.sh
 | `system.identity_anchor` (`FAIL`) | 真实 CC system 块不命中任一 canonical 身份锚点 = banner 漂移（上游 403 风险，**actionable**）| 走 §4.3：改注册表 + Go 副本 + spec-delta |
 | `system.identity_anchor` (`SKIP`) | 本次未抓到 system 块（仅 TLS 跑）| 跑 `capture --http` 再看 |
 | `system.billing_prefix` (`INVESTIGATE`) | 未见 `x-anthropic-billing-header` 块 → 非硬错 | count_tokens / 子请求本就不带；仅当正常 `/v1/messages` 也缺才查 |
+| `geo.messages.currentDate` (`FAIL`) | messages `<system-reminder>` 日期行非 US 形态 | §2.6 probe + `gateway_request_tk_cc_geo_stego.go` |
+| `geo.date_change.newDate` (`FAIL`) | attachment 日期仍为 `/` | 同上 |
 
 ## 4) 代码修复清单（HTTP-only 型）
 
@@ -280,12 +343,15 @@ bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 - ja3 变了却只改 HTTP 常量
 - 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
 - 跳过 comprehensive 直接开 PR（beta 分裂未验证）
+- 未跑 §2.6 probe 就扩展 geo normalize 规则（须用真实 `capture.jsonl` line 作测试 fixture）
+- 把 `# Environment` 段 TZ/proxy 字符串当作 TokenKey 应改写的隐写
 
 ## 7) 流程图
 
 ```text
 check env → capture --http → comprehensive (beta consistency)
     → check / check-tls
+    → [geo body?] probe_cc_geo_stego_direct.sh → probe_cc_geo_stego.py --check
     → [ja3变?] manage-anthropic-config apply + TLS drift PR
     → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ changelog 追加一行（不写独立 spec-delta）
     → [beta集合变?] baselines 数组 + constants betas + tests + 主题命名 spec-delta 决策记录 + changelog 一行（§4.2，需抓包证据）

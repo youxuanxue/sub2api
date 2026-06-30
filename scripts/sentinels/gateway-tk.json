@@ -1192,6 +1192,7 @@
         "func tkNormalizeAnthropicThinkingForcesToolUse",
         "tkNormalizeChangeToolChoiceStringToObject",
         "tkNormalizeChangeThinkingForcesToolUse",
+        "tkNormalizeChangeCCGeoStego",
         "Kind:     \"request_normalized\"",
         "gateway.anthropic_request_normalized"
       ],
@@ -2076,10 +2077,21 @@
       "rationale": "Pure, fork-only ToolSearch historical signed-thinking pre-filter (claude-code #63792 / #10199), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). When dynamic tool loading re-serializes prior assistant turns, stale signed thinking blocks trigger upstream 400 'cannot be modified' and a client strip-and-retry storm every turn. TkPrefilterToolSearchHistoricalThinking downgrades historical assistant thinking to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking. Anchor the gate + stripper so an upstream merge cannot delete this surface and silently re-expose the per-turn double round-trip. Exhaustively covered by gateway_request_tk_toolsearch_thinking_test.go."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_cc_geo_stego.go",
+      "must_contain": [
+        "func tkNormalizeAnthropicCCGeoStego",
+        "func tkNormalizeCCGeoStegoText",
+        "tkNormalizeChangeCCGeoStego",
+        "Today's date is $1-$2-$3."
+      ],
+      "rationale": "Pure CC geo-stego normalizer: rewrite Today's date lines in system / system-reminder text to first-party US shape (ASCII apostrophe + YYYY-MM-DD) before US edge OAuth egress. Wired from gateway_anthropic_request_normalize_tk.go, Forward API-key passthrough, and count_tokens API-key passthrough. Exhaustively covered by gateway_request_tk_cc_geo_stego_test.go."
+    },
+    {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "TkPrefilterToolSearchHistoricalThinking(body, reqModel)",
-        "TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)"
+        "TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)",
+        "tkNormalizeAnthropicCCGeoStego(input.Body)"
       ],
       "rationale": "Wiring of the ToolSearch historical thinking pre-filter (claude-code #63792 / #10199) into OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks / UTF-8 sanitize. One-line hooks in an upstream-shaped file compile clean if dropped, silently re-exposing the per-turn 400 + strip-and-retry storm. Anchor both call shapes; the pure filter is guarded by gateway_request_tk_toolsearch_thinking.go."
     },

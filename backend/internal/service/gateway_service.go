@@ -6113,6 +6113,19 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, err
 		}
 	}
+	// TK: CC geo stego normalize only (passthrough skips the full normalize hook).
+	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
+		if patched, applied := tkNormalizeAnthropicCCGeoStego(input.Body); applied {
+			input.Body = patched
+			tkLogAnthropicNormalize(ctx, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
+			tkRecordAnthropicNormalizeOpsEvent(c, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
+			if input.Parsed != nil {
+				if err := input.Parsed.ReplaceBody(input.Body); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	// TK: ToolSearch + stale signed thinking pre-filter (claude-code #63792 / #10199).
 	input.Body = TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)
 
@@ -10979,6 +10992,14 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			"passthrough", true,
 			"fields", stripped,
 		)
+	}
+	// TK: CC geo stego normalize only (passthrough skips the full normalize hook).
+	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
+		if patched, applied := tkNormalizeAnthropicCCGeoStego(body); applied {
+			body = patched
+			tkLogAnthropicNormalize(ctx, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
+			tkRecordAnthropicNormalizeOpsEvent(c, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
+		}
 	}
 
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
