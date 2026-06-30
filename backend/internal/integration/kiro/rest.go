@@ -38,22 +38,26 @@ func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestA
 // instead folded into getUsageLimits (userInfo{email,userId} + subscriptionInfo),
 // which TK already parses. kiro.GetUserInfo has no caller in TK anyway.
 func kiroRestFetch(account *Account, method, path, body string, withParn bool) ([]byte, error) {
+	return kiroRestFetchWithDoer(account, method, path, body, withParn, nil)
+}
+
+func kiroRestFetchWithDoer(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
 	if withParn {
-		if err := ensureProfileArn(account); err != nil {
+		if err := ensureProfileArnWithDoer(account, doer); err != nil {
 			return nil, err
 		}
 	}
-	data, err := kiroRestFetchBases(account, method, path, body, withParn)
+	data, err := kiroRestFetchBases(account, method, path, body, withParn, doer)
 	if withParn && isInvalidProfileArnError(err) {
 		logWarnf("[KiroREST] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
-		if resolveErr := reresolveProfileArnAfterStale(account); resolveErr == nil {
-			return kiroRestFetchBases(account, method, path, body, withParn)
+		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil {
+			return kiroRestFetchBases(account, method, path, body, withParn, doer)
 		}
 	}
 	return data, err
 }
 
-func kiroRestFetchBases(account *Account, method, path, body string, withParn bool) ([]byte, error) {
+func kiroRestFetchBases(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
 	var lastErr error
 	for _, base := range kiroRestBases() {
 		u := base + path
@@ -73,7 +77,7 @@ func kiroRestFetchBases(account *Account, method, path, body string, withParn bo
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
+		resp, err := restHTTPDo(req, account, doer)
 		if err != nil {
 			lastErr = err
 			logWarnf("[KiroREST] %s %s failed: %v", method, base, err)
@@ -92,28 +96,45 @@ func kiroRestFetchBases(account *Account, method, path, body string, withParn bo
 }
 
 func ensureProfileArn(account *Account) error {
+	return ensureProfileArnWithDoer(account, nil)
+}
+
+func ensureProfileArnWithDoer(account *Account, doer HTTPDoer) error {
 	if account == nil {
 		return fmt.Errorf("account is nil")
 	}
-	_, err := ResolveProfileArn(account)
+	_, err := ResolveProfileArnWithDoer(account, doer)
 	return err
 }
 
 // reresolveProfileArnAfterStale clears a cached profileArn and fetches a fresh one.
 // Used when upstream returns HTTP 400 Invalid profileArn for REST and chat paths.
 func reresolveProfileArnAfterStale(account *Account) error {
+	return reresolveProfileArnAfterStaleWithDoer(account, nil)
+}
+
+func reresolveProfileArnAfterStaleWithDoer(account *Account, doer HTTPDoer) error {
 	if account == nil {
 		return fmt.Errorf("account is nil")
 	}
 	account.ProfileArn = ""
-	return ensureProfileArn(account)
+	return ensureProfileArnWithDoer(account, doer)
+}
+
+func restHTTPDo(req *http.Request, account *Account, doer HTTPDoer) (*http.Response, error) {
+	if doer != nil {
+		return doer.Do(req)
+	}
+	return GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
 }
 
 func isInvalidProfileArnError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "invalid profilearn")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid profilearn") ||
+		strings.Contains(msg, "profilearn is required")
 }
 
 func accountEmail(account *Account) string {
@@ -191,6 +212,10 @@ func ListAvailableModels(account *Account) ([]ModelInfo, error) {
 // when it is missing. First tries ListAvailableProfiles; if that returns empty,
 // falls back to refreshing the token (which returns profileArn in the response).
 func ResolveProfileArn(account *Account) (string, error) {
+	return ResolveProfileArnWithDoer(account, nil)
+}
+
+func ResolveProfileArnWithDoer(account *Account, doer HTTPDoer) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("account is nil")
 	}
@@ -202,7 +227,7 @@ func ResolveProfileArn(account *Account) (string, error) {
 	// NOTE: persistence removed (vendor package does not write a DB). The
 	// resolved ARN is cached only on the in-memory account; the TokenKey layer
 	// is responsible for persisting account.ProfileArn after this returns.
-	profileArn, err := listAvailableProfilesWithRetry(account)
+	profileArn, err := listAvailableProfilesWithRetryWithDoer(account, doer)
 	if err == nil && profileArn != "" {
 		account.ProfileArn = profileArn
 		return profileArn, nil
@@ -221,6 +246,10 @@ func ResolveProfileArn(account *Account) (string, error) {
 }
 
 func listAvailableProfilesWithRetry(account *Account) (string, error) {
+	return listAvailableProfilesWithRetryWithDoer(account, nil)
+}
+
+func listAvailableProfilesWithRetryWithDoer(account *Account, doer HTTPDoer) (string, error) {
 	// Retry transient failures (network errors, 5xx, 429) with short backoff.
 	// An empty profile list or 4xx (other than 429) is treated as authoritative
 	// and not retried — they reflect account state, not upstream flakiness.
@@ -229,7 +258,7 @@ func listAvailableProfilesWithRetry(account *Account) (string, error) {
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		profileArn, err := listAvailableProfiles(account)
+		profileArn, err := listAvailableProfilesWithDoer(account, doer)
 		if err == nil {
 			return profileArn, nil
 		}
@@ -264,7 +293,11 @@ func isTransientProfileFetchError(err error) bool {
 }
 
 func listAvailableProfiles(account *Account) (string, error) {
-	data, err := kiroRestFetch(account, "POST", "/ListAvailableProfiles", `{"maxResults":10}`, false)
+	return listAvailableProfilesWithDoer(account, nil)
+}
+
+func listAvailableProfilesWithDoer(account *Account, doer HTTPDoer) (string, error) {
+	data, err := kiroRestFetchWithDoer(account, "POST", "/ListAvailableProfiles", `{"maxResults":10}`, false, doer)
 	if err != nil {
 		return "", err
 	}

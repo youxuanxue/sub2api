@@ -129,6 +129,7 @@ func newKiroAccountForTest() *Account {
 		Credentials: map[string]any{
 			"access_token":  "at",
 			"refresh_token": "rt",
+			"profile_arn":   "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
 			"region":        "us-east-1",
 			"auth_method":   "social",
 		},
