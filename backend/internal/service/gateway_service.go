@@ -409,7 +409,6 @@ var ErrClaudeCodeOnly = errors.New("this group only allows Claude Code clients")
 var allowedHeaders = map[string]bool{
 	"accept":                                    true,
 	"x-stainless-retry-count":                   true,
-	"x-stainless-timeout":                       true,
 	"x-stainless-lang":                          true,
 	"x-stainless-package-version":               true,
 	"x-stainless-os":                            true,
@@ -6498,16 +6497,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	}
 
 	if c != nil && c.Request != nil {
-		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] {
-				continue
-			}
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
-			}
-		}
+		copyAnthropicPassthroughHeaders(req.Header, c.Request.Header, s.anthropicPassthroughAllowTimeoutHeaders())
 	}
 
 	// 覆盖入站鉴权残留，并注入上游认证
@@ -7451,15 +7441,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// 透传客户端 header 会引入不一致的 x-stainless-* / anthropic-beta / user-agent /
 	// x-claude-code-session-id 等值，和我们注入的伪装 header 冲突，被 Anthropic 判 third-party。
 	if tokenType != "oauth" || !mimicClaudeCode {
-		for key, values := range clientHeaders {
-			lowerKey := strings.ToLower(key)
-			if allowedHeaders[lowerKey] {
-				wireKey := resolveWireCasing(key)
-				for _, v := range values {
-					addHeaderRaw(req.Header, wireKey, v)
-				}
-			}
-		}
+		copyAnthropicPassthroughHeaders(req.Header, clientHeaders, s.anthropicPassthroughAllowTimeoutHeaders())
 	}
 
 	// OAuth账号：应用缓存的指纹到请求头（覆盖白名单透传的头）
@@ -7641,16 +7623,8 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	}
 
 	if c != nil && c.Request != nil {
-		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] || lowerKey == "anthropic-version" {
-				continue
-			}
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
-			}
-		}
+		copyAnthropicPassthroughHeaders(req.Header, c.Request.Header, s.anthropicPassthroughAllowTimeoutHeaders())
+		deleteHeaderAllForms(req.Header, "anthropic-version")
 	}
 
 	req.Header.Del("authorization")
@@ -11165,16 +11139,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	}
 
 	if c != nil && c.Request != nil {
-		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] {
-				continue
-			}
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
-			}
-		}
+		copyAnthropicPassthroughHeaders(req.Header, c.Request.Header, s.anthropicPassthroughAllowTimeoutHeaders())
 	}
 
 	req.Header.Del("authorization")
@@ -11275,15 +11240,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 
 	// 白名单透传 headers（恢复真实 wire casing）
-	for key, values := range clientHeaders {
-		lowerKey := strings.ToLower(key)
-		if allowedHeaders[lowerKey] {
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
-			}
-		}
-	}
+	copyAnthropicPassthroughHeaders(req.Header, clientHeaders, s.anthropicPassthroughAllowTimeoutHeaders())
 
 	// OAuth 账号：应用指纹到请求头（受设置开关控制）
 	if ctEnableFP && ctFingerprint != nil {

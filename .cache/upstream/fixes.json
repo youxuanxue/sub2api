@@ -644,6 +644,25 @@
         "scripts/sentinels/gateway-tk.json"
       ],
       "summary": "OAuth/pro 账号 5h Codex 用量百分比显示异常（100-raw 反转）：上游 x-codex-*-used-percent（5h 与 7d）都直接携带 used%（消耗百分比），此前 b65dde63 误以为是 remaining% 而对 5h 套了 used=100-raw 反算，导致空闲号在 admin 账号卡显示 99%/100%，并误触 is5hExhausted 给 raw=0 账号挂上数小时 429 cooldown。#568 移除反算，5h 与 7d 对称直传 used%；窗口归属由 Normalize() 按 window_minutes 判定，非固定 primary/secondary。已由 scripts/sentinels/gateway-tk.json 钉住，防 merge/重构再加回反算。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3158",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go"
+      ],
+      "summary": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3285",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go"
+      ],
+      "summary": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers."
     }
   ]
 }

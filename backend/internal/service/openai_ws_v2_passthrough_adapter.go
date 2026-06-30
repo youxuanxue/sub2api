@@ -297,6 +297,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
 	}
 	firstClientMessage = updatedFirst
+	if bridged, bridgeErr := s.applyCodexImageBridgeToWSResponseCreate(ctx, c, account, firstClientMessage); bridgeErr != nil {
+		return fmt.Errorf("apply codex image bridge on first ws passthrough frame: %w", bridgeErr)
+	} else {
+		firstClientMessage = bridged
+	}
 
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter
@@ -453,6 +458,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if policyErr == nil && blocked == nil &&
 				strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
 				usageMeta.updateFromResponseCreate(out, requestModelForThisFrame)
+			}
+			if policyErr == nil && blocked == nil {
+				if bridged, bridgeErr := s.applyCodexImageBridgeToWSResponseCreate(ctx, c, account, out); bridgeErr != nil {
+					return out, nil, bridgeErr
+				} else {
+					out = bridged
+				}
 			}
 			return out, blocked, policyErr
 		},

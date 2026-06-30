@@ -3519,6 +3519,38 @@
         "return StartOfDay(t)"
       ],
       "rationale": "Billing-day boundaries MUST use the server-configured timezone only. ParseInUserLocation / NowInUserLocation / StartOfDayInUserLocation keep the userTZ parameter for API compatibility but ignore it — an upstream merge that restores client-timezone parsing would silently desync admin groups today_cost, account today-stats, dashboard calendar windows, and usage date filters while still compiling. Pins the ignore-and-delegate implementation in this upstream-shaped file."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#3285",
+        "func isAnthropicPassthroughTimeoutHeader",
+        "func copyAnthropicPassthroughHeaders"
+      ],
+      "rationale": "Anthropic/Kiro API-key passthrough must strip x-stainless-timeout and related client timeout headers by default (upstream #3285). Without this companion, allowedHeaders forwards ~120s timeout hints and long non-stream Kiro requests hit the ~125s cancel/502 boundary seen in prod."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "copyAnthropicPassthroughHeaders(req.Header, c.Request.Header, s.anthropicPassthroughAllowTimeoutHeaders())"
+      ],
+      "rationale": "Wiring anchor for Anthropic API-key passthrough timeout-header stripping (#3285). An upstream merge that reverts the header-copy loop to raw allowedHeaders silently restores x-stainless-timeout forwarding."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#3158",
+        "func (s *OpenAIGatewayService) applyCodexImageBridgeToWSResponseCreate",
+        "ensureOpenAIResponsesImageGenerationTool"
+      ],
+      "rationale": "WS v2 passthrough must apply the Codex image_generation bridge before forwarding response.create frames (upstream #3158). Without this companion, passthrough-mode accounts skip the bridge that regular WS ingress applies in openai_ws_forwarder.go."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": [
+        "applyCodexImageBridgeToWSResponseCreate(ctx, c, account, firstClientMessage)"
+      ],
+      "rationale": "Load-bearing wiring of Codex image bridge into WS v2 passthrough first-frame path (#3158). Dropping this call leaves passthrough accounts without image_generation tool injection while non-passthrough WS ingress still works."
     }
   ]
 }
