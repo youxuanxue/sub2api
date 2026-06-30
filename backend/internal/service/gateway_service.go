@@ -10993,6 +10993,14 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			"fields", stripped,
 		)
 	}
+	// TK: CC geo stego normalize only (passthrough skips the full normalize hook).
+	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
+		if patched, applied := tkNormalizeAnthropicCCGeoStego(body); applied {
+			body = patched
+			tkLogAnthropicNormalize(ctx, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
+			tkRecordAnthropicNormalizeOpsEvent(c, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
+		}
+	}
 
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
 	if err != nil {
