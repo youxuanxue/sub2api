@@ -1,11 +1,11 @@
 ---
 title: newapi 分组图片生成开关与 tk_049 存量回填
-status: pending
-approved_by: pending
+status: shipped
+approved_by: "xuejiao (operator approval, 2026-06-30)"
 authors: [agent]
 created: 2026-06-29
-related_prs: []
-related_commits: []
+related_prs: [1076]
+related_commits: [9b5e9576e107fc4c0cf36168e12084a345f3eb34]
 parent_design: docs/approved/admin-ui-newapi-platform-end-to-end.md
 ---
 
@@ -34,4 +34,4 @@ Admin 后端字段与 API 已支持 `allow_image_generation`，但 `GroupsView` 
 ## 验证
 
 - 单元/前端测试覆盖 resolver 过滤、inlineData→markdown、BakeOff 路由分流、Admin 平台 gate。
-- prod BakeOff / ImageStudio 实机复现：PR 验证节标注为待人工确认。
+- prod BakeOff / ImageStudio 实机复现：经 operator 审批确认（2026-06-30）；实现已随 #1076 合并。
