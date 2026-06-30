@@ -146,7 +146,7 @@
                Poster tile → in-page lightbox, mirroring VideoStudio and sharing
                videoPlaybackUrl so inline data:video plays tab-local without rehosting. -->
           <button
-            v-if="bakePanelVideoPlayable(p)"
+            v-if="bakePanelPresentation(p) === 'inline-play'"
             type="button"
             class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
             data-testid="bakeoff-video-play"
@@ -159,6 +159,22 @@
               </span>
             </span>
           </button>
+          <StudioVideoPreviewChecking
+            v-else-if="bakePanelPresentation(p) === 'loading'"
+            aspect-ratio="16 / 9"
+            test-id="bakeoff-video-checking"
+          />
+          <StudioVideoDownloadCard
+            v-else-if="bakePanelPresentation(p) === 'download-only' && panelPlaybackTask(p)"
+            :prompt="prompt"
+            :task="panelPlaybackTask(p)!"
+            :copied="copiedUrl === p.url"
+            test-id="bakeoff-video-download-only"
+            download-test-id="bakeoff-video-download-primary"
+            copy-test-id="bakeoff-video-copy-primary"
+            @download="downloadCardVideo(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`, p.urlExpired)"
+            @copy-link="copyCardLink(p.url!)"
+          />
           <StudioVideoUnavailable
             v-else-if="p.state === 'succeeded'"
             :prompt="prompt"
@@ -175,7 +191,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(p.cost) }}</span>
             <StudioPlaybackBadge
-              v-if="modality === 'video' && p.state === 'succeeded' && panelPlaybackTask(p)"
+              v-if="modality === 'video' && p.state === 'succeeded' && panelPlaybackTask(p) && bakePanelPresentation(p) === 'loading'"
               :task="panelPlaybackTask(p)!"
             />
           </div>
@@ -188,7 +204,7 @@
             >
               {{ t('studio.image.download') }}
             </button>
-            <template v-else-if="modality === 'video' && p.state === 'succeeded' && p.url">
+            <template v-else-if="modality === 'video' && p.state === 'succeeded' && p.url && bakePanelPresentation(p) !== 'download-only'">
               <button
                 type="button"
                 class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
@@ -274,9 +290,10 @@
                 <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: task.vendorLabel }) }}</span>
               </div>
               <button
-                v-if="videoTaskPlaybackAvailable(task)"
+                v-if="videoTaskCardPresentation(task) === 'inline-play'"
                 type="button"
                 class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
+                data-testid="bakeoff-history-video-play"
                 @click="openVideoHistoryPreview(task)"
               >
                 <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -285,6 +302,22 @@
                   </span>
                 </span>
               </button>
+              <StudioVideoPreviewChecking
+                v-else-if="videoTaskCardPresentation(task) === 'loading'"
+                aspect-ratio="16 / 9"
+                test-id="bakeoff-history-video-checking"
+              />
+              <StudioVideoDownloadCard
+                v-else-if="videoTaskCardPresentation(task) === 'download-only'"
+                :prompt="task.prompt"
+                :task="task"
+                :copied="copiedUrl === task.url"
+                test-id="bakeoff-history-video-download-only"
+                download-test-id="bakeoff-history-video-download-primary"
+                copy-test-id="bakeoff-history-video-copy-primary"
+                @download="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
+                @copy-link="copyCardLink(task.url)"
+              />
               <div v-else-if="task.state === 'processing'" class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-[11px] text-gray-500 dark:bg-dark-800 dark:text-dark-400">
                 <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 animate-pulse rounded-full bg-primary-500"></span>{{ t('studio.video.statusProcessing') }}</span>
               </div>
@@ -293,10 +326,16 @@
               </div>
               <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
               <div class="mt-1 flex items-center justify-between gap-2">
-                <StudioPlaybackBadge v-if="task.state === 'succeeded'" :task="task" />
+                <StudioPlaybackBadge
+                  v-if="task.state === 'succeeded' && videoTaskCardPresentation(task) === 'loading'"
+                  :task="task"
+                />
                 <span class="ml-auto text-xs font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
               </div>
-              <div v-if="task.state === 'succeeded' && task.url" class="mt-1 flex flex-wrap items-center gap-2">
+              <div
+                v-if="task.state === 'succeeded' && task.url && videoTaskCardPresentation(task) !== 'download-only'"
+                class="mt-1 flex flex-wrap items-center gap-2"
+              >
                 <button
                   type="button"
                   class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
@@ -369,6 +408,7 @@ import {
   groupVideoHistoryByBatch,
   imageHistoryItemAvailable,
   shouldShowStudioSaveReminder,
+  videoTaskCardPresentation,
   videoTaskPlaybackAvailable,
 } from '@/utils/studioMedia.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
@@ -376,6 +416,8 @@ import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
 import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
+import StudioVideoDownloadCard from '@/views/user/studio/components/StudioVideoDownloadCard.vue'
+import StudioVideoPreviewChecking from '@/views/user/studio/components/StudioVideoPreviewChecking.vue'
 import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { useAppStore } from '@/stores/app'
@@ -437,6 +479,7 @@ interface BakePanel {
   taskId?: string
   url?: string
   urlExpired?: boolean
+  playbackStorage?: import('@/utils/studioPlaybackStorage.tk').StudioPlaybackStorage
   elapsedS?: number
   errorMessage?: string
 }
@@ -448,12 +491,6 @@ const isBusy = computed(
 const activeRunTs = ref<number | null>(null)
 
 const library = useMediaLibrary(props.userId)
-
-const playbackDeps = {
-  patchVideoTask: (id: string, patch: Partial<VideoTaskItem>) => library.patchVideoTask(id, patch),
-  cacheInlineMedia: library.cacheInlineMedia.bind(library),
-  onUpstreamCorsBlocked: () => appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000),
-}
 
 function tagVideoPlayback(taskId: string, url: string): void {
   void tagStudioVideoPlayback(playbackDeps, taskId, url)
@@ -468,11 +505,19 @@ function patchVideoTask(id: string, patch: Partial<VideoTaskItem>): void {
       panel.url = patch.url
     }
     if (patch.urlExpired != null) panel.urlExpired = patch.urlExpired
+    if (patch.playbackStorage != null) panel.playbackStorage = patch.playbackStorage
     if (patch.elapsedS != null) panel.elapsedS = patch.elapsedS
     if (patch.errorMessage != null) panel.errorMessage = patch.errorMessage
   }
   if (patch.url) void tagVideoPlayback(id, patch.url)
 }
+
+const playbackDeps = {
+  patchVideoTask,
+  cacheInlineMedia: library.cacheInlineMedia.bind(library),
+  onUpstreamCorsBlocked: () => appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000),
+}
+
 const poll = useVideoTaskPoll({
   gatewayBase: () => props.gatewayBase,
   resolveKey: (keyId) => props.keys.find((k) => k.id === keyId)?.key,
@@ -505,9 +550,15 @@ const showSaveReminder = computed(() =>
   })
 )
 
-function bakePanelVideoPlayable(p: BakePanel): boolean {
-  if (p.state !== 'succeeded') return false
-  return videoTaskPlaybackAvailable({ state: p.state, url: p.url ?? '', urlExpired: p.urlExpired })
+function bakePanelPresentation(p: BakePanel) {
+  if (p.state !== 'succeeded') return 'expired' as const
+  const stored = p.taskId ? library.videoTasks.value.find((t) => t.id === p.taskId) : undefined
+  return videoTaskCardPresentation({
+    state: p.state,
+    url: p.url ?? stored?.url ?? '',
+    urlExpired: p.urlExpired ?? stored?.urlExpired,
+    playbackStorage: p.playbackStorage ?? stored?.playbackStorage,
+  })
 }
 
 function panelPlaybackTask(p: BakePanel): Pick<VideoTaskItem, 'playbackStorage' | 'urlExpired' | 'url'> | undefined {
@@ -557,7 +608,7 @@ function openVideoPreviewFromUrl(label: string, cost: number, url: string, taskI
 
 function openVideoPreview(panel: BakePanel): void {
   if (panel.state !== 'succeeded' || !panel.url) return
-  if (!videoTaskPlaybackAvailable({ state: panel.state, url: panel.url ?? '', urlExpired: panel.urlExpired })) return
+  if (!videoTaskPlaybackAvailable({ state: panel.state, url: panel.url ?? '', urlExpired: panel.urlExpired, playbackStorage: panel.playbackStorage })) return
   openVideoPreviewFromUrl(panel.label, panel.cost, panel.url, panel.taskId, panel.urlExpired)
 }
 

@@ -286,6 +286,9 @@ export default {
       copied: 'Copied',
       retentionHint: 'Download now · short local preview; upstream links expire',
       previewBuffering: 'Buffering video…',
+      checkingPreview: 'Checking whether in-page preview is available…',
+      downloadOnlyTitle: 'Video ready',
+      downloadOnlyHint: 'This source cannot be previewed in the browser. Download to watch locally.',
     },
     chat: {
       model: 'Model',

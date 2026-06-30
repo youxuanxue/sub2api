@@ -13,6 +13,7 @@
  * always gets something usable to hand to a <video :src>.
  */
 import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
+import { videoTaskPlaybackStorageKind } from '@/utils/studioPlaybackStorage.tk'
 
 /** i18n key for image thumbnails that lost their in-browser bytes after reload. */
 export const STUDIO_IMAGE_EXPIRED_I18N_KEY = 'studio.image.expiredReload' as const
@@ -22,11 +23,44 @@ export function imageHistoryItemAvailable(img: Pick<ImageHistoryItem, 'src'>): b
   return !!img.src?.trim()
 }
 
-/** True when the task card may offer in-page playback (same session, non-expired url).
- *  `urlExpired` is set only when a reload stripped the http url from storage — not when
- *  the lightbox fails to play an upstream CORS-blocked clip in the current tab. */
-export function videoTaskPlaybackAvailable(task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired'>): boolean {
-  return task.state === 'succeeded' && !!task.url && !task.urlExpired
+/** Card surface for a succeeded video task after CORS/storage classification. */
+export type VideoTaskCardPresentation = 'loading' | 'inline-play' | 'download-only' | 'expired'
+
+/**
+ * Decide which video card UI to show. Upstream http(s) URLs stay in `loading` until
+ * tagStudioVideoPlayback resolves; CORS-blocked upstream clips skip the play tile
+ * and surface download-first (honest UX — no fake ▶).
+ */
+export function videoTaskCardPresentation(
+  task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired' | 'playbackStorage'>
+): VideoTaskCardPresentation {
+  if (task.state !== 'succeeded') return 'expired'
+  if (task.urlExpired || !task.url?.trim()) return 'expired'
+
+  const url = task.url.trim()
+  if (/^data:video/i.test(url) || url.startsWith('blob:')) return 'inline-play'
+
+  const kind = videoTaskPlaybackStorageKind(task)
+  switch (kind) {
+    case 'upstream-cors-blocked':
+      return 'download-only'
+    case 'unknown':
+      return 'loading'
+    case 'expired':
+      return 'expired'
+    case 'inline-local':
+    case 'upstream-cors-ok':
+      return 'inline-play'
+    default:
+      return 'loading'
+  }
+}
+
+/** True when the card may show the in-page play tile / open the lightbox. */
+export function videoTaskPlaybackAvailable(
+  task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired' | 'playbackStorage'>
+): boolean {
+  return videoTaskCardPresentation(task) === 'inline-play'
 }
 
 /** When any Studio surface should show the local-save download banner. */

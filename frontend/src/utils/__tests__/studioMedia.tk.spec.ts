@@ -5,6 +5,7 @@ import {
   imageHistoryItemAvailable,
   shouldShowStudioSaveReminder,
   videoPlaybackUrl,
+  videoTaskCardPresentation,
   videoTaskPlaybackAvailable,
 } from '../studioMedia.tk'
 import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
@@ -17,6 +18,60 @@ const urlStatic = URL as unknown as {
   revokeObjectURL?: (u: string) => void
 }
 
+describe('videoTaskCardPresentation', () => {
+  it('is expired when reload stripped the upstream url', () => {
+    expect(
+      videoTaskCardPresentation({
+        state: 'succeeded',
+        url: '',
+        urlExpired: true,
+      })
+    ).toBe('expired')
+  })
+
+  it('is loading for http upstream until CORS classification finishes', () => {
+    expect(
+      videoTaskCardPresentation({
+        state: 'succeeded',
+        url: 'https://cdn.example/fresh.mp4',
+        urlExpired: false,
+      })
+    ).toBe('loading')
+  })
+
+  it('is download-only when upstream CORS blocks inline preview/cache', () => {
+    expect(
+      videoTaskCardPresentation({
+        state: 'succeeded',
+        url: 'https://cdn.example/seedance.mp4',
+        urlExpired: false,
+        playbackStorage: 'upstream-cors-blocked',
+      })
+    ).toBe('download-only')
+  })
+
+  it('is inline-play when upstream CORS probe succeeds', () => {
+    expect(
+      videoTaskCardPresentation({
+        state: 'succeeded',
+        url: 'https://cdn.example/fresh.mp4',
+        urlExpired: false,
+        playbackStorage: 'upstream-cors-ok',
+      })
+    ).toBe('inline-play')
+  })
+
+  it('is inline-play for tab-local blob urls regardless of storage kind', () => {
+    expect(
+      videoTaskCardPresentation({
+        state: 'succeeded',
+        url: 'blob:cached-video',
+        playbackStorage: 'upstream-cors-blocked',
+      })
+    ).toBe('inline-play')
+  })
+})
+
 describe('videoTaskPlaybackAvailable', () => {
   it('is false for succeeded tasks whose upstream link was stripped on reload', () => {
     expect(
@@ -28,14 +83,23 @@ describe('videoTaskPlaybackAvailable', () => {
     ).toBe(false)
   })
 
-  it('is true for succeeded tasks with a live in-tab url', () => {
+  it('is true only when inline-play presentation applies', () => {
     expect(
       videoTaskPlaybackAvailable({
         state: 'succeeded',
         url: 'https://cdn.example/fresh.mp4',
         urlExpired: false,
+        playbackStorage: 'upstream-cors-ok',
       })
     ).toBe(true)
+    expect(
+      videoTaskPlaybackAvailable({
+        state: 'succeeded',
+        url: 'https://cdn.example/seedance.mp4',
+        urlExpired: false,
+        playbackStorage: 'upstream-cors-blocked',
+      })
+    ).toBe(false)
   })
 })
 

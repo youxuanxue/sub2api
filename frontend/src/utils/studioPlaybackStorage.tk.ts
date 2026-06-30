@@ -68,7 +68,8 @@ export function studioPlaybackStorageI18nKey(storage: StudioPlaybackStorage | un
 export function videoTaskPlaybackStorageKind(
   task: Pick<VideoTaskItem, 'playbackStorage' | 'urlExpired' | 'url'>
 ): StudioPlaybackStorage {
-  return task.playbackStorage ?? (task.urlExpired || !task.url ? 'expired' : 'unknown')
+  if (task.urlExpired || !task.url?.trim()) return 'expired'
+  return task.playbackStorage ?? 'unknown'
 }
 
 export interface TagStudioVideoPlaybackDeps {

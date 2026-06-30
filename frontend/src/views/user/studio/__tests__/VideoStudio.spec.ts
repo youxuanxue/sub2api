@@ -78,6 +78,7 @@ function baseTask(overrides: Partial<VideoTaskItem> = {}): VideoTaskItem {
     keyId: 1,
     state: 'succeeded',
     url: 'https://cdn.example/upstream.mp4',
+    playbackStorage: 'upstream-cors-ok',
     submittedAtMs: Date.now(),
     elapsedS: 8,
     ...overrides,
@@ -123,7 +124,7 @@ describe('VideoStudio succeeded-task presentation', () => {
   })
 
   it('renders a poster tile, NOT an always-on inline <video>, for a fresh in-session task', () => {
-    seedInSession(baseTask({ url: 'https://s3.example/clip.mp4' }))
+    seedInSession(baseTask({ url: 'https://s3.example/clip.mp4', playbackStorage: 'upstream-cors-ok' }))
     const w = mountStudio()
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(true)
     expect(w.find('video').exists()).toBe(false)
@@ -185,6 +186,27 @@ describe('VideoStudio succeeded-task presentation', () => {
     expect(previewVideo.classes()).toEqual(
       expect.arrayContaining(['h-full', 'w-full', 'object-contain', 'max-h-full', 'max-w-full'])
     )
+  })
+
+  it('shows download-first card for upstream CORS-blocked clips (no play tile)', () => {
+    seedInSession(
+      baseTask({
+        url: 'https://cdn.volcengine.example/seedance.mp4',
+        playbackStorage: 'upstream-cors-blocked',
+      })
+    )
+    const w = mountStudio()
+    expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
+    expect(w.find('[data-testid="studio-video-download-only"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-download-primary"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-download"]').exists()).toBe(false)
+  })
+
+  it('shows checking state before upstream CORS classification completes', () => {
+    seedInSession(baseTask({ url: 'https://cdn.example/pending.mp4', playbackStorage: undefined }))
+    const w = mountStudio()
+    expect(w.find('[data-testid="studio-video-checking"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
   })
 
   it('exposes a copy-link affordance in the lightbox ready state', async () => {

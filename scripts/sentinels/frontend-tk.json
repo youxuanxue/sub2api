@@ -977,7 +977,10 @@
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
         "useStudioVideoCardActions",
-        "mountStudioVideoLibrary"
+        "mountStudioVideoLibrary",
+        "StudioVideoPreviewChecking",
+        "StudioVideoDownloadCard",
+        "videoTaskCardPresentation"
       ],
       "must_not_contain": [
         "poll.refreshUrl"
@@ -987,6 +990,8 @@
     {
       "path": "frontend/src/utils/studioMedia.tk.ts",
       "must_contain": [
+        "export function videoTaskCardPresentation",
+        "export function videoTaskPlaybackAvailable",
         "export function videoPlaybackUrl",
         "export function imageHistoryItemAvailable",
         "export function shouldShowStudioSaveReminder",
@@ -1061,6 +1066,24 @@
         "closePreview"
       ],
       "rationale": "Shared in-page image lightbox state for ImageStudio (mirrors useStudioVideoPreview from #1092). data: URIs cannot open in a new tab; preview stays in-page with Escape-to-close."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioVideoDownloadCard.vue",
+      "must_contain": [
+        "studio-video-download-only",
+        "studio-video-download-primary",
+        "StudioPlaybackBadge",
+        "downloadOnlyHint"
+      ],
+      "rationale": "Download-first succeeded card when upstream http(s) URLs fail CORS inline preview (Seedance/VolcEngine). Replaces misleading play tile with primary download + copy-link — honest UX per #944 pass-through."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioVideoPreviewChecking.vue",
+      "must_contain": [
+        "studio-video-checking",
+        "checkingPreview"
+      ],
+      "rationale": "Transient card while tagStudioVideoPlayback probes upstream CORS — no fake play tile before classification completes."
     },
     {
       "path": "frontend/src/views/user/studio/components/StudioImagePreviewLightbox.vue",
