@@ -815,6 +815,9 @@ type GatewayConfig struct {
 	// OpenAIPassthroughAllowTimeoutHeaders: OpenAI 透传模式是否放行客户端超时头
 	// 关闭（默认）可避免 x-stainless-timeout 等头导致上游提前断流。
 	OpenAIPassthroughAllowTimeoutHeaders bool `mapstructure:"openai_passthrough_allow_timeout_headers"`
+	// AnthropicPassthroughAllowTimeoutHeaders: Anthropic/Kiro API-key 透传是否放行客户端超时头。
+	// 关闭（默认）对齐 OpenAI 保护逻辑，避免 x-stainless-timeout 触发 ~125s 上游取消（upstream #3285）。
+	AnthropicPassthroughAllowTimeoutHeaders bool `mapstructure:"anthropic_passthrough_allow_timeout_headers"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
 	// OpenAIScheduler: OpenAI 高级调度器粘性逃逸配置

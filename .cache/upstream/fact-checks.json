@@ -621,6 +621,35 @@
         "backend/internal/service/ratelimit_service.go:openai_403_html_body_skip_cooldown",
         "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403OpenAIAccessDeniedHTMLSkipsCooldown"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3285",
+      "severity": "high",
+      "summary": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go:Wei-Shaw/sub2api#3285",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go:func isAnthropicPassthroughTimeoutHeader",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go:TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_StripsTimeoutHeadersByDefault"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3158",
+      "severity": "high",
+      "summary": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path.",
+      "fixed_by": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go:Wei-Shaw/sub2api#3158",
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go:func (s *OpenAIGatewayService) applyCodexImageBridgeToWSResponseCreate",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go:TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeInjectsCodexImageBridge"
+      ]
     }
   ]
 }

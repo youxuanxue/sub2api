@@ -4,9 +4,9 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 514,
+    "needs_review": 512,
+    "fixed": 42,
     "medium": 144,
-    "fixed": 40,
     "not_applicable": 1,
     "low": 134,
     "unknown_low_signal": 523
@@ -4321,20 +4321,6 @@
       "updated_at": "2026-06-11T17:04:56Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#3158",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/3158",
-      "title": "bug: WS v2 passthrough mode skips Codex image bridge",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage",
-        "image_oauth"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-09T08:07:46Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#3161",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/3161",
       "title": "feat: Responses API thinking/reasoning 字段撞针回退策略",
@@ -4599,22 +4585,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-14T17:02:41Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#3285",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/3285",
-      "title": "【生产排障】Kiro 网关非流式请求约 125 秒取消导致间歇性断流",
-      "impact": "needs_review",
-      "categories": [
-        "claude_mimicry",
-        "rate_limit_cooldown",
-        "billing_usage",
-        "image_oauth",
-        "security"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-23T14:01:39Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#3288",
@@ -8681,6 +8651,36 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "codex_cli_only 访问控制绕过：限制此前只在 /v1/responses (Forward) 生效，普通非 Codex 客户端可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）继续使用受限 OAuth 账号。修复抽出共享 enforceCodexClientRestriction，在所有 OpenAI 网关转发入口统一执行：/responses、/v1/chat/completions、图片 OAuth 路径（forwardOpenAIImagesOAuth）；拒绝返回普通错误而非 *UpstreamFailoverError，确保不会 failover 到另一个账号而再次绕过策略。同时修掉既有脏 403：业务限流类拒绝已写完整响应时，handler 兜底 ensureForwardErrorResponse 不再追加错误帧污染 body。未开启 codex_cli_only 的账号为零成本 no-op。",
       "updated_at": "2026-06-03T11:47:42Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3158",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3158",
+      "title": "bug: WS v2 passthrough mode skips Codex image bridge",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
+        "image_oauth"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path.",
+      "updated_at": "2026-06-09T08:07:46Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3285",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3285",
+      "title": "【生产排障】Kiro 网关非流式请求约 125 秒取消导致间歇性断流",
+      "impact": "fixed",
+      "categories": [
+        "claude_mimicry",
+        "rate_limit_cooldown",
+        "billing_usage",
+        "image_oauth",
+        "security"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers.",
+      "updated_at": "2026-06-23T14:01:39Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",
