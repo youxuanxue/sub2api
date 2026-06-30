@@ -35,7 +35,7 @@
           rows="2"
           class="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
           :placeholder="t('studio.bakeoff.promptPlaceholder')"
-          :disabled="running"
+          :disabled="isBusy"
         />
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -48,7 +48,7 @@
             :class="selectedModelIds.includes(r.model.modelId)
               ? 'border-primary-600 bg-primary-600 text-white'
               : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-            :disabled="running || (!selectedModelIds.includes(r.model.modelId) && selectedModelIds.length >= MAX_PANELS)"
+            :disabled="isBusy || (!selectedModelIds.includes(r.model.modelId) && selectedModelIds.length >= MAX_PANELS)"
             data-testid="bakeoff-tier"
             @click="toggleModel(r.model.modelId)"
           >
@@ -76,7 +76,7 @@
             type="button"
             class="rounded-lg border px-3 py-1.5 text-sm font-medium tabular-nums transition disabled:cursor-not-allowed disabled:opacity-50"
             :class="duration === d ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-            :disabled="running"
+            :disabled="isBusy"
             @click="duration = d"
           >
             {{ d }} s
@@ -94,7 +94,7 @@
             {{ runButtonLabel }}
           </button>
           <button
-            v-if="panels.length && !running"
+            v-if="panels.length && !isBusy"
             type="button"
             class="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:border-gray-300 dark:border-dark-600 dark:text-dark-300"
             data-testid="studio-bakeoff-clear-results"
@@ -403,6 +403,10 @@ interface BakePanel {
   errorMessage?: string
 }
 const panels = ref<BakePanel[]>([])
+/** Submit phase OR any panel still polling upstream — one gate for the whole run. */
+const isBusy = computed(
+  () => running.value || panels.value.some((p) => p.state === 'processing')
+)
 const activeRunTs = ref<number | null>(null)
 
 const library = useMediaLibrary(props.userId)
@@ -558,20 +562,20 @@ const totalHold = computed(() =>
 )
 const canAfford = computed(() => totalHold.value <= props.balance)
 const canRun = computed(
-  () => !running.value && !!props.apiKey && !!prompt.value.trim() && selectedModelIds.value.length >= 2 && canAfford.value && props.keyId != null
+  () => !isBusy.value && !!props.apiKey && !!prompt.value.trim() && selectedModelIds.value.length >= 2 && canAfford.value && props.keyId != null
 )
 const promptChangedSinceRun = computed(
   () => panels.value.length > 0 && prompt.value.trim() !== lastRunPrompt.value
 )
 const runButtonLabel = computed(() => {
-  if (running.value) return t('studio.bakeoff.running')
+  if (isBusy.value) return t('studio.bakeoff.running')
   if (panels.value.length && !promptChangedSinceRun.value) return t('studio.bakeoff.regenerate')
   if (panels.value.length && promptChangedSinceRun.value) return t('studio.bakeoff.regenerateChanged')
   return t('studio.bakeoff.run', { count: selectedModelIds.value.length })
 })
 
 function setModality(m: StudioModality): void {
-  if (running.value) return
+  if (isBusy.value) return
   modality.value = m
   selectedModelIds.value = []
   panels.value = []
@@ -580,7 +584,7 @@ function setModality(m: StudioModality): void {
 }
 
 function clearResults(): void {
-  if (running.value) return
+  if (isBusy.value) return
   panels.value = []
   lastRunPrompt.value = ''
   activeRunTs.value = null
@@ -589,7 +593,7 @@ function clearResults(): void {
 }
 
 function toggleModel(id: string): void {
-  if (running.value) return
+  if (isBusy.value) return
   const i = selectedModelIds.value.indexOf(id)
   if (i >= 0) selectedModelIds.value.splice(i, 1)
   else if (selectedModelIds.value.length < MAX_PANELS) selectedModelIds.value.push(id)
@@ -603,7 +607,7 @@ function formatElapsed(s: number): string {
 async function run(): Promise<void> {
   const text = prompt.value.trim()
   const chosen = selectedResolved()
-  if (!text || chosen.length < 2 || running.value || !canAfford.value || props.keyId == null) return
+  if (!text || chosen.length < 2 || isBusy.value || !canAfford.value || props.keyId == null) return
   errorMessage.value = ''
   errorCode.value = ''
   running.value = true

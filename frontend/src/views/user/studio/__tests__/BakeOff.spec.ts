@@ -74,6 +74,77 @@ const baseProps = {
   rateMultiplier: 1,
 }
 
+const videoProps = {
+  ...baseProps,
+  availableIds: new Set([
+    'seedance-1-0-pro-250528',
+    'doubao-seedance-2-0-fast-260128',
+    'veo-3.1-generate-001',
+  ]),
+  priceMap: new Map([
+    ['seedance-1-0-pro-250528', { perSecond: 0.1088 }],
+    ['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194 }],
+    ['veo-3.1-generate-001', { perSecond: 0.6 }],
+  ]),
+}
+
+describe('BakeOff run gate', () => {
+  beforeEach(() => {
+    libraryMock.videoTasks.value = []
+    vi.mocked(playground.gatewayVideoSubmit).mockReset()
+    vi.mocked(playground.gatewayVideoSubmit).mockResolvedValue({ id: 'vt_busy', status: 'processing' })
+  })
+
+  it('blocks a second video run while panels are still processing', async () => {
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(2)
+    const runBtn = wrapper.get('[data-testid="studio-bakeoff-run"]')
+    expect(runBtn.attributes('disabled')).toBeDefined()
+    expect(runBtn.text()).toContain('studio.bakeoff.running')
+
+    await runBtn.trigger('click')
+    await flushPromises()
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(2)
+  })
+
+  it('allows regenerate after every panel reaches a terminal state', async () => {
+    vi.mocked(playground.gatewayVideoSubmit)
+      .mockResolvedValueOnce({ id: 'vt_a', status: 'succeeded', url: 'https://cdn/a.mp4' })
+      .mockResolvedValueOnce({ id: 'vt_b', status: 'succeeded', url: 'https://cdn/b.mp4' })
+
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(2)
+    const runBtn = wrapper.get('[data-testid="studio-bakeoff-run"]')
+    expect(runBtn.attributes('disabled')).toBeUndefined()
+    expect(runBtn.text()).toContain('studio.bakeoff.regenerate')
+
+    vi.mocked(playground.gatewayVideoSubmit).mockResolvedValue({ id: 'vt_redo', status: 'processing' })
+    await runBtn.trigger('click')
+    await flushPromises()
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(4)
+  })
+})
+
 describe('BakeOff image routing', () => {
   beforeEach(() => {
     libraryMock.images.value = []

@@ -293,37 +293,72 @@ async function refreshBalance(): Promise<void> {
   }
 }
 
-// Probe /v1/models for every distinct group, in parallel. A failed probe maps to
-// an empty pool (so that group's tiers stay hidden); only an all-failed result
-// is surfaced as a hard load error.
-async function probeAllGroups(): Promise<void> {
+/** One representative key per distinct group — shared by staged / full probes. */
+function groupRepresentatives(keyList: ApiKey[]): Map<string, ApiKey> {
   const reps = new Map<string, ApiKey>()
-  for (const k of keys.value) {
+  for (const k of keyList) {
     const gk = groupKeyOf(k)
     if (!reps.has(gk)) reps.set(gk, k)
   }
+  return reps
+}
+
+function mergeGroupProbe(gk: string, ids: Iterable<string>): void {
+  const next = new Map(groupModelSets.value)
+  next.set(gk, new Set(ids))
+  groupModelSets.value = next
+}
+
+/** Probe the listed groups in parallel; returns true when at least one fetch succeeded. */
+async function probeGroupEntries(entries: readonly [string, ApiKey][]): Promise<boolean> {
+  if (entries.length === 0) return false
+  const results = await Promise.allSettled(
+    entries.map(([, k]) => gatewayListModels(k.key, gatewayBase.value))
+  )
+  let anyOk = false
+  results.forEach((r, i) => {
+    const gk = entries[i][0]
+    if (r.status === 'fulfilled') {
+      anyOk = true
+      mergeGroupProbe(gk, (r.value.data || []).map((m) => m.id))
+    } else {
+      mergeGroupProbe(gk, [])
+    }
+  })
+  return anyOk
+}
+
+function orderedGroupEntries(reps: Map<string, ApiKey>, priorityGk: string): [string, ApiKey][] {
   const entries = [...reps.entries()]
-  if (entries.length === 0) return
-  modelsLoading.value = true
+  const idx = entries.findIndex(([gk]) => gk === priorityGk)
+  if (idx <= 0) return entries
+  const [prio] = entries.splice(idx, 1)
+  return [prio, ...entries]
+}
+
+let backgroundProbeGen = 0
+
+function repickKeyForCurrentModality(): void {
+  const m = pickerModality.value
+  if (!m) return
+  selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value)
+}
+
+/** Finish probing groups the fast path skipped; refresh key annotations when done. */
+async function finishBackgroundProbe(
+  reps: Map<string, ApiKey>,
+  alreadyProbed: ReadonlySet<string>
+): Promise<void> {
+  const gen = ++backgroundProbeGen
+  const remaining = [...reps.entries()].filter(([gk]) => !alreadyProbed.has(gk))
   try {
-    const results = await Promise.allSettled(
-      entries.map(([, k]) => gatewayListModels(k.key, gatewayBase.value))
-    )
-    const next = new Map<string, Set<string>>()
-    let anyOk = false
-    results.forEach((r, i) => {
-      const gk = entries[i][0]
-      if (r.status === 'fulfilled') {
-        anyOk = true
-        next.set(gk, new Set((r.value.data || []).map((m) => m.id)))
-      } else {
-        next.set(gk, new Set())
-      }
-    })
-    groupModelSets.value = next
-    if (!anyOk) loadError.value = t('studio.loadFailed')
+    if (remaining.length > 0) {
+      await probeGroupEntries(remaining)
+      if (gen !== backgroundProbeGen) return
+      repickKeyForCurrentModality()
+    }
   } finally {
-    modelsLoading.value = false
+    if (gen === backgroundProbeGen) modelsLoading.value = false
   }
 }
 
@@ -383,17 +418,91 @@ async function bootstrap(): Promise<void> {
       loadError.value = t('studio.noApiKey')
       return
     }
-    await Promise.all([probeAllGroups(), loadUserEntitlement()])
-    if (loadError.value) return
-    // Seed with the historical default, then let the picker move to a key whose
-    // group actually serves the landing modality (defaults to chat at mount).
-    selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value ?? 'chat', seed)
-    // Mount studios as soon as /v1/models is probed. Price catalog is only needed
-    // for image/video/bake-off; awaiting it blocked Chat on slow catalog fetches.
+    const seedKey = keys.value.find((k) => k.id === seed)
+    if (!seedKey) {
+      loadError.value = t('studio.loadFailed')
+      return
+    }
+
+    const reps = groupRepresentatives(keys.value)
+    const seedGk = groupKeyOf(seedKey)
+    const hasUniversal = keys.value.some(isUniversalKey)
+    const landingView = view.value
+    modelsLoading.value = true
+
+    // Chat is the default landing tab. Probing every distinct group up front made
+    // first paint wait on N gateway round-trips (painful for admins with many
+    // groups). Probe the seed group first, mount Chat, then finish the rest in
+    // the background for key-picker annotations and tab switches.
+    if (landingView === 'chat') {
+      const entitlementNow = hasUniversal ? loadUserEntitlement() : Promise.resolve()
+      const probeSeed = isUniversalKey(seedKey)
+        ? Promise.resolve(true)
+        : probeGroupEntries([[seedGk, seedKey]])
+      const [, anyOk] = await Promise.all([entitlementNow, probeSeed])
+      if (!anyOk && reps.size === 1) {
+        loadError.value = t('studio.loadFailed')
+        modelsLoading.value = false
+        return
+      }
+      selectedKeyId.value = pickModalityKey(modalityOptions(), 'chat', seed)
+      probed.value = true
+      if (selectedKeyId.value != null) void loadPriceMap(selectedKeyId.value)
+      void (async () => {
+        if (!hasUniversal) await loadUserEntitlement()
+        await finishBackgroundProbe(reps, new Set([seedGk]))
+        if (!anyOk && reps.size > 1 && ![...groupModelSets.value.values()].some((s) => s.size > 0)) {
+          loadError.value = t('studio.loadFailed')
+        }
+      })()
+      return
+    }
+
+    // Image / video / bake-off deep-links need a price catalog before the child
+    // studio mounts. Probe the seed group first, then batch the rest if needed.
+    const ordered = orderedGroupEntries(reps, seedGk)
+    const [, anyOk] = await Promise.all([
+      loadUserEntitlement(),
+      probeGroupEntries(ordered.length ? [ordered[0]] : []),
+    ])
+
+    if (landingView === 'bakeoff') {
+      if (!anyOk) {
+        loadError.value = t('studio.loadFailed')
+        modelsLoading.value = false
+        return
+      }
+      selectedKeyId.value = seed
+      if (ordered.length > 1) {
+        void finishBackgroundProbe(reps, new Set([seedGk]))
+      } else {
+        modelsLoading.value = false
+      }
+      probed.value = true
+      await loadPriceMap(seed)
+      return
+    }
+
+    let picked = pickModalityKey(modalityOptions(), landingView, seed)
+    const currentServes =
+      picked != null &&
+      keys.value.some((k) => k.id === picked && keyServesModality(k, landingView))
+    if (!currentServes && ordered.length > 1) {
+      await probeGroupEntries(ordered.slice(1))
+      picked = pickModalityKey(modalityOptions(), landingView, seed)
+    }
+    if (!anyOk) {
+      loadError.value = t('studio.loadFailed')
+      modelsLoading.value = false
+      return
+    }
+    selectedKeyId.value = picked
     probed.value = true
-    if (selectedKeyId.value != null) void loadPriceMap(selectedKeyId.value)
+    if (selectedKeyId.value != null) await loadPriceMap(selectedKeyId.value)
+    modelsLoading.value = false
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')
+    modelsLoading.value = false
   }
 }
 
