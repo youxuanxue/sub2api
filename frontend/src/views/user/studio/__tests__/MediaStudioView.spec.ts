@@ -88,6 +88,39 @@ describe('MediaStudioView bootstrap', () => {
     getPublicPricing.mockResolvedValue({ data: [] })
   })
 
+  it('mounts ChatStudio after probing only the seed group, not every distinct group', async () => {
+    listKeys.mockResolvedValue({
+      items: [
+        { id: 1, name: 'trial', key: 'sk-a', group: { id: 10, name: 'g1' } },
+        { id: 2, name: 'other', key: 'sk-b', group: { id: 20, name: 'g2' } },
+      ],
+    })
+    let resolveSecond!: (value: { data: { id: string }[] }) => void
+    gatewayListModels.mockImplementation((key: string) => {
+      if (key === 'sk-a') return Promise.resolve({ data: [{ id: 'gpt-4o' }] })
+      return new Promise((resolve) => {
+        resolveSecond = resolve
+      })
+    })
+    getMePricingCatalog.mockResolvedValue({ authorized_groups_by_model: {}, models: [] })
+
+    const wrapper = mount(MediaStudioView, {
+      global: {
+        plugins: [i18n],
+        stubs: { 'router-link': true },
+      },
+    })
+
+    await flushPromises()
+    expect(wrapper.find('[data-testid="studio-chat-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="studio-bootstrap-loading"]').exists()).toBe(false)
+    expect(gatewayListModels).toHaveBeenCalledWith('sk-a', 'https://api.example')
+
+    resolveSecond({ data: [{ id: 'claude-3-opus' }] })
+    await flushPromises()
+    expect(gatewayListModels).toHaveBeenCalledWith('sk-b', 'https://api.example')
+  })
+
   it('mounts ChatStudio after model probe without waiting for the per-key price catalog', async () => {
     let resolveCatalog!: (value: { models: [] }) => void
     getMePricingCatalog.mockImplementation((opts?: { apiKeyId?: number }) => {

@@ -35,7 +35,7 @@
           rows="2"
           class="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
           :placeholder="t('studio.bakeoff.promptPlaceholder')"
-          :disabled="running"
+          :disabled="isBusy"
         />
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -48,7 +48,7 @@
             :class="selectedModelIds.includes(r.model.modelId)
               ? 'border-primary-600 bg-primary-600 text-white'
               : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-            :disabled="running || (!selectedModelIds.includes(r.model.modelId) && selectedModelIds.length >= MAX_PANELS)"
+            :disabled="isBusy || (!selectedModelIds.includes(r.model.modelId) && selectedModelIds.length >= MAX_PANELS)"
             data-testid="bakeoff-tier"
             @click="toggleModel(r.model.modelId)"
           >
@@ -76,7 +76,7 @@
             type="button"
             class="rounded-lg border px-3 py-1.5 text-sm font-medium tabular-nums transition disabled:cursor-not-allowed disabled:opacity-50"
             :class="duration === d ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-            :disabled="running"
+            :disabled="isBusy"
             @click="duration = d"
           >
             {{ d }} s
@@ -94,7 +94,7 @@
             {{ runButtonLabel }}
           </button>
           <button
-            v-if="panels.length && !running"
+            v-if="panels.length && !isBusy"
             type="button"
             class="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:border-gray-300 dark:border-dark-600 dark:text-dark-300"
             data-testid="studio-bakeoff-clear-results"
@@ -159,9 +159,12 @@
               </span>
             </span>
           </button>
-          <div v-else-if="p.state === 'succeeded'" class="flex aspect-video items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 px-2 text-center text-[11px] text-gray-500 dark:border-dark-600 dark:bg-dark-800/60 dark:text-dark-400">
-            {{ t('studio.video.expiredReload') }}
-          </div>
+          <StudioVideoUnavailable
+            v-else-if="p.state === 'succeeded'"
+            :prompt="prompt"
+            :task="panelPlaybackTask(p)"
+            test-id="bakeoff-video-expired"
+          />
           <div v-else class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-xs text-gray-500 dark:bg-dark-800 dark:text-dark-400">
             <span v-if="p.state === 'processing'" class="inline-flex items-center gap-1.5"><span class="h-2 w-2 animate-pulse rounded-full bg-primary-500"></span>{{ t('studio.video.statusProcessing') }} {{ formatElapsed(p.elapsedS || 0) }}</span>
             <span v-else-if="p.state === 'failed'" class="px-2 text-center text-red-500">{{ p.errorMessage || t('studio.bakeoff.failed') }}</span>
@@ -169,7 +172,10 @@
           </div>
         </template>
         <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span class="font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(p.cost) }}</span>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(p.cost) }}</span>
+            <StudioPlaybackBadge v-if="modality === 'video' && bakePanelVideoPlayable(p)" :task="panelPlaybackTask(p)!" />
+          </div>
           <div class="flex items-center gap-2">
             <button
               v-if="modality === 'image' && p.src"
@@ -180,9 +186,10 @@
               {{ t('studio.image.download') }}
             </button>
             <button
-              v-else-if="modality === 'video' && bakePanelVideoPlayable(p) && p.url"
+              v-else-if="modality === 'video' && p.state === 'succeeded' && p.url"
               type="button"
               class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
+              data-testid="bakeoff-video-download"
               @click="downloadMedia(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`)"
             >
               {{ t('studio.video.download') }}
@@ -272,7 +279,7 @@
                 <span class="ml-auto text-xs font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
               </div>
               <button
-                v-if="videoTaskPlaybackAvailable(task) && task.url"
+                v-if="task.state === 'succeeded' && task.url"
                 type="button"
                 class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
                 @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)"
@@ -290,7 +297,7 @@
          rendering MAX_PANELS always-on <video> elements. -->
     <Teleport to="body">
       <div
-        v-if="videoPreviewUrl"
+        v-if="videoPreviewOpen"
         class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
         data-testid="bakeoff-video-preview"
         @click.self="closeVideoPreview"
@@ -300,13 +307,33 @@
             {{ t('studio.video.close') }} ✕
           </button>
         </div>
-        <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closeVideoPreview">
-          <video v-if="videoPreviewUrl" :src="videoPreviewUrl" controls autoplay playsinline class="h-full max-h-full w-full max-w-full rounded-lg bg-black object-contain shadow-2xl"></video>
+        <div class="relative flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closeVideoPreview">
+          <video
+            v-if="videoPreviewState === 'ready' && videoPreviewUrl"
+            :src="videoPreviewUrl"
+            controls
+            autoplay
+            playsinline
+            preload="auto"
+            class="h-full max-h-full w-full max-w-full rounded-lg bg-black object-contain shadow-2xl"
+            @loadeddata="videoPreviewMediaReady = true"
+            @error="onVideoPreviewError"
+          ></video>
+          <div v-if="videoPreviewState === 'ready' && videoPreviewUrl && !videoPreviewMediaReady" class="absolute text-sm text-white/80">{{ t('studio.video.previewBuffering') }}</div>
+          <div v-else-if="videoPreviewState === 'loading'" class="text-sm text-white/80">{{ t('studio.video.loadingPreview') }}</div>
+          <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
+            <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
+            <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
+            <div class="mt-3 flex items-center justify-center gap-2">
+              <button type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="retryVideoPreview">{{ t('studio.video.retry') }}</button>
+            </div>
+          </div>
         </div>
         <div class="flex flex-wrap items-center justify-center gap-3 p-4">
           <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreviewLabel">{{ videoPreviewLabel }}</span>
           <span v-if="videoPreviewCost != null" class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(videoPreviewCost) }}</span>
-          <button v-if="videoPreviewUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(videoPreviewUrl, `tokenkey-bakeoff-preview.mp4`)">{{ t('studio.video.download') }}</button>
+          <button v-if="videoPreviewDownloadUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(videoPreviewDownloadUrl, `tokenkey-bakeoff-preview.mp4`)">{{ t('studio.video.download') }}</button>
+          <button v-if="videoPreviewState === 'ready' && videoPreviewUrl" type="button" class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white" data-testid="bakeoff-video-copy-link" @click="copyVideoPreviewLink">{{ copiedPreviewLink ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
         </div>
       </div>
     </Teleport>
@@ -399,10 +426,15 @@ interface BakePanel {
   src?: string
   taskId?: string
   url?: string
+  urlExpired?: boolean
   elapsedS?: number
   errorMessage?: string
 }
 const panels = ref<BakePanel[]>([])
+/** Submit phase OR any panel still polling upstream — one gate for the whole run. */
+const isBusy = computed(
+  () => running.value || panels.value.some((p) => p.state === 'processing')
+)
 const activeRunTs = ref<number | null>(null)
 
 const library = useMediaLibrary(props.userId)
@@ -427,8 +459,12 @@ function patchVideoTask(id: string, patch: Partial<VideoTaskItem>): void {
   const panel = panels.value.find((p) => p.taskId === id)
   if (panel) {
     if (patch.state) panel.state = patch.state
-    if (patch.url != null) panel.url = patch.url
+    if (typeof patch.url === 'string' && (patch.url !== '' || patch.state !== 'processing')) {
+      panel.url = patch.url
+    }
+    if (patch.urlExpired != null) panel.urlExpired = patch.urlExpired
     if (patch.elapsedS != null) panel.elapsedS = patch.elapsedS
+    if (patch.errorMessage != null) panel.errorMessage = patch.errorMessage
   }
   if (patch.url) void tagVideoPlayback(id, patch.url)
 }
@@ -465,7 +501,20 @@ const showSaveReminder = computed(() =>
 )
 
 function bakePanelVideoPlayable(p: BakePanel): boolean {
-  return p.state === 'succeeded' && !!p.url
+  if (p.state !== 'succeeded') return false
+  return videoTaskPlaybackAvailable({ state: p.state, url: p.url ?? '', urlExpired: p.urlExpired })
+}
+
+function panelPlaybackTask(p: BakePanel): Pick<VideoTaskItem, 'playbackStorage' | 'urlExpired' | 'url'> | undefined {
+  if (!p.url && !p.urlExpired) return undefined
+  const stored = p.taskId ? library.videoTasks.value.find((t) => t.id === p.taskId) : undefined
+  const url = p.url ?? stored?.url ?? ''
+  if (!url && !p.urlExpired && !stored?.urlExpired) return undefined
+  return {
+    url,
+    urlExpired: p.urlExpired ?? stored?.urlExpired,
+    playbackStorage: stored?.playbackStorage,
+  }
 }
 
 function downloadImage(src: string, id: string): void {
@@ -478,37 +527,87 @@ function modelLabel(modelId: string): string {
 }
 
 // ---- In-page video lightbox (on-demand playback; no always-on <video>) ----------
+const videoPreviewOpen = ref(false)
 const videoPreviewUrl = ref('')
+const videoPreviewRawUrl = ref('')
+const videoPreviewTaskId = ref<string | undefined>()
 const videoPreviewLabel = ref('')
 const videoPreviewCost = ref<number | null>(null)
+const videoPreviewState = ref<'loading' | 'ready' | 'expired'>('loading')
+const videoPreviewMediaReady = ref(false)
+const copiedPreviewLink = ref(false)
 let videoPreviewRevoke: () => void = () => {}
+let copiedPreviewTimer: ReturnType<typeof setTimeout> | undefined
 
-function openVideoPreviewFromUrl(label: string, cost: number, url: string): void {
+const videoPreviewDownloadUrl = computed(() => videoPreviewRawUrl.value || videoPreviewUrl.value)
+
+function openVideoPreviewFromUrl(label: string, cost: number, url: string, taskId?: string): void {
   if (!url) return
   videoPreviewRevoke()
-  const playback = videoPlaybackUrl(url)
-  videoPreviewRevoke = playback.revoke
+  videoPreviewOpen.value = true
   videoPreviewLabel.value = label
   videoPreviewCost.value = cost
+  videoPreviewRawUrl.value = url
+  videoPreviewTaskId.value = taskId
+  videoPreviewUrl.value = ''
+  videoPreviewState.value = 'loading'
+  videoPreviewMediaReady.value = false
+  const playback = videoPlaybackUrl(url)
+  videoPreviewRevoke = playback.revoke
   videoPreviewUrl.value = playback.url
+  videoPreviewState.value = playback.url ? 'ready' : 'expired'
 }
 
 function openVideoPreview(panel: BakePanel): void {
-  if (!panel.url) return
-  openVideoPreviewFromUrl(panel.label, panel.cost, panel.url)
+  if (panel.state !== 'succeeded' || !panel.url) return
+  if (!videoTaskPlaybackAvailable({ state: panel.state, url: panel.url, urlExpired: panel.urlExpired })) return
+  openVideoPreviewFromUrl(panel.label, panel.cost, panel.url, panel.taskId)
 }
 
 function openVideoHistoryPreview(task: VideoTaskItem): void {
   if (!videoTaskPlaybackAvailable(task) || !task.url) return
-  openVideoPreviewFromUrl(modelLabel(task.model), task.estCost, task.url)
+  openVideoPreviewFromUrl(modelLabel(task.model), task.estCost, task.url, task.id)
+}
+
+function onVideoPreviewError(): void {
+  const taskId = videoPreviewTaskId.value
+  closeVideoPreview()
+  if (taskId) patchVideoTask(taskId, { urlExpired: true })
+}
+
+function retryVideoPreview(): void {
+  if (!videoPreviewRawUrl.value) return
+  openVideoPreviewFromUrl(
+    videoPreviewLabel.value,
+    videoPreviewCost.value ?? 0,
+    videoPreviewRawUrl.value,
+    videoPreviewTaskId.value
+  )
+}
+
+async function copyVideoPreviewLink(): Promise<void> {
+  if (!videoPreviewUrl.value) return
+  try {
+    await navigator.clipboard?.writeText(videoPreviewUrl.value)
+    copiedPreviewLink.value = true
+    if (copiedPreviewTimer) clearTimeout(copiedPreviewTimer)
+    copiedPreviewTimer = setTimeout(() => (copiedPreviewLink.value = false), 1500)
+  } catch {
+    /* clipboard unavailable — Download still works */
+  }
 }
 
 function closeVideoPreview(): void {
   videoPreviewRevoke()
   videoPreviewRevoke = () => {}
+  videoPreviewOpen.value = false
   videoPreviewLabel.value = ''
   videoPreviewCost.value = null
+  videoPreviewRawUrl.value = ''
+  videoPreviewTaskId.value = undefined
   videoPreviewUrl.value = ''
+  videoPreviewState.value = 'loading'
+  videoPreviewMediaReady.value = false
 }
 
 onBeforeUnmount(closeVideoPreview)
@@ -558,20 +657,20 @@ const totalHold = computed(() =>
 )
 const canAfford = computed(() => totalHold.value <= props.balance)
 const canRun = computed(
-  () => !running.value && !!props.apiKey && !!prompt.value.trim() && selectedModelIds.value.length >= 2 && canAfford.value && props.keyId != null
+  () => !isBusy.value && !!props.apiKey && !!prompt.value.trim() && selectedModelIds.value.length >= 2 && canAfford.value && props.keyId != null
 )
 const promptChangedSinceRun = computed(
   () => panels.value.length > 0 && prompt.value.trim() !== lastRunPrompt.value
 )
 const runButtonLabel = computed(() => {
-  if (running.value) return t('studio.bakeoff.running')
+  if (isBusy.value) return t('studio.bakeoff.running')
   if (panels.value.length && !promptChangedSinceRun.value) return t('studio.bakeoff.regenerate')
   if (panels.value.length && promptChangedSinceRun.value) return t('studio.bakeoff.regenerateChanged')
   return t('studio.bakeoff.run', { count: selectedModelIds.value.length })
 })
 
 function setModality(m: StudioModality): void {
-  if (running.value) return
+  if (isBusy.value) return
   modality.value = m
   selectedModelIds.value = []
   panels.value = []
@@ -580,7 +679,7 @@ function setModality(m: StudioModality): void {
 }
 
 function clearResults(): void {
-  if (running.value) return
+  if (isBusy.value) return
   panels.value = []
   lastRunPrompt.value = ''
   activeRunTs.value = null
@@ -589,7 +688,7 @@ function clearResults(): void {
 }
 
 function toggleModel(id: string): void {
-  if (running.value) return
+  if (isBusy.value) return
   const i = selectedModelIds.value.indexOf(id)
   if (i >= 0) selectedModelIds.value.splice(i, 1)
   else if (selectedModelIds.value.length < MAX_PANELS) selectedModelIds.value.push(id)
@@ -603,7 +702,7 @@ function formatElapsed(s: number): string {
 async function run(): Promise<void> {
   const text = prompt.value.trim()
   const chosen = selectedResolved()
-  if (!text || chosen.length < 2 || running.value || !canAfford.value || props.keyId == null) return
+  if (!text || chosen.length < 2 || isBusy.value || !canAfford.value || props.keyId == null) return
   errorMessage.value = ''
   errorCode.value = ''
   running.value = true

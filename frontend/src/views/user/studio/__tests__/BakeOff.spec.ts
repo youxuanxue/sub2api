@@ -74,6 +74,77 @@ const baseProps = {
   rateMultiplier: 1,
 }
 
+const videoProps = {
+  ...baseProps,
+  availableIds: new Set([
+    'seedance-1-0-pro-250528',
+    'doubao-seedance-2-0-fast-260128',
+    'veo-3.1-generate-001',
+  ]),
+  priceMap: new Map([
+    ['seedance-1-0-pro-250528', { perSecond: 0.1088 }],
+    ['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194 }],
+    ['veo-3.1-generate-001', { perSecond: 0.6 }],
+  ]),
+}
+
+describe('BakeOff run gate', () => {
+  beforeEach(() => {
+    libraryMock.videoTasks.value = []
+    vi.mocked(playground.gatewayVideoSubmit).mockReset()
+    vi.mocked(playground.gatewayVideoSubmit).mockResolvedValue({ id: 'vt_busy', status: 'processing' })
+  })
+
+  it('blocks a second video run while panels are still processing', async () => {
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(2)
+    const runBtn = wrapper.get('[data-testid="studio-bakeoff-run"]')
+    expect(runBtn.attributes('disabled')).toBeDefined()
+    expect(runBtn.text()).toContain('studio.bakeoff.running')
+
+    await runBtn.trigger('click')
+    await flushPromises()
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(2)
+  })
+
+  it('allows regenerate after every panel reaches a terminal state', async () => {
+    vi.mocked(playground.gatewayVideoSubmit)
+      .mockResolvedValueOnce({ id: 'vt_a', status: 'succeeded', url: 'https://cdn/a.mp4' })
+      .mockResolvedValueOnce({ id: 'vt_b', status: 'succeeded', url: 'https://cdn/b.mp4' })
+
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(2)
+    const runBtn = wrapper.get('[data-testid="studio-bakeoff-run"]')
+    expect(runBtn.attributes('disabled')).toBeUndefined()
+    expect(runBtn.text()).toContain('studio.bakeoff.regenerate')
+
+    vi.mocked(playground.gatewayVideoSubmit).mockResolvedValue({ id: 'vt_redo', status: 'processing' })
+    await runBtn.trigger('click')
+    await flushPromises()
+    expect(playground.gatewayVideoSubmit).toHaveBeenCalledTimes(4)
+  })
+})
+
 describe('BakeOff image routing', () => {
   beforeEach(() => {
     libraryMock.images.value = []
@@ -206,6 +277,75 @@ describe('BakeOff image routing', () => {
     expect(previewVideo.classes()).toEqual(
       expect.arrayContaining(['h-full', 'w-full', 'object-contain', 'max-h-full', 'max-w-full'])
     )
+  })
+
+  it('closes the panel lightbox and marks the task expired when preview media fails', async () => {
+    vi.mocked(playground.gatewayVideoSubmit)
+      .mockResolvedValueOnce({ id: 'vt_panel_a', status: 'succeeded', url: 'https://cdn.example/a.mp4' })
+      .mockResolvedValueOnce({ id: 'vt_panel_b', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
+
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true, teleport: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    const panelEls = wrapper.findAll('[data-testid="bakeoff-panel"]')
+    await panelEls[0].get('[data-testid="bakeoff-video-play"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="bakeoff-video-preview"] video').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="bakeoff-video-preview"] video').trigger('error')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="bakeoff-video-preview"]').exists()).toBe(false)
+    expect(libraryMock.patchVideoTask).toHaveBeenCalledWith('vt_panel_a', { urlExpired: true })
+    expect(panelEls[0].find('[data-testid="bakeoff-video-play"]').exists()).toBe(false)
+    expect(panelEls[0].find('[data-testid="bakeoff-video-expired"]').exists()).toBe(true)
+    expect(panelEls[0].find('[data-testid="bakeoff-video-download"]').exists()).toBe(true)
+    expect(panelEls[1].find('[data-testid="bakeoff-video-play"]').exists()).toBe(true)
+  })
+
+  it('converts inline data:video panel urls to blob playback in the lightbox', async () => {
+    const createObjectURL = vi.fn(() => 'blob:preview')
+    vi.stubGlobal(
+      'URL',
+      Object.assign({}, URL, {
+        createObjectURL,
+        revokeObjectURL: vi.fn(),
+      })
+    )
+    vi.mocked(playground.gatewayVideoSubmit)
+      .mockResolvedValueOnce({
+        id: 'vt_data',
+        done: true,
+        response: { videos: [{ bytesBase64Encoded: 'QUFB', mimeType: 'video/mp4' }] },
+      })
+      .mockResolvedValueOnce({ id: 'vt_http', status: 'succeeded', url: 'https://cdn.example/b.mp4' })
+
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true, teleport: true } },
+    })
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    await tiers[0].trigger('click')
+    await tiers[1].trigger('click')
+    await wrapper.get('textarea').setValue('family in a garden')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    const panelEls = wrapper.findAll('[data-testid="bakeoff-panel"]')
+    await panelEls[0].get('[data-testid="bakeoff-video-play"]').trigger('click')
+    await flushPromises()
+
+    expect(createObjectURL).toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="bakeoff-video-preview"] video').attributes('src')).toBe('blob:preview')
+    vi.unstubAllGlobals()
   })
 
   it('shows friendly panel error for codex unsupported gemini image', async () => {
