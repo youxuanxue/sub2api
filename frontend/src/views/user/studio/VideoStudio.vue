@@ -301,7 +301,7 @@
             autoplay
             playsinline
             preload="auto"
-            class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
+            class="h-full max-h-full w-full max-w-full rounded-lg bg-black object-contain shadow-2xl"
             @loadeddata="previewMediaReady = true"
             @error="onPreviewError"
           ></video>

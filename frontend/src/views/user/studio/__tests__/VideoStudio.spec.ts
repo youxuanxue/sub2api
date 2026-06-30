@@ -179,8 +179,10 @@ describe('VideoStudio succeeded-task presentation', () => {
     await w.find('[data-testid="studio-video-play"]').trigger('click')
     await flushPromises()
     expect(gatewayVideoFetch).not.toHaveBeenCalled()
-    expect(w.find('[data-testid="studio-video-preview"] video').attributes('src')).toBe(
-      'https://cdn.example/upstream.mp4'
+    const previewVideo = w.find('[data-testid="studio-video-preview"] video')
+    expect(previewVideo.attributes('src')).toBe('https://cdn.example/upstream.mp4')
+    expect(previewVideo.classes()).toEqual(
+      expect.arrayContaining(['h-full', 'w-full', 'object-contain', 'max-h-full', 'max-w-full'])
     )
   })
 

@@ -301,7 +301,7 @@
           </button>
         </div>
         <div class="flex min-h-0 flex-1 items-center justify-center px-4" @click.self="closeVideoPreview">
-          <video v-if="videoPreviewUrl" :src="videoPreviewUrl" controls autoplay playsinline class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"></video>
+          <video v-if="videoPreviewUrl" :src="videoPreviewUrl" controls autoplay playsinline class="h-full max-h-full w-full max-w-full rounded-lg bg-black object-contain shadow-2xl"></video>
         </div>
         <div class="flex flex-wrap items-center justify-center gap-3 p-4">
           <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreviewLabel">{{ videoPreviewLabel }}</span>
