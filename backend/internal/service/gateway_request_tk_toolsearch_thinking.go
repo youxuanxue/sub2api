@@ -175,7 +175,7 @@ func tkStripHistoricalAssistantThinking(body []byte) []byte {
 			continue
 		}
 		modified = true
-		if newContent == nil || len(newContent) == 0 {
+		if len(newContent) == 0 {
 			msgMap["content"] = []any{map[string]any{"type": "text", "text": "(assistant content removed)"}}
 			continue
 		}
