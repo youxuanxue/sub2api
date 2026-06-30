@@ -27,6 +27,11 @@ import (
 //     report (strategy A), we strip the thinking field — the client's
 //     forced-tool-use intent wins.
 //
+//  3. Claude Code geo steganography in system / system-reminder text (date
+//     separator + Unicode apostrophe variants when BASE_URL is not
+//     api.anthropic.com). Rewritten to first-party US shape before US edge
+//     egress. See gateway_request_tk_cc_geo_stego.go.
+//
 // Scope: only the standard forward path (gateway_service.Forward — i.e. all
 // Anthropic-platform requests EXCEPT IsAnthropicAPIKeyPassthroughEnabled and
 // Bedrock, both of which early-return before this hook). The hook runs once
@@ -84,6 +89,11 @@ func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c 
 	if patched, applied := tkNormalizeAnthropicThinkingForcesToolUse(next); applied {
 		next = patched
 		changes = append(changes, tkNormalizeChangeThinkingForcesToolUse)
+	}
+
+	if patched, applied := tkNormalizeAnthropicCCGeoStego(next); applied {
+		next = patched
+		changes = append(changes, tkNormalizeChangeCCGeoStego)
 	}
 
 	if len(changes) == 0 {
