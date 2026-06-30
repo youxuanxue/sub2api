@@ -258,6 +258,8 @@
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
             <button v-if="videoTaskPlaybackAvailable(task)" type="button" class="text-primary-600 dark:text-primary-300" @click="openPreview(task)">{{ t('studio.video.play') }}</button>
+            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" data-testid="studio-video-download" @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)">{{ t('studio.video.download') }}</button>
+            <button v-if="task.url" type="button" class="text-gray-500 dark:text-dark-300" data-testid="studio-video-copy-card-link" @click="copyTaskLink(task.url)">{{ copiedTaskUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
@@ -527,7 +529,9 @@ const previewUrl = ref('')
 const previewState = ref<'loading' | 'ready' | 'expired'>('loading')
 // Transient "copied" confirmation for the copy-link button (no toast/banner).
 const copied = ref(false)
+const copiedTaskUrl = ref('')
 let copiedTimer: ReturnType<typeof setTimeout> | undefined
+let copiedTaskTimer: ReturnType<typeof setTimeout> | undefined
 let previewRevoke: () => void = () => {}
 
 async function openPreview(task: VideoTaskItem): Promise<void> {
@@ -552,10 +556,12 @@ async function openPreview(task: VideoTaskItem): Promise<void> {
 
 // The <video> failed to load — mark the card prompt-only and close the lightbox
 // instead of trapping the user in an "expired" modal they already saw on the list.
+// Keep the live-session URL so the card can still offer Download / Copy.
+// localStorage persistence continues to strip http(s) links on reload.
 function onPreviewError(): void {
   const task = preview.value
   closePreview()
-  if (task) library.patchVideoTask(task.id, { urlExpired: true, url: '' })
+  if (task) library.patchVideoTask(task.id, { urlExpired: true })
 }
 
 // Re-attempt playback — recovers from a transient media error without forcing
@@ -576,6 +582,18 @@ async function copyPreviewLink(): Promise<void> {
     copiedTimer = setTimeout(() => (copied.value = false), 1500)
   } catch {
     /* clipboard unavailable / blocked — silent, Download still works */
+  }
+}
+
+async function copyTaskLink(url: string): Promise<void> {
+  if (!url) return
+  try {
+    await navigator.clipboard?.writeText(url)
+    copiedTaskUrl.value = url
+    if (copiedTaskTimer) clearTimeout(copiedTaskTimer)
+    copiedTaskTimer = setTimeout(() => (copiedTaskUrl.value = ''), 1500)
+  } catch {
+    /* clipboard unavailable / blocked — Download still works */
   }
 }
 
@@ -666,6 +684,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   if (copiedTimer) clearTimeout(copiedTimer)
+  if (copiedTaskTimer) clearTimeout(copiedTaskTimer)
   previewRevoke()
 })
 </script>

@@ -164,9 +164,12 @@ describe('VideoStudio succeeded-task presentation', () => {
     await flushPromises()
 
     expect(w.find('[data-testid="studio-video-preview"]').exists()).toBe(false)
-    expect(libraryMock.patchVideoTaskSpy).toHaveBeenCalledWith('vt_abc', { urlExpired: true, url: '' })
+    expect(libraryMock.patchVideoTaskSpy).toHaveBeenCalledWith('vt_abc', { urlExpired: true })
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
     expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-download"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-copy-card-link"]').exists()).toBe(true)
+    expect(libraryMock.videoTasks.value[0].url).toBe('https://cdn.example/upstream.mp4')
   })
 
   it('plays an http upstream clip directly without re-fetching through TokenKey', async () => {
