@@ -164,9 +164,12 @@ describe('VideoStudio succeeded-task presentation', () => {
     await flushPromises()
 
     expect(w.find('[data-testid="studio-video-preview"]').exists()).toBe(false)
-    expect(libraryMock.patchVideoTaskSpy).toHaveBeenCalledWith('vt_abc', { urlExpired: true, url: '' })
+    expect(libraryMock.patchVideoTaskSpy).toHaveBeenCalledWith('vt_abc', { urlExpired: true })
     expect(w.find('[data-testid="studio-video-play"]').exists()).toBe(false)
     expect(w.find('[data-testid="studio-video-expired"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-download"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-copy-card-link"]').exists()).toBe(true)
+    expect(libraryMock.videoTasks.value[0].url).toBe('https://cdn.example/upstream.mp4')
   })
 
   it('plays an http upstream clip directly without re-fetching through TokenKey', async () => {
@@ -176,8 +179,10 @@ describe('VideoStudio succeeded-task presentation', () => {
     await w.find('[data-testid="studio-video-play"]').trigger('click')
     await flushPromises()
     expect(gatewayVideoFetch).not.toHaveBeenCalled()
-    expect(w.find('[data-testid="studio-video-preview"] video').attributes('src')).toBe(
-      'https://cdn.example/upstream.mp4'
+    const previewVideo = w.find('[data-testid="studio-video-preview"] video')
+    expect(previewVideo.attributes('src')).toBe('https://cdn.example/upstream.mp4')
+    expect(previewVideo.classes()).toEqual(
+      expect.arrayContaining(['h-full', 'w-full', 'object-contain', 'max-h-full', 'max-w-full'])
     )
   })
 

@@ -4,11 +4,11 @@ import { createI18n } from 'vue-i18n'
 import en from '@/i18n/locales/en'
 import BakeOff from '../BakeOff.vue'
 import * as playground from '@/api/playground'
-import type { ImageHistoryItem } from '@/composables/useMediaLibrary'
+import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
 
 const libraryMock = vi.hoisted(() => ({
   images: { value: [] as ImageHistoryItem[] },
-  videoTasks: { value: [] },
+  videoTasks: { value: [] as VideoTaskItem[] },
   addImages: vi.fn(),
   clearImages: vi.fn(),
   upsertVideoTask: vi.fn(),
@@ -161,6 +161,51 @@ describe('BakeOff image routing', () => {
     expect(wrapper.findAll('[data-testid="bakeoff-panel"]').length).toBe(0)
     expect(wrapper.find('[data-testid="bakeoff-history"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-testid="bakeoff-history-item"]').length).toBe(2)
+  })
+
+  it('opens history video previews at full lightbox size', async () => {
+    const batchMs = 1710000000000
+    libraryMock.videoTasks.value = [
+      {
+        id: 'vt_a',
+        prompt: 'a red apple',
+        model: 'veo-3.1-generate-001',
+        vendorLabel: 'Google Vertex',
+        seconds: 8,
+        estCost: 4.8,
+        keyId: 1,
+        state: 'succeeded',
+        url: 'https://cdn.example/a.mp4',
+        submittedAtMs: batchMs,
+        elapsedS: 8,
+      },
+      {
+        id: 'vt_b',
+        prompt: 'a red apple',
+        model: 'seedance-1-0-pro-250528',
+        vendorLabel: 'Doubao',
+        seconds: 10,
+        estCost: 1.09,
+        keyId: 1,
+        state: 'succeeded',
+        url: 'https://cdn.example/b.mp4',
+        submittedAtMs: batchMs,
+        elapsedS: 10,
+      },
+    ]
+    const wrapper = mount(BakeOff, {
+      props: baseProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true, teleport: true } },
+    })
+
+    await wrapper.get('[data-testid="bakeoff-history-item"] button').trigger('click')
+    await flushPromises()
+
+    const previewVideo = wrapper.get('[data-testid="bakeoff-video-preview"] video')
+    expect(previewVideo.attributes('src')).toBe('https://cdn.example/a.mp4')
+    expect(previewVideo.classes()).toEqual(
+      expect.arrayContaining(['h-full', 'w-full', 'object-contain', 'max-h-full', 'max-w-full'])
+    )
   })
 
   it('shows friendly panel error for codex unsupported gemini image', async () => {

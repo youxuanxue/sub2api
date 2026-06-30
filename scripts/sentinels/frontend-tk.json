@@ -961,6 +961,8 @@
         "data-testid=\"studio-video-play\"",
         "data-testid=\"studio-video-preview\"",
         "data-testid=\"studio-video-copy-link\"",
+        "data-testid=\"studio-video-download\"",
+        "data-testid=\"studio-video-copy-card-link\"",
         "StudioLocalSaveBanner",
         "test-id=\"studio-video-save-reminder\"",
         "StudioVideoUnavailable",
@@ -969,7 +971,7 @@
       "must_not_contain": [
         "poll.refreshUrl"
       ],
-      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays http(s) upstream URLs directly in the browser, while inline data:video results are converted into temporary Blob URLs for this tab and revoked on close/unmount. That keeps playback browser-local and prevents opening a succeeded card from refetching TokenKey as a video server. The data:video->Blob conversion + revoke now lives in the shared videoPlaybackUrl helper (utils/studioMedia.tk.ts), used by both this lightbox and Bake-Off; this anchor pins that import/usage so the no-rehost playback can't be silently reverted to an always-on <video>. studio-video-copy-link remains the in-lightbox affordance for copying upstream/direct media URLs."
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays http(s) upstream URLs directly in the browser, while inline data:video results are converted into temporary Blob URLs for this tab and revoked on close/unmount. That keeps playback browser-local and prevents opening a succeeded card from refetching TokenKey as a video server. The data:video->Blob conversion + revoke now lives in the shared videoPlaybackUrl helper (utils/studioMedia.tk.ts), used by both this lightbox and Bake-Off; this anchor pins that import/usage so the no-rehost playback can't be silently reverted to an always-on <video>. studio-video-copy-link remains the in-lightbox affordance for copying upstream/direct media URLs, while studio-video-download + studio-video-copy-card-link are the card-level escape hatches that must stay visible when cross-origin playback fails and the preview tile is marked unavailable."
     },
     {
       "path": "frontend/src/utils/studioMedia.tk.ts",
