@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-06-30T00:16:28Z",
-  "git_sha": "369770b3018f7a8b18ed4da8bb96b56598e8a5d4",
+  "updated_at": "2026-06-30T00:36:31Z",
+  "git_sha": "",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.195",
+      "pinned": "2.1.196",
       "upstream_latest": "2.1.196",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
           "version": "2.1.196",
