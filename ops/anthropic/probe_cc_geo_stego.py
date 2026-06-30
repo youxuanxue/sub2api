@@ -28,6 +28,9 @@ DATE_LINE = re.compile(
     r"(Today.?s date is(?: now)?|The current date is|Current date:?)\s*(.+)",
     re.IGNORECASE,
 )
+CANONICAL_DATE_LINE_RE = re.compile(
+    r"Today[''\u2019\u02bc\u02b9]s date is(?: now)? (\d{4})[/-](\d{2})[/-](\d{2})\."
+)
 APOSTROPHE_NAMES = {
     "\u0027": "ASCII_APOSTROPHE_U+0027",
     "\u2019": "RIGHT_SINGLE_QUOTATION_U+2019",
@@ -302,12 +305,33 @@ def _extend_go_apostrophe_class(ch: str) -> bool:
     return True
 
 
+def _canonicalize_probe_date_line(line: str) -> str:
+    def repl_now(m: re.Match[str]) -> str:
+        return f"Today's date is now {m.group(1)}-{m.group(2)}-{m.group(3)}."
+
+    def repl(m: re.Match[str]) -> str:
+        return f"Today's date is {m.group(1)}-{m.group(2)}-{m.group(3)}."
+
+    out = re.sub(
+        r"Today[''\u2019\u02bc\u02b9]s date is now (\d{4})[/-](\d{2})[/-](\d{2})\.",
+        repl_now,
+        line,
+    )
+    return CANONICAL_DATE_LINE_RE.sub(repl, out)
+
+
 def _append_probe_test_case(line: str) -> bool:
     content = GEO_STEGO_TEST.read_text(encoding="utf-8")
     marker = "func TestTkNormalizeCCGeoStegoText(t *testing.T) {"
     if marker not in content:
         return False
+    want = _canonicalize_probe_date_line(line.strip())
+    if want == line.strip():
+        return False
     safe_line = line.replace("\\", "\\\\").replace('"', '\\"')
+    safe_want = want.replace("\\", "\\\\").replace('"', '\\"')
+    if f'in:      "{safe_line}"' in content:
+        return False
     case_name = "auto_probe_capture"
     needle = f'name:    "{case_name}",'
     if needle in content:
@@ -316,7 +340,7 @@ def _append_probe_test_case(line: str) -> bool:
         f'\t\t{{\n'
         f'\t\t\tname:    "{case_name}",\n'
         f'\t\t\tin:      "{safe_line}",\n'
-        f'\t\t\twant:    "Today\'s date is 2026-06-30.",\n'
+        f'\t\t\twant:    "{safe_want}",\n'
         f'\t\t\tchanged: true,\n'
         f'\t\t}},\n'
     )

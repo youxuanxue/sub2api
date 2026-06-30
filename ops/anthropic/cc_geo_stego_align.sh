@@ -112,7 +112,7 @@ cmd_check_gateway() {
 
 main() {
   local cmd="${1:-run}"
-  shift || true
+  shift || true  # preflight-allow: swallow
   case "$cmd" in
     run) cmd_run "$@" ;;
     check-gateway) cmd_check_gateway "$@" ;;

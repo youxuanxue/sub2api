@@ -25,12 +25,6 @@ func TestTkNormalizeCCGeoStegoText(t *testing.T) {
 		changed bool
 	}{
 		{
-			name:    "auto_probe_capture",
-			in:      "Today's date is 2026/06/30.",
-			want:    "Today's date is 2026-06-30.",
-			changed: true,
-		},
-		{
 			name:    "shanghai slash date ascii apostrophe",
 			in:      "# currentDate\nToday's date is 2026/06/30.\n\nIMPORTANT",
 			want:    "# currentDate\nToday's date is 2026-06-30.\n\nIMPORTANT",

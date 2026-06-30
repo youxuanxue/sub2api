@@ -261,7 +261,7 @@ cmd_capture() {
   python3 "$PY" diff --bundle "$bundle_path"
   python3 "$PY" check --bundle "$bundle_path"
 
-  if [[ "${TOKENKEY_CC_CAPTURE_GEO:-1}" == "1" ]]; then
+  if [[ "${TOKENKEY_CC_CAPTURE_GEO:-1}" == "1" && "$with_http" == "1" ]]; then
     local geo_fix=1
     [[ "${TOKENKEY_CC_CAPTURE_GEO_FIX:-1}" == "0" ]] && geo_fix=0
     echo "=== cc geo-stego align (auto after capture) ==="
