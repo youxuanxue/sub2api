@@ -141,6 +141,7 @@
         :available-ids="availableIds"
         :price-map="priceMap"
         :balance="balance"
+        :user-id="userId"
         :key-id="selectedKeyId"
         :keys="keys"
         :rate-multiplier="1"

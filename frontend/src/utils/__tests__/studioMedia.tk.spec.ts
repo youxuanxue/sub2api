@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { videoPlaybackUrl, videoTaskPlaybackAvailable } from '../studioMedia.tk'
+import {
+  groupImageHistoryByTs,
+  groupVideoHistoryByBatch,
+  imageHistoryItemAvailable,
+  shouldShowStudioSaveReminder,
+  videoPlaybackUrl,
+  videoTaskPlaybackAvailable,
+} from '../studioMedia.tk'
+import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
 
 // jsdom does not implement URL.createObjectURL / revokeObjectURL, so we define them
 // per-test and restore after. (videoPlaybackUrl falls back to the original src when
@@ -28,6 +36,64 @@ describe('videoTaskPlaybackAvailable', () => {
         urlExpired: false,
       })
     ).toBe(true)
+  })
+})
+
+describe('groupImageHistoryByTs', () => {
+  it('groups multi-model batches and skips single-image rows', () => {
+    const img = (ts: number, model: string): ImageHistoryItem => ({
+      id: `${ts}-${model}`,
+      src: 'https://cdn.example/x.png',
+      prompt: 'p',
+      model,
+      vendorLabel: 'V',
+      size: '1:1',
+      cost: 0.1,
+      ts,
+    })
+    const runs = groupImageHistoryByTs([img(1, 'a'), img(1, 'b'), img(2, 'solo')])
+    expect(runs).toHaveLength(1)
+    expect(runs[0].items).toHaveLength(2)
+  })
+})
+
+describe('groupVideoHistoryByBatch', () => {
+  it('groups tasks with the same submittedAtMs', () => {
+    const task = (ms: number, model: string): VideoTaskItem => ({
+      id: `${ms}-${model}`,
+      prompt: 'clip',
+      model,
+      vendorLabel: 'V',
+      seconds: 8,
+      estCost: 1,
+      keyId: 1,
+      state: 'succeeded',
+      url: '',
+      submittedAtMs: ms,
+      elapsedS: 0,
+    })
+    const runs = groupVideoHistoryByBatch([task(100, 'veo-a'), task(100, 'veo-b'), task(200, 'solo')])
+    expect(runs).toHaveLength(1)
+    expect(runs[0].items).toHaveLength(2)
+  })
+})
+
+describe('imageHistoryItemAvailable', () => {
+  it('is false when src is empty after reload', () => {
+    expect(imageHistoryItemAvailable({ src: '' })).toBe(false)
+    expect(imageHistoryItemAvailable({ src: '   ' })).toBe(false)
+  })
+
+  it('is true when src is present', () => {
+    expect(imageHistoryItemAvailable({ src: 'https://cdn.example/x.png' })).toBe(true)
+  })
+})
+
+describe('shouldShowStudioSaveReminder', () => {
+  it('shows when library or active panels have content', () => {
+    expect(shouldShowStudioSaveReminder({ imageCount: 0, videoTaskCount: 0, activeResultCount: 0 })).toBe(false)
+    expect(shouldShowStudioSaveReminder({ imageCount: 1, videoTaskCount: 0 })).toBe(true)
+    expect(shouldShowStudioSaveReminder({ imageCount: 0, videoTaskCount: 0, activeResultCount: 2 })).toBe(true)
   })
 })
 

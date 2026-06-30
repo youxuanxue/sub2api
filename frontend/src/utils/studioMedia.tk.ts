@@ -12,11 +12,69 @@
  * decode error) it falls back to the original src with a no-op revoke, so a caller
  * always gets something usable to hand to a <video :src>.
  */
-import type { VideoTaskItem } from '@/composables/useMediaLibrary'
+import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
+
+/** i18n key for image thumbnails that lost their in-browser bytes after reload. */
+export const STUDIO_IMAGE_EXPIRED_I18N_KEY = 'studio.image.expiredReload' as const
+
+/** True when an image history row still has a renderable thumbnail in this tab. */
+export function imageHistoryItemAvailable(img: Pick<ImageHistoryItem, 'src'>): boolean {
+  return !!img.src?.trim()
+}
 
 /** True when the task card may offer in-page playback (same session, non-expired url). */
 export function videoTaskPlaybackAvailable(task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired'>): boolean {
   return task.state === 'succeeded' && !!task.url && !task.urlExpired
+}
+
+/** When any Studio surface should show the local-save download banner. */
+export function shouldShowStudioSaveReminder(opts: {
+  imageCount: number
+  videoTaskCount: number
+  /** In-tab panels or in-flight jobs not yet counted in library rows. */
+  activeResultCount?: number
+}): boolean {
+  return opts.imageCount > 0 || opts.videoTaskCount > 0 || (opts.activeResultCount ?? 0) > 0
+}
+
+export interface ImageHistoryRun {
+  ts: number
+  prompt: string
+  items: ImageHistoryItem[]
+}
+
+/** Group image history rows that share a generation batch (`ts`). Bake-Off and multi-`n` Image runs use the same field. */
+export function groupImageHistoryByTs(images: readonly ImageHistoryItem[], minItems = 2): ImageHistoryRun[] {
+  const byTs = new Map<number, ImageHistoryItem[]>()
+  for (const img of images) {
+    const list = byTs.get(img.ts) ?? []
+    list.push(img)
+    byTs.set(img.ts, list)
+  }
+  return [...byTs.entries()]
+    .filter(([, items]) => items.length >= minItems)
+    .sort((a, b) => b[0] - a[0])
+    .map(([ts, items]) => ({ ts, prompt: items[0]?.prompt ?? '', items }))
+}
+
+export interface VideoHistoryRun {
+  batchMs: number
+  prompt: string
+  items: VideoTaskItem[]
+}
+
+/** Group video tasks submitted in the same Bake-Off batch (`submittedAtMs`). */
+export function groupVideoHistoryByBatch(tasks: readonly VideoTaskItem[], minItems = 2): VideoHistoryRun[] {
+  const byBatch = new Map<number, VideoTaskItem[]>()
+  for (const task of tasks) {
+    const list = byBatch.get(task.submittedAtMs) ?? []
+    list.push(task)
+    byBatch.set(task.submittedAtMs, list)
+  }
+  return [...byBatch.entries()]
+    .filter(([, items]) => items.length >= minItems)
+    .sort((a, b) => b[0] - a[0])
+    .map(([batchMs, items]) => ({ batchMs, prompt: items[0]?.prompt ?? '', items }))
 }
 
 export interface VideoPlayback {

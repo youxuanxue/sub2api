@@ -91,34 +91,39 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	}
 
 	// forced platform wins regardless of shape.
-	if got := universalCandidatePlatforms(ShapeOpenAIChat, PlatformAntigravity, false); len(got) != 1 || got[0] != PlatformAntigravity {
+	if got := universalCandidatePlatforms(ShapeOpenAIChat, PlatformAntigravity, false, ""); len(got) != 1 || got[0] != PlatformAntigravity {
 		t.Errorf("forced platform should win: %v", got)
 	}
 
 	// anthropic messages: native pair, no openai-compat unless a dispatch group exists.
-	base := universalCandidatePlatforms(ShapeAnthropicMessages, "", false)
+	base := universalCandidatePlatforms(ShapeAnthropicMessages, "", false, "")
 	if !contains(base, PlatformAnthropic) || !contains(base, PlatformAntigravity) || contains(base, PlatformOpenAI) {
 		t.Errorf("messages base candidates wrong: %v", base)
 	}
-	withDispatch := universalCandidatePlatforms(ShapeAnthropicMessages, "", true)
+	withDispatch := universalCandidatePlatforms(ShapeAnthropicMessages, "", true, "")
 	if !contains(withDispatch, PlatformOpenAI) {
 		t.Errorf("messages with dispatch should include openai-compat: %v", withDispatch)
 	}
 
 	// count_tokens never includes openai-compat.
-	ct := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", true)
+	ct := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", true, "")
 	if contains(ct, PlatformOpenAI) || contains(ct, PlatformNewAPI) {
 		t.Errorf("count_tokens must stay anthropic/antigravity: %v", ct)
 	}
 
 	// chat = OpenAI-compat pool (includes grok).
-	chat := universalCandidatePlatforms(ShapeOpenAIChat, "", false)
+	chat := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "")
 	if !contains(chat, PlatformOpenAI) || !contains(chat, PlatformNewAPI) || !contains(chat, PlatformGrok) {
 		t.Errorf("chat candidates should be openai-compat pool: %v", chat)
 	}
+	// gemini-native image on chat completions also includes antigravity.
+	chatImage := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "gemini-3.1-flash-image")
+	if !contains(chatImage, PlatformAntigravity) {
+		t.Errorf("gemini-native image chat should include antigravity: %v", chatImage)
+	}
 
 	// gemini native pair.
-	gem := universalCandidatePlatforms(ShapeGemini, "", false)
+	gem := universalCandidatePlatforms(ShapeGemini, "", false, "")
 	if !contains(gem, PlatformGemini) || !contains(gem, PlatformAntigravity) {
 		t.Errorf("gemini candidates wrong: %v", gem)
 	}
@@ -131,6 +136,7 @@ func TestUniversalModelPlatformHint(t *testing.T) {
 		"gpt-5":                  PlatformOpenAI,
 		"o3-mini":                PlatformOpenAI,
 		"gemini-3-pro":           PlatformGemini,
+		"gemini-3.1-flash-image": PlatformAntigravity,
 		"doubao-seedream-4":      PlatformNewAPI,
 		"deepseek-chat":          PlatformNewAPI,
 		"some-unknown-model-xyz": "",

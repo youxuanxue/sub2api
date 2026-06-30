@@ -55,6 +55,13 @@
             {{ r.model.displayName }}
             <span class="opacity-70">{{ modality === 'image' ? formatUsd(r.baseImagePrice || 0) + t('studio.image.perImageUnit') : formatUsd(r.perSecond || 0) + t('studio.video.perSecondUnit') }}</span>
           </button>
+          <p
+            v-if="selectedModelIds.length >= MAX_PANELS && models.length > MAX_PANELS"
+            class="w-full text-[11px] text-amber-700 dark:text-amber-300"
+            data-testid="bakeoff-max-models-hint"
+          >
+            {{ t('studio.bakeoff.maxModelsHint', { max: MAX_PANELS }) }}
+          </p>
         </div>
 
         <!-- Shared duration is a TARGET across the compared models; chips are the
@@ -84,7 +91,16 @@
             data-testid="studio-bakeoff-run"
             @click="run"
           >
-            {{ running ? t('studio.bakeoff.running') : t('studio.bakeoff.run', { count: selectedModelIds.length }) }}
+            {{ runButtonLabel }}
+          </button>
+          <button
+            v-if="panels.length && !running"
+            type="button"
+            class="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:border-gray-300 dark:border-dark-600 dark:text-dark-300"
+            data-testid="studio-bakeoff-clear-results"
+            @click="clearResults"
+          >
+            {{ t('studio.bakeoff.clearResults') }}
           </button>
           <span class="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
             {{ t('studio.bakeoff.totalCost', { cost: formatUsd(totalCost) }) }}
@@ -102,8 +118,10 @@
       </template>
     </div>
 
+    <StudioLocalSaveBanner v-if="showSaveReminder" test-id="studio-bakeoff-save-reminder" />
+
     <!-- side-by-side panels -->
-    <div v-if="panels.length" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div v-if="panels.length" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
       <div v-for="p in panels" :key="p.modelId" data-testid="bakeoff-panel" class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-700 dark:bg-dark-900">
         <div class="mb-2 flex items-center justify-between">
           <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ p.label }}</span>
@@ -114,9 +132,10 @@
           <div v-if="p.src" class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-700">
             <img :src="p.src" :alt="prompt" class="aspect-square w-full object-cover" loading="lazy" />
           </div>
+          <StudioImageExpired v-else-if="p.state === 'succeeded'" compact />
           <div v-else class="flex aspect-square items-center justify-center rounded-lg bg-gray-50 text-xs text-gray-400 dark:bg-dark-800 dark:text-dark-500">
             <span v-if="p.state === 'processing'">{{ t('studio.bakeoff.generating') }}</span>
-            <span v-else-if="p.state === 'failed'" class="text-red-500">{{ t('studio.bakeoff.failed') }}</span>
+            <span v-else-if="p.state === 'failed'" class="px-2 text-center text-red-500">{{ p.errorMessage || t('studio.bakeoff.failed') }}</span>
             <span v-else>—</span>
           </div>
         </template>
@@ -127,7 +146,7 @@
                Poster tile → in-page lightbox, mirroring VideoStudio and sharing
                videoPlaybackUrl so inline data:video plays tab-local without rehosting. -->
           <button
-            v-if="p.url"
+            v-if="bakePanelVideoPlayable(p)"
             type="button"
             class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
             data-testid="bakeoff-video-play"
@@ -140,17 +159,130 @@
               </span>
             </span>
           </button>
+          <div v-else-if="p.state === 'succeeded'" class="flex aspect-video items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 px-2 text-center text-[11px] text-gray-500 dark:border-dark-600 dark:bg-dark-800/60 dark:text-dark-400">
+            {{ t('studio.video.expiredReload') }}
+          </div>
           <div v-else class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-xs text-gray-500 dark:bg-dark-800 dark:text-dark-400">
             <span v-if="p.state === 'processing'" class="inline-flex items-center gap-1.5"><span class="h-2 w-2 animate-pulse rounded-full bg-primary-500"></span>{{ t('studio.video.statusProcessing') }} {{ formatElapsed(p.elapsedS || 0) }}</span>
-            <span v-else-if="p.state === 'failed'" class="text-red-500">{{ t('studio.bakeoff.failed') }}</span>
+            <span v-else-if="p.state === 'failed'" class="px-2 text-center text-red-500">{{ p.errorMessage || t('studio.bakeoff.failed') }}</span>
             <span v-else>—</span>
           </div>
         </template>
-        <div class="mt-2 flex items-center justify-between text-sm">
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span class="font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(p.cost) }}</span>
-          <span v-if="p.elapsedS != null && p.state !== 'idle'" class="text-xs text-gray-500 dark:text-dark-400">⏱ {{ p.elapsedS }}s</span>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="modality === 'image' && p.src"
+              type="button"
+              class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
+              @click="downloadImage(p.src, p.modelId)"
+            >
+              {{ t('studio.image.download') }}
+            </button>
+            <button
+              v-else-if="modality === 'video' && bakePanelVideoPlayable(p) && p.url"
+              type="button"
+              class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
+              @click="downloadMedia(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`)"
+            >
+              {{ t('studio.video.download') }}
+            </button>
+            <span v-if="p.elapsedS != null && p.state !== 'idle'" class="text-xs text-gray-500 dark:text-dark-400">⏱ {{ p.elapsedS }}s</span>
+          </div>
         </div>
       </div>
+    </div>
+
+    <div
+      v-if="modality === 'image' ? imageHistoryRuns.length : videoHistoryRuns.length"
+      class="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900"
+      data-testid="bakeoff-history"
+    >
+      <div class="flex items-center justify-between">
+        <span class="text-sm font-semibold text-gray-700 dark:text-dark-200">{{ t('studio.bakeoff.historyTitle') }}</span>
+      </div>
+      <template v-if="modality === 'image'">
+        <div v-for="run in imageHistoryRuns" :key="run.key" class="space-y-2 border-t border-gray-100 pt-4 first:border-t-0 first:pt-0 dark:border-dark-800">
+          <p class="truncate text-xs text-gray-500 dark:text-dark-400" :title="run.prompt">{{ run.prompt }}</p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
+            <div
+              v-for="img in run.items"
+              :key="img.id"
+              class="rounded-xl border border-gray-200 p-2 dark:border-dark-700"
+              data-testid="bakeoff-history-item"
+            >
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <span class="truncate text-xs font-semibold text-gray-800 dark:text-dark-200">{{ modelLabel(img.model) }}</span>
+                <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: img.vendorLabel }) }}</span>
+              </div>
+              <div v-if="imageHistoryItemAvailable(img)" class="overflow-hidden rounded-lg">
+                <img :src="img.src" :alt="img.prompt" class="aspect-square w-full object-cover" loading="lazy" />
+              </div>
+              <StudioImageExpired v-else compact />
+              <div class="mt-1 flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(img.cost) }}</span>
+                <button
+                  v-if="imageHistoryItemAvailable(img)"
+                  type="button"
+                  class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
+                  @click="downloadImage(img.src, img.id)"
+                >
+                  {{ t('studio.image.download') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template v-else>
+        <div v-for="run in videoHistoryRuns" :key="run.key" class="space-y-2 border-t border-gray-100 pt-4 first:border-t-0 first:pt-0 dark:border-dark-800">
+          <p class="truncate text-xs text-gray-500 dark:text-dark-400" :title="run.prompt">{{ run.prompt }}</p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
+            <div
+              v-for="task in run.items"
+              :key="task.id"
+              class="rounded-xl border border-gray-200 p-2 dark:border-dark-700"
+              data-testid="bakeoff-history-item"
+            >
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <span class="truncate text-xs font-semibold text-gray-800 dark:text-dark-200">{{ modelLabel(task.model) }}</span>
+                <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: task.vendorLabel }) }}</span>
+              </div>
+              <button
+                v-if="videoTaskPlaybackAvailable(task)"
+                type="button"
+                class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-gradient-to-br from-gray-800 to-gray-950"
+                @click="openVideoHistoryPreview(task)"
+              >
+                <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span class="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-lg transition group-hover:scale-110">
+                    <span aria-hidden="true" class="ml-0.5 text-lg text-gray-900">▶</span>
+                  </span>
+                </span>
+              </button>
+              <div v-else-if="task.state === 'processing'" class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-[11px] text-gray-500 dark:bg-dark-800 dark:text-dark-400">
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 animate-pulse rounded-full bg-primary-500"></span>{{ t('studio.video.statusProcessing') }}</span>
+              </div>
+              <div v-else-if="task.state === 'failed'" class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-[11px] text-red-500 dark:bg-dark-800">
+                {{ t('studio.bakeoff.failed') }}
+              </div>
+              <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
+              <div class="mt-1 flex items-center justify-between gap-2">
+                <StudioPlaybackBadge v-if="videoTaskPlaybackAvailable(task)" :task="task" />
+                <span class="ml-auto text-xs font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
+              </div>
+              <button
+                v-if="videoTaskPlaybackAvailable(task) && task.url"
+                type="button"
+                class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
+                @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)"
+              >
+                {{ t('studio.video.download') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- In-page video lightbox: plays one panel on demand (http URL direct, inline
@@ -158,7 +290,7 @@
          rendering MAX_PANELS always-on <video> elements. -->
     <Teleport to="body">
       <div
-        v-if="videoPreview"
+        v-if="videoPreviewUrl"
         class="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
         data-testid="bakeoff-video-preview"
         @click.self="closeVideoPreview"
@@ -172,8 +304,9 @@
           <video v-if="videoPreviewUrl" :src="videoPreviewUrl" controls autoplay playsinline class="max-h-full max-w-full rounded-lg bg-black shadow-2xl"></video>
         </div>
         <div class="flex flex-wrap items-center justify-center gap-3 p-4">
-          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreview.label">{{ videoPreview.label }}</span>
-          <span class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(videoPreview.cost) }}</span>
+          <span class="max-w-[60vw] truncate text-xs text-white/80" :title="videoPreviewLabel">{{ videoPreviewLabel }}</span>
+          <span v-if="videoPreviewCost != null" class="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white">{{ formatUsd(videoPreviewCost) }}</span>
+          <button v-if="videoPreviewUrl" type="button" class="rounded-md bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 hover:bg-gray-100" @click="downloadMedia(videoPreviewUrl, `tokenkey-bakeoff-preview.mp4`)">{{ t('studio.video.download') }}</button>
         </div>
       </div>
     </Teleport>
@@ -181,9 +314,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
+import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit, gatewayImagePresign } from '@/api/playground'
 import {
   extractChatImageItems,
   extractImageItems,
@@ -201,10 +334,24 @@ import {
   type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateImageCost, estimateImageHoldCost, estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
-import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
-import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import {
+  groupImageHistoryByTs,
+  groupVideoHistoryByBatch,
+  imageHistoryItemAvailable,
+  shouldShowStudioSaveReminder,
+  videoPlaybackUrl,
+  videoTaskPlaybackAvailable,
+} from '@/utils/studioMedia.tk'
+import { downloadMedia } from '@/utils/studioDownload.tk'
+import { resolveVideoPlaybackStorage } from '@/utils/studioPlaybackStorage.tk'
+import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
+import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
+import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
+import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
+import { useAppStore } from '@/stores/app'
+import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useVideoTaskPoll } from '@/composables/useVideoTaskPoll'
-import type { VideoTaskItem } from '@/composables/useMediaLibrary'
+import { useMediaLibrary, type ImageHistoryItem, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import type { ApiKey } from '@/types'
 
 const props = defineProps<{
@@ -213,6 +360,7 @@ const props = defineProps<{
   availableIds: Set<string>
   priceMap: MediaPriceMap
   balance: number
+  userId: number | string
   keyId: number | null
   keys: ApiKey[]
   rateMultiplier: number
@@ -220,8 +368,9 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
+const appStore = useAppStore()
 
-const MAX_PANELS = 4
+const MAX_PANELS = 6
 /** Imagen / seedream: ratio code on /v1/images/generations (see ImageStudio sentSize). */
 const DEFAULT_IMAGEN_SIZE = '1:1'
 /** Gemini-native image: aspect_ratio via /v1/chat/completions extra_body.google.image_config. */
@@ -231,6 +380,7 @@ const modality = ref<StudioModality>('video')
 const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
 const selectedModelIds = ref<string[]>([])
 const prompt = ref('')
+const lastRunPrompt = ref('')
 const duration = ref(VIDEO_DURATION_DEFAULT)
 const running = ref(false)
 const errorMessage = ref('')
@@ -250,26 +400,37 @@ interface BakePanel {
   taskId?: string
   url?: string
   elapsedS?: number
+  errorMessage?: string
 }
 const panels = ref<BakePanel[]>([])
+const activeRunTs = ref<number | null>(null)
 
-// Local VideoTaskItem store for the poll engine (ephemeral — Bake-Off is a
-// comparison surface, not persistent history).
-const videoTasks = ref<VideoTaskItem[]>([])
-function patchVideoTask(id: string, patch: Partial<VideoTaskItem>): void {
-  const idx = videoTasks.value.findIndex((tk) => tk.id === id)
-  if (idx >= 0) {
-    const next = [...videoTasks.value]
-    next[idx] = { ...next[idx], ...patch }
-    videoTasks.value = next
+const library = useMediaLibrary(props.userId)
+
+async function tagVideoPlayback(taskId: string, url: string): Promise<void> {
+  if (!url) {
+    library.patchVideoTask(taskId, { playbackStorage: 'expired' })
+    return
   }
-  // Mirror onto the panel by taskId.
+  const storage = await resolveVideoPlaybackStorage(url)
+  library.patchVideoTask(taskId, { playbackStorage: storage })
+  if (storage === 'upstream-cors-blocked') {
+    appStore.showWarning(t('studio.playback.upstreamCorsBlocked'), 8000)
+  }
+  if (storage === 'inline-local' || storage === 'upstream-cors-ok') {
+    void library.cacheInlineMedia('video', taskId, url)
+  }
+}
+
+function patchVideoTask(id: string, patch: Partial<VideoTaskItem>): void {
+  library.patchVideoTask(id, patch)
   const panel = panels.value.find((p) => p.taskId === id)
   if (panel) {
     if (patch.state) panel.state = patch.state
     if (patch.url != null) panel.url = patch.url
     if (patch.elapsedS != null) panel.elapsedS = patch.elapsedS
   }
+  if (patch.url) void tagVideoPlayback(id, patch.url)
 }
 const poll = useVideoTaskPoll({
   gatewayBase: () => props.gatewayBase,
@@ -278,26 +439,75 @@ const poll = useVideoTaskPoll({
   onTerminal: () => emit('spent'),
 })
 
+type ImageHistoryRunView = { key: string; prompt: string; items: ImageHistoryItem[] }
+type VideoHistoryRunView = { key: string; prompt: string; items: VideoTaskItem[] }
+
+const imageHistoryRuns = computed<ImageHistoryRunView[]>(() => {
+  const hideTs = panels.value.length ? activeRunTs.value : null
+  return groupImageHistoryByTs(library.images.value)
+    .filter((run) => run.ts !== hideTs)
+    .map((run) => ({ key: `img-${run.ts}`, prompt: run.prompt, items: run.items }))
+})
+
+const videoHistoryRuns = computed<VideoHistoryRunView[]>(() => {
+  const hideTs = panels.value.length ? activeRunTs.value : null
+  return groupVideoHistoryByBatch(library.videoTasks.value)
+    .filter((run) => run.batchMs !== hideTs)
+    .map((run) => ({ key: `vid-${run.batchMs}`, prompt: run.prompt, items: run.items }))
+})
+
+const showSaveReminder = computed(() =>
+  shouldShowStudioSaveReminder({
+    imageCount: library.images.value.length,
+    videoTaskCount: library.videoTasks.value.length,
+    activeResultCount: panels.value.length,
+  })
+)
+
+function bakePanelVideoPlayable(p: BakePanel): boolean {
+  return p.state === 'succeeded' && !!p.url
+}
+
+function downloadImage(src: string, id: string): void {
+  downloadMedia(src, `tokenkey-${id}.png`)
+}
+
+function modelLabel(modelId: string): string {
+  const hit = models.value.find((r) => r.model.modelId === modelId || r.servedId === modelId)
+  return hit?.model.displayName ?? modelId
+}
+
 // ---- In-page video lightbox (on-demand playback; no always-on <video>) ----------
-const videoPreview = ref<BakePanel | null>(null)
 const videoPreviewUrl = ref('')
+const videoPreviewLabel = ref('')
+const videoPreviewCost = ref<number | null>(null)
 let videoPreviewRevoke: () => void = () => {}
+
+function openVideoPreviewFromUrl(label: string, cost: number, url: string): void {
+  if (!url) return
+  videoPreviewRevoke()
+  const playback = videoPlaybackUrl(url)
+  videoPreviewRevoke = playback.revoke
+  videoPreviewLabel.value = label
+  videoPreviewCost.value = cost
+  videoPreviewUrl.value = playback.url
+}
 
 function openVideoPreview(panel: BakePanel): void {
   if (!panel.url) return
-  videoPreviewRevoke()
-  // http(s) upstream URL plays directly; inline data:video becomes a tab-local Blob
-  // (shared with VideoStudio via videoPlaybackUrl — TokenKey never rehosts the clip).
-  const playback = videoPlaybackUrl(panel.url)
-  videoPreviewRevoke = playback.revoke
-  videoPreview.value = panel
-  videoPreviewUrl.value = playback.url
+  openVideoPreviewFromUrl(panel.label, panel.cost, panel.url)
+}
+
+function openVideoHistoryPreview(task: VideoTaskItem): void {
+  if (!videoTaskPlaybackAvailable(task) || !task.url) return
+  openVideoPreviewFromUrl(modelLabel(task.model), task.estCost, task.url)
 }
 
 function closeVideoPreview(): void {
   videoPreviewRevoke()
   videoPreviewRevoke = () => {}
-  videoPreview.value = null
+  videoPreviewLabel.value = ''
+  videoPreviewCost.value = null
   videoPreviewUrl.value = ''
 }
 
@@ -350,13 +560,32 @@ const canAfford = computed(() => totalHold.value <= props.balance)
 const canRun = computed(
   () => !running.value && !!props.apiKey && !!prompt.value.trim() && selectedModelIds.value.length >= 2 && canAfford.value && props.keyId != null
 )
+const promptChangedSinceRun = computed(
+  () => panels.value.length > 0 && prompt.value.trim() !== lastRunPrompt.value
+)
+const runButtonLabel = computed(() => {
+  if (running.value) return t('studio.bakeoff.running')
+  if (panels.value.length && !promptChangedSinceRun.value) return t('studio.bakeoff.regenerate')
+  if (panels.value.length && promptChangedSinceRun.value) return t('studio.bakeoff.regenerateChanged')
+  return t('studio.bakeoff.run', { count: selectedModelIds.value.length })
+})
 
 function setModality(m: StudioModality): void {
   if (running.value) return
   modality.value = m
   selectedModelIds.value = []
   panels.value = []
-  videoTasks.value = []
+  lastRunPrompt.value = ''
+  activeRunTs.value = null
+}
+
+function clearResults(): void {
+  if (running.value) return
+  panels.value = []
+  lastRunPrompt.value = ''
+  activeRunTs.value = null
+  errorMessage.value = ''
+  errorCode.value = ''
 }
 
 function toggleModel(id: string): void {
@@ -378,8 +607,10 @@ async function run(): Promise<void> {
   errorMessage.value = ''
   errorCode.value = ''
   running.value = true
+  lastRunPrompt.value = text
+  const runTs = Date.now()
+  activeRunTs.value = runTs
   poll.stopAll()
-  videoTasks.value = []
   // Seed panels.
   panels.value = chosen.map((r) => ({
     modelId: r.model.modelId,
@@ -396,19 +627,35 @@ async function run(): Promise<void> {
 
   try {
     if (modality.value === 'image') {
+      const historyBatch: ImageHistoryItem[] = []
       await Promise.all(
-        panels.value.map(async (panel) => {
+        panels.value.map(async (panel, index) => {
           try {
             const items = await generateBakeoffImage(panel.servedId, text)
             if (!items.length) throw new Error('no_image')
-            panel.src = items[0].src
+            const it = items[0]
+            panel.src = it.src
             panel.state = 'succeeded'
+            historyBatch.push({
+              id: `${runTs}-${panel.modelId}-${index}`,
+              src: it.src,
+              s3Key: it.s3Key,
+              prompt: text,
+              revisedPrompt: it.revisedPrompt,
+              model: panel.servedId,
+              vendorLabel: panel.vendorLabel,
+              size: DEFAULT_IMAGEN_SIZE,
+              cost: panel.cost,
+              ts: runTs,
+            })
           } catch (e) {
             panel.state = 'failed'
+            panel.errorMessage = panelErrorText(e)
             mapError(e)
           }
         })
       )
+      if (historyBatch.length) library.addImages(historyBatch)
       emit('spent')
     } else {
       // Submit all videos, then poll each.
@@ -432,13 +679,15 @@ async function run(): Promise<void> {
               keyId: props.keyId as number,
               state,
               url: panel.url || '',
-              submittedAtMs: Date.now(),
+              submittedAtMs: runTs,
               elapsedS: 0,
             }
-            videoTasks.value = [...videoTasks.value, task]
+            library.upsertVideoTask(task)
             if (state === 'processing') poll.resume(task)
+            else if (panel.url) void tagVideoPlayback(taskId, panel.url)
           } catch (e) {
             panel.state = 'failed'
+            panel.errorMessage = panelErrorText(e)
             mapError(e)
           }
         })
@@ -469,8 +718,16 @@ async function generateBakeoffImage(modelId: string, prompt: string) {
   return extractImageItems(raw)
 }
 
+function panelErrorText(e: unknown): string {
+  const msg = parseGatewayErrorMessage(e instanceof Error ? e.message : '')
+  const code = classifyGatewayError(msg)
+  if (code !== 'generic') return t(studioErrorI18nKey(code))
+  if (msg && msg !== 'no_image' && msg !== 'no_task') return msg
+  return t('studio.bakeoff.panelError')
+}
+
 function mapError(e: unknown): void {
-  const msg = e instanceof Error ? e.message : ''
+  const msg = parseGatewayErrorMessage(e instanceof Error ? e.message : '')
   const code = classifyGatewayError(msg)
   if (code !== 'generic') {
     errorCode.value = code
@@ -479,4 +736,27 @@ function mapError(e: unknown): void {
     errorMessage.value = msg
   }
 }
+
+async function refreshOffloadedImageUrls(): Promise<void> {
+  if (!props.apiKey) return
+  const stale = library.images.value.filter((it) => it.s3Key)
+  if (!stale.length) return
+  await Promise.all(
+    stale.map(async (it) => {
+      try {
+        const url = await gatewayImagePresign(props.apiKey, props.gatewayBase, it.s3Key as string)
+        if (url) it.src = url
+      } catch {
+        /* history is best-effort */
+      }
+    })
+  )
+}
+
+onMounted(() => {
+  for (const task of library.videoTasks.value) {
+    if (task.state === 'processing') poll.resume(task)
+  }
+  void library.hydrateFromBlobCache().then(() => refreshOffloadedImageUrls())
+})
 </script>

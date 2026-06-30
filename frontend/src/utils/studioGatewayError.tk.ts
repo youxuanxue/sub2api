@@ -18,7 +18,23 @@ export type StudioErrorCode =
   | 'unpriced'
   | 'rate_limited'
   | 'unauthorized'
+  | 'unsupported_model'
   | 'generic'
+
+/** Pull a human-readable message from gatewayRequestJSON's stringified error. */
+export function parseGatewayErrorMessage(raw: string | undefined | null): string {
+  const text = (raw || '').trim()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text) as { message?: unknown }
+    if (typeof parsed.message === 'string' && parsed.message.trim()) {
+      return parsed.message.trim()
+    }
+  } catch {
+    /* not JSON — use raw text */
+  }
+  return text
+}
 
 export function classifyGatewayError(message: string | undefined | null): StudioErrorCode {
   const m = (message || '').toLowerCase()
@@ -28,6 +44,13 @@ export function classifyGatewayError(message: string | undefined | null): Studio
   if (m.includes('permission') || m.includes('not allowed') || m.includes('forbidden')) return 'permission'
   if (m.includes('not yet priced') || m.includes('unpriced') || m.includes('not priced')) return 'unpriced'
   if (m.includes('429') || m.includes('rate limit') || m.includes('too many requests')) return 'rate_limited'
+  if (
+    m.includes('not supported when using codex') ||
+    m.includes('not supported with a chatgpt account') ||
+    (m.includes('invalid_request_error') && m.includes('not supported'))
+  ) {
+    return 'unsupported_model'
+  }
   return 'generic'
 }
 

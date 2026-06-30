@@ -1,3 +1,5 @@
+import type { VideoTaskItem } from '@/composables/useMediaLibrary'
+
 /**
  * TokenKey-only: classify how a generated video can be replayed / cached in-browser.
  * Surfaces honest labels in Studio so ops/users can tell CORS-blocked upstream URLs
@@ -59,5 +61,28 @@ export function studioPlaybackStorageI18nKey(storage: StudioPlaybackStorage | un
       return 'studio.playback.expired'
     default:
       return 'studio.playback.unknown'
+  }
+}
+
+/** Resolve persisted or derived playback-storage kind for a video task row. */
+export function videoTaskPlaybackStorageKind(
+  task: Pick<VideoTaskItem, 'playbackStorage' | 'urlExpired' | 'url'>
+): StudioPlaybackStorage {
+  return task.playbackStorage ?? (task.urlExpired || !task.url ? 'expired' : 'unknown')
+}
+
+/** Tailwind classes for the honest playback-source badge (Image / Video / Bake-Off). */
+export function studioPlaybackBadgeClass(storage: StudioPlaybackStorage): string {
+  switch (storage) {
+    case 'inline-local':
+      return 'bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-200'
+    case 'upstream-cors-ok':
+      return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200'
+    case 'upstream-cors-blocked':
+      return 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+    case 'expired':
+      return 'bg-gray-100 text-gray-600 dark:bg-dark-800 dark:text-dark-300'
+    default:
+      return 'bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-dark-400'
   }
 }

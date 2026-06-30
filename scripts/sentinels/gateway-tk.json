@@ -3273,7 +3273,8 @@
       "must_contain": [
         "func UniversalShapeForRequest(",
         "func universalCandidatePlatforms(",
-        "return OpenAICompatPlatforms()",
+        "out := OpenAICompatPlatforms()",
+        "antigravity.IsImageModel(model)",
         "engine.CapabilityForEndpoint(bridgeEndpoint)",
         "func universalModelPlatformHint("
       ],

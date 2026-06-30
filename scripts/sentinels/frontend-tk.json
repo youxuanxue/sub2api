@@ -105,6 +105,10 @@
         "data-testid=\"bakeoff-tier\"",
         "data-testid=\"studio-bakeoff-run\"",
         "data-testid=\"bakeoff-panel\"",
+        "useMediaLibrary",
+        "StudioLocalSaveBanner",
+        "test-id=\"studio-bakeoff-save-reminder\"",
+        "data-testid=\"bakeoff-history\"",
         "gatewayGeminiImageViaChat",
         "isGeminiNativeImageModel"
       ],
@@ -941,6 +945,9 @@
         "data-testid=\"studio-image-model\"",
         "data-testid=\"studio-image-aspect\"",
         "data-testid=\"studio-image-generate\"",
+        "StudioLocalSaveBanner",
+        "test-id=\"studio-image-save-reminder\"",
+        "StudioImageExpired",
         "refreshOffloadedImageUrls",
         "pricesFlat"
       ],
@@ -954,6 +961,9 @@
         "data-testid=\"studio-video-play\"",
         "data-testid=\"studio-video-preview\"",
         "data-testid=\"studio-video-copy-link\"",
+        "StudioLocalSaveBanner",
+        "test-id=\"studio-video-save-reminder\"",
+        "StudioVideoUnavailable",
         "videoPlaybackUrl"
       ],
       "must_not_contain": [
@@ -965,6 +975,9 @@
       "path": "frontend/src/utils/studioMedia.tk.ts",
       "must_contain": [
         "export function videoPlaybackUrl",
+        "export function imageHistoryItemAvailable",
+        "export function shouldShowStudioSaveReminder",
+        "export function groupImageHistoryByTs",
         "data:video",
         "createObjectURL",
         "revokeObjectURL"
