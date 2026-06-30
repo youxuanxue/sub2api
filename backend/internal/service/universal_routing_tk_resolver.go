@@ -98,7 +98,7 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 		return nil, err
 	}
 
-	candidates := universalCandidatePlatforms(shape, forcedPlatform, spanHasMessagesDispatch(span))
+	candidates := universalCandidatePlatforms(shape, forcedPlatform, spanHasMessagesDispatch(span), model)
 	if len(candidates) == 0 {
 		return nil, ErrUniversalNoEntitledGroup
 	}

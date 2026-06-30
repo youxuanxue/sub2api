@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyVideoUrlStorage } from '../studioPlaybackStorage.tk'
+import { classifyVideoUrlStorage, videoTaskPlaybackStorageKind } from '../studioPlaybackStorage.tk'
 
 describe('classifyVideoUrlStorage', () => {
   it('marks inline data:video as local-cacheable', () => {
@@ -12,5 +12,15 @@ describe('classifyVideoUrlStorage', () => {
 
   it('marks http url as unknown until probed', () => {
     expect(classifyVideoUrlStorage('https://cdn.example/v.mp4')).toBe('unknown')
+  })
+})
+
+describe('videoTaskPlaybackStorageKind', () => {
+  it('derives expired when url is stripped', () => {
+    expect(videoTaskPlaybackStorageKind({ url: '', urlExpired: true })).toBe('expired')
+  })
+
+  it('prefers persisted playbackStorage', () => {
+    expect(videoTaskPlaybackStorageKind({ url: 'https://x/v.mp4', playbackStorage: 'inline-local' })).toBe('inline-local')
   })
 })

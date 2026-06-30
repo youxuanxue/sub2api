@@ -69,6 +69,23 @@ func TestResolve_NativeEmptyMappingDoesNotMatchOtherVendor(t *testing.T) {
 	}
 }
 
+// gemini-native image on /v1/chat/completions 必须落 antigravity 组,不能撞 openai/Codex。
+func TestResolve_GeminiNativeImageChatPicksAntigravity(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(2, PlatformOpenAI, 5, false),
+		grp(9, PlatformAntigravity, 10, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		9: {"gemini-3.1-flash-image", "claude-sonnet-4-6"},
+	}))
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIChat, "gemini-3.1-flash-image", "")
+	if err != nil || g == nil || g.ID != 9 {
+		t.Fatalf("gemini-native image chat 应落 antigravity gid=9, got=%v err=%v", g, err)
+	}
+}
+
 // imagen 走 newapi google-vertex 组(显式声明),不落 openai 组。
 func TestResolve_ImagenPicksVertexNewapiGroup(t *testing.T) {
 	ctx := context.Background()

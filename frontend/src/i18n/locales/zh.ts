@@ -140,7 +140,8 @@ export default {
     viewPricing: '查看价格',
     via: '经 {vendor}',
     keyNoModality: '此模式无可用模型',
-    saveReminder: '生成结果保存在本机浏览器（约 7 天），仍请立即下载；清缓存或换设备后会丢失。',
+    saveReminderTitle: '请立即下载保存',
+    saveReminder: '生成结果只存在本机浏览器（约 7 天）。清缓存、无痕模式或换设备后预览会丢失——请下载到本地留存。',
     universalKeyBadge: '全能 Key',
     playback: {
       inlineLocal: '本机缓存 · 刷新后仍可预览（约 7 天）',
@@ -174,10 +175,16 @@ export default {
       pickModels: '对比：',
       run: '同台生成 {count} 个',
       running: '生成中…',
+      regenerate: '重新生成',
+      regenerateChanged: '用新 prompt 生成',
+      clearResults: '清空当前展示',
+      historyTitle: '历史对比',
+      maxModelsHint: '最多同时对比 {max} 个模型，取消一个后可再选。',
       totalCost: '合计 ≈ {cost}',
       cannotAfford: '余额不足以跑这次对比。',
       generating: '生成中…',
-      failed: '失败'
+      failed: '失败',
+      panelError: '生成失败'
     },
     cost: {
       thisGeneration: '本次生成',
@@ -192,6 +199,7 @@ export default {
       unpriced: '该模型当前不可用于生成。',
       rate_limited: '请求过于频繁，请稍后再试。',
       unauthorized: 'API 密钥无效或已过期。',
+      unsupported_model: '当前密钥/分组不支持该模型，请换分组密钥或取消勾选该模型。',
       generic: '生成失败，请重试。'
     },
     image: {

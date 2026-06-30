@@ -171,10 +171,7 @@
       <!-- Results header + bulk clear (matches the image surface). Shown only when
            there is history; the per-card status badge is the source of truth for
            each task's state — there is no global completion banner to go stale. -->
-      <div v-if="library.videoTasks.value.length" class="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100" data-testid="studio-video-save-reminder">
-        <span aria-hidden="true">⬇</span>
-        {{ t('studio.saveReminder') }}
-      </div>
+      <StudioLocalSaveBanner v-if="library.videoTasks.value.length" test-id="studio-video-save-reminder" class="mb-2" />
       <div v-if="library.videoTasks.value.length" class="flex items-center justify-between px-1">
         <span class="text-sm font-semibold text-gray-700 dark:text-dark-200">{{ t('studio.video.resultsTitle') }}</span>
         <button type="button" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" data-testid="studio-video-clear-all" @click="clearAll">{{ t('studio.clear') }}</button>
@@ -250,38 +247,11 @@
               </span>
               <span class="pointer-events-none absolute bottom-2 left-2 rounded bg-black/55 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-white/90">{{ task.seconds }}s{{ task.aspectRatio ? ' · ' + task.aspectRatio : '' }}</span>
             </button>
-            <p
-              v-if="playbackStorageKind(task) !== 'unknown'"
-              class="inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium leading-snug"
-              :class="playbackBadgeClass(task)"
-              data-testid="studio-video-playback-badge"
-              :data-playback-storage="playbackStorageKind(task)"
-            >
-              <span class="shrink-0 opacity-80">{{ t('studio.playback.label') }}:</span>
-              <span>{{ playbackHint(task) }}</span>
-            </p>
-            <p v-else class="text-[10px] text-gray-400 dark:text-dark-500">{{ playbackHint(task) }}</p>
+            <div class="mt-2">
+              <StudioPlaybackBadge :task="task" />
+            </div>
           </template>
-          <div
-            v-else
-            class="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 dark:border-dark-600 dark:bg-dark-800/60"
-            data-testid="studio-video-expired"
-          >
-            <p class="whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-dark-100">{{ task.prompt }}</p>
-            <p
-              v-if="playbackStorageKind(task) !== 'unknown'"
-              class="mt-2 inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium leading-snug"
-              :class="playbackBadgeClass(task)"
-              data-testid="studio-video-playback-badge"
-              :data-playback-storage="playbackStorageKind(task)"
-            >
-              <span class="shrink-0 opacity-80">{{ t('studio.playback.label') }}:</span>
-              <span>{{ playbackHint(task) }}</span>
-            </p>
-            <p v-else class="mt-2 text-[11px] text-gray-400 dark:text-dark-500">
-              {{ playbackHint(task) }}
-            </p>
-          </div>
+          <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
           <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
             <span v-if="videoTaskPlaybackAvailable(task)" class="truncate" :title="task.prompt">{{ task.prompt }}</span>
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
@@ -381,9 +351,10 @@ import { downloadMedia } from '@/utils/studioDownload.tk'
 import { videoPlaybackUrl, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
 import {
   resolveVideoPlaybackStorage,
-  studioPlaybackStorageI18nKey,
-  type StudioPlaybackStorage,
 } from '@/utils/studioPlaybackStorage.tk'
+import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
+import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
+import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
@@ -451,29 +422,6 @@ const formula = computed(() => {
   if (!selected.value) return ''
   return t('studio.video.formula', { rate: formatUsd(selected.value.perSecond || 0), seconds: duration.value })
 })
-
-function playbackStorageKind(task: VideoTaskItem): StudioPlaybackStorage {
-  return task.playbackStorage ?? (task.urlExpired || !task.url ? 'expired' : 'unknown')
-}
-
-function playbackBadgeClass(task: VideoTaskItem): string {
-  switch (playbackStorageKind(task)) {
-    case 'inline-local':
-      return 'bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-200'
-    case 'upstream-cors-ok':
-      return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200'
-    case 'upstream-cors-blocked':
-      return 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
-    case 'expired':
-      return 'bg-gray-100 text-gray-600 dark:bg-dark-800 dark:text-dark-300'
-    default:
-      return 'bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-dark-400'
-  }
-}
-
-function playbackHint(task: VideoTaskItem): string {
-  return t(studioPlaybackStorageI18nKey(playbackStorageKind(task)))
-}
 
 async function tagVideoPlayback(taskId: string, url: string): Promise<void> {
   if (!url) {

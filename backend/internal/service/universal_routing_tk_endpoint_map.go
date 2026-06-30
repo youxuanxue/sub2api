@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
 // Universal Key（全能 Key）端点形状映射。
@@ -76,7 +77,7 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 //     从 engine.capability 派生；anthropic/gemini 原生形状用原生平台常量。
 //   - hasMessagesDispatch：跨度内存在开了 messages-dispatch 的组时，/v1/messages
 //     才把 openai-compat 平台并入候选（用 Claude 名映射到 GPT 的场景）。
-func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, hasMessagesDispatch bool) []string {
+func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, hasMessagesDispatch bool, model string) []string {
 	if forcedPlatform != "" {
 		return []string{forcedPlatform}
 	}
@@ -90,7 +91,16 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 	case ShapeAnthropicCountTokens:
 		return []string{PlatformAnthropic, PlatformAntigravity}
 	case ShapeOpenAIChat:
-		return OpenAICompatPlatforms()
+		out := OpenAICompatPlatforms()
+		// Gemini-native image models (gemini-*-image, nano-banana) ride
+		// /v1/chat/completions but are served by the antigravity pool — not
+		// openai-compat. Without antigravity in candidates, universal keys
+		// land on openai/Codex and upstream rejects with "not supported when
+		// using Codex with a ChatGPT account".
+		if antigravity.IsImageModel(model) {
+			out = append(out, PlatformAntigravity)
+		}
+		return out
 	case ShapeOpenAIEmbeddings:
 		return capabilityPlatforms(engine.BridgeEndpointEmbeddings)
 	case ShapeOpenAIImages:
@@ -129,6 +139,9 @@ func universalModelPlatformHint(model string) string {
 		return PlatformAnthropic
 	case strings.HasPrefix(m, "grok"):
 		return PlatformGrok
+	case antigravity.IsImageModel(m):
+		// Served via antigravity generateContent, not gemini-platform / openai-compat.
+		return PlatformAntigravity
 	case strings.HasPrefix(m, "gemini"), strings.HasPrefix(m, "imagen"), strings.HasPrefix(m, "veo"):
 		return PlatformGemini
 	case strings.HasPrefix(m, "gpt"), strings.HasPrefix(m, "o1"), strings.HasPrefix(m, "o3"),
