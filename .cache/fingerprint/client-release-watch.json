@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-01T01:38:03Z",
+  "updated_at": "2026-07-01T02:23:44Z",
   "git_sha": "",
   "platforms": {
     "claude-code": {
@@ -36,9 +36,9 @@
       }
     },
     "codex": {
-      "pinned": "0.142.4",
+      "pinned": "0.142.5",
       "upstream_latest": "0.142.5",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @openai/codex": {
           "version": "0.142.5",
@@ -55,9 +55,9 @@
       }
     },
     "codex-vscode": {
-      "pinned": "0.142.4",
+      "pinned": "0.142.5",
       "upstream_latest": "0.142.5",
-      "status": "drift",
+      "status": "aligned",
       "upstream_sources": {
         "npm @openai/codex": {
           "version": "0.142.5",
