@@ -174,7 +174,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// Platform-aware video gate: the newapi/openai path requires a channel_type
 	// whose value maps to a new-api TaskAdaptor; grok (channel_type=0 native
 	// OAuth) qualifies via its native arm. See engine.IsVideoSupportedForAccount.
-	if !engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType) {
+	if !engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType) &&
+		!service.UsesGrokNativeVideoArm(account) {
 		// channel_type=0 non-grok (incomplete account) and channel_type with no
 		// task adaptor (e.g. plain OpenAI account asked to do video) collapse into
 		// the same user-facing error: this group is not configured for video.
@@ -217,6 +218,10 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// usage_logs row by request_id in every resolution branch (ctx-derived
 	// or generated).
 	billingRequestID := service.TkResolveUsageBillingRequestID(c.Request.Context())
+	platform := account.Platform
+	if service.UsesGrokNativeVideoArm(account) {
+		platform = service.PlatformGrok
+	}
 	rec := &service.VideoTaskRecord{
 		PublicTaskID:   publicTaskID,
 		UpstreamTaskID: outcome.UpstreamTaskID,
@@ -225,7 +230,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		GroupID:        groupID,
 		APIKeyID:       apiKey.ID,
 		ChannelType:    account.ChannelType,
-		Platform:       account.Platform,
+		Platform:       platform,
 		// BaseURL + APIKey snapshot the upstream routing the bridge used at
 		// submit time. We persist the bridge's resolved values (not a fresh
 		// account read) because credentials may rotate before the user polls,

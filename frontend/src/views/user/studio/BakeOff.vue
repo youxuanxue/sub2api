@@ -473,6 +473,7 @@ const props = defineProps<{
   keyId: number | null
   keys: ApiKey[]
   rateMultiplier: number
+  catalogLoading?: boolean
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()
 

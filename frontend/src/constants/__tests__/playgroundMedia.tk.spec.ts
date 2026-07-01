@@ -177,6 +177,7 @@ describe('video task helpers', () => {
     expect(videoStateFromFetch({ status: 'succeeded' })).toBe('succeeded')
     expect(videoStateFromFetch({ status: 'SUCCESS' })).toBe('succeeded')
     expect(videoStateFromFetch({ status: 'completed' })).toBe('succeeded')
+    expect(videoStateFromFetch({ status: 'done' })).toBe('succeeded')
     expect(videoStateFromFetch({ status: 'failed' })).toBe('failed')
     expect(videoStateFromFetch({ status: 'failure' })).toBe('failed')
     expect(videoStateFromFetch({ status: 'error' })).toBe('failed')

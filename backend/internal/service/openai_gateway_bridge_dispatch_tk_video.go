@@ -59,7 +59,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 	// (POST api.x.ai/v1/videos/generations), NOT the new-api task-adaptor bridge —
 	// it is channel_type=0 native OAuth with no TaskAdaptor. Branch before the
 	// bridge-eligibility / channel_type gates below, which are the newapi path.
-	if account != nil && account.IsGrok() {
+	if account != nil && UsesGrokNativeVideoArm(account) {
 		return s.grokNativeVideoSubmit(ctx, c, account, publicTaskID, body)
 	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointVideoSubmit) {

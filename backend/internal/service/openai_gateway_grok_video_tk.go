@@ -40,6 +40,29 @@ import (
 // account 403s on /videos exactly as on chat. We surface that as a clean
 // honesty-403 (no failover, no penalty), reusing tkIsGrokEntitlement403.
 
+// isGrokVideoEdgeRelayStub reports a prod→edge mirror stub that relays grok video
+// through the edge gateway (credentials.api_key + api-<edge>.tokenkey.dev).
+// Includes platform=grok,type=apikey stubs AND legacy platform=newapi,ct=1
+// bridge stubs still migrating to platform=grok — both must NOT enter the
+// new-api task-adaptor video path.
+func isGrokVideoEdgeRelayStub(account *Account) bool {
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	if account.IsGrokAPIKey() {
+		return true
+	}
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	return baseURL != "" && apiKey != "" && edgeIDPattern.MatchString(baseURL)
+}
+
+// UsesGrokNativeVideoArm reports whether video submit/fetch should use the grok
+// native xAI OAuth arm instead of the new-api task adaptor.
+func UsesGrokNativeVideoArm(account *Account) bool {
+	return account != nil && (account.IsGrok() || isGrokVideoEdgeRelayStub(account))
+}
+
 // resolveGrokVideoCredential returns the Bearer token and base URL for the grok
 // native video arm. OAuth accounts use xAI access_token; API-key relay stubs
 // (prod→edge mirror accounts) use the edge TokenKey api_key + base_url — the
@@ -52,17 +75,23 @@ func resolveGrokVideoCredential(account *Account) (token, baseURL string, err er
 	case account.IsGrokOAuth():
 		token = account.GetGrokAccessToken()
 		baseURL = account.GetGrokBaseURL()
-	case account.IsGrokAPIKey():
+	case account.IsGrokAPIKey(), isGrokVideoEdgeRelayStub(account):
 		token = account.GetOpenAIApiKey()
+		if token == "" {
+			token = strings.TrimSpace(account.GetCredential("api_key"))
+		}
 		baseURL = account.GetGrokBaseURL()
 		if baseURL == "" {
 			baseURL = account.GetOpenAIBaseURL()
+		}
+		if baseURL == "" {
+			baseURL = strings.TrimSpace(account.GetCredential("base_url"))
 		}
 	default:
 		return "", "", fmt.Errorf("grok account %d unsupported type for video", account.ID)
 	}
 	if token == "" {
-		if account.IsGrokAPIKey() {
+		if account.IsGrokAPIKey() || isGrokVideoEdgeRelayStub(account) {
 			return "", "", fmt.Errorf("grok relay account %d missing api_key", account.ID)
 		}
 		return "", "", fmt.Errorf("grok account %d missing access_token", account.ID)

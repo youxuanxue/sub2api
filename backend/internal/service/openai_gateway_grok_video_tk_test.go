@@ -49,6 +49,29 @@ func TestResolveGrokVideoCredential(t *testing.T) {
 		}
 	})
 
+	t.Run("legacy newapi edge relay stub uses api_key", func(t *testing.T) {
+		acct := &Account{
+			ID:          65,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: 1,
+			Credentials: map[string]any{
+				"api_key":  "grok-bridge-key",
+				"base_url": "https://api-us4.tokenkey.dev",
+			},
+		}
+		if !UsesGrokNativeVideoArm(acct) {
+			t.Fatal("legacy grok bridge stub must use grok native video arm")
+		}
+		token, base, err := resolveGrokVideoCredential(acct)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if token != "grok-bridge-key" || base != "https://api-us4.tokenkey.dev" {
+			t.Fatalf("got token=%q base=%q", token, base)
+		}
+	})
+
 	t.Run("oauth missing access_token", func(t *testing.T) {
 		acct := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth}
 		_, _, err := resolveGrokVideoCredential(acct)

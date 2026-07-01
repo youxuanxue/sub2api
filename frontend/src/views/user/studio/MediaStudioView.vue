@@ -118,6 +118,7 @@
         :balance="balance"
         :user-id="userId"
         :rate-multiplier="1"
+        :catalog-loading="mediaCatalogLoading"
         @spent="refreshBalance"
       />
       <VideoStudio
@@ -132,6 +133,7 @@
         :keys="keys"
         :rate-multiplier="1"
         :any-key-serves-video="anyKeyServesVideo"
+        :catalog-loading="mediaCatalogLoading"
         @spent="refreshBalance"
       />
       <BakeOff
@@ -145,6 +147,7 @@
         :key-id="selectedKeyId"
         :keys="keys"
         :rate-multiplier="1"
+        :catalog-loading="mediaCatalogLoading"
         @spent="refreshBalance"
       />
     </div>
@@ -218,8 +221,12 @@ const catalogBillingIndex = ref<CatalogBillingIndex>(new Map())
 // single source of media prices (no hardcoding, so prices can't drift).
 const priceMap = ref<Map<string, MediaPrice>>(new Map())
 const modelsLoading = ref(false)
+/** False until loadPriceMap finishes for the current selectedKeyId (avoids media empty-state races). */
+const priceCatalogReady = ref(false)
 const probed = ref(false)
 const loadError = ref('')
+
+const mediaCatalogLoading = computed(() => modelsLoading.value || !priceCatalogReady.value)
 
 const selectedKey = computed(() => keys.value.find((k) => k.id === selectedKeyId.value))
 const apiKey = computed(() => selectedKey.value?.key || '')
@@ -388,20 +395,36 @@ async function loadPriceMap(keyId: number): Promise<void> {
   }
 }
 
+let priceCatalogGen = 0
+
+/** Serialize price-catalog loads; media tabs must not show the empty state while this is in flight. */
+async function ensurePriceCatalog(keyId: number): Promise<void> {
+  const gen = ++priceCatalogGen
+  const k = keys.value.find((x) => x.id === keyId)
+  const syncUniversal = !!(k && isUniversalKey(k) && universalPriceMap.value.size > 0)
+  if (!syncUniversal) priceCatalogReady.value = false
+  await loadPriceMap(keyId)
+  if (gen === priceCatalogGen) priceCatalogReady.value = true
+}
+
 // Re-pick when the modality tab changes: if the current key already serves the
 // new modality it is kept, otherwise we move to one that does (the dropdown
 // still lets the user override). Bake-off (null modality) keeps the current key.
-watch(view, () => {
+watch(view, async (v) => {
   if (!probed.value) return
   const m = pickerModality.value
   if (!m) return
   selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value, catalogBillingIndex.value)
+  if (v === 'image' || v === 'video') {
+    const id = selectedKeyId.value
+    if (id != null) await ensurePriceCatalog(id)
+  }
 })
 
 // Refetch the price catalog whenever the selected key changes (prices are
-// per-group). Bootstrap awaits the first load before mounting the studios.
+// per-group). Bootstrap awaits the first load before mounting media studios.
 watch(selectedKeyId, (id) => {
-  if (probed.value && id != null) void loadPriceMap(id)
+  if (probed.value && id != null) void ensurePriceCatalog(id)
 })
 
 async function bootstrap(): Promise<void> {
@@ -446,7 +469,7 @@ async function bootstrap(): Promise<void> {
       }
       selectedKeyId.value = pickModalityKey(modalityOptions(), 'chat', seed, catalogBillingIndex.value)
       probed.value = true
-      if (selectedKeyId.value != null) void loadPriceMap(selectedKeyId.value)
+      if (selectedKeyId.value != null) void ensurePriceCatalog(selectedKeyId.value)
       void (async () => {
         if (!hasUniversal) await loadUserEntitlement()
         await finishBackgroundProbe(reps, new Set([seedGk]))
@@ -477,8 +500,8 @@ async function bootstrap(): Promise<void> {
       } else {
         modelsLoading.value = false
       }
+      await ensurePriceCatalog(seed)
       probed.value = true
-      await loadPriceMap(seed)
       return
     }
 
@@ -496,8 +519,8 @@ async function bootstrap(): Promise<void> {
       return
     }
     selectedKeyId.value = picked
+    if (selectedKeyId.value != null) await ensurePriceCatalog(selectedKeyId.value)
     probed.value = true
-    if (selectedKeyId.value != null) await loadPriceMap(selectedKeyId.value)
     modelsLoading.value = false
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')

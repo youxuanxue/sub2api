@@ -172,3 +172,31 @@ export function videoPlaybackUrl(src: string): VideoPlayback {
     return { url: src, revoke: NOOP }
   }
 }
+
+/** Async variant: fetch() decodes large data:video URIs without blocking the main thread. */
+export async function videoPlaybackUrlAsync(src: string): Promise<VideoPlayback> {
+  if (!src) return { url: '', revoke: NOOP }
+  if (!/^data:video/i.test(src)) return { url: src, revoke: NOOP }
+  if (typeof fetch === 'function' && typeof URL?.createObjectURL === 'function') {
+    try {
+      const res = await fetch(src)
+      const blob = await res.blob()
+      if (blob.size > 0) {
+        const objectUrl = URL.createObjectURL(blob)
+        return {
+          url: objectUrl,
+          revoke: () => {
+            try {
+              URL.revokeObjectURL?.(objectUrl)
+            } catch {
+              /* ignore */
+            }
+          },
+        }
+      }
+    } catch {
+      /* fall through to sync decode */
+    }
+  }
+  return videoPlaybackUrl(src)
+}

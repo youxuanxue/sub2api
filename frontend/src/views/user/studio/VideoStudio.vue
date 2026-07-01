@@ -2,7 +2,10 @@
   <div class="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
     <!-- LEFT: orchestration -->
     <div class="space-y-4">
-      <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400" data-testid="studio-video-model-empty">
+      <div v-if="catalogLoading && models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400" data-testid="studio-video-model-loading">
+        {{ t('studio.loadingModels') }}
+      </div>
+      <div v-else-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400" data-testid="studio-video-model-empty">
         <p>{{ t('studio.video.modelEmpty') }}</p>
         <p v-if="anyKeyServesVideo" class="mt-2 font-medium text-amber-800 dark:text-amber-200">{{ t('studio.video.modelEmptySwitchKey') }}</p>
         <p v-else class="mt-2 text-xs text-gray-400 dark:text-dark-500">{{ t('studio.video.modelEmptyAllKeys') }}</p>
@@ -398,6 +401,8 @@ const props = defineProps<{
   rateMultiplier: number
   /** True when another key in the dropdown serves video (empty-state hint). */
   anyKeyServesVideo?: boolean
+  /** Parent is still resolving priced ∩ servable — suppress the empty-state footgun. */
+  catalogLoading?: boolean
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()
 

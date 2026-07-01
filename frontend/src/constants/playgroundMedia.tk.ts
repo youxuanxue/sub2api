@@ -244,7 +244,9 @@ export function videoStateFromFetch(resp: unknown): PlaygroundVideoState {
   }
   // String-status shape (volcengine/doubao + OpenAI-video "completed").
   const status = typeof root.status === 'string' ? root.status.toLowerCase() : ''
-  if (status === 'success' || status === 'succeeded' || status === 'completed') return 'succeeded'
+  if (status === 'success' || status === 'succeeded' || status === 'completed' || status === 'done') {
+    return 'succeeded'
+  }
   if (status === 'failure' || status === 'failed' || status === 'error') return 'failed'
   return 'processing'
 }
