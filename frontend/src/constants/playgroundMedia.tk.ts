@@ -1,5 +1,6 @@
 // TokenKey-only playground media support: model-modality classification and
 // tolerant parsing of image/video gateway responses.
+import { buildDataVideoUri } from '@/utils/studioInlineVideo.tk'
 //
 // Why a frontend table: GET /v1/models returns bare ids (gateway_handler.go
 // writeModelsList) and the public pricing catalog carries no image/video
@@ -271,23 +272,29 @@ export function extractVideoUrl(resp: unknown): string {
   // Vertex/Gemini operation: inline base64 video bytes.
   const response = asRecord(root.response)
   if (response) {
+    const gen = asRecord(response.generateVideoResponse)
+    const generated = gen?.generatedVideos
+    if (Array.isArray(generated) && generated.length) {
+      const v0 = asRecord(asRecord(generated[0])?.video)
+      const uri = v0 && typeof v0.uri === 'string' ? v0.uri.trim() : ''
+      if (/^https?:\/\//i.test(uri)) return uri
+    }
     const videos = response.videos
     if (Array.isArray(videos) && videos.length) {
       const v0 = asRecord(videos[0])
       const b64 = v0 && typeof v0.bytesBase64Encoded === 'string' ? v0.bytesBase64Encoded : ''
       if (withinInlineB64Cap(b64)) {
-        // Enforce the documented invariant: the inline scheme is `data:video/…`
-        // ONLY. mimeType is upstream-controlled, so a compromised relay must not
-        // be able to set text/html (or any non-video type) on a URI that lands
-        // in <video :src> / <a :href>. Anything else falls back to video/mp4.
         const claimed = v0 && typeof v0.mimeType === 'string' ? v0.mimeType : ''
-        const mime = /^video\//i.test(claimed) ? claimed : 'video/mp4'
-        return `data:${mime};base64,${b64}`
+        const encoding = v0 && typeof v0.encoding === 'string' ? v0.encoding : ''
+        return buildDataVideoUri(claimed, b64, encoding)
       }
     }
     for (const key of ['bytesBase64Encoded', 'video']) {
       const b = response[key]
-      if (typeof b === 'string' && withinInlineB64Cap(b)) return `data:video/mp4;base64,${b}`
+      if (typeof b === 'string' && withinInlineB64Cap(b)) {
+        const encoding = typeof response.encoding === 'string' ? response.encoding : ''
+        return buildDataVideoUri('video/mp4', b, encoding)
+      }
     }
   }
 

@@ -83,6 +83,30 @@
             {{ d }} s
           </button>
         </div>
+        <div
+          v-if="modality === 'video' && videoModelsSupportGenerateAudio"
+          class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-950/60"
+        >
+          <div>
+            <div class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.generateAudio') }}</div>
+            <p class="text-[11px] text-gray-500 dark:text-dark-400">{{ t('studio.video.generateAudioHint') }}</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="generateAudio"
+            class="relative h-7 w-12 shrink-0 rounded-full transition"
+            :class="generateAudio ? 'bg-primary-600' : 'bg-gray-300 dark:bg-dark-600'"
+            data-testid="bakeoff-video-generate-audio"
+            :disabled="isBusy"
+            @click="generateAudio = !generateAudio"
+          >
+            <span
+              class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition"
+              :class="generateAudio ? 'left-[22px]' : 'left-0.5'"
+            />
+          </button>
+        </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button
@@ -174,7 +198,7 @@
             download-test-id="bakeoff-video-download-primary"
             copy-test-id="bakeoff-video-copy-primary"
             @download="downloadCardVideo(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`, p.urlExpired)"
-            @copy-link="copyCardLink(p.url!)"
+            @copy-link="copyCardLink(p.url!, `tokenkey-${p.taskId || p.modelId}.mp4`)"
           />
           <StudioVideoUnavailable
             v-else-if="p.state === 'succeeded'"
@@ -218,7 +242,7 @@
                 type="button"
                 class="text-[11px] font-medium text-gray-500 dark:text-dark-300"
                 data-testid="bakeoff-video-copy-card-link"
-                @click="copyCardLink(p.url)"
+                @click="copyCardLink(p.url, `tokenkey-${p.taskId || p.modelId}.mp4`)"
               >
                 {{ copiedUrl === p.url ? t('studio.video.copied') : t('studio.video.copyLink') }}
               </button>
@@ -317,7 +341,7 @@
                 download-test-id="bakeoff-history-video-download-primary"
                 copy-test-id="bakeoff-history-video-copy-primary"
                 @download="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
-                @copy-link="copyCardLink(task.url)"
+                @copy-link="copyCardLink(task.url, `tokenkey-${task.id}.mp4`)"
               />
               <div v-else-if="task.state === 'processing'" class="flex aspect-video items-center justify-center rounded-lg bg-gray-50 text-[11px] text-gray-500 dark:bg-dark-800 dark:text-dark-400">
                 <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 animate-pulse rounded-full bg-primary-500"></span>{{ t('studio.video.statusProcessing') }}</span>
@@ -349,7 +373,7 @@
                   type="button"
                   class="text-[10px] font-medium text-gray-500 dark:text-dark-300"
                   data-testid="bakeoff-history-video-copy-link"
-                  @click="copyCardLink(task.url)"
+                  @click="copyCardLink(task.url, `tokenkey-${task.id}.mp4`)"
                 >
                   {{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}
                 </button>
@@ -424,6 +448,7 @@ import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUn
 import { useAppStore } from '@/stores/app'
 import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { useStudioVideoSubmitOptions } from '@/composables/useStudioVideoSubmitOptions'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll } from '@/composables/useVideoTaskPoll'
 import { useMediaLibrary, type ImageHistoryItem, type VideoTaskItem } from '@/composables/useMediaLibrary'
@@ -448,7 +473,12 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
-const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(warnExpiredDownload)
+const warnInlineCopy = () => appStore.showWarning(t('studio.video.inlineCopyHint'), 8000)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions({
+  onExpiredDownload: warnExpiredDownload,
+  onInlineCopyUnsupported: warnInlineCopy,
+})
+const { generateAudio } = useStudioVideoSubmitOptions()
 
 const MAX_PANELS = 6
 /** Imagen / seedream: ratio code on /v1/images/generations (see ImageStudio sentSize). */
@@ -458,6 +488,9 @@ const DEFAULT_GEMINI_ASPECT = '1:1'
 
 const modality = ref<StudioModality>('video')
 const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
+const videoModelsSupportGenerateAudio = computed(() =>
+  models.value.some((r) => r.model.supportedParams.includes('generateAudio'))
+)
 const selectedModelIds = ref<string[]>([])
 const prompt = ref('')
 const lastRunPrompt = ref('')
@@ -594,6 +627,7 @@ const {
   downloadPreview,
 } = useStudioVideoPreview({
   onExpiredDownload: warnExpiredDownload,
+  onInlineCopyUnsupported: warnInlineCopy,
 })
 
 function openVideoPreviewFromUrl(label: string, cost: number, url: string, taskId?: string, urlExpired?: boolean): void {
@@ -776,7 +810,12 @@ async function run(): Promise<void> {
       await Promise.all(
         panels.value.map(async (panel) => {
           try {
-            const raw = await gatewayVideoSubmit(props.apiKey, props.gatewayBase, { model: panel.servedId, prompt: text, duration: panel.seconds })
+            const raw = await gatewayVideoSubmit(props.apiKey, props.gatewayBase, {
+              model: panel.servedId,
+              prompt: text,
+              duration: panel.seconds,
+              ...(videoModelsSupportGenerateAudio.value ? { generateAudio: generateAudio.value } : {}),
+            })
             const taskId = extractVideoTaskId(raw)
             if (!taskId) throw new Error('no_task')
             panel.taskId = taskId

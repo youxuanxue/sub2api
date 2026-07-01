@@ -198,10 +198,22 @@ describe('video task helpers', () => {
     expect(
       extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/mp4' }] } })
     ).toBe('data:video/mp4;base64,QUJD')
+    // mimeType with codec params is normalized to base video/* before base64.
+    expect(
+      extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/mp4; codecs=avc1.640028' }] } })
+    ).toBe('data:video/mp4;base64,QUJD')
     // mimeType honored when it is a video/* type.
     expect(
       extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/webm' }] } })
     ).toBe('data:video/webm;base64,QUJD')
+    // Gemini generateVideoResponse hosted URI.
+    expect(
+      extractVideoUrl({
+        response: {
+          generateVideoResponse: { generatedVideos: [{ video: { uri: 'https://cdn.example/veo.mp4' } }] },
+        },
+      })
+    ).toBe('https://cdn.example/veo.mp4')
     // response.bytesBase64Encoded / response.video fallbacks.
     expect(extractVideoUrl({ response: { bytesBase64Encoded: 'WFla' } })).toBe('data:video/mp4;base64,WFla')
     expect(extractVideoUrl({ response: { video: 'WFla' } })).toBe('data:video/mp4;base64,WFla')

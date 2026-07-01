@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { copyMediaLink, downloadMedia } from '@/utils/studioDownload.tk'
+import { copyStudioVideoLink, downloadMedia } from '@/utils/studioDownload.tk'
+import { isInlineStudioVideoUrl } from '@/utils/studioInlineVideo.tk'
 import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
 
 export type StudioVideoPreviewState = 'loading' | 'ready' | 'expired'
@@ -18,6 +19,8 @@ export interface StudioVideoPreviewSource {
 export interface UseStudioVideoPreviewOptions {
   /** Toast when lightbox download is blocked (playback failed or persisted url stripped). */
   onExpiredDownload?: () => void
+  /** Inline Veo clip: copy-link is not shareable — prompt download instead. */
+  onInlineCopyUnsupported?: () => void
 }
 
 /**
@@ -45,7 +48,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   let copiedTimer: ReturnType<typeof setTimeout> | undefined
 
   const downloadUrl = computed(() => rawUrl.value || previewUrl.value)
-  const copyLinkUrl = computed(() => rawUrl.value || previewUrl.value)
+  const copyLinkUrl = computed(() => (isInlineStudioVideoUrl(rawUrl.value) ? '' : rawUrl.value || previewUrl.value))
 
   function openPreview(source: StudioVideoPreviewSource): void {
     if (!source.url) return
@@ -112,12 +115,18 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   }
 
   async function copyPreviewLink(): Promise<void> {
-    const url = copyLinkUrl.value
+    const url = rawUrl.value || copyLinkUrl.value
     if (!url) return
-    if (await copyMediaLink(url)) {
+    const result = await copyStudioVideoLink(url)
+    if (result === 'copied') {
       copiedLink.value = true
       if (copiedTimer) clearTimeout(copiedTimer)
       copiedTimer = setTimeout(() => (copiedLink.value = false), 1500)
+      return
+    }
+    if (result === 'inline-unsupported') {
+      options.onInlineCopyUnsupported?.()
+      downloadPreview()
     }
   }
 

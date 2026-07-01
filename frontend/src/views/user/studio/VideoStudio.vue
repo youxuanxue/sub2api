@@ -91,6 +91,27 @@
             </button>
           </div>
         </div>
+        <div v-if="supports('generateAudio')" class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-950/60">
+          <div>
+            <div class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.generateAudio') }}</div>
+            <p class="text-[11px] text-gray-500 dark:text-dark-400">{{ t('studio.video.generateAudioHint') }}</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="generateAudio"
+            class="relative h-7 w-12 shrink-0 rounded-full transition"
+            :class="generateAudio ? 'bg-primary-600' : 'bg-gray-300 dark:bg-dark-600'"
+            data-testid="studio-video-generate-audio"
+            :disabled="sending"
+            @click="generateAudio = !generateAudio"
+          >
+            <span
+              class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition"
+              :class="generateAudio ? 'left-[22px]' : 'left-0.5'"
+            />
+          </button>
+        </div>
 
         <!-- Advanced: only params the SELECTED model actually honors are rendered. -->
         <template v-if="selected && selected.model.supportedParams.length">
@@ -264,7 +285,7 @@
             :aspect-label="task.aspectRatio"
             :copied="copiedUrl === task.url"
             @download="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
-            @copy-link="copyCardLink(task.url)"
+            @copy-link="copyCardLink(task.url, `tokenkey-${task.id}.mp4`)"
           />
           <StudioVideoUnavailable v-else :prompt="task.prompt" :task="task" />
           <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-dark-400">
@@ -286,7 +307,7 @@
               type="button"
               class="text-gray-500 dark:text-dark-300"
               data-testid="studio-video-copy-card-link"
-              @click="copyCardLink(task.url)"
+              @click="copyCardLink(task.url, `tokenkey-${task.id}.mp4`)"
             >{{ copiedUrl === task.url ? t('studio.video.copied') : t('studio.video.copyLink') }}</button>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
@@ -357,6 +378,7 @@ import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
 import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'
+import { useStudioVideoSubmitOptions } from '@/composables/useStudioVideoSubmitOptions'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'
 import { useAppStore } from '@/stores/app'
@@ -380,7 +402,12 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
-const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(warnExpiredDownload)
+const warnInlineCopy = () => appStore.showWarning(t('studio.video.inlineCopyHint'), 8000)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions({
+  onExpiredDownload: warnExpiredDownload,
+  onInlineCopyUnsupported: warnInlineCopy,
+})
+const { generateAudio } = useStudioVideoSubmitOptions()
 const library = useMediaLibrary(props.userId)
 
 const models = computed(() => resolveAvailableModels('video', props.availableIds, props.priceMap))
@@ -537,6 +564,7 @@ const {
   downloadPreview,
 } = useStudioVideoPreview({
   onExpiredDownload: warnExpiredDownload,
+  onInlineCopyUnsupported: warnInlineCopy,
 })
 
 function openPreview(task: VideoTaskItem): void {
@@ -583,6 +611,7 @@ async function generate(): Promise<void> {
       ...(supports('firstFrameImage') && firstFrameImage.value.trim()
         ? { image: firstFrameImage.value.trim() }
         : {}),
+      ...(supports('generateAudio') ? { generateAudio: generateAudio.value } : {}),
     })
     const taskId = extractVideoTaskId(raw)
     if (!taskId) throw new Error(t('studio.video.noTaskId'))
