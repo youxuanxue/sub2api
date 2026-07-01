@@ -1152,6 +1152,7 @@ export interface CreateAccountRequest {
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   confirm_mixed_channel_risk?: boolean
+  account_email?: string
   // Top-level channel_type for the fifth platform `newapi` (admin_service.go:1565
   // enforces channel_type > 0 when platform == 'newapi'). Required only on the
   // newapi branch; ignored by the other 4 platforms.
@@ -1175,6 +1176,7 @@ export interface UpdateAccountRequest {
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   confirm_mixed_channel_risk?: boolean
+  account_email?: string
 }
 
 export interface CheckMixedChannelRequest {

@@ -815,6 +815,37 @@ else
     echo "  ok: prompt surface registry + fixture gateway coverage"
 fi
 
+# ---- sub2api: cc geo-stego static anchors ---------------------------------
+echo ""
+echo "=== sub2api: cc geo-stego static anchors ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for cc geo-stego static check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/check-cc-geo-stego-static.py --selftest >/dev/null; then
+    echo "  FAIL: check-cc-geo-stego-static.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/check-cc-geo-stego-static.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: cc geo-stego static anchors + Go normalizer wiring"
+fi
+
+# ---- sub2api: prompt surface drift aggregate self-test --------------------
+echo ""
+echo "=== sub2api: prompt surface drift aggregate ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for prompt surface drift check)"
+    errors=$((errors + 1))
+elif ! bash -n ./ops/observability/check-prompt-surface-drift.sh; then
+    echo "  FAIL: check-prompt-surface-drift.sh syntax"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_probe_prompt_surface_fingerprints -q; then
+    echo "  FAIL: prompt surface fingerprint probe tests"
+    errors=$((errors + 1))
+else
+    echo "  ok: prompt surface drift tooling"
+fi
+
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version is pinned in 5 places that must
 # carry the SAME version: the UA default (setting_service.go), the gateway

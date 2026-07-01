@@ -310,6 +310,7 @@ type CreateAccountInput struct {
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool
+	AccountEmail          string
 }
 
 type UpdateAccountInput struct {
@@ -330,6 +331,8 @@ type UpdateAccountInput struct {
 	AutoPauseOnExpired    *bool
 	SkipMixedChannelCheck bool   // 跳过混合渠道检查（用户已确认风险）
 	TierID                *int64 // TK: bind anthropic-oauth stability tier (tiers table); 0 clears
+	// AccountEmail: nil = unchanged; non-nil (including empty) = set/clear canonical email fields.
+	AccountEmail *string
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
@@ -2876,6 +2879,13 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.LoadFactor = input.LoadFactor
 	}
+	if strings.TrimSpace(input.AccountEmail) != "" {
+		var applyErr error
+		account.Extra, account.Credentials, applyErr = ApplyAccountEmail(account.Extra, account.Credentials, input.AccountEmail)
+		if applyErr != nil {
+			return nil, applyErr
+		}
+	}
 	// Bug B: pin newapi/Moonshot accounts to the regional base URL whose key
 	// actually authenticates, so the relay hot path doesn't need 401 fallback.
 	// See admin_service_tk_newapi_save.go for the full rationale.
@@ -3055,6 +3065,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			if err := s.checkMixedChannelRisk(ctx, account.ID, account.Platform, *input.GroupIDs); err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	if input.AccountEmail != nil {
+		var applyErr error
+		account.Extra, account.Credentials, applyErr = ApplyAccountEmail(account.Extra, account.Credentials, *input.AccountEmail)
+		if applyErr != nil {
+			return nil, applyErr
 		}
 	}
 

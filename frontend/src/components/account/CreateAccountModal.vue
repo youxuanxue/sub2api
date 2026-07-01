@@ -67,6 +67,18 @@
         ></textarea>
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
+      <div>
+        <label class="input-label">{{ t('admin.accounts.accountEmail') }}</label>
+        <input
+          v-model="accountEmail"
+          type="email"
+          class="input"
+          autocomplete="off"
+          :placeholder="t('admin.accounts.accountEmailPlaceholder')"
+          data-tour="account-form-account-email"
+        />
+        <p class="input-hint">{{ t('admin.accounts.accountEmailHint') }}</p>
+      </div>
 
       <!-- Platform Selection - Segmented Control Style -->
       <div>
@@ -3475,6 +3487,10 @@ import {
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
+import {
+  isValidAccountEmail,
+  withAccountEmail
+} from '@/utils/accountEmail.tk'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
@@ -4024,6 +4040,20 @@ const form = reactive({
   group_ids: [] as number[],
   expires_at: null as number | null
 })
+
+const accountEmail = ref('')
+
+const prefillAccountEmailFromToken = (tokenInfo: Record<string, unknown> | null | undefined) => {
+  if (!tokenInfo || accountEmail.value.trim()) {
+    return
+  }
+  const fromAddress = typeof tokenInfo.email_address === 'string' ? tokenInfo.email_address.trim() : ''
+  const fromEmail = typeof tokenInfo.email === 'string' ? tokenInfo.email.trim() : ''
+  const resolved = fromAddress || fromEmail
+  if (resolved) {
+    accountEmail.value = resolved
+  }
+}
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
@@ -4590,9 +4620,14 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
+  if (!isValidAccountEmail(accountEmail.value)) {
+    appStore.showError(t('admin.accounts.invalidAccountEmail'))
+    return
+  }
+  const finalPayload = withAccountEmail(payload, accountEmail.value)
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    await adminAPI.accounts.create(withAntigravityConfirmFlag(finalPayload))
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
@@ -4618,6 +4653,7 @@ const resetForm = () => {
   step.value = 1
   form.name = ''
   form.notes = ''
+  accountEmail.value = ''
   form.platform = 'anthropic'
   form.type = 'oauth'
   form.credentials = {}
@@ -6028,6 +6064,7 @@ const handleAnthropicExchange = async (authCode: string) => {
       code: authCode.trim(),
       ...proxyConfig
     })
+    prefillAccountEmailFromToken(tokenInfo as Record<string, unknown>)
 
     // Build extra with quota control settings
     const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}

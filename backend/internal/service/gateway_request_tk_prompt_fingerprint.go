@@ -80,10 +80,16 @@ func tkExtractAnthropicPromptFingerprint(body []byte) tkAnthropicPromptFingerpri
 		}
 	}
 
-	fp.GeoStegoCanonical = !tkWireStillHasCCGeoStegoDateSignals(body)
+	fp.GeoStegoCanonical = !tkWireStillHasCCPromptSurfaceLeaks(body)
 	if fp.ReminderDateLineClass == "NONE" && !fp.GeoStegoCanonical {
 		fp.ReminderDateLineClass = "NONCANONICAL"
 		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "geo_stego_date_line")
+	}
+	if strings.Contains(string(body), "# Environment") {
+		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "cc_environment_section")
+	}
+	if tkCCWireCNTimezoneRE.Match(body) {
+		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "cc_environment_section")
 	}
 	fp.SurfaceSignature = tkPromptSurfaceSignature(fp)
 	return fp

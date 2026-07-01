@@ -32,6 +32,7 @@ def aggregate(payload: dict, registry: dict) -> dict:
     identity: Counter[str] = Counter()
     unknown_surfaces: Counter[str] = Counter()
     noncanonical_geo = 0
+    cc_environment = 0
     canonical_geo = canonical_geo_classes(registry)
 
     for row in fps:
@@ -49,11 +50,15 @@ def aggregate(payload: dict, registry: dict) -> dict:
                 item = item.strip()
                 if item:
                     unknown_surfaces[item] += 1
+                    if item == "cc_environment_section":
+                        cc_environment += 1
 
     alerts: list[str] = []
     agg_cfg = registry.get("aggregate") or {}
     if agg_cfg.get("noncanonical_geo_alert") and noncanonical_geo:
         alerts.append(f"noncanonical_geo_count={noncanonical_geo}")
+    if agg_cfg.get("cc_environment_alert") and cc_environment:
+        alerts.append(f"cc_environment_leak_count={cc_environment}")
     if agg_cfg.get("unknown_surface_alert") and unknown_surfaces:
         alerts.append(f"unknown_surfaces={dict(unknown_surfaces)}")
 
@@ -64,6 +69,7 @@ def aggregate(payload: dict, registry: dict) -> dict:
         "identity_anchor_id": dict(identity),
         "unknown_surfaces": dict(unknown_surfaces),
         "noncanonical_geo_count": noncanonical_geo,
+        "cc_environment_leak_count": cc_environment,
         "alerts": alerts,
         "has_actionable_drift": bool(alerts),
     }

@@ -58,22 +58,7 @@ func tkNormalizeCCGeoDateToken(date string) (string, bool) {
 }
 
 func tkNormalizeAnthropicCCGeoStego(body []byte) ([]byte, bool) {
-	if len(body) == 0 {
-		return body, false
-	}
-
-	out := body
-	changed := false
-
-	if patched, applied := tkNormalizeAnthropicCCGeoStegoSystem(out); applied {
-		out = patched
-		changed = true
-	}
-	if patched, applied := tkNormalizeAnthropicCCGeoStegoMessages(out); applied {
-		out = patched
-		changed = true
-	}
-	return out, changed
+	return tkNormalizeAnthropicCCPromptSurface(body, "")
 }
 
 func tkNormalizeAnthropicCCGeoStegoSystem(body []byte) ([]byte, bool) {

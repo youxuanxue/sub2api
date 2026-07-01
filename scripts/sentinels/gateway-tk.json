@@ -1179,7 +1179,7 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "s.tkNormalizeAnthropicRequestBody(ctx, c, body)",
+        "s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)",
         "// TK: normalize Anthropic native request body for count_tokens path"
       ],
       "rationale": "Anchors the TWO call sites of the Anthropic-native request-body normalizer (tool_choice string -> object; strip thinking when tool_choice forces tool use). First call: GatewayService.Forward (~4460), between CLIENT_ORIGINAL debug log and the shouldMimicClaudeCode branch, so it runs for ALL Anthropic Forward callers — OAuth + non-CC, OAuth + CC, APIKey (non-passthrough), and ServiceAccount alike. Second call: GatewayService.ForwardCountTokens (~9030), after StripEmptyTextBlocks and before StripCountTokensUnsupportedFields. The count_tokens-specific banner comment is pinned because the bare `s.tkNormalizeAnthropicRequestBody(ctx, c, body)` literal alone would be satisfied by the Forward call site, leaving count_tokens silently unguarded. Dropping either silently regresses to the upstream 400 trap from the 2026-05-21 incident; on the count_tokens path it can additionally trip the per-account upstream-error breaker (see StripCountTokensUnsupportedFields comment) since the rule's effect is invisible to functional tests because the upstream still works for well-formed requests."
@@ -1190,9 +1190,10 @@
         "func (s *GatewayService) tkNormalizeAnthropicRequestBody",
         "func tkNormalizeAnthropicToolChoiceString",
         "func tkNormalizeAnthropicThinkingForcesToolUse",
+        "func tkApplyAnthropicCCPromptSurfaceNormalize",
         "tkNormalizeChangeToolChoiceStringToObject",
         "tkNormalizeChangeThinkingForcesToolUse",
-        "tkNormalizeChangeCCGeoStego",
+        "GetOAuthAccountEmail",
         "Kind:     \"request_normalized\"",
         "gateway.anthropic_request_normalized",
         "tkMaybeLogAnthropicPromptFingerprint"
@@ -2090,24 +2091,50 @@
       "rationale": "Pure, fork-only ToolSearch historical signed-thinking pre-filter (claude-code #63792 / #10199), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). When dynamic tool loading re-serializes prior assistant turns, stale signed thinking blocks trigger upstream 400 'cannot be modified' and a client strip-and-retry storm every turn. TkPrefilterToolSearchHistoricalThinking downgrades historical assistant thinking to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking. Anchor the gate + stripper so an upstream merge cannot delete this surface and silently re-expose the per-turn double round-trip. Exhaustively covered by gateway_request_tk_toolsearch_thinking_test.go."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_cc_prompt_surface.go",
+      "must_contain": [
+        "func tkNormalizeAnthropicCCPromptSurface",
+        "func tkStripCCEnvironmentSection",
+        "func tkNormalizeCCUserEmailLine",
+        "tkNormalizeChangeCCEnvironmentStrip",
+        "tkNormalizeChangeCCUserEmailReplaced"
+      ],
+      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment strip + client userEmail replace/strip (OAuth account email when scheduled)."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",
+      "must_contain": [
+        "func tkApplyAnthropicCCPromptSurfaceNormalize"
+      ],
+      "rationale": "Shared entry for API-key passthrough and Bedrock paths that skip the full normalize hook."
+    },
+    {
       "path": "backend/internal/service/gateway_request_tk_cc_geo_stego.go",
       "must_contain": [
         "func tkNormalizeAnthropicCCGeoStego",
-        "func tkNormalizeCCGeoStegoText",
+        "tkNormalizeAnthropicCCPromptSurface",
         "func tkWireStillHasCCGeoStegoDateSignals",
         "tkNormalizeChangeCCGeoStego",
         "Today's date is $1-$2-$3."
       ],
-      "rationale": "Pure CC geo-stego normalizer: rewrite Today's date lines in system / system-reminder text to first-party US shape (ASCII apostrophe + YYYY-MM-DD) before US edge OAuth egress. Wired from gateway_anthropic_request_normalize_tk.go, Forward API-key passthrough, and count_tokens API-key passthrough. Exhaustively covered by gateway_request_tk_cc_geo_stego_test.go."
+      "rationale": "CC geo-stego date-line helpers; tkNormalizeAnthropicCCGeoStego delegates to gateway_request_tk_cc_prompt_surface.go."
+    },
+    {
+      "path": "backend/internal/service/account_tk_oauth_email.go",
+      "must_contain": [
+        "func (a *Account) GetOAuthAccountEmail"
+      ],
+      "rationale": "OAuth account email resolver used when replacing client userEmail in CC system-reminder text before upstream egress."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "TkPrefilterToolSearchHistoricalThinking(body, reqModel)",
         "TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)",
-        "tkNormalizeAnthropicCCGeoStego(input.Body)"
+        "tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, input.Body)",
+        "tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, body)"
       ],
-      "rationale": "Wiring of the ToolSearch historical thinking pre-filter (claude-code #63792 / #10199) into OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks / UTF-8 sanitize. One-line hooks in an upstream-shaped file compile clean if dropped, silently re-exposing the per-turn 400 + strip-and-retry storm. Anchor both call shapes; the pure filter is guarded by gateway_request_tk_toolsearch_thinking.go."
+      "rationale": "Wiring of ToolSearch historical thinking pre-filter and CC prompt-surface normalize into OAuth Forward, API-Key passthrough, count_tokens passthrough, and Bedrock."
     },
     {
       "path": "backend/internal/server/http.go",

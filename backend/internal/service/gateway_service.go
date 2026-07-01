@@ -4986,7 +4986,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// strip thinking when tool_choice forces tool use). Runs once per request
 	// before any downstream rewrite. See gateway_anthropic_request_normalize_tk.go.
 	if account.Platform == PlatformAnthropic {
-		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)
 	}
 
 	// Claude Code 客户端判定：UA 匹配 claude-cli/* 且携带 metadata.user_id。
@@ -5943,16 +5943,13 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, err
 		}
 	}
-	// TK: CC geo stego normalize only (passthrough skips the full normalize hook).
+	// TK: CC prompt-surface normalize (passthrough skips the full normalize hook).
 	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
-		if patched, applied := tkNormalizeAnthropicCCGeoStego(input.Body); applied {
-			input.Body = patched
-			tkLogAnthropicNormalize(ctx, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
-			tkRecordAnthropicNormalizeOpsEvent(c, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
-			if input.Parsed != nil {
-				if err := input.Parsed.ReplaceBody(input.Body); err != nil {
-					return nil, err
-				}
+		var changes []tkAnthropicNormalizeChange
+		input.Body, changes = tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, input.Body)
+		if len(changes) > 0 && input.Parsed != nil {
+			if err := input.Parsed.ReplaceBody(input.Body); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -6847,6 +6844,11 @@ func (s *GatewayService) forwardBedrock(
 	betaHeader := ""
 	if c != nil && c.Request != nil {
 		betaHeader = c.GetHeader("anthropic-beta")
+	}
+
+	// TK: CC prompt-surface normalize before Bedrock body prep (Bedrock skips Forward hook).
+	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
+		body, _ = tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, body)
 	}
 
 	// 准备请求体（注入 anthropic_version/anthropic_beta，移除 Bedrock 不支持的字段，清理 cache_control）
@@ -10515,7 +10517,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 400s here can trip the per-account upstream-error breaker (see
 	// StripCountTokensUnsupportedFields comment).
 	if account != nil && account.Platform == PlatformAnthropic {
-		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)
 	}
 
 	// Pre-filter: strip fields that Anthropic's count_tokens endpoint rejects
@@ -10823,13 +10825,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			"fields", stripped,
 		)
 	}
-	// TK: CC geo stego normalize only (passthrough skips the full normalize hook).
+	// TK: CC prompt-surface normalize (passthrough skips the full normalize hook).
 	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
-		if patched, applied := tkNormalizeAnthropicCCGeoStego(body); applied {
-			body = patched
-			tkLogAnthropicNormalize(ctx, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
-			tkRecordAnthropicNormalizeOpsEvent(c, []tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego})
-		}
+		body, _ = tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, body)
 	}
 
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)

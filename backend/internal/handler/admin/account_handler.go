@@ -115,6 +115,7 @@ type CreateAccountRequest struct {
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	AccountEmail            string         `json:"account_email"`
 }
 
 // UpdateAccountRequest represents update account request
@@ -136,6 +137,7 @@ type UpdateAccountRequest struct {
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	AccountEmail            *string        `json:"account_email"`
 }
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
@@ -536,6 +538,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			ExpiresAt:             req.ExpiresAt,
 			AutoPauseOnExpired:    req.AutoPauseOnExpired,
 			SkipMixedChannelCheck: skipCheck,
+			AccountEmail:          req.AccountEmail,
 		})
 		if execErr != nil {
 			return nil, execErr
@@ -620,6 +623,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
 		SkipMixedChannelCheck: skipCheck,
+		AccountEmail:          req.AccountEmail,
 	})
 	if err != nil {
 		// 检查是否为混合渠道错误

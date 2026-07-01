@@ -126,7 +126,7 @@ func TestTkNormalizeAnthropicRequestBody_CombinedRewrite(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
 	c := newGinTestContext()
 
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in, nil)
 
 	// Step 1 turned "required" into {"type":"any"}; step 2 then stripped thinking.
 	require.JSONEq(t, `{"tool_choice":{"type":"any"},"tools":[]}`, string(out))
@@ -148,7 +148,7 @@ func TestTkNormalizeAnthropicRequestBody_NoChangeWhenAlreadyValid(t *testing.T) 
 	svc := newNormalizeTestService(t, "true")
 	c := newGinTestContext()
 
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in, nil)
 
 	require.JSONEq(t, string(in), string(out))
 	require.Empty(t, normalizeTestEventsFor(c), "no normalize event when nothing changed")
@@ -161,7 +161,7 @@ func TestTkNormalizeAnthropicRequestBody_SettingDisabledIsNoop(t *testing.T) {
 	svc := newNormalizeTestService(t, "false")
 	c := newGinTestContext()
 
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in, nil)
 
 	require.JSONEq(t, string(in), string(out), "setting=false must leave body untouched")
 	require.Empty(t, normalizeTestEventsFor(c), "no event when normalize disabled")
@@ -174,7 +174,7 @@ func TestTkNormalizeAnthropicRequestBody_DefaultEnabledWhenSettingMissing(t *tes
 	svc := newNormalizeTestService(t, "")
 	c := newGinTestContext()
 
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in, nil)
 
 	require.Equal(t, "auto", gjson.GetBytes(out, "tool_choice.type").String())
 	ev := normalizeTestEventsFor(c)
@@ -185,7 +185,7 @@ func TestTkNormalizeAnthropicRequestBody_EmptyBodyPassesThrough(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
 	c := newGinTestContext()
 
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, nil)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, nil, nil)
 	require.Nil(t, out)
 	require.Empty(t, normalizeTestEventsFor(c))
 }
@@ -196,7 +196,7 @@ func TestTkNormalizeAnthropicRequestBody_NilContextStillRewrites(t *testing.T) {
 	in := []byte(`{"tool_choice":"required"}`)
 
 	svc := newNormalizeTestService(t, "true")
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
 
 	require.JSONEq(t, `{"tool_choice":{"type":"any"}}`, string(out))
 }
