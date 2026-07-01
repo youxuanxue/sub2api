@@ -29,7 +29,7 @@ describe('studioUniversalKey', () => {
       [
         {
           model_id: 'veo-3.1-generate-001',
-          pricing: { output_cost_per_second: 0.6 },
+          pricing: { billing_mode: 'video', output_cost_per_second: 0.6 },
         },
         {
           model_id: 'gpt-4o',
@@ -39,6 +39,7 @@ describe('studioUniversalKey', () => {
       new Set(['veo-3.1-generate-001'])
     )
     expect(map.get('veo-3.1-generate-001')?.perSecond).toBe(0.6)
+    expect(map.get('veo-3.1-generate-001')?.billingMode).toBe('video')
     expect(map.has('gpt-4o')).toBe(false)
   })
 })
