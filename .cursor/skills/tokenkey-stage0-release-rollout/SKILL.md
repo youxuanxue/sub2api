@@ -78,7 +78,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
    - 数据层：Ent schema、migrations、repository、默认设置初始化。
    - 运维面：release/deploy workflow、Stage0 SSM primitive、Caddy/compose、smoke scripts、ops workflow。
    - 上游隔离：是否删除 upstream-owned 文件/route/method，是否触发 sentinel registry。
-6. 跑本地门禁：执行 `bash scripts/preflight.sh`；失败必须进入风险结论，不能给出“可放心发布”的结论。
+6. 跑本地门禁：执行 `bash scripts/preflight.sh`；失败必须进入风险结论，不能给出“可放心发布”的结论。其中 `migration immutability` 段会拦截对已合并 migration 文件的修改（典型症状：deploy 时 `checksum mismatch`）；应新建 `tk_NNN_*.sql` 而不是改旧文件。
 7. 输出中文结论，必须包含：
    - `范围`：`${PREV_TAG}..${NEW_REF}`、commit 数、主要提交。
    - `发布契约`：release/deploy/Docker/deps/VERSION 是否变化。

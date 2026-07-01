@@ -1495,6 +1495,29 @@ else
 fi
 
 echo ""
+echo "=== sub2api: migration immutability ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for migration immutability)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/migration-immutability.py --selftest >/dev/null; then
+    echo "  FAIL: migration immutability selftest failed"
+    echo "        — run: python3 scripts/checks/migration-immutability.py --selftest"
+    errors=$((errors + 1))
+else
+    _mig_base="${PREFLIGHT_BASE:-origin/main}"
+    python3 ./scripts/checks/migration-immutability.py --base "${_mig_base}" --head HEAD --quiet
+    _mig_rc=$?
+    if [ "$_mig_rc" -eq 1 ]; then
+        errors=$((errors + 1))
+    elif [ "$_mig_rc" -eq 2 ]; then
+        echo "  skip: cannot resolve ${_mig_base}..HEAD (fetch origin/main); release deploy will fail on checksum mismatch"
+    else
+        echo "  ok: no edits to already-shipped SQL migrations"
+    fi
+    unset _mig_base _mig_rc
+fi
+
+echo ""
 echo "=== sub2api: Stage0 deploy tag-validation sharing ==="
 # The X.Y.Z(-rc.N/-beta.N) release-tag gate is a single shared script so the
 # three deploy workflows never grow divergent copies (the Lightsail copy had
