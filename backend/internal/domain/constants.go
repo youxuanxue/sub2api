@@ -93,6 +93,7 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"claude-opus-4-6-thinking":   "claude-opus-4-6-thinking", // 官方模型
 	"claude-opus-4-6":            "claude-opus-4-6-thinking", // 简称映射
 	"claude-opus-4-5-thinking":   "claude-opus-4-6-thinking", // 迁移旧模型
+	"claude-sonnet-5":            "claude-sonnet-5",
 	"claude-sonnet-4-6":          "claude-sonnet-4-6",
 	"claude-sonnet-4-5":          "claude-sonnet-4-5",
 	"claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
@@ -100,8 +101,8 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"claude-opus-4-5-20251101":   "claude-opus-4-6-thinking", // 迁移旧模型
 	"claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
 	// Claude Haiku → Sonnet（无 Haiku 支持）
-	"claude-haiku-4-5":          "claude-sonnet-4-6",
-	"claude-haiku-4-5-20251001": "claude-sonnet-4-6",
+	"claude-haiku-4-5":          "claude-sonnet-5",
+	"claude-haiku-4-5-20251001": "claude-sonnet-5",
 	// Gemini 2.5 白名单
 	"gemini-2.5-flash":      "gemini-2.5-flash",
 	"gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
@@ -234,6 +235,7 @@ var DefaultBedrockModelMapping = map[string]string{
 	"claude-opus-4-1":          "us.anthropic.claude-opus-4-1-20250805-v1:0",
 	"claude-opus-4-20250514":   "us.anthropic.claude-opus-4-20250514-v1:0",
 	// Claude Sonnet
+	"claude-sonnet-5":            "us.anthropic.claude-sonnet-5",
 	"claude-sonnet-4-6-thinking": "us.anthropic.claude-sonnet-4-6",
 	"claude-sonnet-4-6":          "us.anthropic.claude-sonnet-4-6",
 	"claude-sonnet-4-5":          "us.anthropic.claude-sonnet-4-5-20250929-v1:0",

@@ -83,13 +83,13 @@ package service
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
-	// claude-fable-5 removed 2026-06-13 (us7 P0): Anthropic now access-gates
-	// Fable 5 (fable-mythos-access) and answers 404 "Claude Fable 5 is not
-	// available. Please use Opus 4.8" fleet-wide (us7 404, prod 400 — never 200),
-	// violating this file's "keep ONLY model IDs that returned a real 200" rule.
-	// It was 200 at the 2026-06-05 probe through edge-us7, hence its prior entry.
-	// The next ops/pricing/refresh-servable-allowlist.py probe re-adds it
-	// automatically if/when accounts regain access.
+	// claude-fable-5 prep (2026-07-01): Anthropic announced Fable 5 restoration
+	// after the US Commerce export-control lift; OAuth fleet was still 404 on
+	// 2026-07-01 edge probes, so this is an operator prep entry (pricing/Menu
+	// ready before upstream 200). Self-heal still prunes model_not_found until
+	// live traffic confirms servability; refresh-servable-allowlist.py keeps the
+	// empirical contract on the next full probe.
+	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},
 	"claude-opus-4-1":   {},
 	"claude-opus-4-5":   {},
@@ -98,6 +98,7 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 	"claude-opus-4-8":   {},
 	"claude-sonnet-4-5": {},
 	"claude-sonnet-4-6": {},
+	"claude-sonnet-5":   {},
 	// servable-allowlist:end anthropic
 }
 

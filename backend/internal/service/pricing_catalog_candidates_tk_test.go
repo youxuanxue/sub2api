@@ -119,11 +119,11 @@ func TestTkServableCandidateIDs(t *testing.T) {
 		return false
 	}
 
-	t.Run("anthropic draws from the empirically-servable allowlist (no fable-5 post-#752)", func(t *testing.T) {
+	t.Run("anthropic draws from the servable allowlist (fable-5 prep restored)", func(t *testing.T) {
 		svc, _, _ := newAvailabilityTestService(t)
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, svc)
 		require.True(t, contains(ids, "claude-opus-4-8"), "servable opus present")
-		require.False(t, contains(ids, "claude-fable-5"), "access-gated fable-5 absent (W2 removed it from the allowlist)")
+		require.True(t, contains(ids, "claude-fable-5"), "fable-5 prep entry present in anthropic allowlist")
 	})
 
 	t.Run("structurally-gone model is pruned; degraded model stays", func(t *testing.T) {

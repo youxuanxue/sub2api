@@ -38,20 +38,12 @@ func TestTkDeriveBareModelAliases_Fixture(t *testing.T) {
 func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T) {
 	aliases := tkDeriveBareModelAliases(supportedAnthropicCatalogModels)
 	for family, want := range map[string]string{
-		"opus": "claude-opus-4-8", "sonnet": "claude-sonnet-4-6",
-		"haiku": "claude-haiku-4-5",
+		"opus": "claude-opus-4-8", "sonnet": "claude-sonnet-5",
+		"haiku": "claude-haiku-4-5", "fable": "claude-fable-5",
 	} {
 		if got := aliases[family]; got != want {
 			t.Errorf("real-table pin: bare %q → %q, pinned %q — servable allowlist changed; update pin consciously", family, got, want)
 		}
-	}
-	// fable removed 2026-06-13 (us7 P0): claude-fable-5 was dropped from the
-	// servable allowlist (Anthropic access-gates it, 404/400 fleet-wide), so the
-	// bare "fable" family no longer derives a target — a bare "fable" now
-	// correctly falls through to a 400 "Unsupported model" instead of aliasing to
-	// a 404ing id. Re-add the pin when a servable fable id returns to the table.
-	if got := aliases["fable"]; got != "" {
-		t.Errorf("real-table pin: bare %q → %q, want \"\" (fable not servable since 2026-06-13)", "fable", got)
 	}
 }
 
@@ -127,7 +119,7 @@ func TestTkApplyBareModelAlias_MissAndGates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if _, resolved := TkApplyBareModelAlias("", parsed); resolved != "claude-sonnet-4-6" {
-		t.Fatalf("empty-platform gate: resolved = %q, want claude-sonnet-4-6", resolved)
+	if _, resolved := TkApplyBareModelAlias("", parsed); resolved != "claude-sonnet-5" {
+		t.Fatalf("empty-platform gate: resolved = %q, want claude-sonnet-5", resolved)
 	}
 }
