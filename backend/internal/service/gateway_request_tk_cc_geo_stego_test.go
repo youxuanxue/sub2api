@@ -118,7 +118,7 @@ func TestForwardCountTokensAnthropicAPIKeyPassthrough_NormalizesCCGeoStego(t *te
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-6"}
 
 	upstream := &anthropicHTTPUpstreamRecorder{

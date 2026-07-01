@@ -235,16 +235,15 @@ func tkNormalizeAnthropicCCPromptSurfaceMessages(body []byte, oauthEmail string)
 			for ci, block := range content.Array() {
 				if block.Get("type").String() == "text" {
 					text := block.Get("text").String()
-					if !tkIsCCSystemReminderText(text) {
-						continue
-					}
-					newText, ok := tkNormalizeCCPromptSurfaceText(text, oauthEmail)
-					if ok {
-						path := fmt.Sprintf("messages.%d.content.%d.text", mi, ci)
-						next, err := sjson.SetBytes(out, path, newText)
-						if err == nil {
-							out = next
-							changed = true
+					if tkIsCCSystemReminderText(text) {
+						newText, ok := tkNormalizeCCPromptSurfaceText(text, oauthEmail)
+						if ok {
+							path := fmt.Sprintf("messages.%d.content.%d.text", mi, ci)
+							next, err := sjson.SetBytes(out, path, newText)
+							if err == nil {
+								out = next
+								changed = true
+							}
 						}
 					}
 				}
