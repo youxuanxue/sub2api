@@ -169,8 +169,20 @@ func TestMigration151AddsAccountAutoPauseExpiryPartialIndex(t *testing.T) {
 	require.Contains(t, sql, "expires_at IS NOT NULL")
 }
 
-func TestMigrationTk041SkipsPartitionOverlapWhenLegacyStillCoversMonth(t *testing.T) {
+func TestMigrationTk041StaysImmutableAfterApplied(t *testing.T) {
 	content, err := FS.ReadFile("tk_041_provision_ops_monthly_partitions.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS")
+	require.Contains(t, sql, "ops_system_logs_202607 PARTITION OF ops_system_logs")
+	require.Contains(t, sql, "ops_error_logs_202610 PARTITION OF ops_error_logs")
+	require.NotContains(t, sql, "DO $$")
+	require.NotContains(t, sql, "WHEN SQLSTATE '42P17' THEN")
+}
+
+func TestMigrationTk053SkipsPartitionOverlapWhenLegacyStillCoversMonth(t *testing.T) {
+	content, err := FS.ReadFile("tk_053_provision_ops_monthly_partitions_overlap_safe.sql")
 	require.NoError(t, err)
 
 	sql := string(content)
