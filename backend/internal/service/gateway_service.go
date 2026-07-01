@@ -6354,6 +6354,9 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
+	if strings.TrimSpace(baseURL) != "" {
+		setKiroInternalThinkingMirrorHopHeader(req.Header)
+	}
 
 	return req, body, nil
 }
@@ -6476,9 +6479,6 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				if !clientDisconnected {
 					// 兜底补刷，确保最后一个未以空行结尾的事件也能及时送达客户端。
 					flusher.Flush()
-				}
-				if trailerBlocks := kiroInternalThinkingBlocksFromUpstream(resp.Trailer); len(trailerBlocks) > 0 {
-					applyKiroInternalThinkingBlocks(c, trailerBlocks)
 				}
 				if !sawTerminalEvent {
 					if clientDisconnected && streamInterval > 0 {

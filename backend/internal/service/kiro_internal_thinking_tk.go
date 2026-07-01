@@ -11,10 +11,44 @@ import (
 )
 
 const (
-	kiroInternalThinkingGinKey         = "ops_kiro_internal_thinking_blocks"
-	kiroInternalThinkingResponseHeader = "X-Tk-Internal-Thinking-Blocks"
-	kiroInternalThinkingSSECommentPfx  = ": x-tk-internal-thinking "
+	kiroInternalThinkingGinKey              = "ops_kiro_internal_thinking_blocks"
+	kiroInternalThinkingResponseHeader      = "X-Tk-Internal-Thinking-Blocks"
+	kiroInternalThinkingSSECommentPfx       = ": x-tk-internal-thinking "
+	// kiroInternalThinkingMirrorHopRequestHeader is set by prod mirror passthrough
+	// on outbound edge hops so Edge emits the side channel on the wire. Edge
+	// direct clients must not receive plaintext thinking on the response body.
+	kiroInternalThinkingMirrorHopRequestHeader = "X-Tk-Internal-Thinking-Relay"
 )
+
+func kiroInternalThinkingMirrorHopRequested(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return strings.TrimSpace(c.GetHeader(kiroInternalThinkingMirrorHopRequestHeader)) != ""
+}
+
+func setKiroInternalThinkingMirrorHopHeader(hdr http.Header) {
+	if hdr == nil {
+		return
+	}
+	hdr.Set(kiroInternalThinkingMirrorHopRequestHeader, "1")
+}
+
+// publishKiroInternalThinkingSideChannel stashes plaintext thinking for QA and,
+// only on prod→edge mirror hops, emits the wire side channel (SSE comment or
+// response header) that prod passthrough reads and strips before the end client.
+func publishKiroInternalThinkingSideChannel(c *gin.Context, w io.Writer, hdr http.Header, thinking string) {
+	stashKiroInternalThinkingBlocks(c, thinking)
+	if !kiroInternalThinkingMirrorHopRequested(c) {
+		return
+	}
+	if w != nil {
+		_ = writeKiroInternalThinkingSSEComment(w, thinking)
+	}
+	if hdr != nil {
+		writeKiroInternalThinkingResponseHeader(hdr, thinking)
+	}
+}
 
 // kiroInternalThinkingBlockJSON returns one Anthropic-shaped thinking block JSON
 // string for QA/traj export. Kiro upstream has no signature token; only plaintext

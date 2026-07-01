@@ -1075,6 +1075,57 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAf
 	require.Equal(t, 5, result.usage.OutputTokens)
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_StripsKiroInternalThinkingSSEComment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+
+	thinking := "prod-only mirror hop reasoning"
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+	commentLine := kiroInternalThinkingSSECommentPfx + payload
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
+			"",
+			commentLine,
+			"",
+			`data: {"type":"message_delta","usage":{"output_tokens":2}}`,
+			"",
+			"data: [DONE]",
+			"",
+		}, "\n"))),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	out := rec.Body.String()
+	require.NotContains(t, out, kiroInternalThinkingSSECommentPfx)
+	require.NotContains(t, out, thinking)
+
+	raw, ok := c.Get(kiroInternalThinkingGinKey)
+	require.True(t, ok)
+	blocks, ok := raw.([]string)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], thinking)
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

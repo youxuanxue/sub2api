@@ -163,7 +163,8 @@
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
-        "classifyKiroForwardError"
+        "classifyKiroForwardError",
+        "publishKiroInternalThinkingSideChannel"
       ],
       "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The `callErr != nil && !enc.started` guard + classifyKiroForwardError are equally load-bearing: message_start is emitted lazily (see kiro_sse_encoder ensureBlock/writeToolUse), so an upstream failure before any content arrives surfaces a typed error instead of the old empty-but-200 SSE stream (the 'pre-content 400 returns a clean 200 lie' bug). An upstream merge that drops the estimate/BillingTier wiring (regresses kiro to free billing), reintroduces an eager enc.writeMessageStart() before the upstream call, or drops the classifier, regresses one of these."
     },
@@ -182,9 +183,36 @@
       "must_contain": [
         "account.IsKiro()",
         "kiroGateway",
-        "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)"
+        "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)",
+        "setKiroInternalThinkingMirrorHopHeader",
+        "parseKiroInternalThinkingSSECommentLine"
       ],
-      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field, plus the ForwardResult.BillingTier -> UsageLog.BillingTier passthrough in buildRecordUsageLog that persists the kiro \"kiro-estimated\" provenance label. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail); an upstream merge that rewrites buildRecordUsageLog must preserve the BillingTier line (or kiro usage logs lose the estimated-billing label even though estimation still runs)."
+      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field, plus the ForwardResult.BillingTier -> UsageLog.BillingTier passthrough in buildRecordUsageLog that persists the kiro \"kiro-estimated\" provenance label. The setKiroInternalThinkingMirrorHopHeader + parseKiroInternalThinkingSSECommentLine anchors wire the prod mirror passthrough that strips Kiro plaintext-thinking side channels before the end client while stashing blocks for QA/traj export. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail); an upstream merge that rewrites buildRecordUsageLog must preserve the BillingTier line (or kiro usage logs lose the estimated-billing label even though estimation still runs)."
+    },
+    {
+      "path": "backend/internal/service/kiro_internal_thinking_tk.go",
+      "must_contain": [
+        "func publishKiroInternalThinkingSideChannel",
+        "kiroInternalThinkingMirrorHopRequestHeader",
+        "func setKiroInternalThinkingMirrorHopHeader",
+        "func parseKiroInternalThinkingSSECommentLine"
+      ],
+      "rationale": "Kiro plaintext-thinking side channel for prod mirror QA/traj export. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-hop gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
+    },
+    {
+      "path": "backend/internal/service/kiro_internal_thinking_tk_test.go",
+      "must_contain": [
+        "TestPublishKiroInternalThinkingSideChannel_DirectEdgeOmitsWire",
+        "TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire"
+      ],
+      "rationale": "Regression guard for the mirror-hop gate: edge direct must not emit wire side channel; prod mirror hop must."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go",
+      "must_contain": [
+        "TestGatewayService_AnthropicAPIKeyPassthrough_StripsKiroInternalThinkingSSEComment"
+      ],
+      "rationale": "Regression guard for prod passthrough stripping Kiro internal-thinking SSE comments while stashing blocks for QA/traj export."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate.go",
