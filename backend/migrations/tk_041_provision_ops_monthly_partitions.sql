@@ -2,31 +2,58 @@
 -- partitioned ops tables.
 --
 -- Context: ops_system_logs / ops_error_logs were converted to RANGE-partitioned
--- tables whose only child today is the wide legacy partition
--- `FOR VALUES FROM (MINVALUE) TO ('2026-07-01')`. That partition absorbs all
--- current writes, but there is NO partition for 2026-07-01 onward — so once the
--- calendar crosses 2026-07-01, an insert with created_at >= 2026-07-01 would have
--- no home and FAIL (there is no DEFAULT partition). The daily cleanup's
+-- tables whose legacy partition upper bound is computed at conversion time
+-- (tk_035/tk_037: [MINVALUE, next_month) where next_month rolls with UTC
+-- calendar). Going-forward monthly partitions must exist so inserts after the
+-- legacy bound have a home (no DEFAULT partition). The daily cleanup's
 -- EnsureMonthly is supposed to keep future months provisioned, but on prod none
 -- existed as of this change, so this migration guarantees the routing safety net
 -- independent of the background job.
 --
--- Names + bounds match pgpartition.EnsureMonthly exactly (table_YYYYMM, monthly
--- [first-of-month, first-of-next-month)), so this is idempotent with the job:
--- whichever runs first wins, the other is a no-op via IF NOT EXISTS. No overlap
--- with the legacy partition (legacy is exclusive at 2026-07-01). Empty partitions
--- cost nothing.
---
--- This also unblocks retention going forward: once writes land in dated monthly
--- partitions, DropExpired can drop whole past months instantly (and tk_040's
--- straddling chunked-DELETE bounds the legacy partition until it ages out).
+-- Static month targets below match the original 202607..202610 rollout. When the
+-- legacy partition still covers a target month (calendar rolled past the original
+-- tk_035 anchor), CREATE raises SQLSTATE 42P17 (overlap) — same benign case as
+-- pgpartition.EnsureMonthly and is skipped here. IF NOT EXISTS + overlap-skip
+-- keeps this idempotent with tk_035/tk_037 and the runtime job.
 
-CREATE TABLE IF NOT EXISTS ops_system_logs_202607 PARTITION OF ops_system_logs FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
-CREATE TABLE IF NOT EXISTS ops_system_logs_202608 PARTITION OF ops_system_logs FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
-CREATE TABLE IF NOT EXISTS ops_system_logs_202609 PARTITION OF ops_system_logs FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
-CREATE TABLE IF NOT EXISTS ops_system_logs_202610 PARTITION OF ops_system_logs FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+DO $$
+DECLARE
+  rec record;
+BEGIN
+  FOR rec IN
+    SELECT * FROM (VALUES
+      ('ops_system_logs', '202607', DATE '2026-07-01', DATE '2026-08-01'),
+      ('ops_system_logs', '202608', DATE '2026-08-01', DATE '2026-09-01'),
+      ('ops_system_logs', '202609', DATE '2026-09-01', DATE '2026-10-01'),
+      ('ops_system_logs', '202610', DATE '2026-10-01', DATE '2026-11-01'),
+      ('ops_error_logs', '202607', DATE '2026-07-01', DATE '2026-08-01'),
+      ('ops_error_logs', '202608', DATE '2026-08-01', DATE '2026-09-01'),
+      ('ops_error_logs', '202609', DATE '2026-09-01', DATE '2026-10-01'),
+      ('ops_error_logs', '202610', DATE '2026-10-01', DATE '2026-11-01')
+    ) AS v(parent_table, suffix, start_d, end_d)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_partitioned_table pt
+      JOIN pg_class c ON c.oid = pt.partrelid
+      WHERE c.relname = rec.parent_table
+    ) THEN
+      CONTINUE;
+    END IF;
 
-CREATE TABLE IF NOT EXISTS ops_error_logs_202607 PARTITION OF ops_error_logs FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
-CREATE TABLE IF NOT EXISTS ops_error_logs_202608 PARTITION OF ops_error_logs FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
-CREATE TABLE IF NOT EXISTS ops_error_logs_202609 PARTITION OF ops_error_logs FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
-CREATE TABLE IF NOT EXISTS ops_error_logs_202610 PARTITION OF ops_error_logs FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+    BEGIN
+      EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+        rec.parent_table || '_' || rec.suffix,
+        rec.parent_table,
+        rec.start_d,
+        rec.end_d
+      );
+    EXCEPTION
+      WHEN duplicate_table THEN
+        NULL;
+      WHEN SQLSTATE '42P17' THEN
+        NULL; -- month already covered by legacy or an existing sibling partition
+    END;
+  END LOOP;
+END $$;

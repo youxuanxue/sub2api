@@ -76,6 +76,7 @@
             type="button"
             class="rounded-lg border px-3 py-1.5 text-sm font-medium tabular-nums transition disabled:cursor-not-allowed disabled:opacity-50"
             :class="duration === d ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
+            :data-testid="`bakeoff-duration-${d}`"
             :disabled="isBusy"
             @click="duration = d"
           >
@@ -639,11 +640,10 @@ const durationOptions = computed<number[]>(() => {
   return [...set].sort((a, b) => a - b)
 })
 
-// Keep the shared target inside the union; default to its MAX (user directive).
+// Re-sync whenever the selected-model union changes so the default does not
+// depend on click order (Veo-first kept 8s while Seedance-first jumped to 10s).
 watch(durationOptions, (opts) => {
-  if (opts.length && !opts.includes(duration.value)) {
-    duration.value = videoDurationDefault(opts)
-  }
+  if (opts.length) duration.value = videoDurationDefault(opts)
 })
 
 /** Per-panel duration: the shared target snapped to THIS model's accepted set. */
@@ -687,6 +687,7 @@ function setModality(m: StudioModality): void {
   if (isBusy.value) return
   modality.value = m
   selectedModelIds.value = []
+  duration.value = VIDEO_DURATION_DEFAULT
   panels.value = []
   lastRunPrompt.value = ''
   activeRunTs.value = null
