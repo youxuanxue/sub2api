@@ -370,6 +370,9 @@ aws cloudformation wait stack-update-complete --region "$REGION" --stack-name "$
 aws cloudformation describe-stacks --region "$REGION" --stack-name "$OIDC_STACK" \
   --query "Stacks[0].Parameters[?ParameterKey=='TargetInstanceId'].ParameterValue|[0]" --output text  # 期望 $NEW_ID
 
+# 4b) CPU 告警若经 sync 脚本落地（非全栈 CFN），实例 ID 变更后必须重指：
+bash ops/stage0/sync-instance-cpu-alarm.sh --stack "$STACK"
+
 # 回退：把 TARGET 改回 t4g.small 重跑步骤 0→4（同样 1–3 min replace，数据同样保留，
 #       同样要 pin $RUNNING_TAG + 重指 OIDC）。
 ```

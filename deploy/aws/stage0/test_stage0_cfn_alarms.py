@@ -28,6 +28,20 @@ class Stage0CfnAlarmsTest(unittest.TestCase):
         self.assertIn("ComparisonOperator: GreaterThanThreshold", body)
         self.assertIn("TreatMissingData: notBreaching", body)
 
+    def test_sync_script_alarm_contract_matches_cfn(self) -> None:
+        script_path = pathlib.Path(__file__).resolve().parents[3] / "ops/stage0/sync-instance-cpu-alarm.sh"
+        script = script_path.read_text(encoding="utf-8")
+        for needle in (
+            "--period 300",
+            "--evaluation-periods 3",
+            "--datapoints-to-alarm 3",
+            "--threshold 80",
+            "GreaterThanThreshold",
+            "notBreaching",
+            "CPUUtilization",
+        ):
+            self.assertIn(needle, script, f"sync script missing {needle!r}")
+
 
 if __name__ == "__main__":
     unittest.main()
