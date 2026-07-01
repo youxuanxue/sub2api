@@ -15,11 +15,12 @@ multi-account edge (us5) buckled under concentrated failover load; ~3445 clients
 (scan-edge-health.sh, #640) only runs when a human remembers to run it. This turns
 "someone has to go look" into "Feishu shouts the moment an edge dies".
 
-Trigger model — Feishu pages on actionable-set changes only (🔴/🟠/✅):
+Trigger model — Feishu pages on actionable-set changes only (🔴/✅):
   🔴 critical: confirmed active harm — degraded, or a `down` edge ACTIVELY rejecting
     (no_available_429>0) — OR unreachable / parse-error (cannot rule harm out).
-  🟠 warning: `down` with sched=0, accounts exist, but no_available_429==0 — pool
-    just emptied, nobody rejected yet (leading indicator, not an outage).
+  Leading `down` (sched=0, accounts exist, no_available_429==0) is NOT paged: multi-
+  platform edges (e.g. us5 kiro/cc/openai) churn schedulable counts too often, and
+  client harm is already covered by separate alerts (e.g. 无可用账号拒绝激增).
   ✅ recovery: actionable set cleared since the previous run.
 Posture (thin / idle-thin / no-accounts) is NOT paged and NOT in the state key — see
 `scan-edge-health.sh` for provisioning/SPOF backlog; 🔴/🟠/✅ footers still list thin
@@ -85,12 +86,34 @@ def _minutes_from_window(window: str) -> float:
         return 0.0
 
 
+def _is_actionable_for_alert(r: dict) -> bool:
+    """Rows that may page Feishu. Leading `down` (pool empty, zero 429 yet) is excluded."""
+    if r.get("verdict") not in ACTIONABLE:
+        return False
+    if r.get("verdict") == "down" and _down_kind(r) == "leading":
+        return False
+    return True
+
+
+def _actionable_key_part(r: dict) -> str:
+    """Stable dedup token for one alertable row. Active `down` uses down-active prefix."""
+    verdict = r.get("verdict")
+    edge = r.get("edge")
+    if verdict == "down":
+        return f"a:down-active:{edge}"
+    return f"a:{verdict}:{edge}"
+
+
 def _normalize_actionable_key(key: str) -> str:
-    """Actionable-only state key; strip legacy `p:` posture entries from old caches."""
+    """Actionable-only state key; strip legacy `p:` posture and untracked `a:down:` entries."""
     parts = []
     for part in (key or "").split("|"):
-        if part and not part.startswith("p:"):
-            parts.append(part)
+        if not part or part.startswith("p:"):
+            continue
+        # Legacy caches used `a:down:` for leading indicators we no longer page; drop them.
+        if part.startswith("a:down:") and not part.startswith("a:down-active:"):
+            continue
+        parts.append(part)
     return "|".join(sorted(parts))
 
 
@@ -116,8 +139,8 @@ def _time_to_impact(r: dict, window: str) -> str:
 
 def build_decision(rows: list, prev_key: str, window: str) -> dict:
     """Pure: verdict rows + previous state key -> alert decision + message."""
-    actionable = [r for r in rows if r.get("verdict") in ACTIONABLE]
-    key = "|".join(sorted(f"a:{r.get('verdict')}:{r.get('edge')}" for r in actionable))
+    actionable = [r for r in rows if _is_actionable_for_alert(r)]
+    key = "|".join(sorted(_actionable_key_part(r) for r in actionable))
 
     prev_actionable = _normalize_actionable_key(prev_key)
     changed = key != prev_actionable
@@ -131,20 +154,19 @@ def build_decision(rows: list, prev_key: str, window: str) -> dict:
 
     prev_had_actionable = bool(prev_actionable)
 
-    active_harm = any(
-        r.get("verdict") in ("unreachable", "parse-error", "degraded") for r in actionable
-    ) or any(_down_kind(r) == "active" for r in actionable)
     if not actionable:
         severity = "recovery" if prev_had_actionable else "ok"
-    elif active_harm:
-        severity = "critical"
     else:
-        severity = "warning"
+        severity = "critical"
+
+    leading_only = [r for r in rows if r.get("verdict") == "down" and _down_kind(r) == "leading"]
 
     if severity == "ok":
         message = ""
     else:
-        message = _format_message(actionable, thin, no_accounts, healthy, window, severity)
+        message = _format_message(
+            actionable, thin, no_accounts, healthy, window, severity, leading_only=leading_only
+        )
     return {
         "key": key,
         "actionable_count": len(actionable),
@@ -255,27 +277,24 @@ def _triage_block(actionable: list) -> list:
 
 
 def _format_message(actionable: list, thin: list, no_accounts: list, healthy: list,
-                    window: str, severity: str) -> str:
+                    window: str, severity: str, *, leading_only: list | None = None) -> str:
     grouped: dict = {}
     for r in actionable:
         grouped.setdefault(_row_kind(r), []).append(r)
+    if leading_only:
+        grouped.setdefault("down-leading", []).extend(leading_only)
     kinds_present = [k for k in _KIND_ORDER if k in grouped]
 
     if actionable:
         n = len(actionable)
-        if severity == "critical":
-            # Honest head: the critical set can mix confirmed harm (active-down / degraded)
-            # with UNKNOWN states (unreachable / parse-error) and even leading-indicator
-            # edges that have hurt nobody yet. So the head must NOT blanket-claim
-            # "客户端已受影响" / "正在掉单" across all N — that is the very overclaim this
-            # refactor exists to kill (it would read as a confirmed outage on a probe flake,
-            # and contradict the body's own "尚无客户端被拒" leading section). The head names
-            # only the kinds ACTUALLY present (derived from `grouped`, not a fixed legend);
-            # the precise per-edge truth lives in each section header.
-            present = "/".join(_KIND_BRIEF[k] for k in kinds_present)
-            head = f"🔴 TokenKey 边缘健康 — {n} 个 edge 需立即处理（{present}）"
-        else:  # warning: leading-indicator only — pool empty, nobody rejected yet
-            head = f"🟠 TokenKey 边缘健康 — {n} 个 edge 即将掉单（预警·尚无客户端被拒）"
+        # Honest head: the critical set can mix confirmed harm (active-down / degraded)
+        # with UNKNOWN states (unreachable / parse-error). The head must NOT blanket-claim
+        # "客户端已受影响" / "正在掉单" across all N — that is the very overclaim this
+        # refactor exists to kill (it would read as a confirmed outage on a probe flake).
+        # The head names only the kinds ACTUALLY present (derived from `grouped`, not a
+        # fixed legend); the precise per-edge truth lives in each section header.
+        present = "/".join(_KIND_BRIEF[k] for k in kinds_present if k != "down-leading")
+        head = f"🔴 TokenKey 边缘健康 — {n} 个 edge 需立即处理（{present}）"
     else:
         head = "✅ TokenKey 边缘健康 — 全部恢复（无宕机/降级）"
     lines = [head, ""]
@@ -346,7 +365,7 @@ def _case(name, rows, prev_key, expect):
 
 
 _case(
-    "incident: 3 down + 1 degraded => critical, alert from clean",
+    "incident: 3 leading down + 1 degraded => critical (degraded only), alert from clean",
     [
         {"edge": "uk2", "verdict": "down", "schedulable_accounts": 0, "served_200": 712, "no_available_429": 0},
         {"edge": "uk3", "verdict": "down", "schedulable_accounts": 0, "served_200": 882, "no_available_429": 0},
@@ -356,10 +375,10 @@ _case(
         {"edge": "prod", "verdict": "healthy", "schedulable_accounts": 14},
     ],
     "",
-    {"should_alert": True, "severity": "critical", "actionable_count": 4},
+    {"should_alert": True, "severity": "critical", "actionable_count": 1},
 )
 _case(
-    "same incident set unchanged => NO re-alert",
+    "same incident set unchanged => NO re-alert (legacy down keys ignored)",
     [
         {"edge": "uk2", "verdict": "down"},
         {"edge": "uk3", "verdict": "down"},
@@ -370,12 +389,12 @@ _case(
     {"should_alert": False, "severity": "critical"},
 )
 _case(
-    "escalation: a new edge goes down => alert (key changed)",
+    "escalation: a new active-down edge => alert (key changed)",
     [
         {"edge": "uk2", "verdict": "down"},
         {"edge": "uk3", "verdict": "down"},
         {"edge": "us3", "verdict": "down"},
-        {"edge": "us6", "verdict": "down"},
+        {"edge": "us6", "verdict": "down", "no_available_429": 12},
         {"edge": "us5", "verdict": "degraded"},
     ],
     "a:degraded:us5|a:down:uk2|a:down:uk3|a:down:us3",
@@ -405,7 +424,7 @@ _case(
         {"edge": "uk2", "verdict": "healthy", "schedulable_accounts": 2},
         {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
     ],
-    "a:down:uk2",
+    "a:down-active:uk2",
     {"should_alert": True, "severity": "recovery", "actionable_count": 0},
 )
 _case(
@@ -414,7 +433,7 @@ _case(
         {"edge": "uk2", "verdict": "healthy", "schedulable_accounts": 2},
         {"edge": "us2", "verdict": "thin", "schedulable_accounts": 1},
     ],
-    "a:down:uk2|p:thin:us2",
+    "a:down-active:uk2|p:thin:us2",
     {"should_alert": True, "severity": "recovery", "actionable_count": 0},
 )
 _case(
@@ -485,14 +504,23 @@ _case(
     {"should_alert": True, "severity": "critical", "actionable_count": 1},
 )
 _case(
-    "pure leading-indicator down (pool empty, ZERO clients rejected) => 🟠 warning, NOT 🔴 critical",
+    "pure leading-indicator down (pool empty, ZERO clients rejected) => silent, NOT paged",
     [
         {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
          "served_200": 639, "no_available_429": 0, "served_ratio": 1.0},
         {"edge": "prod", "verdict": "healthy", "schedulable_accounts": 14},
     ],
     "",
-    {"should_alert": True, "severity": "warning", "actionable_count": 1},
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
+)
+_case(
+    "leading down unchanged from legacy cache => silent migration, no false recovery",
+    [
+        {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
+         "served_200": 639, "no_available_429": 0, "served_ratio": 1.0},
+    ],
+    "a:down:us6",
+    {"should_alert": False, "severity": "ok", "actionable_count": 0},
 )
 _case(
     "active-outage down (clients eating empty-pool 429s) => 🔴 critical",
@@ -504,7 +532,7 @@ _case(
     {"should_alert": True, "severity": "critical", "actionable_count": 1},
 )
 _case(
-    "leading down + an active down together => critical (the active one rules)",
+    "leading down + an active down together => critical (active only in actionable set)",
     [
         {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
          "served_200": 639, "no_available_429": 0},
@@ -512,7 +540,7 @@ _case(
          "served_200": 0, "no_available_429": 33748},
     ],
     "",
-    {"should_alert": True, "severity": "critical", "actionable_count": 2},
+    {"should_alert": True, "severity": "critical", "actionable_count": 1},
 )
 
 
@@ -526,31 +554,38 @@ def _msg_case(name, rows, must_contain, must_not_contain=(), prev_key=""):
 
 
 _msg_case(
-    "leading-indicator down, legacy payload (no per-account data) => 🟠 head, now/window split, ⏱, generic runbook fallback",
+    "leading-indicator only => no Feishu message (not paged)",
     [
         {"edge": "uk1", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 2,
          "served_200": 3, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 3},
         {"edge": "prod", "verdict": "healthy", "schedulable_accounts": 14},
     ],
-    ["🟠", "即将掉单", "池刚空·尚未拒单(领先告警)", "现在 可调度=0/2", "近2h 服务200=3", "⏱",
-     "排查三连", "schedulable=false 被钉死", "OAuth 吊销"],
-    ["🔴", "sched=0/2"],  # not red (nobody rejected yet); old bare-sched format gone
+    [],
+    ["🟠", "即将掉单", "🔴", "池刚空"],
 )
 _msg_case(
-    "leading-indicator down WITH per-account diagnosis => 按账号定位 block replaces the generic runbook",
+    "mixed degraded + leading => critical head; leading still listed in body for context",
+    [
+        {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
+         "served_200": 639, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 639},
+        {"edge": "us5", "verdict": "degraded", "schedulable_accounts": 3, "total_accounts": 3,
+         "served_200": 11102, "no_available_429": 4841, "served_ratio": 0.696},
+    ],
+    ["🔴", "需立即处理", "降级·漏拒", "尚无客户端被拒", "即将掉单·预警"],
+    ["2 个 edge 正在掉单", "🟠 TokenKey"],
+)
+_msg_case(
+    "leading-indicator down WITH per-account diagnosis => silent when alone",
     [
         {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 2,
          "served_200": 639, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 639,
          "unschedulable": [
              {"id": 5, "name": "cc-us6a", "bucket": "flag",
               "hint": "schedulable=false 被钉死（账号健康却调度关闭）→ 一键启用：remediate-schedulable-pool.sh MODE=edge-oauth-pool"},
-             {"id": 6, "name": "cc-us6b", "bucket": "window",
-              "hint": "5h/7d 窗口烧穿（上游 rejected）→ 等窗口重置，勿清冷却、勿扩容"},
          ]},
     ],
-    ["🟠", "按账号定位（已派生", 'us6 "cc-us6a"(#5)', "一键启用：remediate-schedulable-pool.sh MODE=edge-oauth-pool",
-     'us6 "cc-us6b"(#6)', "窗口烧穿"],
-    ["排查三连"],  # generic runbook is suppressed once per-account data is present
+    [],
+    ["🟠", "按账号定位", "即将掉单"],
 )
 _msg_case(
     "active-outage down (sched=0, 429 flooding) => 🔴 head, urgent tag, not the leading tag",
@@ -574,7 +609,7 @@ _msg_case(
     ],
     ["✅", "全部恢复", "薄边/SPOF（单账号，应补到 ≥2）: us2"],
     ["🔴", "🟡"],
-    prev_key="a:down:uk2",
+    prev_key="a:down-active:uk2",
 )
 _msg_case(
     "actionable alert footer lists posture without (新) tags",
@@ -600,35 +635,25 @@ _msg_case(
     ["客户端已受影响", "正在掉单"],  # unknown state — no blanket harm claim in the head
 )
 _msg_case(
-    "mixed leading+active head must not contradict the body's 尚无客户端被拒 leading section",
-    [
-        {"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
-         "served_200": 639, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 639},
-        {"edge": "us5", "verdict": "degraded", "schedulable_accounts": 3, "total_accounts": 3,
-         "served_200": 11102, "no_available_429": 4841, "served_ratio": 0.696},
-    ],
-    ["🔴", "需立即处理", "尚无客户端被拒"],   # head neutral; body still carries the leading truth
-    ["2 个 edge 正在掉单"],                   # the old head over-counted leading edges as 正在掉单
-)
-_msg_case(
     "degraded => 🔴 (active harm, clients bleeding 429s) + 池不足 tag + labelled window traffic",
     [{"edge": "us5", "verdict": "degraded", "schedulable_accounts": 3, "total_accounts": 3,
       "served_200": 11102, "no_available_429": 4841, "served_ratio": 0.696, "wait_timeout": 5656}],
     ["🔴", "降级·漏拒", "在服务但漏 429·池不足", "等待超时=5656", "近2h 服务200=11102"],
-    ["🟠"],  # degraded is active harm, never the leading-indicator amber
+    ["🟠 TokenKey"],
 )
 _msg_case(
-    "leading-indicator with measurable rate => ⏱ shows a concrete time-to-next-drop",
+    "leading-indicator with measurable rate => silent when not bundled with critical",
     [{"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
       "served_200": 600, "no_available_429": 0, "served_ratio": 1.0, "total_completed": 600}],
+    [],
     ["⏱", "单/分", "下一单"],
 )
 _msg_case(
-    "leading-indicator with ZERO traffic in window => ⏱ honest 'unknown', no fabricated urgency",
+    "leading-indicator with ZERO traffic in window => silent when alone",
     [{"edge": "us6", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
       "served_200": 0, "no_available_429": 0, "total_completed": 0}],
-    ["⏱", "无流量经过", "未知"],
-    ["单/分"],  # no rate invented when there is no traffic to estimate from
+    [],
+    ["⏱", "无流量经过", "单/分"],
 )
 
 def _run_selftest() -> int:
