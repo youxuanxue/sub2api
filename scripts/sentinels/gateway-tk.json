@@ -1194,9 +1194,22 @@
         "tkNormalizeChangeThinkingForcesToolUse",
         "tkNormalizeChangeCCGeoStego",
         "Kind:     \"request_normalized\"",
-        "gateway.anthropic_request_normalized"
+        "gateway.anthropic_request_normalized",
+        "tkMaybeLogAnthropicPromptFingerprint"
       ],
-      "rationale": "Anchors the two normalize rules and their observability hooks. The rule functions MUST stay pure (no settingService dependency) so they remain trivially unit-testable; the GatewayService method is the only place that consults settingService.IsAnthropicRequestNormalizeEnabled. The two change-kind constants double as ops-event payload identifiers (Message field of OpsUpstreamErrorEvent) and as SQL filter terms in operator runbooks — renaming them silently breaks downstream dashboards. The Kind=\"request_normalized\" literal and the gateway.anthropic_request_normalized log key together let operators compute save-rate = 1 - (rows-with-event / total-normalize-hits); changing either breaks the existing query template."
+      "rationale": "Anchors the normalize rules and observability hooks. The rule functions MUST stay pure (no settingService dependency) so they remain trivially unit-testable; the GatewayService method is the only place that consults settingService.IsAnthropicRequestNormalizeEnabled. The change-kind constants double as ops-event payload identifiers (Message field of OpsUpstreamErrorEvent) and as SQL filter terms in operator runbooks — renaming them silently breaks downstream dashboards. The Kind=\"request_normalized\" literal and the gateway.anthropic_request_normalized log key together let operators compute save-rate = 1 - (rows-with-event / total-normalize-hits); changing either breaks the existing query template."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_prompt_fingerprint.go",
+      "must_contain": [
+        "func tkExtractAnthropicPromptFingerprint",
+        "func tkLogAnthropicPromptFingerprint",
+        "gateway.anthropic_prompt_fingerprint",
+        "tkMaybeLogAnthropicPromptFingerprint",
+        "surface_signature",
+        "reminder_date_line_class"
+      ],
+      "rationale": "Prod observability for outbound Anthropic prompt surfaces: structured fingerprint (classes + short hash, never full system text). Aggregated daily by prompt-surface-watch / ops/observability/prompt_surface_aggregate.py against ops/anthropic/prompt_surface_registry.json. Dropping this module silently removes drift detection for CC system-reminder / geo-stego regressions while normalize still runs."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_deprecated_model_tk.go",
@@ -2081,6 +2094,7 @@
       "must_contain": [
         "func tkNormalizeAnthropicCCGeoStego",
         "func tkNormalizeCCGeoStegoText",
+        "func tkWireStillHasCCGeoStegoDateSignals",
         "tkNormalizeChangeCCGeoStego",
         "Today's date is $1-$2-$3."
       ],

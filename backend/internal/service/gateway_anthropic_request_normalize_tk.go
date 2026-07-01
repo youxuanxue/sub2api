@@ -46,6 +46,10 @@ import (
 //   - Every successful normalization emits an INFO log
 //     "gateway.anthropic_request_normalized" with request_id + the list of
 //     changes applied. Use this to count total normalize hits.
+//   - Post-normalize prompt fingerprint (classes + surface_signature, no full
+//     system text) emits "gateway.anthropic_prompt_fingerprint" when normalize
+//     fired, unknown surfaces detected, or ~1% sampled. See
+//     gateway_request_tk_prompt_fingerprint.go + prompt_surface_registry.json.
 //   - Each change also appends an OpsUpstreamErrorEvent (kind="request_normalized")
 //     to the request's ops_error_logs.upstream_errors array. Combined with the
 //     INFO log this lets operators measure "save rate" = 1 - (rows-with-event
@@ -96,12 +100,12 @@ func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c 
 		changes = append(changes, tkNormalizeChangeCCGeoStego)
 	}
 
-	if len(changes) == 0 {
-		return next
+	if len(changes) > 0 {
+		tkLogAnthropicNormalize(ctx, changes)
+		tkRecordAnthropicNormalizeOpsEvent(c, changes)
 	}
 
-	tkLogAnthropicNormalize(ctx, changes)
-	tkRecordAnthropicNormalizeOpsEvent(c, changes)
+	s.tkMaybeLogAnthropicPromptFingerprint(ctx, c, next, changes)
 	return next
 }
 

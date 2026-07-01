@@ -263,9 +263,10 @@ def load_records(jsonl: Path) -> list[dict]:
 
 def run_gateway_coverage(jsonl: Path) -> int:
     env = os.environ.copy()
+    env["TOKENKEY_PROMPT_SURFACE_PROBE_JSONL"] = str(jsonl.resolve())
     env["TOKENKEY_CC_GEO_PROBE_JSONL"] = str(jsonl.resolve())
     proc = subprocess.run(
-        ["go", "test", "-tags=unit", "./internal/service", "-run", "^TestTkProbeCCGeoGatewayCoverageJSONL$", "-count=1"],
+        ["go", "test", "-tags=unit", "./internal/service", "-run", "^TestTkProbePromptSurfaceGatewayCoverageJSONL$", "-count=1"],
         cwd=str(BACKEND_DIR),
         env=env,
         capture_output=True,

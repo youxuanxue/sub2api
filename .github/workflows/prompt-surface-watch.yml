@@ -1,0 +1,108 @@
+name: Prompt Surface Watch
+
+# Daily read-only watch: registry + fixture gateway gate in CI; optional prod
+# fingerprint aggregation via SSM (same posture as edge-health-watch).
+
+on:
+  schedule:
+    # 08:03 Asia/Shanghai (23:03 UTC). After client-release-watch + cc-issue-watchdog.
+    - cron: "3 23 * * *"
+  workflow_dispatch:
+    inputs:
+      with_prod:
+        description: "Also aggregate prod gateway fingerprint logs via SSM"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      since:
+        description: "docker logs --since for prod fingerprint probe"
+        required: false
+        default: "24h"
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+concurrency:
+  group: prompt-surface-watch
+  cancel-in-progress: false
+
+jobs:
+  registry-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Registry + fixture gateway gate
+        run: |
+          set -euo pipefail
+          python3 ops/anthropic/probe_prompt_surfaces.py --check-registry
+          python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
+          go test -tags=unit ./backend/internal/service \
+            -run 'TestTkExtractAnthropicPromptFingerprint|TestTkProbePromptSurfaceGatewayCoverageJSONL|TestTkNormalizeCCGeo' \
+            -count=1
+          python3 -m unittest ops.anthropic.test_probe_prompt_surfaces -v
+          python3 -m unittest ops.anthropic.test_probe_cc_geo_stego -v
+
+  prod-aggregate:
+    needs: registry-gate
+    if: github.event_name == 'workflow_dispatch' && inputs.with_prod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SINCE: ${{ inputs.since || '24h' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Precheck OIDC role
+        id: precheck
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS_OIDC_ROLE_ARN empty — skipping prod aggregate"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.precheck.outputs.skip == 'false'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Probe prod fingerprint logs (read-only SSM)
+        if: steps.precheck.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/prompt-surface-watch
+          bash ops/observability/run-probe.sh prod \
+            "SINCE=${SINCE} bash /opt/tokenkey/sub2api/ops/observability/probe-prompt-surface-fingerprints.sh" \
+            > .cache/prompt-surface-watch/prod-fingerprints.json || true  # preflight-allow: swallow
+          python3 ops/observability/prompt_surface_aggregate.py \
+            --input .cache/prompt-surface-watch/prod-fingerprints.json \
+            --report-json .cache/prompt-surface-watch/report.json \
+            --report-md .cache/prompt-surface-watch/report.md || AGG=$?
+          cat .cache/prompt-surface-watch/report.md || true  # preflight-allow: swallow
+          exit "${AGG:-0}"
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.precheck.outputs.skip == 'false'
+        with:
+          name: prompt-surface-watch-${{ github.run_id }}
+          path: .cache/prompt-surface-watch/
+          if-no-files-found: ignore

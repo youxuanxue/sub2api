@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "rationale": "Single declared source for load-bearing Anthropic /v1/messages prompt surfaces TokenKey must normalize or diff. Synthetic probes (mitm JSONL) and production fingerprint logs reference surface ids here — not ad-hoc string lists in scripts. Identity anchors MUST stay aligned with scripts/sentinels/cc-system-prompt.json capture_anchors.",
+  "fingerprint_log_key": "gateway.anthropic_prompt_fingerprint",
+  "gateway_coverage_test": "TestTkProbePromptSurfaceGatewayCoverageJSONL",
+  "fixtures": {
+    "gateway_coverage_jsonl": "ops/anthropic/testdata/prompt_surface_probe_fixture.jsonl"
+  },
+  "surfaces": [
+    {
+      "id": "geo_stego_date_line",
+      "probe_module": "geo_stego",
+      "locations": [
+        "system[].text",
+        "messages[].content[].text",
+        "messages[].content[].attachment.newDate"
+      ],
+      "signals": ["Today", "date is now", "date_change.newDate"],
+      "canonical": {
+        "apostrophe": "ASCII_APOSTROPHE_U+0027",
+        "date_format": "ISO_DASH"
+      },
+      "gateway_normalize": "tkNormalizeAnthropicCCGeoStego",
+      "prod_fingerprint_field": "reminder_date_line_class",
+      "prod_canonical_values": ["NONE", "ISO_DASH_ASCII"]
+    },
+    {
+      "id": "system_identity_anchor",
+      "probe_module": "system_anchor",
+      "locations": ["system[].text"],
+      "identity_prefixes": [
+        {
+          "id": "claude_code_cli",
+          "prefix": "You are Claude Code, Anthropic's official CLI for Claude"
+        },
+        {
+          "id": "claude_agent_sdk",
+          "prefix": "You are a Claude agent, built on Anthropic's Claude Agent SDK"
+        },
+        {
+          "id": "file_search_specialist",
+          "prefix": "You are a file search specialist for Claude Code"
+        },
+        {
+          "id": "summarization_assistant",
+          "prefix": "You are a helpful AI assistant tasked with summarizing conversations"
+        }
+      ],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "identity_anchor_id",
+      "prod_unknown_value": "unknown"
+    },
+    {
+      "id": "system_billing_prefix",
+      "probe_module": "billing_prefix",
+      "locations": ["system[].text"],
+      "match_prefix": "x-anthropic-billing-header",
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "billing_prefix_present",
+      "prod_type": "boolean"
+    }
+  ],
+  "aggregate": {
+    "unknown_surface_alert": true,
+    "noncanonical_geo_alert": true,
+    "baseline_signature_file": ".cache/prompt-surface-watch/baseline-signatures.json"
+  }
+}

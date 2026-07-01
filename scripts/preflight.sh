@@ -801,6 +801,20 @@ else
     echo "  ok: cc system prompt anchors consistent across Go copies"
 fi
 
+# ---- sub2api: anthropic prompt surface registry ---------------------------
+echo ""
+echo "=== sub2api: anthropic prompt surface registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for prompt surface registry check)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/anthropic/probe_prompt_surfaces.py --check-registry >/dev/null; then
+    errors=$((errors + 1))
+elif ! python3 ./ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway >/dev/null; then
+    errors=$((errors + 1))
+else
+    echo "  ok: prompt surface registry + fixture gateway coverage"
+fi
+
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version is pinned in 5 places that must
 # carry the SAME version: the UA default (setting_service.go), the gateway
