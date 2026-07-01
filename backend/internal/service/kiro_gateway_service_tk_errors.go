@@ -25,6 +25,26 @@ type KiroInvalidModelError struct {
 	Body       string
 }
 
+// KiroEndpointQuotaExhaustedError is raised when every Kiro upstream endpoint
+// returned HTTP 429 quota exhaustion during the automatic fallback loop.
+type KiroEndpointQuotaExhaustedError struct {
+	Body string
+}
+
+func (e *KiroEndpointQuotaExhaustedError) Error() string {
+	if e == nil {
+		return "kiro endpoint quota exhausted"
+	}
+	if strings.TrimSpace(e.Body) != "" {
+		return e.Body
+	}
+	return "kiro endpoint quota exhausted"
+}
+
+func (e *KiroEndpointQuotaExhaustedError) ClientMessage() string {
+	return tkKiroEndpointQuotaExhaustedClient
+}
+
 func (e *KiroInvalidModelError) Error() string {
 	return fmt.Sprintf("kiro invalid model %q: status=%d", e.Model, e.StatusCode)
 }
@@ -50,11 +70,18 @@ func (e *KiroInvalidModelError) ClientMessage() string {
 // the literal "HTTP 400" prefix plus the upstream "INVALID_MODEL_ID" marker so
 // an unrelated 400 (or a 400 with a different reason) does not get mislabeled
 // as a model error.
+func isKiroEndpointQuotaExhaustedError(msg string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(msg)), "quota exhausted on")
+}
+
 func classifyKiroForwardError(err error, model string) error {
 	if err == nil {
 		return nil
 	}
 	msg := err.Error()
+	if isKiroEndpointQuotaExhaustedError(msg) {
+		return &KiroEndpointQuotaExhaustedError{Body: msg}
+	}
 	if isKiroInvalidModelError(msg) {
 		return &KiroInvalidModelError{
 			StatusCode: 400,

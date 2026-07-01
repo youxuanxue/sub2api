@@ -361,6 +361,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return s.handleAnthropicUsagePolicyBlock(ctx, account, statusCode, upstreamMsg, responseBody)
 	}
 
+	if handled, quotaDisable := s.tkMaybeHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg, responseBody); handled {
+		return quotaDisable
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用
@@ -1221,6 +1225,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 // in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
 // live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	if tkIsKiroMirrorStub(account) && tkIsKiroEndpointQuotaExhausted(upstreamMsg, responseBody) {
+		return s.tkHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg)
+	}
 	// TK (prod incident 2026-05-31): a 503 whose body is the downstream gateway's
 	// own "no available accounts" pool-exhaustion signal is a transient capacity
 	// blip on the *forwarded-to* pool (e.g. a thin edge bursting on parallel haiku

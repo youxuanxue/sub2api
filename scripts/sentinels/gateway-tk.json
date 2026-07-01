@@ -475,6 +475,13 @@
       "rationale": "HandleUpstreamError case 402 must invoke the Kiro quota-limit companion before the generic Payment required → auth_error path so Kiro 402 reached-the-limit gets the dedicated P0 reason. An upstream merge that drops this call site re-buries the alert under auth_error or skips the matcher entirely."
     },
     {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.tkMaybeHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg, responseBody)"
+      ],
+      "rationale": "HandleUpstreamError must short-circuit Kiro all-endpoint 429 quota exhaustion (edge OAuth + prod kiro mirror stubs) into the 10s tkHandleKiroEndpointQuotaExhausted path before the anthropic 3/3 ladder or generic 429 cooldown. Dropping this call site restores the 2026-07-01 prod kiro-us* 临时不可调度 flicker."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",
       "must_contain": [
         "TestRateLimitService_OAuth401_AnthropicAny401SetErrorsImmediately",
