@@ -58,6 +58,7 @@ const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_de
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
 const opsSystemLogsAPIKeyIDIndexMigration = "155_add_ops_system_logs_api_key_id_index_notx.sql"
 const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs (api_key_id, created_at DESC)`
+const opsMonthlyPartitionsMigration = "tk_041_provision_ops_monthly_partitions.sql"
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -214,6 +215,17 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 			return fmt.Errorf("validate migration %s: %w", name, err)
 		}
 
+		recordOnly, err := shouldRecordMigrationWithoutExecution(ctx, db, name)
+		if err != nil {
+			return fmt.Errorf("check migration %s record-only eligibility: %w", name, err)
+		}
+		if recordOnly {
+			if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
+				return fmt.Errorf("record migration %s: %w", name, err)
+			}
+			continue
+		}
+
 		if nonTx {
 			if err := prepareNonTransactionalMigration(ctx, db, name); err != nil {
 				return fmt.Errorf("prepare migration %s: %w", name, err)
@@ -284,6 +296,32 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	}
 
 	return nil
+}
+
+func shouldRecordMigrationWithoutExecution(ctx context.Context, db *sql.DB, name string) (bool, error) {
+	switch name {
+	case opsMonthlyPartitionsMigration:
+		return shouldRecordTk041WithoutExecution(ctx, db)
+	default:
+		return false, nil
+	}
+}
+
+func shouldRecordTk041WithoutExecution(ctx context.Context, db *sql.DB) (bool, error) {
+	for _, table := range []string{"ops_system_logs", "ops_error_logs"} {
+		partitioned, err := pgpartition.IsPartitioned(ctx, db, table)
+		if err != nil {
+			return false, err
+		}
+		if !partitioned {
+			return false, nil
+		}
+	}
+	// tk_035/tk_037 already converted both parents. On fresh DBs created after
+	// 2026-07-01, their legacy partitions may overlap tk_041's fixed 202607
+	// target. Record immutable tk_041 as covered; tk_053 then provisions the same
+	// months with explicit overlap handling.
+	return true, nil
 }
 
 func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name string) error {
