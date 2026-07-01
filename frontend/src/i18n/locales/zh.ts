@@ -3631,6 +3631,10 @@ export default {
       notes: '备注',
       notesPlaceholder: '请输入备注',
       notesHint: '备注可选',
+      contactEmail: '账号邮箱',
+      contactEmailPlaceholder: '账号邮箱（可选）',
+      contactEmailHint: '用于 CC userEmail 回填与运维识别；OAuth 授权成功时会自动写入，也可手动补全或修改。',
+      invalidContactEmail: '请输入有效的账号邮箱',
       // Filter options
       allPlatforms: '全部平台',
       kiroStubPlatform: 'Kiro Stub',

@@ -25,6 +25,18 @@
         ></textarea>
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
+      <div>
+        <label class="input-label">{{ t('admin.accounts.contactEmail') }}</label>
+        <input
+          v-model="contactEmail"
+          type="email"
+          class="input"
+          autocomplete="off"
+          :placeholder="t('admin.accounts.contactEmailPlaceholder')"
+          data-tour="edit-account-form-contact-email"
+        />
+        <p class="input-hint">{{ t('admin.accounts.contactEmailHint') }}</p>
+      </div>
 
       <!-- grok (7th platform, OAuth): refresh_token rotation. Blank = keep current;
            a re-pasted token is re-validated + re-primed by the backend on save. -->
@@ -2578,6 +2590,10 @@ import {
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import {
+  isValidAccountContactEmail,
+  resolveAccountContactEmail
+} from '@/utils/accountContactEmail.tk'
 
 interface Props {
   show: boolean
@@ -3100,6 +3116,8 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const contactEmail = ref('')
+
 const statusOptions = computed(() => {
   const options = [
     { value: 'active', label: t('common.active') },
@@ -3206,6 +3224,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningAction.value = null
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
+  contactEmail.value = resolveAccountContactEmail(newAccount)
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -4005,12 +4024,18 @@ const handleSubmit = async () => {
     return
   }
 
+  if (!isValidAccountContactEmail(contactEmail.value)) {
+    appStore.showError(t('admin.accounts.invalidContactEmail'))
+    return
+  }
+
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
     return
   }
 
   const updatePayload: Record<string, unknown> = { ...form }
+  updatePayload.contact_email = contactEmail.value.trim()
   try {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {
