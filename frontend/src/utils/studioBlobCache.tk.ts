@@ -6,6 +6,8 @@
  * video without TokenKey hosting media (#944 pass-through). Best-effort: quota
  * errors trim oldest entries; TTL evicts stale blobs.
  */
+import { normalizeVideoBase64Payload, parseDataVideoUri } from '@/utils/studioInlineVideo.tk'
+
 const DB_NAME = 'tk_studio_blob_v1'
 const STORE = 'blobs'
 /** Keep blobs ~7 days — enough for a work session + return visit, not a CDN. */
@@ -64,13 +66,20 @@ function tx<T>(
 }
 
 function dataUriToBlob(src: string): Blob | null {
-  const m = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/i.exec(src)
+  const video = parseDataVideoUri(src)
+  const m =
+    video ??
+    (() => {
+      const generic = /^data:([\w.+-]+\/[\w.+-]+)(?:;[^,]+)*;base64,(.*)$/is.exec(src)
+      if (!generic) return null
+      return { mime: generic[1], base64: generic[2] }
+    })()
   if (!m || typeof atob !== 'function') return null
   try {
-    const binary = atob(m[2])
+    const binary = atob(normalizeVideoBase64Payload(m.base64))
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return new Blob([bytes], { type: m[1] })
+    return new Blob([bytes], { type: m.mime })
   } catch {
     return null
   }

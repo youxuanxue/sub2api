@@ -198,7 +198,7 @@ describe('defaultModelId', () => {
 describe('capability map honesty (verified against new-api adaptors)', () => {
   // Only params an adaptor ACTUALLY reads are listed; fps was removed (no adaptor
   // honors it), imagen/seedream honor none, seedance drops negative_prompt.
-  const VALID: StudioParam[] = ['negativePrompt', 'seed', 'firstFrameImage']
+  const VALID: StudioParam[] = ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio']
   const byId = (id: string) => MEDIA_MODELS.find((m) => m.modelId === id)!
 
   it('every supportedParams entry is a valid StudioParam', () => {
@@ -212,7 +212,7 @@ describe('capability map honesty (verified against new-api adaptors)', () => {
     }
   })
   it('veo honors negativePrompt + seed + firstFrameImage', () => {
-    expect(byId('veo-3.1-generate-001').supportedParams).toEqual(['negativePrompt', 'seed', 'firstFrameImage'])
+    expect(byId('veo-3.1-generate-001').supportedParams).toEqual(['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'])
   })
   it('seedance honors seed + firstFrameImage but NOT negativePrompt (adaptor drops it)', () => {
     const s = byId('seedance-1-0-pro-250528').supportedParams

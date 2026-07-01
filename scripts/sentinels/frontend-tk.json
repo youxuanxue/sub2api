@@ -114,6 +114,8 @@
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
         "useStudioVideoCardActions",
+        "useStudioVideoSubmitOptions",
+        "data-testid=\"bakeoff-video-generate-audio\"",
         "mountStudioImageLibrary",
         "mountStudioVideoLibrary",
         "onStudioImageThumbError",
@@ -977,6 +979,8 @@
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
         "useStudioVideoCardActions",
+        "useStudioVideoSubmitOptions",
+        "data-testid=\"studio-video-generate-audio\"",
         "mountStudioVideoLibrary",
         "StudioVideoPreviewChecking",
         "StudioVideoDownloadCard",
@@ -997,17 +1001,29 @@
         "export function shouldShowStudioSaveReminder",
         "export function groupImageHistoryByTs",
         "data:video",
+        "parseDataVideoUri",
         "createObjectURL",
         "revokeObjectURL"
       ],
-      "rationale": "Shared Studio video-playback resolver enforcing the #944 'TokenKey is not a media CDN' rule for EVERY on-demand video surface (VideoStudio lightbox + Bake-Off panels). videoPlaybackUrl hands http(s) upstream URLs straight to the browser and converts an inline data:video result (the one response already delivered to this tab) into a tab-local Blob URL with a revoke() — never re-fetching or rehosting. Deleting/inlining this back into a single view risks one surface (e.g. Bake-Off) regressing to an always-on <video> that competes loads and black-boxes pre-play; the data:video + createObjectURL + revokeObjectURL anchors pin the conversion + cleanup."
+      "rationale": "Shared Studio video-playback resolver enforcing the #944 'TokenKey is not a media CDN' rule for EVERY on-demand video surface (VideoStudio lightbox + Bake-Off panels). videoPlaybackUrl hands http(s) upstream URLs straight to the browser and converts an inline data:video result (the one response already delivered to this tab) into a tab-local Blob URL with a revoke() — never re-fetching or rehosting. Parsing/normalization of Veo codec-prefixed data: URIs lives in studioInlineVideo.tk.ts (SSOT). Deleting/inlining this back into a single view risks one surface (e.g. Bake-Off) regressing to an always-on <video> that competes loads and black-boxes pre-play; the data:video + createObjectURL + revokeObjectURL anchors pin the conversion + cleanup."
+    },
+    {
+      "path": "frontend/src/utils/studioInlineVideo.tk.ts",
+      "must_contain": [
+        "export function parseDataVideoUri",
+        "export function buildDataVideoUri",
+        "export function normalizeVideoMimeForDataUri",
+        "export function isInlineStudioVideoUrl"
+      ],
+      "rationale": "SSOT for Veo/Vertex inline data:video clips: strip codec params from mimeType, normalize base64 alphabet, and detect inline vs http(s) URLs. Consumed by extractVideoUrl, videoPlaybackUrl, IndexedDB blob cache, and copy/download — prevents Veo playback regressions when upstream mimeType carries codecs=."
     },
     {
       "path": "frontend/src/composables/useStudioVideoPreview.ts",
       "must_contain": [
         "export function useStudioVideoPreview",
         "videoPlaybackUrl",
-        "copyMediaLink",
+        "copyStudioVideoLink",
+        "onInlineCopyUnsupported",
         "onPreviewError",
         "downloadPreview",
         "previewState",
@@ -1019,10 +1035,11 @@
       "path": "frontend/src/composables/useStudioVideoCardActions.ts",
       "must_contain": [
         "export function useStudioVideoCardActions",
-        "copyMediaLink",
+        "copyStudioVideoLink",
         "downloadMedia",
         "copyCardLink",
-        "downloadCardVideo"
+        "downloadCardVideo",
+        "onInlineCopyUnsupported"
       ],
       "rationale": "Shared card-level copy-link + download actions for VideoStudio and BakeOff succeeded panels. urlExpired download path warns instead of opening a dead upstream tab."
     },

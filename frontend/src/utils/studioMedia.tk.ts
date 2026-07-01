@@ -13,6 +13,7 @@
  * always gets something usable to hand to a <video :src>.
  */
 import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
+import { parseDataVideoUri } from '@/utils/studioInlineVideo.tk'
 import { videoTaskPlaybackStorageKind } from '@/utils/studioPlaybackStorage.tk'
 
 /** i18n key for image thumbnails that lost their in-browser bytes after reload. */
@@ -127,14 +128,14 @@ export function videoPlaybackUrl(src: string): VideoPlayback {
   // http(s) (incl. presigned upstream/S3) — hand straight to the browser, no Blob.
   if (!/^data:video/i.test(src)) return { url: src, revoke: NOOP }
   try {
-    const match = /^data:(video\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/i.exec(src)
-    if (!match || typeof atob !== 'function' || typeof URL?.createObjectURL !== 'function') {
+    const parsed = parseDataVideoUri(src)
+    if (!parsed || typeof atob !== 'function' || typeof URL?.createObjectURL !== 'function') {
       return { url: src, revoke: NOOP }
     }
-    const binary = atob(match[2])
+    const binary = atob(parsed.base64)
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: match[1] }))
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: parsed.mime }))
     return {
       url: objectUrl,
       revoke: () => {

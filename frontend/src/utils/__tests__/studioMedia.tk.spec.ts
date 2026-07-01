@@ -195,6 +195,15 @@ describe('videoPlaybackUrl', () => {
     expect(revokeFn).toHaveBeenCalledWith('blob:mock-123')
   })
 
+  it('converts Veo data URIs that carry codec parameters before base64', () => {
+    const create = vi.fn(() => 'blob:veo-codecs')
+    urlStatic.createObjectURL = create
+    urlStatic.revokeObjectURL = vi.fn()
+    const { url } = videoPlaybackUrl('data:video/mp4; codecs=avc1;base64,AAAA')
+    expect(url).toBe('blob:veo-codecs')
+    expect(create).toHaveBeenCalledOnce()
+  })
+
   it('falls back to the original src for a non-base64 data: URI', () => {
     const { url } = videoPlaybackUrl('data:video/mp4,notbase64')
     expect(url).toBe('data:video/mp4,notbase64')

@@ -236,6 +236,7 @@ export type StudioParam =
   | 'negativePrompt' // veo only: VeoParameters.NegativePrompt (gemini task adaptor)
   | 'seed' // veo + seedance: VeoParameters.Seed / doubao requestPayload.Seed
   | 'firstFrameImage' // veo + seedance: image-to-video first frame (sent as `image`)
+  | 'generateAudio' // veo: metadata.generateAudio; seedance: metadata.generate_audio
 
 export type QualityBadge = 'draft' | 'standard' | 'ultra' | 'fast' | 'cinematic'
 
@@ -401,7 +402,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VOLC,
     modality: 'video',
     // doubao adaptor reads Seed + first-frame image; it has NO NegativePrompt field.
-    supportedParams: ['seed', 'firstFrameImage'],
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
     // Seedance 1.0 Pro: discrete 5s / 10s (Volcengine Ark, high confidence).
     videoDurations: [5, 10],
   },
@@ -412,7 +413,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.fast',
     vendorLabel: VOLC,
     modality: 'video',
-    supportedParams: ['seed', 'firstFrameImage'],
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
     // Seedance 2.0 Fast: sources conflict (4/8/12 vs 2–15); we take the cited
     // fast-variant discrete set 4/8/12 — conservative (never offer a value the
     // upstream rejects). TODO: verify against canonical Volcengine Ark docs.
@@ -426,7 +427,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     vendorLabel: VERTEX,
     modality: 'video',
     // VeoParameters honors NegativePrompt + Seed; first-frame image supported.
-    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
     // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence). With a
     // first-frame/reference image upstream only returns 8s — not modeled here.
     videoDurations: [4, 6, 8],
@@ -438,7 +439,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.cinematic',
     vendorLabel: VERTEX,
     modality: 'video',
-    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
     // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence).
     videoDurations: [4, 6, 8],
   },

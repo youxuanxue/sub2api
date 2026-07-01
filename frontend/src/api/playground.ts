@@ -367,6 +367,8 @@ export interface VideoGenerationRequest {
   seed?: number
   negativePrompt?: string
   image?: string
+  /** When set, forwarded in metadata (Veo: generateAudio; Seedance: generate_audio). */
+  generateAudio?: boolean
 }
 
 export async function gatewayVideoSubmit(
@@ -383,6 +385,10 @@ export async function gatewayVideoSubmit(
   const metadata: Record<string, unknown> = {}
   if (typeof body.seed === 'number') metadata.seed = body.seed
   if (body.negativePrompt) metadata.negative_prompt = body.negativePrompt
+  if (typeof body.generateAudio === 'boolean') {
+    metadata.generateAudio = body.generateAudio
+    metadata.generate_audio = body.generateAudio
+  }
   if (Object.keys(metadata).length > 0) payload.metadata = metadata
   return gatewayRequestJSON(
     apiKey,
