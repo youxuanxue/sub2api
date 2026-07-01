@@ -27,6 +27,11 @@ const (
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 
+	// OpsUpstreamKindRequestNormalized marks Anthropic request-body normalize audit
+	// events (change-kind list in Message). Recovered-200 ops logging must ignore
+	// these; gateway.anthropic_request_normalized slog is the canonical audit path.
+	OpsUpstreamKindRequestNormalized = "request_normalized"
+
 	// OpsInternalErrorDetailKey carries a sanitized, truncated detail string for
 	// internal-phase errors (cache/redis/db/context failures) that bubble up as
 	// 5xx from middleware. Distinct from upstream-* keys so dashboards don't

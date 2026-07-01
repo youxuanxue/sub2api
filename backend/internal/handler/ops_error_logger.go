@@ -577,6 +577,26 @@ func (w *opsCaptureWriter) WriteString(s string) (int, error) {
 	return w.ResponseWriter.WriteString(s)
 }
 
+// opsUpstreamEventsForRecoveredLogging drops normalize audit events from the
+// recovered-200 path. Those are intentional CC prompt-surface rewrites, not
+// upstream instability; they are audited via gateway.anthropic_request_normalized.
+func opsUpstreamEventsForRecoveredLogging(events []*service.OpsUpstreamErrorEvent) []*service.OpsUpstreamErrorEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]*service.OpsUpstreamErrorEvent, 0, len(events))
+	for _, ev := range events {
+		if ev == nil {
+			continue
+		}
+		if strings.TrimSpace(ev.Kind) == service.OpsUpstreamKindRequestNormalized {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
 // OpsErrorLoggerMiddleware records error responses (status >= 400) into ops_error_logs.
 //
 // Notes:
@@ -615,7 +635,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			var events []*service.OpsUpstreamErrorEvent
 			if v, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
 				if arr, ok := v.([]*service.OpsUpstreamErrorEvent); ok && len(arr) > 0 {
-					events = arr
+					events = opsUpstreamEventsForRecoveredLogging(arr)
 				}
 			}
 			// Also accept single upstream fields set by gateway services (rare for successful requests).

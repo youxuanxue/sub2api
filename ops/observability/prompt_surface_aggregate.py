@@ -83,7 +83,14 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.input:
-        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        raw = args.input.read_text(encoding="utf-8")
+        if "--output truncated--" in raw:
+            print(
+                "error: probe output truncated (SSM ~24KB limit); lower LIMIT in workflow",
+                file=sys.stderr,
+            )
+            return 1
+        payload = json.loads(raw)
     else:
         payload = json.load(sys.stdin)
 
