@@ -106,7 +106,7 @@ func TestTkPromptFingerprintShouldLog_UnknownIdentityWithBilling(t *testing.T) {
 func TestTkNormalizeAnthropicRequestBody_FingerprintCanonicalAfterGeo(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
 	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
-	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
 	fp := tkExtractAnthropicPromptFingerprint(out)
 	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)
 	require.True(t, fp.GeoStegoCanonical)
@@ -149,8 +149,9 @@ func TestTkProbePromptSurfaceGatewayCoverageJSONL(t *testing.T) {
 		bodyBytes, err := json.Marshal(wire)
 		require.NoError(t, err)
 
-		out, changed := tkNormalizeAnthropicCCGeoStego(bodyBytes)
-		_, still := tkNormalizeAnthropicCCGeoStego(out)
+		oauthEmail, _ := rec["oauth_email"].(string)
+		out, changed := tkNormalizeAnthropicCCPromptSurface(bodyBytes, oauthEmail)
+		_, still := tkNormalizeAnthropicCCPromptSurface(out, oauthEmail)
 		require.False(t, still, "normalize not idempotent for scenario=%s", scenario)
 
 		isFirstPartyControl := strings.Contains(baseURL, "api.anthropic.com") &&
@@ -159,8 +160,8 @@ func TestTkProbePromptSurfaceGatewayCoverageJSONL(t *testing.T) {
 			require.False(t, changed, "first-party anthropic.com control must stay untouched: %s", scenario)
 			continue
 		}
-		require.False(t, tkWireStillHasCCGeoStegoDateSignals(out),
-			"gateway left geo stego in output for scenario=%s", scenario)
+		require.False(t, tkWireStillHasCCPromptSurfaceLeaks(out),
+			"gateway left prompt surface leaks in output for scenario=%s", scenario)
 
 		fp := tkExtractAnthropicPromptFingerprint(out)
 		require.True(t, fp.GeoStegoCanonical, "fingerprint not canonical for scenario=%s", scenario)

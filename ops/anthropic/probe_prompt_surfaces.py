@@ -149,8 +149,19 @@ def analyze_record(registry: dict, geo_mod, rec: dict) -> dict:
     geo_row = geo_mod.analyze_record(rec)
     wire = geo_mod.body_wire_from_record(rec)
     system_texts: list[str] = []
+    message_texts: list[str] = []
     if wire is not None:
         system_texts = geo_mod.extract_system_texts(wire.get("system"))
+        for msg in wire.get("messages") or []:
+            if not isinstance(msg, dict):
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                message_texts.append(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        message_texts.append(str(block.get("text") or ""))
     else:
         body = rec.get("body") or {}
         system_texts = geo_mod.extract_system_texts(body.get("system"))
@@ -160,6 +171,11 @@ def analyze_record(registry: dict, geo_mod, rec: dict) -> dict:
         unknown.append("geo_stego_date_line")
     if sys_row["identity_anchor_id"] == "unknown" and system_texts:
         unknown.append("system_identity_anchor")
+    combined_text = "\n".join(system_texts + message_texts)
+    if "# Environment" in combined_text or "TZ=Asia/Shanghai" in combined_text or "TZ=Asia/Urumqi" in combined_text:
+        unknown.append("cc_environment_section")
+    if "The user's email address is" in combined_text:
+        unknown.append("cc_user_email")
     return {
         **geo_row,
         **sys_row,

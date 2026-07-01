@@ -27,20 +27,20 @@ import (
 //     report (strategy A), we strip the thinking field — the client's
 //     forced-tool-use intent wins.
 //
-//  3. Claude Code geo steganography in system / system-reminder text (date
-//     separator + Unicode apostrophe variants when BASE_URL is not
-//     api.anthropic.com). Rewritten to first-party US shape before US edge
-//     egress. See gateway_request_tk_cc_geo_stego.go.
+//  3. Claude Code prompt surfaces in system / system-reminder text: geo-stego
+//     date lines, # Environment (TZ/proxy), and client userEmail. Rewritten
+//     before US edge OAuth egress; userEmail is replaced with the scheduled
+//     account OAuth email when available. See gateway_request_tk_cc_prompt_surface.go.
 //
-// Scope: only the standard forward path (gateway_service.Forward — i.e. all
-// Anthropic-platform requests EXCEPT IsAnthropicAPIKeyPassthroughEnabled and
-// Bedrock, both of which early-return before this hook). The hook runs once
+// Scope: Anthropic-platform Forward + count_tokens (OAuth path). API-key
+// passthrough and Bedrock call tkApplyAnthropicCCPromptSurfaceNormalize at
+// their entry points. The hook runs once
 // per request before any other body rewrite so downstream code sees a
 // well-formed body.
 //
-// Original client body is preserved: the ops_error_logs.request_body field is
-// stashed by handler.setOpsRequestContext BEFORE this hook runs, so the
-// pre-normalize body remains visible for debugging even when normalize fires.
+// Original client body is preserved on the gin context (handler.setOpsRequestModelAndBody
+// via OpsRequestBodyKey) BEFORE this hook runs, so ops enrichment and RCA can still
+// read the pre-normalize payload when normalize fires.
 //
 // Observability:
 //   - Every successful normalization emits an INFO log
@@ -74,7 +74,7 @@ const (
 // logging, debug dumps) can read it before calling this function.
 //
 // Safe to call with body == nil / empty; returns the input unchanged.
-func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c *gin.Context, body []byte) []byte {
+func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c *gin.Context, body []byte, account *Account) []byte {
 	if s == nil || s.settingService == nil || len(body) == 0 {
 		return body
 	}
@@ -95,9 +95,14 @@ func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c 
 		changes = append(changes, tkNormalizeChangeThinkingForcesToolUse)
 	}
 
-	if patched, applied := tkNormalizeAnthropicCCGeoStego(next); applied {
+	oauthEmail := ""
+	if account != nil {
+		oauthEmail = account.GetOAuthAccountEmail()
+	}
+	beforePrompt := next
+	if patched, applied := tkNormalizeAnthropicCCPromptSurface(next, oauthEmail); applied {
 		next = patched
-		changes = append(changes, tkNormalizeChangeCCGeoStego)
+		changes = append(changes, tkAnthropicCCPromptSurfaceChanges(beforePrompt, next)...)
 	}
 
 	if len(changes) > 0 {
@@ -107,6 +112,34 @@ func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c 
 
 	s.tkMaybeLogAnthropicPromptFingerprint(ctx, c, next, changes)
 	return next
+}
+
+// tkApplyAnthropicCCPromptSurfaceNormalize runs prompt-surface normalize for
+// paths that skip tkNormalizeAnthropicRequestBody (API-key passthrough, Bedrock).
+func tkApplyAnthropicCCPromptSurfaceNormalize(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+) ([]byte, []tkAnthropicNormalizeChange) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	oauthEmail := ""
+	if account != nil {
+		oauthEmail = account.GetOAuthAccountEmail()
+	}
+	before := body
+	out, applied := tkNormalizeAnthropicCCPromptSurface(body, oauthEmail)
+	if !applied {
+		return body, nil
+	}
+	changes := tkAnthropicCCPromptSurfaceChanges(before, out)
+	if len(changes) > 0 {
+		tkLogAnthropicNormalize(ctx, changes)
+		tkRecordAnthropicNormalizeOpsEvent(c, changes)
+	}
+	return out, changes
 }
 
 // tkNormalizeAnthropicToolChoiceString rewrites OpenAI-shaped string values

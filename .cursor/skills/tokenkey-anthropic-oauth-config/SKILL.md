@@ -14,6 +14,7 @@ description: >-
 | **TLS canonical 模板** | `plan-guard-drift-fix` / `remediate-guard-drift`（+ `apply --sync-runtime`） | `tls_fingerprint_profiles` upsert + `accounts.extra.tls_fingerprint_profile_id` 绑定（force-template-rewrite） | reconciler 把单账号 tier 字段漂移设为 **report-only**（tier 经 admin UI ApplyTier 显式设定），TLS 模板的 fleet 重绑定不在自愈范围 |
 | **HTTP UA / mimicry 同步** | `sync-runtime`（或 `plan-http-mimicry-sync` 出审计 plan） | `settings.claude_code_user_agent_version` + `settings.claude_code_http_mimicry_manifest` UPSERT；`DEL fingerprint:{oauth_account_id}` | settings/UA 是部署级运行时旋钮，reconciler 不写 settings 表 |
 | **tier 值实时下发**（不发版） | `apply-tiers-live`（+ `--verify-only`） | 逐节点 `tiers` 表 UPDATE + Redis tier 缓存失效（`DEL tiers`/`PUBLISH tiers_updated`）+ `accounts.concurrency` UPDATE + `scheduler_outbox` + operator Σ 同步 | `ensureSeededFromBaseline` 只在**重启/发版**把 git 值 seed 进 tiers 表；把**已合并**的 git tier 值**实时**铺到全 fleet（不等发版）仍要 operator 触发。admin UI ApplyTier 是 per-account 手点，本工具是 **fleet + 从 git 单一源**。详 §2.5 |
+| **OAuth 账号 email 机队审计**（只读） | `run-probe.sh` + `probe-account-emails.sh` | 无 | CC userEmail 回填依赖 `extra`/`credentials` email；缺 email 的 schedulable OAuth 账号需 Admin 补全或 ReAuth |
 
 ## 0. 确定性硬纪律
 
@@ -301,6 +302,18 @@ operate 流程：
 
 **底线**：手动绕开 orchestrator 时 op 必须自己做 apply 后复核——同样不允许跳过 §0 "先查后说"协议。
 
+### 8.1 OAuth 账号 email 机队审计（probe-account-emails.sh）
+
+CC gateway userEmail 回填读 `accounts.extra` / `credentials` 的 email 字段。缺 email 时 normalize 会**删除** client userEmail 行而非替换。
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-account-emails.sh
+```
+
+输出：`tk_anthropic_request_normalize_enabled` 设置 + 全账号 resolved_email + schedulable OAuth 缺 email 计数。
+
 ## 9. 扩展阅读
 
 - `ops/anthropic/manage-anthropic-config.py`（orchestrator；本 skill 用其 `snapshot` / `check` / `plan-guard-drift-fix` / `remediate-guard-drift` / `apply` / `sync-runtime` / `plan-http-mimicry-sync` / `verify` / `apply-tiers-live`）
@@ -313,4 +326,4 @@ operate 流程：
 - `docs/accounts/anthropic-oauth-edge-guidelines.md`（OAuth edge TLS + UA 现行约定短文）
 - `deploy/aws/stage0/tk_canonical_cc_oauth.json`（canonical TLS profile JSON，与 tiered baseline `shared_baseline.tls_profile` 对齐）
 - `deploy/aws/stage0/anthropic-http-mimicry-baselines.json`（HTTP UA / mimicry manifest 唯一真值源）
-- `ops/anthropic/test_manage_anthropic_config_runtime_sync.py`（runtime sync 单元测试，stdlib-only；preflight 跑）
+- `ops/observability/probe-account-emails.sh`（fleet OAuth email + normalize 开关只读审计；§8.1）

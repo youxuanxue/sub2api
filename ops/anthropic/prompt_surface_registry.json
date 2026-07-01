@@ -20,9 +20,33 @@
         "apostrophe": "ASCII_APOSTROPHE_U+0027",
         "date_format": "ISO_DASH"
       },
-      "gateway_normalize": "tkNormalizeAnthropicCCGeoStego",
+      "gateway_normalize": "tkNormalizeAnthropicCCPromptSurface",
       "prod_fingerprint_field": "reminder_date_line_class",
       "prod_canonical_values": ["NONE", "ISO_DASH_ASCII"]
+    },
+    {
+      "id": "cc_environment_section",
+      "probe_module": "environment_section",
+      "locations": [
+        "messages[].content[].text"
+      ],
+      "signals": ["# Environment", "TZ=Asia/Shanghai", "TZ=Asia/Urumqi"],
+      "gateway_normalize": "tkNormalizeAnthropicCCPromptSurface",
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "cc_environment_section"
+    },
+    {
+      "id": "cc_user_email",
+      "probe_module": "user_email",
+      "locations": [
+        "messages[].content[].text",
+        "system[].text"
+      ],
+      "match_prefix": "The user's email address is",
+      "gateway_normalize": "tkNormalizeAnthropicCCPromptSurface",
+      "normalize_policy": "replace_with_oauth_account_email_or_strip",
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "cc_user_email"
     },
     {
       "id": "system_identity_anchor",
@@ -62,6 +86,7 @@
   ],
   "aggregate": {
     "unknown_surface_alert": true,
-    "noncanonical_geo_alert": true
+    "noncanonical_geo_alert": true,
+    "cc_environment_alert": true
   }
 }
