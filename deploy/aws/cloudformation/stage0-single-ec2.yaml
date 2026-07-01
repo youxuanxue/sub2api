@@ -154,8 +154,8 @@ Parameters:
     Type: String
     Default: ''
     Description: >-
-      Optional SNS topic ARN subscribed to DataVolumeDiskAlarm (email/Slack).
-      Leave empty to create the alarm without notifications.
+      Optional SNS topic ARN subscribed to DataVolumeDiskAlarm and InstanceCpuAlarm
+      (email/Slack). Leave empty to create alarms without SNS notifications.
 
   QaStaleRetentionDays:
     Type: Number
@@ -581,6 +581,27 @@ Resources:
           Value: !Ref Instance
       AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
 
+  InstanceCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-cpu-sustained-high'
+      AlarmDescription: >-
+        tokenkey EC2 CPU > 80% (5m Average) for 15 consecutive minutes — deploy
+        burst or traffic spike; check load, active-color container, and consider resize.
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+
 Outputs:
   PublicIP:
     Description: Elastic IP - set this as the A record for ApiDomain
@@ -609,3 +630,6 @@ Outputs:
   DataVolumeDiskAlarmName:
     Description: CloudWatch alarm for DataVolume utilization (tokenkey/EC2 DataVolumeUsedPercent)
     Value: !Ref DataVolumeDiskAlarm
+  InstanceCpuAlarmName:
+    Description: CloudWatch alarm for sustained EC2 CPU (AWS/EC2 CPUUtilization > 80% for 15m)
+    Value: !Ref InstanceCpuAlarm
