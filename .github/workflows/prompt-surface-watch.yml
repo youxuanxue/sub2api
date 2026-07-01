@@ -1,7 +1,8 @@
 name: Prompt Surface Watch
 
-# Daily read-only watch: registry + fixture gateway gate in CI; optional prod
-# fingerprint aggregation via SSM (same posture as edge-health-watch).
+# Daily read-only watch: registry + fixture gateway gate in CI; prod fingerprint
+# aggregation via SSM on the same schedule. Opens/updates GitHub tracking issues
+# on registry-gate failure or prod actionable drift (closes when clear).
 
 on:
   schedule:
@@ -10,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       with_prod:
-        description: "Also aggregate prod gateway fingerprint logs via SSM"
+        description: "Also aggregate prod gateway fingerprint logs via SSM (always true on schedule)"
         required: false
         default: "false"
         type: choice
@@ -19,6 +20,12 @@ on:
         description: "docker logs --since for prod fingerprint probe"
         required: false
         default: "24h"
+      dry_run:
+        description: "Run checks but do NOT open/update GitHub issues"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 permissions:
   contents: read
@@ -61,10 +68,44 @@ jobs:
           python3 -m unittest ops.anthropic.test_probe_prompt_surfaces -v
           python3 -m unittest ops.anthropic.test_probe_cc_geo_stego -v
           python3 -m unittest ops.observability.test_probe_prompt_surface_fingerprints -v
+          python3 -m unittest ops.observability.test_open_prompt_surface_watch_issues -v
+
+      - name: Close recovered registry-gate tracking issue
+        if: success() && (github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true')
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates."
+            exit 1
+          fi
+          python3 ops/observability/open_prompt_surface_watch_issues.py registry-recover --run-url "$RUN_URL"
+
+  notify-registry-failure:
+    needs: registry-gate
+    if: always() && needs.registry-gate.result == 'failure' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Open registry-gate failure issue
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates."
+            exit 1
+          fi
+          python3 ops/observability/open_prompt_surface_watch_issues.py registry-failure --run-url "$RUN_URL"
 
   prod-aggregate:
     needs: registry-gate
-    if: github.event_name == 'workflow_dispatch' && inputs.with_prod == 'true'
+    if: always() && needs.registry-gate.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.with_prod == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -110,6 +151,26 @@ jobs:
             --report-md .cache/prompt-surface-watch/report.md || AGG=$?
           cat .cache/prompt-surface-watch/report.md || true  # preflight-allow: swallow
           exit "${AGG:-0}"
+
+      - name: Sync prod drift tracking issue
+        if: always() && steps.precheck.outputs.skip == 'false' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true')
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates."
+            exit 1
+          fi
+          if [ ! -f .cache/prompt-surface-watch/report.json ]; then
+            echo "No aggregate report — skipping issue sync"
+            exit 0
+          fi
+          python3 ops/observability/open_prompt_surface_watch_issues.py prod-sync \
+            --report-json .cache/prompt-surface-watch/report.json \
+            --report-md .cache/prompt-surface-watch/report.md \
+            --run-url "$RUN_URL"
 
       - uses: actions/upload-artifact@v4
         if: always() && steps.precheck.outputs.skip == 'false'

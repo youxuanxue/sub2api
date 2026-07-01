@@ -842,6 +842,9 @@ elif ! bash -n ./ops/observability/check-prompt-surface-drift.sh; then
 elif ! python3 -m unittest ops.observability.test_probe_prompt_surface_fingerprints -q; then
     echo "  FAIL: prompt surface fingerprint probe tests"
     errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_open_prompt_surface_watch_issues -q; then
+    echo "  FAIL: prompt surface watch issue helper tests"
+    errors=$((errors + 1))
 else
     echo "  ok: prompt surface drift tooling"
 fi
