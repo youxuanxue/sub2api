@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -371,6 +372,47 @@ func TestAccountHandlerGetAvailableModels_GrokUsesGrokCatalog(t *testing.T) {
 	ids := modelIDSet(resp.Data)
 	require.True(t, ids["grok-4.3"], "grok account test must default from the grok catalog")
 	require.False(t, ids["claude-sonnet-4-6"], "grok must not fall through to Claude catalog")
+}
+
+func TestAccountHandlerGetAvailableModels_AntigravityUsesGeminiOnlyCatalog(t *testing.T) {
+	geminiOnly := make(map[string]any, len(domain.GeminiOnlyAntigravityModelMapping))
+	for k, v := range domain.GeminiOnlyAntigravityModelMapping {
+		geminiOnly[k] = v
+	}
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       701,
+			Name:     "antigravity-or1-ls-b",
+			Platform: service.PlatformAntigravity,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": geminiOnly,
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/701/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+	require.Equal(t, service.AntigravityDefaultTestModelID, resp.Data[0].ID,
+		"antigravity chat probe default must be first")
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["gemini-3-flash"])
+	require.True(t, ids["gemini-pro-agent"])
+	require.False(t, ids["claude-sonnet-4-5"], "antigravity admin test must not offer claude models")
 }
 
 func TestAccountHandlerGetAvailableModels_KiroMirrorStubUsesKiroCatalog(t *testing.T) {

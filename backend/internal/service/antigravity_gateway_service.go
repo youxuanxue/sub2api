@@ -1027,6 +1027,12 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	return ""
 }
 
+// MapAntigravityModel reports the upstream wire id after account mapping.
+// Empty string means the requested model is not whitelisted for this account.
+func MapAntigravityModel(account *Account, requestedModel string) string {
+	return mapAntigravityModel(account, requestedModel)
+}
+
 // getMappedModel 获取映射后的模型名
 // 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底
 func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedModel string) string {
