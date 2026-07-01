@@ -431,8 +431,68 @@ func reconstructAssistantTurn(rec SourceRecord) ([]any, map[string]any) {
 	if _, ok := callMeta["stop_reason"]; !ok {
 		callMeta["stop_reason"] = ""
 	}
+	blocks = mergeInternalThinkingBlocks(blocks, rec.Blob.Response.InternalThinkingBlocks)
 	callMeta["thinking_source"] = thinkingSource(blocks)
 	return blocks, callMeta
+}
+
+// mergeInternalThinkingBlocks overlays gateway-stashed plaintext thinking (Kiro /
+// Gemini internal path) onto wire blocks. Client-facing captures may only carry
+// redacted_thinking or omit thinking entirely; internal blocks win for traj export.
+func mergeInternalThinkingBlocks(blocks []any, internal []any) []any {
+	thinking := parseInternalThinkingBlocks(internal)
+	if len(thinking) == 0 {
+		return blocks
+	}
+	rest := make([]any, 0, len(blocks))
+	for _, b := range blocks {
+		m, ok := b.(map[string]any)
+		if !ok {
+			rest = append(rest, b)
+			continue
+		}
+		typ, _ := m["type"].(string)
+		if typ == "redacted_thinking" {
+			continue
+		}
+		rest = append(rest, b)
+	}
+	out := make([]any, 0, len(thinking)+len(rest))
+	out = append(out, thinking...)
+	out = append(out, rest...)
+	return out
+}
+
+func parseInternalThinkingBlocks(raw []any) []any {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(raw))
+	for _, item := range raw {
+		switch v := item.(type) {
+		case string:
+			trimmed := strings.TrimSpace(v)
+			if trimmed == "" {
+				continue
+			}
+			var block map[string]any
+			if err := json.Unmarshal([]byte(trimmed), &block); err != nil {
+				continue
+			}
+			if block["type"] != "thinking" {
+				continue
+			}
+			out = append(out, block)
+		case map[string]any:
+			if v["type"] == "thinking" {
+				out = append(out, v)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func usageFromBody(respBody gjson.Result, record *ent.QARecord) map[string]any {
@@ -547,6 +607,9 @@ func blocksFromStreamChunks(chunks []map[string]any) ([]any, map[string]any) {
 					a.id = cb.Get("id").String()
 					a.name = cb.Get("name").String()
 				}
+				if a.typ == "redacted_thinking" {
+					a.thinking.WriteString(cb.Get("data").String())
+				}
 			case "content_block_delta":
 				i := int(ev.Get("index").Int())
 				a := ensure(i)
@@ -601,6 +664,8 @@ func blocksFromStreamChunks(chunks []map[string]any) ([]any, map[string]any) {
 				block["signature"] = a.signature
 			}
 			blocks = append(blocks, block)
+		case "redacted_thinking":
+			blocks = append(blocks, map[string]any{"type": "redacted_thinking", "data": a.thinking.String()})
 		case "text":
 			blocks = append(blocks, map[string]any{"type": "text", "text": a.text.String()})
 		case "tool_use":

@@ -149,6 +149,7 @@ func TestKiroGatewayService_Forward_Streaming_RedactsSplitInlineThinkingTags(t *
 	out := rec.Body.String()
 	require.Contains(t, out, `"type":"redacted_thinking"`)
 	require.Contains(t, out, "I am Claude.")
+	require.Contains(t, out, kiroInternalThinkingSSECommentPfx)
 	require.NotContains(t, out, "<thinking>")
 	require.NotContains(t, out, "</thinking>")
 	require.NotContains(t, out, "The user asks who I am.")
