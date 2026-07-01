@@ -23,10 +23,11 @@ Trigger model — Feishu pages on actionable-set changes only (🔴/✅):
   client harm is already covered by separate alerts (e.g. 无可用账号拒绝激增).
   ✅ recovery: actionable set cleared since the previous run.
 Posture (thin / idle-thin / no-accounts) is NOT paged and NOT in the state key — see
-`scan-edge-health.sh` for provisioning/SPOF backlog; 🔴/🟠/✅ footers still list thin
+`scan-edge-health.sh` for provisioning/SPOF backlog; 🔴/✅ footers still list thin
 and no-accounts edges for context when an incident fires.
-The persisted key is actionable-only (`a:verdict:edge`, plus legacy unprefixed entries
-still read for recovery). Same actionable set => no re-alert across 15-minute cycles.
+The persisted key is actionable-only (`a:down-active:<edge>` for active down,
+`a:<verdict>:<edge>` otherwise; legacy `a:down:` leading entries ignored on read).
+Same actionable set => no re-alert across 15-minute cycles.
 
 Input (stdin): one verdict JSON object per line (scan-edge-health.sh --json).
 Args:
