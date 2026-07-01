@@ -75,8 +75,6 @@ func (r *tierRepository) Update(ctx context.Context, t *model.Tier) (*model.Tier
 		SetMaxSessions(t.MaxSessions).
 		SetRpmStickyBuffer(t.RPMStickyBuffer).
 		SetSessionIdleTimeoutMinutes(t.SessionIdleTimeoutMinutes).
-		SetWindowCostLimit(t.WindowCostLimit).
-		SetWindowCostStickyReserve(t.WindowCostStickyReserve).
 		SetCacheTTLOverrideEnabled(t.CacheTTLOverrideEnabled)
 	applyTierNillable(b, t)
 	updated, err := b.Save(ctx)
@@ -118,8 +116,6 @@ func (r *tierRepository) applyMutation(b *ent.TierCreate, t *model.Tier) *ent.Ti
 		SetMaxSessions(t.MaxSessions).
 		SetRpmStickyBuffer(t.RPMStickyBuffer).
 		SetSessionIdleTimeoutMinutes(t.SessionIdleTimeoutMinutes).
-		SetWindowCostLimit(t.WindowCostLimit).
-		SetWindowCostStickyReserve(t.WindowCostStickyReserve).
 		SetCacheTTLOverrideEnabled(t.CacheTTLOverrideEnabled)
 	if t.Description != nil {
 		b = b.SetDescription(*t.Description)
@@ -171,8 +167,6 @@ func (r *tierRepository) toModel(e *ent.Tier) *model.Tier {
 		MaxSessions:               e.MaxSessions,
 		RPMStickyBuffer:           e.RpmStickyBuffer,
 		SessionIdleTimeoutMinutes: e.SessionIdleTimeoutMinutes,
-		WindowCostLimit:           e.WindowCostLimit,
-		WindowCostStickyReserve:   e.WindowCostStickyReserve,
 		CacheTTLOverrideEnabled:   e.CacheTTLOverrideEnabled,
 		CacheTTLOverrideTarget:    e.CacheTTLOverrideTarget,
 		TLSProfileName:            e.TLSProfileName,

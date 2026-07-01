@@ -1827,24 +1827,16 @@ func init() {
 	tierDescSessionIdleTimeoutMinutes := tierFields[8].Descriptor()
 	// tier.DefaultSessionIdleTimeoutMinutes holds the default value on creation for the session_idle_timeout_minutes field.
 	tier.DefaultSessionIdleTimeoutMinutes = tierDescSessionIdleTimeoutMinutes.Default.(int)
-	// tierDescWindowCostLimit is the schema descriptor for window_cost_limit field.
-	tierDescWindowCostLimit := tierFields[9].Descriptor()
-	// tier.DefaultWindowCostLimit holds the default value on creation for the window_cost_limit field.
-	tier.DefaultWindowCostLimit = tierDescWindowCostLimit.Default.(float64)
-	// tierDescWindowCostStickyReserve is the schema descriptor for window_cost_sticky_reserve field.
-	tierDescWindowCostStickyReserve := tierFields[10].Descriptor()
-	// tier.DefaultWindowCostStickyReserve holds the default value on creation for the window_cost_sticky_reserve field.
-	tier.DefaultWindowCostStickyReserve = tierDescWindowCostStickyReserve.Default.(float64)
 	// tierDescCacheTTLOverrideEnabled is the schema descriptor for cache_ttl_override_enabled field.
-	tierDescCacheTTLOverrideEnabled := tierFields[11].Descriptor()
+	tierDescCacheTTLOverrideEnabled := tierFields[9].Descriptor()
 	// tier.DefaultCacheTTLOverrideEnabled holds the default value on creation for the cache_ttl_override_enabled field.
 	tier.DefaultCacheTTLOverrideEnabled = tierDescCacheTTLOverrideEnabled.Default.(bool)
 	// tierDescCacheTTLOverrideTarget is the schema descriptor for cache_ttl_override_target field.
-	tierDescCacheTTLOverrideTarget := tierFields[12].Descriptor()
+	tierDescCacheTTLOverrideTarget := tierFields[10].Descriptor()
 	// tier.CacheTTLOverrideTargetValidator is a validator for the "cache_ttl_override_target" field. It is called by the builders before save.
 	tier.CacheTTLOverrideTargetValidator = tierDescCacheTTLOverrideTarget.Validators[0].(func(string) error)
 	// tierDescTLSProfileName is the schema descriptor for tls_profile_name field.
-	tierDescTLSProfileName := tierFields[13].Descriptor()
+	tierDescTLSProfileName := tierFields[11].Descriptor()
 	// tier.TLSProfileNameValidator is a validator for the "tls_profile_name" field. It is called by the builders before save.
 	tier.TLSProfileNameValidator = tierDescTLSProfileName.Validators[0].(func(string) error)
 	usagecleanuptaskMixin := schema.UsageCleanupTask{}.Mixin()

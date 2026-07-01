@@ -168,34 +168,6 @@ func (_c *TierCreate) SetNillableSessionIdleTimeoutMinutes(v *int) *TierCreate {
 	return _c
 }
 
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (_c *TierCreate) SetWindowCostLimit(v float64) *TierCreate {
-	_c.mutation.SetWindowCostLimit(v)
-	return _c
-}
-
-// SetNillableWindowCostLimit sets the "window_cost_limit" field if the given value is not nil.
-func (_c *TierCreate) SetNillableWindowCostLimit(v *float64) *TierCreate {
-	if v != nil {
-		_c.SetWindowCostLimit(*v)
-	}
-	return _c
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (_c *TierCreate) SetWindowCostStickyReserve(v float64) *TierCreate {
-	_c.mutation.SetWindowCostStickyReserve(v)
-	return _c
-}
-
-// SetNillableWindowCostStickyReserve sets the "window_cost_sticky_reserve" field if the given value is not nil.
-func (_c *TierCreate) SetNillableWindowCostStickyReserve(v *float64) *TierCreate {
-	if v != nil {
-		_c.SetWindowCostStickyReserve(*v)
-	}
-	return _c
-}
-
 // SetCacheTTLOverrideEnabled sets the "cache_ttl_override_enabled" field.
 func (_c *TierCreate) SetCacheTTLOverrideEnabled(v bool) *TierCreate {
 	_c.mutation.SetCacheTTLOverrideEnabled(v)
@@ -323,14 +295,6 @@ func (_c *TierCreate) defaults() {
 		v := tier.DefaultSessionIdleTimeoutMinutes
 		_c.mutation.SetSessionIdleTimeoutMinutes(v)
 	}
-	if _, ok := _c.mutation.WindowCostLimit(); !ok {
-		v := tier.DefaultWindowCostLimit
-		_c.mutation.SetWindowCostLimit(v)
-	}
-	if _, ok := _c.mutation.WindowCostStickyReserve(); !ok {
-		v := tier.DefaultWindowCostStickyReserve
-		_c.mutation.SetWindowCostStickyReserve(v)
-	}
 	if _, ok := _c.mutation.CacheTTLOverrideEnabled(); !ok {
 		v := tier.DefaultCacheTTLOverrideEnabled
 		_c.mutation.SetCacheTTLOverrideEnabled(v)
@@ -373,12 +337,6 @@ func (_c *TierCreate) check() error {
 	}
 	if _, ok := _c.mutation.SessionIdleTimeoutMinutes(); !ok {
 		return &ValidationError{Name: "session_idle_timeout_minutes", err: errors.New(`ent: missing required field "Tier.session_idle_timeout_minutes"`)}
-	}
-	if _, ok := _c.mutation.WindowCostLimit(); !ok {
-		return &ValidationError{Name: "window_cost_limit", err: errors.New(`ent: missing required field "Tier.window_cost_limit"`)}
-	}
-	if _, ok := _c.mutation.WindowCostStickyReserve(); !ok {
-		return &ValidationError{Name: "window_cost_sticky_reserve", err: errors.New(`ent: missing required field "Tier.window_cost_sticky_reserve"`)}
 	}
 	if _, ok := _c.mutation.CacheTTLOverrideEnabled(); !ok {
 		return &ValidationError{Name: "cache_ttl_override_enabled", err: errors.New(`ent: missing required field "Tier.cache_ttl_override_enabled"`)}
@@ -463,14 +421,6 @@ func (_c *TierCreate) createSpec() (*Tier, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.SessionIdleTimeoutMinutes(); ok {
 		_spec.SetField(tier.FieldSessionIdleTimeoutMinutes, field.TypeInt, value)
 		_node.SessionIdleTimeoutMinutes = value
-	}
-	if value, ok := _c.mutation.WindowCostLimit(); ok {
-		_spec.SetField(tier.FieldWindowCostLimit, field.TypeFloat64, value)
-		_node.WindowCostLimit = value
-	}
-	if value, ok := _c.mutation.WindowCostStickyReserve(); ok {
-		_spec.SetField(tier.FieldWindowCostStickyReserve, field.TypeFloat64, value)
-		_node.WindowCostStickyReserve = value
 	}
 	if value, ok := _c.mutation.CacheTTLOverrideEnabled(); ok {
 		_spec.SetField(tier.FieldCacheTTLOverrideEnabled, field.TypeBool, value)
@@ -705,42 +655,6 @@ func (u *TierUpsert) UpdateSessionIdleTimeoutMinutes() *TierUpsert {
 // AddSessionIdleTimeoutMinutes adds v to the "session_idle_timeout_minutes" field.
 func (u *TierUpsert) AddSessionIdleTimeoutMinutes(v int) *TierUpsert {
 	u.Add(tier.FieldSessionIdleTimeoutMinutes, v)
-	return u
-}
-
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (u *TierUpsert) SetWindowCostLimit(v float64) *TierUpsert {
-	u.Set(tier.FieldWindowCostLimit, v)
-	return u
-}
-
-// UpdateWindowCostLimit sets the "window_cost_limit" field to the value that was provided on create.
-func (u *TierUpsert) UpdateWindowCostLimit() *TierUpsert {
-	u.SetExcluded(tier.FieldWindowCostLimit)
-	return u
-}
-
-// AddWindowCostLimit adds v to the "window_cost_limit" field.
-func (u *TierUpsert) AddWindowCostLimit(v float64) *TierUpsert {
-	u.Add(tier.FieldWindowCostLimit, v)
-	return u
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (u *TierUpsert) SetWindowCostStickyReserve(v float64) *TierUpsert {
-	u.Set(tier.FieldWindowCostStickyReserve, v)
-	return u
-}
-
-// UpdateWindowCostStickyReserve sets the "window_cost_sticky_reserve" field to the value that was provided on create.
-func (u *TierUpsert) UpdateWindowCostStickyReserve() *TierUpsert {
-	u.SetExcluded(tier.FieldWindowCostStickyReserve)
-	return u
-}
-
-// AddWindowCostStickyReserve adds v to the "window_cost_sticky_reserve" field.
-func (u *TierUpsert) AddWindowCostStickyReserve(v float64) *TierUpsert {
-	u.Add(tier.FieldWindowCostStickyReserve, v)
 	return u
 }
 
@@ -1054,48 +968,6 @@ func (u *TierUpsertOne) AddSessionIdleTimeoutMinutes(v int) *TierUpsertOne {
 func (u *TierUpsertOne) UpdateSessionIdleTimeoutMinutes() *TierUpsertOne {
 	return u.Update(func(s *TierUpsert) {
 		s.UpdateSessionIdleTimeoutMinutes()
-	})
-}
-
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (u *TierUpsertOne) SetWindowCostLimit(v float64) *TierUpsertOne {
-	return u.Update(func(s *TierUpsert) {
-		s.SetWindowCostLimit(v)
-	})
-}
-
-// AddWindowCostLimit adds v to the "window_cost_limit" field.
-func (u *TierUpsertOne) AddWindowCostLimit(v float64) *TierUpsertOne {
-	return u.Update(func(s *TierUpsert) {
-		s.AddWindowCostLimit(v)
-	})
-}
-
-// UpdateWindowCostLimit sets the "window_cost_limit" field to the value that was provided on create.
-func (u *TierUpsertOne) UpdateWindowCostLimit() *TierUpsertOne {
-	return u.Update(func(s *TierUpsert) {
-		s.UpdateWindowCostLimit()
-	})
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (u *TierUpsertOne) SetWindowCostStickyReserve(v float64) *TierUpsertOne {
-	return u.Update(func(s *TierUpsert) {
-		s.SetWindowCostStickyReserve(v)
-	})
-}
-
-// AddWindowCostStickyReserve adds v to the "window_cost_sticky_reserve" field.
-func (u *TierUpsertOne) AddWindowCostStickyReserve(v float64) *TierUpsertOne {
-	return u.Update(func(s *TierUpsert) {
-		s.AddWindowCostStickyReserve(v)
-	})
-}
-
-// UpdateWindowCostStickyReserve sets the "window_cost_sticky_reserve" field to the value that was provided on create.
-func (u *TierUpsertOne) UpdateWindowCostStickyReserve() *TierUpsertOne {
-	return u.Update(func(s *TierUpsert) {
-		s.UpdateWindowCostStickyReserve()
 	})
 }
 
@@ -1587,48 +1459,6 @@ func (u *TierUpsertBulk) AddSessionIdleTimeoutMinutes(v int) *TierUpsertBulk {
 func (u *TierUpsertBulk) UpdateSessionIdleTimeoutMinutes() *TierUpsertBulk {
 	return u.Update(func(s *TierUpsert) {
 		s.UpdateSessionIdleTimeoutMinutes()
-	})
-}
-
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (u *TierUpsertBulk) SetWindowCostLimit(v float64) *TierUpsertBulk {
-	return u.Update(func(s *TierUpsert) {
-		s.SetWindowCostLimit(v)
-	})
-}
-
-// AddWindowCostLimit adds v to the "window_cost_limit" field.
-func (u *TierUpsertBulk) AddWindowCostLimit(v float64) *TierUpsertBulk {
-	return u.Update(func(s *TierUpsert) {
-		s.AddWindowCostLimit(v)
-	})
-}
-
-// UpdateWindowCostLimit sets the "window_cost_limit" field to the value that was provided on create.
-func (u *TierUpsertBulk) UpdateWindowCostLimit() *TierUpsertBulk {
-	return u.Update(func(s *TierUpsert) {
-		s.UpdateWindowCostLimit()
-	})
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (u *TierUpsertBulk) SetWindowCostStickyReserve(v float64) *TierUpsertBulk {
-	return u.Update(func(s *TierUpsert) {
-		s.SetWindowCostStickyReserve(v)
-	})
-}
-
-// AddWindowCostStickyReserve adds v to the "window_cost_sticky_reserve" field.
-func (u *TierUpsertBulk) AddWindowCostStickyReserve(v float64) *TierUpsertBulk {
-	return u.Update(func(s *TierUpsert) {
-		s.AddWindowCostStickyReserve(v)
-	})
-}
-
-// UpdateWindowCostStickyReserve sets the "window_cost_sticky_reserve" field to the value that was provided on create.
-func (u *TierUpsertBulk) UpdateWindowCostStickyReserve() *TierUpsertBulk {
-	return u.Update(func(s *TierUpsert) {
-		s.UpdateWindowCostStickyReserve()
 	})
 }
 

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -67,8 +66,7 @@ func richAccount() service.Account {
 			"base_url":      "https://api-us1.tokenkey.dev",
 		},
 		Extra: map[string]any{
-			"window_cost_limit": 50.0,
-			"max_sessions":      30,
+			"max_sessions": 30,
 			"base_rpm":          28,
 		},
 		Concurrency:    8,
@@ -104,7 +102,6 @@ func TestEdgeAccountsHandler_ReturnsSanitizedAccounts(t *testing.T) {
 	require.Equal(t, "edge-acct-1", got.Name)
 	require.Equal(t, 8, got.Concurrency)
 	require.Equal(t, 1.5, got.RateMultiplier)
-	require.Equal(t, 50.0, got.WindowCostLimit)
 	require.Equal(t, 30, got.MaxSessions)
 	require.Equal(t, 28, got.BaseRPM)
 	require.Equal(t, []string{"default", "vip"}, got.Groups)
@@ -325,12 +322,7 @@ func (f fakeRPMReader) GetRPMBatch(_ context.Context, _ []int64) (map[int64]int,
 
 type fakeUsageReader struct {
 	today   map[int64]*service.WindowStats
-	wcost   float64
 	passive *service.UsageInfo
-}
-
-func (f fakeUsageReader) GetAccountWindowStats(_ context.Context, _ int64, _ time.Time) (*usagestats.AccountStats, error) {
-	return &usagestats.AccountStats{StandardCost: f.wcost}, nil
 }
 
 func (f fakeUsageReader) GetTodayStatsBatch(_ context.Context, _ []int64) (map[int64]*service.WindowStats, error) {
@@ -339,20 +331,6 @@ func (f fakeUsageReader) GetTodayStatsBatch(_ context.Context, _ []int64) (map[i
 
 func (f fakeUsageReader) GetPassiveUsage(_ context.Context, _ int64) (*service.UsageInfo, error) {
 	return f.passive, nil
-}
-
-func (f fakeUsageReader) GetAccountWindowCostsBatch(_ context.Context, accounts []service.Account) map[int64]float64 {
-	// Mirror the real service filter so the handler's batch path yields the same
-	// per-account StandardCost the old per-account GetAccountWindowStats did.
-	costs := make(map[int64]float64)
-	for i := range accounts {
-		acc := &accounts[i]
-		if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
-			continue
-		}
-		costs[acc.ID] = f.wcost
-	}
-	return costs
 }
 
 func (f fakeUsageReader) GetPassiveUsageBatch(_ context.Context, accountIDs []int64) map[int64]*service.UsageInfo {
@@ -376,9 +354,8 @@ func richOAuthAccount() service.Account {
 		Type:     service.AccountTypeOAuth,
 		Status:   service.StatusActive,
 		Extra: map[string]any{
-			"window_cost_limit": 600.0,
-			"max_sessions":      150,
-			"base_rpm":          56,
+			"max_sessions": 150,
+			"base_rpm":     56,
 		},
 		Concurrency: 12,
 		Priority:    5,
@@ -396,7 +373,6 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 		fakeRPMReader{m: map[int64]int{7: 9}},
 		fakeUsageReader{
 			today:   map[int64]*service.WindowStats{7: {Requests: 80, Tokens: 65_900_000, Cost: 36.53, UserCost: 36.53}},
-			wcost:   36.53,
 			passive: &service.UsageInfo{Source: "passive", FiveHour: &service.UsageProgress{Utilization: 2}, SevenDay: &service.UsageProgress{Utilization: 4}, SevenDaySonnet: &service.UsageProgress{Utilization: 6}},
 		},
 	)
@@ -415,8 +391,6 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 	require.Equal(t, 4, *got.ActiveSessions)
 	require.NotNil(t, got.CurrentRPM)
 	require.Equal(t, 9, *got.CurrentRPM)
-	require.NotNil(t, got.CurrentWindowCost)
-	require.Equal(t, 36.53, *got.CurrentWindowCost)
 	require.NotNil(t, got.TodayStats)
 	require.Equal(t, int64(80), got.TodayStats.Requests)
 	require.Equal(t, int64(65_900_000), got.TodayStats.Tokens)

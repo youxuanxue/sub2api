@@ -13,20 +13,20 @@ import (
 
 func TestCheckOpenAIWindowSchedulability_Boundaries(t *testing.T) {
 	const (
-		threshold = 0.85
-		reserve   = 0.12 // NotSchedulable at >= 0.97
+		threshold = windowUtilStickyThresholdDefault
+		reserve   = windowUtilStickyReserveDefault
 	)
 	cases := []struct {
 		name string
 		util float64
-		want WindowCostSchedulability
+		want WindowUtilSchedulability
 	}{
-		{"well below", 0.50, WindowCostSchedulable},
-		{"just below threshold", 0.84, WindowCostSchedulable},
-		{"at threshold => sticky-only", 0.85, WindowCostStickyOnly},
-		{"inside reserve band", 0.96, WindowCostStickyOnly},
-		{"at hard edge => not schedulable", 0.97, WindowCostNotSchedulable},
-		{"above hard edge", 0.999, WindowCostNotSchedulable},
+		{"well below", 0.50, WindowUtilSchedulable},
+		{"just below threshold", 0.979, WindowUtilSchedulable},
+		{"at threshold => sticky-only", 0.98, WindowUtilStickyOnly},
+		{"inside reserve band", 0.99, WindowUtilStickyOnly},
+		{"at hard edge => not schedulable", 1.0, WindowUtilNotSchedulable},
+		{"above hard edge", 1.001, WindowUtilNotSchedulable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,8 +37,8 @@ func TestCheckOpenAIWindowSchedulability_Boundaries(t *testing.T) {
 
 func TestCheckOpenAIWindowSchedulability_DisabledThreshold(t *testing.T) {
 	// A non-positive or >=1 threshold disables the restriction entirely.
-	require.Equal(t, WindowCostSchedulable, CheckOpenAIWindowSchedulability(0.99, 0, 0.12))
-	require.Equal(t, WindowCostSchedulable, CheckOpenAIWindowSchedulability(0.99, 1.0, 0.12))
+	require.Equal(t, WindowUtilSchedulable, CheckOpenAIWindowSchedulability(0.99, 0, 0.12))
+	require.Equal(t, WindowUtilSchedulable, CheckOpenAIWindowSchedulability(0.99, 1.0, 0.12))
 }
 
 func TestOpenAIAccountWindowUtilization(t *testing.T) {
@@ -94,14 +94,12 @@ func TestIsAccountSchedulableForOpenAIWindow(t *testing.T) {
 		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(50), true))
 	})
 	t.Run("sticky-only band: kept for sticky, dropped for load-balance", func(t *testing.T) {
-		// default band is [95%, 99%): 97% is sticky-only.
-		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(97), false))
-		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(97), true))
+		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(98), false))
+		require.True(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(98), true))
 	})
 	t.Run("not-schedulable band: dropped even for sticky", func(t *testing.T) {
-		// default avoid edge is 99%; 99.5% is unambiguously NotSchedulable.
-		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(99.5), false))
-		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(99.5), true))
+		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(100), false))
+		require.False(t, svc.isAccountSchedulableForOpenAIWindow(ctx, hot(100), true))
 	})
 	t.Run("per-account disable => schedulable", func(t *testing.T) {
 		acc := hot(99.5)

@@ -554,8 +554,6 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 	}
 	keys := []string{
 		"mixed_scheduling",
-		"window_cost_limit",
-		"window_cost_sticky_reserve",
 		"max_sessions",
 		"session_idle_timeout_minutes",
 		"base_rpm",
@@ -584,6 +582,10 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"codex_5h_reset_after_seconds",
 		"codex_7d_reset_after_seconds",
 		"codex_usage_updated_at",
+		"session_window_utilization",
+		"passive_usage_sampled_at",
+		"passive_usage_7d_utilization",
+		"passive_usage_7d_reset",
 		"auto_pause_5h_threshold",
 		"auto_pause_7d_threshold",
 		"auto_pause_5h_disabled",

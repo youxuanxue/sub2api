@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -80,18 +79,10 @@ type edgeRPMReader interface {
 }
 
 type edgeUsageReader interface {
-	GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error)
 	GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*service.WindowStats, error)
 	// GetPassiveUsage builds the 5h/7d usage windows from the account's persisted
-	// passive samples (Extra), with NO upstream Anthropic API call — the same
-	// "被动采样" source the per-edge admin page shows.
+	// passive samples (Extra), with NO upstream Anthropic API call.
 	GetPassiveUsage(ctx context.Context, accountID int64) (*service.UsageInfo, error)
-	// GetAccountWindowCostsBatch computes current-window StandardCost for the
-	// Anthropic OAuth/SetupToken accounts in one bucketed batch query (by
-	// GetCurrentWindowStartTime), replacing the per-account GetAccountWindowStats
-	// fan-out. Same semantics/filter as the prod admin list
-	// (handler/admin/account_handler.go) — failure-open, missing accounts omitted.
-	GetAccountWindowCostsBatch(ctx context.Context, accounts []service.Account) map[int64]float64
 	// GetPassiveUsageBatch builds the passive 5h/7d usage windows for many accounts
 	// in one pass, prefetching window stats per window-start bucket so the per-row
 	// addWindowStats aggregation no longer fans out. Byte-identical to looping
@@ -187,8 +178,6 @@ type edgeAccountDTO struct {
 	OverloadUntil    *time.Time `json:"overload_until,omitempty"`
 
 	// Configured caps (anthropic oauth/setup-token).
-	WindowCostLimit           float64 `json:"window_cost_limit,omitempty"`
-	WindowCostStickyReserve   float64 `json:"window_cost_sticky_reserve,omitempty"`
 	MaxSessions               int     `json:"max_sessions,omitempty"`
 	SessionIdleTimeoutMinutes int     `json:"session_idle_timeout_minutes,omitempty"`
 	BaseRPM                   int     `json:"base_rpm,omitempty"`
@@ -198,7 +187,6 @@ type edgeAccountDTO struct {
 	// Live gauges (this edge's local Redis/DB). Pointers so "feature off" (nil)
 	// is distinguishable from a real 0; current_concurrency is always present.
 	CurrentConcurrency int             `json:"current_concurrency"`
-	CurrentWindowCost  *float64        `json:"current_window_cost,omitempty"`
 	ActiveSessions     *int            `json:"active_sessions,omitempty"`
 	CurrentRPM         *int            `json:"current_rpm,omitempty"`
 	TodayStats         *edgeTodayStats `json:"today_stats,omitempty"`
@@ -351,7 +339,6 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 // edgeRuntimeGauges holds the batch-collected live values keyed by account id.
 type edgeRuntimeGauges struct {
 	concurrency  map[int64]int
-	windowCost   map[int64]float64
 	sessions     map[int64]int
 	rpm          map[int64]int
 	today        map[int64]*service.WindowStats
@@ -365,11 +352,6 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 		return
 	}
 	dto.CurrentConcurrency = g.concurrency[acc.ID]
-	if g.windowCost != nil {
-		if cost, ok := g.windowCost[acc.ID]; ok {
-			dto.CurrentWindowCost = &cost
-		}
-	}
 	if g.sessions != nil {
 		if n, ok := g.sessions[acc.ID]; ok {
 			dto.ActiveSessions = &n
@@ -474,8 +456,7 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		}
 	}
 
-	// Gate window-cost / sessions / rpm by anthropic OAuth/setup-token + cap.
-	windowCostIDs := make([]int64, 0)
+	// Gate sessions / rpm by anthropic OAuth/setup-token + cap.
 	sessionIDs := make([]int64, 0)
 	rpmIDs := make([]int64, 0)
 	idleTimeouts := make(map[int64]time.Duration)
@@ -483,9 +464,6 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		acc := &accounts[i]
 		if !acc.IsAnthropicOAuthOrSetupToken() {
 			continue
-		}
-		if acc.GetWindowCostLimit() > 0 {
-			windowCostIDs = append(windowCostIDs, acc.ID)
 		}
 		if acc.GetMaxSessions() > 0 {
 			sessionIDs = append(sessionIDs, acc.ID)
@@ -506,15 +484,8 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 			g.sessions = m
 		}
 	}
-	if len(windowCostIDs) > 0 && h.usage != nil {
-		// Bucket by window-start and run one batch aggregation per distinct start
-		// (same as the prod admin list) instead of one GetAccountWindowStats per
-		// OAuth account — edges hold the real OAuth pool, so this is where the N+1
-		// actually bites. Failure-open; missing accounts simply omitted.
-		g.windowCost = h.usage.GetAccountWindowCostsBatch(ctx, accounts)
-	}
 
-	// Passive usage windows: read from persisted Extra samples (no upstream API).
+	// Passive usage windows:
 	// anthropic OAuth/setup-token rebuild from passive_usage_* samples; openai
 	// OAuth (codex) rebuild from codex_*_used_percent; kiro rebuilds its credits /
 	// trial snapshot from kiro_usage_*. All go through GetPassiveUsage, which
@@ -571,8 +542,6 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 		RateLimitedAt:             a.RateLimitedAt,
 		RateLimitResetAt:          a.RateLimitResetAt,
 		OverloadUntil:             a.OverloadUntil,
-		WindowCostLimit:           a.GetWindowCostLimit(),
-		WindowCostStickyReserve:   a.GetWindowCostStickyReserve(),
 		MaxSessions:               a.GetMaxSessions(),
 		SessionIdleTimeoutMinutes: a.GetSessionIdleTimeoutMinutes(),
 		BaseRPM:                   a.GetBaseRPM(),

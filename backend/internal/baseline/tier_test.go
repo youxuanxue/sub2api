@@ -100,7 +100,7 @@ func TestTierLadderInvariants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TierOrder: %v", err)
 	}
-	requiredCaps := []string{"base_rpm", "rpm_sticky_buffer", "max_sessions", "window_cost_limit"}
+	requiredCaps := []string{"base_rpm", "rpm_sticky_buffer", "max_sessions"}
 	var firstPriority int
 	for i, name := range order {
 		eff, err := EffectiveBaselineForTier(name)

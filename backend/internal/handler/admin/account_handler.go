@@ -177,8 +177,7 @@ type AccountWithConcurrency struct {
 	*dto.Account
 	CurrentConcurrency int `json:"current_concurrency"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
-	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
-	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
+	ActiveSessions *int `json:"active_sessions,omitempty"` // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
 	// EdgeID is the edge a prod anthropic mirror stub relays to (api-us1 → "us1"),
 	// empty for non-stub accounts. TK: lets the accounts UI expand a stub row into
@@ -207,14 +206,6 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 
 	if account.IsAnthropicOAuthOrSetupToken() {
-		if h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
-			startTime := account.GetCurrentWindowStartTime()
-			if stats, err := h.accountUsageService.GetAccountWindowStats(ctx, account.ID, startTime); err == nil && stats != nil {
-				cost := stats.StandardCost
-				item.CurrentWindowCost = &cost
-			}
-		}
-
 		if h.sessionLimitCache != nil && account.GetMaxSessions() > 0 {
 			idleTimeout := time.Duration(account.GetSessionIdleTimeoutMinutes()) * time.Minute
 			idleTimeouts := map[int64]time.Duration{account.ID: idleTimeout}
@@ -284,7 +275,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	concurrencyCounts := make(map[int64]int)
-	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
 
@@ -295,17 +285,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
-	windowCostAccountIDs := make([]int64, 0)
+	// 识别需要查询会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
 	sessionLimitAccountIDs := make([]int64, 0)
 	rpmAccountIDs := make([]int64, 0)
 	sessionIdleTimeouts := make(map[int64]time.Duration) // 各账号的会话空闲超时配置
 	for i := range accounts {
 		acc := &accounts[i]
 		if acc.IsAnthropicOAuthOrSetupToken() {
-			if acc.GetWindowCostLimit() > 0 {
-				windowCostAccountIDs = append(windowCostAccountIDs, acc.ID)
-			}
 			if acc.GetMaxSessions() > 0 {
 				sessionLimitAccountIDs = append(sessionLimitAccountIDs, acc.ID)
 				sessionIdleTimeouts[acc.ID] = time.Duration(acc.GetSessionIdleTimeoutMinutes()) * time.Minute
@@ -332,14 +318,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 始终获取窗口费用（PostgreSQL 聚合查询）
-	// TK: 原实现为每个 Anthropic OAuth/SetupToken 账号单发一条聚合 SQL（errgroup cap 10），
-	// 账号多时形成 N+1。改走 GetAccountWindowCostsBatch：按窗口起点分桶，每个不同起点只跑
-	// 一条 ANY($1) 批量查询（仓储不支持批量或失败时内部回退单查，失败开放，语义不变）。
-	if len(windowCostAccountIDs) > 0 {
-		windowCosts = h.accountUsageService.GetAccountWindowCostsBatch(c.Request.Context(), accounts)
-	}
-
 	// Build response with concurrency info
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
@@ -361,13 +339,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 			// TK: tag anthropic mirror-stub rows with their edge id so the accounts
 			// UI can expand them into that edge's accounts inline ("" for non-stubs).
 			EdgeID: service.MirrorStubEdgeID(acc),
-		}
-
-		// 添加窗口费用（仅当启用时）
-		if windowCosts != nil {
-			if cost, ok := windowCosts[acc.ID]; ok {
-				item.CurrentWindowCost = &cost
-			}
 		}
 
 		// 添加活跃会话数（仅当启用时）

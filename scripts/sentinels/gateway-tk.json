@@ -3104,7 +3104,7 @@
         "account_scheduling_loadbalance_no_candidates",
         "filtered_model_rate_limited"
       ],
-      "rationale": "The Layer-2 load-balance candidate loop in SelectAccountWithLoadAwareness must emit the per-gate exclusion breakdown (account_scheduling_loadbalance_no_candidates WARN carrying filtered_excluded/unschedulable/platform/model_unsupported/model_rate_limited/quota/window_cost/rpm counts) when the candidate set is empty, mirroring the Layer-1 routing breakdown. Without it an empty load-balance pool surfaces only as a bare ErrNoAvailableAccounts with no way to tell which gate emptied it (the 2026-06-18 prod opus-4-8 empty-pool incident could not be root-caused for exactly this reason). This is a TK-only insertion inside the most upstream-churned scheduling function and has no unit test guarding it, so it is a prime target for a silent auto-merge drop on the next upstream merge; this sentinel turns that into a CI failure instead of a re-opened observability blind spot."
+      "rationale": "The Layer-2 load-balance candidate loop in SelectAccountWithLoadAwareness must emit the per-gate exclusion breakdown (account_scheduling_loadbalance_no_candidates WARN carrying filtered_excluded/unschedulable/platform/model_unsupported/model_rate_limited/quota/window_util/rpm counts) when the candidate set is empty, mirroring the Layer-1 routing breakdown. Without it an empty load-balance pool surfaces only as a bare ErrNoAvailableAccounts with no way to tell which gate emptied it (the 2026-06-18 prod opus-4-8 empty-pool incident could not be root-caused for exactly this reason). This is a TK-only insertion inside the most upstream-churned scheduling function and has no unit test guarding it, so it is a prime target for a silent auto-merge drop on the next upstream merge; this sentinel turns that into a CI failure instead of a re-opened observability blind spot."
     },
     {
       "path": "backend/internal/service/thinking_ref_model_tk.go",
@@ -3194,21 +3194,6 @@
         "GetAccountWindowStatsBatch("
       ],
       "rationale": "Batch passive-usage service method: GetByIDs (one query) + bucketed GetAccountWindowStatsBatch prefetch (one ANY($1) per distinct window start, seeded into windowStatsCache) + per-account GetPassiveUsage reuse for byte-identical output. This is the engine of the per-row /usage fan-out fix. Pins the public method, the prefetch helper, and the batch SQL call so an upstream merge cannot silently revert it to per-account queries."
-    },
-    {
-      "path": "backend/internal/service/account_usage_service_tk_window_cost_batch.go",
-      "must_contain": [
-        "func (s *AccountUsageService) GetAccountWindowCostsBatch(",
-        "GetAccountWindowStatsBatch("
-      ],
-      "rationale": "Batch window-cost computation for the admin accounts list, replacing the per-account GetAccountWindowStats N+1 in account_handler.go. Buckets accounts by GetCurrentWindowStartTime().Unix() and issues one batch query per distinct window start (failure-open single-query fallback). Pins the public method + the batch SQL call so the N+1 cannot reappear via merge."
-    },
-    {
-      "path": "backend/internal/handler/admin/account_handler.go",
-      "must_contain": [
-        "h.accountUsageService.GetAccountWindowCostsBatch(c.Request.Context(), accounts)"
-      ],
-      "rationale": "Injection point in the upstream-shaped List handler where the per-account window-cost errgroup loop was replaced by a single batched call. An upstream merge could restore the old inline GetAccountWindowStats loop (an N+1 that grows with account count); anchoring the batched call makes that revert fail the merge gate."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo_tk_user_platform.go",
@@ -3398,9 +3383,9 @@
         "func CheckOpenAIWindowSchedulability(",
         "func (s *OpenAIGatewayService) isAccountSchedulableForOpenAIWindow(",
         "func leastUtilizedOpenAIAccount(",
-        "openAIWindowStickyThresholdDefault = 0.95"
+        "openAIWindowStickyThresholdDefault = windowUtilStickyThresholdDefault"
       ],
-      "rationale": "OpenAI/GPT-line window-aware soft scheduler — the twin of the anthropic window-cost tri-state filter (gateway_service.go isAccountSchedulableForWindowCost / account.go CheckWindowCostSchedulability). Steers new load-balance traffic away from a codex account approaching its 5h/7d usage window BEFORE it 429s, cutting avoidable failover hops (prod: 139 absorbed 429s on one gpt-5.5 account, all recovered via failover at the cost of a wasted hop each). Tri-state Schedulable/StickyOnly/NotSchedulable on the already-captured codex_5h/7d_used_percent (resolveOpenAIQuotaUtilization, fail-open on no-signal/stale/reset). The whole hop-reduction behaviour lives here; an upstream merge or refactor deleting this companion silently reverts the GPT line to window-blind load-balancing. Anchors the tri-state predicate, the scheduler method, the never-empty-pool fallback, and the default sticky threshold."
+      "rationale": "OpenAI/GPT-line window-util soft scheduler sharing the Codex/Anthropic kernel (window_util_sched_tk.go, global 0.98/0.02). Steers load-balance traffic away from codex accounts approaching upstream 5h/7d caps before they 429. Tri-state on codex_5h/7d_used_percent with fail-open on no-signal/stale/reset."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
@@ -3577,6 +3562,24 @@
         "applyCodexImageBridgeToWSResponseCreate(ctx, c, account, firstClientMessage)"
       ],
       "rationale": "Load-bearing wiring of Codex image bridge into WS v2 passthrough first-frame path (#3158). Dropping this call leaves passthrough accounts without image_generation tool injection while non-passthrough WS ingress still works."
+    },
+    {
+      "path": "backend/internal/service/window_util_sched_tk.go",
+      "must_contain": [
+        "windowUtilStickyThresholdDefault = 0.98",
+        "func checkWindowUtilSchedulability(",
+        "func schedulableForWindowUtil("
+      ],
+      "rationale": "Shared window-utilization soft-scheduling kernel for Codex and Anthropic OAuth lines (0.98 sticky / 0.02 reserve). Single source of truth replacing per-line dollar gates and divergent thresholds."
+    },
+    {
+      "path": "backend/internal/service/anthropic_account_scheduler_tk_window_sched.go",
+      "must_contain": [
+        "func (s *GatewayService) isAccountSchedulableForAnthropicWindow(",
+        "func leastUtilizedAnthropicAccount(",
+        "resolveAnthropic5hUtilization"
+      ],
+      "rationale": "Anthropic OAuth/setup-token window-util guard using passive 5h/7d upstream utilization (not usage_logs dollars). Twin of the Codex guard with never-empty-pool fallback via leastUtilizedAnthropicAccount."
     }
   ]
 }

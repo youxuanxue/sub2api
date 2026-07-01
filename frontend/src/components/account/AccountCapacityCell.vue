@@ -7,13 +7,6 @@
       </svg>
     </CapacityBadge>
 
-    <!-- 5h窗口费用限制 -->
-    <CapacityBadge v-if="showWindowCost" :color-class="windowCostClass" :tooltip="windowCostTooltip" :current="'$' + formatCost(currentWindowCost)" :max="'$' + formatCost(account.window_cost_limit)">
-      <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    </CapacityBadge>
-
     <!-- 会话数量限制 -->
     <CapacityBadge v-if="showSessionLimit" :color-class="sessionLimitClass" :tooltip="sessionLimitTooltip" :current="activeSessions" :max="account.max_sessions!">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -59,40 +52,11 @@ const concurrencyClass = computed(() => {
   return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
 })
 
-// ====== 窗口费用 ======
+// ====== Anthropic OAuth / setup-token ======
 const isAnthropicOAuthOrSetupToken = computed(() =>
   props.account.platform === 'anthropic' &&
   (props.account.type === 'oauth' || props.account.type === 'setup-token')
 )
-
-const showWindowCost = computed(() =>
-  isAnthropicOAuthOrSetupToken.value &&
-  props.account.window_cost_limit != null &&
-  props.account.window_cost_limit > 0
-)
-
-const currentWindowCost = computed(() => props.account.current_window_cost ?? 0)
-
-const windowCostClass = computed(() => {
-  if (!showWindowCost.value) return ''
-  const current = currentWindowCost.value
-  const limit = props.account.window_cost_limit || 0
-  const reserve = props.account.window_cost_sticky_reserve ?? 10
-  if (current >= limit + reserve) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-  if (current >= limit) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-  if (current >= limit * 0.8) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-})
-
-const windowCostTooltip = computed(() => {
-  if (!showWindowCost.value) return ''
-  const current = currentWindowCost.value
-  const limit = props.account.window_cost_limit || 0
-  const reserve = props.account.window_cost_sticky_reserve ?? 10
-  if (current >= limit + reserve) return t('admin.accounts.capacity.windowCost.blocked')
-  if (current >= limit) return t('admin.accounts.capacity.windowCost.stickyOnly')
-  return t('admin.accounts.capacity.windowCost.normal')
-})
 
 // ====== 会话限制 ======
 const showSessionLimit = computed(() =>
@@ -173,11 +137,6 @@ const rpmTooltip = computed(() => {
     return t('admin.accounts.capacity.rpm.stickyExemptNormal')
   }
 })
-
-const formatCost = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return '0'
-  return value.toFixed(2)
-}
 
 // ====== 配额 ======
 const isQuotaEligible = computed(() => props.account.type === 'apikey' || props.account.type === 'bedrock')

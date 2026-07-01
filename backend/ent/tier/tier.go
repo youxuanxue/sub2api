@@ -35,10 +35,6 @@ const (
 	FieldRpmStickyBuffer = "rpm_sticky_buffer"
 	// FieldSessionIdleTimeoutMinutes holds the string denoting the session_idle_timeout_minutes field in the database.
 	FieldSessionIdleTimeoutMinutes = "session_idle_timeout_minutes"
-	// FieldWindowCostLimit holds the string denoting the window_cost_limit field in the database.
-	FieldWindowCostLimit = "window_cost_limit"
-	// FieldWindowCostStickyReserve holds the string denoting the window_cost_sticky_reserve field in the database.
-	FieldWindowCostStickyReserve = "window_cost_sticky_reserve"
 	// FieldCacheTTLOverrideEnabled holds the string denoting the cache_ttl_override_enabled field in the database.
 	FieldCacheTTLOverrideEnabled = "cache_ttl_override_enabled"
 	// FieldCacheTTLOverrideTarget holds the string denoting the cache_ttl_override_target field in the database.
@@ -65,8 +61,6 @@ var Columns = []string{
 	FieldMaxSessions,
 	FieldRpmStickyBuffer,
 	FieldSessionIdleTimeoutMinutes,
-	FieldWindowCostLimit,
-	FieldWindowCostStickyReserve,
 	FieldCacheTTLOverrideEnabled,
 	FieldCacheTTLOverrideTarget,
 	FieldTLSProfileName,
@@ -106,10 +100,6 @@ var (
 	DefaultRpmStickyBuffer int
 	// DefaultSessionIdleTimeoutMinutes holds the default value on creation for the "session_idle_timeout_minutes" field.
 	DefaultSessionIdleTimeoutMinutes int
-	// DefaultWindowCostLimit holds the default value on creation for the "window_cost_limit" field.
-	DefaultWindowCostLimit float64
-	// DefaultWindowCostStickyReserve holds the default value on creation for the "window_cost_sticky_reserve" field.
-	DefaultWindowCostStickyReserve float64
 	// DefaultCacheTTLOverrideEnabled holds the default value on creation for the "cache_ttl_override_enabled" field.
 	DefaultCacheTTLOverrideEnabled bool
 	// CacheTTLOverrideTargetValidator is a validator for the "cache_ttl_override_target" field. It is called by the builders before save.
@@ -179,16 +169,6 @@ func ByRpmStickyBuffer(opts ...sql.OrderTermOption) OrderOption {
 // BySessionIdleTimeoutMinutes orders the results by the session_idle_timeout_minutes field.
 func BySessionIdleTimeoutMinutes(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSessionIdleTimeoutMinutes, opts...).ToFunc()
-}
-
-// ByWindowCostLimit orders the results by the window_cost_limit field.
-func ByWindowCostLimit(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldWindowCostLimit, opts...).ToFunc()
-}
-
-// ByWindowCostStickyReserve orders the results by the window_cost_sticky_reserve field.
-func ByWindowCostStickyReserve(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldWindowCostStickyReserve, opts...).ToFunc()
 }
 
 // ByCacheTTLOverrideEnabled orders the results by the cache_ttl_override_enabled field.

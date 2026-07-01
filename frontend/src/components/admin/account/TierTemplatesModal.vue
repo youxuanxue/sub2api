@@ -166,14 +166,6 @@
             <label class="input-label text-xs">{{ t('admin.tierTemplates.form.sessionIdleTimeoutMinutes') }}</label>
             <input v-model.number="form.session_idle_timeout_minutes" type="number" min="0" class="input" />
           </div>
-          <div>
-            <label class="input-label text-xs">{{ t('admin.tierTemplates.form.windowCostLimit') }}</label>
-            <input v-model.number="form.window_cost_limit" type="number" step="0.01" min="0" class="input" />
-          </div>
-          <div>
-            <label class="input-label text-xs">{{ t('admin.tierTemplates.form.windowCostStickyReserve') }}</label>
-            <input v-model.number="form.window_cost_sticky_reserve" type="number" step="0.01" min="0" class="input" />
-          </div>
         </div>
 
         <hr class="border-gray-200 dark:border-dark-600" />
@@ -299,8 +291,6 @@ const emptyForm = (): TierRequest => ({
   max_sessions: 0,
   rpm_sticky_buffer: 0,
   session_idle_timeout_minutes: 0,
-  window_cost_limit: 0,
-  window_cost_sticky_reserve: 0,
   cache_ttl_override_enabled: false,
   cache_ttl_override_target: null,
   tls_profile_name: null,
@@ -366,8 +356,6 @@ const handleEdit = (tier: Tier) => {
     max_sessions: tier.max_sessions,
     rpm_sticky_buffer: tier.rpm_sticky_buffer,
     session_idle_timeout_minutes: tier.session_idle_timeout_minutes,
-    window_cost_limit: tier.window_cost_limit,
-    window_cost_sticky_reserve: tier.window_cost_sticky_reserve,
     cache_ttl_override_enabled: tier.cache_ttl_override_enabled,
     cache_ttl_override_target: tier.cache_ttl_override_target,
     tls_profile_name: tier.tls_profile_name,

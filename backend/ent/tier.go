@@ -39,10 +39,6 @@ type Tier struct {
 	RpmStickyBuffer int `json:"rpm_sticky_buffer,omitempty"`
 	// SessionIdleTimeoutMinutes holds the value of the "session_idle_timeout_minutes" field.
 	SessionIdleTimeoutMinutes int `json:"session_idle_timeout_minutes,omitempty"`
-	// WindowCostLimit holds the value of the "window_cost_limit" field.
-	WindowCostLimit float64 `json:"window_cost_limit,omitempty"`
-	// WindowCostStickyReserve holds the value of the "window_cost_sticky_reserve" field.
-	WindowCostStickyReserve float64 `json:"window_cost_sticky_reserve,omitempty"`
 	// CacheTTLOverrideEnabled holds the value of the "cache_ttl_override_enabled" field.
 	CacheTTLOverrideEnabled bool `json:"cache_ttl_override_enabled,omitempty"`
 	// CacheTTLOverrideTarget holds the value of the "cache_ttl_override_target" field.
@@ -61,7 +57,7 @@ func (*Tier) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case tier.FieldCacheTTLOverrideEnabled:
 			values[i] = new(sql.NullBool)
-		case tier.FieldRateMultiplier, tier.FieldWindowCostLimit, tier.FieldWindowCostStickyReserve:
+		case tier.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
 		case tier.FieldID, tier.FieldConcurrency, tier.FieldPriority, tier.FieldBaseRpm, tier.FieldMaxSessions, tier.FieldRpmStickyBuffer, tier.FieldSessionIdleTimeoutMinutes, tier.FieldTLSProfileID:
 			values[i] = new(sql.NullInt64)
@@ -156,18 +152,6 @@ func (_m *Tier) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field session_idle_timeout_minutes", values[i])
 			} else if value.Valid {
 				_m.SessionIdleTimeoutMinutes = int(value.Int64)
-			}
-		case tier.FieldWindowCostLimit:
-			if value, ok := values[i].(*sql.NullFloat64); !ok {
-				return fmt.Errorf("unexpected type %T for field window_cost_limit", values[i])
-			} else if value.Valid {
-				_m.WindowCostLimit = value.Float64
-			}
-		case tier.FieldWindowCostStickyReserve:
-			if value, ok := values[i].(*sql.NullFloat64); !ok {
-				return fmt.Errorf("unexpected type %T for field window_cost_sticky_reserve", values[i])
-			} else if value.Valid {
-				_m.WindowCostStickyReserve = value.Float64
 			}
 		case tier.FieldCacheTTLOverrideEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -266,12 +250,6 @@ func (_m *Tier) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("session_idle_timeout_minutes=")
 	builder.WriteString(fmt.Sprintf("%v", _m.SessionIdleTimeoutMinutes))
-	builder.WriteString(", ")
-	builder.WriteString("window_cost_limit=")
-	builder.WriteString(fmt.Sprintf("%v", _m.WindowCostLimit))
-	builder.WriteString(", ")
-	builder.WriteString("window_cost_sticky_reserve=")
-	builder.WriteString(fmt.Sprintf("%v", _m.WindowCostStickyReserve))
 	builder.WriteString(", ")
 	builder.WriteString("cache_ttl_override_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CacheTTLOverrideEnabled))

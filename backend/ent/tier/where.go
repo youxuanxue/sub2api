@@ -109,16 +109,6 @@ func SessionIdleTimeoutMinutes(v int) predicate.Tier {
 	return predicate.Tier(sql.FieldEQ(FieldSessionIdleTimeoutMinutes, v))
 }
 
-// WindowCostLimit applies equality check predicate on the "window_cost_limit" field. It's identical to WindowCostLimitEQ.
-func WindowCostLimit(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldEQ(FieldWindowCostLimit, v))
-}
-
-// WindowCostStickyReserve applies equality check predicate on the "window_cost_sticky_reserve" field. It's identical to WindowCostStickyReserveEQ.
-func WindowCostStickyReserve(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldEQ(FieldWindowCostStickyReserve, v))
-}
-
 // CacheTTLOverrideEnabled applies equality check predicate on the "cache_ttl_override_enabled" field. It's identical to CacheTTLOverrideEnabledEQ.
 func CacheTTLOverrideEnabled(v bool) predicate.Tier {
 	return predicate.Tier(sql.FieldEQ(FieldCacheTTLOverrideEnabled, v))
@@ -637,86 +627,6 @@ func SessionIdleTimeoutMinutesLT(v int) predicate.Tier {
 // SessionIdleTimeoutMinutesLTE applies the LTE predicate on the "session_idle_timeout_minutes" field.
 func SessionIdleTimeoutMinutesLTE(v int) predicate.Tier {
 	return predicate.Tier(sql.FieldLTE(FieldSessionIdleTimeoutMinutes, v))
-}
-
-// WindowCostLimitEQ applies the EQ predicate on the "window_cost_limit" field.
-func WindowCostLimitEQ(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldEQ(FieldWindowCostLimit, v))
-}
-
-// WindowCostLimitNEQ applies the NEQ predicate on the "window_cost_limit" field.
-func WindowCostLimitNEQ(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldNEQ(FieldWindowCostLimit, v))
-}
-
-// WindowCostLimitIn applies the In predicate on the "window_cost_limit" field.
-func WindowCostLimitIn(vs ...float64) predicate.Tier {
-	return predicate.Tier(sql.FieldIn(FieldWindowCostLimit, vs...))
-}
-
-// WindowCostLimitNotIn applies the NotIn predicate on the "window_cost_limit" field.
-func WindowCostLimitNotIn(vs ...float64) predicate.Tier {
-	return predicate.Tier(sql.FieldNotIn(FieldWindowCostLimit, vs...))
-}
-
-// WindowCostLimitGT applies the GT predicate on the "window_cost_limit" field.
-func WindowCostLimitGT(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldGT(FieldWindowCostLimit, v))
-}
-
-// WindowCostLimitGTE applies the GTE predicate on the "window_cost_limit" field.
-func WindowCostLimitGTE(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldGTE(FieldWindowCostLimit, v))
-}
-
-// WindowCostLimitLT applies the LT predicate on the "window_cost_limit" field.
-func WindowCostLimitLT(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldLT(FieldWindowCostLimit, v))
-}
-
-// WindowCostLimitLTE applies the LTE predicate on the "window_cost_limit" field.
-func WindowCostLimitLTE(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldLTE(FieldWindowCostLimit, v))
-}
-
-// WindowCostStickyReserveEQ applies the EQ predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveEQ(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldEQ(FieldWindowCostStickyReserve, v))
-}
-
-// WindowCostStickyReserveNEQ applies the NEQ predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveNEQ(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldNEQ(FieldWindowCostStickyReserve, v))
-}
-
-// WindowCostStickyReserveIn applies the In predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveIn(vs ...float64) predicate.Tier {
-	return predicate.Tier(sql.FieldIn(FieldWindowCostStickyReserve, vs...))
-}
-
-// WindowCostStickyReserveNotIn applies the NotIn predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveNotIn(vs ...float64) predicate.Tier {
-	return predicate.Tier(sql.FieldNotIn(FieldWindowCostStickyReserve, vs...))
-}
-
-// WindowCostStickyReserveGT applies the GT predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveGT(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldGT(FieldWindowCostStickyReserve, v))
-}
-
-// WindowCostStickyReserveGTE applies the GTE predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveGTE(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldGTE(FieldWindowCostStickyReserve, v))
-}
-
-// WindowCostStickyReserveLT applies the LT predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveLT(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldLT(FieldWindowCostStickyReserve, v))
-}
-
-// WindowCostStickyReserveLTE applies the LTE predicate on the "window_cost_sticky_reserve" field.
-func WindowCostStickyReserveLTE(v float64) predicate.Tier {
-	return predicate.Tier(sql.FieldLTE(FieldWindowCostStickyReserve, v))
 }
 
 // CacheTTLOverrideEnabledEQ applies the EQ predicate on the "cache_ttl_override_enabled" field.

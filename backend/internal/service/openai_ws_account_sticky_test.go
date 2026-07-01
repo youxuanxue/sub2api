@@ -52,8 +52,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_WindowNotSchedul
 	ctx := context.Background()
 	groupID := int64(23)
 	now := time.Now().Format(time.RFC3339)
-	// 99.5% used => NotSchedulable under the window-sched guard (default avoid edge 99%).
-	// The retired auto-pause used to gate this path; the tri-state guard now carries it.
+	// 100% used => NotSchedulable under the shared 0.98/0.02 window guard.
 	account := Account{
 		ID:          77,
 		Platform:    PlatformOpenAI,
@@ -63,7 +62,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_WindowNotSchedul
 		Concurrency: 2,
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_enabled": true,
-			"codex_5h_used_percent":                         99.5,
+			"codex_5h_used_percent":                         100.0,
 			"codex_usage_updated_at":                        now,
 		},
 	}
@@ -107,7 +106,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_WindowStickyOnly
 		Concurrency: 2,
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_enabled": true,
-			"codex_5h_used_percent":                         96.0,
+			"codex_5h_used_percent":                         99.0,
 			"codex_usage_updated_at":                        now,
 		},
 	}
@@ -126,7 +125,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_WindowStickyOnly
 
 	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_sticky", "gpt-5.1", nil, false)
 	require.NoError(t, err)
-	require.NotNil(t, selection, "StickyOnly 区间(96%)的账号应继续服务自己的 previous_response_id 链")
+	require.NotNil(t, selection, "StickyOnly 区间(99%)的账号应继续服务自己的 previous_response_id 链")
 	require.Equal(t, account.ID, selection.Account.ID)
 }
 

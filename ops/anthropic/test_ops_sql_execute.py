@@ -46,8 +46,8 @@ CREATE TABLE account_groups(account_id bigint, group_id bigint);
 CREATE TABLE users(id bigint, balance numeric, concurrency int,
   created_at timestamptz, updated_at timestamptz, deleted_at timestamptz);
 CREATE TABLE tiers(name text, concurrency int, priority int, rate_multiplier numeric, base_rpm int,
-  rpm_sticky_buffer int, max_sessions int, session_idle_timeout_minutes int, window_cost_limit int,
-  window_cost_sticky_reserve int, cache_ttl_override_enabled boolean, cache_ttl_override_target text,
+  rpm_sticky_buffer int, max_sessions int, session_idle_timeout_minutes int,
+  cache_ttl_override_enabled boolean, cache_ttl_override_target text,
   tls_profile_name text, created_at timestamptz, updated_at timestamptz);
 CREATE TABLE settings(key text PRIMARY KEY, value text, created_at timestamptz, updated_at timestamptz);
 CREATE TABLE scheduler_outbox(id bigserial PRIMARY KEY, event_type text NOT NULL, account_id bigint,

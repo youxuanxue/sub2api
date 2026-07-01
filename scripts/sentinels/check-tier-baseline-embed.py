@@ -156,8 +156,6 @@ def effective_tiers_from_json(doc: dict) -> dict[str, dict]:
             "max_sessions": extra.get("max_sessions"),
             "rpm_sticky_buffer": extra.get("rpm_sticky_buffer"),
             "session_idle_timeout_minutes": extra.get("session_idle_timeout_minutes"),
-            "window_cost_limit": extra.get("window_cost_limit"),
-            "window_cost_sticky_reserve": extra.get("window_cost_sticky_reserve"),
             "cache_ttl_override_enabled": extra.get("cache_ttl_override_enabled"),
             "cache_ttl_override_target": extra.get("cache_ttl_override_target"),
             "tls_profile_name": tls_name,
