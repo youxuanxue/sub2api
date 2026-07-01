@@ -122,6 +122,16 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 		t.Errorf("gemini-native image chat should include antigravity: %v", chatImage)
 	}
 
+	// grok-native video on /v1/video/generations also includes grok (not task-adaptor).
+	videoGrok := universalCandidatePlatforms(ShapeOpenAIVideo, "", false, "grok-imagine-video")
+	if !contains(videoGrok, PlatformOpenAI) || !contains(videoGrok, PlatformNewAPI) || !contains(videoGrok, PlatformGrok) {
+		t.Errorf("grok video should extend bridge candidates with grok platform: %v", videoGrok)
+	}
+	videoVeo := universalCandidatePlatforms(ShapeOpenAIVideo, "", false, "veo-3.1-generate-001")
+	if contains(videoVeo, PlatformGrok) {
+		t.Errorf("veo video should not pull grok into candidates: %v", videoVeo)
+	}
+
 	// gemini native pair.
 	gem := universalCandidatePlatforms(ShapeGemini, "", false, "")
 	if !contains(gem, PlatformGemini) || !contains(gem, PlatformAntigravity) {
@@ -179,6 +189,11 @@ func TestResolve_PicksByPlatformAndHint(t *testing.T) {
 	g, err = r.Resolve(ctx, key, ShapeGemini, "gemini-3-pro", "")
 	if err != nil || g == nil || g.Platform != PlatformGemini {
 		t.Fatalf("gemini resolve got %v err %v", g, err)
+	}
+	// video shape + grok-imagine-video → grok group (native xAI video arm, not newapi task adaptor).
+	g, err = r.Resolve(ctx, key, ShapeOpenAIVideo, "grok-imagine-video", "")
+	if err != nil || g == nil || g.Platform != PlatformGrok {
+		t.Fatalf("grok video resolve got %v err %v", g, err)
 	}
 }
 

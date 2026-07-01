@@ -239,7 +239,7 @@ export default {
     video: {
       modelLabel: '模型',
       modelEmpty: '当前分组暂无可用的视频模型。',
-      modelEmptySwitchKey: '视频模型（Veo / Seedance）通常在 Vertex 或 VolcEngine 分组。请在上方切换到带「视频」能力的 API 密钥。',
+      modelEmptySwitchKey: '部分 API 密钥分组提供视频模型（如 Vertex、VolcEngine、Grok）。请在上方切换到带「视频」能力的密钥。',
       modelEmptyAllKeys: '你的所有密钥分组均未开通视频模型。可在价格页查看支持的分组，或联系管理员开通。',
       samplePrompt: '霓虹东京小巷，慢推镜头，雨，反射光，电影感',
       perSecondUnit: ' /秒',

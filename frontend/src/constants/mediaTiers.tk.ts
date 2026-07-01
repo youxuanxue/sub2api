@@ -1,22 +1,17 @@
 /**
- * TokenKey-only: media (image/video) quality-tier catalog for the Studio.
+ * TokenKey-only: Studio media presentation + resolver helpers.
  *
- * The Studio picks MODELS by a human "quality tier × price" card, never by a
- * bare model id — the vendor (Vertex / VolcEngine / …) is a footnote, not a
- * choice (design: docs/playground-media-redesign.md §3.2/§4.1).
+ * **Membership SSOT** (which image/video models exist for a key) lives in the
+ * pricing catalogs (`GET /api/v1/public/pricing`, `GET /api/v1/me/pricing-catalog`)
+ * via `billing_mode: image | video` — see `utils/studioMediaCatalog.tk.ts`.
  *
- * Each tier carries ORDERED candidate models. resolveTier() picks the first
- * candidate that is BOTH (a) priced+servable here and (b) present in the user's
- * key-group model pool (GET /v1/models). So a tier lights up only when a real,
- * priced model backs it — never a 400-on-submit footgun.
- *
- * Prices are verified against backend/internal/service/tk_pricing_overlay.json
- * (output_cost_per_image / output_cost_per_second). They drive the client cost
- * MIRROR (utils/mediaCostEstimate.tk.ts); the backend pre-flight hold remains
- * the source of truth and corrects any drift.
+ * **This file** holds presentation-only metadata (display names, aspect ratios,
+ * discrete video durations, verified adaptor params). A model appears in Studio
+ * only when catalog membership ∩ key entitlement ∩ live price all agree.
  */
 
 import { modalityForModel } from '@/constants/playgroundMedia.tk'
+import type { CatalogBillingIndex } from '@/utils/studioMediaCatalog.tk'
 
 export type StudioModality = 'image' | 'video'
 
@@ -32,43 +27,65 @@ export type PickerModality = StudioModality | 'chat'
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
 const GEMINI = 'Google Gemini'
+const XAI = 'xAI'
+
+const VENDOR_LABELS: Record<string, string> = {
+  xai: XAI,
+  vertex_ai: VERTEX,
+  volcengine: VOLC,
+  google: GEMINI,
+  gemini: GEMINI,
+}
+
+function formatVendorLabel(vendor?: string): string {
+  if (!vendor) return ''
+  const key = vendor.trim().toLowerCase()
+  return VENDOR_LABELS[key] ?? vendor
+}
+
+function defaultDisplayName(modelId: string): string {
+  return modelId
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
 
 /**
- * True when this group's pool backs at least one media model of the modality —
- * i.e. the Studio tab is usable for a key whose group exposes `availableIds`.
- * Drives the modality-aware key picker (pickModalityKey), which runs across ALL
- * the user's groups, so it is PRICE-AGNOSTIC by design: it must not require a
- * per-group price-catalog fetch. /v1/models is already filtered to priced models
- * upstream, so servable here implies priced for the per-key card resolver.
+ * True when this key's pool backs at least one catalog-listed media model of
+ * `modality`. Uses the public pricing catalog's billing_mode index (loaded once
+ * at Studio bootstrap) — not the presentation table below.
  */
 export function modalityHasTiers(
   modality: StudioModality,
-  availableIds: ReadonlySet<string>
+  availableIds: ReadonlySet<string>,
+  catalogBilling: CatalogBillingIndex
 ): boolean {
-  return MEDIA_MODELS.some(
-    (m) =>
-      m.modality === modality &&
-      [m.modelId, ...(m.aliasIds ?? [])].some((id) => availableIds.has(id))
-  )
+  for (const id of availableIds) {
+    if (catalogBilling.get(id) === modality) return true
+  }
+  return false
 }
 
 /**
  * Whether this group's pool serves `modality` for the SHELL's key picker.
- * Dispatches chat (any chat-classified id in the pool) vs media (tier catalog),
- * so the modality-aware landing/annotation logic treats chat as a first-class
- * peer of image/video without a media tier entry.
+ * Dispatches chat (any chat-classified id in the pool) vs media (catalog
+ * billing_mode). Bake-off passes no picker modality (dual sub-modality → user
+ * owns the key).
  */
 export function groupServes(
   modality: PickerModality,
-  availableIds: ReadonlySet<string>
+  availableIds: ReadonlySet<string>,
+  catalogBilling: CatalogBillingIndex
 ): boolean {
   if (modality === 'chat') {
     for (const id of availableIds) {
+      if (catalogBilling.has(id)) continue
       if (modalityForModel(id) === 'chat') return true
     }
     return false
   }
-  return modalityHasTiers(modality, availableIds)
+  return modalityHasTiers(modality, availableIds, catalogBilling)
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -99,10 +116,11 @@ export interface ModalityKeyOption {
 export function pickModalityKey(
   options: readonly ModalityKeyOption[],
   modality: PickerModality,
-  currentId: number | null
+  currentId: number | null,
+  catalogBilling: CatalogBillingIndex
 ): number | null {
   if (options.length === 0) return currentId
-  const serving = options.filter((o) => groupServes(modality, o.availableIds))
+  const serving = options.filter((o) => groupServes(modality, o.availableIds, catalogBilling))
   if (currentId != null && serving.some((o) => o.id === currentId)) return currentId
   const pickServing = serving.find((o) => o.isTrial) ?? serving[0]
   if (pickServing) return pickServing.id
@@ -210,18 +228,11 @@ export const IMAGE_N_MIN = 1
 export const IMAGE_N_MAX = 4
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Model catalog (transparent model picker)
+ * Presentation overlay (NOT membership SSOT — catalog billing_mode is).
  *
- * The Studio now lets the user pick the ACTUAL model — shown humanely (friendly
- * name + price + vendor footnote + raw id subtext), not a bare quality tier.
- * This completes the originally-planned "Advanced model picker" (design §3.2)
- * that #769 left unshipped. The quality label becomes a card BADGE, not the
- * selection axis.
- *
- * Same hard rule as resolveTier: only models BOTH (a) priced+servable here and
- * (b) present in the user's key-group pool (GET /v1/models) are shown — never a
- * 400-on-submit footgun. The raw modelId stays the billing key; displayName is
- * cosmetic only.
+ * Friendly names, badges, aspect ratios, discrete video durations, and verified
+ * adaptor params. Models without an entry still appear when the catalog lists
+ * them; they get conservative defaults until presentation is curated here.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -295,15 +306,7 @@ export interface MediaModel {
   videoDurations?: number[]
 }
 
-/**
- * Static catalog of media models = display metadata + the verified capability
- * map ONLY. Prices are NOT hardcoded here — they come live from the per-user
- * pricing catalog (getMePricingCatalog, the same source #788 established), so a
- * price change in the overlay can't drift. A model is shown only when it is BOTH
- * in the key-group's GET /v1/models pool AND carries a live catalog price
- * (priced ∩ servable — never a 400-on-submit footgun). modelId stays the billing
- * key; displayName is cosmetic.
- */
+/** Presentation-only entries keyed by canonical model_id. */
 export const MEDIA_MODELS: MediaModel[] = [
   // ── image (imagen/seedream honor NO advanced params per adaptor) ──
   {
@@ -388,6 +391,26 @@ export const MEDIA_MODELS: MediaModel[] = [
     flatImageBilling: true,
     imageSizes: GEMINI_IMAGE_SIZES,
   },
+  {
+    modelId: 'grok-imagine-image',
+    displayName: 'Grok Imagine · Standard',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: XAI,
+    modality: 'image',
+    supportedParams: [],
+    flatPricePerImage: true,
+  },
+  {
+    modelId: 'grok-imagine-image-quality',
+    displayName: 'Grok Imagine · Quality',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: XAI,
+    modality: 'image',
+    supportedParams: [],
+    flatPricePerImage: true,
+  },
   // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
   // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
   // add it here with needsApikeyAccount: true.
@@ -443,7 +466,44 @@ export const MEDIA_MODELS: MediaModel[] = [
     // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence).
     videoDurations: [4, 6, 8],
   },
+  {
+    modelId: 'grok-imagine-video',
+    displayName: 'Grok Imagine · Video',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: XAI,
+    modality: 'video',
+    // Native xAI arm: first-frame image_url only (no negativePrompt / generateAudio).
+    supportedParams: ['firstFrameImage'],
+    // Live probe 2026-06-19: 5s text-to-video succeeded; expand when xAI docs capture full set.
+    videoDurations: [5],
+  },
 ]
+
+function lookupPresentation(modelId: string): MediaModel | undefined {
+  const direct = MEDIA_MODELS.find((m) => m.modelId === modelId)
+  if (direct) return direct
+  return MEDIA_MODELS.find((m) => m.aliasIds?.includes(modelId))
+}
+
+function buildMediaModelForCatalogRow(
+  servedId: string,
+  modality: StudioModality,
+  presentation: MediaModel | undefined,
+  vendor?: string
+): MediaModel {
+  if (presentation) return presentation
+  return {
+    modelId: servedId,
+    displayName: defaultDisplayName(servedId),
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: formatVendorLabel(vendor),
+    modality,
+    supportedParams: [],
+    videoDurations: modality === 'video' ? [VIDEO_DURATION_DEFAULT] : undefined,
+  }
+}
 
 /** Live per-model price from the user's pricing catalog (getMePricingCatalog). */
 export interface MediaPrice {
@@ -451,6 +511,10 @@ export interface MediaPrice {
   perImage?: number
   /** USD per second (video models). */
   perSecond?: number
+  /** From catalog billing_mode — membership SSOT for Studio. */
+  billingMode?: StudioModality
+  /** Raw vendor slug from the catalog row (e.g. xai, vertex_ai). */
+  vendor?: string
 }
 export type MediaPriceMap = ReadonlyMap<string, MediaPrice>
 
@@ -475,17 +539,29 @@ export function resolveAvailableModels(
   priceMap: MediaPriceMap
 ): ResolvedModel[] {
   const out: ResolvedModel[] = []
-  for (const model of MEDIA_MODELS) {
-    if (model.modality !== modality) continue
-    const ids = [model.modelId, ...(model.aliasIds ?? [])]
-    const servedId = ids.find((id) => availableIds.has(id))
-    if (!servedId) continue
-    const price = ids.map((id) => priceMap.get(id)).find((p) => p != null)
-    const baseImagePrice = modality === 'image' ? price?.perImage : undefined
-    const perSecond = modality === 'video' ? price?.perSecond : undefined
-    if (baseImagePrice == null && perSecond == null) continue // no live price → hide
+  const seenCanonical = new Set<string>()
+
+  for (const servedId of availableIds) {
+    const price = priceMap.get(servedId)
+    if (!price) continue
+    const rowModality =
+      price.billingMode ??
+      (price.perSecond != null ? 'video' : price.perImage != null ? 'image' : undefined)
+    if (rowModality !== modality) continue
+
+    const baseImagePrice = modality === 'image' ? price.perImage : undefined
+    const perSecond = modality === 'video' ? price.perSecond : undefined
+    if (baseImagePrice == null && perSecond == null) continue
+
+    const presentation = lookupPresentation(servedId)
+    const canonicalId = presentation?.modelId ?? servedId
+    if (seenCanonical.has(canonicalId)) continue
+    seenCanonical.add(canonicalId)
+
+    const model = buildMediaModelForCatalogRow(servedId, modality, presentation, price.vendor)
     out.push({ model, servedId, baseImagePrice, perSecond })
   }
+
   out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))
   return out
 }

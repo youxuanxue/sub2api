@@ -241,7 +241,7 @@ export default {
     video: {
       modelLabel: 'Model',
       modelEmpty: 'No video models are available for this group yet.',
-      modelEmptySwitchKey: 'Video models (Veo / Seedance) live on Vertex or VolcEngine groups. Switch to an API key that serves video above.',
+      modelEmptySwitchKey: 'Video models (Veo, Seedance, Grok, etc.) live on platform-specific groups. Switch to an API key that serves video above.',
       modelEmptyAllKeys: 'None of your key groups expose video models yet. See pricing for supported groups or ask an admin.',
       samplePrompt: 'A neon Tokyo alley, slow push-in, rain, reflections, cinematic',
       perSecondUnit: ' /s',
