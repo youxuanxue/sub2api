@@ -40,6 +40,39 @@ import (
 // account 403s on /videos exactly as on chat. We surface that as a clean
 // honesty-403 (no failover, no penalty), reusing tkIsGrokEntitlement403.
 
+// resolveGrokVideoCredential returns the Bearer token and base URL for the grok
+// native video arm. OAuth accounts use xAI access_token; API-key relay stubs
+// (prod→edge mirror accounts) use the edge TokenKey api_key + base_url — the
+// same split as openai_gateway_chat_completions_raw.go.
+func resolveGrokVideoCredential(account *Account) (token, baseURL string, err error) {
+	if account == nil {
+		return "", "", errors.New("grok video: account is nil")
+	}
+	switch {
+	case account.IsGrokOAuth():
+		token = account.GetGrokAccessToken()
+		baseURL = account.GetGrokBaseURL()
+	case account.IsGrokAPIKey():
+		token = account.GetOpenAIApiKey()
+		baseURL = account.GetGrokBaseURL()
+		if baseURL == "" {
+			baseURL = account.GetOpenAIBaseURL()
+		}
+	default:
+		return "", "", fmt.Errorf("grok account %d unsupported type for video", account.ID)
+	}
+	if token == "" {
+		if account.IsGrokAPIKey() {
+			return "", "", fmt.Errorf("grok relay account %d missing api_key", account.ID)
+		}
+		return "", "", fmt.Errorf("grok account %d missing access_token", account.ID)
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return "", "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+	}
+	return token, baseURL, nil
+}
+
 // grokNativeVideoSubmit POSTs the client's video request to xAI's OAuth video
 // endpoint and writes the OpenAI-Video submit acknowledgement (carrying TK's
 // public task id) to the gin response — mirroring the bridge contract that the
@@ -64,11 +97,11 @@ func (s *OpenAIGatewayService) grokNativeVideoSubmit(
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
 	}
 
-	token := account.GetGrokAccessToken()
-	if token == "" {
-		return nil, fmt.Errorf("grok account %d missing access_token", account.ID)
+	token, grokBase, cerr := resolveGrokVideoCredential(account)
+	if cerr != nil {
+		return nil, cerr
 	}
-	base, err := s.validateUpstreamBaseURL(account.GetGrokBaseURL())
+	base, err := s.validateUpstreamBaseURL(grokBase)
 	if err != nil {
 		return nil, fmt.Errorf("invalid grok base_url: %w", err)
 	}
@@ -129,16 +162,16 @@ func (s *OpenAIGatewayService) grokNativeVideoFetch(
 	if in.AccountID > 0 {
 		if acc, err := s.accountRepo.GetByID(ctx, in.AccountID); err == nil && acc != nil && acc.IsGrok() {
 			account = acc
-			if fresh := acc.GetGrokAccessToken(); fresh != "" {
-				token = fresh // re-resolve: the pinned record token may be a rotated/stale Bearer
-			}
-			if b, verr := s.validateUpstreamBaseURL(acc.GetGrokBaseURL()); verr == nil && b != "" {
-				base = strings.TrimRight(b, "/")
+			if freshToken, freshBase, rerr := resolveGrokVideoCredential(acc); rerr == nil {
+				token = freshToken // re-resolve: OAuth Bearer may rotate; relay api_key is stable
+				if b, verr := s.validateUpstreamBaseURL(freshBase); verr == nil && b != "" {
+					base = strings.TrimRight(b, "/")
+				}
 			}
 		}
 	}
 	if token == "" {
-		return nil, errors.New("grok video fetch: no usable access token")
+		return nil, errors.New("grok video fetch: no usable bearer credential")
 	}
 	url := base + "/videos/" + in.UpstreamTaskID
 

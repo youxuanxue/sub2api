@@ -7,7 +7,88 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
+
+func TestResolveGrokVideoCredential(t *testing.T) {
+	t.Run("oauth uses access_token", func(t *testing.T) {
+		acct := &Account{
+			Platform: PlatformGrok,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"access_token": "oauth-bearer",
+				"base_url":     "https://api.x.ai/v1",
+			},
+		}
+		token, base, err := resolveGrokVideoCredential(acct)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if token != "oauth-bearer" || base != "https://api.x.ai/v1" {
+			t.Fatalf("got token=%q base=%q", token, base)
+		}
+	})
+
+	t.Run("apikey relay uses edge api_key", func(t *testing.T) {
+		acct := &Account{
+			ID:       65,
+			Platform: PlatformGrok,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "edge-relay-key",
+				"base_url": "https://api-us4.tokenkey.dev",
+			},
+		}
+		token, base, err := resolveGrokVideoCredential(acct)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if token != "edge-relay-key" || base != "https://api-us4.tokenkey.dev" {
+			t.Fatalf("got token=%q base=%q", token, base)
+		}
+	})
+
+	t.Run("oauth missing access_token", func(t *testing.T) {
+		acct := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth}
+		_, _, err := resolveGrokVideoCredential(acct)
+		if err == nil || !strings.Contains(err.Error(), "missing access_token") {
+			t.Fatalf("want missing access_token error, got %v", err)
+		}
+	})
+
+	t.Run("relay missing api_key", func(t *testing.T) {
+		acct := &Account{
+			ID:       65,
+			Platform: PlatformGrok,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"base_url": "https://api-us4.tokenkey.dev",
+			},
+		}
+		_, _, err := resolveGrokVideoCredential(acct)
+		if err == nil || !strings.Contains(err.Error(), "missing api_key") {
+			t.Fatalf("want missing api_key error, got %v", err)
+		}
+	})
+
+	t.Run("oauth default base when unset", func(t *testing.T) {
+		acct := &Account{
+			Platform: PlatformGrok,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"access_token": "tok",
+			},
+		}
+		_, base, err := resolveGrokVideoCredential(acct)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if base != xai.DefaultBaseURL {
+			t.Fatalf("base = %q, want %q", base, xai.DefaultBaseURL)
+		}
+	})
+}
 
 // TestReadGrokVideoResponseLimited pins the bounded read that protects the grok
 // video arm from a hostile/runaway upstream: a body within the cap reads back
