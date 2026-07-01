@@ -231,7 +231,7 @@ func extractGrokResponsesOutputText(body []byte) string {
 				continue
 			}
 			if text, ok := block["text"].(string); ok && strings.TrimSpace(text) != "" {
-				b.WriteString(text)
+				_, _ = b.WriteString(text)
 			}
 		}
 	}
