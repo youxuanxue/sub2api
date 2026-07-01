@@ -152,6 +152,19 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
             return 1
             ;;
+          *"No platform in your plan can serve"*|*universal_no_entitled*)
+            # Universal key (TK_SMOKE_API_KEY): /v1/chat/completions may 403 when
+            # groupServesModel filters to empty (PR #1122) while /v1/messages still
+            # routes via anthropic/kiro mirror. Same defer semantics as
+            # smoke_assert_anthropic_model_listed_or_warn — messages is canonical.
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — universal key cannot route this model on chat shape; deferring to /v1/messages probe." >&2
+            if [[ -n "${err_msg}" ]]; then
+              echo "  gateway message: ${err_msg}" >&2
+            fi
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            echo "tk_post_deploy_smoke: ${label} section soft-skipped (universal_no_entitled_group; /v1/messages probe is the canonical signal)"
+            return 1
+            ;;
           *"restricted to Claude Code clients"*|*"/v1/messages only"*)
             # claude_code_only group policy: the configured Anthropic key is
             # bound to a group that allows /v1/messages with a Claude Code UA
