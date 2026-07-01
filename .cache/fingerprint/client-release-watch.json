@@ -1,75 +1,75 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-06-30T00:36:31Z",
+  "updated_at": "2026-07-01T02:23:44Z",
   "git_sha": "",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.196",
-      "upstream_latest": "2.1.196",
+      "pinned": "2.1.197",
+      "upstream_latest": "2.1.197",
       "status": "aligned",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.196",
-          "published_at": "2026-06-29T23:27:32Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.196",
-          "raw_tag": "v2.1.196"
+          "version": "2.1.197",
+          "published_at": "2026-06-30T17:56:37Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.197",
+          "raw_tag": "v2.1.197"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.196",
+          "version": "2.1.197",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.196"
+          "raw_tag": "2.1.197"
         }
       }
     },
     "cc-stainless": {
       "pinned": "0.94.0",
-      "upstream_latest": "0.107.0",
+      "upstream_latest": "0.109.0",
       "status": "drift",
       "upstream_sources": {
         "npm @anthropic-ai/sdk": {
-          "version": "0.107.0",
+          "version": "0.109.0",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/sdk",
-          "raw_tag": "0.107.0"
+          "raw_tag": "0.109.0"
         }
       }
     },
     "codex": {
-      "pinned": "0.142.4",
-      "upstream_latest": "0.142.4",
+      "pinned": "0.142.5",
+      "upstream_latest": "0.142.5",
       "status": "aligned",
       "upstream_sources": {
         "npm @openai/codex": {
-          "version": "0.142.4",
+          "version": "0.142.5",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@openai/codex",
-          "raw_tag": "0.142.4"
+          "raw_tag": "0.142.5"
         },
         "GitHub openai/codex": {
-          "version": "0.142.4",
-          "published_at": "2026-06-29T05:04:25Z",
-          "url": "https://github.com/openai/codex/releases/tag/rust-v0.142.4",
-          "raw_tag": "rust-v0.142.4"
+          "version": "0.142.5",
+          "published_at": "2026-07-01T01:15:44Z",
+          "url": "https://github.com/openai/codex/releases/tag/rust-v0.142.5",
+          "raw_tag": "rust-v0.142.5"
         }
       }
     },
     "codex-vscode": {
-      "pinned": "0.142.4",
-      "upstream_latest": "0.142.4",
+      "pinned": "0.142.5",
+      "upstream_latest": "0.142.5",
       "status": "aligned",
       "upstream_sources": {
         "npm @openai/codex": {
-          "version": "0.142.4",
+          "version": "0.142.5",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@openai/codex",
-          "raw_tag": "0.142.4"
+          "raw_tag": "0.142.5"
         },
         "GitHub openai/codex": {
-          "version": "0.142.4",
-          "published_at": "2026-06-29T05:04:25Z",
-          "url": "https://github.com/openai/codex/releases/tag/rust-v0.142.4",
-          "raw_tag": "rust-v0.142.4"
+          "version": "0.142.5",
+          "published_at": "2026-07-01T01:15:44Z",
+          "url": "https://github.com/openai/codex/releases/tag/rust-v0.142.5",
+          "raw_tag": "rust-v0.142.5"
         }
       }
     },
@@ -87,15 +87,15 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.2.73",
-      "upstream_latest": "0.2.73",
+      "pinned": "0.2.77",
+      "upstream_latest": "0.2.77",
       "status": "aligned",
       "upstream_sources": {
         "npm @xai-official/grok": {
-          "version": "0.2.73",
+          "version": "0.2.77",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@xai-official/grok",
-          "raw_tag": "0.2.73"
+          "raw_tag": "0.2.77"
         }
       }
     },

@@ -6492,7 +6492,7 @@ export default {
         antigravityUserAgentVersionPlaceholder: '2.2.1',
         antigravityUserAgentVersionHint: 'Leave empty to use ANTIGRAVITY_USER_AGENT_VERSION or the built-in default 2.2.1; when set, the admin setting takes precedence.',
         openaiCodexUserAgent: 'OpenAI Codex UA',
-        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.4 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.4)',
+        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.5 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.5)',
         openaiCodexUserAgentHint: 'Fallback Codex User-Agent for OpenAI OAuth upstream requests. Account-level custom UA wins, and real Codex client UA is preserved. Leave empty to use the built-in default.',
         openaiAllowClaudeCodeCodexPlugin: "Allow using the Codex plugin in Claude Code",
         openaiAllowClaudeCodeCodexPluginDesc:

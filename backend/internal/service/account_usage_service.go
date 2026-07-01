@@ -111,7 +111,7 @@ const (
 	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
 	windowStatsCacheTTL     = 1 * time.Minute
 	openAIProbeCacheTTL     = 10 * time.Minute
-	openAICodexProbeVersion = "0.142.4"
+	openAICodexProbeVersion = "0.142.5"
 )
 
 // UsageCache 封装账户使用量相关的缓存
