@@ -1207,6 +1207,7 @@
         "func tkLogAnthropicPromptFingerprint",
         "gateway.anthropic_prompt_fingerprint",
         "tkMaybeLogAnthropicPromptFingerprint",
+        "prompt_surface_classes",
         "surface_signature",
         "reminder_date_line_class"
       ],
@@ -2093,13 +2094,18 @@
     {
       "path": "backend/internal/service/gateway_request_tk_cc_prompt_surface.go",
       "must_contain": [
+        "func tkClassifyCCPromptSurfaceText",
+        "tkCCPromptSurfaceKnownSystem",
+        "tkCCPromptSurfaceSystemReminder",
+        "tkCCPromptSurfaceGenericUserText",
+        "tkCCPromptSurfaceUnknownSystem",
         "func tkNormalizeAnthropicCCPromptSurface",
         "func tkStripCCEnvironmentSection",
         "func tkNormalizeCCUserEmailLine",
         "tkNormalizeChangeCCEnvironmentStrip",
         "tkNormalizeChangeCCUserEmailReplaced"
       ],
-      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment strip + client userEmail replace/strip (OAuth account email when scheduled)."
+      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment strip + client userEmail replace/strip (OAuth account email when scheduled). Classification is load-bearing: known CC system/reminder text may be rewritten; plain user/generic system text must stay untouched; unknown system-shaped drift is observed but not rewritten."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",

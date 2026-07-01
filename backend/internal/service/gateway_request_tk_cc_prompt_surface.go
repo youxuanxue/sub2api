@@ -19,6 +19,17 @@ var (
 	tkCCWireCNTimezoneRE = regexp.MustCompile(`TZ=Asia/(Shanghai|Urumqi)`)
 )
 
+type tkCCPromptSurfaceClass string
+
+const (
+	tkCCPromptSurfaceGenericUserText tkCCPromptSurfaceClass = "generic_user_text"
+	tkCCPromptSurfaceGenericSystem   tkCCPromptSurfaceClass = "generic_system_text"
+	tkCCPromptSurfaceKnownSystem     tkCCPromptSurfaceClass = "known_cc_system"
+	tkCCPromptSurfaceSystemReminder  tkCCPromptSurfaceClass = "cc_system_reminder"
+	tkCCPromptSurfaceDateChange      tkCCPromptSurfaceClass = "cc_date_change_attachment"
+	tkCCPromptSurfaceUnknownSystem   tkCCPromptSurfaceClass = "unknown_system"
+)
+
 func tkNormalizeCCPromptSurfaceText(text, oauthEmail string) (string, bool) {
 	if text == "" {
 		return text, false
@@ -39,16 +50,41 @@ func tkNormalizeCCPromptSurfaceText(text, oauthEmail string) (string, bool) {
 	return text, changed
 }
 
-func tkIsCCSystemReminderText(text string) bool {
-	return strings.Contains(strings.ToLower(text), "<system-reminder>")
-}
-
-func tkIsCCSystemPromptText(text string) bool {
+func tkClassifyCCPromptSurfaceText(text string, inSystem bool) tkCCPromptSurfaceClass {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return tkCCPromptSurfaceGenericUserText
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), "<system-reminder>") {
+		return tkCCPromptSurfaceSystemReminder
+	}
+	if !inSystem {
+		return tkCCPromptSurfaceGenericUserText
+	}
 	if strings.Contains(text, claudeCodeBillingHeaderPrefix) {
-		return true
+		return tkCCPromptSurfaceKnownSystem
 	}
 	id := tkMatchPromptIdentityAnchor(text)
-	return id != tkIdentityAnchorAbsent && id != tkIdentityAnchorUnknown
+	if id != tkIdentityAnchorAbsent && id != tkIdentityAnchorUnknown {
+		return tkCCPromptSurfaceKnownSystem
+	}
+	if tkCCPromptSurfaceTextHasPromptSignal(text) && tkLooksLikePromptIdentityText(text) {
+		return tkCCPromptSurfaceUnknownSystem
+	}
+	return tkCCPromptSurfaceGenericSystem
+}
+
+func tkCCPromptSurfaceClassNormalizes(cls tkCCPromptSurfaceClass) bool {
+	return cls == tkCCPromptSurfaceKnownSystem || cls == tkCCPromptSurfaceSystemReminder
+}
+
+func tkCCPromptSurfaceClassTracksLeaks(cls tkCCPromptSurfaceClass) bool {
+	switch cls {
+	case tkCCPromptSurfaceKnownSystem, tkCCPromptSurfaceSystemReminder, tkCCPromptSurfaceUnknownSystem:
+		return true
+	default:
+		return false
+	}
 }
 
 func tkStripCCEnvironmentSection(text string) (string, bool) {
@@ -159,7 +195,7 @@ func tkNormalizeAnthropicCCPromptSurfaceSystem(body []byte, oauthEmail string) (
 	}
 	switch system.Type {
 	case gjson.String:
-		if !tkIsCCSystemPromptText(system.String()) {
+		if !tkCCPromptSurfaceClassNormalizes(tkClassifyCCPromptSurfaceText(system.String(), true)) {
 			return body, false
 		}
 		newText, ok := tkNormalizeCCPromptSurfaceText(system.String(), oauthEmail)
@@ -182,7 +218,7 @@ func tkNormalizeAnthropicCCPromptSurfaceSystem(body []byte, oauthEmail string) (
 				continue
 			}
 			text := item.Get("text").String()
-			if !tkIsCCSystemPromptText(text) {
+			if !tkCCPromptSurfaceClassNormalizes(tkClassifyCCPromptSurfaceText(text, true)) {
 				continue
 			}
 			newText, ok := tkNormalizeCCPromptSurfaceText(text, oauthEmail)
@@ -214,7 +250,7 @@ func tkNormalizeAnthropicCCPromptSurfaceMessages(body []byte, oauthEmail string)
 		content := msg.Get("content")
 		switch content.Type {
 		case gjson.String:
-			if !tkIsCCSystemReminderText(content.String()) {
+			if !tkCCPromptSurfaceClassNormalizes(tkClassifyCCPromptSurfaceText(content.String(), false)) {
 				continue
 			}
 			newText, ok := tkNormalizeCCPromptSurfaceText(content.String(), oauthEmail)
@@ -235,7 +271,7 @@ func tkNormalizeAnthropicCCPromptSurfaceMessages(body []byte, oauthEmail string)
 			for ci, block := range content.Array() {
 				if block.Get("type").String() == "text" {
 					text := block.Get("text").String()
-					if tkIsCCSystemReminderText(text) {
+					if tkCCPromptSurfaceClassNormalizes(tkClassifyCCPromptSurfaceText(text, false)) {
 						newText, ok := tkNormalizeCCPromptSurfaceText(text, oauthEmail)
 						if ok {
 							path := fmt.Sprintf("messages.%d.content.%d.text", mi, ci)
@@ -265,35 +301,184 @@ func tkNormalizeAnthropicCCPromptSurfaceMessages(body []byte, oauthEmail string)
 }
 
 func tkWireStillHasCCPromptSurfaceLeaks(body []byte) bool {
+	return len(tkCCPromptSurfaceBodyUnknownSurfaces(body)) > 0
+}
+
+func tkCCPromptSurfaceBodyUnknownSurfaces(body []byte) []string {
 	if len(body) == 0 {
-		return false
+		return nil
 	}
-	if tkWireStillHasCCGeoStegoDateSignals(body) {
+	var surfaces []string
+	collectText := func(text string, inSystem bool) {
+		cls := tkClassifyCCPromptSurfaceText(text, inSystem)
+		if !tkCCPromptSurfaceClassTracksLeaks(cls) {
+			return
+		}
+		for _, surface := range tkCCPromptSurfaceTextUnknownSurfaces(text) {
+			surfaces = appendUniqueString(surfaces, surface)
+		}
+	}
+
+	system := gjson.GetBytes(body, "system")
+	switch system.Type {
+	case gjson.String:
+		collectText(system.String(), true)
+	case gjson.JSON:
+		if system.IsArray() {
+			for _, item := range system.Array() {
+				if item.Get("type").String() == "text" {
+					collectText(item.Get("text").String(), true)
+				}
+			}
+		}
+	}
+
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.IsArray() {
+		return surfaces
+	}
+	for _, msg := range messages.Array() {
+		content := msg.Get("content")
+		switch content.Type {
+		case gjson.String:
+			collectText(content.String(), false)
+		case gjson.JSON:
+			if !content.IsArray() {
+				continue
+			}
+			for _, block := range content.Array() {
+				if block.Get("type").String() == "text" {
+					collectText(block.Get("text").String(), false)
+				}
+				if block.Get("attachment.type").String() == "date_change" {
+					for _, surface := range tkCCPromptSurfaceDateChangeUnknownSurfaces(block.Get("attachment.newDate").String()) {
+						surfaces = appendUniqueString(surfaces, surface)
+					}
+				}
+			}
+		}
+	}
+	return surfaces
+}
+
+func tkCCPromptSurfaceTextUnknownSurfaces(text string) []string {
+	var surfaces []string
+	dateClass := tkClassifyGeoStegoDateLine(text)
+	if dateClass != "NONE" && dateClass != "ISO_DASH_ASCII" {
+		surfaces = appendUniqueString(surfaces, "geo_stego_date_line")
+	}
+	if strings.Contains(text, "# Environment") || tkCCWireCNTimezoneRE.MatchString(text) {
+		surfaces = appendUniqueString(surfaces, "cc_environment_section")
+	}
+	return surfaces
+}
+
+func tkCCPromptSurfaceTextHasPromptSignal(text string) bool {
+	if len(tkCCPromptSurfaceTextUnknownSurfaces(text)) > 0 {
 		return true
 	}
-	s := string(body)
-	if strings.Contains(s, "# Environment") {
-		return true
+	return strings.Contains(text, "The user's email address is")
+}
+
+func tkLooksLikePromptIdentityText(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		return strings.HasPrefix(trimmed, "You are ")
 	}
-	return tkCCWireCNTimezoneRE.MatchString(s)
+	return false
+}
+
+func tkCCPromptSurfaceDateChangeUnknownSurfaces(date string) []string {
+	switch tkClassifyGeoStegoDateToken(date) {
+	case "NONE", "ISO_DASH_ASCII":
+		return nil
+	default:
+		return []string{"geo_stego_date_line"}
+	}
+}
+
+func tkCCPromptSurfaceBodyUserEmailLine(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	found := ""
+	collectText := func(text string, inSystem bool) {
+		if found != "" {
+			return
+		}
+		cls := tkClassifyCCPromptSurfaceText(text, inSystem)
+		if !tkCCPromptSurfaceClassNormalizes(cls) {
+			return
+		}
+		found = tkCCUserEmailLineRE.FindString(text)
+	}
+
+	system := gjson.GetBytes(body, "system")
+	switch system.Type {
+	case gjson.String:
+		collectText(system.String(), true)
+	case gjson.JSON:
+		if system.IsArray() {
+			for _, item := range system.Array() {
+				if item.Get("type").String() == "text" {
+					collectText(item.Get("text").String(), true)
+				}
+			}
+		}
+	}
+
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.IsArray() {
+		return found
+	}
+	for _, msg := range messages.Array() {
+		content := msg.Get("content")
+		switch content.Type {
+		case gjson.String:
+			collectText(content.String(), false)
+		case gjson.JSON:
+			if !content.IsArray() {
+				continue
+			}
+			for _, block := range content.Array() {
+				if block.Get("type").String() == "text" {
+					collectText(block.Get("text").String(), false)
+				}
+			}
+		}
+	}
+	return found
 }
 
 func tkAnthropicCCPromptSurfaceChanges(before, after []byte) []tkAnthropicNormalizeChange {
 	if len(before) == 0 || len(after) == 0 || string(before) == string(after) {
 		return nil
 	}
-	beforeS, afterS := string(before), string(after)
 	var changes []tkAnthropicNormalizeChange
-	if tkWireStillHasCCGeoStegoDateSignals(before) && !tkWireStillHasCCGeoStegoDateSignals(after) {
+	beforeUnknown := tkCCPromptSurfaceBodyUnknownSurfaces(before)
+	afterUnknown := tkCCPromptSurfaceBodyUnknownSurfaces(after)
+	if stringSliceContains(beforeUnknown, "geo_stego_date_line") && !stringSliceContains(afterUnknown, "geo_stego_date_line") {
 		changes = append(changes, tkNormalizeChangeCCGeoStego)
 	}
-	if strings.Contains(beforeS, "# Environment") && !strings.Contains(afterS, "# Environment") {
+	if stringSliceContains(beforeUnknown, "cc_environment_section") && !stringSliceContains(afterUnknown, "cc_environment_section") {
 		changes = append(changes, tkNormalizeChangeCCEnvironmentStrip)
 	}
-	beforeEmail := tkCCUserEmailLineRE.FindString(beforeS)
-	afterEmail := tkCCUserEmailLineRE.FindString(afterS)
+	beforeEmail := tkCCPromptSurfaceBodyUserEmailLine(before)
+	afterEmail := tkCCPromptSurfaceBodyUserEmailLine(after)
 	if beforeEmail != "" && beforeEmail != afterEmail {
 		changes = append(changes, tkNormalizeChangeCCUserEmailReplaced)
 	}
 	return changes
+}
+
+func stringSliceContains(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
