@@ -37,6 +37,10 @@ const (
 	chatgptCodexAPIURL     = "https://chatgpt.com/backend-api/codex/responses"
 	defaultGrokTestModelID = "grok-4.3"
 	GrokDefaultTestModelID = defaultGrokTestModelID
+	// Antigravity serves gemini only (AntigravityConfigReconciler); claude-* probes
+	// fail mapAntigravityModel whitelist on reconciled accounts.
+	defaultAntigravityTestModelID = "gemini-3-flash"
+	AntigravityDefaultTestModelID = defaultAntigravityTestModelID
 )
 
 // TestEvent represents a SSE event for account testing
@@ -1069,10 +1073,9 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
 
-	// 默认模型：Claude 使用 claude-sonnet-4-5，Gemini 使用 gemini-3-pro-preview
 	testModelID := modelID
 	if testModelID == "" {
-		testModelID = "claude-sonnet-4-5"
+		testModelID = AntigravityDefaultTestModelID
 	}
 
 	if s.antigravityGatewayService == nil {

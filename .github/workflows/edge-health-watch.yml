@@ -10,7 +10,8 @@ name: Edge Health Watch
 # Read-only: GHA -> AWS STS (OIDC) -> SSM `docker logs` + `psql SELECT` via
 # scan-edge-health.sh. Never deploys, writes config, edits secrets, or mutates AWS.
 # The ONLY outbound side effect is a Feishu text post when the actionable edge set
-# (down/degraded/unreachable) CHANGES vs the previous run. Posture (thin/no-accounts) is
+# (degraded / active-down / unreachable / parse-error) CHANGES vs the previous run.
+# Leading `down` (pool empty, zero 429 yet) is not paged. Posture (thin/no-accounts) is
 # not paged; recovery posts a green all-clear.
 #
 # Cadence caveat: GitHub scheduled workflows are best-effort and can run late or skip

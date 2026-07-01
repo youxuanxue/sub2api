@@ -2068,10 +2068,9 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Antigravity accounts: return Claude + Gemini models
+	// Handle Antigravity accounts: gemini-only servable set (same SSOT as /antigravity/models).
 	if account.Platform == service.PlatformAntigravity {
-		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
+		response.Success(c, tkAntigravityAdminDefaultModels(c.Request.Context(), account))
 		return
 	}
 
@@ -2209,6 +2208,39 @@ func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
 
 func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
 	return geminicli.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil))
+}
+
+// tkAntigravityAdminDefaultModels returns admin account-test models from the unified
+// antigravity servable set, intersected with the account whitelist (mapAntigravityModel).
+// Matches gateway tkAntigravityDefaultModels — not antigravity.DefaultModels() (legacy claude rows).
+func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Account) []antigravity.ClaudeModel {
+	defaults := antigravity.DefaultModels()
+	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
+	for _, m := range defaults {
+		byID[m.ID] = m
+	}
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
+	sort.SliceStable(ids, func(i, j int) bool {
+		if ids[i] == service.AntigravityDefaultTestModelID {
+			return true
+		}
+		if ids[j] == service.AntigravityDefaultTestModelID {
+			return false
+		}
+		return ids[i] < ids[j]
+	})
+	out := make([]antigravity.ClaudeModel, 0, len(ids))
+	for _, id := range ids {
+		if account != nil && service.MapAntigravityModel(account, id) == "" {
+			continue
+		}
+		if m, ok := byID[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, antigravity.ClaudeModel{ID: id, Type: "model", DisplayName: id})
+	}
+	return out
 }
 
 func tkClaudeAdminDefaultModels(ctx context.Context) []claude.Model {
