@@ -70,9 +70,13 @@ func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalog
 		return nil, false
 	}
 	for i := range resp.Data {
-		if resp.Data[i].ModelID == id {
-			return &resp.Data[i], true
+		if resp.Data[i].ModelID != id {
+			continue
 		}
+		if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, id) {
+			return nil, false
+		}
+		return &resp.Data[i], true
 	}
 	if tail, ok := stripVendorPrefixForCatalogLookup(id); ok {
 		allowPrefix := strings.Contains(tail, "-")
@@ -80,9 +84,15 @@ func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalog
 		for i := range resp.Data {
 			mid := resp.Data[i].ModelID
 			if mid == tail {
+				if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, mid) {
+					continue
+				}
 				return &resp.Data[i], true
 			}
 			if allowPrefix && strings.HasPrefix(mid, prefix) {
+				if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, mid) {
+					continue
+				}
 				return &resp.Data[i], true
 			}
 		}

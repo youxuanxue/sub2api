@@ -263,6 +263,7 @@
       "must_contain": [
         "MePricingAccountSource",
         "fillAccountFallback",
+        "newapiManifestAllow",
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],

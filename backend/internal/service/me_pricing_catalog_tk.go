@@ -754,6 +754,12 @@ func (s *MePricingCatalogService) fillAccountFallback(
 			}
 		}
 	}
+	var newapiManifestAllow map[string]struct{}
+	if targetGroup.Platform == PlatformNewAPI {
+		if ids := loadTkServedModelsManifestIDs(); len(ids) > 0 {
+			newapiManifestAllow = ids
+		}
+	}
 	for i := range accounts {
 		a := &accounts[i]
 		if !accountInGroupScope(a, targetGroup.Platform) {
@@ -763,6 +769,11 @@ func (s *MePricingCatalogService) fillAccountFallback(
 			for _, modelID := range parseWhitelistFromCredentials(a.Credentials) {
 				if restrictedDisplayAllow != nil {
 					if _, ok := restrictedDisplayAllow[modelID]; !ok {
+						continue
+					}
+				}
+				if newapiManifestAllow != nil {
+					if _, ok := newapiManifestAllow[modelID]; !ok {
 						continue
 					}
 				}

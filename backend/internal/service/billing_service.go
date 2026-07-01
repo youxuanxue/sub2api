@@ -464,11 +464,6 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.22e-6,
 		SupportsCacheBreakdown: false,
 	}
-	s.fallbackPrices["glm-4-32b-0414-128k"] = &ModelPricing{
-		InputPricePerToken:     0.1e-6, // $0.10 per MTok
-		OutputPricePerToken:    0.1e-6,
-		SupportsCacheBreakdown: false,
-	}
 	// GLM-4.5-Flash / GLM-4.7-Flash 在 z.ai 上为 Free，保留 zero-cost entry 防止未知 alias 误计费。
 	s.fallbackPrices["glm-4.5-flash"] = &ModelPricing{
 		InputPricePerToken:     0,
@@ -701,9 +696,6 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "glm-4.5") {
 		return s.fallbackPrices["glm-4.5"]
-	}
-	if strings.Contains(modelLower, "glm-4-32b") {
-		return s.fallbackPrices["glm-4-32b-0414-128k"]
 	}
 
 	// 月之暗面 Kimi（kimi-k2.6 / kimi-for-coding / kimi-k2.5 / kimi-k2-thinking / kimi-k2）

@@ -49,7 +49,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 | 2 | `openai` | OpenAI / Codex OAuth | 原生；GPT 专线 key | Go `supportedOpenAICatalogModels`（硬闸）|
 | 3 | `gemini` | Google Vertex AI | 原生；media 经 Vertex ch41 | Go `supportedGeminiCatalogModels`（空则透传）|
 | 4 | `antigravity` | Google cloudcode-pa OAuth | 原生中继；**仅服务 gemini**（claude 路由到 anthropic，gpt-oss 排除）| Go `supportedAntigravityCatalogModels`（空则透传）|
-| 5 | `newapi` | 各 channel 上游（Ali/DeepSeek/VolcEngine/…）| OpenAI 兼容网关 + new-api 适配器（`channel_type>0`）| 账号 `credentials.model_mapping` 白名单 + `tk_served_models.json` 清单（**无 Go map**，靠价格存在透传）|
+| 5 | `newapi` | 各 channel 上游（Ali/DeepSeek/VolcEngine/…）| OpenAI 兼容网关 + new-api 适配器（`channel_type>0`）| 账号 `credentials.model_mapping` 白名单 + `tk_served_models.json` 清单（**展示/IsModelPriced 均 manifest 硬闸**）|
 | 6 | `kiro` | AWS CodeWhisperer | prod→edge anthropic apikey 中继；镜像进 claude 组 | 中继 claude id（无自有目录）|
 | 7 | `grok` | xAI（SuperGrok Heavy OAuth）| 原生 OAuth 中继；chat/image/video 全臂 | Go `supportedGrokCatalogModels`（空则透传）|
 
@@ -57,7 +57,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 
 - **SERVABLE**：网关能真拿到 200。判定方式按平台不同：原生显示平台是 Go 硬 allowlist；newapi 是 per-account `model_mapping` identity 白名单（空 mapping = 该账号 catch-all 放行全渠道）；kiro 与 grok 原生臂是纯透传中继。
 - **PRICED**：在 litellm 运行时镜像或 `tk_pricing_overlay.json` 有非零价。`price_source ∈ {overlay, mirror, channel, none}`。`none` = 计 `$0`（chat 会 P0 告警；media 会被 400 守卫拦下）。
-- **DISPLAYED**：是否进 `GET /api/v1/public/pricing`，由 `isPublicCatalogModelSupported` 决定（`pricing_catalog_supported_models_tk.go`）。
+- **DISPLAYED**：是否进 `GET /api/v1/public/pricing` 与 `IsModelPriced` 会员资格，由 `isPublicCatalogModelSupported` / `isTkCuratedNewAPICatalogRowListed` 决定（native 平台用 Go allowlist；newapi 用 manifest）。
 - **ADVERTISED**：是否在某平台 `DefaultModels`（喂网关 `/v1/models` 与「我的菜单」）。**与可服务正交**——可服务未必广告（如 `claude-opus-4-1`），广告未必可服务（`advertised_dead`）。
 
 ### 1.3 公开目录闸门逻辑（`isPublicCatalogModelSupported`）
@@ -65,7 +65,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 ```
 anthropic / openai → 硬闸：只放 allowlist 内的 id（map 永不为空）
 gemini / antigravity / grok → 软闸：map 为空时透传（不收窄，零回归）；非空则像 claude/gpt 一样收窄
-newapi（dashscope/deepseek/volcengine vendor）→ inferPlatformFromVendor 不识别 → default-true 透传，靠「价格存在」隐式收窄
+newapi long-tail（dashscope / deepseek / volcengine / zhipu vendor）→ **manifest 硬闸**：只放 `tk_served_models.json` 内的 id；runtime servable 白名单 = 账号 `model_mapping`（必须与 manifest 一致，`catalog-serving-drift.py` A3）
 ```
 
 > 推论：**`DefaultModels`（/v1/models 来源）与 /pricing storefront 用的是两套闸**——前者按 `IsModelPriced`（全镜像），后者按 servable-allowlist。两者不一致正是 `advertised_dead` 类缺口的根因。
@@ -189,7 +189,7 @@ overlay `litellm_provider="volcengine"` 共 28 条；`tk_served_models.json` 当
 | image | `doubao-seedream-4-0-250828`（no-prefix `seedream-4-0-250828` 只是 parity 计费键，不进 manifest）|
 | video | `doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`（no-prefix `seedance-1-0-pro-*` 只是 parity 计费键）；`failure_billing=success_only` |
 
-> `deepseek-v3-2-251201` 在 overlay 标 volcengine 但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价）；其 servable 家在 DeepSeek 直连（账号 39）。volcengine 标签价是无害残留。`doubao-seed-translation-250915` 虽在 tk_020 mapping 与 overlay 中，但 2026-06-23 两次 direct Ark `/api/v3/chat/completions` 复测均为 400 inconclusive，本轮不进 manifest/正面清单。
+> `deepseek-v3-2-251201` 曾出现在 litellm mirror / overlay，但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价），也 **不在 manifest**；2026-07-01 已从 overlay 移除以对齐 SSOT（定价=服务=展示均以 manifest 为准）。其 servable 家应在 DeepSeek 直连（账号 39），待正式 onboarding 后再进 manifest。
 
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。
@@ -202,10 +202,11 @@ tk_044 把 GLM 从 legacy ct16 Zhipu v3 迁到 ct26 ZhipuV4/OpenAI-compatible，
 glm-5.2  glm-5.1  glm-5  glm-5-turbo
 glm-4.7  glm-4.7-flashx  glm-4.6
 glm-4.5  glm-4.5-x  glm-4.5-air  glm-4.5-airx
-glm-4-32b-0414-128k
 ```
 
-free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。prod canary 已于 2026-06-22 完成：runtime overlay 热推后，account 67 切到 ct26、`base_url=https://open.bigmodel.cn`、12 个 paid mapping；`ZHIPU_CHAT_MODELS=glm-4.7` 经 prod 网关返回 `200 servable`，`usage_logs` 落 account 67 / group 26 且 `total_cost=0.0004964000` 非零。
+`glm-4-32b-0414-128k` 已于 2026-07-01 从 manifest / overlay / account 67 mapping 移除：prod 上游 400 model_not_found，不再服务也不再展示。
+
+free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。prod canary 已于 2026-06-22 完成：runtime overlay 热推后，account 67 切到 ct26、`base_url=https://open.bigmodel.cn`、11 个 paid mapping；`ZHIPU_CHAT_MODELS=glm-4.7` 经 prod 网关返回 `200 servable`，`usage_logs` 落 account 67 / group 26 且 `total_cost=0.0004964000` 非零。
 
 ### 2.7 kiro（第六平台，CodeWhisperer 中继）
 
@@ -227,7 +228,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
-| `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low、deepseek-v3-2 | 低 | Gemini media 2026-06-23 复测 429，留 watchlist；deepseek-v3-2 是 VolcEngine 价残留，账号 7 不服务 |
+| `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low | 低 | Gemini media 2026-06-23 复测 429，留 watchlist |
 | `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 mapping + overlay 已有，但 2026-06-23 direct Ark 两次 400 inconclusive；不进 manifest，留 watchlist |
 | `priced_not_served` | newapi(qwen) | qwen2.5-coder-* | 中 | 抑制 parity 行的展示，或在账号 60 真 mapping；qwen3.7-max preview/dated 已由 2026-06-23 prod mapping + livefire 证实可服务 |
 | `dated_dup` | anthropic/grok/volcengine | claude bare↔dated、grok-imagine-image-pro、no-prefix seedream/seedance | 低 | anthropic 已由 override 机制处理；其余被 media 守卫/上游 404 收口 |

@@ -910,10 +910,11 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "newapi-pro", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "newapi-key", ptrI(50))
 	bad := mkAccountWithWhitelist(11, "incomplete-newapi", "newapi", 0, []string{"gemini-2.5-pro"})
-	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", 31, []string{"qwen-3-max"})
+	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", 31, []string{"qwen-plus"})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
 			mkPublicCatalogModel("gemini-2.5-pro", "Google", 0.00125, 0.005, 0),
+			mkPublicCatalogModel("qwen-plus", "Alibaba", 0.0012, 0.0024, 0),
 			mkPublicCatalogModel("qwen-3-max", "Alibaba", 0.0012, 0.0024, 0),
 		},
 	}
@@ -926,8 +927,8 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Len(t, resp.Models, 1, "channel_type=0 newapi account must be filtered out (no adaptor target)")
-	assert.Equal(t, "qwen-3-max", resp.Models[0].ModelID,
-		"only the channel_type>0 newapi account surfaces — matches scheduler IsOpenAICompatPoolMember")
+	assert.Equal(t, "qwen-plus", resp.Models[0].ModelID,
+		"only manifest-listed newapi whitelist models surface in Group Catalog")
 }
 
 // ----- platform-default fallback (unrestricted native OAuth accounts) -----

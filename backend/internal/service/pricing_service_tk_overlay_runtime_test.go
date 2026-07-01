@@ -175,8 +175,11 @@ func TestCatalogInvalidateCache_PicksUpHotOverlay(t *testing.T) {
 	if has(cat.BuildPublicCatalog(context.Background())) {
 		t.Fatalf("setup: %s should not exist before hot-push", hot)
 	}
-	// Hot-push: add the model to the runtime union.
-	rebuildTKOverlayUnion([]byte(`{"` + hot + `":{"input_cost_per_token":3e-06,"output_cost_per_token":6e-06,"litellm_provider":"dashscope","mode":"chat"}}`))
+	// Hot-push: add the model to the runtime union. Use openai vendor so the
+	// newapi long-tail manifest gate (dashscope/alibaba/etc.) does not block this
+	// overlay-runtime regression — this test is about mtime cache + InvalidateCache,
+	// not manifest membership.
+	rebuildTKOverlayUnion([]byte(`{"` + hot + `":{"input_cost_per_token":3e-06,"output_cost_per_token":6e-06,"litellm_provider":"openai","mode":"chat"}}`))
 
 	// Same mtime → still cached, the trap: new model NOT visible.
 	if has(cat.BuildPublicCatalog(context.Background())) {

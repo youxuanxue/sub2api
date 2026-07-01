@@ -122,16 +122,15 @@ func TestTKPricingOverlay_FillsGeminiProAgent(t *testing.T) {
 }
 
 // TestTKPricingOverlay_ZeroPlaceholderIsReplaced verifies the absent-or-zero fill:
-// a source entry whose every cost field is 0.0 (litellm's "cost unknown" shape —
-// the exact prod state of deepseek-v3-2-251201 under volcengine, which billed 683
-// requests at $0 through 2026-06-10) must NOT shadow the curated overlay price.
+// a source entry whose every cost field is 0.0 (litellm's "cost unknown" shape)
+// must NOT shadow a curated overlay price for a manifest-listed model.
 func TestTKPricingOverlay_ZeroPlaceholderIsReplaced(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
-		"deepseek-v3-2-251201": {
+		"deepseek-v4-pro": {
 			"input_cost_per_token": 0.0,
 			"output_cost_per_token": 0.0,
-			"litellm_provider": "volcengine",
+			"litellm_provider": "deepseek",
 			"mode": "chat"
 		}
 	}`)
@@ -139,13 +138,12 @@ func TestTKPricingOverlay_ZeroPlaceholderIsReplaced(t *testing.T) {
 	data, err := svc.parsePricingData(body)
 	require.NoError(t, err)
 
-	v32 := data["deepseek-v3-2-251201"]
-	require.NotNil(t, v32)
-	// Ark official ¥/M ÷ CNY-USD 6.7 (in ¥2/M, out ¥3/M, cache-hit ¥0.4/M).
-	require.InDelta(t, 2.0/6.7e6, v32.InputCostPerToken, 1e-15,
-		"zero placeholder must be replaced by the overlay Ark price")
-	require.InDelta(t, 3.0/6.7e6, v32.OutputCostPerToken, 1e-15)
-	require.InDelta(t, 0.4/6.7e6, v32.CacheReadInputTokenCost, 1e-15)
+	pro := data["deepseek-v4-pro"]
+	require.NotNil(t, pro)
+	require.InDelta(t, 4.35e-7, pro.InputCostPerToken, 1e-15,
+		"zero placeholder must be replaced by the overlay deepseek-v4-pro price")
+	require.InDelta(t, 8.7e-7, pro.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 3.625e-9, pro.CacheReadInputTokenCost, 1e-15)
 }
 
 // TestTKIsEffectivelyUnpriced pins the predicate: zero-everything (and nil) are

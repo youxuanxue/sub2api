@@ -1,5 +1,5 @@
 {
-  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated single-account groups, the GLM direct account 67 ZhipuV4 chat family, plus the volcengine account 7 Ark family (channel_type 45: doubao chat, seedream image, seedance video) that is explicitly mapped and priced. NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by this manifest's newapi model_mapping intent). Consumers: drift guard (now), tokenkey-onboard-model skill (now), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated single-account groups, the GLM direct account 67 ZhipuV4 chat family, plus the volcengine account 7 Ark family (channel_type 45: doubao chat, seedream image, seedance video) that is explicitly mapped and priced. NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by this manifest's newapi model_mapping intent). Consumers: drift guard (now), tokenkey-onboard-model skill (now), public /pricing + Group Catalog presentation filter (tk_served_models_manifest_tk.go), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
   "_schema": {
     "version": 1,
     "entry_key": "<platform>/<model_id>",
@@ -672,18 +672,6 @@
       "channel_type": 26,
       "price_source": "overlay",
       "price_key": "glm-4.5-airx",
-      "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
-    },
-    "newapi/glm-4-32b-0414-128k": {
-      "platform": "newapi",
-      "model_id": "glm-4-32b-0414-128k",
-      "served_on": [
-        "67"
-      ],
-      "channel_type": 26,
-      "price_source": "overlay",
-      "price_key": "glm-4-32b-0414-128k",
       "display": false,
       "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
     }

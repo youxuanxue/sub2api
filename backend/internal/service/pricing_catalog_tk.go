@@ -357,6 +357,9 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 		if p == nil {
 			continue
 		}
+		if isNewAPILongTailCatalogVendor(p.LiteLLMProvider) && !isTkCuratedNewAPIModelListed(name) {
+			continue
+		}
 		isMedia := p.OutputCostPerImage > 0 || p.OutputCostPerSecond > 0
 		if p.InputCostPerToken == 0 && p.OutputCostPerToken == 0 && !isMedia {
 			continue

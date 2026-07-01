@@ -206,6 +206,13 @@ var supportedGrokCatalogModels = map[string]struct{}{
 // vertex_ai-style provider strings map consistently with the availability
 // decoration path.
 func isPublicCatalogModelSupported(vendor, modelID string) bool {
+	// Fifth-platform newapi long-tail: only manifest-listed models may appear on
+	// /pricing. Unlisted newapi long-tail residue is excluded from BuildPublicCatalog
+	// overlay fill and from IsModelPriced membership; native platforms use their
+	// empirical allowlists below.
+	if isNewAPILongTailCatalogVendor(vendor) {
+		return isTkCuratedNewAPICatalogRowListed(vendor, modelID)
+	}
 	switch inferPlatformFromVendor(vendor) {
 	case PlatformAnthropic:
 		_, ok := supportedAnthropicCatalogModels[modelID]
@@ -246,8 +253,9 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 }
 
 // FilterPublicCatalogToServable returns a shallow copy of resp with the
-// claude + gpt rows narrowed to the empirically-servable allowlists; every
-// other vendor's rows pass through unchanged.
+// claude + gpt rows narrowed to the empirically-servable allowlists, the
+// newapi long-tail rows narrowed to tk_served_models.json, and every other
+// vendor's rows pass through unchanged.
 //
 // This is the PRESENTATION-layer filter for GET /api/v1/public/pricing ONLY.
 // It deliberately does NOT live inside BuildPublicCatalog / buildCatalogFromBytes,
