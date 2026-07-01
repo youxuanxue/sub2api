@@ -987,7 +987,7 @@ type ApplyOAuthCredentialsRequest struct {
 // 与通用 PUT /:id (Update) 接口的关键区别：
 //   - 仅接收 type / credentials / extra 三个字段（不接受 concurrency / rpm / quota_* 等可能误传的字段）
 //   - Extra 走 UpdateAccountExtra(JSONB key 级合并)，**绝不**全量覆盖；
-//     避免 base_rpm / window_cost_limit / max_sessions / quota_* / privacy_mode
+//     避免 base_rpm / max_sessions / quota_* / privacy_mode
 //     等持久化配置在重新授权后丢失
 //   - 内置 ClearError + InvalidateToken，避免前端额外两次调用，
 //     并修复旧路径未失效 token 缓存导致重新授权后立即 401 的隐性 bug
@@ -1029,7 +1029,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		return
 	}
 
-	// 增量合并 Extra（JSONB key 级 merge，绝不覆盖 base_rpm / window_cost_limit /
+	// 增量合并 Extra（JSONB key 级 merge，绝不覆盖 base_rpm / max_sessions /
 	// max_sessions / quota_* / privacy_mode 等持久化键）。
 	// best-effort：失败仅记日志；下方 ClearAccountError 会从 DB 重新读取最新 account，
 	// 因此响应里的 extra 始终以 DB 为准——这里不需要手动维护内存快照。

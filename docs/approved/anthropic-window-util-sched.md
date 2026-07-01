@@ -1,11 +1,12 @@
 ---
 title: Anthropic/Codex upstream window-util soft scheduling
-status: pending
-approved_by: pending
+status: approved
+approved_by: xuejiao
+approved_at: 2026-07-01
 authors: [agent]
 created: 2026-07-01
-related_prs: []
-related_commits: []
+related_prs: [1110]
+related_commits: [4bda1fa8b, 932138281, 09ac31d2e]
 ---
 
 # Anthropic/Codex upstream window-util soft scheduling

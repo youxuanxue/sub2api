@@ -210,7 +210,7 @@ export async function refreshCredentials(id: number): Promise<Account> {
  *
  * Unlike `update()`, this endpoint:
  * - never overwrites the whole `extra` JSONB (merges incrementally instead),
- *   so persistent settings like `base_rpm`, `window_cost_limit`, `max_sessions`,
+ *   so persistent settings like `base_rpm`, `max_sessions`,
  *   `quota_*` and `privacy_mode` are preserved
  * - clears the account error and invalidates the token cache server-side
  */
