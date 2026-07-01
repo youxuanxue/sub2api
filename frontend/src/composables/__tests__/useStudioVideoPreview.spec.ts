@@ -45,10 +45,12 @@ describe('useStudioVideoPreview', () => {
     expect(preview.rawUrl.value).toBe('https://cdn.example/clip.mp4')
   })
 
-  it('copyPreviewLink writes raw upstream url even when playback uses blob', async () => {
+  it('copyPreviewLink downloads inline Veo clips instead of copying data: URI', async () => {
     const writeText = vi.fn(async () => undefined)
+    const onInlineCopyUnsupported = vi.fn()
+    const downloadSpy = vi.spyOn(studioDownload, 'downloadMedia')
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
-    const preview = useStudioVideoPreview()
+    const preview = useStudioVideoPreview({ onInlineCopyUnsupported })
     preview.openPreview({
       url: 'data:video/mp4;base64,QUFB',
       label: 'Veo 3.1',
@@ -56,7 +58,10 @@ describe('useStudioVideoPreview', () => {
       taskId: 'vt_blob',
     })
     await preview.copyPreviewLink()
-    expect(writeText).toHaveBeenCalledWith('data:video/mp4;base64,QUFB')
+    expect(writeText).not.toHaveBeenCalled()
+    expect(onInlineCopyUnsupported).toHaveBeenCalled()
+    expect(downloadSpy).toHaveBeenCalledWith('data:video/mp4;base64,QUFB', 'tokenkey-preview.mp4')
+    downloadSpy.mockRestore()
     vi.unstubAllGlobals()
   })
 
