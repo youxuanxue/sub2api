@@ -10,12 +10,6 @@ on:
     - cron: "3 23 * * *"
   workflow_dispatch:
     inputs:
-      with_prod:
-        description: "Also aggregate prod gateway fingerprint logs via SSM (always true on schedule)"
-        required: false
-        default: "false"
-        type: choice
-        options: ["false", "true"]
       since:
         description: "docker logs --since for prod fingerprint probe"
         required: false
@@ -105,7 +99,7 @@ jobs:
 
   prod-aggregate:
     needs: registry-gate
-    if: always() && needs.registry-gate.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.with_prod == 'true'))
+    if: always() && needs.registry-gate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
