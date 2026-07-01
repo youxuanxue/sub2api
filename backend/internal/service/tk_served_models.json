@@ -547,37 +547,43 @@
       "platform": "newapi",
       "model_id": "glm-5.2",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay from DashScope China-mainland Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",
       "model_id": "glm-5.1",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5.1",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay tiered ≤32K/200K from DashScope Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01."
     },
     "newapi/glm-5": {
       "platform": "newapi",
       "model_id": "glm-5",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay tiered ≤32K/198K from DashScope Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01."
     },
     "newapi/glm-5-turbo": {
       "platform": "newapi",
@@ -595,13 +601,15 @@
       "platform": "newapi",
       "model_id": "glm-4.7",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-4.7",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay tiered ≤32K/166K from DashScope Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01."
     },
     "newapi/glm-4.7-flashx": {
       "platform": "newapi",
@@ -619,25 +627,29 @@
       "platform": "newapi",
       "model_id": "glm-4.6",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-4.6",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay tiered ≤32K/166K from DashScope Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01."
     },
     "newapi/glm-4.5": {
       "platform": "newapi",
       "model_id": "glm-4.5",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-4.5",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22. Excludes free glm-4.5-flash so no zero-price model becomes visible."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay tiered ≤32K/96K from DashScope Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01. Excludes free glm-4.5-flash so no zero-price model becomes visible."
     },
     "newapi/glm-4.5-x": {
       "platform": "newapi",
@@ -655,13 +667,15 @@
       "platform": "newapi",
       "model_id": "glm-4.5-air",
       "served_on": [
+        "60",
+        "72",
         "67"
       ],
-      "channel_type": 26,
+      "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-4.5-air",
       "display": false,
-      "notes": "GLM account 67. Direct Z.AI / open.bigmodel.cn ZhipuV4 chat SKU, mapped by tk_044. Official paid price in overlay from docs.z.ai captured 2026-06-22."
+      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60) + GLM account 67 ZhipuV4 direct (tk_044). Overlay tiered ≤32K/96K from DashScope Beijing list ÷ 6.7, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01."
     },
     "newapi/glm-4.5-airx": {
       "platform": "newapi",

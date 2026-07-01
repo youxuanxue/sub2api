@@ -1137,28 +1137,53 @@
     "source": "TK proxy fill — qwen2.5-coder-7b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-flash. Alibaba DashScope qwen3-coder-flash China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥1/¥4, 32K<=128K ¥1.5/¥6, 128K<=256K ¥2.5/¥10, 256K<=1M ¥5/¥25 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "glm-5.2": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 1.4e-06,
-    "output_cost_per_token": 4.4e-06,
-    "cache_read_input_token_cost": 2.6e-07,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-5.2 input $1.40/Mtok, cached input $0.26/Mtok, output $4.40/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 1.1940298507462686e-06,
+    "output_cost_per_token": 4.1791044776119403e-06,
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-5.2 in ¥8/M, out ¥28/M (thinking+answer same rate); CNY/USD=6.7. Served on Qwen account 60 (DashScope ch17, tk_054) and GLM account 67 (ZhipuV4 ch26, tk_044)."
   },
   "glm-5.1": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 1.4e-06,
-    "output_cost_per_token": 4.4e-06,
-    "cache_read_input_token_cost": 2.6e-07,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-5.1 input $1.40/Mtok, cached input $0.26/Mtok, output $4.40/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 8.955223880597015e-07,
+    "output_cost_per_token": 3.582089552238806e-06,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 8.955223880597015e-07,
+        "output_cost_per_token": 3.582089552238806e-06
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 200000,
+        "input_cost_per_token": 1.1940298507462686e-06,
+        "output_cost_per_token": 4.1791044776119403e-06
+      }
+    ],
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-5.1 tiered by input tokens (≤32K in ¥6/M out ¥24/M; 32K–200K in ¥8/M out ¥28/M); CNY/USD=6.7."
   },
   "glm-5": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 1e-06,
-    "output_cost_per_token": 3.2e-06,
-    "cache_read_input_token_cost": 2e-07,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-5 input $1.00/Mtok, cached input $0.20/Mtok, output $3.20/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 2.6865671641791045e-06,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.6865671641791045e-06
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 198000,
+        "input_cost_per_token": 8.955223880597015e-07,
+        "output_cost_per_token": 3.282089552238806e-06
+      }
+    ],
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-5 tiered (≤32K in ¥4/M out ¥18/M; 32K–198K in ¥6/M out ¥22/M); CNY/USD=6.7."
   },
   "glm-5-turbo": {
     "litellm_provider": "zhipu",
@@ -1169,12 +1194,25 @@
     "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-5-Turbo input $1.20/Mtok, cached input $0.24/Mtok, output $4.00/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
   },
   "glm-4.7": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 6e-07,
-    "output_cost_per_token": 2.2e-06,
-    "cache_read_input_token_cost": 1.1e-07,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-4.7 input $0.60/Mtok, cached input $0.11/Mtok, output $2.20/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 4.477611940298507e-07,
+    "output_cost_per_token": 2.08955223880597e-06,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.477611940298507e-07,
+        "output_cost_per_token": 2.08955223880597e-06
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 166000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06
+      }
+    ],
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-4.7 tiered (≤32K in ¥3/M out ¥14/M; 32K–166K in ¥4/M out ¥16/M); CNY/USD=6.7."
   },
   "glm-4.7-flashx": {
     "litellm_provider": "zhipu",
@@ -1185,20 +1223,46 @@
     "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-4.7-FlashX input $0.07/Mtok, cached input $0.01/Mtok, output $0.40/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
   },
   "glm-4.6": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 6e-07,
-    "output_cost_per_token": 2.2e-06,
-    "cache_read_input_token_cost": 1.1e-07,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-4.6 input $0.60/Mtok, cached input $0.11/Mtok, output $2.20/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 4.477611940298507e-07,
+    "output_cost_per_token": 2.08955223880597e-06,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.477611940298507e-07,
+        "output_cost_per_token": 2.08955223880597e-06
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 166000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06
+      }
+    ],
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-4.6 tiered (≤32K in ¥3/M out ¥14/M; 32K–166K in ¥4/M out ¥16/M); CNY/USD=6.7."
   },
   "glm-4.5": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 6e-07,
-    "output_cost_per_token": 2.2e-06,
-    "cache_read_input_token_cost": 1.1e-07,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-4.5 input $0.60/Mtok, cached input $0.11/Mtok, output $2.20/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 4.477611940298507e-07,
+    "output_cost_per_token": 2.08955223880597e-06,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.477611940298507e-07,
+        "output_cost_per_token": 2.08955223880597e-06
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 96000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06
+      }
+    ],
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-4.5 tiered (≤32K in ¥3/M out ¥14/M; 32K–96K in ¥4/M out ¥16/M); CNY/USD=6.7."
   },
   "glm-4.5-x": {
     "litellm_provider": "zhipu",
@@ -1209,12 +1273,25 @@
     "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-4.5-X input $2.20/Mtok, cached input $0.45/Mtok, output $8.90/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
   },
   "glm-4.5-air": {
-    "litellm_provider": "zhipu",
+    "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 2e-07,
-    "output_cost_per_token": 1.1e-06,
-    "cache_read_input_token_cost": 3e-08,
-    "source": "Z.AI official pricing (https://docs.z.ai/guides/overview/pricing, captured 2026-06-22; page last modified 2026-06-16): GLM-4.5-Air input $0.20/Mtok, cached input $0.03/Mtok, output $1.10/Mtok. Cache storage is listed as limited-time free; no separate cache-write/storage price is modeled. Served through TokenKey newapi account 67 after tk_044 switches GLM from channel_type=16 to ZhipuV4 channel_type=26."
+    "input_cost_per_token": 1.1940298507462686e-07,
+    "output_cost_per_token": 8.955223880597015e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462686e-07,
+        "output_cost_per_token": 8.955223880597015e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 96000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 1.1940298507462686e-06
+      }
+    ],
+    "source": "Alibaba DashScope China-mainland (Beijing) GLM section, docs/accounts/aliyun_pricing_20260701.md captured 2026-07-01: glm-4.5-air tiered (≤32K in ¥0.8/M out ¥6/M; 32K–96K in ¥1.2/M out ¥8/M); CNY/USD=6.7."
   },
   "glm-4.5-airx": {
     "litellm_provider": "zhipu",
