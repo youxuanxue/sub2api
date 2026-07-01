@@ -22,6 +22,12 @@ func TestTkNormalizeCCGeoStegoText(t *testing.T) {
 		changed bool
 	}{
 		{
+			name:    "claude code 2.1.197 shanghai slash date",
+			in:      "Today's date is 2026/07/01.",
+			want:    "Today's date is 2026-07-01.",
+			changed: true,
+		},
+		{
 			name:    "shanghai slash date ascii apostrophe",
 			in:      "# currentDate\nToday's date is 2026/06/30.\n\nIMPORTANT",
 			want:    "# currentDate\nToday's date is 2026-06-30.\n\nIMPORTANT",
@@ -107,7 +113,7 @@ func TestTkNormalizeAnthropicCCGeoStegoNoOpWhenClean(t *testing.T) {
 
 func TestTkNormalizeAnthropicRequestBodyAppliesCCGeoStego(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
-	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
 	require.Contains(t, string(out), "Today's date is 2026-06-30.")
 }
@@ -118,7 +124,7 @@ func TestForwardCountTokensAnthropicAPIKeyPassthrough_NormalizesCCGeoStego(t *te
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-6"}
 
 	upstream := &anthropicHTTPUpstreamRecorder{

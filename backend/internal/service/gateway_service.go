@@ -377,8 +377,9 @@ var (
 	// 支持多种变体：标准版、Agent SDK 版、Explore Agent 版、Compact 版等
 	// 注意：前缀之间不应存在包含关系，否则会导致冗余匹配
 	claudeCodePromptPrefixes = []string{
-		"You are Claude Code, Anthropic's official CLI for Claude",             // 标准版 & Agent SDK 版（含 running within...）
-		"You are a Claude agent, built on Anthropic's Claude Agent SDK",        // Agent SDK 变体
+		"You are Claude Code, Anthropic's official CLI for Claude",      // 标准版 & Agent SDK 版（含 running within...）
+		"You are a Claude agent, built on Anthropic's Claude Agent SDK", // Agent SDK 变体
+		"You are an interactive agent that helps users with software engineering tasks",
 		"You are a file search specialist for Claude Code",                     // Explore Agent 版
 		"You are a helpful AI assistant tasked with summarizing conversations", // Compact 版
 	}

@@ -30,6 +30,7 @@ var tkPromptSurfaceIdentityPrefixes = []struct {
 }{
 	{"claude_code_cli", "You are Claude Code, Anthropic's official CLI for Claude"},
 	{"claude_agent_sdk", "You are a Claude agent, built on Anthropic's Claude Agent SDK"},
+	{"interactive_agent", "You are an interactive agent that helps users with software engineering tasks"},
 	{"file_search_specialist", "You are a file search specialist for Claude Code"},
 	{"summarization_assistant", "You are a helpful AI assistant tasked with summarizing conversations"},
 }
@@ -39,6 +40,7 @@ type tkAnthropicPromptFingerprint struct {
 	IdentityAnchorID      string
 	BillingPrefixPresent  bool
 	HasSystemReminder     bool
+	PromptSurfaceClasses  []tkCCPromptSurfaceClass
 	ReminderDateLineClass string
 	GeoStegoCanonical     bool
 	SurfaceSignature      string
@@ -81,15 +83,11 @@ func tkExtractAnthropicPromptFingerprint(body []byte) tkAnthropicPromptFingerpri
 	}
 
 	fp.GeoStegoCanonical = !tkWireStillHasCCPromptSurfaceLeaks(body)
-	if fp.ReminderDateLineClass == "NONE" && !fp.GeoStegoCanonical {
+	for _, surface := range tkCCPromptSurfaceBodyUnknownSurfaces(body) {
+		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, surface)
+	}
+	if fp.ReminderDateLineClass == "NONE" && stringSliceContains(fp.UnknownSurfaces, "geo_stego_date_line") {
 		fp.ReminderDateLineClass = "NONCANONICAL"
-		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "geo_stego_date_line")
-	}
-	if strings.Contains(string(body), "# Environment") {
-		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "cc_environment_section")
-	}
-	if tkCCWireCNTimezoneRE.Match(body) {
-		fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "cc_environment_section")
 	}
 	fp.SurfaceSignature = tkPromptSurfaceSignature(fp)
 	return fp
@@ -99,6 +97,8 @@ func tkApplySystemTextFingerprint(text string, fp *tkAnthropicPromptFingerprint)
 	if text == "" {
 		return
 	}
+	cls := tkClassifyCCPromptSurfaceText(text, true)
+	fp.PromptSurfaceClasses = appendUniquePromptSurfaceClass(fp.PromptSurfaceClasses, cls)
 	if strings.HasPrefix(strings.TrimSpace(text), claudeCodeBillingHeaderPrefix) ||
 		strings.Contains(text, claudeCodeBillingHeaderPrefix) {
 		fp.BillingPrefixPresent = true
@@ -106,11 +106,10 @@ func tkApplySystemTextFingerprint(text string, fp *tkAnthropicPromptFingerprint)
 	if fp.IdentityAnchorID == tkIdentityAnchorAbsent {
 		fp.IdentityAnchorID = tkMatchPromptIdentityAnchor(text)
 	}
-	cls := tkClassifyGeoStegoDateLine(text)
-	if cls != "NONE" {
-		fp.ReminderDateLineClass = cls
-		if cls != "ISO_DASH_ASCII" {
-			fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "geo_stego_date_line")
+	if tkCCPromptSurfaceClassTracksLeaks(cls) {
+		dateClass := tkClassifyGeoStegoDateLine(text)
+		if dateClass != "NONE" {
+			fp.ReminderDateLineClass = dateClass
 		}
 	}
 }
@@ -144,13 +143,10 @@ func tkApplyMessageContentFingerprint(content gjson.Result, fp *tkAnthropicPromp
 		}
 		for _, block := range content.Array() {
 			if block.Get("type").String() == "text" {
-				text := block.Get("text").String()
-				if strings.Contains(strings.ToLower(text), "<system-reminder>") {
-					fp.HasSystemReminder = true
-				}
-				tkApplyMessageTextFingerprint(text, fp)
+				tkApplyMessageTextFingerprint(block.Get("text").String(), fp)
 			}
 			if block.Get("attachment.type").String() == "date_change" {
+				fp.PromptSurfaceClasses = appendUniquePromptSurfaceClass(fp.PromptSurfaceClasses, tkCCPromptSurfaceDateChange)
 				date := block.Get("attachment.newDate").String()
 				cls := tkClassifyGeoStegoDateToken(date)
 				if cls != "NONE" {
@@ -168,11 +164,15 @@ func tkApplyMessageTextFingerprint(text string, fp *tkAnthropicPromptFingerprint
 	if text == "" {
 		return
 	}
-	cls := tkClassifyGeoStegoDateLine(text)
-	if cls != "NONE" {
-		fp.ReminderDateLineClass = cls
-		if cls != "ISO_DASH_ASCII" {
-			fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "geo_stego_date_line")
+	surfaceClass := tkClassifyCCPromptSurfaceText(text, false)
+	fp.PromptSurfaceClasses = appendUniquePromptSurfaceClass(fp.PromptSurfaceClasses, surfaceClass)
+	if surfaceClass == tkCCPromptSurfaceSystemReminder {
+		fp.HasSystemReminder = true
+	}
+	if tkCCPromptSurfaceClassTracksLeaks(surfaceClass) {
+		dateClass := tkClassifyGeoStegoDateLine(text)
+		if dateClass != "NONE" {
+			fp.ReminderDateLineClass = dateClass
 		}
 	}
 }
@@ -215,18 +215,32 @@ func tkClassifyGeoStegoDateToken(date string) string {
 }
 
 func tkPromptSurfaceSignature(fp tkAnthropicPromptFingerprint) string {
+	classParts := make([]string, 0, len(fp.PromptSurfaceClasses))
+	for _, cls := range fp.PromptSurfaceClasses {
+		classParts = append(classParts, string(cls))
+	}
 	raw := fmt.Sprintf(
-		"sys=%d|id=%s|bill=%t|rem=%t|date=%s|geo=%t|unk=%s",
+		"sys=%d|id=%s|bill=%t|rem=%t|classes=%s|date=%s|geo=%t|unk=%s",
 		fp.SystemBlockCount,
 		fp.IdentityAnchorID,
 		fp.BillingPrefixPresent,
 		fp.HasSystemReminder,
+		strings.Join(classParts, "+"),
 		fp.ReminderDateLineClass,
 		fp.GeoStegoCanonical,
 		strings.Join(fp.UnknownSurfaces, "+"),
 	)
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:8])
+}
+
+func appendUniquePromptSurfaceClass(list []tkCCPromptSurfaceClass, value tkCCPromptSurfaceClass) []tkCCPromptSurfaceClass {
+	for _, existing := range list {
+		if existing == value {
+			return list
+		}
+	}
+	return append(list, value)
 }
 
 func appendUniqueString(list []string, value string) []string {
@@ -251,7 +265,11 @@ func (fp tkAnthropicPromptFingerprint) shouldLogPromptFingerprint(
 	if fp.IdentityAnchorID == tkIdentityAnchorUnknown && fp.SystemBlockCount > 0 {
 		// CC-shaped system traffic with an unrecognized anchor is load-bearing drift;
 		// generic custom system prompts fall through to baseline sampling only.
-		if fp.BillingPrefixPresent || fp.HasSystemReminder || len(fp.UnknownSurfaces) > 0 || !fp.GeoStegoCanonical {
+		if fp.BillingPrefixPresent ||
+			fp.HasSystemReminder ||
+			promptSurfaceClassesContain(fp.PromptSurfaceClasses, tkCCPromptSurfaceUnknownSystem) ||
+			len(fp.UnknownSurfaces) > 0 ||
+			!fp.GeoStegoCanonical {
 			return true
 		}
 	}
@@ -299,6 +317,7 @@ func tkLogAnthropicPromptFingerprint(
 		slog.String("identity_anchor_id", fp.IdentityAnchorID),
 		slog.Bool("billing_prefix_present", fp.BillingPrefixPresent),
 		slog.Bool("has_system_reminder", fp.HasSystemReminder),
+		slog.String("prompt_surface_classes", tkJoinPromptSurfaceClasses(fp.PromptSurfaceClasses)),
 		slog.String("reminder_date_line_class", fp.ReminderDateLineClass),
 		slog.Bool("geo_stego_canonical", fp.GeoStegoCanonical),
 		slog.String("surface_signature", fp.SurfaceSignature),
@@ -308,4 +327,21 @@ func tkLogAnthropicPromptFingerprint(
 		attrs = append(attrs, slog.String("unknown_surfaces", strings.Join(fp.UnknownSurfaces, ",")))
 	}
 	slog.Info(tkPromptFingerprintLogKey, attrs...)
+}
+
+func tkJoinPromptSurfaceClasses(classes []tkCCPromptSurfaceClass) string {
+	parts := make([]string, 0, len(classes))
+	for _, cls := range classes {
+		parts = append(parts, string(cls))
+	}
+	return strings.Join(parts, ",")
+}
+
+func promptSurfaceClassesContain(classes []tkCCPromptSurfaceClass, want tkCCPromptSurfaceClass) bool {
+	for _, cls := range classes {
+		if cls == want {
+			return true
+		}
+	}
+	return false
 }

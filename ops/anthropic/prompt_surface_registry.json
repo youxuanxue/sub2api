@@ -62,6 +62,10 @@
           "prefix": "You are a Claude agent, built on Anthropic's Claude Agent SDK"
         },
         {
+          "id": "interactive_agent",
+          "prefix": "You are an interactive agent that helps users with software engineering tasks"
+        },
+        {
           "id": "file_search_specialist",
           "prefix": "You are a file search specialist for Claude Code"
         },

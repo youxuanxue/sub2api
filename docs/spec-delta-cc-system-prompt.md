@@ -37,6 +37,45 @@ per-session) and is **never** byte-aligned. Only the stable anchors are tracked:
 - **Identity prefixes** — `"You are Claude Code, Anthropic's official CLI for Claude"` and its known variants (Agent SDK, file-search, summarizer).
 - **Billing prefix** — `x-anthropic-billing-header` (the first system block CC injects on every real request, more stable than the identity prose).
 
+## 2026-07-01 update — Claude Code 2.1.197 prompt-surface capture
+
+`prompt_surface_align.sh` against local Claude Code `2.1.197` captured a normal
+TokenKey `/v1/messages` request whose third system block starts with:
+
+```text
+You are an interactive agent that helps users with software engineering tasks
+```
+
+The existing registry recognized the billing block and Agent SDK banner, but
+treated that third block as an unknown CC-shaped system surface. That made the
+new prompt-surface classifier too conservative for current real CC traffic: it
+refused to normalize the system block, and the gateway replay check failed on
+the captured body.
+
+The fix adds this prefix as an explicit identity anchor in
+`scripts/sentinels/cc-system-prompt.json`, the Go validator/fingerprint copies,
+and `ops/anthropic/prompt_surface_registry.json`. The full block is still not
+byte-aligned; only the stable opening sentence is tracked.
+
+Mode/task evidence from the same local `2.1.197` binary:
+
+- Five task prompts (`simple`, code explanation, SQL explanation, planning,
+  file listing) all produced the same high-level shape: a title-generation
+  subrequest with Agent SDK identity, then the main request with the
+  `interactive agent` system anchor plus a Shanghai `<system-reminder>` date
+  line (`Today's date is 2026/07/01.`).
+- `--permission-mode default|plan|acceptEdits|auto|dontAsk|bypassPermissions`
+  did not change the identity anchors or prompt-surface classes; observed diffs
+  were dynamic local paths such as the temporary memory directory.
+- `--safe-mode` kept the `interactive agent` anchor with a shorter system body.
+- `--bare` changed the main system body materially (`CWD: /private/tmp` instead
+  of the long interactive-agent prompt), but retained the Agent SDK identity and
+  the same Shanghai `<system-reminder>` date surface.
+
+All captured JSONL bundles were replayed through
+`TestTkProbePromptSurfaceGatewayCoverageJSONL` via
+`ops/anthropic/probe_prompt_surfaces.py --check-gateway`.
+
 ## Mechanism (two chains, one declared source)
 
 `scripts/sentinels/cc-system-prompt.json` is the hub:

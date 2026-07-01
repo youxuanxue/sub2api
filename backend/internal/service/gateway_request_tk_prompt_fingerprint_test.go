@@ -27,6 +27,7 @@ func TestTkExtractAnthropicPromptFingerprint_GeoStegoInReminder(t *testing.T) {
 	require.Equal(t, 1, fp.SystemBlockCount)
 	require.Equal(t, "claude_agent_sdk", fp.IdentityAnchorID)
 	require.True(t, fp.HasSystemReminder)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem, tkCCPromptSurfaceSystemReminder}, fp.PromptSurfaceClasses)
 	require.Equal(t, "SLASH_UNICODE", fp.ReminderDateLineClass)
 	require.False(t, fp.GeoStegoCanonical)
 	require.Contains(t, fp.UnknownSurfaces, "geo_stego_date_line")
@@ -34,13 +35,14 @@ func TestTkExtractAnthropicPromptFingerprint_GeoStegoInReminder(t *testing.T) {
 }
 
 func TestTkExtractAnthropicPromptFingerprint_CanonicalAfterNormalize(t *testing.T) {
-	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	out, changed := tkNormalizeAnthropicCCGeoStego(in)
 	require.True(t, changed)
 	fp := tkExtractAnthropicPromptFingerprint(out)
 	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)
 	require.True(t, fp.GeoStegoCanonical)
 	require.Empty(t, fp.UnknownSurfaces)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceSystemReminder}, fp.PromptSurfaceClasses)
 }
 
 func TestTkExtractAnthropicPromptFingerprint_BillingBlock(t *testing.T) {
@@ -50,12 +52,43 @@ func TestTkExtractAnthropicPromptFingerprint_BillingBlock(t *testing.T) {
 	fp := tkExtractAnthropicPromptFingerprint(body)
 	require.True(t, fp.BillingPrefixPresent)
 	require.Equal(t, "claude_code_cli", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_InteractiveAgentAnchor(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are an interactive agent that helps users with software engineering tasks. Use the instructions below."}]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, "interactive_agent", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
 }
 
 func TestTkExtractAnthropicPromptFingerprint_UnknownIdentity(t *testing.T) {
 	body := []byte(`{"system":[{"type":"text","text":"You are a generic assistant."}]}`)
 	fp := tkExtractAnthropicPromptFingerprint(body)
 	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceGenericSystem}, fp.PromptSurfaceClasses)
+	require.True(t, fp.GeoStegoCanonical)
+	require.Empty(t, fp.UnknownSurfaces)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_UnknownSystemWithSurface(t *testing.T) {
+	body := []byte(`{"system":[{"type":"text","text":"You are a custom agent.\n# Environment\nTZ=Asia/Shanghai\nToday\u2019s date is 2026/06/30."}]}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceUnknownSystem}, fp.PromptSurfaceClasses)
+	require.False(t, fp.GeoStegoCanonical)
+	require.Equal(t, "SLASH_UNICODE", fp.ReminderDateLineClass)
+	require.ElementsMatch(t, []string{"geo_stego_date_line", "cc_environment_section"}, fp.UnknownSurfaces)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_PlainUserPromptSurfaceSample(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Please document this sample:\n# Environment\nTZ=Asia/Shanghai\nToday\u2019s date is 2026/06/30."}]}]}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceGenericUserText}, fp.PromptSurfaceClasses)
+	require.True(t, fp.GeoStegoCanonical)
+	require.Empty(t, fp.UnknownSurfaces)
 }
 
 func TestTkPromptFingerprintShouldLog_OnNormalize(t *testing.T) {
@@ -105,7 +138,7 @@ func TestTkPromptFingerprintShouldLog_UnknownIdentityWithBilling(t *testing.T) {
 
 func TestTkNormalizeAnthropicRequestBody_FingerprintCanonicalAfterGeo(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
-	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
 	fp := tkExtractAnthropicPromptFingerprint(out)
 	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)
