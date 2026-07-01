@@ -342,6 +342,11 @@ func TestClassifyKiroForwardError(t *testing.T) {
 
 	// nil passes through.
 	require.NoError(t, classifyKiroForwardError(nil, "m"))
+
+	quota := classifyKiroForwardError(fmt.Errorf("quota exhausted on AmazonQ"), "claude-sonnet-4-5")
+	var quotaErr *KiroEndpointQuotaExhaustedError
+	require.ErrorAs(t, quota, &quotaErr)
+	require.Equal(t, tkKiroEndpointQuotaExhaustedClient, quotaErr.ClientMessage())
 }
 
 func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {

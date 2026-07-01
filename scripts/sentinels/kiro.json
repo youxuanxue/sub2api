@@ -183,6 +183,7 @@
       "must_contain": [
         "account.IsKiro()",
         "kiroGateway",
+        "KiroEndpointQuotaExhaustedError",
         "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)",
         "setKiroInternalThinkingMirrorHopHeader",
         "parseKiroInternalThinkingSSECommentLine"
@@ -242,15 +243,19 @@
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "account.IsKiro()",
-        "service.KiroInvalidModelError"
+        "service.KiroInvalidModelError",
+        "service.KiroEndpointQuotaExhaustedError",
+        "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
       "must_contain": [
         "type KiroInvalidModelError",
+        "type KiroEndpointQuotaExhaustedError",
         "func classifyKiroForwardError",
+        "quota exhausted on",
         "INVALID_MODEL_ID"
       ],
       "rationale": "TK-only typed error + classifier for the Kiro upstream HTTP 400 INVALID_MODEL_ID rejection. classifyKiroForwardError is called from both forwardStreaming and forwardNonStreaming; the handler errors.As-es the typed *KiroInvalidModelError to emit a model-scoped 400. Losing this file makes kiro model-unsupported errors fall back to the generic forward-error path (opaque 500 / unwanted failover)."
@@ -350,6 +355,25 @@
         "reached the limit"
       ],
       "rationale": "Kiro OAuth subscription quota exhaustion surfaces as HTTP 402 + 'You have reached the limit.' (prod 2026-06-25 edge-us4 account 9). This companion maps that verdict to reason kiro_quota_limit + SetError stop-scheduling + immediate Feishu P0. Without it, operators either get a mislabeled auth_error card or no alert when reproducing via admin account-test."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_kiro_quota429.go",
+      "must_contain": [
+        "tkIsKiroEndpointQuotaExhausted",
+        "tkHandleKiroEndpointQuotaExhausted",
+        "tkKiroEndpointQuotaExhaustedCooldown",
+        "KiroEndpointQuotaExhaustedRetryAfterSeconds",
+        "kiro_endpoint_quota_exhausted"
+      ],
+      "rationale": "Kiro upstream endpoint RPM exhaustion (all fallback hosts return 429; prod 2026-07-01 kiro-us3/4/5 mirror flicker) must apply a fixed 10s temp_unschedulable on edge Kiro OAuth accounts and prod kiro mirror stubs instead of advancing the anthropic_upstream_error 3/3 ladder (30s→2m→10m). Without this companion, brief subscription quota blips mislabel healthy relay stubs as failing and the admin UI shows frequent 临时不可调度."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_kiro_quota429_test.go",
+      "must_contain": [
+        "TestHandleUpstreamError_KiroEndpointQuotaExhausted_Uses10sCooldownNotLadder",
+        "TestHandleUpstreamError_KiroMirrorStubQuotaExhausted429_SkipsAnthropicLadder"
+      ],
+      "rationale": "Regression guard: Kiro all-endpoint 429 quota exhaustion writes only the 10s short cooldown and never increments anthropic_upstream_error counter — on edge Kiro OAuth and prod kiro mirror stubs alike."
     },
     {
       "path": "backend/internal/service/account_test_service.go",
