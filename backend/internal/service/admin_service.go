@@ -310,7 +310,7 @@ type CreateAccountInput struct {
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool
-	ContactEmail          string
+	AccountEmail          string
 }
 
 type UpdateAccountInput struct {
@@ -331,8 +331,8 @@ type UpdateAccountInput struct {
 	AutoPauseOnExpired    *bool
 	SkipMixedChannelCheck bool   // 跳过混合渠道检查（用户已确认风险）
 	TierID                *int64 // TK: bind anthropic-oauth stability tier (tiers table); 0 clears
-	// ContactEmail: nil = unchanged; non-nil (including empty) = set/clear canonical email fields.
-	ContactEmail *string
+	// AccountEmail: nil = unchanged; non-nil (including empty) = set/clear canonical email fields.
+	AccountEmail *string
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
@@ -2879,9 +2879,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.LoadFactor = input.LoadFactor
 	}
-	if strings.TrimSpace(input.ContactEmail) != "" {
+	if strings.TrimSpace(input.AccountEmail) != "" {
 		var applyErr error
-		account.Extra, account.Credentials, applyErr = ApplyAccountContactEmail(account.Extra, account.Credentials, input.ContactEmail)
+		account.Extra, account.Credentials, applyErr = ApplyAccountEmail(account.Extra, account.Credentials, input.AccountEmail)
 		if applyErr != nil {
 			return nil, applyErr
 		}
@@ -3068,9 +3068,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
-	if input.ContactEmail != nil {
+	if input.AccountEmail != nil {
 		var applyErr error
-		account.Extra, account.Credentials, applyErr = ApplyAccountContactEmail(account.Extra, account.Credentials, *input.ContactEmail)
+		account.Extra, account.Credentials, applyErr = ApplyAccountEmail(account.Extra, account.Credentials, *input.AccountEmail)
 		if applyErr != nil {
 			return nil, applyErr
 		}

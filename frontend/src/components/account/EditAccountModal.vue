@@ -26,16 +26,16 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
       <div>
-        <label class="input-label">{{ t('admin.accounts.contactEmail') }}</label>
+        <label class="input-label">{{ t('admin.accounts.accountEmail') }}</label>
         <input
-          v-model="contactEmail"
+          v-model="accountEmail"
           type="email"
           class="input"
           autocomplete="off"
-          :placeholder="t('admin.accounts.contactEmailPlaceholder')"
-          data-tour="edit-account-form-contact-email"
+          :placeholder="t('admin.accounts.accountEmailPlaceholder')"
+          data-tour="edit-account-form-account-email"
         />
-        <p class="input-hint">{{ t('admin.accounts.contactEmailHint') }}</p>
+        <p class="input-hint">{{ t('admin.accounts.accountEmailHint') }}</p>
       </div>
 
       <!-- grok (7th platform, OAuth): refresh_token rotation. Blank = keep current;
@@ -2591,9 +2591,9 @@ import {
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
 import {
-  isValidAccountContactEmail,
-  resolveAccountContactEmail
-} from '@/utils/accountContactEmail.tk'
+  isValidAccountEmail,
+  resolveAccountEmail
+} from '@/utils/accountEmail.tk'
 
 interface Props {
   show: boolean
@@ -3116,7 +3116,7 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-const contactEmail = ref('')
+const accountEmail = ref('')
 
 const statusOptions = computed(() => {
   const options = [
@@ -3224,7 +3224,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningAction.value = null
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
-  contactEmail.value = resolveAccountContactEmail(newAccount)
+  accountEmail.value = resolveAccountEmail(newAccount)
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -4024,8 +4024,8 @@ const handleSubmit = async () => {
     return
   }
 
-  if (!isValidAccountContactEmail(contactEmail.value)) {
-    appStore.showError(t('admin.accounts.invalidContactEmail'))
+  if (!isValidAccountEmail(accountEmail.value)) {
+    appStore.showError(t('admin.accounts.invalidAccountEmail'))
     return
   }
 
@@ -4035,7 +4035,7 @@ const handleSubmit = async () => {
   }
 
   const updatePayload: Record<string, unknown> = { ...form }
-  updatePayload.contact_email = contactEmail.value.trim()
+  updatePayload.account_email = accountEmail.value.trim()
   try {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {

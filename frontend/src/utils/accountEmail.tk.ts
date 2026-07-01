@@ -2,7 +2,7 @@ import type { Account } from '@/types'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function resolveAccountContactEmail(account: Pick<Account, 'extra' | 'credentials'> | null | undefined): string {
+export function resolveAccountEmail(account: Pick<Account, 'extra' | 'credentials'> | null | undefined): string {
   if (!account) return ''
   const extra = (account.extra || {}) as Record<string, unknown>
   const credentials = (account.credentials || {}) as Record<string, unknown>
@@ -17,15 +17,15 @@ export function resolveAccountContactEmail(account: Pick<Account, 'extra' | 'cre
   return ''
 }
 
-export function isValidAccountContactEmail(email: string): boolean {
+export function isValidAccountEmail(email: string): boolean {
   const trimmed = email.trim()
   if (!trimmed) return true
   return EMAIL_PATTERN.test(trimmed)
 }
 
-export function withAccountContactEmail<T extends { contact_email?: string }>(
+export function withAccountEmail<T extends { account_email?: string }>(
   payload: T,
   email: string
 ): T {
-  return { ...payload, contact_email: email.trim() }
+  return { ...payload, account_email: email.trim() }
 }

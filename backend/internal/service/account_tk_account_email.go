@@ -1,9 +1,10 @@
 package service
 
 import (
-	"errors"
 	"net/mail"
 	"strings"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 const (
@@ -11,9 +12,9 @@ const (
 	accountExtraEmailKey        = "email"
 )
 
-// ResolveAccountContactEmail returns the best-effort OAuth/contact email stored
-// on an account (extra first, then credentials).
-func ResolveAccountContactEmail(extra, credentials map[string]any) string {
+// ResolveAccountEmail returns the best-effort OAuth/account email stored on an
+// account (extra first, then credentials).
+func ResolveAccountEmail(extra, credentials map[string]any) string {
 	for _, src := range []map[string]any{extra, credentials} {
 		if src == nil {
 			continue
@@ -29,12 +30,12 @@ func ResolveAccountContactEmail(extra, credentials map[string]any) string {
 	return ""
 }
 
-// ApplyAccountContactEmail writes or clears the canonical contact email fields on
+// ApplyAccountEmail writes or clears the canonical account email fields on
 // extra/credentials. Empty email clears all known email keys.
-func ApplyAccountContactEmail(extra, credentials map[string]any, email string) (map[string]any, map[string]any, error) {
+func ApplyAccountEmail(extra, credentials map[string]any, email string) (map[string]any, map[string]any, error) {
 	email = strings.TrimSpace(email)
 	if email != "" {
-		if err := validateAccountContactEmail(email); err != nil {
+		if err := validateAccountEmail(email); err != nil {
 			return extra, credentials, err
 		}
 	}
@@ -45,8 +46,8 @@ func ApplyAccountContactEmail(extra, credentials map[string]any, email string) (
 		credentials = map[string]any{}
 	}
 
-	clearAccountContactEmailKeys(extra)
-	clearAccountContactEmailKeys(credentials)
+	clearAccountEmailKeys(extra)
+	clearAccountEmailKeys(credentials)
 
 	if email == "" {
 		return extra, credentials, nil
@@ -59,18 +60,18 @@ func ApplyAccountContactEmail(extra, credentials map[string]any, email string) (
 	return extra, credentials, nil
 }
 
-func validateAccountContactEmail(email string) error {
+func validateAccountEmail(email string) error {
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr == nil {
-		return errors.New("invalid contact email")
+		return infraerrors.BadRequest("INVALID_ACCOUNT_EMAIL", "invalid account email")
 	}
 	if strings.TrimSpace(addr.Address) == "" {
-		return errors.New("invalid contact email")
+		return infraerrors.BadRequest("INVALID_ACCOUNT_EMAIL", "invalid account email")
 	}
 	return nil
 }
 
-func clearAccountContactEmailKeys(m map[string]any) {
+func clearAccountEmailKeys(m map[string]any) {
 	if m == nil {
 		return
 	}
