@@ -25,10 +25,6 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	reqStream bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	if account.Type != AccountTypeOAuth {
-		return nil, fmt.Errorf("grok account type %s is not supported by subscription forwarding", account.Type)
-	}
-
 	upstreamModel := account.GetMappedModel(originalModel)
 	if strings.TrimSpace(upstreamModel) == "" {
 		upstreamModel = "grok-4.3"
@@ -38,14 +34,18 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		return nil, err
 	}
 
-	token, _, err := s.GetAccessToken(ctx, account)
+	targetURL, err := s.resolveGrokResponsesUpstream(account)
+	if err != nil {
+		return nil, err
+	}
+	token, err := s.grokResponsesAuthToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	defer releaseUpstreamCtx()
-	upstreamReq, err := buildGrokResponsesRequest(upstreamCtx, c, account, patchedBody, token)
+	upstreamReq, err := buildGrokResponsesRequest(upstreamCtx, c, targetURL, patchedBody, token)
 	if err != nil {
 		return nil, err
 	}
@@ -150,10 +150,56 @@ func patchGrokResponsesBody(body []byte, upstreamModel string) ([]byte, error) {
 	return out, nil
 }
 
-func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string) (*http.Request, error) {
-	targetURL, err := xai.BuildResponsesURL(account.GetGrokBaseURL())
-	if err != nil {
-		return nil, err
+// resolveGrokResponsesUpstream returns the upstream POST URL for grok /responses.
+// OAuth accounts talk to xAI directly; apikey relay stubs forward to edge
+// OpenAI-compat /v1/responses (prod→edge mirror for grok-us4).
+func (s *OpenAIGatewayService) resolveGrokResponsesUpstream(account *Account) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("openai gateway service is nil")
+	}
+	if account == nil {
+		return "", fmt.Errorf("grok responses: account is nil")
+	}
+	switch {
+	case account.IsGrokOAuth():
+		return xai.BuildResponsesURL(account.GetGrokBaseURL())
+	case account.IsGrokAPIKey():
+		baseURL := account.GetOpenAIBaseURL()
+		if strings.TrimSpace(baseURL) == "" {
+			return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+		}
+		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return "", err
+		}
+		return buildOpenAIResponsesURL(validatedURL), nil
+	default:
+		return "", fmt.Errorf("grok account type %s is not supported for responses forwarding", account.Type)
+	}
+}
+
+func (s *OpenAIGatewayService) grokResponsesAuthToken(ctx context.Context, account *Account) (string, error) {
+	if account == nil {
+		return "", fmt.Errorf("grok responses: account is nil")
+	}
+	switch {
+	case account.IsGrokOAuth():
+		token, _, err := s.GetAccessToken(ctx, account)
+		return token, err
+	case account.IsGrokAPIKey():
+		token := account.GetOpenAIApiKey()
+		if strings.TrimSpace(token) == "" {
+			return "", fmt.Errorf("grok relay account %d missing api_key", account.ID)
+		}
+		return token, nil
+	default:
+		return "", fmt.Errorf("grok account type %s is not supported for responses forwarding", account.Type)
+	}
+}
+
+func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, targetURL string, body []byte, token string) (*http.Request, error) {
+	if strings.TrimSpace(targetURL) == "" {
+		return nil, fmt.Errorf("grok responses target URL is empty")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -187,9 +233,13 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 	if s == nil || account == nil {
 		return
 	}
+	reasonUnauthorized := "grok oauth token unauthorized"
+	if account.IsGrokAPIKey() {
+		reasonUnauthorized = "grok relay api_key unauthorized"
+	}
 	switch statusCode {
 	case http.StatusUnauthorized:
-		s.tempUnscheduleGrok(ctx, account, 10*time.Minute, "grok oauth token unauthorized")
+		s.tempUnscheduleGrok(ctx, account, 10*time.Minute, reasonUnauthorized)
 	case http.StatusForbidden:
 		s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok entitlement or subscription tier denied")
 	case http.StatusTooManyRequests:

@@ -125,7 +125,24 @@ func TestGatewayRoutesImagePresignPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesGrokOnlyAllowsResponsesHTTP(t *testing.T) {
+func TestGatewayRoutesGrokAllowsChatCompletions(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
+
+	for _, path := range []string{
+		"/v1/chat/completions",
+		"/chat/completions",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should reach Chat Completions handler", path)
+		require.NotContains(t, w.Body.String(), "not supported for Grok groups")
+	}
+}
+
+func TestGatewayRoutesGrokRejectsUnsupportedOpenAICompatEndpoints(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
 	for _, tc := range []struct {
@@ -133,8 +150,6 @@ func TestGatewayRoutesGrokOnlyAllowsResponsesHTTP(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/v1/messages"},
-		{http.MethodPost, "/v1/chat/completions"},
-		{http.MethodPost, "/chat/completions"},
 		{http.MethodGet, "/v1/responses"},
 		{http.MethodGet, "/responses"},
 		{http.MethodGet, "/backend-api/codex/responses"},
