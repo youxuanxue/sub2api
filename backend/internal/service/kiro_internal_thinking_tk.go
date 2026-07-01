@@ -34,6 +34,19 @@ func setKiroInternalThinkingMirrorHopHeader(hdr http.Header) {
 	hdr.Set(kiroInternalThinkingMirrorHopRequestHeader, "1")
 }
 
+// setKiroInternalThinkingMirrorHopHeaderForAccount marks prod→edge mirror hops.
+// Only accounts with an explicit credentials.base_url (TokenKey edge relay stubs)
+// emit the header; default api.anthropic.com api-key accounts must not.
+func setKiroInternalThinkingMirrorHopHeaderForAccount(hdr http.Header, account *Account) {
+	if hdr == nil || account == nil || account.Type != AccountTypeAPIKey {
+		return
+	}
+	if strings.TrimSpace(account.GetCredential("base_url")) == "" {
+		return
+	}
+	setKiroInternalThinkingMirrorHopHeader(hdr)
+}
+
 // publishKiroInternalThinkingSideChannel stashes plaintext thinking for QA and,
 // only on prod→edge mirror hops, emits the wire side channel (SSE comment or
 // response header) that prod passthrough reads and strips before the end client.
