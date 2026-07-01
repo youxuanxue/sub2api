@@ -81,4 +81,16 @@ describe('StudioVideoPreviewLightbox', () => {
     })
     expect(wrapper.find('[data-testid="studio-video-copy-link"]').exists()).toBe(true)
   })
+
+  it('hides copy-link for inline Veo clips', () => {
+    const wrapper = mountLightbox({
+      previewState: 'ready',
+      previewUrl: 'blob:preview',
+      downloadUrl: 'data:video/mp4;base64,AAAA',
+      allowCopyLink: false,
+      previewInline: true,
+    })
+    expect(wrapper.find('[data-testid="studio-video-copy-link"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('studio.video.download')
+  })
 })

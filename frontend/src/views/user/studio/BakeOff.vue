@@ -239,6 +239,7 @@
                 {{ t('studio.video.download') }}
               </button>
               <button
+                v-if="!isInlineStudioVideoUrl(p.url)"
                 type="button"
                 class="text-[11px] font-medium text-gray-500 dark:text-dark-300"
                 data-testid="bakeoff-video-copy-card-link"
@@ -370,6 +371,7 @@
                   {{ t('studio.video.download') }}
                 </button>
                 <button
+                  v-if="!isInlineStudioVideoUrl(task.url)"
                   type="button"
                   class="text-[10px] font-medium text-gray-500 dark:text-dark-300"
                   data-testid="bakeoff-history-video-copy-link"
@@ -394,6 +396,8 @@
       :cost="previewCost"
       :preview-media-ready="previewMediaReady"
       :copied-link="previewCopiedLink"
+      :allow-copy-link="!previewInline"
+      :preview-inline="previewInline"
       test-id="bakeoff-video-preview"
       close-test-id="bakeoff-video-preview-close"
       copy-link-test-id="bakeoff-video-copy-link"
@@ -436,6 +440,7 @@ import {
   videoTaskCardPresentation,
   videoTaskPlaybackAvailable,
 } from '@/utils/studioMedia.tk'
+import { isInlineStudioVideoUrl } from '@/utils/studioInlineVideo.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
@@ -473,7 +478,7 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
-const warnInlineCopy = () => appStore.showWarning(t('studio.video.inlineCopyHint'), 8000)
+const warnInlineCopy = () => appStore.showInfo(t('studio.video.inlineCopyHint'), 5000)
 const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions({
   onExpiredDownload: warnExpiredDownload,
   onInlineCopyUnsupported: warnInlineCopy,
@@ -618,6 +623,7 @@ const {
   previewState,
   previewMediaReady,
   copiedLink: previewCopiedLink,
+  previewInline,
   openPreview: openPreviewLightbox,
   closePreview: closePreviewLightbox,
   onPreviewError,

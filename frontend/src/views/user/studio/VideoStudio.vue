@@ -303,7 +303,7 @@
               @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
             >{{ t('studio.video.download') }}</button>
             <button
-              v-if="task.url && videoTaskCardPresentation(task) !== 'download-only'"
+              v-if="task.url && videoTaskCardPresentation(task) !== 'download-only' && !isInlineStudioVideoUrl(task.url)"
               type="button"
               class="text-gray-500 dark:text-dark-300"
               data-testid="studio-video-copy-card-link"
@@ -337,6 +337,8 @@
       :cost="previewCost"
       :preview-media-ready="previewMediaReady"
       :copied-link="previewCopiedLink"
+      :allow-copy-link="!previewInline"
+      :preview-inline="previewInline"
       show-reuse-prompt
       @close="closePreviewLightbox"
       @error="onPreviewError"
@@ -367,6 +369,7 @@ import {
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { videoTaskCardPresentation, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
+import { isInlineStudioVideoUrl } from '@/utils/studioInlineVideo.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
@@ -402,7 +405,7 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
-const warnInlineCopy = () => appStore.showWarning(t('studio.video.inlineCopyHint'), 8000)
+const warnInlineCopy = () => appStore.showInfo(t('studio.video.inlineCopyHint'), 5000)
 const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions({
   onExpiredDownload: warnExpiredDownload,
   onInlineCopyUnsupported: warnInlineCopy,
@@ -554,6 +557,7 @@ const {
   previewState,
   previewMediaReady,
   copiedLink: previewCopiedLink,
+  previewInline,
   taskId: previewTaskId,
   openPreview: openPreviewLightbox,
   closePreview: closePreviewLightbox,

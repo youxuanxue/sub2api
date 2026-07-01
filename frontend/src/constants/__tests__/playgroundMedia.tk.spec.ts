@@ -206,7 +206,7 @@ describe('video task helpers', () => {
     expect(
       extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/webm' }] } })
     ).toBe('data:video/webm;base64,QUJD')
-    // Gemini generateVideoResponse hosted URI.
+    // Gemini generateVideoResponse hosted URI (when no inline bytes are present).
     expect(
       extractVideoUrl({
         response: {
@@ -214,6 +214,17 @@ describe('video task helpers', () => {
         },
       })
     ).toBe('https://cdn.example/veo.mp4')
+    // When Veo returns BOTH a short-lived hosted URI and inline bytes, prefer bytes for in-tab playback.
+    expect(
+      extractVideoUrl({
+        response: {
+          generateVideoResponse: {
+            generatedVideos: [{ video: { uri: 'https://storage.googleapis.com/veo-signed' } }],
+          },
+          videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/mp4' }],
+        },
+      })
+    ).toBe('data:video/mp4;base64,QUJD')
     // response.bytesBase64Encoded / response.video fallbacks.
     expect(extractVideoUrl({ response: { bytesBase64Encoded: 'WFla' } })).toBe('data:video/mp4;base64,WFla')
     expect(extractVideoUrl({ response: { video: 'WFla' } })).toBe('data:video/mp4;base64,WFla')
