@@ -165,17 +165,31 @@ func TestResolve_NilProviderFallsBackToPlatformLevel(t *testing.T) {
 	}
 }
 
-// 安全兜底:无组声明该模型(served 全空)→ 不硬 403,退回 eligible 由下游裁决。
-func TestResolve_NoServingGroupFallsBackNotHard403(t *testing.T) {
+// 有平台 hint 但无组声明该模型 → 403(不盲选错组 → routing 429 P0 风暴)。
+func TestResolve_NoServingGroupWithHintReturnsNoEntitled(t *testing.T) {
 	ctx := context.Background()
 	span := []Group{grp(11, PlatformNewAPI, 10, false)}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
 	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
-		11: {"deepseek-chat"}, // 不含 gpt-image
+		11: {"deepseek-chat"}, // 不含 kimi-2.6
+	}))
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIChat, "kimi-2.6", "")
+	if err != ErrUniversalNoEntitledGroup || g != nil {
+		t.Fatalf("kimi-2.6 无服务组应 ErrUniversalNoEntitledGroup, got=%v err=%v", g, err)
+	}
+}
+
+// hint 为空(未知 channel 模型)仍退回 eligible,由下游诚实拒绝。
+func TestResolve_NoServingGroupWithoutHintFallsBack(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{grp(11, PlatformNewAPI, 10, false)}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		11: {"deepseek-chat"},
 	}))
 	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIChat, "some-unmapped-model", "")
 	if err != nil || g == nil || g.ID != 11 {
-		t.Fatalf("无组声明该模型应退回 eligible(gid=11),由下游诚实拒绝;got=%v err=%v", g, err)
+		t.Fatalf("无 hint 的未知模型应退回 eligible(gid=11); got=%v err=%v", g, err)
 	}
 }
 
@@ -260,24 +274,39 @@ func TestResolve_MessagesDispatch_NewapiVendor_FilterIsLoadBearing(t *testing.T)
 	}
 }
 
-// count_tokens 候选恒为 [anthropic, antigravity],永不并入 openai-compat:即便模型是
-// deepseek(newapi)这类,count_tokens 也只在 anthropic/antigravity 组里挑,绝不落 newapi
-// 组(5/11/18)。在 user16 跨度里 → 唯一 count_tokens-eligible 组是 anthropic(1);服务真值
-// 过滤对它收敛为空,但安全兜底退回 eligible(不硬 403,由下游 anthropic count_tokens 处理器
-// 诚实拒绝 deepseek)。锁死「count_tokens 不被 dispatch 误导到 newapi」这条不变量。
+// count_tokens 候选恒为 [anthropic, antigravity],永不并入 openai-compat:deepseek 有 newapi
+// hint 且无组服务 → 403(不再盲落 anthropic 组后在下游打成 routing 429)。
 func TestResolve_CountTokensNeverDispatchesNewapi_User16(t *testing.T) {
 	ctx := context.Background()
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
 	r.SetAvailableModelsProvider(user16ServingProvider())
 	g, err := r.Resolve(ctx, universalKey(16), ShapeAnthropicCountTokens, "deepseek-v4-flash", "")
-	if err != nil || g == nil {
-		t.Fatalf("count_tokens 应解析到 anthropic 组(安全兜底), got=%v err=%v", g, err)
+	if err != ErrUniversalNoEntitledGroup || g != nil {
+		t.Fatalf("count_tokens+deepseek 无 anthropic 服务组应 403, got=%v err=%v", g, err)
 	}
-	if g.Platform == PlatformNewAPI {
-		t.Fatalf("count_tokens 绝不应落 newapi 组(候选恒 [anthropic,antigravity]), got gid=%d platform=%s", g.ID, g.Platform)
+}
+
+// prod P0 2026-07-01:user16 universal key 245 压测未上架/未映射模型 → routing 429 风暴。
+func TestResolve_UniversalBenchmarkUnservedModels_User16(t *testing.T) {
+	ctx := context.Background()
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
+	r.SetAvailableModelsProvider(user16ServingProvider())
+	key := universalKey(16)
+	cases := []struct {
+		shape UniversalShape
+		model string
+	}{
+		{ShapeOpenAIChat, "kimi-2.6"},
+		{ShapeOpenAIChat, "deepseek-v3-2-251201"},
+		{ShapeOpenAIChat, "glm-4-32b-0414-128k"},
+		{ShapeOpenAIChat, "claude-haiku-4-5"}, // anthropic hint, openai-compat 候选无 anthropic
+		{ShapeOpenAIChat, "gemini-pro-agent"},
 	}
-	if g.ID != 1 {
-		t.Fatalf("user16 跨度里 count_tokens 唯一 eligible 是 anthropic 组 gid=1, got gid=%d", g.ID)
+	for _, tc := range cases {
+		g, err := r.Resolve(ctx, key, tc.shape, tc.model, "")
+		if err != ErrUniversalNoEntitledGroup || g != nil {
+			t.Fatalf("model %q shape=%d should 403, got group=%v err=%v", tc.model, tc.shape, g, err)
+		}
 	}
 }
 

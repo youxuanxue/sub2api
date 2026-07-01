@@ -126,8 +126,14 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 
 	// 模型服务真值收敛:把 eligible 收敛到“真正服务该模型”的组(见 universal_routing_tk_serving.go)。
 	// 仅当有模型名 + provider 已接线时执行;收敛后非空则用收敛集(deepseek/qwen/imagen/veo/
-	// seedance 等落到声明了该模型的对的组),否则退回原 eligible —— 安全兜底:provider 取数失败/
-	// 无组声明该模型时不比现状更严,继续按平台+hint 挑(gpt-image 这类无账号者仍会被下游诚实拒绝)。
+	// seedance 等落到声明了该模型的对的组)。
+	//
+	// 收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403),不再盲选错组后在下游
+	// 打成 routing-phase 429(P0 routing_capacity_rejection 风暴; prod 2026-07-01 user16
+	// universal key 245 压测 kimi-2.6 / deepseek-v3-2-251201 / claude@chat 等)。对齐
+	// docs/approved/universal-key-routing.md §4.3「模型不在任何被授权组 → 干脆报错」。
+	// hint 为空(未知 channel 模型)仍退回 eligible,由下游诚实拒绝 —— provider 未接线时整体
+	// 也保持旧平台级行为(见 TestResolve_NilProviderFallsBackToPlatformLevel)。
 	if model != "" {
 		if provider := r.providerSnapshot(); provider != nil {
 			served := make([]Group, 0, len(eligible))
@@ -138,6 +144,8 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 			}
 			if len(served) > 0 {
 				eligible = served
+			} else if hint := universalModelPlatformHint(model); hint != "" {
+				return nil, ErrUniversalNoEntitledGroup
 			}
 		}
 	}
