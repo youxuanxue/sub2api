@@ -55,6 +55,7 @@ jobs:
             -count=1
           python3 -m unittest ops.anthropic.test_probe_prompt_surfaces -v
           python3 -m unittest ops.anthropic.test_probe_cc_geo_stego -v
+          python3 -m unittest ops.observability.test_probe_prompt_surface_fingerprints -v
 
   prod-aggregate:
     needs: registry-gate
@@ -90,8 +91,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .cache/prompt-surface-watch
-          bash ops/observability/run-probe.sh prod \
-            "SINCE=${SINCE} bash /opt/tokenkey/sub2api/ops/observability/probe-prompt-surface-fingerprints.sh" \
+          bash ops/observability/run-probe.sh \
+            --target prod \
+            --script ops/observability/probe-prompt-surface-fingerprints.sh \
+            --env "SINCE=${SINCE}" \
+            --comment "prompt-surface-watch prod fingerprint aggregate" \
+            --timeout-seconds 120 \
             > .cache/prompt-surface-watch/prod-fingerprints.json || true  # preflight-allow: swallow
           python3 ops/observability/prompt_surface_aggregate.py \
             --input .cache/prompt-surface-watch/prod-fingerprints.json \

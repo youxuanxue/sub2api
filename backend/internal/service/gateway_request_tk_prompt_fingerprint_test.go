@@ -79,6 +79,30 @@ func TestTkPromptFingerprintShouldLog_SampleWithoutSignal(t *testing.T) {
 	require.Less(t, seen, 50)
 }
 
+func TestTkPromptFingerprintShouldLog_UnknownIdentitySamplesOnly(t *testing.T) {
+	fp := tkExtractAnthropicPromptFingerprint([]byte(`{"system":[{"type":"text","text":"You are a generic assistant."}]}`))
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.False(t, fp.shouldLogPromptFingerprint(nil, ""))
+	seen := 0
+	for i := 0; i < 1000; i++ {
+		id := "req-" + strings.Repeat("y", i)
+		if fp.shouldLogPromptFingerprint(nil, id) {
+			seen++
+		}
+	}
+	require.Greater(t, seen, 0)
+	require.Less(t, seen, 50)
+}
+
+func TestTkPromptFingerprintShouldLog_UnknownIdentityWithBilling(t *testing.T) {
+	fp := tkExtractAnthropicPromptFingerprint([]byte(`{
+		"system":[{"type":"text","text":"x-anthropic-billing-header: cc-session\nYou are a custom agent."}]
+	}`))
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.True(t, fp.BillingPrefixPresent)
+	require.True(t, fp.shouldLogPromptFingerprint(nil, ""))
+}
+
 func TestTkNormalizeAnthropicRequestBody_FingerprintCanonicalAfterGeo(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
 	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)

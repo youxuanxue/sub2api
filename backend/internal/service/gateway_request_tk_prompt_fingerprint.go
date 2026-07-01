@@ -242,8 +242,12 @@ func (fp tkAnthropicPromptFingerprint) shouldLogPromptFingerprint(
 	if len(fp.UnknownSurfaces) > 0 {
 		return true
 	}
-	if fp.IdentityAnchorID == tkIdentityAnchorUnknown {
-		return true
+	if fp.IdentityAnchorID == tkIdentityAnchorUnknown && fp.SystemBlockCount > 0 {
+		// CC-shaped system traffic with an unrecognized anchor is load-bearing drift;
+		// generic custom system prompts fall through to baseline sampling only.
+		if fp.BillingPrefixPresent || fp.HasSystemReminder || len(fp.UnknownSurfaces) > 0 || !fp.GeoStegoCanonical {
+			return true
+		}
 	}
 	if !fp.GeoStegoCanonical {
 		return true

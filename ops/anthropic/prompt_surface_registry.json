@@ -62,7 +62,6 @@
   ],
   "aggregate": {
     "unknown_surface_alert": true,
-    "noncanonical_geo_alert": true,
-    "baseline_signature_file": ".cache/prompt-surface-watch/baseline-signatures.json"
+    "noncanonical_geo_alert": true
   }
 }

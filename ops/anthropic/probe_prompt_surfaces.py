@@ -15,6 +15,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = REPO_ROOT / "backend"
 REGISTRY_PATH = Path(__file__).resolve().parent / "prompt_surface_registry.json"
 GEO_PROBE_PATH = Path(__file__).resolve().parent / "probe_cc_geo_stego.py"
+GO_IDENTITY_PREFIXES_PATH = (
+    REPO_ROOT / "backend/internal/service/gateway_request_tk_prompt_fingerprint.go"
+)
 
 
 def _load_geo_module():
@@ -37,6 +41,25 @@ def _load_geo_module():
 def load_registry(path: Path | None = None) -> dict:
     p = path or REGISTRY_PATH
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+def registry_identity_prefix_pairs(registry: dict) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for surf in registry.get("surfaces") or []:
+        if surf.get("id") != "system_identity_anchor":
+            continue
+        for item in surf.get("identity_prefixes") or []:
+            pairs.append((str(item.get("id") or ""), str(item.get("prefix") or "")))
+    return pairs
+
+
+def go_gateway_identity_prefix_pairs() -> list[tuple[str, str]]:
+    text = GO_IDENTITY_PREFIXES_PATH.read_text(encoding="utf-8")
+    start = text.find("var tkPromptSurfaceIdentityPrefixes")
+    if start < 0:
+        raise RuntimeError("tkPromptSurfaceIdentityPrefixes not found in Go gateway fingerprint")
+    chunk = text[start : start + 2000]
+    return re.findall(r'\{"([^"]+)",\s*"([^"]+)"\}', chunk)
 
 
 def validate_registry(registry: dict) -> list[str]:
@@ -60,14 +83,20 @@ def validate_registry(registry: dict) -> list[str]:
     if cc_path.is_file():
         cc = json.loads(cc_path.read_text(encoding="utf-8"))
         cc_prefixes = cc.get("capture_anchors", {}).get("identity_prefixes") or []
-        reg_prefixes = []
-        for surf in registry.get("surfaces") or []:
-            if surf.get("id") != "system_identity_anchor":
-                continue
-            for item in surf.get("identity_prefixes") or []:
-                reg_prefixes.append(item.get("prefix"))
+        reg_prefixes = [prefix for _, prefix in registry_identity_prefix_pairs(registry)]
         if cc_prefixes != reg_prefixes:
             errors.append("system_identity_anchor prefixes drift from cc-system-prompt.json")
+    if GO_IDENTITY_PREFIXES_PATH.is_file():
+        try:
+            go_pairs = go_gateway_identity_prefix_pairs()
+        except RuntimeError as exc:
+            errors.append(str(exc))
+        else:
+            reg_pairs = registry_identity_prefix_pairs(registry)
+            if go_pairs != reg_pairs:
+                errors.append(
+                    "Go tkPromptSurfaceIdentityPrefixes drift from registry system_identity_anchor"
+                )
     return errors
 
 
