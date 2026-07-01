@@ -72,6 +72,22 @@ func TestResolveGrokVideoCredential(t *testing.T) {
 		}
 	})
 
+	t.Run("kiro anthropic edge mirror is not grok video relay", func(t *testing.T) {
+		acct := &Account{
+			ID:       8,
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":         "kiro-edge-key",
+				"base_url":        "https://api-us4.tokenkey.dev",
+				"mirror_platform": "kiro",
+			},
+		}
+		if UsesGrokNativeVideoArm(acct) {
+			t.Fatal("kiro mirror stub must not route to grok native video arm")
+		}
+	})
+
 	t.Run("oauth missing access_token", func(t *testing.T) {
 		acct := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth}
 		_, _, err := resolveGrokVideoCredential(acct)

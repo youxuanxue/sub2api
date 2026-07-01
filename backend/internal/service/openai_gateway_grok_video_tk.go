@@ -44,7 +44,8 @@ import (
 // through the edge gateway (credentials.api_key + api-<edge>.tokenkey.dev).
 // Includes platform=grok,type=apikey stubs AND legacy platform=newapi,ct=1
 // bridge stubs still migrating to platform=grok — both must NOT enter the
-// new-api task-adaptor video path.
+// new-api task-adaptor video path. Other edge mirrors (kiro/openai/…) share the
+// same host pattern but are excluded via transport/mirror_platform guards.
 func isGrokVideoEdgeRelayStub(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
@@ -52,9 +53,16 @@ func isGrokVideoEdgeRelayStub(account *Account) bool {
 	if account.IsGrokAPIKey() {
 		return true
 	}
-	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
-	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
-	return baseURL != "" && apiKey != "" && edgeIDPattern.MatchString(baseURL)
+	if !isEdgeMirrorStub(account, edgeIDPattern) {
+		return false
+	}
+	if strings.TrimSpace(account.GetCredential("api_key")) == "" {
+		return false
+	}
+	if account.Platform == PlatformNewAPI && account.ChannelType == 1 {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(account.GetCredential("mirror_platform")), PlatformGrok)
 }
 
 // UsesGrokNativeVideoArm reports whether video submit/fetch should use the grok
