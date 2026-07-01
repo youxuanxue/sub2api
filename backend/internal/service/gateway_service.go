@@ -6354,9 +6354,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
-	if strings.TrimSpace(baseURL) != "" {
-		setKiroInternalThinkingMirrorHopHeader(req.Header)
-	}
+	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	return req, body, nil
 }
@@ -7367,6 +7365,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
+	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
@@ -8655,6 +8654,7 @@ type streamingResult struct {
 func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -8964,6 +8964,10 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
 			line := ev.line
+			if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
+				applyKiroInternalThinkingBlocks(c, blocks)
+				continue
+			}
 			trimmed := strings.TrimSpace(line)
 
 			if trimmed == "" {
@@ -9282,6 +9286,7 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*ClaudeUsage, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
@@ -11012,6 +11017,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	if req.Header.Get("anthropic-version") == "" {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
+	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	return req, nil
 }
@@ -11154,6 +11160,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
+	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	if c != nil && tokenType == "oauth" {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))

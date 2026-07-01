@@ -91,3 +91,15 @@ func TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire(t *testing.T)
 	require.Contains(t, rec.Body.String(), kiroInternalThinkingSSECommentPfx)
 	require.NotEmpty(t, rec.Header().Get(kiroInternalThinkingResponseHeader))
 }
+
+func TestSetKiroInternalThinkingMirrorHopHeaderForAccount_OAuthIgnored(t *testing.T) {
+	hdr := http.Header{}
+	account := &Account{
+		Type: AccountTypeOAuth,
+		Credentials: map[string]any{
+			"base_url": "https://api-us6.tokenkey.dev",
+		},
+	}
+	setKiroInternalThinkingMirrorHopHeaderForAccount(hdr, account)
+	require.Empty(t, hdr.Get(kiroInternalThinkingMirrorHopRequestHeader))
+}
