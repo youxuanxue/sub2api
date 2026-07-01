@@ -30,8 +30,6 @@ TIER_MANAGED_EXTRA_KEYS = frozenset({
     "max_sessions",
     "rpm_sticky_buffer",
     "session_idle_timeout_minutes",
-    "window_cost_limit",
-    "window_cost_sticky_reserve",
     "cache_ttl_override_enabled",
     "cache_ttl_override_target",
 })
@@ -342,8 +340,6 @@ WITH target AS (
     'session_id_masking_enabled',
     'cache_ttl_override_enabled',
     'cache_ttl_override_target',
-    'window_cost_limit',
-    'window_cost_sticky_reserve',
     'custom_base_url_enabled',
     'custom_base_url'
   )
@@ -438,8 +434,6 @@ jsonb_build_object(
       'session_id_masking_enabled',
       'cache_ttl_override_enabled',
       'cache_ttl_override_target',
-      'window_cost_limit',
-      'window_cost_sticky_reserve',
       'custom_base_url_enabled',
       'custom_base_url'
     )

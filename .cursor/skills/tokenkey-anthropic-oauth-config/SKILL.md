@@ -84,7 +84,7 @@ python3 $MGR check --snapshot $JOBDIR/snap.json
 #       要么撤销后台改动、要么把改动落进 git baseline JSON 再发版。
 #   ⚠️ check **不再** diff 账号持久化 extra 的 8 个 tier-managed 键（base_rpm /
 #      max_sessions / rpm_sticky_buffer / session_idle_timeout_minutes /
-#      window_cost_limit / window_cost_sticky_reserve / cache_ttl_override_*）：
+#      cache_ttl_override_*）：
 #      PR #472 后这些值在 `tiers` 表、运行时 overlay 到账号、写路径剥离，账号 extra
 #      为 null 是**正确态**。它们的正确性由 tier_table_drift（tier 表 vs git）保证，
 #      不再按账号比对（旧逻辑对每个账号每次都假报，已重构）。
@@ -149,7 +149,7 @@ prod 无 OAuth 账号时只写 settings；edge 两者都写。HTTP UA 运行时 
       "oauth_accounts": [          // ← edge OAuth 账号在这里（check 比对 tier baseline + tls_profile）
         { "id": 1, "name": "...", "stability_tier": "l5",
           "base_rpm": 28, "rpm_sticky_buffer": 20, "concurrency": 10,
-          "max_sessions": 100, "window_cost_limit": 1500, "status": "active",
+          "max_sessions": 100, "status": "active",
           "schedulable": true, ... }
       ]
     },
@@ -222,7 +222,7 @@ python3 $MGR check --snapshot $JOBDIR/snap-post.json        # 独立第三方确
 
 | 旧写入面 | 现在谁负责 | 入口 |
 |---|---|---|
-| (A) tier baseline **数值**（concurrency / base_rpm / sticky_buffer / max_sessions / window_cost_limit / priority / stability_tier） | **admin UI `ApplyTier`** 显式设定；reconciler 对单账号 tier 字段漂移 **report-only（slog.Warn），永不静默重写** | admin UI 账号卡「Apply Tier」；后端 `account_handler_tk_tier.go` + `tier_service.go` |
+| (A) tier baseline **数值**（concurrency / base_rpm / sticky_buffer / max_sessions / priority / stability_tier） | **admin UI `ApplyTier`** 显式设定；reconciler 对单账号 tier 字段漂移 **report-only（slog.Warn），永不静默重写** | admin UI 账号卡「Apply Tier」；后端 `account_handler_tk_tier.go` + `tier_service.go` |
 | (A) `users.id=1` operator 并发 Σ（= Σ schedulable=true anthropic concurrency） | **reconciler Step A**（per-node 自愈）+ admin 控制面 `SumConcurrencyAnthropic` | `anthropic_config_reconciler.go` / `anthropic_operator_concurrency.go` |
 | (B) prod 镜像 stub `credentials.pool_mode` + `pool_mode_retry_count` | **reconciler Step B**（自愈匹配 stub 的 pool_mode） | `anthropic_config_reconciler.go` |
 | (C) prod stub concurrency 镜像（四跳级联 Σ schedulable） | **reconciler Step C**（自愈；失败/超时/5xx edge 读取**绝不写 0**，跳过保留旧值） | `anthropic_config_reconciler.go` |

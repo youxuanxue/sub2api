@@ -480,7 +480,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
+			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与其它调度 soft-limit 模式一致。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
 			if (account.IsAnthropicOAuthOrSetupToken() || account.IsKiro()) && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
@@ -900,7 +900,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
+			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与其它调度 soft-limit 模式一致。
 			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
 			if (account.IsAnthropicOAuthOrSetupToken() || account.IsKiro()) && account.GetBaseRPM() > 0 {
 				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {

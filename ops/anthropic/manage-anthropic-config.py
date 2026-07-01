@@ -782,8 +782,6 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'rpm_sticky_buffer', NULLIF(a.extra->>'rpm_sticky_buffer', '')::int,
   'max_sessions', NULLIF(a.extra->>'max_sessions', '')::int,
   'session_idle_timeout_minutes', NULLIF(a.extra->>'session_idle_timeout_minutes', '')::int,
-  'window_cost_limit', NULLIF(a.extra->>'window_cost_limit', '')::int,
-  'window_cost_sticky_reserve', NULLIF(a.extra->>'window_cost_sticky_reserve', '')::int,
   'cache_ttl_override_enabled', NULLIF(a.extra->>'cache_ttl_override_enabled', '')::boolean
 ) ORDER BY a.id), '[]'::jsonb)
 FROM accounts a
@@ -846,8 +844,6 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'max_sessions', t.max_sessions,
   'rpm_sticky_buffer', t.rpm_sticky_buffer,
   'session_idle_timeout_minutes', t.session_idle_timeout_minutes,
-  'window_cost_limit', t.window_cost_limit,
-  'window_cost_sticky_reserve', t.window_cost_sticky_reserve,
   'cache_ttl_override_enabled', t.cache_ttl_override_enabled,
   'cache_ttl_override_target', t.cache_ttl_override_target,
   'tls_profile_name', t.tls_profile_name
@@ -2346,7 +2342,7 @@ def _find_edge_account(edge: dict, account_name: str) -> dict:
 # Tier-baseline value fields that the apply SQL writes AND that this pipeline
 # owns end-to-end. The skip-as-noop gate (_tier_fields_match) and Stage-5 verify
 # must both cover this WHOLE set — otherwise a bump touching only one of them
-# (e.g. window_cost_limit-only) is silently skipped by plan-tier-bump and then
+# (e.g. session_idle_timeout_minutes-only) is silently skipped by plan-tier-bump and then
 # falsely verified clean, defeating the "no account left at the old value"
 # guarantee. snapshot already carries all of these.
 #
@@ -2361,12 +2357,12 @@ def _find_edge_account(edge: dict, account_name: str) -> dict:
 # tracked by snapshot/verify either — that is what --force-template-rewrite covers.
 _TIER_BASELINE_FIELDS = (
     "base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions",
-    "window_cost_limit", "session_idle_timeout_minutes", "window_cost_sticky_reserve",
+    "session_idle_timeout_minutes",
 )
 _ACCOUNT_BEFORE_FIELDS = (
     "id", "name", "concurrency", "stability_tier", "base_rpm",
     "rpm_sticky_buffer", "max_sessions", "session_idle_timeout_minutes",
-    "window_cost_limit", "window_cost_sticky_reserve", "status",
+    "status",
 )
 
 
@@ -3763,8 +3759,6 @@ _TIERS_LIVE_COLUMNS: list[tuple[str, str]] = [
     ("max_sessions", "int"),
     ("rpm_sticky_buffer", "int"),
     ("session_idle_timeout_minutes", "int"),
-    ("window_cost_limit", "num"),
-    ("window_cost_sticky_reserve", "num"),
     ("cache_ttl_override_enabled", "bool"),
     ("cache_ttl_override_target", "str_or_null"),
 ]

@@ -203,7 +203,7 @@ func (Account) Fields() []ent.Field {
 
 		// tier_id: TokenKey anthropic OAuth 稳定性档位引用（可空）。
 		// 绑定到 tiers 表，运行时按 id 解析 per-tier 配置（base_rpm / max_sessions /
-		// window_cost_limit 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
+		// rpm_sticky_buffer 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
 		field.Int64("tier_id").
 			Optional().
 			Nillable().

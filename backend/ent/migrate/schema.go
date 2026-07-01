@@ -1469,8 +1469,6 @@ var (
 		{Name: "max_sessions", Type: field.TypeInt, Default: 0},
 		{Name: "rpm_sticky_buffer", Type: field.TypeInt, Default: 0},
 		{Name: "session_idle_timeout_minutes", Type: field.TypeInt, Default: 8},
-		{Name: "window_cost_limit", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
-		{Name: "window_cost_sticky_reserve", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "cache_ttl_override_enabled", Type: field.TypeBool, Default: false},
 		{Name: "cache_ttl_override_target", Type: field.TypeString, Nullable: true, Size: 20},
 		{Name: "tls_profile_name", Type: field.TypeString, Nullable: true, Size: 100},

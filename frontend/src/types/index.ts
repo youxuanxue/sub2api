@@ -906,10 +906,6 @@ export interface Account {
   session_window_end: string | null
   session_window_status: 'allowed' | 'allowed_warning' | 'rejected' | null
 
-  // 5h窗口费用控制（仅 Anthropic OAuth/SetupToken 账号有效）
-  window_cost_limit?: number | null
-  window_cost_sticky_reserve?: number | null
-
   // 会话数量控制（仅 Anthropic OAuth/SetupToken 账号有效）
   max_sessions?: number | null
   session_idle_timeout_minutes?: number | null
@@ -955,7 +951,6 @@ export interface Account {
   quota_weekly_reset_at?: string | null
 
   // 运行时状态（仅当启用对应限制时返回）
-  current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
 }

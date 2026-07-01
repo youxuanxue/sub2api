@@ -17,8 +17,6 @@ type Tier struct {
 	MaxSessions               int       `json:"max_sessions"`
 	RPMStickyBuffer           int       `json:"rpm_sticky_buffer"`
 	SessionIdleTimeoutMinutes int       `json:"session_idle_timeout_minutes"`
-	WindowCostLimit           float64   `json:"window_cost_limit"`
-	WindowCostStickyReserve   float64   `json:"window_cost_sticky_reserve"`
 	CacheTTLOverrideEnabled   bool      `json:"cache_ttl_override_enabled"`
 	CacheTTLOverrideTarget    *string   `json:"cache_ttl_override_target"`
 	TLSProfileName            *string   `json:"tls_profile_name"`
@@ -43,8 +41,6 @@ var TierManagedExtraKeys = []string{
 	"max_sessions",
 	"rpm_sticky_buffer",
 	"session_idle_timeout_minutes",
-	"window_cost_limit",
-	"window_cost_sticky_reserve",
 	"cache_ttl_override_enabled",
 	"cache_ttl_override_target",
 }
@@ -70,8 +66,6 @@ func (t *Tier) OverlayExtra(extra map[string]any) {
 	extra["max_sessions"] = t.MaxSessions
 	extra["rpm_sticky_buffer"] = t.RPMStickyBuffer
 	extra["session_idle_timeout_minutes"] = t.SessionIdleTimeoutMinutes
-	extra["window_cost_limit"] = t.WindowCostLimit
-	extra["window_cost_sticky_reserve"] = t.WindowCostStickyReserve
 	extra["cache_ttl_override_enabled"] = t.CacheTTLOverrideEnabled
 	if t.CacheTTLOverrideTarget != nil {
 		extra["cache_ttl_override_target"] = *t.CacheTTLOverrideTarget

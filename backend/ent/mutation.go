@@ -40017,10 +40017,6 @@ type TierMutation struct {
 	addrpm_sticky_buffer            *int
 	session_idle_timeout_minutes    *int
 	addsession_idle_timeout_minutes *int
-	window_cost_limit               *float64
-	addwindow_cost_limit            *float64
-	window_cost_sticky_reserve      *float64
-	addwindow_cost_sticky_reserve   *float64
 	cache_ttl_override_enabled      *bool
 	cache_ttl_override_target       *string
 	tls_profile_name                *string
@@ -40679,118 +40675,6 @@ func (m *TierMutation) ResetSessionIdleTimeoutMinutes() {
 	m.addsession_idle_timeout_minutes = nil
 }
 
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (m *TierMutation) SetWindowCostLimit(f float64) {
-	m.window_cost_limit = &f
-	m.addwindow_cost_limit = nil
-}
-
-// WindowCostLimit returns the value of the "window_cost_limit" field in the mutation.
-func (m *TierMutation) WindowCostLimit() (r float64, exists bool) {
-	v := m.window_cost_limit
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldWindowCostLimit returns the old "window_cost_limit" field's value of the Tier entity.
-// If the Tier object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *TierMutation) OldWindowCostLimit(ctx context.Context) (v float64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldWindowCostLimit is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldWindowCostLimit requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldWindowCostLimit: %w", err)
-	}
-	return oldValue.WindowCostLimit, nil
-}
-
-// AddWindowCostLimit adds f to the "window_cost_limit" field.
-func (m *TierMutation) AddWindowCostLimit(f float64) {
-	if m.addwindow_cost_limit != nil {
-		*m.addwindow_cost_limit += f
-	} else {
-		m.addwindow_cost_limit = &f
-	}
-}
-
-// AddedWindowCostLimit returns the value that was added to the "window_cost_limit" field in this mutation.
-func (m *TierMutation) AddedWindowCostLimit() (r float64, exists bool) {
-	v := m.addwindow_cost_limit
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetWindowCostLimit resets all changes to the "window_cost_limit" field.
-func (m *TierMutation) ResetWindowCostLimit() {
-	m.window_cost_limit = nil
-	m.addwindow_cost_limit = nil
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (m *TierMutation) SetWindowCostStickyReserve(f float64) {
-	m.window_cost_sticky_reserve = &f
-	m.addwindow_cost_sticky_reserve = nil
-}
-
-// WindowCostStickyReserve returns the value of the "window_cost_sticky_reserve" field in the mutation.
-func (m *TierMutation) WindowCostStickyReserve() (r float64, exists bool) {
-	v := m.window_cost_sticky_reserve
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldWindowCostStickyReserve returns the old "window_cost_sticky_reserve" field's value of the Tier entity.
-// If the Tier object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *TierMutation) OldWindowCostStickyReserve(ctx context.Context) (v float64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldWindowCostStickyReserve is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldWindowCostStickyReserve requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldWindowCostStickyReserve: %w", err)
-	}
-	return oldValue.WindowCostStickyReserve, nil
-}
-
-// AddWindowCostStickyReserve adds f to the "window_cost_sticky_reserve" field.
-func (m *TierMutation) AddWindowCostStickyReserve(f float64) {
-	if m.addwindow_cost_sticky_reserve != nil {
-		*m.addwindow_cost_sticky_reserve += f
-	} else {
-		m.addwindow_cost_sticky_reserve = &f
-	}
-}
-
-// AddedWindowCostStickyReserve returns the value that was added to the "window_cost_sticky_reserve" field in this mutation.
-func (m *TierMutation) AddedWindowCostStickyReserve() (r float64, exists bool) {
-	v := m.addwindow_cost_sticky_reserve
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetWindowCostStickyReserve resets all changes to the "window_cost_sticky_reserve" field.
-func (m *TierMutation) ResetWindowCostStickyReserve() {
-	m.window_cost_sticky_reserve = nil
-	m.addwindow_cost_sticky_reserve = nil
-}
-
 // SetCacheTTLOverrideEnabled sets the "cache_ttl_override_enabled" field.
 func (m *TierMutation) SetCacheTTLOverrideEnabled(b bool) {
 	m.cache_ttl_override_enabled = &b
@@ -41029,7 +40913,7 @@ func (m *TierMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TierMutation) Fields() []string {
-	fields := make([]string, 0, 17)
+	fields := make([]string, 0, 15)
 	if m.created_at != nil {
 		fields = append(fields, tier.FieldCreatedAt)
 	}
@@ -41062,12 +40946,6 @@ func (m *TierMutation) Fields() []string {
 	}
 	if m.session_idle_timeout_minutes != nil {
 		fields = append(fields, tier.FieldSessionIdleTimeoutMinutes)
-	}
-	if m.window_cost_limit != nil {
-		fields = append(fields, tier.FieldWindowCostLimit)
-	}
-	if m.window_cost_sticky_reserve != nil {
-		fields = append(fields, tier.FieldWindowCostStickyReserve)
 	}
 	if m.cache_ttl_override_enabled != nil {
 		fields = append(fields, tier.FieldCacheTTLOverrideEnabled)
@@ -41111,10 +40989,6 @@ func (m *TierMutation) Field(name string) (ent.Value, bool) {
 		return m.RpmStickyBuffer()
 	case tier.FieldSessionIdleTimeoutMinutes:
 		return m.SessionIdleTimeoutMinutes()
-	case tier.FieldWindowCostLimit:
-		return m.WindowCostLimit()
-	case tier.FieldWindowCostStickyReserve:
-		return m.WindowCostStickyReserve()
 	case tier.FieldCacheTTLOverrideEnabled:
 		return m.CacheTTLOverrideEnabled()
 	case tier.FieldCacheTTLOverrideTarget:
@@ -41154,10 +41028,6 @@ func (m *TierMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldRpmStickyBuffer(ctx)
 	case tier.FieldSessionIdleTimeoutMinutes:
 		return m.OldSessionIdleTimeoutMinutes(ctx)
-	case tier.FieldWindowCostLimit:
-		return m.OldWindowCostLimit(ctx)
-	case tier.FieldWindowCostStickyReserve:
-		return m.OldWindowCostStickyReserve(ctx)
 	case tier.FieldCacheTTLOverrideEnabled:
 		return m.OldCacheTTLOverrideEnabled(ctx)
 	case tier.FieldCacheTTLOverrideTarget:
@@ -41252,20 +41122,6 @@ func (m *TierMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetSessionIdleTimeoutMinutes(v)
 		return nil
-	case tier.FieldWindowCostLimit:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetWindowCostLimit(v)
-		return nil
-	case tier.FieldWindowCostStickyReserve:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetWindowCostStickyReserve(v)
-		return nil
 	case tier.FieldCacheTTLOverrideEnabled:
 		v, ok := value.(bool)
 		if !ok {
@@ -41323,12 +41179,6 @@ func (m *TierMutation) AddedFields() []string {
 	if m.addsession_idle_timeout_minutes != nil {
 		fields = append(fields, tier.FieldSessionIdleTimeoutMinutes)
 	}
-	if m.addwindow_cost_limit != nil {
-		fields = append(fields, tier.FieldWindowCostLimit)
-	}
-	if m.addwindow_cost_sticky_reserve != nil {
-		fields = append(fields, tier.FieldWindowCostStickyReserve)
-	}
 	if m.addtls_profile_id != nil {
 		fields = append(fields, tier.FieldTLSProfileID)
 	}
@@ -41354,10 +41204,6 @@ func (m *TierMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedRpmStickyBuffer()
 	case tier.FieldSessionIdleTimeoutMinutes:
 		return m.AddedSessionIdleTimeoutMinutes()
-	case tier.FieldWindowCostLimit:
-		return m.AddedWindowCostLimit()
-	case tier.FieldWindowCostStickyReserve:
-		return m.AddedWindowCostStickyReserve()
 	case tier.FieldTLSProfileID:
 		return m.AddedTLSProfileID()
 	}
@@ -41417,20 +41263,6 @@ func (m *TierMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddSessionIdleTimeoutMinutes(v)
-		return nil
-	case tier.FieldWindowCostLimit:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddWindowCostLimit(v)
-		return nil
-	case tier.FieldWindowCostStickyReserve:
-		v, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddWindowCostStickyReserve(v)
 		return nil
 	case tier.FieldTLSProfileID:
 		v, ok := value.(int64)
@@ -41525,12 +41357,6 @@ func (m *TierMutation) ResetField(name string) error {
 		return nil
 	case tier.FieldSessionIdleTimeoutMinutes:
 		m.ResetSessionIdleTimeoutMinutes()
-		return nil
-	case tier.FieldWindowCostLimit:
-		m.ResetWindowCostLimit()
-		return nil
-	case tier.FieldWindowCostStickyReserve:
-		m.ResetWindowCostStickyReserve()
 		return nil
 	case tier.FieldCacheTTLOverrideEnabled:
 		m.ResetCacheTTLOverrideEnabled()

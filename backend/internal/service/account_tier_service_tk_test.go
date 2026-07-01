@@ -81,7 +81,7 @@ func tierServiceWithL4(t *testing.T) *TierService {
 	repo := &stubTierRepo{byName: map[string]*model.Tier{
 		"l4": {
 			ID: 4, Name: "l4", Concurrency: 8, Priority: 4, RateMultiplier: 1.0,
-			BaseRPM: 28, MaxSessions: 120, RPMStickyBuffer: 20, WindowCostLimit: 600,
+			BaseRPM: 28, MaxSessions: 120, RPMStickyBuffer: 20,
 			TLSProfileName: tierStrPtr("tk_canonical_cc_oauth"),
 		},
 	}}

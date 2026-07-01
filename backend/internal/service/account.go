@@ -1722,18 +1722,6 @@ func (a *Account) IsCodexCLIOnlyAppServerAllowed() bool {
 	return ok && v
 }
 
-// WindowCostSchedulability 窗口费用调度状态
-type WindowCostSchedulability int
-
-const (
-	// WindowCostSchedulable 可正常调度
-	WindowCostSchedulable WindowCostSchedulability = iota
-	// WindowCostStickyOnly 仅允许粘性会话
-	WindowCostStickyOnly
-	// WindowCostNotSchedulable 完全不可调度
-	WindowCostNotSchedulable
-)
-
 // IsAnthropicOAuthOrSetupToken 判断是否为 Anthropic OAuth 或 SetupToken 类型账号
 // 仅这两类账号支持 5h 窗口额度控制和会话数量控制
 func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
@@ -2372,33 +2360,6 @@ func (a *Account) IsQuotaExceeded() bool {
 	return false
 }
 
-// GetWindowCostLimit 获取 5h 窗口费用阈值（美元）
-// 返回 0 表示未启用
-func (a *Account) GetWindowCostLimit() float64 {
-	if a.Extra == nil {
-		return 0
-	}
-	if v, ok := a.Extra["window_cost_limit"]; ok {
-		return parseExtraFloat64(v)
-	}
-	return 0
-}
-
-// GetWindowCostStickyReserve 获取粘性会话预留额度（美元）
-// 默认值为 10；显式配置 0 表示禁用 sticky 成本缓冲。
-func (a *Account) GetWindowCostStickyReserve() float64 {
-	if a.Extra == nil {
-		return 10.0
-	}
-	if v, ok := a.Extra["window_cost_sticky_reserve"]; ok {
-		val := parseExtraFloat64(v)
-		if val >= 0 {
-			return val
-		}
-	}
-	return 10.0
-}
-
 // GetMaxSessions 获取最大并发会话数
 // 返回 0 表示未启用
 func (a *Account) GetMaxSessions() int {
@@ -2501,50 +2462,28 @@ func (a *Account) GetRPMStickyBuffer() int {
 }
 
 // CheckRPMSchedulability 根据当前 RPM 计数检查调度状态
-// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
-func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulability {
+// 复用 WindowUtilSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
+func (a *Account) CheckRPMSchedulability(currentRPM int) WindowUtilSchedulability {
 	baseRPM := a.GetBaseRPM()
 	if baseRPM <= 0 {
-		return WindowCostSchedulable
+		return WindowUtilSchedulable
 	}
 
 	if currentRPM < baseRPM {
-		return WindowCostSchedulable
+		return WindowUtilSchedulable
 	}
 
 	strategy := a.GetRPMStrategy()
 	if strategy == "sticky_exempt" {
-		return WindowCostStickyOnly // 粘性豁免无红区
+		return WindowUtilStickyOnly // 粘性豁免无红区
 	}
 
 	// tiered: 黄区 + 红区
 	buffer := a.GetRPMStickyBuffer()
 	if currentRPM < baseRPM+buffer {
-		return WindowCostStickyOnly
+		return WindowUtilStickyOnly
 	}
-	return WindowCostNotSchedulable
-}
-
-// CheckWindowCostSchedulability 根据当前窗口费用检查调度状态
-// - 费用 < 阈值: WindowCostSchedulable（可正常调度）
-// - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly（仅粘性会话）
-// - 费用 >= 阈值+预留: WindowCostNotSchedulable（不可调度）
-func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) WindowCostSchedulability {
-	limit := a.GetWindowCostLimit()
-	if limit <= 0 {
-		return WindowCostSchedulable
-	}
-
-	if currentWindowCost < limit {
-		return WindowCostSchedulable
-	}
-
-	stickyReserve := a.GetWindowCostStickyReserve()
-	if currentWindowCost < limit+stickyReserve {
-		return WindowCostStickyOnly
-	}
-
-	return WindowCostNotSchedulable
+	return WindowUtilNotSchedulable
 }
 
 // GetCurrentWindowStartTime 获取当前有效的窗口开始时间

@@ -12,7 +12,7 @@ Write surface
 ONE field: accounts.priority on the local edge DB.
 
 Tier baseline (concurrency / base_rpm / sticky_buffer / max_sessions /
-window_cost_limit / stability_tier) remains the write surface of
+stability_tier) remains the write surface of
 ops/anthropic/manage-anthropic-config.py and MUST NOT be co-written.
 
 Re-apply after every tier-baseline apply — the tier-baseline template

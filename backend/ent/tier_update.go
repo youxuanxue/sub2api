@@ -215,48 +215,6 @@ func (_u *TierUpdate) AddSessionIdleTimeoutMinutes(v int) *TierUpdate {
 	return _u
 }
 
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (_u *TierUpdate) SetWindowCostLimit(v float64) *TierUpdate {
-	_u.mutation.ResetWindowCostLimit()
-	_u.mutation.SetWindowCostLimit(v)
-	return _u
-}
-
-// SetNillableWindowCostLimit sets the "window_cost_limit" field if the given value is not nil.
-func (_u *TierUpdate) SetNillableWindowCostLimit(v *float64) *TierUpdate {
-	if v != nil {
-		_u.SetWindowCostLimit(*v)
-	}
-	return _u
-}
-
-// AddWindowCostLimit adds value to the "window_cost_limit" field.
-func (_u *TierUpdate) AddWindowCostLimit(v float64) *TierUpdate {
-	_u.mutation.AddWindowCostLimit(v)
-	return _u
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (_u *TierUpdate) SetWindowCostStickyReserve(v float64) *TierUpdate {
-	_u.mutation.ResetWindowCostStickyReserve()
-	_u.mutation.SetWindowCostStickyReserve(v)
-	return _u
-}
-
-// SetNillableWindowCostStickyReserve sets the "window_cost_sticky_reserve" field if the given value is not nil.
-func (_u *TierUpdate) SetNillableWindowCostStickyReserve(v *float64) *TierUpdate {
-	if v != nil {
-		_u.SetWindowCostStickyReserve(*v)
-	}
-	return _u
-}
-
-// AddWindowCostStickyReserve adds value to the "window_cost_sticky_reserve" field.
-func (_u *TierUpdate) AddWindowCostStickyReserve(v float64) *TierUpdate {
-	_u.mutation.AddWindowCostStickyReserve(v)
-	return _u
-}
-
 // SetCacheTTLOverrideEnabled sets the "cache_ttl_override_enabled" field.
 func (_u *TierUpdate) SetCacheTTLOverrideEnabled(v bool) *TierUpdate {
 	_u.mutation.SetCacheTTLOverrideEnabled(v)
@@ -464,18 +422,6 @@ func (_u *TierUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedSessionIdleTimeoutMinutes(); ok {
 		_spec.AddField(tier.FieldSessionIdleTimeoutMinutes, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.WindowCostLimit(); ok {
-		_spec.SetField(tier.FieldWindowCostLimit, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.AddedWindowCostLimit(); ok {
-		_spec.AddField(tier.FieldWindowCostLimit, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.WindowCostStickyReserve(); ok {
-		_spec.SetField(tier.FieldWindowCostStickyReserve, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.AddedWindowCostStickyReserve(); ok {
-		_spec.AddField(tier.FieldWindowCostStickyReserve, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.CacheTTLOverrideEnabled(); ok {
 		_spec.SetField(tier.FieldCacheTTLOverrideEnabled, field.TypeBool, value)
@@ -705,48 +651,6 @@ func (_u *TierUpdateOne) SetNillableSessionIdleTimeoutMinutes(v *int) *TierUpdat
 // AddSessionIdleTimeoutMinutes adds value to the "session_idle_timeout_minutes" field.
 func (_u *TierUpdateOne) AddSessionIdleTimeoutMinutes(v int) *TierUpdateOne {
 	_u.mutation.AddSessionIdleTimeoutMinutes(v)
-	return _u
-}
-
-// SetWindowCostLimit sets the "window_cost_limit" field.
-func (_u *TierUpdateOne) SetWindowCostLimit(v float64) *TierUpdateOne {
-	_u.mutation.ResetWindowCostLimit()
-	_u.mutation.SetWindowCostLimit(v)
-	return _u
-}
-
-// SetNillableWindowCostLimit sets the "window_cost_limit" field if the given value is not nil.
-func (_u *TierUpdateOne) SetNillableWindowCostLimit(v *float64) *TierUpdateOne {
-	if v != nil {
-		_u.SetWindowCostLimit(*v)
-	}
-	return _u
-}
-
-// AddWindowCostLimit adds value to the "window_cost_limit" field.
-func (_u *TierUpdateOne) AddWindowCostLimit(v float64) *TierUpdateOne {
-	_u.mutation.AddWindowCostLimit(v)
-	return _u
-}
-
-// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
-func (_u *TierUpdateOne) SetWindowCostStickyReserve(v float64) *TierUpdateOne {
-	_u.mutation.ResetWindowCostStickyReserve()
-	_u.mutation.SetWindowCostStickyReserve(v)
-	return _u
-}
-
-// SetNillableWindowCostStickyReserve sets the "window_cost_sticky_reserve" field if the given value is not nil.
-func (_u *TierUpdateOne) SetNillableWindowCostStickyReserve(v *float64) *TierUpdateOne {
-	if v != nil {
-		_u.SetWindowCostStickyReserve(*v)
-	}
-	return _u
-}
-
-// AddWindowCostStickyReserve adds value to the "window_cost_sticky_reserve" field.
-func (_u *TierUpdateOne) AddWindowCostStickyReserve(v float64) *TierUpdateOne {
-	_u.mutation.AddWindowCostStickyReserve(v)
 	return _u
 }
 
@@ -987,18 +891,6 @@ func (_u *TierUpdateOne) sqlSave(ctx context.Context) (_node *Tier, err error) {
 	}
 	if value, ok := _u.mutation.AddedSessionIdleTimeoutMinutes(); ok {
 		_spec.AddField(tier.FieldSessionIdleTimeoutMinutes, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.WindowCostLimit(); ok {
-		_spec.SetField(tier.FieldWindowCostLimit, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.AddedWindowCostLimit(); ok {
-		_spec.AddField(tier.FieldWindowCostLimit, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.WindowCostStickyReserve(); ok {
-		_spec.SetField(tier.FieldWindowCostStickyReserve, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.AddedWindowCostStickyReserve(); ok {
-		_spec.AddField(tier.FieldWindowCostStickyReserve, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.CacheTTLOverrideEnabled(); ok {
 		_spec.SetField(tier.FieldCacheTTLOverrideEnabled, field.TypeBool, value)

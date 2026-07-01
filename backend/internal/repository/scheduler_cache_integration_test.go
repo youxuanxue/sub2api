@@ -45,8 +45,6 @@ func TestSchedulerCacheSnapshotUsesSlimMetadataButKeepsFullAccount(t *testing.T)
 		},
 		Extra: map[string]any{
 			"mixed_scheduling":             true,
-			"window_cost_limit":            12.5,
-			"window_cost_sticky_reserve":   8.0,
 			"max_sessions":                 4,
 			"session_idle_timeout_minutes": 11,
 			"base_rpm":                     20,
@@ -90,8 +88,6 @@ func TestSchedulerCacheSnapshotUsesSlimMetadataButKeepsFullAccount(t *testing.T)
 	require.Empty(t, got.GetCredential("access_token"))
 	require.Empty(t, got.GetCredential("huge_blob"))
 	require.Equal(t, true, got.Extra["mixed_scheduling"])
-	require.Equal(t, 12.5, got.GetWindowCostLimit())
-	require.Equal(t, 8.0, got.GetWindowCostStickyReserve())
 	require.Equal(t, 4, got.GetMaxSessions())
 	require.Equal(t, 11, got.GetSessionIdleTimeoutMinutes())
 	require.Equal(t, 20, got.GetBaseRPM())
