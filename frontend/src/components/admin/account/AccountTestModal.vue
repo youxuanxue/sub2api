@@ -379,6 +379,9 @@ const loadAvailableModels = async () => {
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
+      } else if (props.account.platform === 'antigravity') {
+        // Backend pins AntigravityDefaultTestModelID first; gemini-only policy — no sonnet default.
+        selectedModelId.value = availableModels.value[0].id
       } else if (isKiroTestAccount.value) {
         selectedModelId.value =
           availableModels.value.find((m) => m.id === 'claude-sonnet-4-5')?.id ||

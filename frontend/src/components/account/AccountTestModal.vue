@@ -353,7 +353,7 @@ const loadAvailableModels = async () => {
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
-      if (props.account.platform === 'gemini') {
+      if (props.account.platform === 'gemini' || props.account.platform === 'antigravity') {
         selectedModelId.value = availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model

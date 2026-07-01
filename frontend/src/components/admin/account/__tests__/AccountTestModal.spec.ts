@@ -231,6 +231,33 @@ describe('AccountTestModal', () => {
     })
   })
 
+  it('defaults antigravity account test to first gemini model from admin catalog', async () => {
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' },
+      { id: 'gemini-pro-agent', display_name: 'Gemini 3.1 Pro (High)' }
+    ])
+    const wrapper = mountWith({
+      id: 701,
+      name: 'antigravity-or1-ls-b',
+      platform: 'antigravity',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    const startButton = wrapper.findAll('button').find((button) => button.text().includes('admin.accounts.startTest'))
+    expect(startButton).toBeTruthy()
+    await startButton!.trigger('click')
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toMatchObject({
+      model_id: 'gemini-3-flash'
+    })
+  })
+
   // Regression (#900 lazyMount): AccountsView lazy-mounts this modal, so on first
   // open it is CREATED with show already true. A non-immediate show-watch never
   // fires for that mount → models never loaded → empty picker. onMounted must load
