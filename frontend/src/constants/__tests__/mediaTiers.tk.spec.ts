@@ -170,7 +170,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out[0].baseImagePrice).toBe(0.03)
   })
 
-  it('surfaces catalog-only models (e.g. grok-imagine-video) without a presentation gate', () => {
+  it('surfaces grok-imagine-video when priced and in the group pool', () => {
     const out = resolveAvailableModels(
       'video',
       GROK_VIDEO,
@@ -180,6 +180,22 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out[0].model.modelId).toBe('grok-imagine-video')
     expect(out[0].model.displayName).toBe('Grok Imagine · Video')
     expect(out[0].perSecond).toBe(0.08)
+  })
+
+  it('builds conservative defaults when catalog lists a model not in MEDIA_MODELS', () => {
+    const unknownId = 'future-video-model-xyz'
+    const out = resolveAvailableModels(
+      'video',
+      new Set([unknownId]),
+      new Map([[unknownId, { perSecond: 0.12, billingMode: 'video', vendor: 'xai' }]])
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].model.modelId).toBe(unknownId)
+    expect(out[0].model.displayName).toBe('Future Video Model Xyz')
+    expect(out[0].model.vendorLabel).toBe('xAI')
+    expect(out[0].model.supportedParams).toEqual([])
+    expect(out[0].model.videoDurations).toEqual([8])
+    expect(out[0].perSecond).toBe(0.12)
   })
 
   it('excludes models not in the group pool', () => {

@@ -108,7 +108,14 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 	case ShapeOpenAIImagesEdit:
 		return []string{PlatformOpenAI} // /v1/images/edits 仅 openai（handler 层硬门）
 	case ShapeOpenAIVideo:
-		return capabilityPlatforms(engine.BridgeEndpointVideoSubmit)
+		out := capabilityPlatforms(engine.BridgeEndpointVideoSubmit)
+		// grok-imagine-video rides the native xAI OAuth video API (channel_type=0),
+		// not the new-api task-adaptor bridge. Without grok in candidates, universal
+		// keys land on openai/newapi and fail at submit.
+		if universalModelPlatformHint(model) == PlatformGrok {
+			out = append(out, PlatformGrok)
+		}
+		return out
 	case ShapeGemini:
 		return []string{PlatformGemini, PlatformAntigravity}
 	default:
