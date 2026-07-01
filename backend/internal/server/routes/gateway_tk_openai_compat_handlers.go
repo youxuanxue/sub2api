@@ -104,10 +104,6 @@ func tkOpenAICompatResponsesWebSocketGET(h *handler.Handlers) gin.HandlerFunc {
 
 func tkOpenAICompatChatCompletionsPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
-			rejectGrokUnsupportedEndpoint(c, "Chat Completions API")
-			return
-		}
 		if isOpenAICompatPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.ChatCompletions(c)
 			return

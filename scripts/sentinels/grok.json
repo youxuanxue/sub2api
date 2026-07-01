@@ -157,7 +157,7 @@
         "buildOpenAIResponsesURL",
         "defaultGrokTestModelID"
       ],
-      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses (grok groups reject /v1/chat/completions), OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses, and the requested model is normalized to a chat-capable grok default. Losing this file or reverting to chat-completions reintroduces the 404 'Chat Completions API is not supported for Grok groups' admin test failure."
+      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses; OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses; requested model is normalized to a chat-capable grok default. User-facing /v1/chat/completions is separately enabled via forwardAsRawChatCompletions — admin probe intentionally stays on /responses for OAuth parity."
     },
     {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
@@ -342,6 +342,38 @@
         ".POST(\"/videos/generations\""
       ],
       "rationale": "The xAI-shaped video submit alias POST /videos/generations (plural videos + /generations), registered in BOTH the /v1 group and the no-prefix scope. This is the path grok's native arm POSTs to ({base}/videos/generations); the gateway's canonical video routes are /video/generations (singular) + /videos (no suffix), which do NOT match it. Without this alias the prod->edge grok video relay 404s at submit: a prod grok mirror account forwards to api-<edge>.tokenkey.dev/v1/videos/generations and the edge gateway has no such route (grok chat/image relay works only because /chat/completions and /images/generations already coincide with gateway routes). Losing this alias silently re-breaks the relay while direct-to-xAI still works, so no other test would catch it."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) forwardGrokResponses",
+        "resolveGrokResponsesUpstream",
+        "grokResponsesAuthToken",
+        "buildOpenAIResponsesURL"
+      ],
+      "rationale": "Grok /v1/responses forwarding must support both native OAuth (xai.BuildResponsesURL + GetAccessToken) and prod→edge apikey relay stubs (GetOpenAIApiKey + buildOpenAIResponsesURL on edge base_url). Reverting to OAuth-only silently re-breaks prod grok-us4 universal-key grok-4.3 with 502 while edge OAuth still works."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_test.go",
+      "must_contain": [
+        "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
+        "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses"
+      ],
+      "rationale": "Load-bearing QA for grok responses apikey relay: pins edge /v1/responses URL + Bearer api_key on forwardGrokResponses. Revert to OAuth-only passes other tests but breaks prod grok-us4."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_test.go",
+      "must_contain": [
+        "TestGatewayRoutesGrokAllowsChatCompletions"
+      ],
+      "rationale": "Route-table guard: grok groups must reach OpenAIGateway.ChatCompletions (prod→edge relay uses forwardAsRawChatCompletions). Re-adding rejectGrokUnsupportedEndpoint for chat/completions silently breaks grok-cli/Codex clients that POST /v1/chat/completions while /v1/responses still works."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw_test.go",
+      "must_contain": [
+        "TestForwardAsRawChatCompletions_GrokAPIKeyRelayUsesEdgeKeyAndBaseURL"
+      ],
+      "rationale": "Service-layer guard for prod grok-us4 apikey relay on /v1/chat/completions: pins edge base_url + api_key Bearer to /chat/completions. Route enablement alone is insufficient if this forward path regresses."
     },
     {
       "path": "backend/internal/service/grok_token_provider.go",
