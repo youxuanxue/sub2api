@@ -24,6 +24,12 @@ const (
 	tkKiroEndpointQuotaExhaustedClient   = "Kiro upstream quota exhausted, please retry later"
 )
 
+// KiroEndpointQuotaExhaustedRetryAfterSeconds is the HTTP Retry-After value paired
+// with tkKiroEndpointQuotaExhaustedCooldown for gateway 429 responses.
+func KiroEndpointQuotaExhaustedRetryAfterSeconds() int {
+	return int(tkKiroEndpointQuotaExhaustedCooldown / time.Second)
+}
+
 func tkIsKiroEndpointQuotaExhausted(upstreamMsg string, responseBody []byte) bool {
 	haystack := strings.ToLower(strings.TrimSpace(upstreamMsg) + "\n" + strings.TrimSpace(string(responseBody)))
 	if strings.Contains(haystack, "quota exhausted on") {

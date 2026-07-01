@@ -244,7 +244,8 @@
       "must_contain": [
         "account.IsKiro()",
         "service.KiroInvalidModelError",
-        "service.KiroEndpointQuotaExhaustedError"
+        "service.KiroEndpointQuotaExhaustedError",
+        "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()"
       ],
       "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
     },
@@ -361,6 +362,7 @@
         "tkIsKiroEndpointQuotaExhausted",
         "tkHandleKiroEndpointQuotaExhausted",
         "tkKiroEndpointQuotaExhaustedCooldown",
+        "KiroEndpointQuotaExhaustedRetryAfterSeconds",
         "kiro_endpoint_quota_exhausted"
       ],
       "rationale": "Kiro upstream endpoint RPM exhaustion (all fallback hosts return 429; prod 2026-07-01 kiro-us3/4/5 mirror flicker) must apply a fixed 10s temp_unschedulable on edge Kiro OAuth accounts and prod kiro mirror stubs instead of advancing the anthropic_upstream_error 3/3 ladder (30s→2m→10m). Without this companion, brief subscription quota blips mislabel healthy relay stubs as failing and the admin UI shows frequent 临时不可调度."

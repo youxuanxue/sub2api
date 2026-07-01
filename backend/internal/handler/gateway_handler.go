@@ -796,7 +796,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 				var kiroQuotaErr *service.KiroEndpointQuotaExhaustedError
 				if errors.As(err, &kiroQuotaErr) {
-					c.Header("Retry-After", "10")
+					c.Header("Retry-After", strconv.Itoa(service.KiroEndpointQuotaExhaustedRetryAfterSeconds()))
 					h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", kiroQuotaErr.ClientMessage())
 					return
 				}

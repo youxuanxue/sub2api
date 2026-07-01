@@ -12,6 +12,7 @@ import (
 )
 
 func TestTkIsKiroEndpointQuotaExhausted(t *testing.T) {
+	require.Equal(t, 10, KiroEndpointQuotaExhaustedRetryAfterSeconds())
 	require.True(t, tkIsKiroEndpointQuotaExhausted("quota exhausted on AmazonQ", nil))
 	require.True(t, tkIsKiroEndpointQuotaExhausted("", []byte(`quota exhausted on Kiro Runtime`)))
 	require.True(t, tkIsKiroEndpointQuotaExhausted(tkKiroEndpointQuotaExhaustedClient, nil))
