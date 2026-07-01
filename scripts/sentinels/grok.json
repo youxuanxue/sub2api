@@ -147,16 +147,17 @@
         "if account.IsGrok() {",
         "return s.testGrokAccountConnection(c, account, modelID, prompt)"
       ],
-      "rationale": "The admin account-test dispatcher must route grok accounts to the native OpenAI-compatible /v1/chat/completions probe before the generic Claude /v1/messages fallback. Losing this branch makes first-class grok relay stubs test through messages dispatch, which is intentionally disabled on grok groups and returns a misleading 403 even though native chat completions can serve."
+      "rationale": "The admin account-test dispatcher must route grok accounts to the grok-specific probe before the generic Claude /v1/messages fallback. Losing this branch makes grok relay stubs test through messages dispatch, which is intentionally disabled on grok groups."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_grok.go",
       "must_contain": [
         "func (s *AccountTestService) testGrokAccountConnection",
-        "testOpenAIChatCompletionsConnection",
+        "testGrokResponsesConnection",
+        "buildOpenAIResponsesURL",
         "defaultGrokTestModelID"
       ],
-      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge, OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai, and the requested model is normalized to a chat-capable grok default. Losing this file or broadening it back into Claude messages reintroduces the group-dispatch 403 path for grok account tests."
+      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses (grok groups reject /v1/chat/completions), OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses, and the requested model is normalized to a chat-capable grok default. Losing this file or reverting to chat-completions reintroduces the 404 'Chat Completions API is not supported for Grok groups' admin test failure."
     },
     {
       "path": "frontend/src/constants/gatewayPlatforms.ts",

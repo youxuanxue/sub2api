@@ -15,12 +15,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestAccountTestService_GrokAPIKeyRoutesToChatCompletions(t *testing.T) {
+func TestAccountTestService_GrokAPIKeyRoutesToResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	resp := newJSONResponse(http.StatusOK, "")
 	resp.Header.Set("Content-Type", "text/event-stream")
-	resp.Body = ioNopCloserString("data: {\"choices\":[{\"delta\":{\"content\":\"hello from grok\"}}]}\n\ndata: [DONE]\n\n")
+	resp.Body = ioNopCloserString("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello from grok\"}\n\ndata: {\"type\":\"response.completed\"}\n\n")
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 
 	rec := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestAccountTestService_GrokAPIKeyRoutesToChatCompletions(t *testing.T) {
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
 	require.Equal(t, http.MethodPost, req.Method)
-	require.Equal(t, "https://api-us4.tokenkey.dev/v1/chat/completions", req.URL.String())
+	require.Equal(t, "https://api-us4.tokenkey.dev/v1/responses", req.URL.String())
 	require.Equal(t, "Bearer edge-grok-key", req.Header.Get("Authorization"))
 	require.Equal(t, defaultGrokTestModelID, gjson.GetBytes(readRequestBodyForTest(t, req), "model").String())
 	body := rec.Body.String()
@@ -58,12 +58,12 @@ func TestAccountTestService_GrokAPIKeyRoutesToChatCompletions(t *testing.T) {
 	require.Contains(t, body, `"success":true`)
 }
 
-func TestAccountTestService_GrokOAuthRoutesToXAIChatCompletions(t *testing.T) {
+func TestAccountTestService_GrokOAuthRoutesToXAIResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	resp := newJSONResponse(http.StatusOK, "")
-	resp.Header.Set("Content-Type", "text/event-stream")
-	resp.Body = ioNopCloserString("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	resp.Header.Set("Content-Type", "application/json")
+	resp.Body = ioNopCloserString(`{"status":"completed","model":"grok-code-fast-1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`)
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 
 	rec := httptest.NewRecorder()
@@ -89,9 +89,10 @@ func TestAccountTestService_GrokOAuthRoutesToXAIChatCompletions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
-	require.Equal(t, "https://api.x.ai/v1/chat/completions", req.URL.String())
+	require.Equal(t, "https://api.x.ai/v1/responses", req.URL.String())
 	require.Equal(t, "Bearer grok-oauth-token", req.Header.Get("Authorization"))
 	require.Contains(t, rec.Body.String(), `"model":"grok-code-fast-1"`)
+	require.Contains(t, rec.Body.String(), `"success":true`)
 }
 
 func TestAccountTestService_GrokRejectsDisallowedBaseURL(t *testing.T) {
