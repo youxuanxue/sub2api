@@ -236,14 +236,12 @@ func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) 
 
 // TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies the
 // display side of the absent-or-zero fill: a source row whose every price field
-// is 0.0 (litellm "cost unknown" — the prod shape of deepseek-v3-2-251201 under
-// volcengine) must show the overlay price in the public catalog, matching what
-// billing actually charges. Row metadata (context window) stays from the file
-// source.
+// is 0.0 (litellm "cost unknown") must show the overlay price for a manifest-
+// listed model, matching what billing actually charges.
 func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) {
 	const fixture = `{
 	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-	  "deepseek-v3-2-251201": {"input_cost_per_token":0.0,"output_cost_per_token":0.0,"litellm_provider":"volcengine","max_input_tokens":98304,"max_output_tokens":32768}
+	  "deepseek-v4-pro": {"input_cost_per_token":0.0,"output_cost_per_token":0.0,"litellm_provider":"deepseek","max_input_tokens":65536,"max_output_tokens":8192}
 	}`
 	s := &PricingCatalogService{}
 	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
@@ -257,20 +255,29 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 		byID[m.ModelID] = m
 	}
 
-	v32, ok := byID["deepseek-v3-2-251201"]
+	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok)
-	assert.InDelta(t, 2.0/6.7e3, v32.Pricing.InputPer1KTokens, 1e-12,
-		"zero placeholder row must display the overlay Ark price (¥2/M ÷ 6.7 × 1K)")
-	assert.InDelta(t, 3.0/6.7e3, v32.Pricing.OutputPer1KTokens, 1e-12)
-	assert.InDelta(t, 0.4/6.7e3, v32.Pricing.CacheReadPer1K, 1e-12)
-	assert.Equal(t, 98304, v32.ContextWindow, "file-source row metadata must be preserved")
-	assert.Equal(t, 32768, v32.MaxOutputTokens)
+	assert.InDelta(t, 0.000435, pro.Pricing.InputPer1KTokens, 1e-9,
+		"zero placeholder row must display the overlay deepseek-v4-pro price")
+	assert.InDelta(t, 0.00087, pro.Pricing.OutputPer1KTokens, 1e-9)
+	assert.InDelta(t, 0.000003625, pro.Pricing.CacheReadPer1K, 1e-12)
+	assert.Equal(t, 65536, pro.ContextWindow, "file-source row metadata must be preserved")
+	assert.Equal(t, 8192, pro.MaxOutputTokens)
+
+	filtered := FilterPublicCatalogToServable(resp)
+	require.NotNil(t, filtered)
+	for _, m := range filtered.Data {
+		if m.ModelID == "deepseek-v4-pro" {
+			return
+		}
+	}
+	t.Fatal("manifest-listed deepseek-v4-pro must remain on the public /pricing storefront")
 }
 
 // TestPublicCatalog_FiltersUnservableClaudeAndGpt covers the support filter
 // (pricing_catalog_supported_models_tk.go): retired/unservable claude + gpt
-// rows are pruned, servable ones kept, and every non-claude/gpt vendor passes
-// through untouched.
+// rows are pruned, servable ones kept, newapi long-tail rows require a
+// tk_served_models.json entry, and other vendors pass through unchanged.
 func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	const fixture = `{
 	  "claude-opus-4-8":           {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
@@ -280,7 +287,9 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	  "gpt-4o":                    {"input_cost_per_token":0.0000025,"output_cost_per_token":0.00001,"litellm_provider":"openai"},
 	  "gpt-3.5-turbo":             {"input_cost_per_token":0.0000005,"output_cost_per_token":0.0000015,"litellm_provider":"openai"},
 	  "gemini-2.5-pro":            {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
-	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"}
+	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"},
+	  "deepseek-v3-2-251201":      {"input_cost_per_token":0.0000002,"output_cost_per_token":0.0000004,"litellm_provider":"volcengine"},
+	  "glm-4-32b-0414-128k":       {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"}
 	}`
 	s := &PricingCatalogService{}
 	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
@@ -308,7 +317,9 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.False(t, got["gpt-3.5-turbo"], "legacy gpt pruned")
 	// Other vendors untouched (filter only curates claude + gpt families).
 	assert.True(t, got["gemini-2.5-pro"], "gemini vendor passes through")
-	assert.True(t, got["deepseek-chat"], "non-curated vendor passes through")
+	assert.True(t, got["deepseek-chat"], "manifest-listed deepseek kept")
+	assert.False(t, got["deepseek-v3-2-251201"], "priced-but-unlisted volcengine residue pruned")
+	assert.False(t, got["glm-4-32b-0414-128k"], "withdrawn GLM SKU pruned from storefront")
 }
 
 func TestIsPublicCatalogModelSupported(t *testing.T) {
@@ -332,6 +343,9 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"azure_openai", "gpt-4", false},                      // azure_openai → openai platform, gated
 		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
 		{"deepseek", "deepseek-chat", true},
+		{"volcengine", "deepseek-v3-2-251201", false},
+		{"zhipu", "glm-4-32b-0414-128k", false},
+		{"zhipu", "glm-5.2", true},
 		// antigravity (2026-06-13 empirical probe, refreshed 2026-06-23): gated to the gemini-only set.
 		{"antigravity", "gemini-2.5-flash", true},
 		{"antigravity", "gemini-2.5-flash-lite", true},

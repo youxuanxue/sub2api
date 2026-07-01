@@ -571,12 +571,6 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedOutput:    floatPtr(0),
 			expectedCacheRead: floatPtr(0),
 		},
-		{
-			name:           "glm 4-32b legacy",
-			model:          "glm-4-32b-0414-128k",
-			expectedInput:  0.1e-6,
-			expectedOutput: floatPtr(0.1e-6),
-		},
 		// 关键：5.2 / 5.1 必须先于 5 匹配（避免被 glm-5 抢走）
 		{
 			name:              "glm 5.2 vs glm 5 ordering",

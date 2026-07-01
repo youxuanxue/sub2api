@@ -66,7 +66,7 @@ MODE_FIELDS = {
 ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity")
 
 # A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
-ENUMERATION_PROVIDERS = {"dashscope", "deepseek"}
+ENUMERATION_PROVIDERS = {"dashscope", "deepseek", "volcengine", "zhipu", "bigmodel", "zai"}
 
 # Recognized literal escape hatch in an entry's notes (A3 migration-scan opt-out).
 ADMIN_UI_OPT_OUT = "served-via-admin-ui"

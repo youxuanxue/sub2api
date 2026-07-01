@@ -149,3 +149,21 @@ func TestIsModelPriced_VendorPrefixDoesNotLeakAcrossFamilies(t *testing.T) {
 	require.False(t, svc.IsModelPriced("/gpt-4o-mini", "newapi"),
 		"empty vendor must not enable the fallback")
 }
+
+func TestIsModelPriced_RejectsUnlistedNewAPILongTail(t *testing.T) {
+	const fixture = `{
+	  "deepseek-v4-pro": {"input_cost_per_token":0.000000435,"output_cost_per_token":0.00000087,"litellm_provider":"deepseek"},
+	  "deepseek-v3-2-251201": {"input_cost_per_token":0.0,"output_cost_per_token":0.0,"litellm_provider":"volcengine"},
+	  "glm-4-32b-0414-128k": {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"}
+	}`
+	svc := &PricingCatalogService{}
+	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), true
+	})
+
+	require.True(t, svc.IsModelPriced("deepseek-v4-pro", "newapi"))
+	require.False(t, svc.IsModelPriced("deepseek-v3-2-251201", "newapi"),
+		"litellm residue must not count as priced without manifest listing")
+	require.False(t, svc.IsModelPriced("glm-4-32b-0414-128k", "newapi"),
+		"withdrawn GLM SKU must not count as priced without manifest listing")
+}
