@@ -5,6 +5,7 @@ import {
   imageHistoryItemAvailable,
   shouldShowStudioSaveReminder,
   videoPlaybackUrl,
+  videoPlaybackUrlAsync,
   videoTaskCardPresentation,
   videoTaskPlaybackAvailable,
   videoCopyLinkAvailable,
@@ -243,5 +244,19 @@ describe('videoPlaybackUrl', () => {
   it('falls back to the original src for a non-base64 data: URI', () => {
     const { url } = videoPlaybackUrl('data:video/mp4,notbase64')
     expect(url).toBe('data:video/mp4,notbase64')
+  })
+
+  it('videoPlaybackUrlAsync uses fetch for inline data:video', async () => {
+    const create = vi.fn(() => 'blob:async-veo')
+    urlStatic.createObjectURL = create
+    urlStatic.revokeObjectURL = vi.fn()
+    const fetchMock = vi.fn(async () => ({
+      blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'video/mp4' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { url, revoke } = await videoPlaybackUrlAsync('data:video/mp4;base64,AAAA')
+    expect(fetchMock).toHaveBeenCalled()
+    expect(url).toBe('blob:async-veo')
+    revoke()
   })
 })

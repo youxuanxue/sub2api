@@ -1,7 +1,6 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
-import { ref } from 'vue'
 import en from '@/i18n/locales/en'
 import MediaStudioView from '../MediaStudioView.vue'
 
@@ -44,7 +43,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
-    user: ref({ id: 1, balance: 100 }),
+    user: { id: 1, balance: 100 },
     refreshUser: vi.fn(),
   }),
 }))
@@ -62,7 +61,16 @@ vi.mock('../ChatStudio.vue', () => ({
 }))
 
 vi.mock('../ImageStudio.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('../VideoStudio.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../VideoStudio.vue', () => ({
+  default: {
+    name: 'VideoStudio',
+    props: ['catalogLoading', 'priceMap', 'availableIds'],
+    template: `<div>
+      <div v-if="catalogLoading" data-testid="studio-video-catalog-loading">loading</div>
+      <div v-else data-testid="studio-video-catalog-ready">ready</div>
+    </div>`,
+  },
+}))
 vi.mock('../BakeOff.vue', () => ({ default: { template: '<div />' } }))
 
 const i18n = createI18n({
@@ -172,5 +180,56 @@ describe('MediaStudioView bootstrap', () => {
     expect(getPublicPricing).toHaveBeenCalled()
     expect(wrapper.text()).toContain('studio.universalKeyBadge')
     expect(getMePricingCatalog).not.toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 9 }))
+  })
+
+  it('shows video catalog loading until per-key prices resolve after switching from chat', async () => {
+    listKeys.mockResolvedValue({
+      items: [{ id: 1, name: 'trial', key: 'sk-test', group: { id: 10, name: 'g1' } }],
+    })
+    gatewayListModels.mockResolvedValue({ data: [{ id: 'veo-3.1-generate-001' }] })
+    getPublicPricing.mockResolvedValue({
+      data: [
+        {
+          model_id: 'veo-3.1-generate-001',
+          billing_mode: 'video',
+          pricing: { output_cost_per_second: 0.5 },
+        },
+      ],
+    })
+    let resolvePerKey!: (value: { models: { model_id: string; billing_mode: string; your_price: { currency: string; per_second: number } }[] }) => void
+    const perKeyPending = new Promise<{ models: { model_id: string; billing_mode: string; your_price: { currency: string; per_second: number } }[] }>(
+      (resolve) => {
+        resolvePerKey = resolve
+      }
+    )
+    getMePricingCatalog.mockImplementation((opts?: { apiKeyId?: number }) => {
+      if (opts?.apiKeyId != null) return perKeyPending
+      return Promise.resolve({ authorized_groups_by_model: {}, models: [] })
+    })
+
+    const wrapper = mount(MediaStudioView, {
+      global: { plugins: [i18n], stubs: { 'router-link': true } },
+    })
+
+    await flushPromises()
+    expect(wrapper.find('[data-testid="studio-chat-panel"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="studio-mode-video"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    const videoStudio = wrapper.findComponent({ name: 'VideoStudio' })
+    expect(videoStudio.exists()).toBe(true)
+    expect(videoStudio.props('catalogLoading')).toBe(true)
+
+    resolvePerKey({
+      models: [
+        {
+          model_id: 'veo-3.1-generate-001',
+          billing_mode: 'video',
+          your_price: { currency: 'USD', per_second: 0.5 },
+        },
+      ],
+    })
+    await flushPromises()
+    expect(videoStudio.props('catalogLoading')).toBe(false)
   })
 })

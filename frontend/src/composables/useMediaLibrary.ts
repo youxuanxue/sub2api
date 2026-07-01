@@ -305,9 +305,15 @@ export function useMediaLibrary(userId: number | string): MediaLibrary {
     const nextVideos = [...videoTasks.value]
     for (let i = 0; i < nextVideos.length; i++) {
       const t = nextVideos[i]
-      if (t.url || t.state !== 'succeeded') continue
+      if (t.state !== 'succeeded') continue
       const blobUrl = await getStudioBlobObjectUrl(userId, 'video', t.id)
       if (!blobUrl) continue
+      const shouldSwap =
+        !t.url?.trim() ||
+        t.url.startsWith('blob:') ||
+        /^data:video/i.test(t.url) ||
+        /^https?:\/\//i.test(t.url)
+      if (!shouldSwap) continue
       nextVideos[i] = { ...t, url: blobUrl, blobCached: true, urlExpired: false }
       videosChanged = true
     }

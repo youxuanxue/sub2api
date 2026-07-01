@@ -217,3 +217,20 @@ describe('VideoStudio succeeded-task presentation', () => {
     expect(w.find('[data-testid="studio-video-copy-link"]').exists()).toBe(true)
   })
 })
+
+describe('VideoStudio model catalog loading', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    libraryMock.usePersistedLibrary = true
+    libraryMock.videoTasks.value = []
+  })
+
+  it('shows loading instead of the empty-state footgun while catalogLoading', () => {
+    const w = mount(VideoStudio as never, {
+      props: { ...baseProps, catalogLoading: true },
+      global: { plugins: [i18n], stubs: { 'router-link': true, teleport: true } },
+    })
+    expect(w.find('[data-testid="studio-video-model-loading"]').exists()).toBe(true)
+    expect(w.find('[data-testid="studio-video-model-empty"]').exists()).toBe(false)
+  })
+})

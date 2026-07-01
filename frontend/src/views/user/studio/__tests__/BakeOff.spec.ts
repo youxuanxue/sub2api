@@ -515,3 +515,14 @@ describe('BakeOff image routing', () => {
     expect(panelText).toMatch(/cannot serve that model|不支持该模型|studio\.errors\.unsupported_model/)
   })
 })
+
+describe('BakeOff model catalog loading', () => {
+  it('shows loading instead of needTwo while catalogLoading', () => {
+    const wrapper = mount(BakeOff, {
+      props: { ...videoProps, catalogLoading: true, availableIds: new Set<string>() },
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+    expect(wrapper.find('[data-testid="studio-bakeoff-catalog-loading"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('studio.bakeoff.needTwo')
+  })
+})

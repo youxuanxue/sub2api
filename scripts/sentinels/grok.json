@@ -295,6 +295,7 @@
         "func (s *OpenAIGatewayService) grokNativeVideoSubmit",
         "func (s *OpenAIGatewayService) grokNativeVideoFetch",
         "resolveGrokVideoCredential",
+        "UsesGrokNativeVideoArm",
         "/videos/generations"
       ],
       "rationale": "The grok-native video arm: submit (POST api.x.ai/v1/videos/generations -> request_id) + poll (GET api.x.ai/v1/videos/{id}) over the grok OAuth Bearer OR prod→edge relay api_key (resolveGrokVideoCredential mirrors chat raw), returning the same bridge.TaskSubmitOutcome/VideoFetchOutcome shapes the handler consumes so the vt_ public id, VideoTaskCache record, balance hold, per-second billing, terminal refund, direct video delivery and ownership-404 are all reused. Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
@@ -302,7 +303,7 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
       "must_contain": [
-        "account.IsGrok()",
+        "UsesGrokNativeVideoArm",
         "grokNativeVideoSubmit",
         "in.Platform == PlatformGrok",
         "grokNativeVideoFetch"

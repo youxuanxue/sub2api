@@ -2,7 +2,10 @@
   <div class="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
     <!-- LEFT: orchestration -->
     <div class="space-y-4">
-      <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
+      <div v-if="catalogLoading && models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400" data-testid="studio-image-model-loading">
+        {{ t('studio.loadingModels') }}
+      </div>
+      <div v-else-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
         {{ t('studio.image.modelEmpty') }}
         <router-link class="mt-1 block font-medium text-primary-600 underline dark:text-primary-400" to="/pricing">
           {{ t('studio.viewPricing') }}
@@ -280,6 +283,7 @@ const props = defineProps<{
   balance: number
   userId: number | string
   rateMultiplier: number
+  catalogLoading?: boolean
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()
 

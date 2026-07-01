@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { copyStudioVideoLink, downloadMedia } from '@/utils/studioDownload.tk'
 import { isInlineStudioVideoUrl } from '@/utils/studioInlineVideo.tk'
-import { videoPlaybackUrl } from '@/utils/studioMedia.tk'
+import { videoPlaybackUrl, videoPlaybackUrlAsync } from '@/utils/studioMedia.tk'
 
 export type StudioVideoPreviewState = 'loading' | 'ready' | 'expired'
 
@@ -69,10 +69,18 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     previewMediaReady.value = false
     copiedLink.value = false
 
-    const playback = videoPlaybackUrl(source.url)
-    previewRevoke = playback.revoke
-    previewUrl.value = playback.url
-    previewState.value = playback.url ? 'ready' : 'expired'
+    void (async () => {
+      const playback = previewInline.value
+        ? await videoPlaybackUrlAsync(source.url)
+        : videoPlaybackUrl(source.url)
+      if (!open.value || rawUrl.value !== source.url) {
+        playback.revoke()
+        return
+      }
+      previewRevoke = playback.revoke
+      previewUrl.value = playback.url
+      previewState.value = playback.url ? 'ready' : 'expired'
+    })()
   }
 
   function closePreview(): void {

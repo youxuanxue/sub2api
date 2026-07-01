@@ -25,7 +25,11 @@
         <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('studio.bakeoff.hint') }}</p>
       </div>
 
-      <div v-if="models.length < 2" class="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
+      <div v-if="catalogLoading && models.length === 0" class="rounded-lg border border-dashed border-gray-300 bg-white/60 p-4 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400" data-testid="studio-bakeoff-catalog-loading">
+        {{ t('studio.loadingModels') }}
+      </div>
+
+      <div v-else-if="models.length < 2" class="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
         {{ t('studio.bakeoff.needTwo') }}
       </div>
 
@@ -473,6 +477,7 @@ const props = defineProps<{
   keyId: number | null
   keys: ApiKey[]
   rateMultiplier: number
+  catalogLoading?: boolean
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()
 

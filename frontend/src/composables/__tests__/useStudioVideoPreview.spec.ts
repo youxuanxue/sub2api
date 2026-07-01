@@ -17,7 +17,13 @@ describe('useStudioVideoPreview', () => {
     vi.unstubAllGlobals()
   })
 
-  it('converts inline data:video to blob playback url', () => {
+  it('converts inline data:video to blob playback url', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'video/mp4' }),
+      }))
+    )
     const preview = useStudioVideoPreview()
     preview.openPreview({
       url: 'data:video/mp4;base64,QUFB',
@@ -25,9 +31,41 @@ describe('useStudioVideoPreview', () => {
       cost: 4.8,
       taskId: 'vt_blob',
     })
+    await vi.waitFor(() => {
+      expect(preview.previewState.value).toBe('ready')
+    })
     expect(URL.createObjectURL).toHaveBeenCalled()
     expect(preview.previewUrl.value).toBe('blob:preview')
-    expect(preview.previewState.value).toBe('ready')
+  })
+
+  it('discards async playback when preview closes before decode finishes', async () => {
+    let resolveBlob: (value: Blob) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolve({
+              blob: () =>
+                new Promise<Blob>((r) => {
+                  resolveBlob = r
+                }),
+            } as Response)
+          })
+      )
+    )
+    const preview = useStudioVideoPreview()
+    preview.openPreview({
+      url: 'data:video/mp4;base64,QUFB',
+      label: 'Veo 3.1',
+      cost: 4.8,
+      taskId: 'vt_slow',
+    })
+    preview.closePreview()
+    resolveBlob(new Blob([new Uint8Array([1])], { type: 'video/mp4' }))
+    await Promise.resolve()
+    expect(preview.open.value).toBe(false)
+    expect(preview.previewUrl.value).toBe('')
   })
 
   it('marks lightbox expired after preview error without mutating library tasks', () => {
