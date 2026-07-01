@@ -39,6 +39,18 @@ func tkNormalizeCCPromptSurfaceText(text, oauthEmail string) (string, bool) {
 	return text, changed
 }
 
+func tkIsCCSystemReminderText(text string) bool {
+	return strings.Contains(strings.ToLower(text), "<system-reminder>")
+}
+
+func tkIsCCSystemPromptText(text string) bool {
+	if strings.Contains(text, claudeCodeBillingHeaderPrefix) {
+		return true
+	}
+	id := tkMatchPromptIdentityAnchor(text)
+	return id != tkIdentityAnchorAbsent && id != tkIdentityAnchorUnknown
+}
+
 func tkStripCCEnvironmentSection(text string) (string, bool) {
 	if !strings.Contains(text, "# Environment") {
 		return text, false
@@ -147,6 +159,9 @@ func tkNormalizeAnthropicCCPromptSurfaceSystem(body []byte, oauthEmail string) (
 	}
 	switch system.Type {
 	case gjson.String:
+		if !tkIsCCSystemPromptText(system.String()) {
+			return body, false
+		}
 		newText, ok := tkNormalizeCCPromptSurfaceText(system.String(), oauthEmail)
 		if !ok {
 			return body, false
@@ -166,7 +181,11 @@ func tkNormalizeAnthropicCCPromptSurfaceSystem(body []byte, oauthEmail string) (
 			if item.Get("type").String() != "text" {
 				continue
 			}
-			newText, ok := tkNormalizeCCPromptSurfaceText(item.Get("text").String(), oauthEmail)
+			text := item.Get("text").String()
+			if !tkIsCCSystemPromptText(text) {
+				continue
+			}
+			newText, ok := tkNormalizeCCPromptSurfaceText(text, oauthEmail)
 			if !ok {
 				continue
 			}
@@ -195,6 +214,9 @@ func tkNormalizeAnthropicCCPromptSurfaceMessages(body []byte, oauthEmail string)
 		content := msg.Get("content")
 		switch content.Type {
 		case gjson.String:
+			if !tkIsCCSystemReminderText(content.String()) {
+				continue
+			}
 			newText, ok := tkNormalizeCCPromptSurfaceText(content.String(), oauthEmail)
 			if !ok {
 				continue
@@ -212,7 +234,11 @@ func tkNormalizeAnthropicCCPromptSurfaceMessages(body []byte, oauthEmail string)
 			}
 			for ci, block := range content.Array() {
 				if block.Get("type").String() == "text" {
-					newText, ok := tkNormalizeCCPromptSurfaceText(block.Get("text").String(), oauthEmail)
+					text := block.Get("text").String()
+					if !tkIsCCSystemReminderText(text) {
+						continue
+					}
+					newText, ok := tkNormalizeCCPromptSurfaceText(text, oauthEmail)
 					if ok {
 						path := fmt.Sprintf("messages.%d.content.%d.text", mi, ci)
 						next, err := sjson.SetBytes(out, path, newText)

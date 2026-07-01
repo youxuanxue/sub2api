@@ -23,16 +23,16 @@ case "$EMAIL" in
   *"'"*|*'"'*|*';'*|*'\\'*) echo "apply-account-contact-email: invalid ACCOUNT_EMAIL" >&2; exit 2 ;;
 esac
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'
 
 echo "=== apply contact email: name=$NAME ==="
-$PSQL -c "
+RESULT="$($PSQL -v account_name="$NAME" -v account_email="$EMAIL" -c "
 WITH upd AS (
   UPDATE accounts SET
-    extra = COALESCE(extra, '{}'::jsonb) || jsonb_build_object('email_address', '${EMAIL}', 'email', '${EMAIL}'),
-    credentials = COALESCE(credentials, '{}'::jsonb) || jsonb_build_object('email_address', '${EMAIL}', 'email', '${EMAIL}'),
+    extra = COALESCE(extra, '{}'::jsonb) || jsonb_build_object('email_address', :'account_email', 'email', :'account_email'),
+    credentials = COALESCE(credentials, '{}'::jsonb) || jsonb_build_object('email_address', :'account_email', 'email', :'account_email'),
     updated_at = NOW()
-  WHERE deleted_at IS NULL AND name = '${NAME}'
+  WHERE deleted_at IS NULL AND type = 'oauth' AND name = :'account_name'
   RETURNING id, name, platform, type, status, schedulable, extra, credentials
 )
 SELECT row_to_json(t) FROM (
@@ -49,4 +49,9 @@ SELECT row_to_json(t) FROM (
     ) AS resolved_email
   FROM upd
 ) t;
-" 2>&1
+")"
+if [ -z "$RESULT" ]; then
+  echo "apply-account-contact-email: no non-deleted OAuth account updated for ACCOUNT_NAME=$NAME" >&2
+  exit 1
+fi
+printf '%s\n' "$RESULT"

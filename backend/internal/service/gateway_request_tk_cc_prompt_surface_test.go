@@ -47,6 +47,30 @@ func TestTkNormalizeAnthropicCCPromptSurfaceMessagesEnvironmentAndEmail(t *testi
 	require.Contains(t, got, "Today's date is 2026-07-01.")
 }
 
+func TestTkNormalizeAnthropicCCPromptSurfaceLeavesPlainUserText(t *testing.T) {
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Please document this sample:\n# Environment\nTZ=Asia/Shanghai\nThe user's email address is client@gmail.com.\nToday's date is 2026/07/01."}]}]}`)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
+	require.False(t, changed)
+	require.JSONEq(t, string(in), string(out))
+}
+
+func TestTkNormalizeAnthropicCCPromptSurfaceLeavesGenericSystemText(t *testing.T) {
+	in := []byte(`{"system":[{"type":"text","text":"Document this sample:\n# Environment\nTZ=Asia/Shanghai\nThe user's email address is client@gmail.com.\nToday's date is 2026/07/01."}]}`)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
+	require.False(t, changed)
+	require.JSONEq(t, string(in), string(out))
+}
+
+func TestTkNormalizeAnthropicCCPromptSurfaceNormalizesKnownSystemText(t *testing.T) {
+	in := []byte(`{"system":[{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude.\n# Environment\nTZ=Asia/Shanghai\nThe user's email address is client@gmail.com.\nToday's date is 2026/07/01."}]}`)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
+	require.True(t, changed)
+	got := string(out)
+	require.NotContains(t, got, "# Environment")
+	require.Contains(t, got, "edge-oauth@tokenkey.dev")
+	require.Contains(t, got, "Today's date is 2026-07-01.")
+}
+
 func TestTkWireStillHasCCPromptSurfaceLeaks(t *testing.T) {
 	require.True(t, tkWireStillHasCCPromptSurfaceLeaks([]byte(`{"messages":[{"role":"user","content":"# Environment\nTZ=Asia/Shanghai"}]}`)))
 	require.False(t, tkWireStillHasCCPromptSurfaceLeaks([]byte(`{"messages":[{"role":"user","content":"Today's date is 2026-07-01."}]}`)))

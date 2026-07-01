@@ -34,7 +34,7 @@ func TestTkExtractAnthropicPromptFingerprint_GeoStegoInReminder(t *testing.T) {
 }
 
 func TestTkExtractAnthropicPromptFingerprint_CanonicalAfterNormalize(t *testing.T) {
-	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	out, changed := tkNormalizeAnthropicCCGeoStego(in)
 	require.True(t, changed)
 	fp := tkExtractAnthropicPromptFingerprint(out)
@@ -105,7 +105,7 @@ func TestTkPromptFingerprintShouldLog_UnknownIdentityWithBilling(t *testing.T) {
 
 func TestTkNormalizeAnthropicRequestBody_FingerprintCanonicalAfterGeo(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
-	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
 	fp := tkExtractAnthropicPromptFingerprint(out)
 	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)

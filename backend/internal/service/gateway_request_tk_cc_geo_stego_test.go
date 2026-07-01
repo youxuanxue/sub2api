@@ -107,7 +107,7 @@ func TestTkNormalizeAnthropicCCGeoStegoNoOpWhenClean(t *testing.T) {
 
 func TestTkNormalizeAnthropicRequestBodyAppliesCCGeoStego(t *testing.T) {
 	svc := newNormalizeTestService(t, "true")
-	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Today\u2019s date is 2026/06/30."}]}]}`)
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
 	require.Contains(t, string(out), "Today's date is 2026-06-30.")
 }
