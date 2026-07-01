@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	kiroInternalThinkingGinKey              = "ops_kiro_internal_thinking_blocks"
-	kiroInternalThinkingResponseHeader      = "X-Tk-Internal-Thinking-Blocks"
-	kiroInternalThinkingSSECommentPfx       = ": x-tk-internal-thinking "
+	kiroInternalThinkingGinKey         = "ops_kiro_internal_thinking_blocks"
+	kiroInternalThinkingResponseHeader = "X-Tk-Internal-Thinking-Blocks"
+	kiroInternalThinkingSSECommentPfx  = ": x-tk-internal-thinking "
 	// kiroInternalThinkingMirrorHopRequestHeader is set by prod mirror passthrough
 	// on outbound edge hops so Edge emits the side channel on the wire. Edge
 	// direct clients must not receive plaintext thinking on the response body.

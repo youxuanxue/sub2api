@@ -608,7 +608,7 @@ func blocksFromStreamChunks(chunks []map[string]any) ([]any, map[string]any) {
 					a.name = cb.Get("name").String()
 				}
 				if a.typ == "redacted_thinking" {
-					a.thinking.WriteString(cb.Get("data").String())
+					_, _ = a.thinking.WriteString(cb.Get("data").String())
 				}
 			case "content_block_delta":
 				i := int(ev.Get("index").Int())
