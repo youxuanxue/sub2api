@@ -1064,7 +1064,17 @@ func captureInternalThinkingBlocks(c *gin.Context) []string {
 	if c == nil {
 		return nil
 	}
-	value, ok := c.Get("ops_gemini_internal_thinking_blocks")
+	out := make([]string, 0, 4)
+	out = append(out, captureInternalThinkingBlocksFromKey(c, "ops_gemini_internal_thinking_blocks")...)
+	out = append(out, captureInternalThinkingBlocksFromKey(c, "ops_kiro_internal_thinking_blocks")...)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func captureInternalThinkingBlocksFromKey(c *gin.Context, key string) []string {
+	value, ok := c.Get(key)
 	if !ok {
 		return nil
 	}
@@ -1079,9 +1089,6 @@ func captureInternalThinkingBlocks(c *gin.Context) []string {
 			continue
 		}
 		out = append(out, logredact.RedactText(trimmed))
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }

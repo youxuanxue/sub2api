@@ -21,9 +21,10 @@ type EvidenceBlob struct {
 		UpstreamDivergent bool `json:"upstream_divergent,omitempty"`
 	} `json:"request"`
 	Response struct {
-		StatusCode int            `json:"status_code"`
-		Headers    map[string]any `json:"headers"`
-		Body       any            `json:"body"`
+		StatusCode             int            `json:"status_code"`
+		Headers                map[string]any `json:"headers"`
+		Body                   any            `json:"body"`
+		InternalThinkingBlocks []any          `json:"internal_thinking_blocks,omitempty"`
 	} `json:"response"`
 	Stream struct {
 		Chunks []map[string]any `json:"chunks"`

@@ -387,3 +387,64 @@ func TestBuildTrajSessionsV2_UpstreamDivergentFlag(t *testing.T) {
 		t.Errorf("non-divergent call must not carry the key: %+v", assistants[1].CallMeta)
 	}
 }
+
+func TestMergeInternalThinkingBlocks_ReplacesRedacted(t *testing.T) {
+	wire := []any{
+		map[string]any{"type": "redacted_thinking", "data": "opaque-hash"},
+		map[string]any{"type": "text", "text": "hello"},
+	}
+	internal := []any{`{"type":"thinking","thinking":"plain reasoning"}`}
+
+	got := mergeInternalThinkingBlocks(wire, internal)
+	if len(got) != 2 {
+		t.Fatalf("want 2 blocks, got %d: %+v", len(got), got)
+	}
+	tb, _ := got[0].(map[string]any)
+	if tb["type"] != "thinking" || tb["thinking"] != "plain reasoning" {
+		t.Errorf("thinking block wrong: %+v", tb)
+	}
+}
+
+func TestBuildTrajSessionsV2_KiroInternalThinkingFromBlob(t *testing.T) {
+	base := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	req := `{"model":"claude-sonnet-4-6","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"hi"}]}`
+	resp := `{"id":"msg_k","stop_reason":"end_turn","usage":{"output_tokens":3},"content":[{"type":"redacted_thinking","data":"hash"},{"type":"text","text":"ok"}]}`
+
+	blob := &EvidenceBlob{}
+	blob.Request.Body = mustBody(t, req)
+	blob.Response.Body = mustBody(t, resp)
+	blob.Response.InternalThinkingBlocks = []any{
+		`{"type":"thinking","thinking":"kiro plain chain"}`,
+	}
+
+	sources := []SourceRecord{{
+		Record: &ent.QARecord{
+			RequestID:      "req_kiro",
+			CreatedAt:      base,
+			Platform:       "anthropic",
+			RequestedModel: "claude-sonnet-4-6",
+			TrajectoryID:   strptr("traj-kiro"),
+			DialogSynth:    true,
+		},
+		Blob: blob,
+	}}
+
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("BuildTrajSessionsV2: %v", err)
+	}
+	if len(sessions) != 1 || len(sessions[0].Turns) != 2 {
+		t.Fatalf("unexpected session: %+v", sessions)
+	}
+	a := sessions[0].Turns[1]
+	if len(a.Blocks) != 2 {
+		t.Fatalf("blocks = %d: %+v", len(a.Blocks), a.Blocks)
+	}
+	tb, _ := a.Blocks[0].(map[string]any)
+	if tb["type"] != "thinking" || tb["thinking"] != "kiro plain chain" {
+		t.Errorf("thinking export wrong: %+v", tb)
+	}
+	if a.CallMeta["thinking_source"] != "present" {
+		t.Errorf("thinking_source = %v", a.CallMeta["thinking_source"])
+	}
+}

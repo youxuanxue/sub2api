@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
@@ -149,8 +150,42 @@ func TestKiroGatewayService_Forward_Streaming_RedactsSplitInlineThinkingTags(t *
 	out := rec.Body.String()
 	require.Contains(t, out, `"type":"redacted_thinking"`)
 	require.Contains(t, out, "I am Claude.")
+	require.NotContains(t, out, kiroInternalThinkingSSECommentPfx)
 	require.NotContains(t, out, "<thinking>")
 	require.NotContains(t, out, "</thinking>")
 	require.NotContains(t, out, "The user asks who I am.")
 	require.NotContains(t, out, "thinking_delta")
+}
+
+func TestKiroGatewayService_Forward_Streaming_MirrorHopEmitsInternalThinkingSideChannel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set(kiroInternalThinkingMirrorHopRequestHeader, "1")
+
+	body := []byte{}
+	for _, content := range []string{
+		"<thinking>hidden plan</thinking>visible answer",
+	} {
+		body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
+			[]byte(`{"content":`+strconv.Quote(content)+`}`))...)
+	}
+	upstream := &kiroFakeUpstream{body: body}
+
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	reqBody, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-6",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 32,
+		"stream":     true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-sonnet-4-6", Stream: true}
+
+	_, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+
+	out := rec.Body.String()
+	require.Contains(t, out, kiroInternalThinkingSSECommentPfx)
+	require.NotContains(t, out, "hidden plan")
 }

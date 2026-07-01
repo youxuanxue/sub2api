@@ -189,6 +189,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 	if c != nil {
 		c.Header("x-request-id", requestID)
+		publishKiroInternalThinkingSideChannel(c, nil, c.Writer.Header(), thinkingBuf)
 		c.JSON(http.StatusOK, resp)
 	}
 
@@ -343,6 +344,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	enc.closeOpenBlock()
 	enc.writeMessageDelta(outputToks)
 	enc.writeMessageStop()
+	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()
 
 	if callbackErr != nil {

@@ -6354,6 +6354,9 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
+	if strings.TrimSpace(baseURL) != "" {
+		setKiroInternalThinkingMirrorHopHeader(req.Header)
+	}
 
 	return req, body, nil
 }
@@ -6369,6 +6372,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
+	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
@@ -6505,6 +6509,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
+				applyKiroInternalThinkingBlocks(c, blocks)
+				continue
+			}
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				if anthropicStreamEventIsTerminal("", trimmed) {
@@ -6745,6 +6753,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
+	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
