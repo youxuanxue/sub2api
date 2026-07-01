@@ -9,8 +9,8 @@
 --   account 72 model_mapping == account 60 model_mapping
 --
 -- DashScope model ids match the Alibaba百炼 GLM section (华北2北京 mainland).
--- Pricing lands in tk_pricing_overlay.json from docs/accounts/aliyun_pricing_20260701.md
--- (CNY ÷ 6.7). Account 67 still serves the ZhipuV4 direct SKUs via tk_044.
+-- User-facing overlay pricing follows Zhipu official list (https://open.bigmodel.cn/pricing).
+-- Account 67 still serves the ZhipuV4 direct SKUs via tk_044.
 --
 -- Merge (jsonb ||) preserves existing whitelist entries. Raw-SQL account mutation
 -- bypasses Ent snapshot hooks — enqueue scheduler_outbox account_changed per account.
