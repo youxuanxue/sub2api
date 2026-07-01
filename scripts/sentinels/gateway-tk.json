@@ -3325,9 +3325,11 @@
         "var ErrUniversalNoEntitledGroup",
         "func pickUniversalBackingGroup(",
         "universalShapeRequiresImageGenerationEnabled",
-        "filterGroupsAllowImageGeneration"
+        "filterGroupsAllowImageGeneration",
+        "else if hint := universalModelPlatformHint(model); hint != \"\"",
+        "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
       ],
-      "rationale": "Universal Key (全能 Key) per-request resolver: maps a routing_mode=universal key to a concrete backing group from the owner's live entitlement span (GetAvailableGroups, short-TTL cached), filtered by endpoint-shape candidate platforms, with deterministic pick (subscription-held -> sort_order -> id). docs/approved/universal-key-routing.md. Dropping this file disables universal-key routing entirely (every universal key would fall through with a nil group). Pins the constructor, Resolve entrypoint, the no-entitled-group sentinel error, and the deterministic picker."
+      "rationale": "Universal Key (全能 Key) per-request resolver: maps a routing_mode=universal key to a concrete backing group from the owner's live entitlement span (GetAvailableGroups, short-TTL cached), filtered by endpoint-shape candidate platforms, with deterministic pick (subscription-held -> sort_order -> id). docs/approved/universal-key-routing.md §4.3. Dropping this file disables universal-key routing entirely (every universal key would fall through with a nil group). Pins the constructor, Resolve entrypoint, the no-entitled-group sentinel error, and the deterministic picker. Load-bearing P0 gate (prod 2026-07-01 user16 universal key #245): when groupServesModel filters eligible to empty AND the model has a platform hint, Resolve must return ErrUniversalNoEntitledGroup (middleware 403) — NOT fall back to a wrong openai-compat group and surface routing-phase 429 No available accounts (routing_capacity_rejection storm). An upstream merge that restores the old served-empty fallback silently re-opens the amplifier; the else-if hint branch is the mechanical anchor."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_endpoint_map.go",
