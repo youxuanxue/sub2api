@@ -55,6 +55,15 @@ func TestTkExtractAnthropicPromptFingerprint_BillingBlock(t *testing.T) {
 	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
 }
 
+func TestTkExtractAnthropicPromptFingerprint_InteractiveAgentAnchor(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are an interactive agent that helps users with software engineering tasks. Use the instructions below."}]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, "interactive_agent", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
+}
+
 func TestTkExtractAnthropicPromptFingerprint_UnknownIdentity(t *testing.T) {
 	body := []byte(`{"system":[{"type":"text","text":"You are a generic assistant."}]}`)
 	fp := tkExtractAnthropicPromptFingerprint(body)

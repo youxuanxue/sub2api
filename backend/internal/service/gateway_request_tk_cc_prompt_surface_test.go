@@ -68,6 +68,12 @@ func TestTkClassifyCCPromptSurfaceText(t *testing.T) {
 			want:     tkCCPromptSurfaceKnownSystem,
 		},
 		{
+			name:     "known interactive agent system",
+			text:     "You are an interactive agent that helps users with software engineering tasks. Use the instructions below.",
+			inSystem: true,
+			want:     tkCCPromptSurfaceKnownSystem,
+		},
+		{
 			name: "system reminder",
 			text: " \n<system-reminder>\nToday\u2019s date is 2026/07/01.\n</system-reminder>",
 			want: tkCCPromptSurfaceSystemReminder,

@@ -22,6 +22,12 @@ func TestTkNormalizeCCGeoStegoText(t *testing.T) {
 		changed bool
 	}{
 		{
+			name:    "claude code 2.1.197 shanghai slash date",
+			in:      "Today's date is 2026/07/01.",
+			want:    "Today's date is 2026-07-01.",
+			changed: true,
+		},
+		{
 			name:    "shanghai slash date ascii apostrophe",
 			in:      "# currentDate\nToday's date is 2026/06/30.\n\nIMPORTANT",
 			want:    "# currentDate\nToday's date is 2026-06-30.\n\nIMPORTANT",

@@ -45,6 +45,9 @@ var claudeCodeSystemPrompts = []string{
 
 	// claudeOtherSystemPrompt2 - Secondary (长提示词的关键部分)
 	"You are an interactive CLI tool that helps users",
+
+	// claudeOtherSystemPrompt5 - Interactive agent
+	"You are an interactive agent that helps users with software engineering tasks",
 }
 
 const (
