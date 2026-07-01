@@ -13,7 +13,7 @@
  * always gets something usable to hand to a <video :src>.
  */
 import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
-import { parseDataVideoUri } from '@/utils/studioInlineVideo.tk'
+import { isInlineStudioVideoUrl, parseDataVideoUri } from '@/utils/studioInlineVideo.tk'
 import { videoTaskPlaybackStorageKind } from '@/utils/studioPlaybackStorage.tk'
 
 /** i18n key for image thumbnails that lost their in-browser bytes after reload. */
@@ -62,6 +62,28 @@ export function videoTaskPlaybackAvailable(
   task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired' | 'playbackStorage'>
 ): boolean {
   return videoTaskCardPresentation(task) === 'inline-play'
+}
+
+/**
+ * True when a Studio video surface may show a copy-link affordance.
+ * Inline Veo clips (data:video) and download-only / expired cards are download-only.
+ */
+export function videoCopyLinkAvailable(
+  url: string | undefined | null,
+  cardPresentation?: VideoTaskCardPresentation
+): boolean {
+  const trimmed = url?.trim()
+  if (!trimmed) return false
+  if (isInlineStudioVideoUrl(trimmed)) return false
+  if (cardPresentation === 'download-only' || cardPresentation === 'expired') return false
+  return true
+}
+
+/** Copy-link visibility for a library/history video task row. */
+export function videoTaskCopyLinkAvailable(
+  task: Pick<VideoTaskItem, 'state' | 'url' | 'urlExpired' | 'playbackStorage'>
+): boolean {
+  return videoCopyLinkAvailable(task.url, videoTaskCardPresentation(task))
 }
 
 /** When any Studio surface should show the local-save download banner. */

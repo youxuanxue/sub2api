@@ -50,6 +50,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
 
   const downloadUrl = computed(() => rawUrl.value || previewUrl.value)
   const copyLinkUrl = computed(() => (isInlineStudioVideoUrl(rawUrl.value) ? '' : rawUrl.value || previewUrl.value))
+  const allowCopyLink = computed(() => !previewInline.value)
 
   function openPreview(source: StudioVideoPreviewSource): void {
     if (!source.url) return
@@ -160,6 +161,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     copiedLink,
     urlExpired,
     previewInline,
+    allowCopyLink,
     openPreview,
     closePreview,
     onPreviewError,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import * as studioDownload from '@/utils/studioDownload.tk'
-import { useStudioVideoCardActions } from '../useStudioVideoCardActions'
+import { createStudioVideoActionHandlers, useStudioVideoCardActions } from '../useStudioVideoCardActions'
 
 describe('useStudioVideoCardActions', () => {
   beforeEach(() => {
@@ -41,5 +41,16 @@ describe('useStudioVideoCardActions', () => {
     expect(onInlineCopyUnsupported).toHaveBeenCalled()
     expect(downloadSpy).toHaveBeenCalledWith('data:video/mp4;base64,QUJD', 'tokenkey-vt_veo.mp4')
     downloadSpy.mockRestore()
+  })
+
+  it('createStudioVideoActionHandlers wires expired + inline copy toasts', () => {
+    const showWarning = vi.fn()
+    const showInfo = vi.fn()
+    const t = (key: string) => key
+    const handlers = createStudioVideoActionHandlers({ showWarning, showInfo }, t)
+    handlers.onExpiredDownload?.()
+    handlers.onInlineCopyUnsupported?.()
+    expect(showWarning).toHaveBeenCalledWith('studio.video.expiredHint', 8000)
+    expect(showInfo).toHaveBeenCalledWith('studio.video.inlineCopyHint', 5000)
   })
 })

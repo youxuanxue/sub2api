@@ -1,10 +1,28 @@
 import { ref } from 'vue'
+import type { ComposerTranslation } from 'vue-i18n'
 import { copyStudioVideoLink, downloadMedia } from '@/utils/studioDownload.tk'
 
 export interface UseStudioVideoCardActionsOptions {
   onExpiredDownload?: () => void
   /** Inline Veo clip: copy-link is not shareable — prompt download instead. */
   onInlineCopyUnsupported?: () => void
+}
+
+/** Toast surface shared by VideoStudio + BakeOff video card/lightbox actions. */
+export interface StudioVideoToastStore {
+  showWarning(message: string, duration?: number): void
+  showInfo(message: string, duration?: number): void
+}
+
+/** Shared expired-download + inline-copy toasts for card and lightbox composables. */
+export function createStudioVideoActionHandlers(
+  store: StudioVideoToastStore,
+  t: ComposerTranslation
+): UseStudioVideoCardActionsOptions {
+  return {
+    onExpiredDownload: () => store.showWarning(t('studio.video.expiredHint'), 8000),
+    onInlineCopyUnsupported: () => store.showInfo(t('studio.video.inlineCopyHint'), 5000),
+  }
 }
 
 /** Card-level copy-link + download actions shared by VideoStudio and BakeOff. */

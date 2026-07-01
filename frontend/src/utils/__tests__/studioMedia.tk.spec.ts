@@ -7,6 +7,8 @@ import {
   videoPlaybackUrl,
   videoTaskCardPresentation,
   videoTaskPlaybackAvailable,
+  videoCopyLinkAvailable,
+  videoTaskCopyLinkAvailable,
 } from '../studioMedia.tk'
 import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
 
@@ -100,6 +102,40 @@ describe('videoTaskPlaybackAvailable', () => {
         playbackStorage: 'upstream-cors-blocked',
       })
     ).toBe(false)
+  })
+})
+
+describe('videoCopyLinkAvailable', () => {
+  it('is false for inline data:video clips', () => {
+    expect(videoCopyLinkAvailable('data:video/mp4;base64,QUJD', 'inline-play')).toBe(false)
+  })
+
+  it('is true for shareable http upstream urls when playable', () => {
+    expect(videoCopyLinkAvailable('https://cdn.example/v.mp4', 'inline-play')).toBe(true)
+  })
+
+  it('is false for download-only presentation', () => {
+    expect(videoCopyLinkAvailable('https://cdn.example/v.mp4', 'download-only')).toBe(false)
+  })
+})
+
+describe('videoTaskCopyLinkAvailable', () => {
+  it('matches presentation + inline rules for a task row', () => {
+    expect(
+      videoTaskCopyLinkAvailable({
+        state: 'succeeded',
+        url: 'data:video/mp4;base64,QUJD',
+        urlExpired: false,
+      })
+    ).toBe(false)
+    expect(
+      videoTaskCopyLinkAvailable({
+        state: 'succeeded',
+        url: 'https://cdn.example/v.mp4',
+        urlExpired: false,
+        playbackStorage: 'upstream-cors-ok',
+      })
+    ).toBe(true)
   })
 })
 

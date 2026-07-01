@@ -14,7 +14,7 @@ Long-form operational reference moved out of root `CLAUDE.md` to stay under the 
 | 图片 lightbox 状态 | `composables/useStudioImagePreview.ts` + `components/StudioImagePreviewLightbox.vue` | ImageStudio |
 | 图片 history id / ephemeral src / revised_prompt tooltip | `utils/studioImageHistory.tk.ts` | useMediaLibrary, ImageStudio, BakeOff |
 | 视频 lightbox 状态 + 过期播放守卫 | `composables/useStudioVideoPreview.ts` + `components/StudioVideoPreviewLightbox.vue` | VideoStudio, BakeOff |
-| 视频卡片 copy-link / 下载 | `composables/useStudioVideoCardActions.ts` + `utils/studioDownload.tk.ts` | VideoStudio, BakeOff |
+| 视频卡片 copy-link / 下载 | `composables/useStudioVideoCardActions.ts`（`createStudioVideoActionHandlers` 共享 toast）+ `utils/studioMedia.tk.ts`（`videoCopyLinkAvailable` / `videoTaskCopyLinkAvailable`）+ `utils/studioDownload.tk.ts` | VideoStudio, BakeOff |
 | 视频 playback 分类 + IDB 镜像 | `utils/studioPlaybackStorage.tk.ts` (`tagStudioVideoPlayback`) | VideoStudio, BakeOff |
 | 视频 tab-local Blob 播放 | `utils/studioMedia.tk.ts` (`videoPlaybackUrl`) | lightbox + BakeOff 面板 |
 | Veo 内联 data:video 解析/normalize | `utils/studioInlineVideo.tk.ts` | extractVideoUrl、videoPlaybackUrl、IDB 缓存、copy/download |
