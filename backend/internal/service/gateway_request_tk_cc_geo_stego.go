@@ -180,3 +180,22 @@ func tkNormalizeAnthropicCCGeoStegoMessages(body []byte) ([]byte, bool) {
 	}
 	return out, changed
 }
+
+var tkWireCCGeoStegoSlashDateRE = regexp.MustCompile(`Today's date is \d{4}/\d{2}/\d{2}\.`)
+var tkPromptGeoSlashDateRE = regexp.MustCompile(`(?i)Today.?s date is(?: now)? \d{4}/\d{2}/\d{2}\.`)
+
+func tkWireStillHasCCGeoStegoDateSignals(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	s := string(body)
+	if tkPromptGeoSlashDateRE.MatchString(s) || tkWireCCGeoStegoSlashDateRE.MatchString(s) {
+		return true
+	}
+	if strings.Contains(s, "Today\u2019s") ||
+		strings.Contains(s, "Today\u02bcs") ||
+		strings.Contains(s, "Today\u02b9s") {
+		return true
+	}
+	return false
+}

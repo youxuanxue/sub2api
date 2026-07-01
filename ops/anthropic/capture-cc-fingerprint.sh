@@ -28,7 +28,8 @@ Usage:
   capture-cc-fingerprint.sh diff --bundle PATH [--check]
   capture-cc-fingerprint.sh show-baseline
   capture-cc-fingerprint.sh daily-hook   # sessionStart: TLS capture + drift PR (internal)
-  capture-cc-fingerprint.sh geo-stego [--out-dir DIR] [--fix]  # plain claude+mitm body probe
+  capture-cc-fingerprint.sh geo-stego [--out-dir DIR] [--fix]  # alias: prompt-surfaces align
+  capture-cc-fingerprint.sh prompt-surfaces [--out-dir DIR] [--fix]
 
 Environment (capture):
   CC0_USER_OVERLAY          cc0 overlay (default: ~/.cache/cc0/claude-user-overlay)
@@ -264,10 +265,10 @@ cmd_capture() {
   if [[ "${TOKENKEY_CC_CAPTURE_GEO:-1}" == "1" && "$with_http" == "1" ]]; then
     local geo_fix=1
     [[ "${TOKENKEY_CC_CAPTURE_GEO_FIX:-1}" == "0" ]] && geo_fix=0
-    echo "=== cc geo-stego align (auto after capture) ==="
+    echo "=== prompt surface align (auto after capture) ==="
     align_args=(run --out-dir "$OUT_DIR" --stamp "$stamp")
     [[ "$geo_fix" == "1" ]] && align_args+=(--fix)
-    bash "$SCRIPT_DIR/cc_geo_stego_align.sh" "${align_args[@]}"
+    bash "$SCRIPT_DIR/prompt_surface_align.sh" "${align_args[@]}"
   fi
 
   trap - EXIT
@@ -326,7 +327,10 @@ main() {
       exec bash "$SCRIPT_DIR/cc_fingerprint_daily_hook.sh"
       ;;
     geo-stego)
-      exec bash "$SCRIPT_DIR/cc_geo_stego_align.sh" run "$@"
+      exec bash "$SCRIPT_DIR/prompt_surface_align.sh" run "$@"
+      ;;
+    prompt-surfaces)
+      exec bash "$SCRIPT_DIR/prompt_surface_align.sh" run "$@"
       ;;
     -h|--help|"") usage ;;
     *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
