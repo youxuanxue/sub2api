@@ -43,12 +43,14 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
   const previewMediaReady = ref(false)
   const copiedLink = ref(false)
   const urlExpired = ref(false)
+  const previewInline = ref(false)
 
   let previewRevoke: () => void = () => {}
   let copiedTimer: ReturnType<typeof setTimeout> | undefined
 
   const downloadUrl = computed(() => rawUrl.value || previewUrl.value)
   const copyLinkUrl = computed(() => (isInlineStudioVideoUrl(rawUrl.value) ? '' : rawUrl.value || previewUrl.value))
+  const allowCopyLink = computed(() => !previewInline.value)
 
   function openPreview(source: StudioVideoPreviewSource): void {
     if (!source.url) return
@@ -60,6 +62,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     rawUrl.value = source.url
     taskId.value = source.taskId
     urlExpired.value = source.urlExpired ?? false
+    previewInline.value = isInlineStudioVideoUrl(source.url)
     downloadFilename.value = source.downloadFilename ?? 'tokenkey-preview.mp4'
     previewUrl.value = ''
     previewState.value = 'loading'
@@ -82,6 +85,7 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     rawUrl.value = ''
     taskId.value = undefined
     urlExpired.value = false
+    previewInline.value = false
     previewUrl.value = ''
     previewState.value = 'loading'
     previewMediaReady.value = false
@@ -156,6 +160,8 @@ export function useStudioVideoPreview(options: UseStudioVideoPreviewOptions = {}
     previewMediaReady,
     copiedLink,
     urlExpired,
+    previewInline,
+    allowCopyLink,
     openPreview,
     closePreview,
     onPreviewError,

@@ -239,6 +239,7 @@
                 {{ t('studio.video.download') }}
               </button>
               <button
+                v-if="videoCopyLinkAvailable(p.url, bakePanelPresentation(p))"
                 type="button"
                 class="text-[11px] font-medium text-gray-500 dark:text-dark-300"
                 data-testid="bakeoff-video-copy-card-link"
@@ -370,6 +371,7 @@
                   {{ t('studio.video.download') }}
                 </button>
                 <button
+                  v-if="videoTaskCopyLinkAvailable(task)"
                   type="button"
                   class="text-[10px] font-medium text-gray-500 dark:text-dark-300"
                   data-testid="bakeoff-history-video-copy-link"
@@ -394,6 +396,8 @@
       :cost="previewCost"
       :preview-media-ready="previewMediaReady"
       :copied-link="previewCopiedLink"
+      :allow-copy-link="allowCopyLink"
+      :preview-inline="previewInline"
       test-id="bakeoff-video-preview"
       close-test-id="bakeoff-video-preview-close"
       copy-link-test-id="bakeoff-video-copy-link"
@@ -435,6 +439,8 @@ import {
   shouldShowStudioSaveReminder,
   videoTaskCardPresentation,
   videoTaskPlaybackAvailable,
+  videoTaskCopyLinkAvailable,
+  videoCopyLinkAvailable,
 } from '@/utils/studioMedia.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
@@ -447,7 +453,7 @@ import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVid
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { useAppStore } from '@/stores/app'
 import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
-import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
 import { useStudioVideoSubmitOptions } from '@/composables/useStudioVideoSubmitOptions'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
 import { useVideoTaskPoll } from '@/composables/useVideoTaskPoll'
@@ -472,12 +478,8 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
-const warnInlineCopy = () => appStore.showWarning(t('studio.video.inlineCopyHint'), 8000)
-const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions({
-  onExpiredDownload: warnExpiredDownload,
-  onInlineCopyUnsupported: warnInlineCopy,
-})
+const studioVideoActionHandlers = createStudioVideoActionHandlers(appStore, t)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(studioVideoActionHandlers)
 const { generateAudio } = useStudioVideoSubmitOptions()
 
 const MAX_PANELS = 6
@@ -618,6 +620,8 @@ const {
   previewState,
   previewMediaReady,
   copiedLink: previewCopiedLink,
+  previewInline,
+  allowCopyLink,
   openPreview: openPreviewLightbox,
   closePreview: closePreviewLightbox,
   onPreviewError,
@@ -625,10 +629,7 @@ const {
   onPreviewMediaReady,
   copyPreviewLink,
   downloadPreview,
-} = useStudioVideoPreview({
-  onExpiredDownload: warnExpiredDownload,
-  onInlineCopyUnsupported: warnInlineCopy,
-})
+} = useStudioVideoPreview(studioVideoActionHandlers)
 
 function openVideoPreviewFromUrl(label: string, cost: number, url: string, taskId?: string, urlExpired?: boolean): void {
   openPreviewLightbox({

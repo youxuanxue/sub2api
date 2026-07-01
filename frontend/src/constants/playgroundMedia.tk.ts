@@ -253,9 +253,10 @@ export function videoStateFromFetch(resp: unknown): PlaygroundVideoState {
  * The fetch response body is the upstream task JSON verbatim (vendor-specific),
  * so the video URL has no single canonical path. Handle:
  *
- *  - Vertex / Gemini operation: response.videos[0].bytesBase64Encoded (or
- *    response.bytesBase64Encoded / response.video) — base64-inline video that we
- *    wrap into a `data:video/…;base64,…` URI (veo returns the bytes, not a URL).
+ *  - Vertex / Gemini operation: prefer inline base64 (`response.videos[]`,
+ *    `response.bytesBase64Encoded`, `generateVideoResponse.generatedVideos[]`)
+ *    over hosted https URIs — Veo often returns BOTH, but the URI is a short-lived
+ *    GCS signed URL that breaks in-tab `<video>` playback while bytes work locally.
  *  - Volcengine ark: content.video_url; generic data.video_url / video_url / data.url.
  *  - Last resort: a bounded deep scan for the first http(s) string under a
  *    video-ish key or with a video file extension.
@@ -265,37 +266,87 @@ export function videoStateFromFetch(resp: unknown): PlaygroundVideoState {
  * scheme into <video :src> / <a :href>. Empty string → the UI shows the raw
  * JSON details instead of a broken player.
  */
+function inlineVideoFromB64(b64: string, mimeType?: string, encoding?: string): string {
+  if (!withinInlineB64Cap(b64)) return ''
+  return buildDataVideoUri(mimeType, b64, encoding)
+}
+
+function extractInlineVideoFromVertexResponse(response: Record<string, unknown>): string {
+  const videos = response.videos
+  if (Array.isArray(videos)) {
+    for (const entry of videos) {
+      const v0 = asRecord(entry)
+      if (!v0) continue
+      const b64 = typeof v0.bytesBase64Encoded === 'string' ? v0.bytesBase64Encoded : ''
+      const hit = inlineVideoFromB64(
+        b64,
+        typeof v0.mimeType === 'string' ? v0.mimeType : undefined,
+        typeof v0.encoding === 'string' ? v0.encoding : undefined
+      )
+      if (hit) return hit
+    }
+  }
+  for (const key of ['bytesBase64Encoded', 'video'] as const) {
+    const b = response[key]
+    if (typeof b === 'string') {
+      const enc = typeof response.encoding === 'string' ? response.encoding : undefined
+      const hit = inlineVideoFromB64(b, 'video/mp4', enc)
+      if (hit) return hit
+    }
+  }
+  const gen = asRecord(response.generateVideoResponse)
+  for (const sampleList of [gen?.generatedVideos, gen?.generatedSamples]) {
+    if (!Array.isArray(sampleList)) continue
+    for (const entry of sampleList) {
+      const video = asRecord(asRecord(entry)?.video)
+      if (!video) continue
+      const b64 = typeof video.bytesBase64Encoded === 'string' ? video.bytesBase64Encoded : ''
+      const hit = inlineVideoFromB64(
+        b64,
+        typeof video.mimeType === 'string' ? video.mimeType : undefined,
+        typeof video.encoding === 'string' ? video.encoding : undefined
+      )
+      if (hit) return hit
+    }
+  }
+  return ''
+}
+
+function extractHostedVideoFromVertexResponse(response: Record<string, unknown>): string {
+  const gen = asRecord(response.generateVideoResponse)
+  for (const sampleList of [gen?.generatedVideos, gen?.generatedSamples]) {
+    if (!Array.isArray(sampleList)) continue
+    for (const entry of sampleList) {
+      const video = asRecord(asRecord(entry)?.video)
+      const uri = video && typeof video.uri === 'string' ? video.uri.trim() : ''
+      if (/^https?:\/\//i.test(uri)) return uri
+    }
+  }
+  const videos = response.videos
+  if (Array.isArray(videos)) {
+    for (const entry of videos) {
+      const v0 = asRecord(entry)
+      const uri = v0 && typeof v0.uri === 'string' ? v0.uri.trim() : ''
+      if (/^https?:\/\//i.test(uri)) return uri
+    }
+  }
+  for (const key of ['video', 'uri'] as const) {
+    const u = response[key]
+    if (typeof u === 'string' && /^https?:\/\//i.test(u)) return u
+  }
+  return ''
+}
+
 export function extractVideoUrl(resp: unknown): string {
   const root = asRecord(resp)
   if (!root) return ''
 
-  // Vertex/Gemini operation: inline base64 video bytes.
   const response = asRecord(root.response)
   if (response) {
-    const gen = asRecord(response.generateVideoResponse)
-    const generated = gen?.generatedVideos
-    if (Array.isArray(generated) && generated.length) {
-      const v0 = asRecord(asRecord(generated[0])?.video)
-      const uri = v0 && typeof v0.uri === 'string' ? v0.uri.trim() : ''
-      if (/^https?:\/\//i.test(uri)) return uri
-    }
-    const videos = response.videos
-    if (Array.isArray(videos) && videos.length) {
-      const v0 = asRecord(videos[0])
-      const b64 = v0 && typeof v0.bytesBase64Encoded === 'string' ? v0.bytesBase64Encoded : ''
-      if (withinInlineB64Cap(b64)) {
-        const claimed = v0 && typeof v0.mimeType === 'string' ? v0.mimeType : ''
-        const encoding = v0 && typeof v0.encoding === 'string' ? v0.encoding : ''
-        return buildDataVideoUri(claimed, b64, encoding)
-      }
-    }
-    for (const key of ['bytesBase64Encoded', 'video']) {
-      const b = response[key]
-      if (typeof b === 'string' && withinInlineB64Cap(b)) {
-        const encoding = typeof response.encoding === 'string' ? response.encoding : ''
-        return buildDataVideoUri('video/mp4', b, encoding)
-      }
-    }
+    const inline = extractInlineVideoFromVertexResponse(response)
+    if (inline) return inline
+    const hosted = extractHostedVideoFromVertexResponse(response)
+    if (hosted) return hosted
   }
 
   const content = asRecord(root.content)

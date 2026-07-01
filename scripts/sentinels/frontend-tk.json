@@ -996,6 +996,8 @@
       "must_contain": [
         "export function videoTaskCardPresentation",
         "export function videoTaskPlaybackAvailable",
+        "export function videoCopyLinkAvailable",
+        "export function videoTaskCopyLinkAvailable",
         "export function videoPlaybackUrl",
         "export function imageHistoryItemAvailable",
         "export function shouldShowStudioSaveReminder",
@@ -1027,7 +1029,8 @@
         "onPreviewError",
         "downloadPreview",
         "previewState",
-        "rawUrl"
+        "rawUrl",
+        "allowCopyLink"
       ],
       "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, session-local preview error (lightbox stays open; card poster SSOT unchanged), retry, copy-link (raw upstream url), and download via rawUrl so surfaces cannot drift after playback fixes."
     },
@@ -1035,6 +1038,7 @@
       "path": "frontend/src/composables/useStudioVideoCardActions.ts",
       "must_contain": [
         "export function useStudioVideoCardActions",
+        "export function createStudioVideoActionHandlers",
         "copyStudioVideoLink",
         "downloadMedia",
         "copyCardLink",

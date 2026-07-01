@@ -1,24 +1,37 @@
 <script setup lang="ts">
+import { computed, withDefaults } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
 import type { StudioVideoPreviewState } from '@/composables/useStudioVideoPreview'
 
-defineProps<{
-  open: boolean
-  previewState: StudioVideoPreviewState
-  previewUrl: string
-  downloadUrl: string
-  downloadFilename: string
-  label: string
-  subtitle?: string
-  cost: number | null
-  previewMediaReady: boolean
-  copiedLink: boolean
-  testId?: string
-  closeTestId?: string
-  copyLinkTestId?: string
-  showReusePrompt?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    previewState: StudioVideoPreviewState
+    previewUrl: string
+    downloadUrl: string
+    downloadFilename: string
+    label: string
+    subtitle?: string
+    cost: number | null
+    previewMediaReady: boolean
+    copiedLink: boolean
+    /** When false, hide copy-link (inline Veo clips are download-only). */
+    allowCopyLink?: boolean
+    /** Use inline-specific expired copy when preview source is data:video. */
+    previewInline?: boolean
+    testId?: string
+    closeTestId?: string
+    copyLinkTestId?: string
+    showReusePrompt?: boolean
+  }>(),
+  { allowCopyLink: true }
+)
+
+const showCopyLink = computed(() => props.allowCopyLink)
+const expiredHintKey = computed(() =>
+  props.previewInline ? 'studio.video.expiredHintInline' : 'studio.video.expiredHint'
+)
 
 const emit = defineEmits<{
   close: []
@@ -75,7 +88,7 @@ const { t } = useI18n()
         </div>
         <div v-else class="max-w-sm rounded-xl bg-white/10 p-6 text-center">
           <p class="text-sm font-semibold text-white">{{ t('studio.video.expiredTitle') }}</p>
-          <p class="mt-1 text-xs text-white/70">{{ t('studio.video.expiredHint') }}</p>
+          <p class="mt-1 text-xs text-white/70">{{ t(expiredHintKey) }}</p>
           <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
@@ -86,6 +99,14 @@ const { t } = useI18n()
             </button>
             <button
               v-if="downloadUrl"
+              type="button"
+              class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
+              @click="emit('download')"
+            >
+              {{ t('studio.video.download') }}
+            </button>
+            <button
+              v-if="downloadUrl && showCopyLink"
               type="button"
               class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
               :data-testid="copyLinkTestId ?? 'studio-video-copy-link'"
@@ -118,7 +139,7 @@ const { t } = useI18n()
           {{ t('studio.video.download') }}
         </button>
         <button
-          v-if="downloadUrl"
+          v-if="downloadUrl && showCopyLink"
           type="button"
           class="rounded-md bg-white/90 px-3 py-1.5 text-[12px] font-medium text-gray-800 hover:bg-white"
           :data-testid="copyLinkTestId ?? 'studio-video-copy-link'"

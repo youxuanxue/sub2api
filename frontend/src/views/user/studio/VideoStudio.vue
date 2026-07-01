@@ -303,7 +303,7 @@
               @click="downloadCardVideo(task.url, `tokenkey-${task.id}.mp4`, task.urlExpired)"
             >{{ t('studio.video.download') }}</button>
             <button
-              v-if="task.url && videoTaskCardPresentation(task) !== 'download-only'"
+              v-if="videoTaskCopyLinkAvailable(task)"
               type="button"
               class="text-gray-500 dark:text-dark-300"
               data-testid="studio-video-copy-card-link"
@@ -337,6 +337,8 @@
       :cost="previewCost"
       :preview-media-ready="previewMediaReady"
       :copied-link="previewCopiedLink"
+      :allow-copy-link="allowCopyLink"
+      :preview-inline="previewInline"
       show-reuse-prompt
       @close="closePreviewLightbox"
       @error="onPreviewError"
@@ -366,7 +368,7 @@ import {
   type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
-import { videoTaskCardPresentation, videoTaskPlaybackAvailable } from '@/utils/studioMedia.tk'
+import { videoTaskCardPresentation, videoTaskPlaybackAvailable, videoTaskCopyLinkAvailable } from '@/utils/studioMedia.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioPlaybackBadge from '@/views/user/studio/components/StudioPlaybackBadge.vue'
@@ -376,7 +378,7 @@ import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVid
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
-import { useStudioVideoCardActions } from '@/composables/useStudioVideoCardActions'
+import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
 import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'
 import { useStudioVideoSubmitOptions } from '@/composables/useStudioVideoSubmitOptions'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
@@ -401,12 +403,8 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const warnExpiredDownload = () => appStore.showWarning(t('studio.video.expiredHint'), 8000)
-const warnInlineCopy = () => appStore.showWarning(t('studio.video.inlineCopyHint'), 8000)
-const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions({
-  onExpiredDownload: warnExpiredDownload,
-  onInlineCopyUnsupported: warnInlineCopy,
-})
+const studioVideoActionHandlers = createStudioVideoActionHandlers(appStore, t)
+const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions(studioVideoActionHandlers)
 const { generateAudio } = useStudioVideoSubmitOptions()
 const library = useMediaLibrary(props.userId)
 
@@ -554,6 +552,8 @@ const {
   previewState,
   previewMediaReady,
   copiedLink: previewCopiedLink,
+  previewInline,
+  allowCopyLink,
   taskId: previewTaskId,
   openPreview: openPreviewLightbox,
   closePreview: closePreviewLightbox,
@@ -562,10 +562,7 @@ const {
   onPreviewMediaReady,
   copyPreviewLink,
   downloadPreview,
-} = useStudioVideoPreview({
-  onExpiredDownload: warnExpiredDownload,
-  onInlineCopyUnsupported: warnInlineCopy,
-})
+} = useStudioVideoPreview(studioVideoActionHandlers)
 
 function openPreview(task: VideoTaskItem): void {
   if (!videoTaskPlaybackAvailable(task)) return
