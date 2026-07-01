@@ -3383,7 +3383,7 @@
         "func CheckOpenAIWindowSchedulability(",
         "func (s *OpenAIGatewayService) isAccountSchedulableForOpenAIWindow(",
         "func leastUtilizedOpenAIAccount(",
-        "openAIWindowStickyThresholdDefault = windowUtilStickyThresholdDefault"
+        "checkWindowUtilSchedulability("
       ],
       "rationale": "OpenAI/GPT-line window-util soft scheduler sharing the Codex/Anthropic kernel (window_util_sched_tk.go, global 0.98/0.02). Steers load-balance traffic away from codex accounts approaching upstream 5h/7d caps before they 429. Tri-state on codex_5h/7d_used_percent with fail-open on no-signal/stale/reset."
     },

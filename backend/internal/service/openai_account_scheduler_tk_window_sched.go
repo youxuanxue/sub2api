@@ -11,10 +11,6 @@ import (
 //
 // Never-empty-pool fallback (leastUtilizedOpenAIAccount) prevents thin pools from
 // surfacing empty-pool 429s when every candidate is near its upstream window cap.
-const (
-	openAIWindowStickyThresholdDefault = windowUtilStickyThresholdDefault
-	openAIWindowStickyReserveDefault   = windowUtilStickyReserveDefault
-)
 
 func openAIAccountWindowUtilization(account *Account, now time.Time) (float64, bool) {
 	if account == nil || len(account.Extra) == 0 {

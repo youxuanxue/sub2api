@@ -125,8 +125,8 @@ func TestResolveOpenAIWindowStickyThresholds_Precedence(t *testing.T) {
 	t.Run("built-in defaults when unconfigured", func(t *testing.T) {
 		th, res, enabled := resolveOpenAIWindowStickyThresholds(ctx, &Account{})
 		require.True(t, enabled)
-		require.InDelta(t, openAIWindowStickyThresholdDefault, th, 1e-9)
-		require.InDelta(t, openAIWindowStickyReserveDefault, res, 1e-9)
+		require.InDelta(t, windowUtilStickyThresholdDefault, th, 1e-9)
+		require.InDelta(t, windowUtilStickyReserveDefault, res, 1e-9)
 	})
 	t.Run("per-account Extra overrides global", func(t *testing.T) {
 		globalCtx := withOpenAIQuotaAutoPauseSettings(ctx, OpsOpenAIAccountQuotaAutoPauseSettings{
