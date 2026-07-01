@@ -38,7 +38,7 @@ func TestTkDeriveBareModelAliases_Fixture(t *testing.T) {
 func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T) {
 	aliases := tkDeriveBareModelAliases(supportedAnthropicCatalogModels)
 	for family, want := range map[string]string{
-		"opus": "claude-opus-4-8", "sonnet": "claude-sonnet-4-6",
+		"opus": "claude-opus-4-8", "sonnet": "claude-sonnet-5",
 		"haiku": "claude-haiku-4-5",
 	} {
 		if got := aliases[family]; got != want {
@@ -127,7 +127,7 @@ func TestTkApplyBareModelAlias_MissAndGates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if _, resolved := TkApplyBareModelAlias("", parsed); resolved != "claude-sonnet-4-6" {
-		t.Fatalf("empty-platform gate: resolved = %q, want claude-sonnet-4-6", resolved)
+	if _, resolved := TkApplyBareModelAlias("", parsed); resolved != "claude-sonnet-5" {
+		t.Fatalf("empty-platform gate: resolved = %q, want claude-sonnet-5", resolved)
 	}
 }

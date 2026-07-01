@@ -57,16 +57,16 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-opus-4-6-thinking",
 		},
 		{
-			name:           "默认映射 - claude-haiku-4-5 → claude-sonnet-4-6",
+			name:           "默认映射 - claude-haiku-4-5 → claude-sonnet-5",
 			requestedModel: "claude-haiku-4-5",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-6",
+			expected:       "claude-sonnet-5",
 		},
 		{
-			name:           "默认映射 - claude-haiku-4-5-20251001 → claude-sonnet-4-6",
+			name:           "默认映射 - claude-haiku-4-5-20251001 → claude-sonnet-5",
 			requestedModel: "claude-haiku-4-5-20251001",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-6",
+			expected:       "claude-sonnet-5",
 		},
 		{
 			name:           "默认映射 - claude-sonnet-4-5-20250929 → claude-sonnet-4-5",
@@ -87,6 +87,12 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			requestedModel: "claude-sonnet-4-6",
 			accountMapping: nil,
 			expected:       "claude-sonnet-4-6",
+		},
+		{
+			name:           "默认映射透传 - claude-sonnet-5",
+			requestedModel: "claude-sonnet-5",
+			accountMapping: nil,
+			expected:       "claude-sonnet-5",
 		},
 		{
 			name:           "默认映射透传 - claude-sonnet-4-5",

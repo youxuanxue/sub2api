@@ -203,6 +203,12 @@ var DefaultModels = []Model{
 		CreatedAt:   "2026-02-18T00:00:00Z",
 	},
 	{
+		ID:          "claude-sonnet-5",
+		Type:        "model",
+		DisplayName: "Claude Sonnet 5",
+		CreatedAt:   "2026-06-30T00:00:00Z",
+	},
+	{
 		ID:          "claude-sonnet-4-5-20250929",
 		Type:        "model",
 		DisplayName: "Claude Sonnet 4.5",
