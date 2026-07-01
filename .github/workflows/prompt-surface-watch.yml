@@ -38,6 +38,8 @@ jobs:
         with:
           submodules: recursive
 
+      - uses: ./.github/actions/cache-and-checkout-new-api
+
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
