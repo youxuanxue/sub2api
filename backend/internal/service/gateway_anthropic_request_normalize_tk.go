@@ -212,11 +212,10 @@ func tkLogAnthropicNormalize(ctx context.Context, changes []tkAnthropicNormalize
 	)
 }
 
-// tkRecordAnthropicNormalizeOpsEvent records one ops upstream-errors event
-// per request so an operator can SQL the rows that were normalized but still
-// failed. The event only persists if the request ultimately errors (ops
-// logger only writes rows for non-2xx final outcomes), so this measures
-// "normalize did not save the request" not "normalize ran".
+// tkRecordAnthropicNormalizeOpsEvent attaches normalize change kinds to the
+// request's upstream-errors event list so failed (>=400) rows retain them in
+// upstream_errors JSON. Recovered-200 ops logging intentionally skips this kind;
+// gateway.anthropic_request_normalized slog is the success-path audit trail.
 func tkRecordAnthropicNormalizeOpsEvent(c *gin.Context, changes []tkAnthropicNormalizeChange) {
 	if c == nil || len(changes) == 0 {
 		return

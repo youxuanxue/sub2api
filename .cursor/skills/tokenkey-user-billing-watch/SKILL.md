@@ -64,6 +64,7 @@ bash ops/observability/run-probe.sh \
 |---|---|---|
 | `error_phase=routing` + `account_id=null` + `is_business_limited=true` | 空池 / 错组 key 误投（如 newapi 长尾模型用 anthropic 组 key 发 `/v1/messages`） | 客户端侧，**非系统**，不推送 |
 | `status_code=200` + `upstream_status_code∈{429,502,5xx}` | recovered-200：重试已成功，用户侧无感 | 不推送 |
+| `status_code=200` + `msg` 仅含 `cc_environment_stripped` / `cc_geo_stego_normalized`（或 `request_normalized` 审计类） | v1.8.64+ Anthropic CC prompt normalize 预期改写；`gateway.anthropic_request_normalized` 为 canonical 审计 | 不推送 |
 | `error_phase∈{request,upstream}` 的 4xx（`data_inspection_failed` 内容审核 / 退役模型 / prompt too long / 参数错） | 客户端输入或用法问题 | 不推送 |
 | `status_code≥500` 真失败（非 recovered） / 空池 429 绝对量**突升** / 流量归零 / 成本飙升 / 上述都不匹配的**新指纹** | 疑似系统异常 | **推送**并简述 |
 
