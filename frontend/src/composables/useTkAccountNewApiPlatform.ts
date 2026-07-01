@@ -315,6 +315,45 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     return { channelType: channelType.value, credentials }
   }
 
+  /**
+   * Model mapping + transit fields without base_url / api_key — for newapi Vertex
+   * service_account (channel_type 41) create/edit paths.
+   */
+  function buildAuxiliaryCredentials(): Record<string, unknown> | null {
+    const credentials: Record<string, unknown> = {}
+
+    const mapping = buildModelMappingObject(
+      restrictionMode.value,
+      allowedModels.value,
+      modelMappings.value
+    )
+    if (!mapping || Object.keys(mapping).length === 0) {
+      appStore.showError(t('admin.accounts.newApiPlatform.pleaseConfigureModelMapping'))
+      return null
+    }
+    credentials.model_mapping = mapping
+
+    if (Object.keys(upstreamModelPricingStatus.value).length > 0) {
+      credentials.model_pricing_status = { ...upstreamModelPricingStatus.value }
+    }
+
+    const statusTrim = statusCodeMapping.value.trim()
+    if (statusTrim) {
+      if (!isValidJsonObject(statusTrim)) {
+        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+        return null
+      }
+      credentials.status_code_mapping = statusTrim
+    }
+
+    const orgTrim = openaiOrganization.value.trim()
+    if (orgTrim) {
+      credentials.openai_organization = orgTrim
+    }
+
+    return credentials
+  }
+
   return {
     // refs
     channelType,
@@ -340,6 +379,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     reset,
     populateFromAccount,
     buildSubmitBundle,
+    buildAuxiliaryCredentials,
     handleFetchUpstreamModels,
     refreshStoredPricingStatus,
   }

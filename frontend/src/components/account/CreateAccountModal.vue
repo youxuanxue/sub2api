@@ -238,25 +238,24 @@
           :fetch-models-enabled="newapiFetchModelsEnabled"
           :fetch-models-disabled="newapiFetchModelsDisabled"
           :fetch-models-loading="newapiFetchModelsLoading"
+          :hide-transport-credentials="newapiIsVertexServiceAccount"
           variant="create"
           @fetch-models="newapiHandleFetchUpstreamModels"
         />
+        <div
+          v-if="newapiIsVertexServiceAccount"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        >
+          <p class="mb-3 text-xs text-sky-800 dark:text-sky-200">
+            {{ t('admin.accounts.vertexNewapiMediaHint') }}
+          </p>
+          <VertexServiceAccountFields :fields="vertexSa" variant="create" />
+        </div>
       </div>
 
       <!-- kiro (6th platform): OAuth credential fields directly under platform picker. -->
       <div v-if="form.platform === 'kiro'" class="space-y-4">
-        <AccountKiroPlatformFields
-          v-model:accessToken="kiroAccessToken"
-          v-model:refreshToken="kiroRefreshToken"
-          v-model:region="kiroRegion"
-          v-model:authMethod="kiroAuthMethod"
-          v-model:machineId="kiroMachineId"
-          v-model:clientId="kiroClientId"
-          v-model:clientSecret="kiroClientSecret"
-          v-model:profileArn="kiroProfileArn"
-          v-model:tosAcknowledged="kiroTosAcknowledged"
-          variant="create"
-        />
+        <AccountKiroPlatformFields :fields="kiro.fields" variant="create" />
       </div>
 
       <!-- grok (7th platform): OAuth account or prod→edge first-class relay stub. -->
@@ -1029,94 +1028,12 @@
         </div>
       </div>
 
-      <!-- Vertex Service Account -->
-      <div v-if="(form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'" class="space-y-4">
-        <div>
-          <label class="input-label">Service Account JSON</label>
-          <input
-            ref="vertexServiceAccountFileInput"
-            type="file"
-            accept="application/json,.json"
-            class="hidden"
-            @change="handleVertexServiceAccountFile"
-          />
-          <div
-            :class="[
-              'rounded-lg border-2 border-dashed px-4 py-5 transition-colors',
-              vertexServiceAccountDragActive
-                ? 'border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
-                : 'border-gray-300 bg-gray-50 hover:border-sky-400 hover:bg-sky-50/60 dark:border-dark-500 dark:bg-dark-700/40 dark:hover:border-sky-600 dark:hover:bg-sky-900/10'
-            ]"
-            @dragenter.prevent="vertexServiceAccountDragActive = true"
-            @dragover.prevent="vertexServiceAccountDragActive = true"
-            @dragleave.prevent="vertexServiceAccountDragActive = false"
-            @drop.prevent="handleVertexServiceAccountDrop"
-          >
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                  <Icon name="upload" size="sm" />
-                  <span>{{ vertexClientEmail ? t('admin.accounts.vertexSaJsonLoaded') : t('admin.accounts.vertexSaJsonDrop') }}</span>
-                </div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ vertexClientEmail ? t('admin.accounts.vertexSaJsonKeyHidden') : t('admin.accounts.vertexSaJsonDropHint') }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn btn-secondary shrink-0"
-                @click="vertexServiceAccountFileInput?.click()"
-              >
-                <Icon name="upload" size="sm" />
-                {{ t('admin.accounts.vertexSaJsonSelectBtn') }}
-              </button>
-            </div>
-            <div
-              v-if="vertexClientEmail"
-              class="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-sky-900 dark:border-sky-800/50 dark:bg-dark-800 dark:text-sky-200"
-            >
-              <div class="truncate">Project ID: <span class="font-mono">{{ vertexProjectId }}</span></div>
-              <div class="truncate">Client Email: <span class="font-mono">{{ vertexClientEmail }}</span></div>
-            </div>
-          </div>
-          <p class="input-hint">{{ t('admin.accounts.vertexSaJsonUploadHint') }}</p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label class="input-label">Project ID</label>
-            <input
-              v-model="vertexProjectId"
-              type="text"
-              class="input font-mono"
-              readonly
-              :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
-            />
-          </div>
-          <div>
-            <label class="input-label">Location</label>
-            <select
-              v-model="vertexLocation"
-              required
-              class="input font-mono"
-            >
-              <optgroup
-                v-for="group in VERTEX_LOCATION_OPTIONS"
-                :key="group.label"
-                :label="group.label"
-              >
-                <option
-                  v-for="option in group.options"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </optgroup>
-            </select>
-            <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
-          </div>
-        </div>
+      <!-- Vertex Service Account (Gemini / Anthropic native platform) -->
+      <div
+        v-if="(form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'"
+        class="space-y-4"
+      >
+        <VertexServiceAccountFields :fields="vertexSa" variant="create" />
       </div>
 
       <!-- Antigravity model restriction (applies to OAuth + Upstream) -->
@@ -3477,7 +3394,9 @@ import {
 } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
-import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import { isNewApiVertexServiceAccountChannelType } from '@/constants/newApiChannelTypes.tk'
+import VertexServiceAccountFields from './VertexServiceAccountFields.vue'
+import { useVertexServiceAccountFields } from '@/composables/useVertexServiceAccountFields'
 import { MIRROR_PLATFORM_OPTIONS, type MirrorPlatform } from '@/constants/mirrorPlatformOptions.tk'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -3728,12 +3647,7 @@ const bedrockSessionToken = ref('')
 const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
-const vertexServiceAccountFileInput = ref<HTMLInputElement | null>(null)
-const vertexServiceAccountJson = ref('')
-const vertexProjectId = ref('')
-const vertexClientEmail = ref('')
-const vertexLocation = ref('global')
-const vertexServiceAccountDragActive = ref(false)
+const vertexSa = useVertexServiceAccountFields()
 
 // 第五平台 newapi 的全部表单状态 + 副作用（catalog / fetch / 校验 / 提交拼装）
 // 都收口在 composable，让本上游大文件保持「模板 + wiring」形态。
@@ -3758,26 +3672,19 @@ const {
   bootstrap: newapiBootstrap,
   reset: newapiReset,
   buildSubmitBundle: newapiBuildSubmitBundle,
+  buildAuxiliaryCredentials: newapiBuildAuxiliaryCredentials,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
 } = useTkAccountNewApiPlatform({
   isNewapi: () => form.platform === 'newapi',
 })
 
+const newapiIsVertexServiceAccount = computed(() =>
+  isNewApiVertexServiceAccountChannelType(newapiChannelType.value)
+)
+
 // 第六平台 kiro 的全部表单状态 + 校验 + credentials 拼装收口在 composable，
 // 让本上游大文件保持「模板 + wiring」形态。
-const {
-  accessToken: kiroAccessToken,
-  refreshToken: kiroRefreshToken,
-  region: kiroRegion,
-  authMethod: kiroAuthMethod,
-  machineId: kiroMachineId,
-  clientId: kiroClientId,
-  clientSecret: kiroClientSecret,
-  profileArn: kiroProfileArn,
-  tosAcknowledged: kiroTosAcknowledged,
-  reset: kiroReset,
-  buildSubmitBundle: kiroBuildSubmitBundle,
-} = useTkAccountKiroPlatform()
+const kiro = useTkAccountKiroPlatform()
 
 // 第七平台 grok 的表单状态 + 校验 + credentials 拼装收口在 composable。
 const {
@@ -4277,10 +4184,7 @@ watch(
     bedrockForceGlobal.value = false
     bedrockAuthMode.value = 'sigv4'
     bedrockApiKeyValue.value = ''
-    vertexServiceAccountJson.value = ''
-    vertexProjectId.value = ''
-    vertexClientEmail.value = ''
-    vertexLocation.value = 'global'
+    vertexSa.reset()
     // Reset Anthropic/Antigravity-specific settings when switching to other platforms
     if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
       interceptWarmupRequests.value = false
@@ -4731,8 +4635,9 @@ const resetForm = () => {
   upstreamApiKey.value = ''
   // 第五平台 newapi 字段重置由 composable 统一管理
   newapiReset()
+  vertexSa.reset()
   // 第六平台 kiro 字段重置由 composable 统一管理
-  kiroReset()
+  kiro.reset()
   // 第七平台 grok 字段重置由 composable 统一管理
   grokReset()
   tempUnschedEnabled.value = false
@@ -4916,52 +4821,6 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
-const applyVertexServiceAccountJson = (value: string) => {
-  const raw = value.trim()
-  if (!raw) {
-    vertexProjectId.value = ''
-    vertexClientEmail.value = ''
-    return false
-  }
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const projectId = typeof parsed.project_id === 'string' ? parsed.project_id.trim() : ''
-    const clientEmail = typeof parsed.client_email === 'string' ? parsed.client_email.trim() : ''
-    const privateKey = typeof parsed.private_key === 'string' ? parsed.private_key.trim() : ''
-    if (!projectId || !clientEmail || !privateKey) {
-      appStore.showError(t('admin.accounts.vertexSaJsonMissingFields'))
-      return false
-    }
-    vertexProjectId.value = projectId
-    vertexClientEmail.value = clientEmail
-    vertexServiceAccountJson.value = JSON.stringify(parsed)
-    return true
-  } catch {
-    appStore.showError(t('admin.accounts.vertexSaJsonInvalid'))
-    return false
-  }
-}
-
-const parseVertexServiceAccountJson = () => applyVertexServiceAccountJson(vertexServiceAccountJson.value)
-
-const handleVertexServiceAccountFile = async (event: Event) => {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  try {
-    applyVertexServiceAccountJson(await file.text())
-  } finally {
-    input.value = ''
-  }
-}
-
-const handleVertexServiceAccountDrop = async (event: DragEvent) => {
-  vertexServiceAccountDragActive.value = false
-  const file = event.dataTransfer?.files?.[0]
-  if (!file) return
-  applyVertexServiceAccountJson(await file.text())
-}
-
 const handleSubmit = async () => {
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
@@ -5048,11 +4907,38 @@ const handleSubmit = async () => {
     return
   }
 
-  // 第五平台 newapi：直接走 apikey 路径，channel_type 上浮到顶层（admin_service
-  // 强制 > 0）；表单校验 + credentials 拼装 + JSON 校验都委托给 composable。
+  // 第五平台 newapi：apikey 或 Vertex service_account (channel_type 41)。
   if (form.platform === 'newapi') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (newapiIsVertexServiceAccount.value) {
+      if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+        appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+        return
+      }
+      const auxiliary = newapiBuildAuxiliaryCredentials()
+      if (!auxiliary) return
+      const vertexCredentials = vertexSa.buildCredentialsForCreate()
+      if (!vertexCredentials) return
+      await doCreateAccount({
+        name: form.name,
+        notes: form.notes,
+        platform: 'newapi',
+        type: 'service_account' as AccountType,
+        channel_type: newapiChannelType.value,
+        credentials: { ...vertexCredentials, ...auxiliary },
+        extra: buildAPIKeyOrBedrockExtra(),
+        proxy_id: form.proxy_id,
+        concurrency: form.concurrency,
+        load_factor: form.load_factor ?? undefined,
+        priority: form.priority,
+        rate_multiplier: form.rate_multiplier,
+        group_ids: form.group_ids,
+        expires_at: form.expires_at,
+        auto_pause_on_expired: autoPauseOnExpired.value
+      })
       return
     }
     const bundle = newapiBuildSubmitBundle('create')
@@ -5084,7 +4970,7 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    const bundle = kiroBuildSubmitBundle('create')
+    const bundle = kiro.buildSubmitBundle('create')
     if (!bundle) return
     await doCreateAccount({
       name: form.name,
@@ -5195,20 +5081,8 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    if (!parseVertexServiceAccountJson()) {
-      return
-    }
-    if (!vertexLocation.value.trim()) {
-      appStore.showError(t('admin.accounts.vertexLocationRequired'))
-      return
-    }
-    const credentials: Record<string, unknown> = {
-      service_account_json: vertexServiceAccountJson.value.trim(),
-      project_id: vertexProjectId.value.trim(),
-      client_email: vertexClientEmail.value.trim(),
-      location: vertexLocation.value.trim(),
-      tier_id: 'vertex'
-    }
+    const credentials = vertexSa.buildCredentialsForCreate()
+    if (!credentials) return
     await createAccountAndFinish(form.platform, 'service_account' as AccountType, credentials)
     return
   }

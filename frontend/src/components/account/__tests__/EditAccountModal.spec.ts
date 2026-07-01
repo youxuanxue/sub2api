@@ -621,12 +621,7 @@ describe('EditAccountModal', () => {
 
     const wrapper = mountModal(account)
 
-    const accessTokenInput = wrapper.get<HTMLTextAreaElement>(
-      'textarea[placeholder="admin.accounts.kiroPlatform.accessTokenPlaceholder"]'
-    )
-    const refreshTokenInput = wrapper.get<HTMLTextAreaElement>(
-      'textarea[placeholder="admin.accounts.kiroPlatform.refreshTokenPlaceholder"]'
-    )
+    const tokenJsonInput = wrapper.get<HTMLTextAreaElement>('[data-testid="kiro-token-json-input"]')
     const authMethodSelect = wrapper
       .findAll<HTMLSelectElement>('select')
       .find((select) => select.find('option[value="idc"]').exists())
@@ -635,16 +630,21 @@ describe('EditAccountModal', () => {
 
     expect(tosCheckbox.element.checked).toBe(true)
 
-    await accessTokenInput.setValue('new-access-token')
-    await refreshTokenInput.setValue('new-refresh-token')
+    await tokenJsonInput.setValue(
+      JSON.stringify({
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+        region: 'us-east-1',
+        authMethod: 'social'
+      })
+    )
+    await tokenJsonInput.trigger('blur')
     await wrapper.get<HTMLInputElement>('input[placeholder="us-east-1"]').setValue('us-west-2')
     await authMethodSelect!.setValue('idc')
-    await wrapper
-      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.clientIdPlaceholder"]')
-      .setValue('new-client-id')
-    await wrapper
-      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.clientSecretPlaceholder"]')
-      .setValue('new-client-secret')
+    await wrapper.get<HTMLTextAreaElement>('[data-testid="kiro-registration-json-input"]').setValue(
+      JSON.stringify({ clientId: 'new-client-id', clientSecret: 'new-client-secret' })
+    )
+    await wrapper.get('[data-testid="kiro-registration-json-input"]').trigger('blur')
     await wrapper
       .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.machineIdPlaceholder"]')
       .setValue('new-machine-id')
