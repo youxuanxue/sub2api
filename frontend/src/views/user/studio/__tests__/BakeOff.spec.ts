@@ -124,6 +124,53 @@ const videoProps = {
   ]),
 }
 
+describe('BakeOff video duration default', () => {
+  async function selectModels(wrapper: ReturnType<typeof mount>, indices: number[]): Promise<void> {
+    const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
+    for (const i of indices) {
+      await tiers[i].trigger('click')
+    }
+  }
+
+  function selectedDurationChip(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('[data-testid^="bakeoff-duration-"].border-primary-600')
+  }
+
+  it('defaults to the union MAX regardless of model selection order', async () => {
+    const orders = [
+      [0, 1, 2],
+      [2, 1, 0],
+      [1, 0, 2],
+    ]
+    for (const order of orders) {
+      const wrapper = mount(BakeOff, {
+        props: videoProps,
+        global: { plugins: [i18n], stubs: { RouterLink: true } },
+      })
+      await selectModels(wrapper, order)
+      expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-12')
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps a manually picked duration until the selected model set changes', async () => {
+    const wrapper = mount(BakeOff, {
+      props: videoProps,
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+
+    await selectModels(wrapper, [0, 1, 2])
+    await wrapper.get('[data-testid="bakeoff-duration-8"]').trigger('click')
+    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-8')
+
+    await wrapper.get('[data-testid="bakeoff-duration-6"]').trigger('click')
+    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-6')
+
+    await selectModels(wrapper, [2])
+    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-12')
+  })
+})
+
 describe('BakeOff run gate', () => {
   beforeEach(() => {
     libraryMock.videoTasks.value = []
