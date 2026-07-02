@@ -20,25 +20,25 @@
         <div class="space-y-2">
           <button
             v-for="r in models"
-            :key="r.model.modelId"
+            :key="r.presentation.modelId"
             type="button"
             class="w-full rounded-xl border p-3 text-left transition"
-            :class="selectedModelId === r.model.modelId
+            :class="selectedModelId === r.presentation.modelId
               ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-500/30 dark:border-primary-500 dark:bg-primary-950/40'
               : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
             data-testid="studio-video-model"
-            @click="selectedModelId = r.model.modelId"
+            @click="selectedModelId = r.presentation.modelId"
           >
             <div class="flex items-center justify-between gap-2">
-              <span class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ r.model.displayName }}</span>
-              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.model.qualityBadgeKey) }}</span>
+              <span class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ r.presentation.displayName }}</span>
+              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.presentation.qualityBadgeKey) }}</span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2">
               <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.perSecond || 0) }}{{ t('studio.video.perSecondUnit') }}</span>
-              <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.model.vendorLabel }) }}</span>
+              <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
             </div>
             <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
-            <div v-if="r.model.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
+            <div v-if="r.presentation.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
           </button>
         </div>
       </div>
@@ -117,7 +117,7 @@
         </div>
 
         <!-- Advanced: only params the SELECTED model actually honors are rendered. -->
-        <template v-if="selected && selected.model.supportedParams.length">
+        <template v-if="selected && selected.presentation.supportedParams.length">
           <button
             type="button"
             class="mt-3 flex items-center gap-1 text-xs font-medium text-primary-600 dark:text-primary-300"
@@ -369,7 +369,7 @@ import {
   defaultModelId,
   type StudioParam,
   type MediaPriceMap,
-} from '@/constants/mediaTiers.tk'
+} from '@/constants/studioMediaPresentations.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { videoTaskCardPresentation, videoTaskPlaybackAvailable, videoTaskCopyLinkAvailable } from '@/utils/studioMedia.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
@@ -415,11 +415,11 @@ const library = useMediaLibrary(props.userId)
 
 const models = computed(() => resolveAvailableModels('video', props.availableIds, props.priceMap))
 const selectedModelId = ref<string>('')
-const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
-const supports = (p: StudioParam): boolean => !!selected.value?.model.supportedParams.includes(p)
+const selected = computed(() => models.value.find((r) => r.presentation.modelId === selectedModelId.value) ?? null)
+const supports = (p: StudioParam): boolean => !!selected.value?.presentation.supportedParams.includes(p)
 
 // The selected model's accepted durations (chips); default lands on the MAX.
-const durations = computed<number[]>(() => selected.value?.model.videoDurations ?? [VIDEO_DURATION_DEFAULT])
+const durations = computed<number[]>(() => selected.value?.presentation.videoDurations ?? [VIDEO_DURATION_DEFAULT])
 const duration = ref<number>(VIDEO_DURATION_DEFAULT)
 const aspectId = ref<string>('') // '' = auto (no aspect_ratio sent — proven zero-extra-field path)
 const prompt = ref('')
@@ -490,7 +490,7 @@ function applySamplePrompt(): void {
 watch(
   models,
   (list) => {
-    if (!list.some((r) => r.model.modelId === selectedModelId.value)) {
+    if (!list.some((r) => r.presentation.modelId === selectedModelId.value)) {
       selectedModelId.value = defaultModelId(list) ?? ''
     }
   },
@@ -504,7 +504,7 @@ watch(
     // value, and snap any stale selection back into the model's allowed set so
     // the estimate/quote is never for an out-of-range (guaranteed-fail) duration.
     if (!durations.value.includes(duration.value)) {
-      duration.value = videoDurationDefault(selected.value?.model.videoDurations)
+      duration.value = videoDurationDefault(selected.value?.presentation.videoDurations)
     }
   },
   { immediate: true }
@@ -622,7 +622,7 @@ async function generate(): Promise<void> {
       id: taskId,
       prompt: text,
       model: resolved.servedId,
-      vendorLabel: resolved.model.vendorLabel,
+      vendorLabel: resolved.presentation.vendorLabel,
       seconds: duration.value,
       aspectRatio: aspectId.value || undefined,
       estCost: estimate.value,

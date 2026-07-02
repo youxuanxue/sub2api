@@ -34,8 +34,8 @@ describe('studioImageHistory.tk', () => {
   })
 
   it('matchImageHistoryModel resolves served or catalog id', () => {
-    const models = [{ servedId: 'imagen-4.0-generate-001', model: { modelId: 'imagen-4-fast' } }]
-    expect(matchImageHistoryModel(models, 'imagen-4.0-generate-001')?.model.modelId).toBe('imagen-4-fast')
+    const models = [{ servedId: 'imagen-4.0-generate-001', presentation: { modelId: 'imagen-4-fast' } }]
+    expect(matchImageHistoryModel(models, 'imagen-4.0-generate-001')?.presentation.modelId).toBe('imagen-4-fast')
     expect(matchImageHistoryModel(models, 'imagen-4-fast')?.servedId).toBe('imagen-4.0-generate-001')
   })
 })

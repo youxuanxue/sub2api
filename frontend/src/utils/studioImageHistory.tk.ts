@@ -28,10 +28,10 @@ export function imageHistoryPromptTitle(
   return lines.join('\n')
 }
 
-/** Resolve a priced model row from a history item's served id (ImageStudio reuse). */
-export function matchImageHistoryModel<T extends { servedId: string; model: { modelId: string } }>(
+/** Resolve a priced media row from a history item's served id (ImageStudio reuse). */
+export function matchImageHistoryModel<T extends { servedId: string; presentation: { modelId: string } }>(
   models: readonly T[],
   servedOrModelId: string
 ): T | undefined {
-  return models.find((r) => r.servedId === servedOrModelId || r.model.modelId === servedOrModelId)
+  return models.find((r) => r.servedId === servedOrModelId || r.presentation.modelId === servedOrModelId)
 }

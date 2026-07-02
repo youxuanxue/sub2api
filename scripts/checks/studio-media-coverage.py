@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
 GO_ALLOWLIST = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
-MEDIA_TIERS = REPO / "frontend/src/constants/mediaTiers.tk.ts"
+MEDIA_PRESENTATIONS = REPO / "frontend/src/constants/studioMediaPresentations.tk.ts"
 
 MODALITIES = ("image", "video")
 MEDIA_PRICE_FIELDS = {
@@ -84,8 +84,8 @@ def public_servable_media_ids(
     return priced_media_ids(overlay_text, modality) & servable_source_ids(go_text, manifest_text)
 
 
-def _media_models_array(ts_text: str) -> str:
-    m = re.search(r"export\s+const\s+MEDIA_MODELS\b[^\n=]*=\s*\[", ts_text)
+def _media_presentations_array(ts_text: str) -> str:
+    m = re.search(r"export\s+const\s+MEDIA_MODEL_PRESENTATIONS\b[^\n=]*=\s*\[", ts_text)
     if not m:
         return ""
     open_idx = m.end() - 1
@@ -128,7 +128,7 @@ def _has_explicit_image_sizes(obj: str) -> bool:
 
 def frontend_media_presentations(ts_text: str) -> dict[str, dict[str, object]]:
     out: dict[str, dict[str, object]] = {}
-    for obj in _top_level_objects(_media_models_array(ts_text)):
+    for obj in _top_level_objects(_media_presentations_array(ts_text)):
         modality_m = re.search(r"modality:\s*'(image|video)'", obj)
         if not modality_m:
             continue
@@ -211,7 +211,7 @@ def check(quiet: bool = False) -> int:
         overlay_text = OVERLAY.read_text(encoding="utf-8")
         go_text = GO_ALLOWLIST.read_text(encoding="utf-8")
         manifest_text = MANIFEST.read_text(encoding="utf-8")
-        ts_text = MEDIA_TIERS.read_text(encoding="utf-8")
+        ts_text = MEDIA_PRESENTATIONS.read_text(encoding="utf-8")
         errors = coverage_errors(overlay_text, go_text, manifest_text, ts_text)
         counts = {
             modality: len(public_servable_media_ids(overlay_text, go_text, manifest_text, modality))
@@ -277,7 +277,7 @@ def selftest() -> int:
         "veo-3.1-generate-001",
     }
     ts = """
-export const MEDIA_MODELS: MediaModel[] = [
+export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   { modelId: 'imagen-4.0-generate-001', modality: 'image', imageSizes: IMAGEN_IMAGE_SIZES },
   { modelId: 'gemini-3-pro-image-preview', aliasIds: ['gemini-3-pro-image'], modality: 'image', flatImageBilling: true, imageSizes: GEMINI_IMAGE_SIZES },
   { modelId: 'grok-imagine-image', modality: 'image', flatPricePerImage: true },
@@ -294,7 +294,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     assert not coverage_errors(overlay, go, manifest, ts)
 
     bad_ts = """
-export const MEDIA_MODELS: MediaModel[] = [
+export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   { modelId: 'doubao-seedream-5-0-260128', modality: 'image' },
 ]
 """
@@ -302,7 +302,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     assert any("imageSizes or explicit flatPricePerImage" in err for err in bad_errors), bad_errors
 
     alias_ts = """
-export const MEDIA_MODELS: MediaModel[] = [
+export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   { modelId: 'doubao-seedance-1-0-pro-250528', aliasIds: ['seedance-1-0-pro-250528'], modality: 'video', videoDurations: [5] },
 ]
 """

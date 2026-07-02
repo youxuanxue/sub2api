@@ -1,11 +1,11 @@
 /**
  * TokenKey-only: Studio media membership + prices from the public / me pricing
  * catalogs (billing_mode image | video). Presentation metadata stays in
- * mediaTiers.tk.ts — this module must NOT invent model inventories.
+ * studioMediaPresentations.tk.ts — this module must NOT invent model inventories.
  */
 import type { MePricingModel } from '@/api/me-pricing'
 import type { PublicCatalogModel } from '@/api/pricing'
-import type { MediaPrice, MediaPriceMap, StudioModality } from '@/constants/mediaTiers.tk'
+import type { MediaPrice, MediaPriceMap, StudioModality } from '@/constants/studioMediaPresentations.tk'
 
 export type CatalogBillingIndex = ReadonlyMap<string, StudioModality>
 

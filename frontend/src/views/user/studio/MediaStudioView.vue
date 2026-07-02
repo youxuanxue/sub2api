@@ -183,7 +183,7 @@ import {
   type PickerModality,
   type MediaPrice,
   type MediaPriceMap,
-} from '@/constants/mediaTiers.tk'
+} from '@/constants/studioMediaPresentations.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'

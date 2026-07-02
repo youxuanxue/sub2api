@@ -56,7 +56,7 @@
 
 - **新建独立媒体路由 `/studio`，不动 chat。** 当前 `PlaygroundView.vue` 把 chat/image/video 三个 panel 用 `v-if` 塞进一个 823 行单文件——这是根烂。Chat 留在 `/playground`（仅修掉那句陈旧的「Requests go straight to /v1/chat/completions」副标题），媒体迁到全新 `/studio`。
 - 编排器 `views/user/studio/MediaStudioView.vue`，下挂 `ImageStudio.vue` / `VideoStudio.vue` / `BakeOff.vue`。
-- 所有 TK-only 纯逻辑走 `*.tk.ts`：`constants/mediaTiers.tk.ts`、`composables/useTkMediaCostEstimate.ts`、`composables/useTkMediaLibrary.ts`、`composables/useTkVideoTaskPoll.ts`。
+- 所有 TK-only 纯逻辑走 `*.tk.ts`：`constants/studioMediaPresentations.tk.ts`、`composables/useTkMediaCostEstimate.ts`、`composables/useTkMediaLibrary.ts`、`composables/useTkVideoTaskPoll.ts`。
 - 删 `components/playground/PlaygroundPrototype.vue`（死 mock，US-032 遗留，未路由）。
 
 ### 3.1 模态是第一个、显式的、用户拥有的决策
@@ -336,13 +336,13 @@ Prompt: "霓虹东京小巷，慢推镜头，雨"            时长 8s
 | `frontend/src/views/user/studio/ImageStudio.vue` | 图片态：档位卡 + prompt + 参考图 + 分辨率 chip + n + 成本面板 + 结果网格 |
 | `frontend/src/views/user/studio/VideoStudio.vue` | 视频态：档位卡 + prompt + first-frame + 时长滑块 + 成本面板 + 任务时间线卡栈 |
 | `frontend/src/views/user/studio/BakeOff.vue` | (Phase 2) 多模型同台对比 |
-| `frontend/src/constants/mediaTiers.tk.ts` | tier→可服务 model 映射，每 tier `{ modelId, vendorLabel, baseImagePrice \| perSecond, sampleThumb, samplePrompt }`，seed 自 overlay 核验值 |
+| `frontend/src/constants/studioMediaPresentations.tk.ts` | Studio 媒体展示/能力覆盖层：友好名、vendor label、支持参数、图片比例、视频离散时长；不承载可服务清单或价格 |
 | `frontend/src/composables/useTkMediaCostEstimate.ts` | 纯函数 `estimate(modality, tier, {size,n}\|{seconds}, rateMultiplier)`，镜像 `CalculateImageCost`（`base × sizeMult(1/1.5/2) × n × mult`）/ `CalculateVideoCost`（`perSecond × seconds × mult`）。**单一估价源** |
 | `frontend/src/composables/useTkMediaLibrary.ts` | localStorage 历史（图片 cap 50；在飞 `vt_` 持久化 + mount 重连） |
 | `frontend/src/composables/useTkVideoTaskPoll.ts` | 封装 `pollVideoOnce` 状态机 + 5s 轮询 + 3 错误容忍 + 重连 + terminal 通知 |
 | `frontend/src/components/studio/MediaCostEstimator.tk.vue` | pricing 页内联估价 widget（复用 composable） |
 
-> **覆写 marker 现实（核验 `scripts/checks/upstream-override-marker.py`）：** marker 门禁按**路径模式**判定，不看 git 出身。豁免模式 = `*.tk.ts` / `*.tk.vue` / `useTk*.ts` / `constants/*.tk.ts` / `i18n/locales/*.ts` / `__tests__/`。所以本表里 `mediaTiers.tk.ts`、`MediaCostEstimator.tk.vue`、三个 `useTk*` composable **天然豁免**（故 composable 刻意用 `useTk*` 前缀而非 `use*`）；但**新建的 `views/user/studio/*.vue` 仍被 marker 门禁**（匹配 `^frontend/src/.*\.vue$`，无 `.tk` 后缀）——需 commit 带 `upstream-touch-guarded`，或加 sentinel。另：新增 hotspot 文件可能触发 `check-registry-update-gate.py`，PR body 带 `sentinel-registry-reviewed` 或加 sentinel 锚点。
+> **覆写 marker 现实（核验 `scripts/checks/upstream-override-marker.py`）：** marker 门禁按**路径模式**判定，不看 git 出身。豁免模式 = `*.tk.ts` / `*.tk.vue` / `useTk*.ts` / `constants/*.tk.ts` / `i18n/locales/*.ts` / `__tests__/`。所以本表里 `studioMediaPresentations.tk.ts`、`MediaCostEstimator.tk.vue`、三个 `useTk*` composable **天然豁免**（故 composable 刻意用 `useTk*` 前缀而非 `use*`）；但**新建的 `views/user/studio/*.vue` 仍被 marker 门禁**（匹配 `^frontend/src/.*\.vue$`，无 `.tk` 后缀）——需 commit 带 `upstream-touch-guarded`，或加 sentinel。另：新增 hotspot 文件可能触发 `check-registry-update-gate.py`，PR body 带 `sentinel-registry-reviewed` 或加 sentinel 锚点。
 
 ### 8.2 前端 — 改动文件
 
@@ -368,7 +368,7 @@ Prompt: "霓虹东京小巷，慢推镜头，雨"            时长 8s
 
 **不动：** `openai_images.go` / `openai_gateway_tk_video.go` / `pricing_catalog_supported_models_tk.go` / `tk_pricing_overlay.json` / billing engine——本设计是「呈现层」，这些是已有真值源，只读不改（allowlist 由 `tokenkey-servable-model-refresh` skill 维护）。前端新增 `n`/`reference_images`/`aspect_ratio`/`image_url` 参数后端**已接受**，无需后端改。
 
-**提交前预检（marker 门禁按路径模式，已逐一核验）：** 需 `upstream-touch-guarded`（或 sentinel）的改动文件 = `PricingView.vue`、`PlaygroundView.vue`、`router/index.ts`、`AppSidebar.vue`、`api/playground.ts`、`api/me-pricing.ts`、`api/pricing.ts`、`views/user/studio/*.vue`（这些虽多为 TK 自著，但无 `.tk` 后缀，仍匹配 `^frontend/src/.*\.(vue|ts)$`）。**marker 豁免** = `mediaTiers.tk.ts`、`MediaCostEstimator.tk.vue`、三个 `useTk*` composable、`i18n/locales/{en,zh}.ts`（locale 明确在 EXCLUDE 名单）。后端公开/me DTO 在 `*_tk.go` 内（豁免）。`no-web-impact` 不适用（本就动 web）。跑 `scripts/preflight.sh` 取真值。
+**提交前预检（marker 门禁按路径模式，已逐一核验）：** 需 `upstream-touch-guarded`（或 sentinel）的改动文件 = `PricingView.vue`、`PlaygroundView.vue`、`router/index.ts`、`AppSidebar.vue`、`api/playground.ts`、`api/me-pricing.ts`、`api/pricing.ts`、`views/user/studio/*.vue`（这些虽多为 TK 自著，但无 `.tk` 后缀，仍匹配 `^frontend/src/.*\.(vue|ts)$`）。**marker 豁免** = `studioMediaPresentations.tk.ts`、`MediaCostEstimator.tk.vue`、三个 `useTk*` composable、`i18n/locales/{en,zh}.ts`（locale 明确在 EXCLUDE 名单）。后端公开/me DTO 在 `*_tk.go` 内（豁免）。`no-web-impact` 不适用（本就动 web）。跑 `scripts/preflight.sh` 取真值。
 
 ---
 
