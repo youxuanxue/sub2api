@@ -10597,8 +10597,10 @@ func (s *GatewayService) checkChannelPricingRestriction(ctx context.Context, gro
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
 	}
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	mapping := s.channelService.ResolveChannelMapping(ctx, *groupID, requestedModel)
 	billingModel := billingModelForRestriction(mapping.BillingModelSource, requestedModel, mapping.MappedModel)
+	billingModel = CanonicalizeOpenAICompatRoutingModel(billingModel)
 	if billingModel == "" {
 		return false
 	}

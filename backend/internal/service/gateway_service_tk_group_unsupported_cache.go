@@ -34,7 +34,7 @@ func newTkGroupUnsupportedModelNegativeCacheWithTTL(ttl, cleanup time.Duration) 
 }
 
 func tkGroupUnsupportedModelCacheKey(groupID int64, model string) string {
-	model = strings.ToLower(strings.TrimSpace(model))
+	model = strings.ToLower(CanonicalizeOpenAICompatRoutingModel(model))
 	if model == "" || groupID <= 0 {
 		return ""
 	}
@@ -89,7 +89,7 @@ func tkGroupUnsupportedModelShortCircuit(cache *tkGroupUnsupportedModelNegativeC
 	if cache == nil || groupID == nil || *groupID <= 0 {
 		return nil
 	}
-	model = strings.TrimSpace(model)
+	model = CanonicalizeOpenAICompatRoutingModel(model)
 	if model == "" {
 		return nil
 	}
@@ -109,7 +109,7 @@ func tkGroupUnsupportedModelRecordErr(cache *tkGroupUnsupportedModelNegativeCach
 	if !errors.Is(err, ErrUnsupportedModel) {
 		return err
 	}
-	cache.put(*groupID, model)
+	cache.put(*groupID, CanonicalizeOpenAICompatRoutingModel(model))
 	return err
 }
 

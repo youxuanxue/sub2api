@@ -24,7 +24,7 @@ func TestTkGroupUnsupportedModelShortCircuit_Hit(t *testing.T) {
 	groupID := int64(18)
 	cache.put(groupID, "gpt-5.4-mini")
 
-	err := tkGroupUnsupportedModelShortCircuit(cache, &groupID, "gpt-5.4-mini")
+	err := tkGroupUnsupportedModelShortCircuit(cache, &groupID, "gpt5.4-mini")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrUnsupportedModel)
 }

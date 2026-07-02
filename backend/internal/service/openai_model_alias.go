@@ -14,6 +14,20 @@ func lastOpenAIModelSegment(model string) string {
 	return strings.TrimSpace(model)
 }
 
+// CanonicalizeOpenAICompatRoutingModel normalizes OpenAI-compat model ids for
+// account selection, channel restriction, and negative-cache keys. Wire spellings
+// such as gpt5.4-mini collapse to gpt-5.4-mini; non-OpenAI ids pass through trimmed.
+func CanonicalizeOpenAICompatRoutingModel(model string) string {
+	trimmed := strings.TrimSpace(model)
+	if trimmed == "" {
+		return ""
+	}
+	if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
+		return canonical
+	}
+	return trimmed
+}
+
 func canonicalizeOpenAIModelAliasSpelling(model string) string {
 	model = strings.ToLower(lastOpenAIModelSegment(model))
 	if model == "" {

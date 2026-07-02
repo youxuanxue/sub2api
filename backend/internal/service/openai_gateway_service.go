@@ -540,8 +540,10 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
 	}
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	mapping := s.channelService.ResolveChannelMapping(ctx, *groupID, requestedModel)
 	billingModel := billingModelForRestriction(mapping.BillingModelSource, requestedModel, mapping.MappedModel)
+	billingModel = CanonicalizeOpenAICompatRoutingModel(billingModel)
 	if billingModel == "" {
 		return false
 	}
@@ -553,6 +555,10 @@ func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Co
 		return false
 	}
 	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	if upstreamModel == "" {
+		return false
+	}
+	upstreamModel = CanonicalizeOpenAICompatRoutingModel(upstreamModel)
 	if upstreamModel == "" {
 		return false
 	}
@@ -1840,6 +1846,7 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 }
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64) (*Account, error) {
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
 		return nil, err
 	}
@@ -2128,6 +2135,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool) (*AccountSelectionResult, error) {
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
 		return nil, err
 	}
@@ -2338,7 +2346,12 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAccounts
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, openAICompatNoCandidateError(requestedModel, groupPlatform, false, accounts, excludedIDs, &openAICompatNoCandidateEval{
+			ctx:            ctx,
+			svc:            s,
+			groupID:        groupID,
+			requireCompact: requireCompact,
+		}))
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
