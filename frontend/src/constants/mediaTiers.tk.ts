@@ -332,6 +332,26 @@ export const MEDIA_MODELS: MediaModel[] = [
     imageSizes: SEEDREAM_IMAGE_SIZES,
   },
   {
+    modelId: 'doubao-seedream-5-0-260128',
+    displayName: 'Seedream 5.0',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
+    modelId: 'doubao-seedream-4-5-251128',
+    displayName: 'Seedream 4.5',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
     modelId: 'imagen-4.0-generate-001',
     displayName: 'Imagen 4 · Standard',
     qualityBadge: 'standard',
@@ -417,8 +437,8 @@ export const MEDIA_MODELS: MediaModel[] = [
 
   // ── video ──
   {
-    modelId: 'seedance-1-0-pro-250528',
-    aliasIds: ['doubao-seedance-1-0-pro-250528'],
+    modelId: 'doubao-seedance-1-0-pro-250528',
+    aliasIds: ['seedance-1-0-pro-250528'],
     displayName: 'Seedance 1.0 · Pro',
     qualityBadge: 'standard',
     qualityBadgeKey: 'studio.badge.standard',
@@ -428,6 +448,40 @@ export const MEDIA_MODELS: MediaModel[] = [
     supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
     // Seedance 1.0 Pro: discrete 5s / 10s (Volcengine Ark, high confidence).
     videoDurations: [5, 10],
+  },
+  {
+    modelId: 'doubao-seedance-1-0-pro-fast-251015',
+    displayName: 'Seedance 1.0 · Pro Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Live Ark submit probe used the 5s minimum task shape; keep conservative
+    // until the official duration table for this fast SKU is captured.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-1-5-pro-251215',
+    displayName: 'Seedance 1.5 · Pro',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Local VolcEngine pricing capture only documents 5s examples for 1.5 Pro.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2-0-260128',
+    displayName: 'Seedance 2.0',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Local VolcEngine pricing capture only documents 5s output examples for 2.0.
+    videoDurations: [5],
   },
   {
     modelId: 'doubao-seedance-2-0-fast-260128',
@@ -441,19 +495,6 @@ export const MEDIA_MODELS: MediaModel[] = [
     // fast-variant discrete set 4/8/12 — conservative (never offer a value the
     // upstream rejects). TODO: verify against canonical Volcengine Ark docs.
     videoDurations: [4, 8, 12],
-  },
-  {
-    modelId: 'veo-3.1-fast-generate-001',
-    displayName: 'Veo 3.1 · Fast',
-    qualityBadge: 'fast',
-    qualityBadgeKey: 'studio.badge.fast',
-    vendorLabel: VERTEX,
-    modality: 'video',
-    // VeoParameters honors NegativePrompt + Seed; first-frame image supported.
-    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
-    // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence). With a
-    // first-frame/reference image upstream only returns 8s — not modeled here.
-    videoDurations: [4, 6, 8],
   },
   {
     modelId: 'veo-3.1-generate-001',

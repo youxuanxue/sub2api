@@ -27,7 +27,14 @@ describe('pickVisionChatModel', () => {
 
 describe('modalityForModel', () => {
   it('classifies the served image families', () => {
-    for (const id of ['gpt-image-1', 'gpt-image-2-2026-04-21', 'imagen-4.0-generate-001', 'doubao-seedream-4-0-250828']) {
+    for (const id of [
+      'gpt-image-1',
+      'gpt-image-2-2026-04-21',
+      'imagen-4.0-generate-001',
+      'doubao-seedream-4-0-250828',
+      'doubao-seedream-4-5-251128',
+      'doubao-seedream-5-0-260128',
+    ]) {
       expect(modalityForModel(id)).toBe('image')
     }
   })
@@ -54,7 +61,13 @@ describe('modalityForModel', () => {
   })
 
   it('classifies the served video families', () => {
-    for (const id of ['veo-3.1-generate-preview', 'veo-2.0-generate-001', 'doubao-seedance-1-0-pro-250528']) {
+    for (const id of [
+      'veo-3.1-generate-preview',
+      'veo-2.0-generate-001',
+      'doubao-seedance-1-0-pro-250528',
+      'doubao-seedance-1-0-pro-fast-251015',
+      'grok-imagine-video'
+    ]) {
       expect(modalityForModel(id)).toBe('video')
     }
   })

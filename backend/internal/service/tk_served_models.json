@@ -507,6 +507,18 @@
       "display": false,
       "notes": "volcengine account 7. Seedance 1.5-pro VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p-with-audio max tier)."
     },
+    "newapi/doubao-seedance-1-0-pro-fast-251015": {
+      "platform": "newapi",
+      "model_id": "doubao-seedance-1-0-pro-fast-251015",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seedance-1-0-pro-fast-251015",
+      "display": false,
+      "notes": "volcengine account 7. Seedance 1.0 Pro Fast VIDEO model, mapped by tk_056 after direct Ark /api/v3/contents/generations/tasks returned 200 servable on 2026-07-02. Priced in overlay from the VolcEngine Ark official Seedance 1.0 Pro Fast 4.2 CNY/M-token online rate."
+    },
     "newapi/doubao-seedance-2-0-260128": {
       "platform": "newapi",
       "model_id": "doubao-seedance-2-0-260128",
@@ -542,6 +554,30 @@
       "price_key": "doubao-seedream-4-0-250828",
       "display": false,
       "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Seedream 4.0 IMAGE model (/v1/images/generations), mapped by tk_035 (identity whitelist merge). Priced in overlay (output_cost_per_image, VolcEngine Ark official 0.2 CNY/image / 6.7). Added per the vol-test investigation 2026-06-20: account 7's model_mapping was a chat+seedance-video whitelist with NO seedream image id, so a universal-key /v1/images/generations request for doubao-seedream-4-0-250828 emptied the single-account pool -> 429 'No available accounts' (ops_error_logs phase=routing). ONLY the prefixed id is served+mapped: the no-prefix overlay alias seedream-4-0-250828 returned HTTP 404 on a direct Ark data-plane activation probe (2026-06-20) and is intentionally NOT a manifest entry / not model_mapped (priced only for billing-key parity)."
+    },
+    "newapi/doubao-seedream-4-5-251128": {
+      "platform": "newapi",
+      "model_id": "doubao-seedream-4-5-251128",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seedream-4-5-251128",
+      "display": false,
+      "notes": "volcengine account 7. Seedream 4.5 IMAGE model, mapped by tk_056 after direct Ark /api/v3/images/generations with 2048x2048 returned 200 servable on 2026-07-02. Priced in overlay from the VolcEngine Ark official 0.25 CNY/image rate."
+    },
+    "newapi/doubao-seedream-5-0-260128": {
+      "platform": "newapi",
+      "model_id": "doubao-seedream-5-0-260128",
+      "served_on": [
+        "7"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seedream-5-0-260128",
+      "display": false,
+      "notes": "volcengine account 7. Seedream 5.0 IMAGE model, mapped by tk_056 after direct Ark /api/v3/images/generations with 2048x2048 returned 200 servable on 2026-07-02. Priced in overlay from the VolcEngine Ark official 0.22 CNY/image rate."
     },
     "newapi/glm-5.2": {
       "platform": "newapi",

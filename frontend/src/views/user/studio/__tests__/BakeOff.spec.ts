@@ -113,12 +113,12 @@ const baseProps = {
 const videoProps = {
   ...baseProps,
   availableIds: new Set([
-    'seedance-1-0-pro-250528',
+    'doubao-seedance-1-0-pro-250528',
     'doubao-seedance-2-0-fast-260128',
     'veo-3.1-generate-001',
   ]),
   priceMap: new Map([
-    ['seedance-1-0-pro-250528', { perSecond: 0.1088 }],
+    ['doubao-seedance-1-0-pro-250528', { perSecond: 0.1088 }],
     ['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194 }],
     ['veo-3.1-generate-001', { perSecond: 0.6 }],
   ]),
@@ -337,7 +337,7 @@ describe('BakeOff image routing', () => {
       {
         id: 'vt_b',
         prompt: 'a red apple',
-        model: 'seedance-1-0-pro-250528',
+        model: 'doubao-seedance-1-0-pro-250528',
         vendorLabel: 'Doubao',
         seconds: 10,
         estCost: 1.09,

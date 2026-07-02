@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 
 	"github.com/stretchr/testify/assert"
@@ -178,6 +179,19 @@ func mkPublicCatalogModel(modelID, vendor string, in, out, cacheR float64) Publi
 			InputPer1KTokens:  in,
 			OutputPer1KTokens: out,
 			CacheReadPer1K:    cacheR,
+		},
+	}
+}
+
+func mkPublicVideoCatalogModel(modelID, vendor string, perSecond float64) PublicCatalogModel {
+	return PublicCatalogModel{
+		ModelID:      modelID,
+		Vendor:       vendor,
+		Capabilities: []string{},
+		Pricing: PublicCatalogPricing{
+			Currency:            "USD",
+			BillingMode:         "video",
+			OutputCostPerSecond: perSecond,
 		},
 	}
 }
@@ -767,6 +781,7 @@ func TestBuildForUser_AuthorizedGroups_CrossGroup(t *testing.T) {
 	assert.Len(t, resp.AuthorizedGroupsByModel["gpt-5"], 2)
 	assert.Len(t, resp.AuthorizedGroupsByModel["gpt-a"], 1)
 }
+
 // stripVendorPrefixForCatalogLookup (PR #326). An account whitelisting an
 // OpenRouter-style "<vendor>/<model>" must still resolve to the LiteLLM
 // catalog's bare model_id row.
@@ -910,7 +925,7 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "newapi-pro", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "newapi-key", ptrI(50))
 	bad := mkAccountWithWhitelist(11, "incomplete-newapi", "newapi", 0, []string{"gemini-2.5-pro"})
-	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", 31, []string{"qwen-plus"})
+	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", newapiconstant.ChannelTypeAli, []string{"qwen-plus"})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
 			mkPublicCatalogModel("gemini-2.5-pro", "Google", 0.00125, 0.005, 0),
@@ -929,6 +944,82 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	require.Len(t, resp.Models, 1, "channel_type=0 newapi account must be filtered out (no adaptor target)")
 	assert.Equal(t, "qwen-plus", resp.Models[0].ModelID,
 		"only manifest-listed newapi whitelist models surface in Group Catalog")
+}
+
+func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.T) {
+	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 7, "vertex-key", ptrI(50))
+	vertex := mkAccountWithWhitelist(12, "vertex-sa", "newapi", newapiconstant.ChannelTypeVertexAi, []string{
+		"veo-3.1-generate-001",
+		"qwen-plus",
+	})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicVideoCatalogModel("veo-3.1-generate-001", "vertex_ai", 0.6),
+			mkPublicCatalogModel("qwen-plus", "Alibaba", 0.0012, 0.0024, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{vertex}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1, "Vertex ch41 must use Gemini/Vertex preset catalog, not the long-tail manifest")
+	require.Equal(t, "veo-3.1-generate-001", resp.Models[0].ModelID)
+	require.Equal(t, "video", resp.Models[0].BillingMode)
+	require.NotNil(t, resp.Models[0].YourPrice.PerSecond)
+	assert.InDelta(t, 0.6, *resp.Models[0].YourPrice.PerSecond, 1e-9)
+}
+
+func TestBuildForUser_AuthorizedGroupsIndexIncludesNewapiVertexVideo(t *testing.T) {
+	gOpenAI := mkGroupForMe(30, "gpt", "openai", 1.0)
+	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	vertex := mkAccountWithWhitelist(12, "vertex-sa", "newapi", newapiconstant.ChannelTypeVertexAi, []string{
+		"veo-3.1-generate-001",
+	})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicVideoCatalogModel("veo-3.1-generate-001", "vertex_ai", 0.6),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gOpenAI, gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{vertex}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, resp.AuthorizedGroupsByModel)
+	groups := resp.AuthorizedGroupsByModel["veo-3.1-generate-001"]
+	require.Len(t, groups, 1, "Studio universal key entitlements are derived from this cross-group index")
+	assert.Equal(t, int64(50), groups[0].ID)
+	assert.Equal(t, "newapi", groups[0].Platform)
+	assert.False(t, groups[0].IsCurrentForKey)
+}
+
+func TestBuildForUser_AccountWhitelist_NewapiUnknownChannelHidden(t *testing.T) {
+	gNewapi := mkGroupForMe(50, "unknown-newapi", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 7, "unknown-key", ptrI(50))
+	unknown := mkAccountWithWhitelist(12, "moonshot", "newapi", 25, []string{"veo-3.1-generate-001"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicVideoCatalogModel("veo-3.1-generate-001", "vertex_ai", 0.6),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{unknown}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Models, "unknown newapi channel has no TK-verified preset and must not leak whitelisted ids")
 }
 
 // ----- platform-default fallback (unrestricted native OAuth accounts) -----

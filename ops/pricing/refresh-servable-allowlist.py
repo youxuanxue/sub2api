@@ -65,11 +65,11 @@ DATED_RE = re.compile(r"^(.+)-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
 BATCH_SIZE = 12
 
 # ----- gemini / Vertex (newapi fifth platform) -----
-# Live Vertex capacity now serves from the PROD `google-vertex` group (ids 47/57/58/59);
+# Live Vertex capacity now serves from PROD group_id=16 (current display name `Google-Vertex`, ids 47/57/58/59/74);
 # the old edge-us6 `google` group was emptied (account soft-deleted). gemini batches
 # therefore target prod and reach it through the public gateway (external curl), same as
-# the other newapi families. (The probe script's PROBE_GEMINI_SOURCE_GROUP default is
-# `google-vertex` to match.)
+# the other newapi families. (The probe script's PROBE_GEMINI_SOURCE_GROUP_ID default is
+# 16 to match.)
 GEMINI_TARGET = "prod"
 # Predict-API media models are NOT in upstream /v1/models discovery; seed them
 # explicitly (they ride the model_mapping today). Imagen -> images, veo -> video.

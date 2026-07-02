@@ -12,7 +12,10 @@
 #   tk_probe_ensure_group SCOPE PLATFORM    -> sets TK_PROBE_GROUP_ID
 #   tk_probe_ensure_key SCOPE               -> sets TK_PROBE_KEY (requires GROUP_ID)
 #   tk_probe_bind_account_ids SCOPE IDS     -> comma/space-separated account ids
-#   tk_probe_bind_from_group SCOPE GNAME    -> copy schedulable accounts from source group
+#   tk_probe_resolve_source_group GROUP      -> exact group name, or unique case-insensitive match
+#   tk_probe_bind_from_group SCOPE GNAME    -> copy schedulable accounts from source group name (legacy)
+#   tk_probe_bind_from_group_id SCOPE GID    -> copy schedulable accounts from source group id
+#   tk_probe_bind_from_group_id_like SCOPE GID PATTERN -> copy source group id accounts whose name matches SQL LIKE
 #   tk_probe_clear_bindings SCOPE           -> remove account_groups rows only
 #   tk_probe_prepare_catalog SCOPE PLATFORM BIND_KIND BIND_VAL -> ensure + bind + key
 #   tk_probe_reuse_lock_path SCOPE              -> lock file path (shared with account-model-probe)
@@ -48,6 +51,48 @@ tk_probe_psql() {
 # psql may append "UPDATE N" notices; keep only the first result line.
 tk_probe_sql_scalar() {
 	tk_probe_psql -c "$1" | head -n1 | tr -d '[:space:]'
+}
+
+tk_probe_sql_first_line() {
+	tk_probe_psql -c "$1" | head -n1
+}
+
+tk_probe_resolve_source_group() { # $1=requested group name -> stdout actual active group name
+	local requested="$1" escaped resolved ci_count
+	escaped="$(tk_probe_sql_escape "$requested")"
+	resolved="$(tk_probe_sql_first_line "
+WITH exact AS (
+  SELECT name FROM groups
+  WHERE name = '${escaped}' AND deleted_at IS NULL
+  ORDER BY id LIMIT 1
+),
+ci AS (
+  SELECT name FROM groups
+  WHERE lower(name) = lower('${escaped}') AND deleted_at IS NULL
+)
+SELECT COALESCE(
+  (SELECT name FROM exact),
+  (SELECT CASE WHEN COUNT(*) = 1 THEN MIN(name) ELSE '' END FROM ci),
+  ''
+);
+")"
+	if [ -n "$resolved" ]; then
+		if [ "$resolved" != "$requested" ]; then
+			echo "probe_reserved_resources: source group '$requested' resolved case-insensitively to '$resolved'" >&2
+		fi
+		printf '%s' "$resolved"
+		return 0
+	fi
+	ci_count="$(tk_probe_sql_scalar "
+SELECT COUNT(*)::text FROM groups
+WHERE lower(name) = lower('${escaped}') AND deleted_at IS NULL;
+")"
+	if [ "${ci_count:-0}" != "0" ]; then
+		echo "probe_reserved_resources: ambiguous case-insensitive source group '$requested' ($ci_count active matches)" >&2
+	else
+		echo "probe_reserved_resources: active source group '$requested' not found" >&2
+	fi
+	return 1
 }
 
 tk_probe_scope_from_platform() {
@@ -286,8 +331,12 @@ SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
 
 tk_probe_bind_from_group() { # $1=scope $2=source_group_name
 	local scope="$1" source_group="$2"
+	local resolved_group
 	if [[ ! "$TK_PROBE_GROUP_ID" =~ ^[0-9]+$ ]]; then
 		echo "probe_reserved_resources: bind_from_group requires TK_PROBE_GROUP_ID" >&2
+		return 1
+	fi
+	if ! resolved_group="$(tk_probe_resolve_source_group "$source_group")"; then
 		return 1
 	fi
 	tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};" >/dev/null
@@ -297,7 +346,7 @@ SELECT ag.account_id, ${TK_PROBE_GROUP_ID}, COALESCE(ag.priority, 1), NOW()
 FROM account_groups ag
 JOIN groups sg ON sg.id = ag.group_id
 JOIN accounts a ON a.id = ag.account_id
-WHERE sg.name = '$(tk_probe_sql_escape "$source_group")'
+WHERE sg.name = '$(tk_probe_sql_escape "$resolved_group")'
   AND sg.deleted_at IS NULL
   AND a.deleted_at IS NULL
   AND a.schedulable = true
@@ -308,7 +357,40 @@ ON CONFLICT (account_id, group_id) DO NOTHING;
 SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
 ")"
 	if [ "${bound:-0}" = "0" ]; then
-		echo "probe_reserved_resources: no schedulable accounts copied from group '$source_group' for scope=$scope" >&2
+		echo "probe_reserved_resources: no schedulable accounts copied from group '$resolved_group' for scope=$scope" >&2
+		return 1
+	fi
+}
+
+tk_probe_bind_from_group_id() { # $1=scope $2=source_group_id
+	local scope="$1" source_group_id="$2"
+	if [[ ! "$TK_PROBE_GROUP_ID" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: bind_from_group_id requires TK_PROBE_GROUP_ID" >&2
+		return 1
+	fi
+	if [[ ! "$source_group_id" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: invalid source group id '$source_group_id' for scope=$scope" >&2
+		return 1
+	fi
+	tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};" >/dev/null
+	tk_probe_psql -c "
+INSERT INTO account_groups (account_id, group_id, priority, created_at)
+SELECT ag.account_id, ${TK_PROBE_GROUP_ID}, COALESCE(ag.priority, 1), NOW()
+FROM account_groups ag
+JOIN groups sg ON sg.id = ag.group_id
+JOIN accounts a ON a.id = ag.account_id
+WHERE sg.id = ${source_group_id}
+  AND sg.deleted_at IS NULL
+  AND a.deleted_at IS NULL
+  AND a.schedulable = true
+ON CONFLICT (account_id, group_id) DO NOTHING;
+" >/dev/null
+	local bound
+	bound="$(tk_probe_sql_scalar "
+SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
+")"
+	if [ "${bound:-0}" = "0" ]; then
+		echo "probe_reserved_resources: no schedulable accounts copied from group_id '$source_group_id' for scope=$scope" >&2
 		return 1
 	fi
 }
@@ -319,8 +401,12 @@ SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
 # relay-health probe needs each sub-pool on its own probe key).
 tk_probe_bind_from_group_like() { # $1=scope $2=source_group_name $3=name_like_pattern
 	local scope="$1" source_group="$2" name_like="$3"
+	local resolved_group
 	if [[ ! "$TK_PROBE_GROUP_ID" =~ ^[0-9]+$ ]]; then
 		echo "probe_reserved_resources: bind_from_group_like requires TK_PROBE_GROUP_ID" >&2
+		return 1
+	fi
+	if ! resolved_group="$(tk_probe_resolve_source_group "$source_group")"; then
 		return 1
 	fi
 	tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};" >/dev/null
@@ -330,7 +416,7 @@ SELECT ag.account_id, ${TK_PROBE_GROUP_ID}, COALESCE(ag.priority, 1), NOW()
 FROM account_groups ag
 JOIN groups sg ON sg.id = ag.group_id
 JOIN accounts a ON a.id = ag.account_id
-WHERE sg.name = '$(tk_probe_sql_escape "$source_group")'
+WHERE sg.name = '$(tk_probe_sql_escape "$resolved_group")'
   AND sg.deleted_at IS NULL
   AND a.deleted_at IS NULL
   AND a.schedulable = true
@@ -342,13 +428,51 @@ ON CONFLICT (account_id, group_id) DO NOTHING;
 SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
 ")"
 	if [ "${bound:-0}" = "0" ]; then
-		echo "probe_reserved_resources: no schedulable accounts copied from group '$source_group' name LIKE '$name_like' for scope=$scope" >&2
+		echo "probe_reserved_resources: no schedulable accounts copied from group '$resolved_group' name LIKE '$name_like' for scope=$scope" >&2
 		return 1
 	fi
 }
 
-# Ensure group+key and bind accounts. BIND_KIND: account_ids | source_group | group_like
+# Like tk_probe_bind_from_group_id but only copies accounts whose NAME matches a
+# SQL LIKE pattern. This is the stable-id form of group_like, used by the prod
+# Claude mirror health probe to split cc-* and kiro-* sub-pools under group_id=1.
+tk_probe_bind_from_group_id_like() { # $1=scope $2=source_group_id $3=name_like_pattern
+	local scope="$1" source_group_id="$2" name_like="$3"
+	if [[ ! "$TK_PROBE_GROUP_ID" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: bind_from_group_id_like requires TK_PROBE_GROUP_ID" >&2
+		return 1
+	fi
+	if [[ ! "$source_group_id" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: invalid source group id '$source_group_id' for scope=$scope" >&2
+		return 1
+	fi
+	tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};" >/dev/null
+	tk_probe_psql -c "
+INSERT INTO account_groups (account_id, group_id, priority, created_at)
+SELECT ag.account_id, ${TK_PROBE_GROUP_ID}, COALESCE(ag.priority, 1), NOW()
+FROM account_groups ag
+JOIN groups sg ON sg.id = ag.group_id
+JOIN accounts a ON a.id = ag.account_id
+WHERE sg.id = ${source_group_id}
+  AND sg.deleted_at IS NULL
+  AND a.deleted_at IS NULL
+  AND a.schedulable = true
+  AND a.name LIKE '$(tk_probe_sql_escape "$name_like")'
+ON CONFLICT (account_id, group_id) DO NOTHING;
+" >/dev/null
+	local bound
+	bound="$(tk_probe_sql_scalar "
+SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
+")"
+	if [ "${bound:-0}" = "0" ]; then
+		echo "probe_reserved_resources: no schedulable accounts copied from group_id '$source_group_id' name LIKE '$name_like' for scope=$scope" >&2
+		return 1
+	fi
+}
+
+# Ensure group+key and bind accounts. BIND_KIND: account_ids | source_group | source_group_id | group_like | group_id_like
 # (group_like bind_val = "GROUP|PATTERN", split on the first '|').
+# (group_id_like bind_val = "GROUP_ID|PATTERN", split on the first '|').
 tk_probe_prepare_catalog() { # $1=scope $2=platform $3=bind_kind $4=bind_val
 	local scope="$1" platform="$2" bind_kind="$3" bind_val="$4"
 	TK_PROBE_GROUP_ID=""
@@ -365,7 +489,9 @@ tk_probe_prepare_catalog() { # $1=scope $2=platform $3=bind_kind $4=bind_val
 	case "$bind_kind" in
 	account_ids) tk_probe_bind_account_ids "$scope" "$bind_val" ;;
 	source_group) tk_probe_bind_from_group "$scope" "$bind_val" ;;
+	source_group_id) tk_probe_bind_from_group_id "$scope" "$bind_val" ;;
 	group_like) tk_probe_bind_from_group_like "$scope" "${bind_val%%|*}" "${bind_val#*|}" ;;
+	group_id_like) tk_probe_bind_from_group_id_like "$scope" "${bind_val%%|*}" "${bind_val#*|}" ;;
 	*)
 		echo "probe_reserved_resources: unknown bind_kind '$bind_kind'" >&2
 		return 1

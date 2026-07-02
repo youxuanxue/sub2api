@@ -170,6 +170,47 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out[0].baseImagePrice).toBe(0.03)
   })
 
+  it('surfaces newly probed Seedream image models with curated presentation', () => {
+    const out = resolveAvailableModels(
+      'image',
+      new Set(['doubao-seedream-4-5-251128', 'doubao-seedream-5-0-260128']),
+      new Map([
+        ['doubao-seedream-4-5-251128', { perImage: 0.0373, billingMode: 'image' }],
+        ['doubao-seedream-5-0-260128', { perImage: 0.0328, billingMode: 'image' }],
+      ])
+    )
+    expect(out.map((r) => r.model.modelId)).toEqual([
+      'doubao-seedream-5-0-260128',
+      'doubao-seedream-4-5-251128',
+    ])
+    expect(out.map((r) => r.model.displayName)).toEqual(['Seedream 5.0', 'Seedream 4.5'])
+    expect(out.every((r) => r.model.imageSizes === SEEDREAM_IMAGE_SIZES)).toBe(true)
+  })
+
+  it('uses the routed doubao Seedance id as canonical and treats no-prefix as an alias', () => {
+    const out = resolveAvailableModels(
+      'video',
+      new Set(['doubao-seedance-1-0-pro-250528']),
+      new Map([['doubao-seedance-1-0-pro-250528', { perSecond: 0.1088, billingMode: 'video' }]])
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].model.modelId).toBe('doubao-seedance-1-0-pro-250528')
+    expect(out[0].servedId).toBe('doubao-seedance-1-0-pro-250528')
+    expect(out[0].model.aliasIds).toContain('seedance-1-0-pro-250528')
+  })
+
+  it('surfaces Seedance Pro Fast with the conservative probed duration', () => {
+    const out = resolveAvailableModels(
+      'video',
+      new Set(['doubao-seedance-1-0-pro-fast-251015']),
+      new Map([['doubao-seedance-1-0-pro-fast-251015', { perSecond: 0.0305, billingMode: 'video' }]])
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].model.modelId).toBe('doubao-seedance-1-0-pro-fast-251015')
+    expect(out[0].model.displayName).toBe('Seedance 1.0 · Pro Fast')
+    expect(out[0].model.videoDurations).toEqual([5])
+  })
+
   it('surfaces grok-imagine-video when priced and in the group pool', () => {
     const out = resolveAvailableModels(
       'video',
@@ -268,7 +309,7 @@ describe('capability map honesty (verified against new-api adaptors)', () => {
     expect(byId('veo-3.1-generate-001').supportedParams).toEqual(['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'])
   })
   it('seedance honors seed + firstFrameImage but NOT negativePrompt (adaptor drops it)', () => {
-    const s = byId('seedance-1-0-pro-250528').supportedParams
+    const s = byId('doubao-seedance-1-0-pro-250528').supportedParams
     expect(s).toContain('seed')
     expect(s).toContain('firstFrameImage')
     expect(s).not.toContain('negativePrompt')
@@ -316,10 +357,14 @@ describe('video durations (per-model discrete, never a footgun)', () => {
     expect(videoDurationDefault([])).toBe(VIDEO_DURATION_DEFAULT)
   })
 
-  it('Veo 3.1 accepts exactly 4/6/8s; Seedance 1.0 exactly 5/10s; Grok Imagine 5s', () => {
+  it('Veo 3.1 accepts exactly 4/6/8s; Seedance uses documented discrete seconds; Grok Imagine 5s', () => {
     expect(byId('veo-3.1-generate-001').videoDurations).toEqual([4, 6, 8])
-    expect(byId('veo-3.1-fast-generate-001').videoDurations).toEqual([4, 6, 8])
-    expect(byId('seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])
+    expect(byId('veo-3.1-fast-generate-001')).toBeUndefined()
+    expect(byId('doubao-seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])
+    expect(byId('doubao-seedance-1-0-pro-fast-251015').videoDurations).toEqual([5])
+    expect(byId('doubao-seedance-1-5-pro-251215').videoDurations).toEqual([5])
+    expect(byId('doubao-seedance-2-0-260128').videoDurations).toEqual([5])
+    expect(byId('doubao-seedance-2-0-fast-260128').videoDurations).toEqual([4, 8, 12])
     expect(byId('grok-imagine-video').videoDurations).toEqual([5])
   })
 })
