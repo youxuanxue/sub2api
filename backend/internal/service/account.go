@@ -666,6 +666,11 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	if trimmed == "" {
 		return ""
 	}
+	if IsOpenAICompatPlatform(platform) {
+		if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
+			return canonical
+		}
+	}
 	if platform != PlatformGemini && platform != PlatformAntigravity {
 		return trimmed
 	}

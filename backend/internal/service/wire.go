@@ -844,18 +844,16 @@ func ProvideTKGatewayPricingAvailability(
 }
 
 // TKUniversalModelsProviderReady is a wire sentinel: holding it proves
-// APIKeyService.SetUniversalAvailableModelsProvider has been called with
-// GatewayService.GetAvailableModels, so the universal-key resolver can filter
-// candidate groups by which models they actually serve. provideCleanup
-// (cmd/server/wire.go) consumes this type as an unused parameter to force wire
-// to evaluate the side-effect.
+// APIKeyService's universal-key resolver has been wired to GatewayService's
+// direct-scheduler model support predicate, with GetAvailableModels retained as
+// a degraded fallback. provideCleanup (cmd/server/wire.go) consumes this type as
+// an unused parameter to force wire to evaluate the side-effect.
 type TKUniversalModelsProviderReady struct{}
 
-// ProvideTKUniversalModelsProvider wires the "group served-model set" truth
-// source (GatewayService.GetAvailableModels — the same source /v1/models uses)
-// onto the universal-key resolver post-construction. APIKeyService constructs
-// the resolver before GatewayService exists, so this late binding avoids the
-// construction cycle. Mirrors ProvideTKGatewayPricingAvailability in shape.
+// ProvideTKUniversalModelsProvider wires the universal-key resolver's model
+// support truth source post-construction. APIKeyService constructs the resolver
+// before GatewayService exists, so this late binding avoids the construction
+// cycle. Mirrors ProvideTKGatewayPricingAvailability in shape.
 //
 // Setter is nil-safe; if either dep is nil the resolver keeps its safe
 // platform-level fallback. See docs/approved/universal-key-routing.md.
@@ -864,6 +862,7 @@ func ProvideTKUniversalModelsProvider(
 	gw *GatewayService,
 ) TKUniversalModelsProviderReady {
 	if api != nil && gw != nil {
+		api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsModel)
 		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
 	}
 	return TKUniversalModelsProviderReady{}

@@ -33,7 +33,8 @@ type UniversalRoutingResolver struct {
 	// 经 APIKeyService.SetUniversalAvailableModelsProvider 在 GatewayService 构造后绑定
 	// (避免构造期环)。受 mu 保护。nil = 未接线/降级 → Resolve 退回平台级现状(安全兜底)。
 	// 见 universal_routing_tk_serving.go。
-	modelsProvider availableModelsProvider
+	modelsProvider  availableModelsProvider
+	supportProvider groupModelSupportProvider
 }
 
 // availableGroupsLister 由 *APIKeyService 满足，给出某用户当前有权绑定的全部分组
@@ -79,12 +80,24 @@ func (r *UniversalRoutingResolver) SetAvailableModelsProvider(p availableModelsP
 	r.mu.Unlock()
 }
 
+// SetModelSupportProvider 后期注入 direct-scheduler 同口径的组模型支持判定源。
+// nil-safe; provider 取数未知时 Resolve 会退回 availableModelsProvider。
+func (r *UniversalRoutingResolver) SetModelSupportProvider(p groupModelSupportProvider) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.supportProvider = p
+	r.mu.Unlock()
+}
+
 // providerSnapshot 取当前 provider(受 mu 保护读)。
-func (r *UniversalRoutingResolver) providerSnapshot() availableModelsProvider {
+func (r *UniversalRoutingResolver) providerSnapshot() (availableModelsProvider, groupModelSupportProvider) {
 	r.mu.RLock()
-	p := r.modelsProvider
+	modelsProvider := r.modelsProvider
+	supportProvider := r.supportProvider
 	r.mu.RUnlock()
-	return p
+	return modelsProvider, supportProvider
 }
 
 // Resolve 返回该请求应落到的后端组。shape 为入口端点形状，model 为请求模型名（可空，
@@ -135,16 +148,42 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 	// hint 为空(未知 channel 模型)仍退回 eligible,由下游诚实拒绝 —— provider 未接线时整体
 	// 也保持旧平台级行为(见 TestResolve_NilProviderFallsBackToPlatformLevel)。
 	if model != "" {
-		if provider := r.providerSnapshot(); provider != nil {
+		if modelsProvider, supportProvider := r.providerSnapshot(); modelsProvider != nil || supportProvider != nil {
 			served := make([]Group, 0, len(eligible))
+			knownAll := true
 			for i := range eligible {
-				if groupServesModel(ctx, provider, eligible[i], model) {
+				if supportProvider != nil {
+					gid := eligible[i].ID
+					serves, known := supportProvider(ctx, &gid, eligible[i].Platform, model)
+					if !known {
+						knownAll = false
+						continue
+					}
+					if serves {
+						served = append(served, eligible[i])
+					}
+					continue
+				}
+				if groupServesModel(ctx, modelsProvider, eligible[i], model) {
 					served = append(served, eligible[i])
 				}
 			}
+			if !knownAll && modelsProvider != nil {
+				served = served[:0]
+				for i := range eligible {
+					if groupServesModel(ctx, modelsProvider, eligible[i], model) {
+						served = append(served, eligible[i])
+					}
+				}
+				knownAll = true
+			}
 			if len(served) > 0 {
 				eligible = served
-			} else if hint := universalModelPlatformHint(model); hint != "" {
+			} else if knownAll {
+				if hint := universalModelPlatformHint(model); hint != "" {
+					return nil, ErrUniversalNoEntitledGroup
+				}
+			} else if hint := universalModelPlatformHint(model); hint != "" && modelsProvider != nil {
 				return nil, ErrUniversalNoEntitledGroup
 			}
 		}

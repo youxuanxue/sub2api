@@ -12,8 +12,10 @@ import infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 // 原生单 vendor 平台(anthropic / openai / gemini / antigravity)保留「空映射=透传该平台
 // 全部模型」——零维护、忠于上游,不受此约束。
 //
-// 三道闸之一(写时挡);另两道:路由层对 newapi 空映射组不匹配(universal_routing_tk_serving.go)、
-// ops 实时审计(ops/newapi/audit-model-mapping.py)。见 docs/approved/universal-key-routing.md。
+// 三道闸之一(写时挡)。direct-scheduler parity provider 会忠于 direct key 的账号级语义,
+// 因此写时校验是 newapi 空映射不进入生产路由的主闸；GetAvailableModels fallback 仍对
+// newapi 空映射组不匹配(universal_routing_tk_serving.go),ops 实时审计继续兜底
+// (ops/newapi/audit-model-mapping.py)。见 docs/approved/universal-key-routing.md。
 
 // ErrNewapiModelMappingRequired 是 newapi 账号缺/空 model_mapping 时的写时校验错误。
 var ErrNewapiModelMappingRequired = infraerrors.BadRequest(
