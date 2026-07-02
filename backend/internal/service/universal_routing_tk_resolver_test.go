@@ -104,6 +104,10 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	if !contains(withDispatch, PlatformOpenAI) {
 		t.Errorf("messages with dispatch should include openai-compat: %v", withDispatch)
 	}
+	gemMessages := universalCandidatePlatforms(ShapeAnthropicMessages, "", true, "gemini-2.5-flash")
+	if !contains(gemMessages, PlatformGemini) {
+		t.Errorf("gemini /v1/messages should include gemini platform: %v", gemMessages)
+	}
 
 	// count_tokens uses the same group-platform split handler as direct keys, so
 	// universal keys may route OpenAI-compatible models to the compat bridge.

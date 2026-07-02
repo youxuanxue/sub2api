@@ -124,6 +124,27 @@ func TestUniversalGroupSupportsModel_OpenAICompatMatchesDirectScheduler(t *testi
 	}
 }
 
+func TestUniversalGroupSupportsModel_OpenAIPassthroughRejectsGemini(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(2)
+	svc := &GatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{{
+			ID:       1,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra:    map[string]any{"openai_passthrough": true},
+		}}},
+	}
+	serves, known := svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformOpenAI, "gemini-2.5-flash")
+	if !known || serves {
+		t.Fatalf("openai passthrough must not claim gemini models, got serves=%v known=%v", serves, known)
+	}
+	serves, known = svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformOpenAI, "gpt-5.4-mini")
+	if !known || !serves {
+		t.Fatalf("openai passthrough should still claim gpt models, got serves=%v known=%v", serves, known)
+	}
+}
+
 func TestUniversalGroupSupportsModel_NewapiRequiresCompatPoolMember(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(18)
@@ -228,6 +249,44 @@ func TestResolve_NativeEmptyMappingDoesNotMatchOtherVendor(t *testing.T) {
 	g, err = r.Resolve(ctx, key, ShapeOpenAIChat, "gpt-5", "")
 	if err != nil || g == nil || g.ID != 2 {
 		t.Fatalf("gpt-5 应落 openai gid=2, got=%v err=%v", g, err)
+	}
+}
+
+// 1.8.74 prod smoke: /v1/messages + gemini-2.5-flash (tools) 经 universal key 必须落
+// antigravity/gemini,不能因 openai passthrough 的「全模型 true」在 tiebreak 里胜过
+// antigravity 并打到 Codex（"not supported when using Codex with a ChatGPT account"）。
+func TestResolve_GeminiMessagesAnthropicShapeAvoidsOpenAIPassthrough(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		dispatchGrp(2, PlatformOpenAI, 5, true), // Codex passthrough + messages dispatch
+		grp(9, PlatformAntigravity, 10, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		9: {"gemini-2.5-flash", "claude-sonnet-4-6"},
+	}))
+	svc := &GatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:       100,
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Extra:    map[string]any{"openai_passthrough": true},
+			},
+			{
+				ID:       101,
+				Platform: PlatformAntigravity,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash"},
+				},
+			},
+		}},
+	}
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsModel)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, "gemini-2.5-flash", "")
+	if err != nil || g == nil || g.ID != 9 {
+		t.Fatalf("gemini @/v1/messages 应落 antigravity gid=9, got=%v err=%v", g, err)
 	}
 }
 

@@ -49,6 +49,34 @@ func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	})
 }
 
+func TestGatewayService_IsModelSupportedByAccount_OpenAIPassthroughRejectsForeignPlatformModels(t *testing.T) {
+	svc := &GatewayService{}
+	passthrough := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{
+			"openai_passthrough": true,
+		},
+	}
+	require.False(t, svc.isModelSupportedByAccount(passthrough, "gemini-2.5-flash"))
+	require.False(t, svc.isModelSupportedByAccount(passthrough, "claude-sonnet-4-6"))
+	require.True(t, svc.isModelSupportedByAccount(passthrough, "gpt-5.4-mini"))
+	require.True(t, svc.isModelSupportedByAccount(passthrough, "o3-mini"))
+
+	mappedPassthrough := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{
+			"openai_passthrough": true,
+		},
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"},
+		},
+	}
+	require.False(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt-5.4-mini"))
+	require.True(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt5.5"))
+}
+
 func TestAccount_OpenAICompatModelAliasSupport(t *testing.T) {
 	account := &Account{
 		Platform: PlatformOpenAI,

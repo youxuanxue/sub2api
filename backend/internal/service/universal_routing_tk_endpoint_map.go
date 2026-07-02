@@ -84,6 +84,11 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 	switch shape {
 	case ShapeAnthropicMessages:
 		out := []string{PlatformAnthropic, PlatformAntigravity}
+		// Gemini /v1/messages (Anthropic-shaped bridge + tools) must reach gemini or
+		// antigravity pools — not openai-compat Codex passthrough.
+		if universalModelPlatformHint(model) == PlatformGemini {
+			out = append(out, PlatformGemini)
+		}
 		if hasMessagesDispatch {
 			out = append(out, OpenAICompatPlatforms()...)
 		}
