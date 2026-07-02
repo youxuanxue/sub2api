@@ -94,7 +94,8 @@ jobs:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
         run: |
           set -euo pipefail
-          python3 ops/fingerprint/open_client_release_watch_issues.py
+          python3 ops/fingerprint/open_client_release_watch_issues.py \
+            --links-json .cache/fingerprint/client-release-watch/links.json
 
       - name: Create or update cache refresh PR
         id: cache_pr
@@ -124,6 +125,11 @@ jobs:
           git push --force-with-lease origin "$BRANCH"
 
           cat > .cache/fingerprint/client-release-watch/cache-pr-body.md <<'EOF'
+          ## WIP / not merge-ready
+          - This PR is an automated release-drift tracking/cache refresh, not a completed fingerprint alignment.
+          - Before merging, run real client fingerprint capture and diff alignment; do not bump pins from release metadata alone.
+          - Recommended routing: `tokenkey-fingerprint-alignment-all`, or the per-platform skills listed in the watchdog report.
+
           ## Summary
           - Refresh `.cache/fingerprint/client-release-watch.json` from the latest upstream client release poll.
           - Keep the client release watch script/workflow in sync when they changed in the same run.
@@ -143,9 +149,10 @@ jobs:
           if [ -n "$EXISTING" ]; then
             NUMBER="$(jq -r '.number' <<<"$EXISTING")"
             URL="$(jq -r '.url' <<<"$EXISTING")"
-            gh pr edit "$NUMBER" --title "chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md
+            gh pr edit "$NUMBER" --title "WIP: chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md
+            gh pr ready "$NUMBER" --undo || true  # preflight-allow: swallow
           else
-            URL="$(gh pr create --base main --head "$BRANCH" --title "chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md)"
+            URL="$(gh pr create --draft --base main --head "$BRANCH" --title "WIP: chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md)"
           fi
           echo "cache_pr_url=$URL" >> "$GITHUB_OUTPUT"
           echo "cache PR: $URL"
@@ -158,6 +165,7 @@ jobs:
             .cache/fingerprint/client-release-watch/report.json
             .cache/fingerprint/client-release-watch/report.md
             .cache/fingerprint/client-release-watch.json
+            .cache/fingerprint/client-release-watch/links.json
           if-no-files-found: ignore
 
   contract:

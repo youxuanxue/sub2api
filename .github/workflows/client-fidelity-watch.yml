@@ -102,7 +102,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          python3 ops/fingerprint/open_client_release_watch_issues.py --umbrella
+          python3 ops/fingerprint/open_client_release_watch_issues.py \
+            --umbrella \
+            --links-json .cache/fingerprint/client-release-watch/links.json
 
       - name: Create or update cache refresh PR
         id: cache_pr
@@ -137,6 +139,11 @@ jobs:
           git push --force-with-lease origin "$BRANCH"
 
           cat > .cache/fingerprint/client-release-watch/cache-pr-body.md <<'EOF'
+          ## WIP / not merge-ready
+          - This PR is an automated release-drift tracking/cache refresh, not a completed fingerprint alignment.
+          - Before merging, run real client fingerprint capture and diff alignment; do not bump pins from release metadata alone.
+          - Recommended routing: `tokenkey-fingerprint-alignment-all`, or the per-platform skills listed in the watchdog report.
+
           ## Summary
           - Refresh `.cache/fingerprint/client-release-watch.json` from the latest upstream client release poll.
           - Keep the client fidelity / release watch scripts and workflows in sync when they changed in the same run.
@@ -156,9 +163,10 @@ jobs:
           if [ -n "$EXISTING" ]; then
             NUMBER="$(jq -r '.number' <<<"$EXISTING")"
             URL="$(jq -r '.url' <<<"$EXISTING")"
-            gh pr edit "$NUMBER" --title "chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md
+            gh pr edit "$NUMBER" --title "WIP: chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md
+            gh pr ready "$NUMBER" --undo || true  # preflight-allow: swallow
           else
-            URL="$(gh pr create --base main --head "$BRANCH" --title "chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md)"
+            URL="$(gh pr create --draft --base main --head "$BRANCH" --title "WIP: chore: refresh client release watch cache" --body-file .cache/fingerprint/client-release-watch/cache-pr-body.md)"
           fi
           echo "cache_pr_url=$URL" >> "$GITHUB_OUTPUT"
           echo "cache PR: $URL"
@@ -171,6 +179,7 @@ jobs:
             .cache/fingerprint/client-release-watch/report.json
             .cache/fingerprint/client-release-watch/report.md
             .cache/fingerprint/client-release-watch.json
+            .cache/fingerprint/client-release-watch/links.json
           if-no-files-found: ignore
 
   registry-gate:
@@ -240,7 +249,17 @@ jobs:
             echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates."
             exit 1
           fi
-          python3 ops/observability/open_prompt_surface_watch_issues.py registry-failure --run-url "$RUN_URL" --umbrella
+          python3 ops/observability/open_prompt_surface_watch_issues.py registry-failure \
+            --run-url "$RUN_URL" \
+            --umbrella \
+            --links-json .cache/prompt-surface-watch/links.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-fidelity-prompt-${{ github.run_id }}
+          path: .cache/prompt-surface-watch/
+          if-no-files-found: ignore
 
   prod-aggregate:
     needs: registry-gate
@@ -310,7 +329,8 @@ jobs:
             --report-json .cache/prompt-surface-watch/report.json \
             --report-md .cache/prompt-surface-watch/report.md \
             --run-url "$RUN_URL" \
-            --umbrella
+            --umbrella \
+            --links-json .cache/prompt-surface-watch/links.json
 
       - uses: actions/upload-artifact@v4
         if: always() && steps.precheck.outputs.skip == 'false'
@@ -320,7 +340,7 @@ jobs:
           if-no-files-found: ignore
 
   daily-report:
-    needs: [release-scan, registry-gate, prod-aggregate]
+    needs: [release-scan, registry-gate, notify-registry-failure, prod-aggregate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -350,6 +370,8 @@ jobs:
           mkdir -p .cache/fingerprint/client-fidelity-watch
           RELEASE_JSON="$(find .cache/fingerprint/client-release-watch -path '*/report.json' -print -quit 2>/dev/null || true)"
           RELEASE_MD="$(find .cache/fingerprint/client-release-watch -path '*/report.md' -print -quit 2>/dev/null || true)"
+          RELEASE_LINKS="$(find .cache/fingerprint/client-release-watch -path '*/links.json' -print -quit 2>/dev/null || true)"
+          PROMPT_LINKS="$(find .cache/prompt-surface-watch -path '*/links.json' -print -quit 2>/dev/null || true)"
           PROMPT_JSON=".cache/prompt-surface-watch/report.json"
           PROMPT_MD=".cache/prompt-surface-watch/report.md"
           ARGS=(
@@ -357,6 +379,7 @@ jobs:
             --registry-gate-result "$REGISTRY_RESULT"
             --prod-aggregate-result "$PROD_RESULT"
             --run-url "$RUN_URL"
+            --cache-pr-url "${{ needs.release-scan.outputs.cache_pr_url }}"
             --report-json .cache/fingerprint/client-fidelity-watch/report.json
             --report-md .cache/fingerprint/client-fidelity-watch/report.md
           )
@@ -366,13 +389,20 @@ jobs:
           if [ -n "$RELEASE_MD" ] && [ -f "$RELEASE_MD" ]; then
             ARGS+=(--release-report-md "$RELEASE_MD")
           fi
+          if [ -n "$RELEASE_LINKS" ] && [ -f "$RELEASE_LINKS" ]; then
+            ARGS+=(--release-links-json "$RELEASE_LINKS")
+          fi
           if [ -f "$PROMPT_JSON" ]; then
             ARGS+=(--prompt-prod-report-json "$PROMPT_JSON")
           fi
           if [ -f "$PROMPT_MD" ]; then
             ARGS+=(--prompt-prod-report-md "$PROMPT_MD")
           fi
+          if [ -n "$PROMPT_LINKS" ] && [ -f "$PROMPT_LINKS" ]; then
+            ARGS+=(--prompt-links-json "$PROMPT_LINKS")
+          fi
           python3 scripts/fingerprint/client_fidelity_watch_report.py "${ARGS[@]}"
+          cat .cache/fingerprint/client-fidelity-watch/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()

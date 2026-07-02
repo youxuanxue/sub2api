@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from open_prompt_surface_watch_issues import (
     prod_drift_body,
     prod_recover_body,
     registry_failure_body,
+    write_links,
 )
 
 
@@ -51,6 +53,13 @@ class OpenPromptSurfaceWatchIssuesTest(unittest.TestCase):
         self.assertNotIn(":", path.name)
         self.assertEqual(path.name, f"issue-{filename_safe(SIG_PROD_DRIFT)}.md")
         self.assertIn("ps-sig-prod-drift", path.name)
+
+    def test_write_links_persists_structured_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "links.json"
+            write_links(path, [{"kind": "issue", "signal_type": "prod-drift", "url": "https://example/issues/1"}])
+            self.assertIn("prod-drift", path.read_text(encoding="utf-8"))
+            self.assertIn("https://example/issues/1", path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

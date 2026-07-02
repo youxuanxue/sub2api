@@ -44,6 +44,10 @@ def sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[st
     return subprocess.run(args, text=True, check=check, capture_output=True)
 
 
+def issue_url(number: str) -> str:
+    return sh(["gh", "issue", "view", number, "--json", "url", "--jq", ".url"]).stdout.strip()
+
+
 def ensure_label(name: str, color: str, description: str) -> None:
     subprocess.run(
         ["gh", "label", "create", name, "--color", color, "--description", description[:100]],
@@ -140,7 +144,7 @@ def open_or_update_issue(
     title: str,
     body: str,
     drift_labels: list[str],
-) -> None:
+) -> dict[str, object]:
     ensure_base_labels()
     labels_csv = ",".join(drift_labels)
     existing = find_open_issue(sig_label)
@@ -151,12 +155,29 @@ def open_or_update_issue(
         sh(["gh", "issue", "comment", existing, "--body-file", str(body_path)])
         sh(["gh", "issue", "edit", existing, "--add-label", labels_csv])
         print(f"updated issue #{existing} ({sig_label})")
-        return
-    sh(["gh", "issue", "create", "--title", title[:250], "--body-file", str(body_path), "--label", labels_csv])
+        return {
+            "kind": "issue",
+            "title": title[:250],
+            "number": int(existing),
+            "url": issue_url(existing),
+            "status": "updated",
+        }
+    created_url = sh([
+        "gh", "issue", "create", "--title", title[:250], "--body-file", str(body_path), "--label", labels_csv,
+    ]).stdout.strip()
+    number_match = re.search(r"/issues/(\d+)(?:$|[?#])", created_url)
     print(f"created issue ({sig_label})")
+    return {
+        "kind": "issue",
+        "title": title[:250],
+        "number": int(number_match.group(1)) if number_match else None,
+        "url": created_url,
+        "status": "created",
+    }
 
 
-def close_issue(number: str, comment: str) -> None:
+def close_issue(number: str, comment: str) -> dict[str, object]:
+    url = issue_url(number)
     sh(["gh", "issue", "comment", number, "--body", comment])
     subprocess.run(
         ["gh", "issue", "edit", number, "--add-label", "prompt-surface:aligned", "--remove-label", "prompt-surface:prod-drift,prompt-surface:registry-failure"],
@@ -166,6 +187,7 @@ def close_issue(number: str, comment: str) -> None:
     )
     sh(["gh", "issue", "close", number, "--comment", "Closing because the watch signal cleared."])
     print(f"closed issue #{number}")
+    return {"kind": "issue", "number": int(number), "url": url, "status": "closed"}
 
 
 def drift_labels_for(base: list[str], *, umbrella: bool) -> list[str]:
@@ -176,7 +198,7 @@ def drift_labels_for(base: list[str], *, umbrella: bool) -> list[str]:
 
 def cmd_registry_failure(args: argparse.Namespace) -> int:
     body = registry_failure_body(args.run_url)
-    open_or_update_issue(
+    link = open_or_update_issue(
         sig_label=SIG_REGISTRY,
         title="[prompt-surface] registry-gate failed",
         body=body,
@@ -185,6 +207,7 @@ def cmd_registry_failure(args: argparse.Namespace) -> int:
             "prompt-surface:registry-failure", SIG_REGISTRY,
         ], umbrella=args.umbrella),
     )
+    write_links(args.links_json, [{**link, "signal_type": "registry-failure"}])
     return 0
 
 
@@ -193,13 +216,15 @@ def cmd_registry_recover(args: argparse.Namespace) -> int:
     existing = find_open_issue(SIG_REGISTRY)
     if not existing:
         print("no open registry-gate failure issue")
+        write_links(args.links_json, [])
         return 0
     comment = "\n".join([
         "Registry-gate passed on the latest watchdog run.",
         "",
         f"- Watchdog run: {args.run_url or 'n/a'}",
     ]) + "\n"
-    close_issue(existing, comment)
+    link = close_issue(existing, comment)
+    write_links(args.links_json, [{**link, "signal_type": "registry-failure"}])
     return 0
 
 
@@ -211,7 +236,7 @@ def cmd_prod_sync(args: argparse.Namespace) -> int:
     summary = report.get("summary") or {}
     if summary.get("has_actionable_drift"):
         body = prod_drift_body(report, args.run_url, report_md)
-        open_or_update_issue(
+        link = open_or_update_issue(
             sig_label=SIG_PROD_DRIFT,
             title="[prompt-surface] prod fingerprint actionable drift",
             body=body,
@@ -220,14 +245,24 @@ def cmd_prod_sync(args: argparse.Namespace) -> int:
                 "prompt-surface:prod-drift", SIG_PROD_DRIFT,
             ], umbrella=args.umbrella),
         )
+        write_links(args.links_json, [{**link, "signal_type": "prod-drift"}])
         return 0
     ensure_base_labels()
     existing = find_open_issue(SIG_PROD_DRIFT)
     if not existing:
         print("no open prod drift issue")
+        write_links(args.links_json, [])
         return 0
-    close_issue(existing, prod_recover_body(args.run_url, report))
+    link = close_issue(existing, prod_recover_body(args.run_url, report))
+    write_links(args.links_json, [{**link, "signal_type": "prod-drift"}])
     return 0
+
+
+def write_links(path: pathlib.Path | None, links: list[dict[str, object]]) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"links": links}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -237,16 +272,19 @@ def main(argv: list[str] | None = None) -> int:
     p_fail = sub.add_parser("registry-failure")
     p_fail.add_argument("--run-url", default="")
     p_fail.add_argument("--umbrella", action="store_true")
+    p_fail.add_argument("--links-json", type=pathlib.Path)
 
     p_rec = sub.add_parser("registry-recover")
     p_rec.add_argument("--run-url", default="")
     p_rec.add_argument("--umbrella", action="store_true")
+    p_rec.add_argument("--links-json", type=pathlib.Path)
 
     p_prod = sub.add_parser("prod-sync")
     p_prod.add_argument("--report-json", type=pathlib.Path, required=True)
     p_prod.add_argument("--report-md", type=pathlib.Path)
     p_prod.add_argument("--run-url", default="")
     p_prod.add_argument("--umbrella", action="store_true")
+    p_prod.add_argument("--links-json", type=pathlib.Path)
 
     args = ap.parse_args(argv)
     if args.command == "registry-failure":
