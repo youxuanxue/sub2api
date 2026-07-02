@@ -361,7 +361,7 @@ export const commonErrorCodes = [
 
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
-  // API-backed platforms (anthropic/claude/openai/gemini/antigravity) come from
+  // API-backed platforms (anthropic/claude/openai/gemini/antigravity/grok/kiro) come from
   // the self-healing backend cache (reactive — computeds re-run when the fetch
   // resolves; [] while pending or on error → custom input is the escape hatch).
   if (isApiBackedPlatform(platform)) {
@@ -375,8 +375,6 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'deepseek': return deepseekModels
     case 'mistral': return mistralModels
     case 'meta': return metaModels
-    case 'xai':
-    case 'grok': return xaiModels
     case 'cohere': return cohereModels
     case 'yi': return yiModels
     case 'moonshot': return moonshotModels

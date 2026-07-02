@@ -2086,8 +2086,15 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
 			if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
-				ids := service.VertexNewAPIChannelServableModelIDs()
-				sort.Strings(ids)
+				ids, err := h.adminService.GetAccountModelMappingPresetIDs(
+					c.Request.Context(),
+					service.PlatformNewAPI,
+					account.ChannelType,
+				)
+				if err != nil {
+					response.Error(c, http.StatusInternalServerError, "failed to resolve model mapping preset")
+					return
+				}
 				models := make([]openai.Model, 0, len(ids))
 				for _, id := range ids {
 					models = append(models, openai.Model{

@@ -142,9 +142,18 @@ func (h *TKChannelAdminHandler) ListChannelTypes(c *gin.Context) {
 // GET /api/v1/admin/channel-type-models
 func (h *TKChannelAdminHandler) ListChannelTypeModels(c *gin.Context) {
 	out := newapifusion.ChannelTypeModelsJSON()
-	if ids := service.VertexNewAPIChannelServableModelIDs(); len(ids) > 0 {
-		sort.Strings(ids)
-		out[strconv.Itoa(newapiconstant.ChannelTypeVertexAi)] = ids
+	vertexIDs := service.VertexNewAPIChannelServableModelIDs()
+	if h.adminService != nil {
+		if ids, err := h.adminService.GetAccountModelMappingPresetIDs(
+			c.Request.Context(),
+			service.PlatformNewAPI,
+			newapiconstant.ChannelTypeVertexAi,
+		); err == nil && len(ids) > 0 {
+			vertexIDs = ids
+		}
+	}
+	if len(vertexIDs) > 0 {
+		out[strconv.Itoa(newapiconstant.ChannelTypeVertexAi)] = vertexIDs
 	}
 	response.Success(c, out)
 }
@@ -173,7 +182,18 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 	// Return TokenKey's empirical Gemini/Vertex servable preset instead.
 	if req.ChannelType == newapiconstant.ChannelTypeVertexAi {
 		ids := service.VertexNewAPIChannelServableModelIDs()
-		sort.Strings(ids)
+		if h.adminService != nil {
+			var err error
+			ids, err = h.adminService.GetAccountModelMappingPresetIDs(
+				c.Request.Context(),
+				service.PlatformNewAPI,
+				newapiconstant.ChannelTypeVertexAi,
+			)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "failed to resolve model mapping preset")
+				return
+			}
+		}
 		models := h.discoveryFilter.Apply(
 			c.Request.Context(),
 			service.PlatformGemini,

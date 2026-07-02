@@ -1,23 +1,19 @@
 import { reactive, ref } from 'vue'
-import { getModelsListCandidates } from '@/api/admin/groups'
+import { getModelMappingPresets } from '@/api/admin/accounts'
 import { unknownToErrorMessage } from '@/utils/authError'
-import type { GroupPlatform } from '@/types'
 
-// TK (R-003, follow-up to PR #752): the self-healing servable model lists for the
-// platforms whose candidates the backend authoritatively tracks (empirical
-// allowlist + live model_availability pruning). The admin model-whitelist
-// selector derives its candidates from here instead of hardcoded arrays, so an
-// upstream-retired model (e.g. access-gated claude-fable-5) auto-drops without a
-// manual frontend edit, and per-platform truth is honoured (gone on anthropic,
-// still servable on antigravity). newapi (channel-driven) and the long-tail
-// direct providers keep their static lists in useModelWhitelist — the backend
-// has no empirical source for those.
-const API_PLATFORMS: Record<string, GroupPlatform> = {
+// TK: admin model-whitelist / model_mapping preset SSOT — one backend endpoint
+// for native platforms, grok, kiro, and newapi ch41 (Vertex SA). Long-tail direct
+// providers keep static lists in useModelWhitelist.
+const API_PLATFORMS: Record<string, string> = {
   anthropic: 'anthropic',
   claude: 'anthropic',
   openai: 'openai',
   gemini: 'gemini',
-  antigravity: 'antigravity'
+  antigravity: 'antigravity',
+  grok: 'grok',
+  xai: 'grok',
+  kiro: 'kiro',
 }
 
 // Module-level reactive cache keyed by BACKEND platform, shared across all
@@ -33,7 +29,14 @@ export function isApiBackedPlatform(platform: string): boolean {
 
 // One representative frontend name per backend platform — used by the selector's
 // no-platform ("all models") case to fetch + union every self-healing list.
-export const apiBackedPlatforms: readonly string[] = ['anthropic', 'openai', 'gemini', 'antigravity']
+export const apiBackedPlatforms: readonly string[] = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'antigravity',
+  'grok',
+  'kiro',
+]
 
 // servableModelsFor returns the cached self-healing list for an API-backed
 // platform (reactive — Vue computeds re-run when the fetch resolves), `[]` while
@@ -46,9 +49,7 @@ export function servableModelsFor(platform: string): string[] | undefined {
 }
 
 export function useServableModels() {
-  // ensureLoaded fetches the per-platform self-healing candidate list once and
-  // caches it. id=0 → platform defaults (the candidate list with no
-  // account-specific additions), which is exactly what the selector needs.
+  // ensureLoaded fetches the per-platform preset list once and caches it.
   async function ensureLoaded(platform: string): Promise<void> {
     const backend = API_PLATFORMS[platform]
     if (!backend || cache[backend] !== undefined || inflight.has(backend)) return
@@ -56,13 +57,10 @@ export function useServableModels() {
     loading.value = true
     error.value = null
     try {
-      cache[backend] = await getModelsListCandidates(0, backend)
+      cache[backend] = await getModelMappingPresets(backend)
     } catch (e) {
-      // The axios interceptor (api/client.ts) rejects with a flattened plain
-      // object { status, code, message, ... }, not an Error — so String(e) would
-      // store "[object Object]". Pull the backend message via the shared helper.
       error.value = unknownToErrorMessage(e, 'Failed to load servable models')
-      cache[backend] = [] // loaded-empty; the selector's custom input stays the escape hatch
+      cache[backend] = []
     } finally {
       inflight.delete(backend)
       loading.value = false
