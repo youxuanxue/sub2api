@@ -606,25 +606,26 @@ else
     echo "  ok: served-models manifest agrees with price/display/migration"
 fi
 
-# ---- sub2api: Studio media video coverage -----------------------------------
-# Source of truth: backend video membership is catalog-driven (pricing overlay +
-# Gemini/Grok allowlists + newapi served-models manifest). Studio presentation is
-# allowed to be friendly, but every public servable video must have explicit
-# frontend metadata and discrete durations; otherwise the UI falls back to unsafe
-# defaults and reopens the "catalog says usable, submit fails" class.
+# ---- sub2api: Studio media coverage -----------------------------------------
+# Source of truth: backend media membership is catalog-driven (pricing overlay +
+# Go servable allowlists + newapi served-models manifest). Studio presentation is
+# allowed to be friendly, but every public servable image/video must have explicit
+# frontend metadata (image size/aspect contract or video durations); otherwise the
+# UI falls back to unsafe defaults and reopens the "catalog says usable, submit
+# fails" class.
 echo ""
-echo "=== sub2api: Studio media video coverage ==="
+echo "=== sub2api: Studio media coverage ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for Studio media video coverage)"
+    echo "  FAIL: python3 not on PATH (required for Studio media coverage)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/checks/studio-media-video-coverage.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: studio-media-video-coverage.py selftest"
-    echo "        — run: python3 scripts/checks/studio-media-video-coverage.py --selftest"
+elif ! python3 ./scripts/checks/studio-media-coverage.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: studio-media-coverage.py selftest"
+    echo "        — run: python3 scripts/checks/studio-media-coverage.py --selftest"
     errors=$((errors + 1))
-elif ! python3 ./scripts/checks/studio-media-video-coverage.py --quiet; then
+elif ! python3 ./scripts/checks/studio-media-coverage.py --quiet; then
     errors=$((errors + 1))
 else
-    echo "  ok: Studio video presentation covers public servable video models"
+    echo "  ok: Studio presentation covers public servable media models"
 fi
 
 # ---- sub2api: modelops planner selftest --------------------------------------
