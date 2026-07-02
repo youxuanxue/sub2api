@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -121,7 +122,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
-		if isOpenAICompatInputTokensCapabilityGap(resp.StatusCode, upstreamMsg, respBody) {
+		if isOpenAICompatInputTokensCapabilityGap(account, resp.StatusCode, upstreamMsg, respBody) {
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
@@ -264,12 +265,15 @@ func isOpenAICompatCountTokensCapabilityGap(account *Account, err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	if account.Platform == PlatformNewAPI {
+		if account.Type == AccountTypeServiceAccount && account.ChannelType == newapiconstant.ChannelTypeVertexAi {
+			return true
+		}
 		return strings.Contains(msg, "api_key not found")
 	}
 	return false
 }
 
-func isOpenAICompatInputTokensCapabilityGap(statusCode int, upstreamMsg string, body []byte) bool {
+func isOpenAICompatInputTokensCapabilityGap(account *Account, statusCode int, upstreamMsg string, body []byte) bool {
 	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
 	if msg == "" {
 		msg = strings.ToLower(strings.TrimSpace(string(body)))
@@ -281,9 +285,24 @@ func isOpenAICompatInputTokensCapabilityGap(statusCode int, upstreamMsg string, 
 		(strings.Contains(msg, "missing") || strings.Contains(msg, "not found") || strings.Contains(msg, "unsupported")) {
 		return true
 	}
+	if statusCode == http.StatusNotFound && openAICompatInputTokensBare404CanEstimate(account) && strings.Contains(msg, "not found") {
+		return true
+	}
 	if strings.Contains(msg, "upstream returned 403") &&
 		(strings.Contains(msg, "access/policy rejection") || strings.Contains(msg, "rejected by upstream")) {
 		return true
 	}
 	return false
+}
+
+func openAICompatInputTokensBare404CanEstimate(account *Account) bool {
+	if account == nil || account.Type == AccountTypeOAuth {
+		return false
+	}
+	switch account.Platform {
+	case PlatformOpenAI, PlatformNewAPI, PlatformGrok:
+		return true
+	default:
+		return false
+	}
 }
