@@ -99,9 +99,11 @@
         <p class="mt-1 text-[9px] leading-tight text-gray-400 dark:text-gray-500 italic">
           * {{ t('admin.accounts.gemini.quotaPolicy.simulatedNote') || 'Simulated quota' }}
         </p>
+        <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
       </div>
       <div v-else class="text-xs text-gray-400">
         {{ t('admin.accounts.gemini.rateLimit.unlimited') }}
+        <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" class="mt-1" />
       </div>
     </div>
   </div>
@@ -111,6 +113,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
+import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps

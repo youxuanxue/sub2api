@@ -66,6 +66,10 @@
           "prefix": "You are an interactive agent that helps users with software engineering tasks"
         },
         {
+          "id": "interactive_cli_tool",
+          "prefix": "You are an interactive CLI tool that helps users"
+        },
+        {
           "id": "file_search_specialist",
           "prefix": "You are a file search specialist for Claude Code"
         },
