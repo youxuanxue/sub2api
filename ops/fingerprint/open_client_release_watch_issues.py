@@ -56,8 +56,13 @@ def issue_body_path(cache_dir: pathlib.Path, platform_id: str) -> pathlib.Path:
     return cache_dir / f"issue-{filename_safe(platform_id)}.md"
 
 
-def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> None:
+def issue_url(number: str) -> str:
+    return sh(["gh", "issue", "view", number, "--json", "url", "--jq", ".url"]).stdout.strip()
+
+
+def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> list[dict[str, object]]:
     ensure_base_labels()
+    links: list[dict[str, object]] = []
     for item in report.get("platforms") or []:
         platform_id = item["id"]
         platform_label = f"client-release:{label_safe(platform_id)}"
@@ -125,9 +130,30 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> Non
             if existing:
                 sh(["gh", "issue", "comment", existing, "--body-file", str(body_path)])
                 sh(["gh", "issue", "edit", existing, "--add-label", labels_csv])
+                links.append({
+                    "kind": "issue",
+                    "signal_type": "release-drift",
+                    "platform_id": platform_id,
+                    "title": title,
+                    "number": int(existing),
+                    "url": issue_url(existing),
+                    "status": "updated",
+                })
                 print(f"updated drift issue #{existing} for {platform_id}")
             else:
-                sh(["gh", "issue", "create", "--title", title, "--body-file", str(body_path), "--label", labels_csv])
+                created_url = sh([
+                    "gh", "issue", "create", "--title", title, "--body-file", str(body_path), "--label", labels_csv,
+                ]).stdout.strip()
+                number_match = re.search(r"/issues/(\d+)(?:$|[?#])", created_url)
+                links.append({
+                    "kind": "issue",
+                    "signal_type": "release-drift",
+                    "platform_id": platform_id,
+                    "title": title,
+                    "number": int(number_match.group(1)) if number_match else None,
+                    "url": created_url,
+                    "status": "created",
+                })
                 print(f"created drift issue for {platform_id}")
             continue
 
@@ -158,6 +184,7 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> Non
             ], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             sh(["gh", "issue", "close", number, "--comment", "Closing because upstream is no longer ahead of the TokenKey pin."])
             print(f"closed drift issue #{number} for {platform_id}")
+    return links
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -169,12 +196,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Tag issues with client-fidelity-watch (umbrella workflow)",
     )
+    ap.add_argument(
+        "--links-json",
+        type=pathlib.Path,
+        help="Write opened/updated issue links for downstream daily reports",
+    )
     args = ap.parse_args(argv)
     if not args.report_json.is_file():
         print(f"missing report: {args.report_json}", file=sys.stderr)
         return 2
     report = json.loads(args.report_json.read_text(encoding="utf-8"))
-    sync_issues(report, cache_dir=args.cache_dir, umbrella=args.umbrella)
+    links = sync_issues(report, cache_dir=args.cache_dir, umbrella=args.umbrella)
+    links_json = args.links_json or (args.cache_dir / "links.json")
+    links_json.parent.mkdir(parents=True, exist_ok=True)
+    links_json.write_text(json.dumps({"links": links}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0
 
 
