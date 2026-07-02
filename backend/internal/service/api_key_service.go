@@ -263,6 +263,15 @@ func (s *APIKeyService) SetUniversalAvailableModelsProvider(p availableModelsPro
 	s.universalResolver.SetAvailableModelsProvider(p)
 }
 
+// SetUniversalModelSupportProvider 后期绑定全能 Key 解析器的 direct-scheduler 同口径
+// 组模型支持判定源。构造期 GatewayService 尚不存在,故经 wire 就绪钩子注入。
+func (s *APIKeyService) SetUniversalModelSupportProvider(p groupModelSupportProvider) {
+	if s == nil || s.universalResolver == nil {
+		return
+	}
+	s.universalResolver.SetModelSupportProvider(p)
+}
+
 // SetRateLimitCacheInvalidator sets the optional rate limit cache invalidator.
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {

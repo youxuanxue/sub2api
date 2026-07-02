@@ -27,6 +27,45 @@ import "context"
 // 现状行为 —— 安全兜底,绝不黑洞 universal 流量。
 type availableModelsProvider func(ctx context.Context, groupID *int64, platform string) []string
 
+// groupModelSupportProvider 以 direct scheduler 的账号级语义判定某组是否能服务模型。
+// known=false 表示 provider 取数失败/未能判断,解析器会退回 availableModelsProvider 的
+// 旧口径,避免因为观测源短暂不可用而把 universal 流量误拒。
+type groupModelSupportProvider func(ctx context.Context, groupID *int64, platform, model string) (serves bool, known bool)
+
+// UniversalGroupSupportsModel reports whether the direct gateway scheduler could
+// find at least one account in group/platform that supports model. This is the
+// universal-key parity hook: it preserves per-account semantics that a group-level
+// served-model union loses, especially unrestricted passthrough accounts, wildcard
+// mappings, Anthropic short-id normalization, Antigravity default mappings, and
+// OpenAI alias spelling.
+func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupID *int64, platform, model string) (bool, bool) {
+	if s == nil || s.accountRepo == nil || platform == "" {
+		return false, false
+	}
+	accounts, useMixed, err := s.listSchedulableAccounts(ctx, groupID, platform, false)
+	if err != nil {
+		return false, false
+	}
+	for i := range accounts {
+		acc := &accounts[i]
+		if IsOpenAICompatPlatform(platform) {
+			if !acc.IsOpenAICompatPoolMember(platform) {
+				continue
+			}
+			if acc.IsModelSupported(model) || (acc.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)) {
+				return true, true
+			}
+			continue
+		} else if !s.isAccountAllowedForPlatform(acc, platform, useMixed) {
+			continue
+		}
+		if s.isModelSupportedByAccountWithContext(ctx, acc, model) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
 // groupServesModel 判定组 g 是否真服务模型 model(上述三分流)。provider 非 nil 由调用方保证。
 func groupServesModel(ctx context.Context, provider availableModelsProvider, g Group, model string) bool {
 	gid := g.ID
@@ -54,17 +93,15 @@ func groupServesModel(ctx context.Context, provider availableModelsProvider, g G
 
 // modelInServedSet 判定 model 是否在组的显式服务集里(精确 + 归一,与 IsModelSupported 同口径)。
 func modelInServedSet(model string, served []string, platform string) bool {
+	mapping := make(map[string]string, len(served))
 	for _, m := range served {
-		if m == model {
-			return true
-		}
+		mapping[m] = m
+	}
+	if mappingSupportsRequestedModel(mapping, model) {
+		return true
 	}
 	if norm := normalizeRequestedModelForLookup(platform, model); norm != model {
-		for _, m := range served {
-			if m == norm {
-				return true
-			}
-		}
+		return mappingSupportsRequestedModel(mapping, norm)
 	}
 	return false
 }

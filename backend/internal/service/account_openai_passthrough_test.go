@@ -49,6 +49,24 @@ func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	})
 }
 
+func TestAccount_OpenAICompatModelAliasSupport(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.4-mini": "gpt-5.4-mini",
+			},
+		},
+	}
+
+	require.True(t, account.IsModelSupported("gpt5.4-mini"))
+	require.True(t, account.IsModelSupported("openai/gpt 5.4mini"))
+
+	mapped, matched := account.ResolveMappedModel("openai/gpt5.4-mini")
+	require.True(t, matched)
+	require.Equal(t, "gpt-5.4-mini", mapped)
+}
+
 func TestAccount_IsOpenAIOAuthPassthroughEnabled(t *testing.T) {
 	t.Run("仅OAuth类型允许返回开启", func(t *testing.T) {
 		oauthAccount := &Account{

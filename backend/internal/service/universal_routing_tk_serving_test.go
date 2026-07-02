@@ -18,6 +18,16 @@ func servedProvider(byGroup map[int64][]string) availableModelsProvider {
 	}
 }
 
+func supportProvider(byGroup map[int64]bool) groupModelSupportProvider {
+	return func(_ context.Context, gid *int64, _ string, _ string) (bool, bool) {
+		if gid == nil {
+			return false, false
+		}
+		serves, ok := byGroup[*gid]
+		return serves, ok
+	}
+}
+
 // 核心:newapi 平台多 vendor 组,按「组已服务模型集」精确落到对的组,而非盲选 tiebreaker。
 func TestResolve_NewapiPicksGroupThatServesModel(t *testing.T) {
 	ctx := context.Background()
@@ -40,6 +50,158 @@ func TestResolve_NewapiPicksGroupThatServesModel(t *testing.T) {
 	g, err = r.Resolve(ctx, key, ShapeOpenAIChat, "deepseek-chat", "")
 	if err != nil || g == nil || g.ID != 11 {
 		t.Fatalf("deepseek-chat 应落 deepseek 组 gid=11, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_UsesDirectSchedulerModelSupportBeforeServedSet(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(2, PlatformOpenAI, 5, false),
+		grp(18, PlatformNewAPI, 10, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	// /v1/models-style served set is lossy for mixed groups: it only sees the
+	// mapped account and misses another OpenAI passthrough account that direct
+	// scheduling would accept. The direct-parity provider must win.
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		2:  {"gpt-5.5"},
+		18: {"qwen-max"},
+	}))
+	r.SetModelSupportProvider(supportProvider(map[int64]bool{
+		2:  true,
+		18: false,
+	}))
+	g, err := r.Resolve(ctx, universalKey(16), ShapeOpenAIChat, "gpt-5.4-mini", "")
+	if err != nil || g == nil || g.ID != 2 {
+		t.Fatalf("direct-parity provider 应使 gpt-5.4-mini 落 openai passthrough 组 gid=2, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_ModelSupportProviderUnknownFallsBackToServedSet(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(2, PlatformOpenAI, 5, false),
+		grp(18, PlatformNewAPI, 10, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		2:  {"gpt-5.4-mini"},
+		18: {"qwen-max"},
+	}))
+	r.SetModelSupportProvider(func(context.Context, *int64, string, string) (bool, bool) {
+		return false, false
+	})
+	g, err := r.Resolve(ctx, universalKey(16), ShapeOpenAIChat, "gpt5.4-mini", "")
+	if err != nil || g == nil || g.ID != 2 {
+		t.Fatalf("support provider unknown 时应 fallback 到 served-set alias 匹配 gid=2, got=%v err=%v", g, err)
+	}
+}
+
+func TestUniversalGroupSupportsModel_OpenAICompatMatchesDirectScheduler(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(2)
+	svc := &GatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:       1,
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Extra:    map[string]any{"openai_passthrough": true},
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"},
+				},
+			},
+		}},
+	}
+
+	serves, known := svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformOpenAI, "gpt-5.4-mini")
+	if !known || serves {
+		t.Fatalf("openai compat support must follow direct scheduler mapping check, got serves=%v known=%v", serves, known)
+	}
+	serves, known = svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformOpenAI, "gpt5.5")
+	if !known || !serves {
+		t.Fatalf("openai compat alias should match mapped model, got serves=%v known=%v", serves, known)
+	}
+}
+
+func TestUniversalGroupSupportsModel_NewapiRequiresCompatPoolMember(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(18)
+	modelMapping := map[string]any{"qwen-max": "qwen-max"}
+
+	t.Run("channel type zero rejected", func(t *testing.T) {
+		svc := &GatewayService{
+			accountRepo: stubOpenAIAccountRepo{accounts: []Account{
+				{
+					ID:          1,
+					Platform:    PlatformNewAPI,
+					ChannelType: 0,
+					Credentials: map[string]any{"model_mapping": modelMapping},
+				},
+			}},
+		}
+		serves, known := svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformNewAPI, "qwen-max")
+		if !known || serves {
+			t.Fatalf("newapi channel_type=0 must not serve via universal, got serves=%v known=%v", serves, known)
+		}
+	})
+
+	t.Run("positive channel type accepted", func(t *testing.T) {
+		svc := &GatewayService{
+			accountRepo: stubOpenAIAccountRepo{accounts: []Account{
+				{
+					ID:          2,
+					Platform:    PlatformNewAPI,
+					ChannelType: 45,
+					Credentials: map[string]any{"model_mapping": modelMapping},
+				},
+			}},
+		}
+		serves, known := svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformNewAPI, "qwen-max")
+		if !known || !serves {
+			t.Fatalf("newapi channel_type>0 should serve mapped model, got serves=%v known=%v", serves, known)
+		}
+	})
+}
+
+func TestModelInServedSet_UsesDirectMappingAliases(t *testing.T) {
+	cases := []struct {
+		name     string
+		platform string
+		model    string
+		served   []string
+	}{
+		{
+			name:     "openai gpt5 spelling",
+			platform: PlatformOpenAI,
+			model:    "gpt5.4-mini",
+			served:   []string{"gpt-5.4-mini"},
+		},
+		{
+			name:     "openai provider prefix and compact spelling",
+			platform: PlatformOpenAI,
+			model:    "openai/gpt 5.4mini",
+			served:   []string{"gpt-5.4-mini"},
+		},
+		{
+			name:     "wildcard mapping",
+			platform: PlatformOpenAI,
+			model:    "gpt-5.4-mini-20260702",
+			served:   []string{"gpt-5.4-mini*"},
+		},
+		{
+			name:     "gemini customtools alias",
+			platform: PlatformGemini,
+			model:    "gemini-3.1-pro-preview-customtools",
+			served:   []string{"gemini-3.1-pro-preview"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !modelInServedSet(tc.model, tc.served, tc.platform) {
+				t.Fatalf("modelInServedSet(%q, %v, %s) = false, want true", tc.model, tc.served, tc.platform)
+			}
+		})
 	}
 }
 
@@ -236,6 +398,22 @@ func user16ServingProvider() availableModelsProvider {
 		5:  {"doubao-seed-1-6-250615", "doubao-seedream-4-0-250828"},
 		// gid=1(anthropic)、gid=2(openai)缺席 → nil(native)
 	})
+}
+
+func TestResolve_User16GPTAliasPicksOpenAIGroup(t *testing.T) {
+	ctx := context.Background()
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		2:  {"gpt-5.4-mini"},
+		11: {"deepseek-chat", "deepseek-v4-flash"},
+		18: {"qwen-max", "qwen3-coder-plus"},
+		5:  {"doubao-seed-1-6-250615"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(16), ShapeOpenAIChat, "gpt5.4-mini", "")
+	if err != nil || g == nil || g.ID != 2 {
+		t.Fatalf("user16 gpt5.4-mini 应经 universal 落 openai/GPT 专线 gid=2, got=%v err=%v", g, err)
+	}
 }
 
 // 核心收敛(user16 修复守卫):deepseek-v4-flash 发到 /v1/messages(Anthropic 形状),全能 Key
