@@ -305,9 +305,9 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 		CreatedAt:     windowEnd,
 		WindowMinutes: 1,
 
-		SuccessCount:         successCount,
-		ErrorCountTotal:      errorTotal,
-				ErrorCountSLA:        errorSLA,
+		SuccessCount:    successCount,
+		ErrorCountTotal: errorTotal,
+		ErrorCountSLA:   errorSLA,
 
 		UpstreamErrorCountExcl429529: upstreamExcl,
 		Upstream429Count:             upstream429,

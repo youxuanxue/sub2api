@@ -309,7 +309,7 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 	}
 }
 
-func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsNoAvailableAccountsCountsAsPlatformSLAFault(t *testing.T) {
 	const message = "No available accounts"
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -326,7 +326,7 @@ func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
 	require.Equal(t, "gateway", errorSource)
 }
 
-func TestClassifyOpsRoutingCapacityMarkerExcludesMaskedSelectionFailureFromSLA(t *testing.T) {
+func TestClassifyOpsRoutingCapacityMarkerCountsAsPlatformSLAFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -750,7 +750,7 @@ func TestClassifyOpsIPRestrictionAccessDeniedExcludedFromSLA(t *testing.T) {
 	require.Equal(t, "client_request", errorSource)
 }
 
-func TestClassifyOpsClientBusinessLimitedMarkerExcludesCustomPolicyDenialFromSLA(t *testing.T) {
+func TestClassifyOpsClientPolicyDeniedMarkerExcludedFromSLAFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -781,7 +781,7 @@ func TestClassifyOpsOtherErrorsStillCountForSLA(t *testing.T) {
 	require.Equal(t, "gateway", errorSource)
 }
 
-func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsUnsupportedModelRoutingCountsAsPlatformSLAFault(t *testing.T) {
 	tests := []string{
 		"No available accounts: no available accounts supporting model: made-up-model",
 		"No available accounts: no available OpenAI accounts supporting model: made-up-model",
@@ -984,7 +984,7 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 // 429 (rate_limit_error) / raw 5xx carries no TokenKey phrase and still counts — see
 // TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper.
 // tkUpstreamDownstreamCapacity is the predicate; it folds into routingCapacityLimited.
-func TestClassifyOpsUpstreamNoAvailableTextExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsUpstreamNoAvailableTextCountsAsPlatformRoutingFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

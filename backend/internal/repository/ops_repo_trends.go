@@ -479,8 +479,8 @@ ORDER BY 1 ASC`
 		points = append(points, &service.OpsErrorTrendPoint{
 			BucketStart: bucket.UTC(),
 
-			ErrorCountTotal:      total,
-						ErrorCountSLA:        sla,
+			ErrorCountTotal: total,
+			ErrorCountSLA:   sla,
 
 			UpstreamErrorCountExcl429529: upstreamExcl,
 			Upstream429Count:             upstream429,
@@ -533,8 +533,8 @@ func fillOpsErrorTrendBuckets(start, end time.Time, bucketSeconds int, points []
 		out = append(out, &service.OpsErrorTrendPoint{
 			BucketStart: cursor,
 
-			ErrorCountTotal:      0,
-						ErrorCountSLA:        0,
+			ErrorCountTotal: 0,
+			ErrorCountSLA:   0,
 
 			UpstreamErrorCountExcl429529: 0,
 			Upstream429Count:             0,
@@ -588,8 +588,8 @@ LIMIT 20`
 		}
 		total += cntTotal
 		items = append(items, &service.OpsErrorDistributionItem{
-			StatusCode:      statusCode,
-			Total:           cntTotal,
+			StatusCode:   statusCode,
+			Total:        cntTotal,
 			SLAFaults:    cntSLAFaults,
 			ClientFaults: cntClient,
 		})

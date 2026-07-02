@@ -62,7 +62,8 @@ bash ops/observability/run-probe.sh \
 
 | 指纹 | 含义 | 处置 |
 |---|---|---|
-| `error_phase=routing` + `account_id=null` + `is_business_limited=true` | 空池 / 错组 key 误投（如 newapi 长尾模型用 anthropic 组 key 发 `/v1/messages`） | 客户端侧，**非系统**，不推送 |
+| `error_phase=routing` + `account_id=null` + `error_owner=client` | 错组 key 误投等客户端路由过错（如 newapi 长尾模型用 anthropic 组 key 发 `/v1/messages`） | 客户端侧，**非系统**，不推送 |
+| `error_phase=routing` + `error_owner=platform` | 空池 / 镜像 edge 下游容量拒绝（计入 SLA，但专用 `routing_capacity_rejection` 计数告警仍隔离风暴） | 容量侧；单点少量可不推送，**突升**按系统异常推送 |
 | `status_code=200` + `upstream_status_code∈{429,502,5xx}` | recovered-200：重试已成功，用户侧无感 | 不推送 |
 | `status_code=200` + `msg` 仅含 `cc_environment_stripped` / `cc_geo_stego_normalized`（或 `request_normalized` 审计类） | v1.8.64+ Anthropic CC prompt normalize 预期改写；`gateway.anthropic_request_normalized` 为 canonical 审计 | 不推送 |
 | `error_phase∈{request,upstream}` 的 4xx（`data_inspection_failed` 内容审核 / 退役模型 / prompt too long / 参数错） | 客户端输入或用法问题 | 不推送 |
@@ -70,7 +71,7 @@ bash ops/observability/run-probe.sh \
 
 **当前实例只作锚点、需复核（会变，别照搬）：** 截至最近观察，常见噪声为「某 deepseek/qwen 长尾模型经 anthropic 组 key 误投触发空池 429」「qwen 阿里内容审核 400」。这些**会随模型上下线、客户端改 key 而变化**——新会话先按上表规则现场判，再对照锚点确认是不是同一桩，**不要**把具体模型名当成永久"忽略清单"。
 
-相关记忆：`gateway_empty_pool_429_not_503`（空池 429 四分类，含错组 key 误投）、`project_account_incident_feishu_alert`（这类 business-limited 429 不触发飞书 P0 的结构盲区）。
+相关记忆：`gateway_empty_pool_429_not_503`（空池 429 四分类，含错组 key 误投）、`project_account_incident_feishu_alert`（`routing_capacity_rejection_count` 专用 P0 仍隔离 error_phase=routing 风暴；SLA 分子已含 platform 路由过错）。
 
 ## §5 挂 30 分钟循环
 

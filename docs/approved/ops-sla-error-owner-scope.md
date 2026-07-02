@@ -1,10 +1,10 @@
 ---
 title: Ops SLA error_owner scope
-status: draft
+status: pending
 approved_by: pending
 created: 2026-07-02
 owners: [tk-platform]
-scope: "Admin Ops SLA / error distribution public contract + tk_056 migration"
+scope: "Admin Ops SLA / error distribution public contract + tk_057 migration"
 ---
 
 # Ops SLA error_owner scope
