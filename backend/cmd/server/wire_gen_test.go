@@ -99,6 +99,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
 		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
+		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring
 	)
 
 	require.NotPanics(t, func() {

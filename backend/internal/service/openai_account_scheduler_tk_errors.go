@@ -89,7 +89,11 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 			stats = collectOpenAICompatSelectionFailureStats(accounts, requestedModel, excludedIDs)
 		}
 		if tkSelectionFailedDueToUnsupportedModel(stats) {
-			return fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))
+			err := fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))
+			if eval != nil && eval.svc != nil && eval.groupID != nil {
+				err = eval.svc.tkGroupUnsupportedModelRecordErr(eval.groupID, requestedModel, err)
+			}
+			return err
 		}
 	}
 	if groupPlatform != "" && groupPlatform != PlatformOpenAI {

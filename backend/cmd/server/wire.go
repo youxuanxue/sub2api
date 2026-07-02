@@ -160,6 +160,9 @@ func provideCleanup(
 	// resolver silently falls back to platform-level routing. See
 	// docs/approved/universal-key-routing.md.
 	_ service.TKUniversalModelsProviderReady,
+	// TokenKey: forces wire to evaluate ProvideTKGroupUnsupportedModelCache so
+	// the shared selection-time unsupported-model negative cache is wired at startup.
+	_ service.TKGroupUnsupportedModelCacheReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

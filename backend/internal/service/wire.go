@@ -751,6 +751,7 @@ var ProviderSet = wire.NewSet(
 	// resolver (APIKeyService) post-construction so resolution filters candidate
 	// groups by the models they actually serve. Consumed by provideCleanup.
 	ProvideTKUniversalModelsProvider,
+	ProvideTKGroupUnsupportedModelCache,
 	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
 	// getter + catalog-cache invalidator onto PricingService, does the initial
 	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
@@ -1110,4 +1111,27 @@ func ProvideTKPricingMissingNotifier(
 		geminiCompat.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
 	}
 	return n
+}
+
+// TKGroupUnsupportedModelCacheReady is a wire sentinel: holding it proves the
+// shared group×model unsupported negative cache is wired onto both gateways and
+// channel invalidation flush.
+type TKGroupUnsupportedModelCacheReady struct{}
+
+// ProvideTKGroupUnsupportedModelCache wires a shared per-replica negative cache
+// onto GatewayService and OpenAIGatewayService and registers channel flush.
+func ProvideTKGroupUnsupportedModelCache(
+	gw *GatewayService,
+	openaiGw *OpenAIGatewayService,
+	ch *ChannelService,
+) TKGroupUnsupportedModelCacheReady {
+	cache := newTkGroupUnsupportedModelNegativeCache()
+	if gw != nil {
+		gw.SetTkGroupUnsupportedModelCache(cache)
+	}
+	if openaiGw != nil {
+		openaiGw.SetTkGroupUnsupportedModelCache(cache)
+	}
+	registerTkGroupUnsupportedModelCacheFlusher(ch, cache)
+	return TKGroupUnsupportedModelCacheReady{}
 }

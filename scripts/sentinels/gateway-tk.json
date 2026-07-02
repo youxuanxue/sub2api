@@ -2280,7 +2280,8 @@
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
         "tkOpenAICompatChannelPricingRestrictionError(req.RequestedModel)",
-        "openAICompatNoCandidateEval"
+        "openAICompatNoCandidateEval",
+        "tkGroupUnsupportedModelShortCircuit"
       ],
       "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateError (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Reverting this one-line hook to the inline noAvailableOpenAISelectionError/platform-label returns compiles clean but re-buries 'client asked for a model nobody serves' inside the 429 capacity family, re-triggering false ops alerts. Only this branch routes here — the len(accounts)==0 and post-load-balance slot-acquire branches stay 429 (genuine capacity)."
     },
@@ -2313,6 +2314,43 @@
         "collectOpenAICompatSelectionFailureStatsForRequest"
       ],
       "rationale": "Regression coverage for prod 2026-07 wrong-key/wrong-group model requests: upstream channel restriction on passthrough accounts and Qwen-only groups must surface ErrUnsupportedModel instead of routing/platform 429."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_group_unsupported_cache.go",
+      "must_contain": [
+        "type tkGroupUnsupportedModelNegativeCache",
+        "func tkGroupUnsupportedModelShortCircuit",
+        "func tkGroupUnsupportedModelRecordErr",
+        "tk_group_unsupported_negative_cache_hit",
+        "tk_group_unsupported_negative_cache_populate",
+        "SetTkGroupUnsupportedModelCache",
+        "SetGroupUnsupportedModelCacheFlusher"
+      ],
+      "rationale": "Per-replica group×model negative cache for selection-time ErrUnsupportedModel (prod 2026-07 hammer). Short-circuits repeated wrong-model requests before listSchedulable/load-balance; flushes on channel invalidateCache. Complements tkModelNotFoundNegativeCache (Anthropic upstream 404 only)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_group_unsupported_cache_test.go",
+      "must_contain": [
+        "TestSelectAccountWithScheduler_CacheHitShortCircuits",
+        "TestChannelInvalidateCache_FlushesGroupUnsupportedCache"
+      ],
+      "rationale": "Regression: cache hit must short-circuit OpenAI-compat scheduler; channel CRUD invalidation must flush stale group×model verdicts."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "tkGroupUnsupportedModelShortCircuit",
+        "tkGroupUnsupportedModelRecordErr"
+      ],
+      "rationale": "Anthropic/Gemini SelectAccountWithLoadAwareness and SelectAccountForModelWithExclusions must consult the group unsupported negative cache before expensive account selection."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "tkGroupUnsupportedModelShortCircuit",
+        "tkGroupUnsupportedModelRecordErr"
+      ],
+      "rationale": "OpenAI-compat scheduler Select and selectAccountWithScheduler must consult/populate the shared group unsupported negative cache at the same entry points as channel pricing restriction."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",
