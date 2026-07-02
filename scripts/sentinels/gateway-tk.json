@@ -2241,9 +2241,10 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)"
+        "tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)",
+        "routingModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)"
       ],
-      "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through tkSelectFailureStatusMessage so an empty openai/newapi pool fast-fails 429 instead of 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min when both GPT accounts hit upstream 429). Reverting this one-line hook to the upstream 503 literal compiles clean but re-exposes the Caddy passive-health melt + SDK retry storm the no_available_accounts_tk.go sentinel documents."
+      "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through tkSelectFailureStatusMessage so an empty openai/newapi pool fast-fails 429 instead of 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min when both GPT accounts hit upstream 429). Account selection must use CanonicalizeOpenAICompatRoutingModel(routingModel) so gpt5.4-mini alias spellings hit the same restriction/negative-cache keys as gpt-5.4-mini (prod 2026-07 user16/key172). Reverting either hook compiles clean but re-exposes misclassification or alias drift."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -2274,7 +2275,7 @@
         "ErrUnsupportedModel",
         "func collectOpenAICompatSelectionFailureStats"
       ],
-      "rationale": "openAICompatNoCandidateError is the SHARED single exit for BOTH OpenAI-compat pool-emptied points (prod 2026-06-13): selectByLoadBalance len(filtered)==0 AND selectAccountForModelWithExclusions selectBestAccount→nil. When EVERY schedulable account was rejected purely because it does not serve the requested model NAME (account model_mapping OR per-account upstream channel restriction), it returns service.ErrUnsupportedModel (→ HTTP 400 invalid_request_error via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. tkOpenAICompatChannelPricingRestrictionError applies the same client-owned contract to group-level channel pricing allowlist rejects (prod 2026-07: Qwen-group direct key hammering gpt-5.4-mini). collectOpenAICompatSelectionFailureStatsForRequest counts passthrough accounts blocked only by isUpstreamModelRestrictedByChannel as model_unsupported; a model-supporting-but-filtered account stays Unschedulable so it SUPPRESSES the 400 (genuine capacity → keep 429)."
+      "rationale": "openAICompatNoCandidateError is the SHARED single exit for ALL THREE OpenAI-compat pool-emptied points (prod 2026-06-13 / 2026-07): selectByLoadBalance len(filtered)==0, selectAccountForModelWithExclusions selectBestAccount→nil, AND selectAccountWithLoadAwareness Layer-2 len(candidates)==0 (LoadBatchEnabled prod default). When EVERY schedulable account was rejected purely because it does not serve the requested model NAME (account model_mapping OR per-account upstream channel restriction), it returns service.ErrUnsupportedModel (→ HTTP 400 invalid_request_error via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. tkOpenAICompatChannelPricingRestrictionError applies the same client-owned contract to group-level channel pricing allowlist rejects (prod 2026-07: Qwen-group direct key hammering gpt-5.4-mini). collectOpenAICompatSelectionFailureStatsForRequest counts passthrough accounts blocked only by isUpstreamModelRestrictedByChannel as model_unsupported; a model-supporting-but-filtered account stays Unschedulable so it SUPPRESSES the 400 (genuine capacity → keep 429)."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
@@ -2289,9 +2290,11 @@
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "tkOpenAICompatChannelPricingRestrictionError(requestedModel)",
-        "openAICompatNoCandidateEval"
+        "openAICompatNoCandidateEval",
+        "CanonicalizeOpenAICompatRoutingModel(requestedModel)",
+        "func (s *OpenAIGatewayService) selectAccountWithLoadAwareness"
       ],
-      "rationale": "selectAccountForModelWithExclusions (the priority/LRU path used by count_tokens + sticky/legacy callers) must route its selected==nil exit through the SAME openAICompatNoCandidateError as the load-balance scheduler, so an unservable model NAME surfaces ErrUnsupportedModel→400 on every OpenAI-compat surface, not just /v1/chat/completions (prod 2026-06-13 parity). Reverting to the bare noAvailableOpenAISelectionError compiles clean but re-buries unservable-model as empty-pool 429 on these surfaces and makes the handler's ErrUnsupportedModel→400 mapping dead code there."
+      "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→400 on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -2311,6 +2314,7 @@
       "path": "backend/internal/service/openai_account_scheduler_tk_errors_test.go",
       "must_contain": [
         "TestSelectAccountWithScheduler_QwenGroupWrongModelReturnsUnsupported",
+        "TestSelectAccountWithLoadAwareness_QwenGroupWrongModelAliasReturnsUnsupported",
         "collectOpenAICompatSelectionFailureStatsForRequest"
       ],
       "rationale": "Regression coverage for prod 2026-07 wrong-key/wrong-group model requests: upstream channel restriction on passthrough accounts and Qwen-only groups must surface ErrUnsupportedModel instead of routing/platform 429."
@@ -2321,6 +2325,7 @@
         "type tkGroupUnsupportedModelNegativeCache",
         "func tkGroupUnsupportedModelShortCircuit",
         "func tkGroupUnsupportedModelRecordErr",
+        "CanonicalizeOpenAICompatRoutingModel",
         "tk_group_unsupported_negative_cache_hit",
         "tk_group_unsupported_negative_cache_populate",
         "SetTkGroupUnsupportedModelCache",
@@ -2332,7 +2337,8 @@
       "path": "backend/internal/service/gateway_service_tk_group_unsupported_cache_test.go",
       "must_contain": [
         "TestSelectAccountWithScheduler_CacheHitShortCircuits",
-        "TestChannelInvalidateCache_FlushesGroupUnsupportedCache"
+        "TestChannelInvalidateCache_FlushesGroupUnsupportedCache",
+        "gpt5.4-mini"
       ],
       "rationale": "Regression: cache hit must short-circuit OpenAI-compat scheduler; channel CRUD invalidation must flush stale group×model verdicts."
     },
@@ -2348,9 +2354,26 @@
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
         "tkGroupUnsupportedModelShortCircuit",
-        "tkGroupUnsupportedModelRecordErr"
+        "tkGroupUnsupportedModelRecordErr",
+        "CanonicalizeOpenAICompatRoutingModel(requestedModel)"
       ],
-      "rationale": "OpenAI-compat scheduler Select and selectAccountWithScheduler must consult/populate the shared group unsupported negative cache at the same entry points as channel pricing restriction."
+      "rationale": "OpenAI-compat scheduler Select and selectAccountWithScheduler must consult/populate the shared group unsupported negative cache at the same entry points as channel pricing restriction, and canonicalize requested model spellings before cache/restriction lookups."
+    },
+    {
+      "path": "backend/internal/service/openai_model_alias.go",
+      "must_contain": [
+        "func CanonicalizeOpenAICompatRoutingModel(",
+        "canonicalizeOpenAIModelAliasSpelling"
+      ],
+      "rationale": "Single source for OpenAI-compat routing model spellings (gpt5.4-mini→gpt-5.4-mini) shared by account selection, channel restriction, negative cache, and /v1/chat/completions routingModel. Upstream merges dropping alias canonicalization silently re-open prod misclassification when clients use hyphenless model ids."
+    },
+    {
+      "path": "backend/internal/service/openai_model_alias_test.go",
+      "must_contain": [
+        "TestCanonicalizeOpenAICompatRoutingModel",
+        "gpt5.4-mini"
+      ],
+      "rationale": "Regression: hyphenless gpt5.4-mini wire spelling must canonicalize to gpt-5.4-mini for routing/restriction/cache parity."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",
