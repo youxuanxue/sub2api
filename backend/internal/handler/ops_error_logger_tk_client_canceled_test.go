@@ -43,13 +43,12 @@ func TestClassifyOpsUpstreamClientCanceledOwnedByClient(t *testing.T) {
 			Message:            `Post "https://api.anthropic.com/v1/messages?beta=true": context canceled`,
 		}})
 
-		phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+		phase, errorOwner, errorSource := classifyOpsErrorLog(
 			c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
 		require.Equal(t, "client_request", errorSource)
-		require.False(t, isBusinessLimited)
 	})
 
 	t.Run("inbound request context canceled (event message lacks cancel signature) via Request.Context", func(t *testing.T) {
@@ -67,7 +66,7 @@ func TestClassifyOpsUpstreamClientCanceledOwnedByClient(t *testing.T) {
 			Message:            "Upstream request failed",
 		}})
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(
+		phase, errorOwner, _ := classifyOpsErrorLog(
 			c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase)
@@ -98,7 +97,7 @@ func TestClassifyOpsUpstreamDeadlineExceededStaysProvider(t *testing.T) {
 				Message:            tc.message,
 			}})
 
-			phase, _, errorOwner, _ := classifyOpsErrorLog(
+			phase, errorOwner, _ := classifyOpsErrorLog(
 				c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 			require.Equal(t, "upstream", phase, "server-side timeout is genuine upstream evidence")
@@ -115,7 +114,7 @@ func TestClassifyOpsUpstream5xxWithStatusStaysProviderNotCancel(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusInternalServerError, "internal server error", "")
 
-	phase, _, errorOwner, _ := classifyOpsErrorLog(
+	phase, errorOwner, _ := classifyOpsErrorLog(
 		c, "upstream_error", "Upstream service temporarily unavailable", "", http.StatusBadGateway)
 
 	require.Equal(t, "upstream", phase)

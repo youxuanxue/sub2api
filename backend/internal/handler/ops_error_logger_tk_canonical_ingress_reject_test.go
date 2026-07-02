@@ -26,7 +26,7 @@ func TestClassifyOpsRelayedCanonicalIngressReject403OwnedByClient(t *testing.T) 
 		service.SetOpsUpstreamError(c, http.StatusForbidden, edgeMsg,
 			`{"type":"error","error":{"type":"permission_error","message":"`+edgeMsg+`"}}`)
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "permission_error", "Upstream request failed", "", http.StatusForbidden)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "permission_error", "Upstream request failed", "", http.StatusForbidden)
 
 		require.Equal(t, "request", phase, "relayed strict-403 must be client-owned, out of upstream_error_rate")
 		require.Equal(t, "client", errorOwner)
@@ -39,7 +39,7 @@ func TestClassifyOpsRelayedCanonicalIngressReject403OwnedByClient(t *testing.T) 
 			"This organization has been disabled.",
 			`{"type":"error","error":{"type":"permission_error","message":"This organization has been disabled."}}`)
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "permission_error", "Upstream request failed", "", http.StatusForbidden)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "permission_error", "Upstream request failed", "", http.StatusForbidden)
 
 		require.Equal(t, "upstream", phase)
 		require.Equal(t, "provider", errorOwner)

@@ -89,8 +89,8 @@ describe('Ops SLA-scoped error charts', () => {
         data: {
           total: 10,
           items: [
-            { status_code: 400, total: 7, sla: 2, business_limited: 5 },
-            { status_code: 503, total: 3, sla: 0, business_limited: 3 },
+            { status_code: 400, total: 7, sla_faults: 2, client_faults: 5 },
+            { status_code: 503, total: 3, sla_faults: 0, client_faults: 3 },
           ],
         },
       },
@@ -111,7 +111,7 @@ describe('Ops SLA-scoped error charts', () => {
         loading: false,
         data: {
           total: 4,
-          items: [{ status_code: 500, total: 4, sla: 0, business_limited: 4 }],
+          items: [{ status_code: 500, total: 4, sla_faults: 0, client_faults: 4 }],
         },
       },
       global: globalStubs,
@@ -130,7 +130,6 @@ describe('Ops SLA-scoped error charts', () => {
           {
             bucket_start: '2026-05-18T00:00:00Z',
             error_count_total: 5,
-            business_limited_count: 5,
             error_count_sla: 0,
             upstream_error_count_excl_429_529: 0,
             upstream_429_count: 0,

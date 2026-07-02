@@ -47,11 +47,9 @@ type OpsDashboardOverview struct {
 
 	SuccessCount         int64 `json:"success_count"`
 	ErrorCountTotal      int64 `json:"error_count_total"`
-	BusinessLimitedCount int64 `json:"business_limited_count"`
 
 	ErrorCountSLA     int64 `json:"error_count_sla"`
 	RequestCountTotal int64 `json:"request_count_total"`
-	RequestCountSLA   int64 `json:"request_count_sla"`
 
 	TokenConsumed int64 `json:"token_consumed"`
 

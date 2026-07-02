@@ -41,7 +41,6 @@ INSERT INTO ops_error_logs (
   error_type,
   severity,
   status_code,
-  is_business_limited,
   is_count_tokens,
   error_message,
   error_body,
@@ -62,7 +61,7 @@ INSERT INTO ops_error_logs (
   deleted_key_name,
   api_key_prefix
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -156,7 +155,6 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		input.ErrorType,
 		opsNullString(input.Severity),
 		opsNullInt(input.StatusCode),
-		input.IsBusinessLimited,
 		input.IsCountTokens,
 		opsNullString(input.ErrorMessage),
 		opsNullString(input.ErrorBody),
@@ -418,7 +416,6 @@ SELECT
   COALESCE(e.upstream_error_message, ''),
   COALESCE(e.upstream_error_detail, ''),
   COALESCE(e.upstream_errors::text, ''),
-  e.is_business_limited,
   e.user_id,
   COALESCE(u.email, ''),
   COALESCE(u.username, ''),
@@ -500,7 +497,6 @@ LIMIT 1`
 		&out.UpstreamErrorMessage,
 		&out.UpstreamErrorDetail,
 		&out.UpstreamErrors,
-		&out.IsBusinessLimited,
 		&userID,
 		&out.UserEmail,
 		&out.Username,
@@ -989,23 +985,20 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 		clauses = append(clauses, "COALESCE(e.resolved,false) = $"+itoa(len(args)))
 	}
 
-	// View filter: errors vs excluded vs all.
-	// Excluded = business-limited errors (quota/concurrency/billing).
-	// Upstream 429/529 are included in errors view to match SLA calculation.
+	// View filter: errors = platform/provider faults; excluded = client faults.
 	view := ""
 	if filter != nil {
 		view = strings.ToLower(strings.TrimSpace(filter.View))
 	}
 	switch view {
 	case "", "errors":
-		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = false")
+		clauses = append(clauses, "COALESCE(e.error_owner,'') IN ('provider','platform')")
 	case "excluded":
-		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = true")
+		clauses = append(clauses, "COALESCE(e.error_owner,'') = 'client'")
 	case "all":
 		// no-op
 	default:
-		// treat unknown as default 'errors'
-		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = false")
+		clauses = append(clauses, "COALESCE(e.error_owner,'') IN ('provider','platform')")
 	}
 	if len(filter.StatusCodes) > 0 {
 		args = append(args, pq.Array(filter.StatusCodes))

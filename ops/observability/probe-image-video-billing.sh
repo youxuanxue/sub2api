@@ -137,7 +137,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   COALESCE(model,'?')           AS model,
   error_phase, error_type,
   status_code, upstream_status_code,
-  is_business_limited,
+  error_owner,
   count(*)                      AS n
   FROM ops_error_logs WHERE (${IMG_E} OR ${VID_E}) AND created_at >= now() - ${C}
   GROUP BY 1,2,3,4,5,6,7,8 ORDER BY n DESC LIMIT 40) t;" 2>&1

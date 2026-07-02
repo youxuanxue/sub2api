@@ -124,7 +124,6 @@ type OpsInsertErrorLogInput struct {
 	ErrorType         string
 	Severity          string
 	StatusCode        int
-	IsBusinessLimited bool
 	IsCountTokens     bool // 是否为 count_tokens 请求
 
 	ErrorMessage string
@@ -168,10 +167,9 @@ type OpsInsertSystemMetricsInput struct {
 	Platform *string
 	GroupID  *int64
 
-	SuccessCount         int64
-	ErrorCountTotal      int64
-	BusinessLimitedCount int64
-	ErrorCountSLA        int64
+	SuccessCount    int64
+	ErrorCountTotal int64
+	ErrorCountSLA   int64
 
 	UpstreamErrorCountExcl429529 int64
 	Upstream429Count             int64

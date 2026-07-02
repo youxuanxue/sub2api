@@ -14,14 +14,13 @@ WITH b AS (SELECT now()-interval '${WINDOW_HOURS} hour' AS s, now() AS u)
 SELECT row_to_json(t) FROM (
   SELECT status_code,
          COALESCE(error_type,'')                       AS error_type,
-         COALESCE(is_business_limited,false)            AS biz_limited,
          COALESCE(error_owner,'')                       AS error_owner,
          COALESCE(error_phase,'')                       AS error_phase,
          left(COALESCE(error_message,''),80)            AS msg,
          COUNT(*) AS n
   FROM ops_error_logs l, b
   WHERE l.created_at>=b.s AND l.created_at<b.u AND status_code IN (429,502,503,500)
-  GROUP BY 1,2,3,4,5,6 ORDER BY n DESC LIMIT 40
+  GROUP BY 1,2,3,4,5 ORDER BY n DESC LIMIT 40
 ) t;" 2>&1
 
 echo

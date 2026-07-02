@@ -455,7 +455,7 @@ func TestEnforceCodexClientRestriction(t *testing.T) {
 		require.ErrorIs(t, err, errCodexClientRestricted)
 		require.Equal(t, http.StatusForbidden, rec.Code)
 		require.Contains(t, rec.Body.String(), "only allows Codex official clients")
-		require.True(t, HasOpsClientBusinessLimited(c))
+		require.True(t, HasOpsClientPolicyDenied(c))
 		// 响应体必须是单个干净 JSON，不含被追加的 SSE/error 终止帧。
 		require.NotContains(t, rec.Body.String(), "response.failed")
 		require.NotContains(t, rec.Body.String(), "event: error")

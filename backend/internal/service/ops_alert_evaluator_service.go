@@ -663,15 +663,12 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		// window — the client-visible "no available accounts" empty-pool fast-fail
 		// (429, #575) plus relayed cc-<edge> downstream-capacity rejections,
 		// isolated by error_phase='routing' (set EXCLUSIVELY for these; see
-		// CountRoutingCapacityRejections). This is the ONE signal that sees a
-		// thin-pool-race storm: those rows are is_business_limited=true and so are
-		// excluded from error_rate/upstream_error_rate (numerator AND denominator),
-		// and they cool no account so the account-/pool-level P0 channels never
-		// fire. Queried directly (not via GetDashboardOverview) so it stays out of
-		// the dashboard hot path and needs no overview struct field. NO
-		// rateSampleFloor: a count is self-flooring (low traffic → low count → no
-		// breach), and flooring it would wrongly suppress a real storm on an
-		// otherwise low-success window.
+		// CountRoutingCapacityRejections). Routing-phase platform faults now count in
+		// SLA/error_rate, but this dedicated count still isolates empty-pool storms
+		// for the P0 rule. Queried directly (not via GetDashboardOverview) so it
+		// stays off the dashboard hot path. NO rateSampleFloor: a count is
+		// self-flooring (low traffic → low count → no breach), and flooring it
+		// would wrongly suppress a real storm on an otherwise low-success window.
 		if s == nil || s.opsRepo == nil {
 			return 0, false
 		}
@@ -720,17 +717,17 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 
 	switch strings.TrimSpace(rule.MetricType) {
 	case "success_rate":
-		if overview.RequestCountSLA < rateSampleFloor {
+		if overview.RequestCountTotal < rateSampleFloor {
 			return 0, false
 		}
 		return overview.SLA * 100, true
 	case "error_rate":
-		if overview.RequestCountSLA < rateSampleFloor {
+		if overview.RequestCountTotal < rateSampleFloor {
 			return 0, false
 		}
 		return overview.ErrorRate * 100, true
 	case "upstream_error_rate":
-		if overview.RequestCountSLA < rateSampleFloor {
+		if overview.RequestCountTotal < rateSampleFloor {
 			return 0, false
 		}
 		return overview.UpstreamErrorRate * 100, true

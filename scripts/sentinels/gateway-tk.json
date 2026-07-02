@@ -2221,9 +2221,9 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "if service.HasOpsClientBusinessLimited(c) {"
+        "if service.HasOpsClientPolicyDenied(c) {"
       ],
-      "rationale": "ensureForwardErrorResponse must short-circuit when a client-business-limited rejection (codex_cli_only / IP restriction / feature gate) already wrote a complete client-facing response. Without this guard the fallback appends another error frame and corrupts the committed body into `{\"error\":...}event: response.failed...` (gin does not block writes after commit). Introduced with the upstream Wei-Shaw/sub2api#3014 fix; removing it brings back the dirty-403 body."
+      "rationale": "ensureForwardErrorResponse must short-circuit when a client-policy-denied rejection (codex_cli_only / IP restriction / feature gate) already wrote a complete client-facing response. Without this guard the fallback appends another error frame and corrupts the committed body into `{\"error\":...}event: response.failed...` (gin does not block writes after commit). Introduced with the upstream Wei-Shaw/sub2api#3014 fix; removing it brings back the dirty-403 body."
     },
     {
       "path": "backend/internal/handler/no_available_accounts_tk.go",

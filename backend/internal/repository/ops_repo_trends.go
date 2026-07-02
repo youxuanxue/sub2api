@@ -452,13 +452,12 @@ func (r *opsRepository) GetErrorTrend(ctx context.Context, filter *service.OpsDa
 SELECT
   ` + bucketExpr + ` AS bucket,
   COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400) AS error_total,
-  COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND is_business_limited) AS business_limited,
-  COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND NOT is_business_limited) AS error_sla,
+  COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND COALESCE(error_owner, '') IN ('provider', 'platform')) AS error_sla,
   -- TK: same final-failure (status >= 400) gate as dashboard upstream_excl — recovered-to-200
   -- provider retries must not count as upstream errors.
-  COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)) AS upstream_excl,
-  COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) = 429) AS upstream_429,
-  COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) = 529) AS upstream_529
+  COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)) AS upstream_excl,
+  COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) = 429) AS upstream_429,
+  COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) = 529) AS upstream_529
 FROM ops_error_logs
 ` + where + `
 GROUP BY 1
@@ -473,16 +472,15 @@ ORDER BY 1 ASC`
 	points := make([]*service.OpsErrorTrendPoint, 0, 256)
 	for rows.Next() {
 		var bucket time.Time
-		var total, businessLimited, sla, upstreamExcl, upstream429, upstream529 int64
-		if err := rows.Scan(&bucket, &total, &businessLimited, &sla, &upstreamExcl, &upstream429, &upstream529); err != nil {
+		var total, sla, upstreamExcl, upstream429, upstream529 int64
+		if err := rows.Scan(&bucket, &total, &sla, &upstreamExcl, &upstream429, &upstream529); err != nil {
 			return nil, err
 		}
 		points = append(points, &service.OpsErrorTrendPoint{
 			BucketStart: bucket.UTC(),
 
-			ErrorCountTotal:      total,
-			BusinessLimitedCount: businessLimited,
-			ErrorCountSLA:        sla,
+			ErrorCountTotal: total,
+			ErrorCountSLA:   sla,
 
 			UpstreamErrorCountExcl429529: upstreamExcl,
 			Upstream429Count:             upstream429,
@@ -535,9 +533,8 @@ func fillOpsErrorTrendBuckets(start, end time.Time, bucketSeconds int, points []
 		out = append(out, &service.OpsErrorTrendPoint{
 			BucketStart: cursor,
 
-			ErrorCountTotal:      0,
-			BusinessLimitedCount: 0,
-			ErrorCountSLA:        0,
+			ErrorCountTotal: 0,
+			ErrorCountSLA:   0,
 
 			UpstreamErrorCountExcl429529: 0,
 			Upstream429Count:             0,
@@ -566,8 +563,8 @@ func (r *opsRepository) GetErrorDistribution(ctx context.Context, filter *servic
 SELECT
   COALESCE(upstream_status_code, status_code, 0) AS status_code,
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE NOT is_business_limited) AS sla,
-  COUNT(*) FILTER (WHERE is_business_limited) AS business_limited
+  COUNT(*) FILTER (WHERE COALESCE(error_owner, '') IN ('provider', 'platform')) AS sla_faults,
+  COUNT(*) FILTER (WHERE COALESCE(error_owner, '') = 'client') AS client_faults
 FROM ops_error_logs
 ` + where + `
   AND COALESCE(status_code, 0) >= 400
@@ -585,16 +582,16 @@ LIMIT 20`
 	var total int64
 	for rows.Next() {
 		var statusCode int
-		var cntTotal, cntSLA, cntBiz int64
-		if err := rows.Scan(&statusCode, &cntTotal, &cntSLA, &cntBiz); err != nil {
+		var cntTotal, cntSLAFaults, cntClient int64
+		if err := rows.Scan(&statusCode, &cntTotal, &cntSLAFaults, &cntClient); err != nil {
 			return nil, err
 		}
 		total += cntTotal
 		items = append(items, &service.OpsErrorDistributionItem{
-			StatusCode:      statusCode,
-			Total:           cntTotal,
-			SLA:             cntSLA,
-			BusinessLimited: cntBiz,
+			StatusCode:   statusCode,
+			Total:        cntTotal,
+			SLAFaults:    cntSLAFaults,
+			ClientFaults: cntClient,
 		})
 	}
 	if err := rows.Err(); err != nil {

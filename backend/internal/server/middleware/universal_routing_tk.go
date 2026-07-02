@@ -215,7 +215,7 @@ func writeUniversalRoutingError(c *gin.Context, shape service.UniversalShape, mo
 	if model != "" {
 		msg = "No platform in your plan can serve model \"" + model + "\"."
 	}
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned)
+	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned)
 
 	switch shape {
 	case service.ShapeGemini:

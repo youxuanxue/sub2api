@@ -280,7 +280,7 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 		return fmt.Errorf("query usage latency: %w", err)
 	}
 
-	errorTotal, businessLimited, errorSLA, upstreamExcl, upstream429, upstream529, err := c.queryErrorCounts(ctx, windowStart, windowEnd)
+	errorTotal, errorSLA, upstreamExcl, upstream429, upstream529, err := c.queryErrorCounts(ctx, windowStart, windowEnd)
 	if err != nil {
 		return fmt.Errorf("query error counts: %w", err)
 	}
@@ -305,10 +305,9 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 		CreatedAt:     windowEnd,
 		WindowMinutes: 1,
 
-		SuccessCount:         successCount,
-		ErrorCountTotal:      errorTotal,
-		BusinessLimitedCount: businessLimited,
-		ErrorCountSLA:        errorSLA,
+		SuccessCount:    successCount,
+		ErrorCountTotal: errorTotal,
+		ErrorCountSLA:   errorSLA,
 
 		UpstreamErrorCountExcl429529: upstreamExcl,
 		Upstream429Count:             upstream429,
@@ -522,7 +521,6 @@ WHERE created_at >= $1 AND created_at < $2
 
 func (c *OpsMetricsCollector) queryErrorCounts(ctx context.Context, start, end time.Time) (
 	errorTotal int64,
-	businessLimited int64,
 	errorSLA int64,
 	upstreamExcl429529 int64,
 	upstream429 int64,
@@ -532,28 +530,26 @@ func (c *OpsMetricsCollector) queryErrorCounts(ctx context.Context, start, end t
 	q := `
 SELECT
   COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400), 0) AS error_total,
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND is_business_limited), 0) AS business_limited,
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND NOT is_business_limited), 0) AS error_sla,
+  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND COALESCE(error_owner, '') IN ('provider', 'platform')) AS error_sla,
   -- TK: same final-failure (status >= 400) gate as dashboard upstream_excl — recovered-to-200
   -- provider retries must not count as upstream errors.
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)), 0) AS upstream_excl,
-  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) = 429), 0) AS upstream_429,
-  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) = 529), 0) AS upstream_529
+  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)), 0) AS upstream_excl,
+  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) = 429), 0) AS upstream_429,
+  COALESCE(COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) = 529), 0) AS upstream_529
 FROM ops_error_logs
 WHERE created_at >= $1 AND created_at < $2
   AND is_count_tokens = FALSE`
 
 	if err := c.db.QueryRowContext(ctx, q, start, end).Scan(
 		&errorTotal,
-		&businessLimited,
 		&errorSLA,
 		&upstreamExcl429529,
 		&upstream429,
 		&upstream529,
 	); err != nil {
-		return 0, 0, 0, 0, 0, 0, err
+		return 0, 0, 0, 0, 0, err
 	}
-	return errorTotal, businessLimited, errorSLA, upstreamExcl429529, upstream429, upstream529, nil
+	return errorTotal, errorSLA, upstreamExcl429529, upstream429, upstream529, nil
 }
 
 func (c *OpsMetricsCollector) queryAccountSwitchCount(ctx context.Context, start, end time.Time) (int64, error) {

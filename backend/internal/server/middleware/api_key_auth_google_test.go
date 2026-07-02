@@ -417,8 +417,8 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	var businessLimitedReason string
 	r.Use(func(c *gin.Context) {
 		c.Next()
-		markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
-		if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
+		markedBusinessLimited = service.HasOpsClientPolicyDenied(c)
+		if v, ok := c.Get(service.OpsClientPolicyDeniedReasonKey); ok {
 			businessLimitedReason, _ = v.(string)
 		}
 	})
@@ -444,7 +444,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "API Key 所属分组已删除", resp.Error.Message)
 	require.True(t, markedBusinessLimited)
-	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
+	require.Equal(t, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable, businessLimitedReason)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {

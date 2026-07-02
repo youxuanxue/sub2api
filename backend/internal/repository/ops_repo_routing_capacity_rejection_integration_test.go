@@ -16,12 +16,11 @@ import (
 // ONLY ops_error_logs rows with error_phase='routing' (the local empty-pool
 // fast-fail 429 + relayed mirror-edge downstream-capacity rejections), and never
 // user-level rate limits (phase upstream/request/auth) — even though those are
-// also 429s and also is_business_limited. error_phase='routing' is the persisted
+// also 429s with owner=client. error_phase='routing' is the persisted
 // discriminator that makes a clean count possible without a new column.
 //
-// It also confirms these rows are simultaneously EXCLUDED from the ratio metrics
-// (error_rate/upstream_error_rate via NOT is_business_limited), which is exactly
-// why a dedicated count is required: without it an empty-pool storm is invisible.
+// Routing-phase platform faults now count toward SLA error_count_sla (owner IN
+// platform/provider) while client auth/request limits count only in the denominator.
 func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	ctx := context.Background()
 	_, _ = integrationDB.ExecContext(ctx, "TRUNCATE ops_error_logs RESTART IDENTITY CASCADE")
@@ -32,29 +31,29 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	windowEnd := windowStart.Add(time.Hour)
 	at := windowStart.Add(5 * time.Minute)
 
-	insert := func(phase, owner, platform, requestedModel, model string, statusCode int, businessLimited bool) {
+	insert := func(phase, owner, platform, requestedModel, model string, statusCode int) {
 		_, err := integrationDB.ExecContext(ctx, `
 			INSERT INTO ops_error_logs (
 				error_phase, error_type, severity, status_code,
-				error_owner, platform, requested_model, model, is_business_limited, created_at
-			) VALUES ($1, 'api_error', 'error', $2, $3, $4, $5, $6, $7, $8)`,
-			phase, statusCode, owner, platform, requestedModel, model, businessLimited, at,
+				error_owner, platform, requested_model, model, created_at
+			) VALUES ($1, 'api_error', 'error', $2, $3, $4, $5, $6, $7)`,
+			phase, statusCode, owner, platform, requestedModel, model, at,
 		)
 		require.NoError(t, err)
 	}
 
 	// Routing-phase capacity rejections — MUST be counted. Split across platforms
 	// so the top-cause breakdown is exercised (anthropic 2 : openai 1).
-	insert("routing", "platform", "anthropic", "claude-sonnet-4-5", "mapped-a", 429, true) // local empty pool fast-fail (#575)
-	insert("routing", "platform", "anthropic", "claude-sonnet-4-5", "mapped-b", 503, true) // relayed downstream-capacity (rare 503 terminal)
-	insert("routing", "platform", "openai", "", "gpt-5.1", 429, true)                      // a second platform's empty-pool rejection
+	insert("routing", "platform", "anthropic", "claude-sonnet-4-5", "mapped-a", 429) // local empty pool fast-fail (#575)
+	insert("routing", "platform", "anthropic", "claude-sonnet-4-5", "mapped-b", 503) // relayed downstream-capacity (rare 503 terminal)
+	insert("routing", "platform", "openai", "", "gpt-5.1", 429)                      // a second platform's empty-pool rejection
 
-	// NOT routing — must NOT be counted, even though some are 429 + business-limited:
-	insert("auth", "client", "anthropic", "claude-sonnet-4-5", "", 429, true)      // user-level rate limit (their own quota)
-	insert("upstream", "provider", "anthropic", "claude-opus-4-8", "", 429, false) // real provider rate_limit_error
-	insert("request", "client", "openai", "gpt-5.1", "", 429, true)                // concurrency/queue business limit
-	insert("internal", "platform", "gemini", "gemini-2.5-pro", "", 500, false)     // non-capacity platform error
-	insert("upstream", "provider", "openai", "gpt-5.1", "", 502, false)            // ordinary provider failure
+	// NOT routing — must NOT be counted, even though some are 429:
+	insert("auth", "client", "anthropic", "claude-sonnet-4-5", "", 429)      // user-level rate limit (their own quota)
+	insert("upstream", "provider", "anthropic", "claude-opus-4-8", "", 429) // real provider rate_limit_error
+	insert("request", "client", "openai", "gpt-5.1", "", 429)                // concurrency/queue client limit
+	insert("internal", "platform", "gemini", "gemini-2.5-pro", "", 500)     // non-capacity platform error
+	insert("upstream", "provider", "openai", "gpt-5.1", "", 502)            // ordinary provider failure
 
 	filter := &service.OpsDashboardFilter{
 		StartTime: windowStart,
@@ -91,15 +90,12 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	require.Equal(t, "gpt-5.1", models[1].Model, "legacy rows fall back to model when requested_model is blank")
 	require.EqualValues(t, 1, models[1].Count)
 
-	// Cross-check the blind spot: the three routing rows are business-limited →
-	// excluded from the ratio metrics' numerator AND denominator, which is exactly
-	// why the dedicated count is required. SLA error count = only the
-	// NOT-business-limited final failures: provider 429, internal 500, provider 502 = 3.
+	// SLA error count = platform/provider final failures only (client auth/request rows stay in denominator).
 	overview, err := repo.GetDashboardOverview(ctx, filter)
 	require.NoError(t, err)
 	require.NotNil(t, overview)
-	require.EqualValues(t, 3, overview.ErrorCountSLA,
-		"business-limited routing/auth/request rows are excluded from the SLA error count")
+	require.EqualValues(t, 6, overview.ErrorCountSLA,
+		"routing platform + provider/internal platform failures count toward SLA; client faults do not")
 }
 
 // TestTopRoutingCapacityRejectionByPlatform pins the JOINT breakdown that powers
@@ -142,8 +138,8 @@ func TestTopRoutingCapacityRejectionByPlatform(t *testing.T) {
 		_, err := integrationDB.ExecContext(ctx, `
 			INSERT INTO ops_error_logs (
 				error_phase, error_type, severity, status_code, error_owner,
-				platform, user_id, api_key_id, deleted_key_name, is_business_limited, created_at
-			) VALUES ($1, 'api_error', 'error', 429, 'platform', $2, $3, $4, $5, true, $6)`,
+				platform, user_id, api_key_id, deleted_key_name, created_at
+			) VALUES ($1, 'api_error', 'error', 429, 'platform', $2, $3, $4, $5, $6)`,
 			phase, platform, userID, apiKeyID, deletedKeyName, at)
 		require.NoError(t, err)
 	}

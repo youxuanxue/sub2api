@@ -309,7 +309,7 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 	}
 }
 
-func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsNoAvailableAccountsCountsAsPlatformSLAFault(t *testing.T) {
 	const message = "No available accounts"
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -318,23 +318,22 @@ func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
 	markOpsRoutingCapacityLimited(c)
 
 	errType := normalizeOpsErrorType("api_error", "")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
 
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "routing", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
 
-func TestClassifyOpsRoutingCapacityMarkerExcludesMaskedSelectionFailureFromSLA(t *testing.T) {
+func TestClassifyOpsRoutingCapacityMarkerCountsAsPlatformSLAFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
 	markOpsRoutingCapacityLimited(c)
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, errorOwner, errorSource := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"Service temporarily unavailable",
@@ -343,7 +342,6 @@ func TestClassifyOpsRoutingCapacityMarkerExcludesMaskedSelectionFailureFromSLA(t
 	)
 
 	require.Equal(t, "routing", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
@@ -470,11 +468,10 @@ func TestClassifyOpsAuthClientErrorsExcludedFromSLA(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 
 			errType := normalizeOpsErrorType(tt.errType, tt.code)
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
+			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
 
 			require.Equal(t, "api_error", errType)
 			require.Equal(t, "auth", phase)
-			require.True(t, isBusinessLimited)
 			require.Equal(t, "client", errorOwner)
 			require.Equal(t, "client_request", errorSource)
 		})
@@ -725,11 +722,10 @@ func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 
 			errType := normalizeOpsErrorType(tt.errType, tt.code)
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
+			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
 
 			require.Equal(t, tt.wantErrType, errType)
 			require.Equal(t, tt.wantPhase, phase)
-			require.True(t, isBusinessLimited)
 			require.Equal(t, "client", errorOwner)
 			require.Equal(t, "client_request", errorSource)
 		})
@@ -740,30 +736,28 @@ func TestClassifyOpsIPRestrictionAccessDeniedExcludedFromSLA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
+	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonIPRestriction)
 
 	errType := normalizeOpsErrorType("api_error", "ACCESS_DENIED")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Access denied", "ACCESS_DENIED", http.StatusForbidden)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Access denied", "ACCESS_DENIED", http.StatusForbidden)
 
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "auth", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client_request", errorSource)
 }
 
-func TestClassifyOpsClientBusinessLimitedMarkerExcludesCustomPolicyDenialFromSLA(t *testing.T) {
+func TestClassifyOpsClientPolicyDeniedMarkerExcludedFromSLAFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
 
 	errType := normalizeOpsErrorType("invalid_request_error", "")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "custom admin policy message", "", http.StatusBadRequest)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "custom admin policy message", "", http.StatusBadRequest)
 
 	require.Equal(t, "invalid_request_error", errType)
 	require.Equal(t, "auth", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client_request", errorSource)
 }
@@ -774,16 +768,16 @@ func TestClassifyOpsOtherErrorsStillCountForSLA(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 
 	errType := normalizeOpsErrorType("api_error", "INTERNAL_ERROR")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Failed to validate API key", "INTERNAL_ERROR", http.StatusInternalServerError)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Failed to validate API key", "INTERNAL_ERROR", http.StatusInternalServerError)
 
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "internal", phase)
-	require.False(t, isBusinessLimited)
+	require.NotEqual(t, "client", errorOwner)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
 
-func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsUnsupportedModelRoutingCountsAsPlatformSLAFault(t *testing.T) {
 	tests := []string{
 		"No available accounts: no available accounts supporting model: made-up-model",
 		"No available accounts: no available OpenAI accounts supporting model: made-up-model",
@@ -798,11 +792,10 @@ func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
 			markOpsRoutingCapacityLimited(c)
 
 			errType := normalizeOpsErrorType("api_error", "")
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
+			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
 
 			require.Equal(t, "api_error", errType)
 			require.Equal(t, "routing", phase)
-			require.True(t, isBusinessLimited)
 			require.Equal(t, "platform", errorOwner)
 			require.Equal(t, "gateway", errorSource)
 		})
@@ -814,7 +807,7 @@ func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, errorOwner, errorSource := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -823,7 +816,7 @@ func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
 	)
 
 	require.Equal(t, "routing", phase)
-	require.False(t, isBusinessLimited)
+	require.NotEqual(t, "client", errorOwner)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
@@ -952,7 +945,7 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 			service.SetOpsUpstreamError(c, tt.status, tt.message, "")
 
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+			phase, errorOwner, errorSource := classifyOpsErrorLog(
 				c,
 				"api_error",
 				tt.message,
@@ -961,7 +954,7 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 			)
 
 			require.Equal(t, "upstream", phase)
-			require.False(t, isBusinessLimited)
+			require.NotEqual(t, "client", errorOwner)
 			require.Equal(t, "provider", errorOwner)
 			require.Equal(t, "upstream_http", errorSource)
 		})
@@ -986,13 +979,13 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 // 429 (rate_limit_error) / raw 5xx carries no TokenKey phrase and still counts — see
 // TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper.
 // tkUpstreamDownstreamCapacity is the predicate; it folds into routingCapacityLimited.
-func TestClassifyOpsUpstreamNoAvailableTextExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsUpstreamNoAvailableTextCountsAsPlatformRoutingFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available accounts", "")
 
-	phase, isBusinessLimited, errorOwner, _ := classifyOpsErrorLog(
+	phase, errorOwner, _ := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -1001,8 +994,7 @@ func TestClassifyOpsUpstreamNoAvailableTextExcludedFromSLA(t *testing.T) {
 	)
 
 	require.Equal(t, "routing", phase, "relayed downstream-capacity verdict is routing, not provider health")
-	require.True(t, isBusinessLimited, "TK fleet capacity is a business/capacity limit, like a local empty pool")
-	require.Equal(t, "platform", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
+	require.Equal(t, "platform", errorOwner, "platform routing fault (SLA numerator), not provider upstream_error_rate")
 }
 
 func TestParseOpsErrorResponsePreservesNestedStringCode(t *testing.T) {

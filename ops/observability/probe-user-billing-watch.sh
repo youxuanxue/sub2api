@@ -105,7 +105,7 @@ echo "=== errors: per-user by status/surface (window) ==="
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   user_id,
   CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
-  status_code, upstream_status_code, error_phase, error_type, is_business_limited,
+  status_code, upstream_status_code, error_phase, error_type, error_owner,
   count(*) AS n, max(created_at) AT TIME ZONE 'UTC' AS last_at_utc
   FROM ops_error_logs
   WHERE user_id IN (${IDS}) AND created_at >= now() - ${W}

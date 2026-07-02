@@ -35,7 +35,6 @@ INSERT INTO ops_system_metrics (
 
   success_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
 
   upstream_error_count_excl_429_529,
@@ -102,7 +101,6 @@ INSERT INTO ops_system_metrics (
 
 		input.SuccessCount,
 		input.ErrorCountTotal,
-		input.BusinessLimitedCount,
 		input.ErrorCountSLA,
 
 		input.UpstreamErrorCountExcl429529,

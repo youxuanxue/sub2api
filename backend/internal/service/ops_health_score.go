@@ -19,7 +19,7 @@ func computeDashboardHealthScore(now time.Time, overview *OpsDashboardOverview) 
 
 	// Idle/no-data: avoid showing a "bad" score when there is no traffic.
 	// UI can still render a gray/idle state based on QPS + error rate.
-	if overview.RequestCountSLA <= 0 && overview.RequestCountTotal <= 0 && overview.ErrorCountTotal <= 0 {
+	if overview.RequestCountTotal <= 0 && overview.ErrorCountTotal <= 0 {
 		return 100
 	}
 

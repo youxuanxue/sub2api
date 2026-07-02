@@ -505,8 +505,8 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 			var businessLimitedReason string
 			router.Use(func(c *gin.Context) {
 				c.Next()
-				markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
-				if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
+				markedBusinessLimited = service.HasOpsClientPolicyDenied(c)
+				if v, ok := c.Get(service.OpsClientPolicyDeniedReasonKey); ok {
 					businessLimitedReason, _ = v.(string)
 				}
 			})
@@ -526,7 +526,7 @@ func TestAPIKeyAuthRejectsUnavailableGroup(t *testing.T) {
 			}
 			require.Equal(t, tt.wantMarked, markedBusinessLimited)
 			if tt.wantMarked {
-				require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
+				require.Equal(t, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable, businessLimitedReason)
 			}
 		})
 	}
@@ -683,8 +683,8 @@ func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
 	var businessLimitedReason string
 	router.Use(func(c *gin.Context) {
 		c.Next()
-		markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
-		if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
+		markedBusinessLimited = service.HasOpsClientPolicyDenied(c)
+		if v, ok := c.Get(service.OpsClientPolicyDeniedReasonKey); ok {
 			businessLimitedReason, _ = v.(string)
 		}
 	})
@@ -704,7 +704,7 @@ func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code)
 	require.Contains(t, w.Body.String(), "not assigned to any group")
 	require.True(t, markedBusinessLimited)
-	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned, businessLimitedReason)
+	require.Equal(t, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned, businessLimitedReason)
 }
 
 func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPByDefault(t *testing.T) {
@@ -744,8 +744,8 @@ func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPByDefault(t *testin
 	var businessLimitedReason string
 	router.Use(func(c *gin.Context) {
 		c.Next()
-		markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
-		if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
+		markedBusinessLimited = service.HasOpsClientPolicyDenied(c)
+		if v, ok := c.Get(service.OpsClientPolicyDeniedReasonKey); ok {
 			businessLimitedReason, _ = v.(string)
 		}
 	})
@@ -766,7 +766,7 @@ func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPByDefault(t *testin
 	require.Equal(t, http.StatusForbidden, w.Code)
 	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 9.9.9.9")
 	require.True(t, markedBusinessLimited)
-	require.Equal(t, service.OpsClientBusinessLimitedReasonIPRestriction, businessLimitedReason)
+	require.Equal(t, service.OpsClientPolicyDeniedReasonIPRestriction, businessLimitedReason)
 }
 
 func TestAPIKeyAuthIPRestrictionIncludesClientIPForBlacklistDenial(t *testing.T) {

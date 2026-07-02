@@ -93,8 +93,7 @@ type OpsErrorLogDetail struct {
 	ResponseLatencyMs  *int64 `json:"response_latency_ms"`
 	TimeToFirstTokenMs *int64 `json:"time_to_first_token_ms"`
 
-	// vNext metric semantics
-	IsBusinessLimited bool `json:"is_business_limited"`
+	// vNext metric semantics — SLA faults use error_owner (see ops_sla_scope.go).
 
 	// Deleted key owner info (populated when INVALID_API_KEY and key was previously deleted)
 	AttemptedKeyPrefix    string `json:"attempted_key_prefix,omitempty"`

@@ -22,8 +22,9 @@ import (
 //
 // These tests pin the corrected classification: a relayed downstream-capacity
 // verdict ("no available accounts" / "all available accounts exhausted") is owned as
-// routing (phase=routing, error_owner=platform, businessLimited) so it drops out of
-// upstream_error_rate, while a genuine provider 429 (rate_limit_error) and raw 5xx
+// routing (phase=routing, error_owner=platform) so it stays out of
+// upstream_error_rate while still counting in SLA numerator; genuine provider 429
+// (rate_limit_error) and raw 5xx
 // keep counting. Setups mirror the relay forward site, which records an
 // appendOpsUpstreamError event carrying UpstreamStatusCode + UpstreamResponseBody.
 func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
@@ -70,12 +71,12 @@ func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 			c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{tc.event})
 
-			phase, isBusinessLimited, errorOwner, _ := classifyOpsErrorLog(
+			phase, errorOwner, _ := classifyOpsErrorLog(
 				c, "api_error", tc.errMsg, "", http.StatusTooManyRequests)
 
 			require.Equal(t, "routing", phase, "downstream-capacity verdict must be routing, not upstream")
 			require.Equal(t, "platform", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
-			require.True(t, isBusinessLimited, "downstream capacity is a TK business/capacity limit, like a local empty pool")
+			require.Equal(t, "platform", errorOwner, "downstream capacity is a platform routing fault in SLA numerator")
 		})
 	}
 }
@@ -121,7 +122,7 @@ func TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper(t *testing
 			c, _ := gin.CreateTestContext(rec)
 			c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{tc.event})
 
-			phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", tc.errMsg, "", tc.status)
+			phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", tc.errMsg, "", tc.status)
 
 			require.Equal(t, "upstream", phase, "genuine provider error must stay upstream")
 			require.Equal(t, "provider", errorOwner, "must keep counting toward upstream_error_rate")

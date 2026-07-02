@@ -112,9 +112,8 @@ func TestBuildCyberSessionBlockedOpsEntry(t *testing.T) {
 	require.Equal(t, 403, entry.StatusCode)
 	require.Equal(t, "cyber_policy_session_blocked", entry.ErrorType)
 	require.Equal(t, "request", entry.ErrorPhase)
-	require.True(t, entry.IsBusinessLimited)
-	require.Equal(t, "gateway_local", entry.ErrorSource)
 	require.Equal(t, "platform", entry.ErrorOwner)
+	require.Equal(t, "gateway_local", entry.ErrorSource)
 	require.Empty(t, entry.ErrorBody, "no session block key → ErrorBody must be empty")
 
 	entryWithKey := buildCyberSessionBlockedOpsEntry(cyberPolicyOpsErrorMeta{

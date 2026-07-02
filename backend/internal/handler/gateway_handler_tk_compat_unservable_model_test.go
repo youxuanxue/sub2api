@@ -119,7 +119,7 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 // TestCompatHandlersUnservableModelOpsClassification verifies the SECOND cascade
 // row (ops attribution): an unservable-model 400 on these two endpoints must log as
 // a CLIENT-owned request error (phase=request, error_owner=client, error_source=
-// client_request, is_business_limited=false) — NOT a routing-capacity event (the
+// client_request) — NOT a routing-capacity event (the
 // 429's mislabel) and NOT a gateway-internal error. Otherwise a client fault keeps
 // polluting the TK capacity/gateway dashboards.
 //
@@ -133,7 +133,7 @@ func TestCompatHandlersUnservableModelOpsClassification(t *testing.T) {
 	h := &GatewayHandler{}
 	unsupported := fmt.Errorf("%w: gpt (total=2 eligible=0 model_unsupported=2)", service.ErrUnsupportedModel)
 
-	classify := func(t *testing.T, path string, write func(c *gin.Context)) (phase, owner, source string, businessLimited bool, status int) {
+	classify := func(t *testing.T, path string, write func(c *gin.Context)) (phase, owner, source string, status int) {
 		t.Helper()
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -145,12 +145,12 @@ func TestCompatHandlersUnservableModelOpsClassification(t *testing.T) {
 		status = w.Code
 		parsed := parseOpsErrorResponse(w.Body.Bytes())
 		normalizedType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
-		phase, businessLimited, owner, source = classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
+		phase, owner, source = classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
 		return
 	}
 
 	t.Run("chat/completions 400 -> request/client", func(t *testing.T) {
-		phase, owner, source, bl, status := classify(t, "/v1/chat/completions", func(c *gin.Context) {
+		phase, owner, source, status := classify(t, "/v1/chat/completions", func(c *gin.Context) {
 			s, ty, m := tkSelectFailureStatusMessage(c, unsupported, "gpt")
 			h.chatCompletionsErrorResponse(c, s, ty, m)
 		})
@@ -158,11 +158,10 @@ func TestCompatHandlersUnservableModelOpsClassification(t *testing.T) {
 		assert.Equal(t, "request", phase)
 		assert.Equal(t, "client", owner)
 		assert.Equal(t, "client_request", source)
-		assert.False(t, bl)
 	})
 
 	t.Run("responses 400 -> request/client (type carried in code field)", func(t *testing.T) {
-		phase, owner, source, bl, status := classify(t, "/v1/responses", func(c *gin.Context) {
+		phase, owner, source, status := classify(t, "/v1/responses", func(c *gin.Context) {
 			s, ty, m := tkSelectFailureStatusMessage(c, unsupported, "gpt")
 			h.responsesErrorResponse(c, s, ty, m)
 		})
@@ -170,6 +169,5 @@ func TestCompatHandlersUnservableModelOpsClassification(t *testing.T) {
 		assert.Equal(t, "request", phase, "responses envelope carries type in `code`; ops parser must recover it")
 		assert.Equal(t, "client", owner)
 		assert.Equal(t, "client_request", source)
-		assert.False(t, bl)
 	})
 }
