@@ -348,8 +348,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .cache/fingerprint/client-fidelity-watch
-          RELEASE_JSON=".cache/fingerprint/client-release-watch/report.json"
-          RELEASE_MD=".cache/fingerprint/client-release-watch/report.md"
+          RELEASE_JSON="$(find .cache/fingerprint/client-release-watch -path '*/report.json' -print -quit 2>/dev/null || true)"
+          RELEASE_MD="$(find .cache/fingerprint/client-release-watch -path '*/report.md' -print -quit 2>/dev/null || true)"
           PROMPT_JSON=".cache/prompt-surface-watch/report.json"
           PROMPT_MD=".cache/prompt-surface-watch/report.md"
           ARGS=(
@@ -360,10 +360,10 @@ jobs:
             --report-json .cache/fingerprint/client-fidelity-watch/report.json
             --report-md .cache/fingerprint/client-fidelity-watch/report.md
           )
-          if [ -f "$RELEASE_JSON" ]; then
+          if [ -n "$RELEASE_JSON" ] && [ -f "$RELEASE_JSON" ]; then
             ARGS+=(--release-report-json "$RELEASE_JSON")
           fi
-          if [ -f "$RELEASE_MD" ]; then
+          if [ -n "$RELEASE_MD" ] && [ -f "$RELEASE_MD" ]; then
             ARGS+=(--release-report-md "$RELEASE_MD")
           fi
           if [ -f "$PROMPT_JSON" ]; then
