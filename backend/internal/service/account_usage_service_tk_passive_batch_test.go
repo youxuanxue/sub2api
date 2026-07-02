@@ -154,7 +154,8 @@ func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
 	require.NotNil(t, got[9].FiveHour)
 	require.NotNil(t, got[9].SevenDay)
 	require.Equal(t, 1.25, got[9].FiveHour.WindowStats.Cost)
-	require.Equal(t, int64(2), logRepo.singleCalls.Load(), "grok local 5h/7d windows come from usage logs")
+	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "grok local 5h/7d windows must be batched in overview")
+	require.Zero(t, logRepo.singleCalls.Load(), "grok local overview path must not issue per-account window queries")
 }
 
 func TestGetPassiveUsageBatch_IncludesLocalWindowAdapters(t *testing.T) {
@@ -176,7 +177,8 @@ func TestGetPassiveUsageBatch_IncludesLocalWindowAdapters(t *testing.T) {
 	require.Equal(t, 2.5, got[10].FiveHour.WindowStats.Cost)
 	require.Equal(t, 3.5, got[11].SevenDay.WindowStats.Cost)
 	require.NotContains(t, got, int64(12))
-	require.Equal(t, int64(4), logRepo.singleCalls.Load(), "two local-window accounts query 5h and 7d")
+	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "local-window accounts share 5h and 7d batch queries")
+	require.Zero(t, logRepo.singleCalls.Load(), "local-window overview path must not issue per-account window queries")
 }
 
 func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {

@@ -641,24 +641,37 @@ func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageIn
 
 func (s *AccountUsageService) buildLocalWindowUsage(ctx context.Context, account *Account) *UsageInfo {
 	now := time.Now()
+	if account == nil || s.usageLogRepo == nil {
+		return buildLocalWindowUsageFromStats(now, nil, nil)
+	}
+
+	var fiveHourStats *usagestats.AccountStats
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+		fiveHourStats = stats
+	}
+
+	var sevenDayStats *usagestats.AccountStats
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+		sevenDayStats = stats
+	}
+	return buildLocalWindowUsageFromStats(now, fiveHourStats, sevenDayStats)
+}
+
+func buildLocalWindowUsageFromStats(now time.Time, fiveHourStats, sevenDayStats *usagestats.AccountStats) *UsageInfo {
 	usage := &UsageInfo{
 		Source:    "passive",
 		UpdatedAt: &now,
 	}
-	if account == nil || s.usageLogRepo == nil {
-		return usage
-	}
-
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+	if fiveHourStats != nil {
 		usage.FiveHour = &UsageProgress{
 			Utilization: 0,
-			WindowStats: windowStatsFromAccountStats(stats),
+			WindowStats: windowStatsFromAccountStats(fiveHourStats),
 		}
 	}
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+	if sevenDayStats != nil {
 		usage.SevenDay = &UsageProgress{
 			Utilization: 0,
-			WindowStats: windowStatsFromAccountStats(stats),
+			WindowStats: windowStatsFromAccountStats(sevenDayStats),
 		}
 	}
 	return usage

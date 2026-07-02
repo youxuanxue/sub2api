@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 // GetPassiveUsageBatch 批量构建多个账号的「被动」用量窗口（与
@@ -47,9 +49,11 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 		return result
 	}
 
-	// 预热窗口统计缓存：仅 Anthropic OAuth/SetupToken 的被动路径会调 addWindowStats，
-	// 按窗口起点分桶批量查询，把每行一条聚合 SQL 退化为「不同窗口起点数」条。
+	// 预热窗口统计缓存：Anthropic OAuth/SetupToken 的被动路径会调 addWindowStats，
+	// local-window adapter 直接消费 5h/7d 本地窗口。两者都必须在批量入口走
+	// GetAccountWindowStatsBatch，避免账号列表页退化成 per-account 聚合 SQL。
 	s.prefetchWindowStatsForPassive(ctx, accounts)
+	localWindows := s.loadLocalWindowStatsForPassive(ctx, accounts)
 
 	for _, account := range accounts {
 		if account == nil {
@@ -58,13 +62,23 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 		if !accountUsageWindowAdapterSupportsPassive(accountUsageWindowAdapterFor(account)) {
 			continue
 		}
-		// TK perf: the account is already fully loaded (GetByIDs above), so build
-		// the passive usage straight from it instead of GetPassiveUsage(ctx, ID),
-		// which would re-issue a per-account GetByID (a PK lookup + a groups join)
-		// for data we already hold. With the window-stats cache prewarmed above,
-		// that GetByID was the last residual per-account DB round-trip in this
-		// fan-out. See getPassiveUsageForAccount.
-		usage, perr := s.getPassiveUsageForAccount(ctx, account)
+		var (
+			usage *UsageInfo
+			perr  error
+		)
+		if windows, ok := localWindows[account.ID]; ok {
+			now := time.Now()
+			usage = buildLocalWindowUsageFromStats(now, windows.fiveHour, windows.sevenDay)
+			attachUpstreamQuotaForAccount(account, usage)
+		} else {
+			// TK perf: the account is already fully loaded (GetByIDs above), so build
+			// the passive usage straight from it instead of GetPassiveUsage(ctx, ID),
+			// which would re-issue a per-account GetByID (a PK lookup + a groups join)
+			// for data we already hold. With the window-stats cache prewarmed above,
+			// that GetByID was the last residual per-account DB round-trip in this
+			// fan-out. See getPassiveUsageForAccount.
+			usage, perr = s.getPassiveUsageForAccount(ctx, account)
+		}
 		if perr != nil || usage == nil {
 			continue
 		}
@@ -132,4 +146,54 @@ func (s *AccountUsageService) prefetchWindowStatsForPassive(ctx context.Context,
 			})
 		}
 	}
+}
+
+type localWindowStatsForPassive struct {
+	fiveHour *usagestats.AccountStats
+	sevenDay *usagestats.AccountStats
+}
+
+func (s *AccountUsageService) loadLocalWindowStatsForPassive(ctx context.Context, accounts []*Account) map[int64]localWindowStatsForPassive {
+	result := make(map[int64]localWindowStatsForPassive)
+	if s.usageLogRepo == nil || len(accounts) == 0 {
+		return result
+	}
+
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil || accountUsageWindowAdapterFor(account) != accountUsageWindowAdapterLocal {
+			continue
+		}
+		ids = append(ids, account.ID)
+	}
+	if len(ids) == 0 {
+		return result
+	}
+
+	now := time.Now()
+	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
+		fiveHourByAccount, fiveErr := batchReader.GetAccountWindowStatsBatch(ctx, ids, now.Add(-5*time.Hour))
+		sevenDayByAccount, sevenErr := batchReader.GetAccountWindowStatsBatch(ctx, ids, now.Add(-7*24*time.Hour))
+		if fiveErr == nil && sevenErr == nil {
+			for _, id := range ids {
+				result[id] = localWindowStatsForPassive{
+					fiveHour: fiveHourByAccount[id],
+					sevenDay: sevenDayByAccount[id],
+				}
+			}
+			return result
+		}
+	}
+
+	for _, id := range ids {
+		var windows localWindowStatsForPassive
+		if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, id, now.Add(-5*time.Hour)); err == nil {
+			windows.fiveHour = stats
+		}
+		if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, id, now.Add(-7*24*time.Hour)); err == nil {
+			windows.sevenDay = stats
+		}
+		result[id] = windows
+	}
+	return result
 }
