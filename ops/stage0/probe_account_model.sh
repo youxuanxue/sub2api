@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Canonical account-model gateway probe — also used by edge native oauth smoke.
+# Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
 # Skill wrapper: .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh
 set -euo pipefail
 

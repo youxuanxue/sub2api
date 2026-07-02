@@ -371,7 +371,8 @@ func TestAccountHandlerGetAvailableModels_KiroOAuthUsesShortModelIDs(t *testing.
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	ids := modelIDSet(resp.Data)
 	require.True(t, ids["claude-sonnet-4-5"])
-	require.False(t, ids["claude-sonnet-4-5-20250929"], "Kiro rejects Anthropic dated snapshot IDs")
+	require.True(t, ids["claude-haiku-4-5"], "Kiro serves Haiku 4.5 on CodeWhisperer")
+	require.False(t, ids["claude-sonnet-4-5-20250929"], "admin list exposes short IDs only; dated IDs are normalized at forward time")
 }
 
 func TestAccountHandlerGetAvailableModels_GrokUsesGrokCatalog(t *testing.T) {

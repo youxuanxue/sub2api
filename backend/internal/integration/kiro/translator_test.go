@@ -39,6 +39,19 @@ func TestClaudeToKiro_MinimalUserMessage(t *testing.T) {
 	}
 }
 
+func TestMapModel_DatedAnthropicSnapshotsStripToDotForm(t *testing.T) {
+	cases := map[string]string{
+		"claude-haiku-4-5-20251001":  "claude-haiku-4.5",
+		"claude-sonnet-4-5-20250929": "claude-sonnet-4.5",
+		"claude-opus-4-8":            "claude-opus-4.8",
+	}
+	for input, want := range cases {
+		if got := MapModel(input); got != want {
+			t.Fatalf("MapModel(%q): want %q, got %q", input, want, got)
+		}
+	}
+}
+
 // TestKiroToClaudeResponse_Basic asserts the basic fields of the Claude-shaped
 // response synthesized from a Kiro completion.
 func TestKiroToClaudeResponse_Basic(t *testing.T) {

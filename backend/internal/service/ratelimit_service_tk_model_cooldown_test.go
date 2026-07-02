@@ -43,6 +43,8 @@ func TestTkAnthropicModelClass_Boundaries(t *testing.T) {
 		{"claude-3-5-sonnet-20241022", anthropicModelClassSonnet},
 		{"claude-3-5-haiku-20241022", anthropicModelClassHaiku},
 		{"claude-haiku-4-5", anthropicModelClassHaiku},
+		{"claude-fable-5", anthropicModelClassFable},
+		{"fable", anthropicModelClassFable},
 		{"  claude-opus-4-8  ", anthropicModelClassOpus},
 		{"", anthropicModelClassUnknown},
 		{"gpt-5.4", anthropicModelClassUnknown},
@@ -58,6 +60,7 @@ func TestTkAnthropicModelClassScopeKeyForModel(t *testing.T) {
 	require.Equal(t, tkModelClassScope("opus"), tkAnthropicModelClassScopeKeyForModel("claude-opus-4-8"))
 	require.Equal(t, tkModelClassScope("sonnet"), tkAnthropicModelClassScopeKeyForModel("claude-sonnet-4-5"))
 	require.Equal(t, tkModelClassScope("haiku"), tkAnthropicModelClassScopeKeyForModel("claude-3-5-haiku"))
+	require.Equal(t, tkModelClassScope("fable"), tkAnthropicModelClassScopeKeyForModel("claude-fable-5"))
 	require.Empty(t, tkAnthropicModelClassScopeKeyForModel("gpt-5.4"))
 	require.Empty(t, tkAnthropicModelClassScopeKeyForModel(""))
 }

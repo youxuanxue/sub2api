@@ -79,3 +79,16 @@ bash ops/observability/run-probe.sh \
 ```
 
 For Kiro OAuth auth drift, switch to `tokenkey-kiro-reauth`. For any modelops work (catalog refresh, mapping drift, onboard), enter via `tokenkey-modelops-planner` first.
+
+## Batch Kiro Claude model matrix
+
+When validating which Claude ids a Kiro account (native edge OAuth or prod mirror stub) actually serves, run the batch wrapper (loops `probe_account_model.sh`):
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/stage0/probe_kiro_claude_models.sh \
+  --env ACCOUNT_ID=66
+```
+
+Override the default model list with `MODELS="claude-haiku-4-5 claude-opus-4-8 ..."` if needed.

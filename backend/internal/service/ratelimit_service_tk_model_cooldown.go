@@ -57,6 +57,7 @@ const (
 	anthropicModelClassOpus    = "opus"
 	anthropicModelClassSonnet  = "sonnet"
 	anthropicModelClassHaiku   = "haiku"
+	anthropicModelClassFable   = "fable"
 	anthropicModelClassUnknown = ""
 
 	// tkAnthropicModelCooldownReason is recorded on the model_rate_limits
@@ -77,7 +78,7 @@ const (
 )
 
 // tkAnthropicModelClass normalizes an Anthropic model name to its capacity
-// class (opus / sonnet / haiku). Returns "" when the class can't be
+// class (opus / sonnet / haiku / fable). Returns "" when the class can't be
 // determined — callers MUST treat unknown as "not model-scoped" and fall
 // back to account-level handling rather than guessing.
 //
@@ -96,6 +97,8 @@ func tkAnthropicModelClass(model string) string {
 		return anthropicModelClassSonnet
 	case strings.Contains(name, "haiku"):
 		return anthropicModelClassHaiku
+	case strings.Contains(name, "fable"):
+		return anthropicModelClassFable
 	default:
 		return anthropicModelClassUnknown
 	}
