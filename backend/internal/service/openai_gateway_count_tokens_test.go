@@ -76,7 +76,7 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuthFallsBackWhenPl
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusUnauthorized,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"unauthorized"}}`)),
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"input_tokens endpoint unsupported for this account type"}}`)),
 	}}
 
 	svc := &OpenAIGatewayService{
@@ -104,6 +104,45 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuthFallsBackWhenPl
 	require.Equal(t, "https://api.openai.com/v1/responses/input_tokens", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer oauth-token", upstream.lastReq.Header.Get("authorization"))
 	require.Empty(t, upstream.lastReq.Header.Get("Chatgpt-Account-Id"))
+}
+
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuth401DoesNotUseLocalEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"claude-opus-4-1","messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusUnauthorized,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"authentication_error","message":"unauthorized"}}`)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          203,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "gpt-5.4")
+	require.Error(t, err)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Contains(t, rec.Body.String(), "Upstream request failed")
+	require.NotNil(t, upstream.lastReq)
 }
 
 func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_NewAPIAuthGapUsesLocalEstimate(t *testing.T) {

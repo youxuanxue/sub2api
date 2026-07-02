@@ -113,7 +113,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 
 	if resp.StatusCode >= 400 {
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-		if account.Type == AccountTypeOAuth && isOpenAIOAuthInputTokensUnsupported(resp.StatusCode) {
+		if account.Type == AccountTypeOAuth && isOpenAIOAuthInputTokensUnsupported(resp.StatusCode, respBody) {
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
@@ -244,13 +244,18 @@ func isOpenAIInputTokensUnsupported(statusCode int, body []byte) bool {
 	return strings.Contains(msg, "input_tokens") && strings.Contains(msg, "not found")
 }
 
-func isOpenAIOAuthInputTokensUnsupported(statusCode int) bool {
+func isOpenAIOAuthInputTokensUnsupported(statusCode int, body []byte) bool {
 	switch statusCode {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
-		return true
 	default:
 		return false
 	}
+	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if msg == "" {
+		msg = strings.ToLower(strings.TrimSpace(string(body)))
+	}
+	return strings.Contains(msg, "input_tokens") &&
+		(strings.Contains(msg, "not found") || strings.Contains(msg, "unsupported"))
 }
 
 func isOpenAICompatCountTokensCapabilityGap(account *Account, err error) bool {
