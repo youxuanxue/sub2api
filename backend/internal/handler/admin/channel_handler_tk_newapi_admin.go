@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapifusion "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 
 	"github.com/gin-gonic/gin"
 )
