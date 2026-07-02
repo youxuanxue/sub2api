@@ -1222,6 +1222,33 @@
       "rationale": "Frontend client for POST /admin/accounts/usage/batch, mirroring getBatchTodayStats. Load-bearing for the accounts-list fan-out fix; if an upstream merge drops it, the composable's batch call fails to compile/resolve. Pins the exported client function."
     },
     {
+      "path": "frontend/src/components/account/usage-cells/UpstreamQuotaSummary.vue",
+      "must_contain": [
+        "defineProps<{",
+        "quota?: UpstreamQuotaInfo | null",
+        "formatDimensionLine",
+        "formatCreditLine"
+      ],
+      "rationale": "Shared admin account-card renderer for UsageInfo.upstream_quota. Capacity/balance/subscription data must be displayed from one normalized field instead of each platform cell inventing its own summary. Dropping this component leaves backend upstream_quota populated but invisible, or encourages duplicated per-platform UI logic."
+    },
+    {
+      "path": "frontend/src/types/index.ts",
+      "must_contain": [
+        "export interface UpstreamQuotaInfo",
+        "export interface UpstreamQuotaDimension",
+        "export interface UpstreamQuotaCredit",
+        "upstream_quota?: UpstreamQuotaInfo | null"
+      ],
+      "rationale": "TypeScript contract for the normalized upstream_quota field returned by /admin/accounts/:id/usage and edge usage DTOs. Losing these types makes the shared renderer impossible to consume safely and pushes platform-specific quota shapes back into cells."
+    },
+    {
+      "path": "frontend/src/utils/edgeAccounts.tk.ts",
+      "must_contain": [
+        "upstream_quota: s.usage.upstream_quota ?? null"
+      ],
+      "rationale": "Edge overview must lift the edge-side UsageInfo.upstream_quota into the same AccountUsageInfo shape used by AccountUsageCell. Without this line prod inline edge panels show local windows but silently drop upstream quota/capacity/credits from edge accounts."
+    },
+    {
       "path": "frontend/src/views/user/KeysView.vue",
       "must_contain": [
         "formData.universal = !formData.universal",

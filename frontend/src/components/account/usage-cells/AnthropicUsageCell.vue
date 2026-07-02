@@ -57,6 +57,7 @@
         :resets-at="usageInfo.seven_day_sonnet.resets_at"
         color="purple"
       />
+      <UpstreamQuotaSummary :quota="usageInfo.upstream_quota" />
       <div class="flex items-center gap-1.5 mt-0.5">
         <span
           v-if="usageInfo.source === 'passive'"
@@ -97,6 +98,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
+import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps

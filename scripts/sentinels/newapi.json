@@ -29,6 +29,15 @@
       "rationale": "NewAPI accounts, including Vertex service_account channel_type=41, do not expose a common upstream percentage-quota protocol. They must stay in the shared local-window adapter so admin accounts and edge overview show TokenKey 5h/7d billing windows from usage_logs instead of '-'. Dropping this adapter branch recreates the empty-window operator bug."
     },
     {
+      "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
+      "must_contain": [
+        "func attachUpstreamQuotaForAccount",
+        "account.Platform == PlatformNewAPI",
+        "unsupportedUpstreamQuota(\"newapi\""
+      ],
+      "rationale": "Unified upstream_quota projection must explicitly mark NewAPI/Vertex as unsupported rather than leaving the field absent. NewAPI channel providers have heterogeneous balance/quota APIs; Vertex service_account channel_type=41 currently has no GCP Billing/Monitoring/Service Usage integration, so the UI must show a clear unsupported upstream-quota state while local usage windows remain available."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
       "must_contain": [
         "listOpenAICompatSchedulableAccounts",

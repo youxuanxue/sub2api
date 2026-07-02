@@ -229,10 +229,11 @@ type edgeModelRateLimit struct {
 // Local-window adapters rely on window_stats to display activity, so the edge
 // overview forwards it instead of only sending utilization/reset shells.
 type edgeUsageWindows struct {
-	Source         string             `json:"source"`
-	FiveHour       *edgeUsageProgress `json:"five_hour,omitempty"`
-	SevenDay       *edgeUsageProgress `json:"seven_day,omitempty"`
-	SevenDaySonnet *edgeUsageProgress `json:"seven_day_sonnet,omitempty"`
+	Source         string                     `json:"source"`
+	FiveHour       *edgeUsageProgress         `json:"five_hour,omitempty"`
+	SevenDay       *edgeUsageProgress         `json:"seven_day,omitempty"`
+	SevenDaySonnet *edgeUsageProgress         `json:"seven_day_sonnet,omitempty"`
+	UpstreamQuota  *service.UpstreamQuotaInfo `json:"upstream_quota,omitempty"`
 	// Kiro credits/订阅/试用 (kiro platform only). kiro 没有 5h/7d 滚动窗，而是一个
 	// credits 预算 + 月度重置日 + 可选试用额度，故单列。
 	Kiro *edgeKiroUsage `json:"kiro,omitempty"`
@@ -383,6 +384,7 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 // toEdgeUsageWindows maps the passive UsageInfo to the DTO's window subset.
 func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
 	w := &edgeUsageWindows{Source: u.Source}
+	w.UpstreamQuota = u.UpstreamQuota
 	if u.FiveHour != nil {
 		w.FiveHour = &edgeUsageProgress{
 			Utilization: u.FiveHour.Utilization,
@@ -418,7 +420,7 @@ func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
 			w.Kiro.TrialExpiresAt = k.Trial.ExpiresAt
 		}
 	}
-	if w.FiveHour == nil && w.SevenDay == nil && w.SevenDaySonnet == nil && w.Kiro == nil {
+	if w.FiveHour == nil && w.SevenDay == nil && w.SevenDaySonnet == nil && w.Kiro == nil && w.UpstreamQuota == nil {
 		return nil
 	}
 	return w

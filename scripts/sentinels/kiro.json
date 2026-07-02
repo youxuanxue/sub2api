@@ -434,9 +434,20 @@
       "must_contain": [
         "case accountUsageWindowAdapterKiro:",
         "s.getKiroUsage(ctx, account, forceProbe)",
-        "return s.buildPassiveKiroUsage(account), nil"
+        "info := s.buildPassiveKiroUsage(account)",
+        "attachUpstreamQuotaForAccount(account, info)"
       ],
-      "rationale": "The kiro usage-window consumers must dispatch through the adapter to active getKiroUsage and passive buildPassiveKiroUsage. Losing either branch drops kiro usage/credits from admin cards or reintroduces the Anthropic OAuth fallthrough."
+      "rationale": "The kiro usage-window consumers must dispatch through the adapter to active getKiroUsage and passive buildPassiveKiroUsage, then attach the unified upstream_quota projection from the same UsageInfo. Losing any branch drops kiro usage/credits from admin cards, hides the cross-platform upstream quota summary, or reintroduces the Anthropic OAuth fallthrough."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
+      "must_contain": [
+        "func attachUpstreamQuotaForAccount",
+        "func buildKiroUpstreamQuota",
+        "Key:         \"kiro_credits\"",
+        "Key:         \"kiro_trial\""
+      ],
+      "rationale": "Unified upstream_quota adapter for Kiro credits/subscription/trial. Kiro has no 5h/7d upstream window; its upstream capacity is CodeWhisperer credits + monthly reset + trial expiry. Losing this projection leaves UsageInfo.KiroUsage present but the shared upstream quota UI blank."
     },
     {
       "path": "backend/internal/handler/edge_tk_accounts_handler.go",
@@ -444,9 +455,10 @@
         "type edgeKiroUsage struct",
         "type edgeSubscription struct",
         "func toEdgeSubscription",
-        "w.Kiro = &edgeKiroUsage{"
+        "w.Kiro = &edgeKiroUsage{",
+        "UpstreamQuota  *service.UpstreamQuotaInfo"
       ],
-      "rationale": "The edge DTO's credential-free 订阅 projection (edgeSubscription = plan_type + subscription_expires_at, projected by toEdgeSubscription from credentials) and the kiro credits window (edgeKiroUsage, mapped in toEdgeUsageWindows). These carry openai's subscription 到期 + kiro's credits/重置/试用 across the edge→prod boundary so the overview's PlatformTypeBadge + KiroUsageCell can render them. Losing them blanks openai subscription 到期 and kiro credits on every prod-side edge account row."
+      "rationale": "The edge DTO's credential-free 订阅 projection (edgeSubscription = plan_type + subscription_expires_at, projected by toEdgeSubscription from credentials), the kiro credits window (edgeKiroUsage), and the unified upstream_quota passthrough. These carry openai's subscription 到期 + kiro's credits/重置/试用 across the edge→prod boundary so the overview's PlatformTypeBadge, KiroUsageCell, and shared upstream quota summary can render them. Losing them blanks openai subscription 到期 and kiro credits on every prod-side edge account row."
     },
     {
       "path": "backend/internal/service/account_usage_service_tk_kiro_test.go",

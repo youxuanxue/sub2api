@@ -526,6 +526,10 @@ func TestEdgeAccountsHandler_PassesLocalWindowAdaptersToUsageBatch(t *testing.T)
 				Source:   "passive",
 				FiveHour: &service.UsageProgress{WindowStats: &service.WindowStats{Tokens: 2048}},
 				SevenDay: &service.UsageProgress{WindowStats: &service.WindowStats{Tokens: 8192}},
+				UpstreamQuota: &service.UpstreamQuotaInfo{
+					Provider: "newapi",
+					State:    "unsupported",
+				},
 			},
 		},
 	)
@@ -546,6 +550,9 @@ func TestEdgeAccountsHandler_PassesLocalWindowAdaptersToUsageBatch(t *testing.T)
 	require.NotNil(t, got.Usage.SevenDay)
 	require.NotNil(t, got.Usage.SevenDay.WindowStats)
 	require.Equal(t, int64(8192), got.Usage.SevenDay.WindowStats.Tokens)
+	require.NotNil(t, got.Usage.UpstreamQuota)
+	require.Equal(t, "newapi", got.Usage.UpstreamQuota.Provider)
+	require.Equal(t, "unsupported", got.Usage.UpstreamQuota.State)
 }
 
 func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {

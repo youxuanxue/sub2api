@@ -11,7 +11,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AccountUsageInfo, WindowStats } from '@/types'
+import type { AccountUsageInfo, UpstreamQuotaInfo, WindowStats } from '@/types'
 
 /**
  * One account as reported by an edge. Mirrors backend handler.edgeAccountDTO /
@@ -76,6 +76,7 @@ export interface EdgeUsageWindows {
   five_hour?: EdgeUsageProgress
   seven_day?: EdgeUsageProgress
   seven_day_sonnet?: EdgeUsageProgress
+  upstream_quota?: UpstreamQuotaInfo | null
   // Kiro credits/订阅/试用 (kiro platform only; mirrors backend edgeKiroUsage).
   kiro?: EdgeKiroUsage
 }

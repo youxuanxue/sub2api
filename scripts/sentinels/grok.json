@@ -178,6 +178,16 @@
       "rationale": "Grok usage-window support must classify as the shared local-window adapter and stay passive-capable; it must not fall through to the Anthropic OAuth usage API. The admin usage endpoint returns local 5h/7d billing windows for grok so the accounts table can show operator-visible activity without inventing an upstream xAI quota percentage."
     },
     {
+      "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
+      "must_contain": [
+        "func buildGrokUpstreamQuota",
+        "grokQuotaSnapshotFromExtra(account.Extra)",
+        "addGrokQuotaWindow(info, \"grok_requests\"",
+        "addGrokQuotaWindow(info, \"grok_tokens\""
+      ],
+      "rationale": "Unified upstream_quota projection for Grok must map the persisted xAI response-header snapshot (extra.grok_usage_snapshot) into request/token limit+remaining dimensions. Grok still uses local TokenKey 5h/7d usage windows for billing activity; this companion carries the separate upstream capacity/limit signal. Losing it reverts the account card to local usage only and hides xAI headers operators need for capacity triage."
+    },
+    {
       "path": "frontend/src/components/account/AccountUsageCell.vue",
       "must_contain": [
         "usesLocalUsageWindows(account)",

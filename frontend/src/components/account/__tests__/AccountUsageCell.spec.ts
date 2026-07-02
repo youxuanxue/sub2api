@@ -511,6 +511,28 @@ describe('AccountUsageCell', () => {
           standard_cost: 0.24,
           user_cost: 0.20
         }
+      },
+      upstream_quota: {
+        provider: 'grok',
+        source: 'headers',
+        state: 'observed',
+        subscription_tier: 'supergrok-heavy',
+        dimensions: [
+          {
+            key: 'grok_requests',
+            label: 'Requests',
+            unit: 'requests',
+            remaining: 800,
+            limit: 900
+          },
+          {
+            key: 'grok_tokens',
+            label: 'Tokens',
+            unit: 'tokens',
+            remaining: 14_000_000,
+            limit: 15_000_000
+          }
+        ]
       }
     })
 
@@ -540,6 +562,10 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledWith(2014, 'passive')
     expect(wrapper.text()).toContain('5h|0|4096')
     expect(wrapper.text()).toContain('7d|0|8192')
+    expect(wrapper.text()).toContain('grok')
+    expect(wrapper.text()).toContain('supergrok-heavy')
+    expect(wrapper.text()).toContain('Requests 800/900')
+    expect(wrapper.text()).toContain('Tokens 14.0M/15.0M')
   })
 
   it('NewAPI Vertex 账号通过本地窗口 adapter 展示 5h/7d 统计', async () => {

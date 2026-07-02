@@ -178,6 +178,51 @@ type AICredit struct {
 	MinimumBalance float64 `json:"minimum_balance,omitempty"`
 }
 
+// UpstreamQuotaInfo is the platform-neutral quota/capacity snapshot surfaced by
+// the account usage endpoint. Existing platform-specific fields remain for
+// compatibility, but admin UI quota display should prefer this normalized block.
+type UpstreamQuotaInfo struct {
+	Provider            string                   `json:"provider,omitempty"`
+	Source              string                   `json:"source,omitempty"` // active, passive, headers, simulated, unsupported
+	State               string                   `json:"state,omitempty"`  // observed, simulated, unsupported, unknown, degraded
+	UpdatedAt           *time.Time               `json:"updated_at,omitempty"`
+	StatusCode          int                      `json:"status_code,omitempty"`
+	SubscriptionTier    string                   `json:"subscription_tier,omitempty"`
+	SubscriptionTierRaw string                   `json:"subscription_tier_raw,omitempty"`
+	EntitlementStatus   string                   `json:"entitlement_status,omitempty"`
+	RetryAfterSeconds   *int                     `json:"retry_after_seconds,omitempty"`
+	ErrorCode           string                   `json:"error_code,omitempty"`
+	Error               string                   `json:"error,omitempty"`
+	Dimensions          []UpstreamQuotaDimension `json:"dimensions,omitempty"`
+	Credits             []UpstreamQuotaCredit    `json:"credits,omitempty"`
+}
+
+type UpstreamQuotaDimension struct {
+	Key         string     `json:"key"`
+	Label       string     `json:"label,omitempty"`
+	Unit        string     `json:"unit,omitempty"`   // requests, tokens, credits, percent
+	Window      string     `json:"window,omitempty"` // 5h, 7d, 1d, 1m, monthly, trial
+	Used        *float64   `json:"used,omitempty"`
+	Limit       *float64   `json:"limit,omitempty"`
+	Remaining   *float64   `json:"remaining,omitempty"`
+	Utilization *float64   `json:"utilization,omitempty"`
+	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+	Status      string     `json:"status,omitempty"`
+}
+
+type UpstreamQuotaCredit struct {
+	Key            string     `json:"key"`
+	Label          string     `json:"label,omitempty"`
+	Current        *float64   `json:"current,omitempty"`
+	Limit          *float64   `json:"limit,omitempty"`
+	Remaining      *float64   `json:"remaining,omitempty"`
+	MinimumBalance *float64   `json:"minimum_balance,omitempty"`
+	Utilization    *float64   `json:"utilization,omitempty"`
+	ResetsAt       *time.Time `json:"resets_at,omitempty"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	Status         string     `json:"status,omitempty"`
+}
+
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
 	Source             string         `json:"source,omitempty"`               // "passive" or "active"
@@ -220,6 +265,10 @@ type UsageInfo struct {
 
 	// Antigravity AI Credits 余额
 	AICredits []AICredit `json:"ai_credits,omitempty"`
+
+	// Unified upstream quota/capacity/balance snapshot. This is the display SSOT
+	// for cross-platform quota data; legacy fields above remain wire-compatible.
+	UpstreamQuota *UpstreamQuotaInfo `json:"upstream_quota,omitempty"`
 
 	// Antigravity 废弃模型转发规则 (old_model_id -> new_model_id)
 	ModelForwardingRules map[string]string `json:"model_forwarding_rules,omitempty"`
@@ -332,49 +381,55 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return nil, fmt.Errorf("get account failed: nil account")
 	}
 
+	var (
+		usage *UsageInfo
+		err   error
+	)
+
 	switch accountUsageWindowAdapterFor(account) {
 	case accountUsageWindowAdapterOpenAI:
-		usage, err := s.getOpenAIUsage(ctx, account, forceProbe)
+		usage, err = s.getOpenAIUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
 	case accountUsageWindowAdapterLocal:
-		return s.buildLocalWindowUsage(ctx, account), nil
+		usage = s.buildLocalWindowUsage(ctx, account)
 	case accountUsageWindowAdapterGemini:
-		usage, err := s.getGeminiUsage(ctx, account)
+		usage, err = s.getGeminiUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
 	case accountUsageWindowAdapterAntigravity:
 		// Antigravity OAuth 平台：使用 AntigravityQuotaFetcher 获取额度。
 		// Antigravity edge-relay apikey stubs 走 local adapter。
-		usage, err := s.getAntigravityUsage(ctx, account)
+		usage, err = s.getAntigravityUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
 	case accountUsageWindowAdapterKiro:
 		// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
 		// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。
-		usage, err := s.getKiroUsage(ctx, account, forceProbe)
+		usage, err = s.getKiroUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
 	case accountUsageWindowAdapterAnthropic:
 		// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）。
 		if account.Type == AccountTypeSetupToken {
-			usage := s.estimateSetupTokenUsage(account)
+			usage = s.estimateSetupTokenUsage(account)
 			s.addWindowStats(ctx, account, usage)
-			return usage, nil
+			break
 		}
-		return s.getAnthropicOAuthUsage(ctx, account, forceProbe)
+		usage, err = s.getAnthropicOAuthUsage(ctx, account, forceProbe)
+	default:
+		err = fmt.Errorf("account type %s does not support usage query", account.Type)
 	}
 
-	// API Key账号不支持usage查询
-	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
+	if err != nil {
+		return nil, err
+	}
+	attachUpstreamQuotaForAccount(account, usage)
+	return usage, nil
 }
 
 func (s *AccountUsageService) getAnthropicOAuthUsage(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
@@ -519,16 +574,22 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 	case accountUsageWindowAdapterOpenAI:
 		// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
 		// 5h/7d 窗口，绝不调用上游 /responses 探测。
-		return s.buildPassiveOpenAIUsage(account), nil
+		info := s.buildPassiveOpenAIUsage(account)
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
 	case accountUsageWindowAdapterKiro:
 		// Kiro 账号：从 Extra 的 kiro_usage_* 被动采样重建 credits/订阅/试用，绝不
 		// 调用上游 GetUsageLimits。
-		return s.buildPassiveKiroUsage(account), nil
+		info := s.buildPassiveKiroUsage(account)
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
 	case accountUsageWindowAdapterLocal:
 		// NewAPI / Grok / Antigravity edge stubs do not expose a common upstream
 		// percentage-quota protocol. Surface TokenKey account billing windows so
 		// operators still see activity from the same passive endpoint.
-		return s.buildLocalWindowUsage(ctx, account), nil
+		info := s.buildLocalWindowUsage(ctx, account)
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
 	case accountUsageWindowAdapterAnthropic:
 		// 复用 estimateSetupTokenUsage 构建 5h 窗口（OAuth 和 SetupToken 逻辑一致）
 		info := s.estimateSetupTokenUsage(account)
@@ -545,6 +606,7 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 		// 添加窗口统计
 		s.addWindowStats(ctx, account, info)
 
+		attachUpstreamQuotaForAccount(account, info)
 		return info, nil
 	default:
 		return nil, fmt.Errorf("passive usage only supported for account usage window adapters")
