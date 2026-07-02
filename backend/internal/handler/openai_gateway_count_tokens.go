@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -77,6 +78,11 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", parsedReq.Stream))
 
+	groupPlatform := service.PlatformOpenAI
+	if apiKey.Group != nil && strings.TrimSpace(apiKey.Group.Platform) != "" {
+		groupPlatform = apiKey.Group.Platform
+	}
+
 	setOpsRequestContext(c, reqModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
@@ -114,7 +120,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
 		reqLog.Warn("openai_count_tokens.account_select_failed", zap.Error(err))
-		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, service.PlatformOpenAI)
+		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, groupPlatform)
 		if !cls.ModelNotFound {
 			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 		}
@@ -122,7 +128,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 	if selection == nil || selection.Account == nil {
-		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, service.PlatformOpenAI)
+		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, groupPlatform)
 		if !cls.ModelNotFound {
 			markOpsRoutingCapacityLimited(c)
 		}

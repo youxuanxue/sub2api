@@ -76,7 +76,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 		zap.String("upstream_model", upstreamModel),
 	)
 
-	token, _, err := s.GetAccessToken(ctx, account)
+	token, _, err := s.getInputTokensAuthToken(ctx, account)
 	if err != nil {
 		writeAnthropicCountTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
 		return fmt.Errorf("get access token: %w", err)
@@ -158,6 +158,17 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	return nil
 }
 
+func (s *OpenAIGatewayService) getInputTokensAuthToken(ctx context.Context, account *Account) (string, string, error) {
+	if account == nil {
+		return "", "", fmt.Errorf("count_tokens: missing account")
+	}
+	if account.Platform == PlatformGrok {
+		token, err := s.grokResponsesAuthToken(ctx, account)
+		return token, "", err
+	}
+	return s.GetAccessToken(ctx, account)
+}
+
 func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 	ctx context.Context,
 	c *gin.Context,
@@ -166,7 +177,14 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 	token string,
 ) (*http.Request, error) {
 	targetURL := openaiPlatformAPIInputTokensURL
-	if account.Type == AccountTypeAPIKey {
+	switch {
+	case account.Platform == PlatformGrok:
+		grokURL, err := s.resolveGrokInputTokensUpstream(account)
+		if err != nil {
+			return nil, err
+		}
+		targetURL = grokURL
+	case account.Type == AccountTypeAPIKey:
 		if baseURL := account.GetOpenAIBaseURL(); strings.TrimSpace(baseURL) != "" {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
