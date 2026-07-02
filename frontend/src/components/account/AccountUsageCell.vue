@@ -15,6 +15,7 @@ import AnthropicUsageCell from './usage-cells/AnthropicUsageCell.vue'
 import OpenAIUsageCell from './usage-cells/OpenAIUsageCell.vue'
 import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
+import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
@@ -33,15 +34,12 @@ const activeCell = computed(() => {
     return AnthropicUsageCell
   }
 
-  // grok (xAI) is OpenAI-wire compatible and reuses the OpenAI 5h/7d usage
-  // window display. TK grok accounts are apikey edge-relay stubs (not the
-  // upstream OAuth-direct grok with passive xAI quota headers), so they share
-  // OpenAIUsageCell rather than a dedicated grok cell.
-  if (
-    (account.platform === 'openai' && account.type === 'oauth') ||
-    account.platform === 'grok'
-  ) {
+  if (account.platform === 'openai' && account.type === 'oauth') {
     return OpenAIUsageCell
+  }
+
+  if (account.platform === 'grok') {
+    return account.type === 'oauth' ? GrokUsageCell : OpenAIUsageCell
   }
 
   if (account.platform === 'antigravity' && account.type === 'oauth') {

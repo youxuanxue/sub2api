@@ -23,11 +23,11 @@
   <svg v-else-if="platform === 'newapi'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path d="M5 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm14 0a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM5 14a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm14 0a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM7.6 6.2l8.8 0v1.6h-8.8zM7.6 16.2l8.8 0v1.6h-8.8zM6.2 7.6l0 8.8h1.6v-8.8zM16.2 7.6l0 8.8h1.6v-8.8z" />
   </svg>
-  <!-- Grok/xAI logo mark -->
-  <svg v-else-if="platform === 'grok'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <path stroke-linecap="round" stroke-linejoin="round" d="M4 18 18 4" />
-    <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h11v11" />
-    <path stroke-linecap="round" stroke-linejoin="round" d="M5 6l13 13" />
+  <!-- Grok / xAI logo mark (stylized angular X) -->
+  <svg v-else-if="platform === 'grok'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
+    <path
+      d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"
+    />
   </svg>
   <!-- Fallback: generic platform icon -->
   <svg v-else :class="sizeClass" fill="currentColor" viewBox="0 0 24 24">

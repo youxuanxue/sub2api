@@ -24,7 +24,7 @@ func (r *kiroPassiveSyncRepo) UpdateExtra(_ context.Context, _ int64, updates ma
 }
 
 func (r *kiroPassiveSyncRepo) UpdateCredentials(_ context.Context, _ int64, credentials map[string]any) error {
-	r.credentials = cloneCredentials(credentials)
+	r.credentials = shallowCopyMap(credentials)
 	return nil
 }
 

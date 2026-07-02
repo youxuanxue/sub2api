@@ -73,6 +73,7 @@ type AccountTestService struct {
 	accountRepo               AccountRepository
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider
+	grokTokenProvider         *GrokTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
 	kiroGatewayService        *KiroGatewayService
 	rateLimitService          *RateLimitService
@@ -86,6 +87,7 @@ func NewAccountTestService(
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
 	claudeTokenProvider *ClaudeTokenProvider,
+	grokTokenProvider *GrokTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
 	kiroGatewayService *KiroGatewayService,
 	rateLimitService *RateLimitService,
@@ -97,6 +99,7 @@ func NewAccountTestService(
 		accountRepo:               accountRepo,
 		geminiTokenProvider:       geminiTokenProvider,
 		claudeTokenProvider:       claudeTokenProvider,
+		grokTokenProvider:         grokTokenProvider,
 		antigravityGatewayService: antigravityGatewayService,
 		kiroGatewayService:        kiroGatewayService,
 		rateLimitService:          rateLimitService,
@@ -671,29 +674,38 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		return s.testOpenAIImageOAuth(c, ctx, account, testModelID, imagePrompt)
 	}
 
+	credentialAccount := account
+	if account.IsCredentialShadow() {
+		resolved, err := resolveCredentialAccount(ctx, s.accountRepo, account)
+		if err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+		credentialAccount = resolved
+	}
+
 	// Determine authentication method and API URL
 	var authToken string
 	var apiURL string
 	var isOAuth bool
 
-	if account.IsOAuth() {
+	if credentialAccount.IsOAuth() {
 		isOAuth = true
 		// OAuth - use Bearer token with ChatGPT internal API
-		authToken = account.GetOpenAIAccessToken()
+		authToken = credentialAccount.GetOpenAIAccessToken()
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No access token available")
 		}
 
 		// OAuth uses ChatGPT internal API
 		apiURL = chatgptCodexAPIURL
-	} else if account.Type == "apikey" {
+	} else if credentialAccount.Type == "apikey" {
 		// API Key - use Platform API
-		authToken = account.GetOpenAIApiKey()
+		authToken = credentialAccount.GetOpenAIApiKey()
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
 
-		baseURL := account.GetOpenAIBaseURL()
+		baseURL := credentialAccount.GetOpenAIBaseURL()
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
@@ -737,7 +749,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		req.Host = "chatgpt.com"
 		req.Header.Set("accept", "text/event-stream")
-		setOpenAIChatGPTAccountHeaders(req.Header, account)
+		setOpenAIChatGPTAccountHeaders(req.Header, credentialAccount)
 	}
 
 	// Get proxy URL

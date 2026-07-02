@@ -25,6 +25,8 @@ type rateLimitAccountRepoStub struct {
 	lastErrorMsg           string
 	lastSchedulable        bool
 	lastTempReason         string
+	lastErrorID            int64
+	lastTempID             int64
 	accountOnGet           *Account
 	getByIDAccounts        []*Account
 
@@ -78,6 +80,7 @@ func (r *rateLimitAccountRepoStub) UpdateSessionWindow(ctx context.Context, id i
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
 	r.setErrorCalls++
+	r.lastErrorID = id
 	r.lastErrorMsg = errorMsg
 	return nil
 }
@@ -95,6 +98,7 @@ func (r *rateLimitAccountRepoStub) SetSchedulable(ctx context.Context, id int64,
 
 func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.tempCalls++
+	r.lastTempID = id
 	r.lastTempReason = reason
 	return nil
 }
@@ -106,9 +110,9 @@ func (r *rateLimitAccountRepoStub) ClearTempUnschedulable(ctx context.Context, i
 
 func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	r.updateCredentialsCalls++
-	r.lastCredentials = cloneCredentials(credentials)
+	r.lastCredentials = shallowCopyMap(credentials)
 	if r.accountOnGet != nil && r.accountOnGet.ID == id {
-		r.accountOnGet.Credentials = cloneCredentials(credentials)
+		r.accountOnGet.Credentials = shallowCopyMap(credentials)
 	}
 	return nil
 }
@@ -133,6 +137,11 @@ func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Acco
 	}
 	if r.accountOnGet != nil {
 		return r.accountOnGet, nil
+	}
+	if r.accountsByID != nil {
+		if account, ok := r.accountsByID[id]; ok {
+			return account, nil
+		}
 	}
 	if r.tempReasonOnGet == "" {
 		return nil, nil
@@ -357,6 +366,45 @@ func TestRateLimitService_HandleUpstreamError_OAuth401SetsTempUnschedulable(t *t
 		require.Equal(t, 0, repo.tempCalls)
 		require.Empty(t, invalidator.accounts)
 	})
+}
+
+// TestRateLimitService_HandleUpstreamError_SparkShadow401RedirectsToParent 外审第9轮:影子无独立凭据,
+// 401(母账号 token 问题)必须重定向到凭据 owner(母账号)——母账号 temp-unschedulable + token cache 失效,
+// 影子不得被永久禁用(否则母账号可恢复的 token 问题会把影子永久打死)。
+func TestRateLimitService_HandleUpstreamError_SparkShadow401RedirectsToParent(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	repo.accountsByID = map[int64]*Account{}
+	invalidator := &tokenCacheInvalidatorRecorder{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetTokenCacheInvalidator(invalidator)
+
+	const parentID = int64(500)
+	mother := &Account{
+		ID:          parentID,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"refresh_token": "rt-mother"},
+	}
+	repo.accountsByID[parentID] = mother
+
+	shadowParent := parentID
+	shadow := &Account{
+		ID:              501,
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		ParentAccountID: &shadowParent,
+		QuotaDimension:  QuotaDimensionSpark,
+		// 影子不持凭据:GetCredential("refresh_token") == ""
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), shadow, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "spark shadow must not be permanently disabled on a parent-token 401")
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, parentID, repo.lastTempID, "temp-unschedulable must target the credential owner (parent)")
+	require.Len(t, invalidator.accounts, 1)
+	require.Equal(t, parentID, invalidator.accounts[0].ID, "token cache invalidation must target the parent")
 }
 
 // TestRateLimitService_HandleUpstreamError_OAuth401InvalidatorError

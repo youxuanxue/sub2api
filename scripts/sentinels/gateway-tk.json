@@ -208,7 +208,7 @@
         "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
         "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
-        "s.tkDisableIfOAuth401OnValidToken(ctx, account, upstreamMsg)",
+        "s.tkDisableIfOAuth401OnValidToken(ctx, authAccount, upstreamMsg)",
         "oauth_401_immediate_disable",
         "case 413:",
         "anthropic_request_too_large_skip_penalty",
@@ -3511,7 +3511,7 @@
         "TestForwardAsChatCompletions_BufferedMissingTerminalBeforeOutputReturnsFailover",
         "TestForwardAsChatCompletions_BufferedMissingTerminalAfterOutputReturns502WithoutFailover",
         "TestForwardAsAnthropic_BufferedMissingTerminalBeforeOutputReturnsFailover",
-        "TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover",
+        "TestForwardAsAnthropic_BufferedContextWindowResponseFailedReturnsErrorWithoutFailover",
         "TestForwardAsChatCompletions_BufferedResponseFailedNonRetryableNoFailover",
         "TestForwardAsAnthropic_BufferedResponseFailedNonRetryableNoFailover"
       ],

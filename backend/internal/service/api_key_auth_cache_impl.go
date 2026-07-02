@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 13 // v13: include api_keys.routing_mode (universal key)
+const apiKeyAuthSnapshotVersion = 14 // v14: include universal-key routing and group peak-rate fields
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -262,6 +262,10 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			AllowImageGeneration:                   apiKey.Group.AllowImageGeneration,
 			ImageRateIndependent:                   apiKey.Group.ImageRateIndependent,
 			ImageRateMultiplier:                    apiKey.Group.ImageRateMultiplier,
+			PeakRateEnabled:                        apiKey.Group.PeakRateEnabled,
+			PeakStart:                              apiKey.Group.PeakStart,
+			PeakEnd:                                apiKey.Group.PeakEnd,
+			PeakRateMultiplier:                     apiKey.Group.PeakRateMultiplier,
 			ImagePrice1K:                           apiKey.Group.ImagePrice1K,
 			ImagePrice2K:                           apiKey.Group.ImagePrice2K,
 			ImagePrice4K:                           apiKey.Group.ImagePrice4K,
@@ -338,6 +342,10 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			AllowImageGeneration:                   snapshot.Group.AllowImageGeneration,
 			ImageRateIndependent:                   snapshot.Group.ImageRateIndependent,
 			ImageRateMultiplier:                    snapshot.Group.ImageRateMultiplier,
+			PeakRateEnabled:                        snapshot.Group.PeakRateEnabled,
+			PeakStart:                              snapshot.Group.PeakStart,
+			PeakEnd:                                snapshot.Group.PeakEnd,
+			PeakRateMultiplier:                     snapshot.Group.PeakRateMultiplier,
 			ImagePrice1K:                           snapshot.Group.ImagePrice1K,
 			ImagePrice2K:                           snapshot.Group.ImagePrice2K,
 			ImagePrice4K:                           snapshot.Group.ImagePrice4K,

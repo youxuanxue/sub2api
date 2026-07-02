@@ -1284,3 +1284,48 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 	})
 
 }
+
+func TestUsageLogRepositoryGetModelStatsWithUsageFiltersAppliesRequestedModelFilter(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	filters := usagestats.UsageLogFilters{Model: "gpt-5"}
+
+	mock.ExpectQuery("AND COALESCE\\(NULLIF\\(TRIM\\(requested_model\\), ''\\), model\\) = \\$3").
+		WithArgs(start, end, "gpt-5").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"model", "requests", "input_tokens", "output_tokens",
+			"cache_creation_tokens", "cache_read_tokens", "total_tokens",
+			"cost", "actual_cost", "account_cost",
+		}).AddRow("gpt-5", int64(1), int64(10), int64(20), int64(0), int64(0), int64(30), 0.1, 0.08, 0.07))
+
+	results, err := repo.GetModelStatsWithUsageFiltersBySource(context.Background(), start, end, filters, usagestats.ModelSourceRequested)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "gpt-5", results[0].Model)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageLogRepositoryGetGroupStatsWithUsageFiltersAppliesRequestedModelFilter(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	filters := usagestats.UsageLogFilters{Model: "gpt-5"}
+
+	mock.ExpectQuery("AND COALESCE\\(NULLIF\\(TRIM\\(ul.requested_model\\), ''\\), ul.model\\) = \\$3").
+		WithArgs(start, end, "gpt-5").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"group_id", "group_name", "requests", "total_tokens",
+			"cost", "actual_cost", "account_cost",
+		}).AddRow(int64(1), "default", int64(1), int64(30), 0.1, 0.08, 0.07))
+
+	results, err := repo.GetGroupStatsWithUsageFilters(context.Background(), start, end, filters)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, int64(1), results[0].GroupID)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

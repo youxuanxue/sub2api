@@ -26,6 +26,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -225,6 +226,8 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 	}
 
+	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
+
 	return item
 }
 
@@ -359,6 +362,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 		result[i] = item
 	}
+
+	h.enrichShadowParents(c.Request.Context(), result)
 
 	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite)
 	if etag != "" {
@@ -827,6 +832,12 @@ func (h *AccountHandler) PreviewFromCRS(c *gin.Context) {
 func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *service.Account) (*service.Account, string, error) {
 	if !account.IsOAuth() {
 		return nil, "", infraerrors.BadRequest("NOT_OAUTH", "cannot refresh non-OAuth account")
+	}
+	// spark 影子凭据由母账号管理、自身恒空,刷新无意义且会先打上游;在调用上游前早拒
+	// (覆盖单账号与批量两入口;批量侧将其计为 failed 并附说明)(外审第6轮)。
+	if account.IsCredentialShadow() {
+		return nil, "", infraerrors.BadRequest("SPARK_SHADOW_NO_REFRESH",
+			"cannot refresh spark shadow account; its credentials are managed by the parent account")
 	}
 
 	var newCredentials map[string]any
@@ -1823,7 +1834,7 @@ func (h *AccountHandler) ResetQuota(c *gin.Context) {
 	}
 
 	if err := h.adminService.ResetAccountQuota(c.Request.Context(), accountID); err != nil {
-		response.InternalError(c, "Failed to reset account quota: "+err.Error())
+		response.ErrorFrom(c, err)
 		return
 	}
 
@@ -2159,6 +2170,56 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	if account.IsKiro() || account.IsKiroMirrorStub() {
 		response.Success(c, service.KiroAdminTestModels())
+		return
+	}
+
+	// Handle Grok accounts
+	if account.Platform == service.PlatformGrok {
+		defaultModels := xai.DefaultModels()
+
+		hasExplicitMapping := false
+		switch rawMapping := account.Credentials["model_mapping"].(type) {
+		case map[string]any:
+			hasExplicitMapping = len(rawMapping) > 0
+		case map[string]string:
+			hasExplicitMapping = len(rawMapping) > 0
+		}
+		if !hasExplicitMapping {
+			response.Success(c, defaultModels)
+			return
+		}
+
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, defaultModels)
+			return
+		}
+
+		defaultByID := make(map[string]xai.Model, len(defaultModels))
+		for _, model := range defaultModels {
+			defaultByID[model.ID] = model
+		}
+
+		requestedModels := make([]string, 0, len(mapping))
+		for requestedModel := range mapping {
+			requestedModels = append(requestedModels, requestedModel)
+		}
+		sort.Strings(requestedModels)
+
+		var models []xai.Model
+		for _, requestedModel := range requestedModels {
+			if defaultModel, found := defaultByID[requestedModel]; found {
+				models = append(models, defaultModel)
+				continue
+			}
+			models = append(models, xai.Model{
+				ID:          requestedModel,
+				Object:      "model",
+				OwnedBy:     "xai",
+				DisplayName: requestedModel,
+			})
+		}
+		response.Success(c, models)
 		return
 	}
 

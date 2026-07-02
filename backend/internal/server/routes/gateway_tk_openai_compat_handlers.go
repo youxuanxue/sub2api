@@ -63,6 +63,28 @@ func tkOpenAICompatChatCompletionsPOST(h *handler.Handlers) gin.HandlerFunc {
 	}
 }
 
+func isNativeOpenAIMediaPlatform(platform string) bool {
+	return platform == service.PlatformOpenAI
+}
+
+func isGrokNativeVideoGenerationRoute(c *gin.Context) bool {
+	switch c.FullPath() {
+	case "/v1/videos/generations", "/videos/generations":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGrokNativeVideoStatusRoute(c *gin.Context) bool {
+	switch c.FullPath() {
+	case "/v1/videos/:task_id", "/videos/:task_id", "/v1/videos/:request_id", "/videos/:request_id":
+		return true
+	default:
+		return false
+	}
+}
+
 // tkOpenAICompatEmbeddingsHandler routes POST /embeddings for OpenAI-compat (incl. newapi) platform groups only.
 func tkOpenAICompatEmbeddingsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -82,6 +104,14 @@ func tkOpenAICompatEmbeddingsHandler(h *handler.Handlers) gin.HandlerFunc {
 // tkOpenAICompatImageGenerationsHandler routes POST /images/generations for OpenAI-compat platform groups only.
 func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok:
+			h.OpenAIGateway.GrokImages(c)
+			return
+		case service.PlatformOpenAI:
+			h.OpenAIGateway.ImageGenerations(c)
+			return
+		}
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -96,10 +126,20 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 	}
 }
 
-// tkOpenAICompatImageEditsHandler routes POST /images/edits for native OpenAI groups.
+// tkOpenAICompatImageEditsHandler routes POST /images/edits for native OpenAI
+// and Grok groups. NewAPI bridge channels do not currently expose a uniform
+// edit capability, so they stay gated here.
 func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) != service.PlatformOpenAI {
+		switch getGroupPlatform(c) {
+		case service.PlatformOpenAI:
+			h.OpenAIGateway.Images(c)
+			return
+		case service.PlatformGrok:
+			h.OpenAIGateway.GrokImages(c)
+			return
+		}
+		if !isNativeOpenAIMediaPlatform(getGroupPlatform(c)) {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -121,6 +161,10 @@ func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 // directly above.
 func tkOpenAICompatVideoSubmitHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformGrok && isGrokNativeVideoGenerationRoute(c) {
+			h.OpenAIGateway.GrokVideoGeneration(c)
+			return
+		}
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -142,6 +186,10 @@ func tkOpenAICompatVideoSubmitHandler(h *handler.Handlers) gin.HandlerFunc {
 // (e.g. anthropic key polling a newapi task) returns 404 here.
 func tkOpenAICompatVideoFetchHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformGrok && isGrokNativeVideoStatusRoute(c) {
+			h.OpenAIGateway.GrokVideoStatus(c)
+			return
+		}
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{

@@ -163,7 +163,7 @@ func TestForwardAsAnthropic_BufferedMissingTerminalAfterOutputReturns502WithoutF
 	require.Equal(t, "buffered_missing_terminal", events[0].Kind)
 }
 
-func TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover(t *testing.T) {
+func TestForwardAsAnthropic_BufferedContextWindowResponseFailedReturnsErrorWithoutFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -190,10 +190,10 @@ func TestForwardAsAnthropic_BufferedResponseFailedTriggersFailover(t *testing.T)
 	require.Error(t, err)
 	require.Nil(t, result)
 	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.Contains(t, string(failoverErr.ResponseBody), "input exceeds the context window")
-	require.False(t, c.Writer.Written())
+	require.False(t, errors.As(err, &failoverErr))
+	require.True(t, c.Writer.Written())
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, rec.Body.String(), "input exceeds the context window")
 }
 
 func TestForwardAsChatCompletions_BufferedResponseFailedNonRetryableNoFailover(t *testing.T) {

@@ -69,7 +69,11 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetModelsListConfig(groupIn.ModelsListConfig).
 		SetRpmLimit(groupIn.RPMLimit).
 		SetNillableMessagesCompactionEnabled(groupIn.MessagesCompactionEnabled).
-		SetNillableMessagesCompactionInputTokensThreshold(groupIn.MessagesCompactionInputTokensThreshold)
+		SetNillableMessagesCompactionInputTokensThreshold(groupIn.MessagesCompactionInputTokensThreshold).
+		SetPeakRateEnabled(groupIn.PeakRateEnabled).
+		SetPeakStart(groupIn.PeakStart).
+		SetPeakEnd(groupIn.PeakEnd).
+		SetPeakRateMultiplier(groupIn.PeakRateMultiplier)
 
 	// Sticky routing 策略（空字符串走 schema 默认值 "auto"）。
 	if mode := strings.TrimSpace(groupIn.StickyRoutingMode); mode != "" {
@@ -152,7 +156,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetModelsListConfig(groupIn.ModelsListConfig).
 		SetRpmLimit(groupIn.RPMLimit).
 		SetNillableMessagesCompactionEnabled(groupIn.MessagesCompactionEnabled).
-		SetNillableMessagesCompactionInputTokensThreshold(groupIn.MessagesCompactionInputTokensThreshold)
+		SetNillableMessagesCompactionInputTokensThreshold(groupIn.MessagesCompactionInputTokensThreshold).
+		SetPeakRateEnabled(groupIn.PeakRateEnabled).
+		SetPeakStart(groupIn.PeakStart).
+		SetPeakEnd(groupIn.PeakEnd).
+		SetPeakRateMultiplier(groupIn.PeakRateMultiplier)
 
 	// Sticky routing 策略（空字符串视为不变更，由 admin_service 决定是否传值）。
 	if mode := strings.TrimSpace(groupIn.StickyRoutingMode); mode != "" {
