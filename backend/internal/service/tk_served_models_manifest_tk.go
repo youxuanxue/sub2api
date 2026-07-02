@@ -28,9 +28,9 @@ type tkServedModelsManifestEntry struct {
 }
 
 var (
-	tkServedModelsManifestOnce              sync.Once
-	tkServedModelsManifestIDs               map[string]struct{}
-	tkServedModelsManifestIDsByChannelType  map[int][]string
+	tkServedModelsManifestOnce             sync.Once
+	tkServedModelsManifestIDs              map[string]struct{}
+	tkServedModelsManifestIDsByChannelType map[int][]string
 )
 
 func loadTkServedModelsManifestIDs() map[string]struct{} {
