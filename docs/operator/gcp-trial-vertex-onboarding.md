@@ -39,6 +39,8 @@ Imagen / Veo **必须**走下面「推荐路径」；不要用 AI Studio API key
 
 **Admin → 账号管理 → 新建账号**，按顺序操作：
 
+> **易错点**：不要选 **Gemini → Vertex / Service Account**。那是 Gemini 原生 Vertex 文本账号，平台会保存为 `platform = gemini`、`channel_type = 0`，不属于本指南的 Imagen / Veo 媒体桥。试用额度媒体账号必须先选 **扩展引擎（newapi）**，再在下方 **渠道类型** 选 **Vertex AI**。
+
 ### 1. 选平台与渠道
 
 | 步骤 | 选项 |
@@ -50,6 +52,7 @@ Imagen / Veo **必须**走下面「推荐路径」；不要用 AI Studio API key
 
 - **不会出现** Base URL / API Key 输入框（ch41 走 Service Account，不是 apikey 中继）。
 - 下方出现 **Service Account JSON** 区域（拖放 / 选择文件 / 文本框粘贴）。
+- 页面顶部会提示 **Google Cloud 试用额度 / Imagen / Veo 必须走扩展引擎 + Vertex AI（ch41）**；如果看到的是 Gemini 平台的 **Vertex / Service Account** 卡，说明走错入口。
 
 ### 2. 填写账号名与可服务模型
 
@@ -145,6 +148,7 @@ python3 docs/examples/media-generation/generate_media.py video "a puppy running 
 
 - **文本 chat**：原生 Gemini 平台即可；模型 ID 仍用上节 chat 三档（`gemini-2.5-flash` 等）。
 - **Imagen / Veo 媒体**：仍优先 **第二节 newapi + ch41**（专用媒体桥 + 计费路径更清晰）。
+- **Google Cloud $300 试用媒体账号**：不要用本节 Gemini 原生 Vertex；它会创建 `platform=gemini` 账号，无法进入 `google-vertex` newapi 媒体池。
 - 两条路径共用 JSON 粘贴组件；**ch41 账号**另需在模型限制里声明第二节列出的 ID。
 
 ---

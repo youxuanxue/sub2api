@@ -178,6 +178,51 @@ type AICredit struct {
 	MinimumBalance float64 `json:"minimum_balance,omitempty"`
 }
 
+// UpstreamQuotaInfo is the platform-neutral quota/capacity snapshot surfaced by
+// the account usage endpoint. Existing platform-specific fields remain for
+// compatibility, but admin UI quota display should prefer this normalized block.
+type UpstreamQuotaInfo struct {
+	Provider            string                   `json:"provider,omitempty"`
+	Source              string                   `json:"source,omitempty"` // active, passive, headers, simulated, unsupported
+	State               string                   `json:"state,omitempty"`  // observed, simulated, unsupported, unknown, degraded
+	UpdatedAt           *time.Time               `json:"updated_at,omitempty"`
+	StatusCode          int                      `json:"status_code,omitempty"`
+	SubscriptionTier    string                   `json:"subscription_tier,omitempty"`
+	SubscriptionTierRaw string                   `json:"subscription_tier_raw,omitempty"`
+	EntitlementStatus   string                   `json:"entitlement_status,omitempty"`
+	RetryAfterSeconds   *int                     `json:"retry_after_seconds,omitempty"`
+	ErrorCode           string                   `json:"error_code,omitempty"`
+	Error               string                   `json:"error,omitempty"`
+	Dimensions          []UpstreamQuotaDimension `json:"dimensions,omitempty"`
+	Credits             []UpstreamQuotaCredit    `json:"credits,omitempty"`
+}
+
+type UpstreamQuotaDimension struct {
+	Key         string     `json:"key"`
+	Label       string     `json:"label,omitempty"`
+	Unit        string     `json:"unit,omitempty"`   // requests, tokens, credits, percent
+	Window      string     `json:"window,omitempty"` // 5h, 7d, 1d, 1m, monthly, trial
+	Used        *float64   `json:"used,omitempty"`
+	Limit       *float64   `json:"limit,omitempty"`
+	Remaining   *float64   `json:"remaining,omitempty"`
+	Utilization *float64   `json:"utilization,omitempty"`
+	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+	Status      string     `json:"status,omitempty"`
+}
+
+type UpstreamQuotaCredit struct {
+	Key            string     `json:"key"`
+	Label          string     `json:"label,omitempty"`
+	Current        *float64   `json:"current,omitempty"`
+	Limit          *float64   `json:"limit,omitempty"`
+	Remaining      *float64   `json:"remaining,omitempty"`
+	MinimumBalance *float64   `json:"minimum_balance,omitempty"`
+	Utilization    *float64   `json:"utilization,omitempty"`
+	ResetsAt       *time.Time `json:"resets_at,omitempty"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	Status         string     `json:"status,omitempty"`
+}
+
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
 	Source             string         `json:"source,omitempty"`               // "passive" or "active"
@@ -220,6 +265,10 @@ type UsageInfo struct {
 
 	// Antigravity AI Credits 余额
 	AICredits []AICredit `json:"ai_credits,omitempty"`
+
+	// Unified upstream quota/capacity/balance snapshot. This is the display SSOT
+	// for cross-platform quota data; legacy fields above remain wire-compatible.
+	UpstreamQuota *UpstreamQuotaInfo `json:"upstream_quota,omitempty"`
 
 	// Antigravity 废弃模型转发规则 (old_model_id -> new_model_id)
 	ModelForwardingRules map[string]string `json:"model_forwarding_rules,omitempty"`
@@ -324,162 +373,160 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 		return nil, fmt.Errorf("get account failed: %w", err)
 	}
 
-	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {
-		usage, err := s.getOpenAIUsage(ctx, account, forceProbe)
+	return s.getUsageForAccount(ctx, account, forceProbe)
+}
+
+func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	if account == nil {
+		return nil, fmt.Errorf("get account failed: nil account")
+	}
+
+	var (
+		usage *UsageInfo
+		err   error
+	)
+
+	switch accountUsageWindowAdapterFor(account) {
+	case accountUsageWindowAdapterOpenAI:
+		usage, err = s.getOpenAIUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
-	}
-
-	if account.IsGrok() {
-		return s.buildLocalWindowUsage(ctx, account), nil
-	}
-
-	if account.Platform == PlatformGemini {
-		usage, err := s.getGeminiUsage(ctx, account)
+	case accountUsageWindowAdapterLocal:
+		usage = s.buildLocalWindowUsage(ctx, account)
+	case accountUsageWindowAdapterGemini:
+		usage, err = s.getGeminiUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
-	}
-
-	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
-	if account.Platform == PlatformAntigravity {
-		usage, err := s.getAntigravityUsage(ctx, account)
+	case accountUsageWindowAdapterAntigravity:
+		// Antigravity OAuth 平台：使用 AntigravityQuotaFetcher 获取额度。
+		// Antigravity edge-relay apikey stubs 走 local adapter。
+		usage, err = s.getAntigravityUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
-	}
-
-	// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
-	// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。必须在 CanGetUsage()
-	// 之前分流——kiro 是 type=oauth，否则会误入下面的 Anthropic 路径用 kiro token
-	// 打 anthropic 端点必然失败。见 account_usage_service_tk_kiro.go。
-	if account.IsKiro() {
-		usage, err := s.getKiroUsage(ctx, account, forceProbe)
+	case accountUsageWindowAdapterKiro:
+		// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
+		// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。
+		usage, err = s.getKiroUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
-		return usage, err
-	}
-
-	if account.Platform == PlatformGrok {
-		usage, err := s.getGrokUsage(ctx, account)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
+	case accountUsageWindowAdapterAnthropic:
+		// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）。
+		if account.Type == AccountTypeSetupToken {
+			usage = s.estimateSetupTokenUsage(account)
+			s.addWindowStats(ctx, account, usage)
+			break
 		}
-		return usage, err
+		usage, err = s.getAnthropicOAuthUsage(ctx, account, forceProbe)
+	default:
+		err = fmt.Errorf("account type %s does not support usage query", account.Type)
 	}
 
-	// 只有oauth类型账号可以通过API获取usage（有profile scope）
-	if account.CanGetUsage() {
-		// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
-		// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
-		// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
-		// 见 account_usage_service_tk_banned_shortcircuit.go。
-		if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
-			if passive, perr := s.GetPassiveUsage(ctx, accountID); perr == nil && passive != nil {
-				enrichUsageWithAccountError(passive, account)
-				return passive, nil
+	if err != nil {
+		return nil, err
+	}
+	attachUpstreamQuotaForAccount(account, usage)
+	return usage, nil
+}
+
+func (s *AccountUsageService) getAnthropicOAuthUsage(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	accountID := account.ID
+	// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
+	// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
+	// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
+	// 见 account_usage_service_tk_banned_shortcircuit.go。
+	if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
+		if passive, perr := s.getPassiveUsageForAccount(ctx, account); perr == nil && passive != nil {
+			enrichUsageWithAccountError(passive, account)
+			return passive, nil
+		}
+		info := &UsageInfo{Source: "active"}
+		enrichUsageWithAccountError(info, account)
+		return info, nil
+	}
+
+	var apiResp *ClaudeUsageResponse
+
+	// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
+	if cached, ok := s.cache.apiCache.Load(accountID); ok {
+		if cache, ok := cached.(*apiUsageCache); ok {
+			age := time.Since(cache.timestamp)
+			if cache.err != nil && age < apiErrorCacheTTL {
+				// 负缓存命中：返回缓存的错误，避免重试风暴。
+				// force 也尊重负缓存：上游 usage 端点刚 429 时，手动「查询」
+				// 不应在 1 分钟内反复打它。
+				return nil, cache.err
 			}
-			info := &UsageInfo{Source: "active"}
-			enrichUsageWithAccountError(info, account)
-			return info, nil
-		}
-
-		var apiResp *ClaudeUsageResponse
-
-		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
-		if cached, ok := s.cache.apiCache.Load(accountID); ok {
-			if cache, ok := cached.(*apiUsageCache); ok {
-				age := time.Since(cache.timestamp)
-				if cache.err != nil && age < apiErrorCacheTTL {
-					// 负缓存命中：返回缓存的错误，避免重试风暴。
-					// force 也尊重负缓存：上游 usage 端点刚 429 时，手动「查询」
-					// 不应在 1 分钟内反复打它。
-					return nil, cache.err
-				}
-				// force（手动「查询」）跳过正缓存命中以强制刷新，对齐 41e7ae53
-				// 对 OpenAI manual refresh 的修复；singleflight + jitter + 负缓存仍生效。
-				if !forceProbe && cache.response != nil && age < apiCacheTTL {
-					apiResp = cache.response
-				}
+			// force（手动「查询」）跳过正缓存命中以强制刷新，对齐 41e7ae53
+			// 对 OpenAI manual refresh 的修复；singleflight + jitter + 负缓存仍生效。
+			if !forceProbe && cache.response != nil && age < apiCacheTTL {
+				apiResp = cache.response
 			}
 		}
+	}
 
-		// 2. 如果没有有效缓存，通过 singleflight 从 API 获取（防止并发击穿）
-		if apiResp == nil {
-			// 随机延迟：打散多账号并发请求，避免同一时刻大量相同 TLS 指纹请求
-			// 触发上游反滥用检测。延迟范围 0~800ms，仅在缓存未命中时生效。
-			jitter := time.Duration(rand.Int64N(int64(apiQueryMaxJitter)))
-			select {
-			case <-time.After(jitter):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+	// 2. 如果没有有效缓存，通过 singleflight 从 API 获取（防止并发击穿）
+	if apiResp == nil {
+		// 随机延迟：打散多账号并发请求，避免同一时刻大量相同 TLS 指纹请求
+		// 触发上游反滥用检测。延迟范围 0~800ms，仅在缓存未命中时生效。
+		jitter := time.Duration(rand.Int64N(int64(apiQueryMaxJitter)))
+		select {
+		case <-time.After(jitter):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 
-			flightKey := fmt.Sprintf("usage:%d", accountID)
-			result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
-				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
-				if cached, ok := s.cache.apiCache.Load(accountID); ok {
-					if cache, ok := cached.(*apiUsageCache); ok {
-						age := time.Since(cache.timestamp)
-						if cache.err != nil && age < apiErrorCacheTTL {
-							return nil, cache.err
-						}
-						if !forceProbe && cache.response != nil && age < apiCacheTTL {
-							return cache.response, nil
-						}
+		flightKey := fmt.Sprintf("usage:%d", accountID)
+		result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
+			// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
+			if cached, ok := s.cache.apiCache.Load(accountID); ok {
+				if cache, ok := cached.(*apiUsageCache); ok {
+					age := time.Since(cache.timestamp)
+					if cache.err != nil && age < apiErrorCacheTTL {
+						return nil, cache.err
+					}
+					if !forceProbe && cache.response != nil && age < apiCacheTTL {
+						return cache.response, nil
 					}
 				}
-				resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
-				if fetchErr != nil {
-					// 负缓存：缓存错误响应，防止后续请求重复触发 429
-					s.cache.apiCache.Store(accountID, &apiUsageCache{
-						err:       fetchErr,
-						timestamp: time.Now(),
-					})
-					return nil, fetchErr
-				}
-				// 缓存成功响应
+			}
+			resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
+			if fetchErr != nil {
+				// 负缓存：缓存错误响应，防止后续请求重复触发 429
 				s.cache.apiCache.Store(accountID, &apiUsageCache{
-					response:  resp,
+					err:       fetchErr,
 					timestamp: time.Now(),
 				})
-				return resp, nil
-			})
-			if flightErr != nil {
-				return nil, flightErr
+				return nil, fetchErr
 			}
-			apiResp, _ = result.(*ClaudeUsageResponse)
+			// 缓存成功响应
+			s.cache.apiCache.Store(accountID, &apiUsageCache{
+				response:  resp,
+				timestamp: time.Now(),
+			})
+			return resp, nil
+		})
+		if flightErr != nil {
+			return nil, flightErr
 		}
-
-		// 3. 构建 UsageInfo（每次都重新计算 RemainingSeconds）
-		now := time.Now()
-		usage := s.buildUsageInfo(apiResp, &now)
-
-		// 4. 添加窗口统计（有独立缓存，1 分钟）
-		s.addWindowStats(ctx, account, usage)
-
-		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
-		s.syncActiveToPassive(ctx, account.ID, usage)
-
-		s.tryClearRecoverableAccountError(ctx, account)
-		return usage, nil
+		apiResp, _ = result.(*ClaudeUsageResponse)
 	}
 
-	// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）
-	if account.Type == AccountTypeSetupToken {
-		usage := s.estimateSetupTokenUsage(account)
-		// 添加窗口统计
-		s.addWindowStats(ctx, account, usage)
-		return usage, nil
-	}
+	// 3. 构建 UsageInfo（每次都重新计算 RemainingSeconds）
+	now := time.Now()
+	usage := s.buildUsageInfo(apiResp, &now)
 
-	// API Key账号不支持usage查询
-	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
+	// 4. 添加窗口统计（有独立缓存，1 分钟）
+	s.addWindowStats(ctx, account, usage)
+
+	// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
+	s.syncActiveToPassive(ctx, account.ID, usage)
+
+	s.tryClearRecoverableAccountError(ctx, account)
+	return usage, nil
 }
 
 // buildPassiveWindow 从 Extra 的被动采样键重建一个用量窗口（7d / 7d-Sonnet 同构）。
@@ -508,57 +555,62 @@ func buildPassiveWindow(extra map[string]any, utilKey, resetKey string) *UsagePr
 	}
 }
 
-// GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。
-// 仅适用于 Anthropic OAuth / SetupToken 账号。
+// GetPassiveUsage 从账号对应的被动 adapter 构建 UsageInfo，不调用外部 API。
 func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int64) (*UsageInfo, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account failed: %w", err)
 	}
 
-	// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
-	// 5h/7d 窗口，绝不调用上游 /responses 探测——与 edge 自身 admin 页的「被动」
-	// 读取同源。prod 跨 edge 概览（edge accounts overview）借此渲染 OpenAI 账号的
-	// 用量窗口，与 anthropic 行为一致；在此之前 OpenAI 走到下面的 gate 直接报错，
-	// 概览只能显示「-」。
-	if account.IsOpenAIOAuth() {
-		return s.buildPassiveOpenAIUsage(account), nil
+	return s.getPassiveUsageForAccount(ctx, account)
+}
+
+func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, account *Account) (*UsageInfo, error) {
+	if account == nil {
+		return nil, fmt.Errorf("get account failed: nil account")
 	}
 
-	// Kiro 账号：从 Extra 的 kiro_usage_* 被动采样重建 credits/订阅/试用，绝不
-	// 调用上游 GetUsageLimits——edge accounts overview 跨全部账号扇出，渲染概览
-	// 时不能打上游。运维点「查询」走 active 路径（getKiroUsage）回写这些键。
-	if account.IsKiro() {
-		return s.buildPassiveKiroUsage(account), nil
+	switch accountUsageWindowAdapterFor(account) {
+	case accountUsageWindowAdapterOpenAI:
+		// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
+		// 5h/7d 窗口，绝不调用上游 /responses 探测。
+		info := s.buildPassiveOpenAIUsage(account)
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
+	case accountUsageWindowAdapterKiro:
+		// Kiro 账号：从 Extra 的 kiro_usage_* 被动采样重建 credits/订阅/试用，绝不
+		// 调用上游 GetUsageLimits。
+		info := s.buildPassiveKiroUsage(account)
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
+	case accountUsageWindowAdapterLocal:
+		// NewAPI / Grok / Antigravity edge stubs do not expose a common upstream
+		// percentage-quota protocol. Surface TokenKey account billing windows so
+		// operators still see activity from the same passive endpoint.
+		info := s.buildLocalWindowUsage(ctx, account)
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
+	case accountUsageWindowAdapterAnthropic:
+		// 复用 estimateSetupTokenUsage 构建 5h 窗口（OAuth 和 SetupToken 逻辑一致）
+		info := s.estimateSetupTokenUsage(account)
+		info.Source = "passive"
+
+		// 设置采样时间
+		info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
+
+		// 构建 7d 窗口 + 7d Sonnet 子窗口（均从被动采样数据；7d-S 仅由 active 查询回写，
+		// 见 syncActiveToPassive——限流响应头里没有 sonnet 子窗）。
+		info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
+		info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
+
+		// 添加窗口统计
+		s.addWindowStats(ctx, account, info)
+
+		attachUpstreamQuotaForAccount(account, info)
+		return info, nil
+	default:
+		return nil, fmt.Errorf("passive usage only supported for account usage window adapters")
 	}
-
-	// Grok/xAI does not expose the Codex-style upstream quota snapshot that OpenAI
-	// OAuth has, and it must not fall through to the Anthropic OAuth usage API.
-	// Surface local account billing windows so operators still see activity.
-	if account.IsGrok() {
-		return s.buildLocalWindowUsage(ctx, account), nil
-	}
-
-	if !account.IsAnthropicOAuthOrSetupToken() {
-		return nil, fmt.Errorf("passive usage only supported for Anthropic OAuth/SetupToken accounts")
-	}
-
-	// 复用 estimateSetupTokenUsage 构建 5h 窗口（OAuth 和 SetupToken 逻辑一致）
-	info := s.estimateSetupTokenUsage(account)
-	info.Source = "passive"
-
-	// 设置采样时间
-	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
-
-	// 构建 7d 窗口 + 7d Sonnet 子窗口（均从被动采样数据；7d-S 仅由 active 查询回写，
-	// 见 syncActiveToPassive——限流响应头里没有 sonnet 子窗）。
-	info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
-	info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
-
-	// 添加窗口统计
-	s.addWindowStats(ctx, account, info)
-
-	return info, nil
 }
 
 // buildPassiveOpenAIUsage 从 OpenAI OAuth（codex）账号 Extra 里的被动采样
@@ -589,24 +641,37 @@ func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageIn
 
 func (s *AccountUsageService) buildLocalWindowUsage(ctx context.Context, account *Account) *UsageInfo {
 	now := time.Now()
+	if account == nil || s.usageLogRepo == nil {
+		return buildLocalWindowUsageFromStats(now, nil, nil)
+	}
+
+	var fiveHourStats *usagestats.AccountStats
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+		fiveHourStats = stats
+	}
+
+	var sevenDayStats *usagestats.AccountStats
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+		sevenDayStats = stats
+	}
+	return buildLocalWindowUsageFromStats(now, fiveHourStats, sevenDayStats)
+}
+
+func buildLocalWindowUsageFromStats(now time.Time, fiveHourStats, sevenDayStats *usagestats.AccountStats) *UsageInfo {
 	usage := &UsageInfo{
 		Source:    "passive",
 		UpdatedAt: &now,
 	}
-	if account == nil || s.usageLogRepo == nil {
-		return usage
-	}
-
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+	if fiveHourStats != nil {
 		usage.FiveHour = &UsageProgress{
 			Utilization: 0,
-			WindowStats: windowStatsFromAccountStats(stats),
+			WindowStats: windowStatsFromAccountStats(fiveHourStats),
 		}
 	}
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+	if sevenDayStats != nil {
 		usage.SevenDay = &UsageProgress{
 			Utilization: 0,
-			WindowStats: windowStatsFromAccountStats(stats),
+			WindowStats: windowStatsFromAccountStats(sevenDayStats),
 		}
 	}
 	return usage

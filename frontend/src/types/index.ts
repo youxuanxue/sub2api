@@ -986,6 +986,48 @@ export interface GrokQuotaWindow {
   reset_at?: string
 }
 
+export interface UpstreamQuotaDimension {
+  key: string
+  label?: string
+  unit?: string
+  window?: string
+  used?: number
+  limit?: number
+  remaining?: number
+  utilization?: number
+  resets_at?: string | null
+  status?: string
+}
+
+export interface UpstreamQuotaCredit {
+  key: string
+  label?: string
+  current?: number
+  limit?: number
+  remaining?: number
+  minimum_balance?: number
+  utilization?: number
+  resets_at?: string | null
+  expires_at?: string | null
+  status?: string
+}
+
+export interface UpstreamQuotaInfo {
+  provider?: string
+  source?: string
+  state?: string
+  updated_at?: string | null
+  status_code?: number
+  subscription_tier?: string
+  subscription_tier_raw?: string
+  entitlement_status?: string
+  retry_after_seconds?: number | null
+  error_code?: string
+  error?: string
+  dimensions?: UpstreamQuotaDimension[] | null
+  credits?: UpstreamQuotaCredit[] | null
+}
+
 export interface AccountUsageInfo {
   source?: 'passive' | 'active'
   updated_at: string | null
@@ -1008,6 +1050,7 @@ export interface AccountUsageInfo {
   grok_last_headers_seen_at?: string
   grok_last_status_code?: number
   grok_local_usage?: WindowStats | null
+  upstream_quota?: UpstreamQuotaInfo | null
   ai_credits?: Array<{
     credit_type?: string
     amount?: number

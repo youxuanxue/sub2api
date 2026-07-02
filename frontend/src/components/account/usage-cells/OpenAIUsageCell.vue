@@ -19,6 +19,7 @@
         :show-now-when-idle="true"
         color="emerald"
       />
+      <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
       <OpenAIQuotaResetCell :account="account">
         <template #pre-actions>
           <button
@@ -70,6 +71,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import OpenAIQuotaResetCell from '../OpenAIQuotaResetCell.vue'
+import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps

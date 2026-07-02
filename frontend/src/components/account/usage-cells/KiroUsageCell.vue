@@ -62,6 +62,7 @@
       >
         {{ kiro.subscription_title }}
       </div>
+      <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
 
       <div class="flex items-center gap-1.5 mt-0.5">
         <span
@@ -127,6 +128,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
+import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import { formatDateOnly } from '@/utils/format'
 import {
   accountUsageCellPropDefaults,

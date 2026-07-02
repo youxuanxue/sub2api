@@ -167,21 +167,33 @@
       "rationale": "grok's membership in GATEWAY_PLATFORMS + OPENAI_COMPAT_PLATFORMS + GROUP_DISPATCH_CONFIG_PLATFORMS + the exhaustive Record<AccountPlatform> color maps. OPENAI_COMPAT_PLATFORMS must mirror the backend engine.OpenAICompatPlatforms() (preflight newapi compat-pool drift guard watches the lockstep); removing 'grok' drops it from the admin platform pickers/badges and breaks the pool mirror."
     },
     {
-      "path": "backend/internal/service/account_usage_service.go",
+      "path": "backend/internal/service/account_usage_service_tk_window_adapter.go",
       "must_contain": [
-        "if account.IsGrok() {",
-        "return s.buildLocalWindowUsage(ctx, account), nil",
-        "func (s *AccountUsageService) buildLocalWindowUsage"
+        "func accountUsageWindowAdapterFor(account *Account) accountUsageWindowAdapter",
+        "account.IsGrok() || account.Platform == PlatformNewAPI",
+        "return accountUsageWindowAdapterLocal",
+        "accountUsageWindowAdapterSupportsPassive",
+        "accountUsageWindowAdapterLocal"
       ],
-      "rationale": "Grok usage-window support must not fall through to the Anthropic OAuth usage API. The admin usage endpoint returns local 5h/7d billing windows for grok so the accounts table can show operator-visible activity without inventing an upstream xAI quota percentage."
+      "rationale": "Grok usage-window support must classify as the shared local-window adapter and stay passive-capable; it must not fall through to the Anthropic OAuth usage API. The admin usage endpoint returns local 5h/7d billing windows for grok so the accounts table can show operator-visible activity without inventing an upstream xAI quota percentage."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
+      "must_contain": [
+        "func buildGrokUpstreamQuota",
+        "grokQuotaSnapshotFromExtra(account.Extra)",
+        "addGrokQuotaWindow(info, \"grok_requests\"",
+        "addGrokQuotaWindow(info, \"grok_tokens\""
+      ],
+      "rationale": "Unified upstream_quota projection for Grok must map the persisted xAI response-header snapshot (extra.grok_usage_snapshot) into request/token limit+remaining dimensions. Grok still uses local TokenKey 5h/7d usage windows for billing activity; this companion carries the separate upstream capacity/limit signal. Losing it reverts the account card to local usage only and hides xAI headers operators need for capacity triage."
     },
     {
       "path": "frontend/src/components/account/AccountUsageCell.vue",
       "must_contain": [
-        "account.platform === 'grok'",
+        "usesLocalUsageWindows(account)",
         "return OpenAIUsageCell"
       ],
-      "rationale": "Grok reuses the OpenAI-style 5h/7d UsageProgressBar rendering because the backend returns the same AccountUsageInfo five_hour/seven_day shape. Dropping this branch hides grok usage windows even though the backend provides them."
+      "rationale": "Grok and other local-window adapters reuse the OpenAI-style 5h/7d UsageProgressBar rendering because the backend returns the same AccountUsageInfo five_hour/seven_day shape. Dropping this branch hides grok usage windows even though the backend provides them."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",

@@ -417,8 +417,15 @@ export function toWindowStats(s: EdgeAccountSummary): WindowStats | null {
  */
 export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
   if (!s.usage) return null
-  const mk = (p?: { utilization: number; resets_at?: string | null }) =>
-    p ? { utilization: p.utilization, resets_at: p.resets_at ?? null, remaining_seconds: 0 } : null
+  const mk = (p?: { utilization: number; resets_at?: string | null; window_stats?: WindowStats | null }) =>
+    p
+      ? {
+          utilization: p.utilization,
+          resets_at: p.resets_at ?? null,
+          remaining_seconds: 0,
+          window_stats: p.window_stats ?? null
+        }
+      : null
   const k = s.usage.kiro
   return {
     source: s.usage.source === 'active' ? 'active' : 'passive',
@@ -426,6 +433,7 @@ export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
     five_hour: mk(s.usage.five_hour),
     seven_day: mk(s.usage.seven_day),
     seven_day_sonnet: mk(s.usage.seven_day_sonnet),
+    upstream_quota: s.usage.upstream_quota ?? null,
     // Kiro credits/订阅/试用: lift the edge DTO's flat trial fields into the nested
     // KiroUsageInfo shape AccountUsageInfo carries (same as the active getUsage JSON).
     kiro_usage: k

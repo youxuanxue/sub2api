@@ -220,6 +220,11 @@
 
       <!-- newapi: channel fields directly under platform picker (avoid scrolling past other platforms). -->
       <div v-if="form.platform === 'newapi'" class="space-y-4">
+        <div
+          class="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800 dark:border-cyan-800/40 dark:bg-cyan-900/20 dark:text-cyan-200"
+        >
+          <p>{{ t('admin.accounts.vertexNewapiMediaHint') }}</p>
+        </div>
         <AccountNewApiPlatformFields
           v-model:channelType="newapiChannelType"
           v-model:baseUrl="newapiBaseUrl"
@@ -247,7 +252,7 @@
           class="border-t border-gray-200 pt-4 dark:border-dark-600"
         >
           <p class="mb-3 text-xs text-sky-800 dark:text-sky-200">
-            {{ t('admin.accounts.vertexNewapiMediaHint') }}
+            {{ t('admin.accounts.vertexNewapiServiceAccountHint') }}
           </p>
           <VertexServiceAccountFields :fields="vertexSa" variant="create" />
         </div>
@@ -446,8 +451,8 @@
               <Icon name="cloud" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">Vertex</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">Service Account</span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.anthropicVertexLabel') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.vertexDesc') }}</span>
             </div>
           </button>
 
@@ -665,10 +670,10 @@
             </div>
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                Vertex
+                {{ t('admin.accounts.gemini.accountType.vertexTitle') }}
               </span>
               <span class="text-xs text-gray-500 dark:text-gray-400">
-                Service Account
+                {{ t('admin.accounts.gemini.accountType.vertexDesc') }}
               </span>
             </div>
           </button>

@@ -16,6 +16,7 @@ import OpenAIUsageCell from './usage-cells/OpenAIUsageCell.vue'
 import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
+import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
@@ -33,13 +34,12 @@ const activeCell = computed(() => {
     return AnthropicUsageCell
   }
 
-  // grok (xAI) is OpenAI-wire compatible and reuses the OpenAI 5h/7d usage
-  // window display. TK grok accounts are apikey edge-relay stubs (not the
-  // upstream OAuth-direct grok with passive xAI quota headers), so they share
-  // OpenAIUsageCell rather than a dedicated grok cell.
+  // Local-window adapters reuse the generic 5h/7d usage display. They do not
+  // have a common upstream percentage-quota protocol, but the backend returns
+  // TokenKey account billing windows through the same passive endpoint.
   if (
     (account.platform === 'openai' && account.type === 'oauth') ||
-    account.platform === 'grok'
+    usesLocalUsageWindows(account)
   ) {
     return OpenAIUsageCell
   }
