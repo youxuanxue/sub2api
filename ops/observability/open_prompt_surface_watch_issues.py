@@ -12,8 +12,11 @@ import sys
 SIG_REGISTRY = "ps-sig:registry-gate-failure"
 SIG_PROD_DRIFT = "ps-sig:prod-drift"
 
+LABEL_CLIENT_FIDELITY = "client-fidelity-watch"
+
 BASE_LABELS = {
     "prompt-surface-watch": ("BFD4F2", "Prompt surface watch signal"),
+    LABEL_CLIENT_FIDELITY: ("1D76DB", "Client fidelity umbrella watch"),
     "automated": ("C5DEF5", "Automated signal"),
     "needs-triage": ("FBCA04", "Needs human triage"),
     "prompt-surface:registry-failure": ("D73A4A", "Registry/fixture gate failed"),
@@ -26,6 +29,15 @@ BASE_LABELS = {
 
 def label_safe(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.:-]+", "-", value)[:50] or "unknown"
+
+
+def filename_safe(value: str) -> str:
+    """Filesystem-safe slug (GitHub artifact upload rejects colons in paths)."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value)[:80] or "unknown"
+
+
+def issue_body_path(sig_label: str) -> pathlib.Path:
+    return pathlib.Path(f".cache/prompt-surface-watch/issue-{filename_safe(sig_label)}.md")
 
 
 def sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -132,7 +144,7 @@ def open_or_update_issue(
     ensure_base_labels()
     labels_csv = ",".join(drift_labels)
     existing = find_open_issue(sig_label)
-    body_path = pathlib.Path(f".cache/prompt-surface-watch/issue-{label_safe(sig_label)}.md")
+    body_path = issue_body_path(sig_label)
     body_path.parent.mkdir(parents=True, exist_ok=True)
     body_path.write_text(body, encoding="utf-8")
     if existing:
@@ -156,16 +168,22 @@ def close_issue(number: str, comment: str) -> None:
     print(f"closed issue #{number}")
 
 
+def drift_labels_for(base: list[str], *, umbrella: bool) -> list[str]:
+    if umbrella and LABEL_CLIENT_FIDELITY not in base:
+        return [base[0], LABEL_CLIENT_FIDELITY, *base[1:]]
+    return base
+
+
 def cmd_registry_failure(args: argparse.Namespace) -> int:
     body = registry_failure_body(args.run_url)
     open_or_update_issue(
         sig_label=SIG_REGISTRY,
         title="[prompt-surface] registry-gate failed",
         body=body,
-        drift_labels=[
+        drift_labels=drift_labels_for([
             "prompt-surface-watch", "automated", "needs-triage",
             "prompt-surface:registry-failure", SIG_REGISTRY,
-        ],
+        ], umbrella=args.umbrella),
     )
     return 0
 
@@ -197,10 +215,10 @@ def cmd_prod_sync(args: argparse.Namespace) -> int:
             sig_label=SIG_PROD_DRIFT,
             title="[prompt-surface] prod fingerprint actionable drift",
             body=body,
-            drift_labels=[
+            drift_labels=drift_labels_for([
                 "prompt-surface-watch", "automated", "needs-triage",
                 "prompt-surface:prod-drift", SIG_PROD_DRIFT,
-            ],
+            ], umbrella=args.umbrella),
         )
         return 0
     ensure_base_labels()
@@ -218,14 +236,17 @@ def main(argv: list[str] | None = None) -> int:
 
     p_fail = sub.add_parser("registry-failure")
     p_fail.add_argument("--run-url", default="")
+    p_fail.add_argument("--umbrella", action="store_true")
 
     p_rec = sub.add_parser("registry-recover")
     p_rec.add_argument("--run-url", default="")
+    p_rec.add_argument("--umbrella", action="store_true")
 
     p_prod = sub.add_parser("prod-sync")
     p_prod.add_argument("--report-json", type=pathlib.Path, required=True)
     p_prod.add_argument("--report-md", type=pathlib.Path)
     p_prod.add_argument("--run-url", default="")
+    p_prod.add_argument("--umbrella", action="store_true")
 
     args = ap.parse_args(argv)
     if args.command == "registry-failure":
