@@ -142,6 +142,22 @@ func TestGatewayRoutesGrokAllowsChatCompletions(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesGrokAllowsMessages(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
+
+	for _, path := range []string{
+		"/v1/messages",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should reach Messages handler", path)
+		require.NotContains(t, w.Body.String(), "not supported for Grok groups")
+	}
+}
+
 func TestGatewayRoutesGrokRejectsUnsupportedOpenAICompatEndpoints(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
@@ -149,7 +165,6 @@ func TestGatewayRoutesGrokRejectsUnsupportedOpenAICompatEndpoints(t *testing.T) 
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/v1/messages"},
 		{http.MethodGet, "/v1/responses"},
 		{http.MethodGet, "/responses"},
 		{http.MethodGet, "/backend-api/codex/responses"},

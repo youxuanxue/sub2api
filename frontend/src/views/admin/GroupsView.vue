@@ -3201,6 +3201,7 @@ import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
   messagesDispatchFormStateToConfig,
+  messagesDispatchDefaultsForPlatform,
   resetMessagesDispatchFormState,
   type MessagesDispatchMappingRow,
 } from "./groupsMessagesDispatch";
@@ -4071,7 +4072,7 @@ const closeCreateModal = () => {
   createForm.claude_code_only = false;
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
-  resetMessagesDispatchFormState(createForm);
+  resetMessagesDispatchFormState(createForm, createForm.platform);
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
@@ -4230,6 +4231,7 @@ const handleEdit = async (group: AdminGroup) => {
     group.fallback_group_id_on_invalid_request;
   const messagesDispatchFormState = messagesDispatchConfigToFormState(
     group.messages_dispatch_model_config,
+    group.platform,
   );
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
@@ -4437,6 +4439,12 @@ watch(
     }
     if (!hasMessagesDispatchConfig(newVal)) {
       resetMessagesDispatchFormState(createForm);
+    } else {
+      const mapped = messagesDispatchDefaultsForPlatform(newVal);
+      createForm.opus_mapped_model = mapped.opus_mapped_model;
+      createForm.sonnet_mapped_model = mapped.sonnet_mapped_model;
+      createForm.haiku_mapped_model = mapped.haiku_mapped_model;
+      createForm.exact_model_mappings = [];
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       // require_oauth_only / require_privacy_set are OAuth-credential semantics;
@@ -4458,6 +4466,12 @@ watch(
     }
     if (!hasMessagesDispatchConfig(newVal)) {
       resetMessagesDispatchFormState(editForm);
+    } else {
+      const mapped = messagesDispatchDefaultsForPlatform(newVal);
+      editForm.opus_mapped_model = mapped.opus_mapped_model;
+      editForm.sonnet_mapped_model = mapped.sonnet_mapped_model;
+      editForm.haiku_mapped_model = mapped.haiku_mapped_model;
+      editForm.exact_model_mappings = [];
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       editForm.require_oauth_only = false;

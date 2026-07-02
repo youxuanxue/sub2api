@@ -15,12 +15,36 @@ export interface MessagesDispatchFormState {
   messages_compaction_input_tokens_threshold?: number | null;
 }
 
-export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormState {
+export const OPENAI_MESSAGES_DISPATCH_DEFAULTS = {
+  opus_mapped_model: "gpt-5.5",
+  sonnet_mapped_model: "gpt-5.3-codex",
+  haiku_mapped_model: "gpt-5.4-mini",
+} as const;
+
+export const GROK_MESSAGES_DISPATCH_DEFAULTS = {
+  opus_mapped_model: "grok-4.3",
+  sonnet_mapped_model: "grok-code-fast-1",
+  haiku_mapped_model: "grok-code-fast-1",
+} as const;
+
+export function messagesDispatchDefaultsForPlatform(
+  platform?: string | null,
+): Pick<
+  MessagesDispatchFormState,
+  "opus_mapped_model" | "sonnet_mapped_model" | "haiku_mapped_model"
+> {
+  if (platform === "grok") {
+    return { ...GROK_MESSAGES_DISPATCH_DEFAULTS };
+  }
+  return { ...OPENAI_MESSAGES_DISPATCH_DEFAULTS };
+}
+
+export function createDefaultMessagesDispatchFormState(
+  platform?: string | null,
+): MessagesDispatchFormState {
   return {
     allow_messages_dispatch: false,
-    opus_mapped_model: "gpt-5.5",
-    sonnet_mapped_model: "gpt-5.3-codex",
-    haiku_mapped_model: "gpt-5.4-mini",
+    ...messagesDispatchDefaultsForPlatform(platform),
     exact_model_mappings: [],
     messages_compaction_enabled: false,
     messages_compaction_input_tokens_threshold: null,
@@ -29,8 +53,9 @@ export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormSt
 
 export function messagesDispatchConfigToFormState(
   config?: OpenAIMessagesDispatchModelConfig | null,
+  platform?: string | null,
 ): MessagesDispatchFormState {
-  const defaults = createDefaultMessagesDispatchFormState();
+  const defaults = createDefaultMessagesDispatchFormState(platform);
   const exactMappings = Object.entries(config?.exact_model_mappings || {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([claude_model, target_model]) => ({ claude_model, target_model }));
@@ -69,8 +94,9 @@ export function messagesDispatchFormStateToConfig(
 
 export function resetMessagesDispatchFormState(
   target: MessagesDispatchFormState,
+  platform?: string | null,
 ): void {
-  const defaults = createDefaultMessagesDispatchFormState();
+  const defaults = createDefaultMessagesDispatchFormState(platform);
   target.allow_messages_dispatch = defaults.allow_messages_dispatch;
   target.opus_mapped_model = defaults.opus_mapped_model;
   target.sonnet_mapped_model = defaults.sonnet_mapped_model;

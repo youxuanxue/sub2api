@@ -147,7 +147,7 @@
         "if account.IsGrok() {",
         "return s.testGrokAccountConnection(c, account, modelID, prompt)"
       ],
-      "rationale": "The admin account-test dispatcher must route grok accounts to the grok-specific probe before the generic Claude /v1/messages fallback. Losing this branch makes grok relay stubs test through messages dispatch, which is intentionally disabled on grok groups."
+      "rationale": "The admin account-test dispatcher must route grok accounts to the grok-specific probe before the generic Claude /v1/messages fallback. Losing this branch makes grok relay stubs test through messages dispatch instead of the dedicated /v1/responses probe."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_grok.go",
@@ -157,7 +157,7 @@
         "buildOpenAIResponsesURL",
         "defaultGrokTestModelID"
       ],
-      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses; OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses; requested model is normalized to a chat-capable grok default. User-facing /v1/chat/completions is separately enabled via forwardAsRawChatCompletions — admin probe intentionally stays on /responses for OAuth parity."
+      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses; OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses; requested model is normalized to a chat-capable grok default. User-facing /v1/chat/completions and /v1/messages are separately enabled on grok groups; admin probe intentionally stays on /v1/responses for OAuth parity."
     },
     {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
@@ -357,16 +357,18 @@
       "path": "backend/internal/service/openai_gateway_grok_test.go",
       "must_contain": [
         "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
-        "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses"
+        "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses",
+        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeResponsesURL"
       ],
-      "rationale": "Load-bearing QA for grok responses apikey relay: pins edge /v1/responses URL + Bearer api_key on forwardGrokResponses. Revert to OAuth-only passes other tests but breaks prod grok-us4."
+      "rationale": "Load-bearing QA for grok responses apikey relay and Anthropic-shaped /v1/messages prod→edge path: pins edge /v1/responses URL + Bearer api_key. Revert to OAuth-only or route 404 passes other tests but breaks prod grok-us4 Claude-Code clients."
     },
     {
       "path": "backend/internal/server/routes/gateway_test.go",
       "must_contain": [
-        "TestGatewayRoutesGrokAllowsChatCompletions"
+        "TestGatewayRoutesGrokAllowsChatCompletions",
+        "TestGatewayRoutesGrokAllowsMessages"
       ],
-      "rationale": "Route-table guard: grok groups must reach OpenAIGateway.ChatCompletions (prod→edge relay uses forwardAsRawChatCompletions). Re-adding rejectGrokUnsupportedEndpoint for chat/completions silently breaks grok-cli/Codex clients that POST /v1/chat/completions while /v1/responses still works."
+      "rationale": "Route-table guards: grok groups must reach OpenAIGateway ChatCompletions and Messages (prod→edge relay uses raw CC and Anthropic→Responses compat). Re-adding rejectGrokUnsupportedEndpoint for either path silently breaks grok clients while /v1/responses still works."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw_test.go",
@@ -374,6 +376,34 @@
         "TestForwardAsRawChatCompletions_GrokAPIKeyRelayUsesEdgeKeyAndBaseURL"
       ],
       "rationale": "Service-layer guard for prod grok-us4 apikey relay on /v1/chat/completions: pins edge base_url + api_key Bearer to /chat/completions. Route enablement alone is insufficient if this forward path regresses."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch_tk_grok.go",
+      "must_contain": [
+        "defaultGrokMessagesDispatchOpusMappedModel",
+        "defaultGrokMessagesDispatchSonnetMappedModel",
+        "defaultGrokMessagesDispatchHaikuMappedModel",
+        "defaultMessagesDispatchMappedModelForPlatform"
+      ],
+      "rationale": "Grok /v1/messages dispatch must map claude-opus/sonnet/haiku to grok-4.3 / grok-code-fast-1 instead of GPT defaults. Losing this companion re-breaks Claude Code on grok groups even when route + allow_messages_dispatch are enabled."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch_tk_grok_test.go",
+      "must_contain": [
+        "TestResolveMessagesDispatchModel_GrokPlatformUsesGrokDefaults",
+        "TestTkGroupKeepsDispatchConfig_Grok"
+      ],
+      "rationale": "QA for grok Claude-family default mapping and dispatch-config retention at sanitize time."
+    },
+    {
+      "path": "backend/migrations/tk_055_grok_enable_messages_dispatch.sql",
+      "must_contain": [
+        "allow_messages_dispatch = true",
+        "opus_mapped_model",
+        "grok-4.3",
+        "grok-code-fast-1"
+      ],
+      "rationale": "Shipped migration enables grok /v1/messages dispatch and seeds Claude→grok default mappings for existing grok groups. Reverting leaves Claude Code on prod grok groups at 403 or GPT-shaped mappings."
     },
     {
       "path": "backend/internal/service/grok_token_provider.go",

@@ -2191,9 +2191,10 @@
     {
       "path": "backend/internal/service/openai_messages_dispatch.go",
       "must_contain": [
-        "defaultOpenAIMessagesDispatchOpusMappedModel   = \"gpt-5.5\""
+        "defaultOpenAIMessagesDispatchOpusMappedModel   = \"gpt-5.5\"",
+        "defaultMessagesDispatchMappedModelForPlatform"
       ],
-      "rationale": "Code-default opus family mapping must stay gpt-5.5 (TK override of the upstream gpt-5.4 default; gpt-5.4 returned upstream 404 model_not_found on Codex OAuth accounts). This default is the zero-config fleet-wide fallback for claude-named requests on BOTH /v1/messages dispatch and /v1/chat/completions; an upstream merge restoring gpt-5.4 compiles clean but silently re-breaks opus traffic. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
+      "rationale": "Code-default opus family mapping must stay gpt-5.5 (TK override of the upstream gpt-5.4 default; gpt-5.4 returned upstream 404 model_not_found on Codex OAuth accounts). ResolveMessagesDispatchModel must delegate platform-specific fallbacks to defaultMessagesDispatchMappedModelForPlatform (openai_messages_dispatch_tk_grok.go) so grok groups map claude tiers to grok-4.3 / grok-code-fast-1 instead of GPT defaults. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",

@@ -69,22 +69,24 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 		return mappedModel
 	}
 
-	switch claudeMessagesDispatchFamily(requestedModel) {
-	case "opus":
-		if mappedModel := strings.TrimSpace(cfg.OpusMappedModel); mappedModel != "" {
-			return mappedModel
+	switch family := claudeMessagesDispatchFamily(requestedModel); family {
+	case "opus", "sonnet", "haiku":
+		var configured string
+		switch family {
+		case "opus":
+			configured = strings.TrimSpace(cfg.OpusMappedModel)
+		case "sonnet":
+			configured = strings.TrimSpace(cfg.SonnetMappedModel)
+		case "haiku":
+			configured = strings.TrimSpace(cfg.HaikuMappedModel)
 		}
-		return defaultOpenAIMessagesDispatchOpusMappedModel
-	case "sonnet":
-		if mappedModel := strings.TrimSpace(cfg.SonnetMappedModel); mappedModel != "" {
-			return mappedModel
+		if configured != "" {
+			return configured
 		}
-		return defaultOpenAIMessagesDispatchSonnetMappedModel
-	case "haiku":
-		if mappedModel := strings.TrimSpace(cfg.HaikuMappedModel); mappedModel != "" {
-			return mappedModel
+		if g.Platform != "" {
+			return defaultMessagesDispatchMappedModelForPlatform(g.Platform, family)
 		}
-		return defaultOpenAIMessagesDispatchHaikuMappedModel
+		return defaultMessagesDispatchMappedModelForPlatform(PlatformOpenAI, family)
 	default:
 		return ""
 	}

@@ -38,10 +38,6 @@ func rejectGrokUnsupportedEndpoint(c *gin.Context, endpoint string) {
 
 func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
-			rejectGrokUnsupportedEndpoint(c, "Messages API")
-			return
-		}
 		if isOpenAICompatPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.Messages(c)
 			return
