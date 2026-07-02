@@ -24,3 +24,12 @@ func grokGroupServesNativeCatalogModel(model string) bool {
 	_, ok := supportedGrokCatalogModels[model]
 	return ok
 }
+
+// grokAccountServesNativeCatalogModel keeps account-level scheduling aligned
+// with GetAvailableModels and universal routing. Grok accounts may carry
+// chat-only credentials.model_mapping entries for messages-dispatch aliases;
+// those mappings must not hide native grok-imagine media or probed chat models
+// from the OpenAI-compat scheduler.
+func grokAccountServesNativeCatalogModel(account *Account, model string) bool {
+	return account != nil && account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)
+}

@@ -35,6 +35,25 @@ describe('studioMediaCatalog', () => {
     })
   })
 
+  it('priceMapFromPublicCatalog ignores per-unit rows without media billing_mode', () => {
+    const map = priceMapFromPublicCatalog(
+      [
+        {
+          model_id: 'gemini-3.1-pro-low',
+          vendor: 'antigravity',
+          pricing: { output_cost_per_image: 0.00012 },
+        },
+        {
+          model_id: 'broken-video',
+          vendor: 'xai',
+          pricing: { billing_mode: 'video', output_cost_per_image: 0.02 },
+        },
+      ] as never,
+      new Set(['gemini-3.1-pro-low', 'broken-video'])
+    )
+    expect(map.size).toBe(0)
+  })
+
   it('priceMapFromMeCatalog mirrors me pricing rows', () => {
     const map = priceMapFromMeCatalog([
       {
@@ -50,5 +69,18 @@ describe('studioMediaCatalog', () => {
       billingMode: 'image',
       vendor: 'xai',
     })
+  })
+
+  it('priceMapFromMeCatalog ignores per-unit rows without media billing_mode', () => {
+    const map = priceMapFromMeCatalog([
+      {
+        model_id: 'gemini-3.1-pro-low',
+        vendor: 'antigravity',
+        billing_mode: 'token',
+        your_price: { currency: 'USD', per_image: 0.00012 },
+        capabilities: [],
+      },
+    ] as never)
+    expect(map.size).toBe(0)
   })
 })

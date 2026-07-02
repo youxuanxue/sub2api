@@ -98,11 +98,11 @@ const baseProps = {
     'seedream-4-0-250828',
   ]),
   priceMap: new Map([
-    ['imagen-4.0-fast-generate-001', { perImage: 0.02 }],
-    ['imagen-4.0-generate-001', { perImage: 0.04 }],
-    ['imagen-4.0-ultra-generate-001', { perImage: 0.06 }],
-    ['gemini-3.1-flash-image', { perImage: 0.0672 }],
-    ['seedream-4-0-250828', { perImage: 0.0299 }],
+    ['imagen-4.0-fast-generate-001', { perImage: 0.02, billingMode: 'image' }],
+    ['imagen-4.0-generate-001', { perImage: 0.04, billingMode: 'image' }],
+    ['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }],
+    ['gemini-3.1-flash-image', { perImage: 0.0672, billingMode: 'image' }],
+    ['seedream-4-0-250828', { perImage: 0.0299, billingMode: 'image' }],
   ]),
   balance: 100,
   keyId: 1,
@@ -113,14 +113,14 @@ const baseProps = {
 const videoProps = {
   ...baseProps,
   availableIds: new Set([
-    'seedance-1-0-pro-250528',
+    'doubao-seedance-1-0-pro-250528',
     'doubao-seedance-2-0-fast-260128',
     'veo-3.1-generate-001',
   ]),
   priceMap: new Map([
-    ['seedance-1-0-pro-250528', { perSecond: 0.1088 }],
-    ['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194 }],
-    ['veo-3.1-generate-001', { perSecond: 0.6 }],
+    ['doubao-seedance-1-0-pro-250528', { perSecond: 0.1088, billingMode: 'video' }],
+    ['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194, billingMode: 'video' }],
+    ['veo-3.1-generate-001', { perSecond: 0.6, billingMode: 'video' }],
   ]),
 }
 
@@ -337,7 +337,7 @@ describe('BakeOff image routing', () => {
       {
         id: 'vt_b',
         prompt: 'a red apple',
-        model: 'seedance-1-0-pro-250528',
+        model: 'doubao-seedance-1-0-pro-250528',
         vendorLabel: 'Doubao',
         seconds: 10,
         estCost: 1.09,

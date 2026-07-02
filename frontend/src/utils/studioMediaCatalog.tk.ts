@@ -1,11 +1,11 @@
 /**
  * TokenKey-only: Studio media membership + prices from the public / me pricing
  * catalogs (billing_mode image | video). Presentation metadata stays in
- * mediaTiers.tk.ts — this module must NOT invent model inventories.
+ * studioMediaPresentations.tk.ts — this module must NOT invent model inventories.
  */
 import type { MePricingModel } from '@/api/me-pricing'
 import type { PublicCatalogModel } from '@/api/pricing'
-import type { MediaPrice, MediaPriceMap, StudioModality } from '@/constants/mediaTiers.tk'
+import type { MediaPrice, MediaPriceMap, StudioModality } from '@/constants/studioMediaPresentations.tk'
 
 export type CatalogBillingIndex = ReadonlyMap<string, StudioModality>
 
@@ -68,13 +68,14 @@ function mediaPriceFromCatalogRow(
   vendor: string | undefined
 ): MediaPrice | undefined {
   const billingMode = normalizeBillingMode(billingModeRaw)
+  if (!billingMode) return undefined
   const hasImage = perImage != null && perImage > 0
   const hasVideo = perSecond != null && perSecond > 0
-  if (!hasImage && !hasVideo) return undefined
+  if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo)) return undefined
   return {
-    perImage: hasImage ? perImage : undefined,
-    perSecond: hasVideo ? perSecond : undefined,
-    billingMode: billingMode ?? (hasVideo ? 'video' : hasImage ? 'image' : undefined),
+    perImage: billingMode === 'image' && hasImage ? perImage : undefined,
+    perSecond: billingMode === 'video' && hasVideo ? perSecond : undefined,
+    billingMode,
     vendor,
   }
 }

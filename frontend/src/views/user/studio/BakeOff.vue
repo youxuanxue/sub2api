@@ -46,17 +46,17 @@
           <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.bakeoff.pickModels') }}</span>
           <button
             v-for="r in models"
-            :key="r.model.modelId"
+            :key="r.presentation.modelId"
             type="button"
             class="rounded-lg border px-3 py-1.5 text-sm font-medium transition"
-            :class="selectedModelIds.includes(r.model.modelId)
+            :class="selectedModelIds.includes(r.presentation.modelId)
               ? 'border-primary-600 bg-primary-600 text-white'
               : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-            :disabled="isBusy || (!selectedModelIds.includes(r.model.modelId) && selectedModelIds.length >= MAX_PANELS)"
+            :disabled="isBusy || (!selectedModelIds.includes(r.presentation.modelId) && selectedModelIds.length >= MAX_PANELS)"
             data-testid="bakeoff-tier"
-            @click="toggleModel(r.model.modelId)"
+            @click="toggleModel(r.presentation.modelId)"
           >
-            {{ r.model.displayName }}
+            {{ r.presentation.displayName }}
             <span class="opacity-70">{{ modality === 'image' ? formatUsd(r.baseImagePrice || 0) + t('studio.image.perImageUnit') : formatUsd(r.perSecond || 0) + t('studio.video.perSecondUnit') }}</span>
           </button>
           <p
@@ -434,7 +434,8 @@ import {
   resolveAvailableModels,
   type StudioModality,
   type MediaPriceMap,
-} from '@/constants/mediaTiers.tk'
+  type ResolvedMediaModel,
+} from '@/constants/studioMediaPresentations.tk'
 import { estimateImageCost, estimateImageHoldCost, estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import {
   groupImageHistoryByTs,
@@ -496,7 +497,7 @@ const DEFAULT_GEMINI_ASPECT = '1:1'
 const modality = ref<StudioModality>('video')
 const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
 const videoModelsSupportGenerateAudio = computed(() =>
-  models.value.some((r) => r.model.supportedParams.includes('generateAudio'))
+  models.value.some((r) => r.presentation.supportedParams.includes('generateAudio'))
 )
 const selectedModelIds = ref<string[]>([])
 const prompt = ref('')
@@ -663,12 +664,12 @@ function downloadImage(src: string, id: string): void {
 }
 
 function modelLabel(modelId: string): string {
-  const hit = models.value.find((r) => r.model.modelId === modelId || r.servedId === modelId)
-  return hit?.model.displayName ?? modelId
+  const hit = models.value.find((r) => r.presentation.modelId === modelId || r.servedId === modelId)
+  return hit?.presentation.displayName ?? modelId
 }
 
 function selectedResolved() {
-  return models.value.filter((r) => selectedModelIds.value.includes(r.model.modelId))
+  return models.value.filter((r) => selectedModelIds.value.includes(r.presentation.modelId))
 }
 
 // Union of the selected video models' accepted durations (sorted, deduped) →
@@ -676,7 +677,7 @@ function selectedResolved() {
 const durationOptions = computed<number[]>(() => {
   if (modality.value !== 'video') return []
   const set = new Set<number>()
-  for (const r of selectedResolved()) for (const d of r.model.videoDurations ?? []) set.add(d)
+  for (const r of selectedResolved()) for (const d of r.presentation.videoDurations ?? []) set.add(d)
   return [...set].sort((a, b) => a - b)
 })
 
@@ -687,8 +688,8 @@ watch(durationOptions, (opts) => {
 })
 
 /** Per-panel duration: the shared target snapped to THIS model's accepted set. */
-function panelSeconds(r: { model: { videoDurations?: number[] } }): number {
-  return snapVideoDuration(duration.value, r.model.videoDurations)
+function panelSeconds(r: ResolvedMediaModel): number {
+  return snapVideoDuration(duration.value, r.presentation.videoDurations)
 }
 
 const totalCost = computed(() =>
@@ -767,10 +768,10 @@ async function run(): Promise<void> {
   poll.stopAll()
   // Seed panels.
   panels.value = chosen.map((r) => ({
-    modelId: r.model.modelId,
+    modelId: r.presentation.modelId,
     servedId: r.servedId,
-    label: r.model.displayName,
-    vendorLabel: r.model.vendorLabel,
+    label: r.presentation.displayName,
+    vendorLabel: r.presentation.vendorLabel,
     cost:
       modality.value === 'image'
         ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGEN_SIZE, n: 1, rateMultiplier: props.rateMultiplier })

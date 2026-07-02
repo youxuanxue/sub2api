@@ -214,6 +214,8 @@ func TestTKPricingOverlay_SeedMediaEntries(t *testing.T) {
 	require.NoError(t, err)
 	for model, wantPerImage := range map[string]float64{
 		"doubao-seedream-4-0-250828": 0.029850746268656716,
+		"doubao-seedream-4-5-251128": 0.03731343283582089,
+		"doubao-seedream-5-0-260128": 0.03283582089552239,
 		"seedream-4-0-250828":        0.029850746268656716,
 	} {
 		entry := data[model]
@@ -221,11 +223,12 @@ func TestTKPricingOverlay_SeedMediaEntries(t *testing.T) {
 		require.InDelta(t, wantPerImage, entry.OutputCostPerImage, 1e-12, model)
 	}
 	for model, wantPerSecond := range map[string]float64{
-		"doubao-seedance-1-0-pro-250528":  0.10880597014925374,
-		"seedance-1-0-pro-250528":         0.10880597014925374,
-		"doubao-seedance-1-5-pro-251215":  0.11611940298507463,
-		"doubao-seedance-2-0-260128":      0.36985074626865673,
-		"doubao-seedance-2-0-fast-260128": 0.11940298507462686,
+		"doubao-seedance-1-0-pro-250528":      0.10880597014925374,
+		"seedance-1-0-pro-250528":             0.10880597014925374,
+		"doubao-seedance-1-0-pro-fast-251015": 0.030465671641791044,
+		"doubao-seedance-1-5-pro-251215":      0.11611940298507463,
+		"doubao-seedance-2-0-260128":          0.36985074626865673,
+		"doubao-seedance-2-0-fast-260128":     0.11940298507462686,
 	} {
 		entry := data[model]
 		require.NotNil(t, entry, "overlay must carry %s", model)

@@ -19,25 +19,25 @@
         <div class="space-y-2">
           <button
             v-for="r in models"
-            :key="r.model.modelId"
+            :key="r.presentation.modelId"
             type="button"
             class="w-full rounded-xl border p-3 text-left transition"
-            :class="selectedModelId === r.model.modelId
+            :class="selectedModelId === r.presentation.modelId
               ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-500/30 dark:border-primary-500 dark:bg-primary-950/40'
               : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
             data-testid="studio-image-model"
-            @click="selectedModelId = r.model.modelId"
+            @click="selectedModelId = r.presentation.modelId"
           >
             <div class="flex items-center justify-between gap-2">
-              <span class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ r.model.displayName }}</span>
-              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.model.qualityBadgeKey) }}</span>
+              <span class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ r.presentation.displayName }}</span>
+              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.presentation.qualityBadgeKey) }}</span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2">
               <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.baseImagePrice || 0) }}{{ t('studio.image.perImageUnit') }}</span>
-              <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.model.vendorLabel }) }}</span>
+              <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
             </div>
             <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
-            <div v-if="r.model.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
+            <div v-if="r.presentation.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
           </button>
         </div>
       </div>
@@ -252,7 +252,7 @@ import {
   resolveAvailableModels,
   defaultModelId,
   type MediaPriceMap,
-} from '@/constants/mediaTiers.tk'
+} from '@/constants/studioMediaPresentations.tk'
 import {
   classifyImageBillingTier,
   estimateImageCost,
@@ -293,13 +293,13 @@ const { preview, openPreview, closePreview } = useStudioImagePreview()
 
 const models = computed(() => resolveAvailableModels('image', props.availableIds, props.priceMap))
 const selectedModelId = ref<string>('')
-const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
+const selected = computed(() => models.value.find((r) => r.presentation.modelId === selectedModelId.value) ?? null)
 
 // Aspect options are MODEL-SPECIFIC: each model declares the ratios its upstream
 // accepts (Imagen ⇒ ratio codes; Seedream ⇒ pixel WxH). We track the chosen RATIO
 // so it survives a model switch (both vendors expose the same ratio labels), and
 // put the option's exact `value` on the wire.
-const sizeOptions = computed(() => selected.value?.model.imageSizes ?? [])
+const sizeOptions = computed(() => selected.value?.presentation.imageSizes ?? [])
 const selectedRatio = ref<string>('')
 const selectedSize = computed(
   () => sizeOptions.value.find((o) => o.ratio === selectedRatio.value) ?? sizeOptions.value[0] ?? null
@@ -311,13 +311,13 @@ const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value
 // Gemini-native image is served via /v1/chat/completions and bills a FLAT
 // output_cost_per_image (no 1K/2K/4K size tier, one image per request). Skip the
 // size-tier multiplier and the count stepper for these models.
-const isFlatImage = computed(() => !!selected.value?.model.flatImageBilling)
+const isFlatImage = computed(() => !!selected.value?.presentation.flatImageBilling)
 // Flat-PRICED: no 1K/2K/4K size-tier multiplier (imagen bills Google's flat
 // official price; gemini-native is flat too). DECOUPLED from isFlatImage — which
 // additionally implies chat routing / n=1 / image-input — so imagen keeps n>1,
 // no image-input, /v1/images routing, but escapes the size multiplier. Mirrors
 // backend tkIsFlatPerImageModel.
-const pricesFlat = computed(() => isFlatImage.value || !!selected.value?.model.flatPricePerImage)
+const pricesFlat = computed(() => isFlatImage.value || !!selected.value?.presentation.flatPricePerImage)
 const effectiveN = computed(() => (isFlatImage.value ? 1 : n.value))
 // Show the literal pixel size as a subtext when it differs from the ratio label
 // (Seedream); for Imagen the value IS the ratio, so no redundant subtext.
@@ -400,7 +400,7 @@ function applySamplePrompt(): void {
 watch(
   models,
   (list) => {
-    if (!list.some((r) => r.model.modelId === selectedModelId.value)) {
+    if (!list.some((r) => r.presentation.modelId === selectedModelId.value)) {
       selectedModelId.value = defaultModelId(list) ?? ''
     }
   },
@@ -423,7 +423,7 @@ function reuse(img: ImageHistoryItem): void {
   prompt.value = img.prompt
   userEditedPrompt.value = true
   const match = matchImageHistoryModel(models.value, img.model)
-  if (match) selectedModelId.value = match.model.modelId
+  if (match) selectedModelId.value = match.presentation.modelId
 }
 
 function imagePromptTitle(img: ImageHistoryItem): string {
@@ -538,7 +538,7 @@ async function generate(): Promise<void> {
       prompt: text,
       revisedPrompt: it.revisedPrompt,
       model: resolved.servedId,
-      vendorLabel: resolved.model.vendorLabel,
+      vendorLabel: resolved.presentation.vendorLabel,
       size: sentSize.value,
       cost: perImage,
       ts,

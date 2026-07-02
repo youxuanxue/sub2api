@@ -10,8 +10,8 @@ import { buildDataVideoUri } from '@/utils/studioInlineVideo.tk'
 //              (service/openai_images.go isOpenAIImageGenerationModel);
 //              imagen-* (Vertex) and *seedream* (Doubao) are the media families
 //              priced in tk_pricing_overlay.json.
-//   - video  — veo-* (Vertex) and *seedance* (Doubao Seedance) are the families
-//              served via /v1/video/generations (task adaptor channel types 45/54).
+//   - video  — veo-* (Vertex), *seedance* (Doubao Seedance), and
+//              grok-imagine-video (native xAI) are served via /v1/video/generations.
 //   - image (gemini-native) — gemini-*-image / nano-banana ("Nano Banana") models
 //              output images, but via /v1/chat/completions (responseModalities
 //              IMAGE), NOT /v1/images/generations. The predicate mirrors the
@@ -37,7 +37,7 @@ export function isGeminiNativeImageModel(modelId: string): boolean {
 export function modalityForModel(modelId: string): PlaygroundModality {
   const id = (modelId || '').trim().toLowerCase()
   if (!id) return 'chat'
-  if (id.includes('seedance') || id.startsWith('veo-')) return 'video'
+  if (id.includes('seedance') || id.startsWith('veo-') || id === 'grok-imagine-video') return 'video'
   if (
     id.startsWith('gpt-image-') ||
     id.startsWith('imagen-') ||

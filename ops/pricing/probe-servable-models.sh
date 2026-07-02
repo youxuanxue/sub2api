@@ -9,21 +9,23 @@
 #   OPENAI_CHAT_MODELS       -> POST <prod>/v1/chat/completions
 #   OPENAI_RESPONSES_MODELS  -> POST <prod>/v1/responses   (codex family)
 #   OPENAI_IMAGE_MODELS      -> POST <prod>/v1/images/generations (best-effort)
-#   GEMINI_CHAT_MODELS       -> POST app:8080/v1/chat/completions  (newapi/Vertex, edge-internal)
+#   GEMINI_CHAT_MODELS       -> POST <prod>/v1/chat/completions  (newapi/Vertex via PROD gateway)
 #   GEMINI_CHATIMAGE_MODELS  -> POST <prod>/v1/chat/completions  (gemini-*-image via chat/generateContent)
-#   GEMINI_IMAGE_MODELS      -> POST app:8080/v1/images/generations  (imagen-* predict API)
-#   GEMINI_VIDEO_MODELS      -> POST app:8080/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
-#     NB gemini families run ON the edge host and hit the app container directly
-#     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
+#   GEMINI_IMAGE_MODELS      -> POST <prod>/v1/images/generations  (imagen-* predict API)
+#   GEMINI_VIDEO_MODELS      -> POST <prod>/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
 #   GROK_CHAT_MODELS         -> POST app:8080/v1/chat/completions  (native grok, edge-internal)
-#   ANTIGRAVITY_CHAT_MODELS  -> POST <prod>/v1/chat/completions  (native antigravity, PROD gateway)
+#   GROK_IMAGE_MODELS        -> POST app:8080/v1/images/generations (native grok, edge-internal)
+#   GROK_VIDEO_MODELS        -> POST app:8080/v1/video/generations (native grok, edge-internal; async submit)
+#   ANTIGRAVITY_CHAT_MODELS  -> POST <prod>/antigravity/v1beta/models/{model}:generateContent
+#                               (native antigravity text, PROD gateway; env name kept for compatibility)
+#   ANTIGRAVITY_IMAGE_MODELS -> POST <prod>/v1/chat/completions
+#                               (Studio gemini-native image path through the antigravity account pool)
 #     NB grok lives on its native edge pool (currently edge-us4). Like gemini,
 #     the edge-local probe hits the app container directly instead of the public
 #     Caddy path. Use run-probe with --target edge:us4 and a key bound to the
 #     edge-side grok group.
 #   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
-#     The newapi fifth-platform pool IS served at prod (unlike gemini, which is
-#     edge-internal), so this family routes through the normal prod TK gateway
+#     This family routes through the normal prod TK gateway
 #     with a TK api_key BOUND TO the newapi/qwen group (account 60 lives there).
 #     This is the SERVABLE-end-to-end truth probe for channel_type=17: a real 200
 #     proves the model id is both upstream-activated AND allowlisted at the TK
@@ -42,6 +44,13 @@
 #     Routes through the normal prod TK gateway with a TK api_key bound to the GLM
 #     group. This is the end-to-end truth probe after account 67 switches from
 #     legacy Zhipu v3 (channel_type=16) to ZhipuV4/OpenAI-compatible (26).
+#   VOLCENGINE_IMAGE_MODELS  -> POST <prod>/v1/images/generations (newapi channel_type=45 via TK gateway)
+#   VOLCENGINE_VIDEO_MODELS  -> POST <prod>/v1/video/generations  (newapi channel_type=45 via TK gateway; REAL paid async video submit)
+#     Routes through the normal prod TK gateway with a TK api_key bound to the
+#     volcengine group_id=5. This is the SERVABLE-end-to-end truth probe for
+#     Ark/VolcEngine media after model_mapping + pricing are live. Keep it
+#     separate from ARK_* below: ARK_* proves upstream account activation by
+#     direct data-plane calls, while VOLCENGINE_* proves TokenKey gateway serving.
 #   ARK_CHAT_MODELS          -> POST <ark>/api/v3/chat/completions  (DIRECT ark data plane)
 #   ARK_IMAGE_MODELS         -> POST <ark>/api/v3/images/generations (direct; a servable model bills ~1 image)
 #   ARK_VIDEO_MODELS         -> POST <ark>/api/v3/contents/generations/tasks (direct; a servable model creates a REAL paid video task — probe sparingly)
@@ -57,7 +66,7 @@
 #     404 into an opaque 502, which is why these families talk to ark directly.
 # Every family resolves its probe key through the reserved __tk_probe_<scope>_*
 # group/key (probe_reserved_resources.sh), copying schedulable accounts from a
-# canonical source group per platform. There is NO direct-key / customer-key
+# canonical source group id per platform. There is NO direct-key / customer-key
 # fallback — when delivered via run-probe.sh you MUST pass
 #   --with ops/pricing/probe_reserved_resources.sh
 # so the companion library lands on the remote host (the orchestrator and every
@@ -66,18 +75,29 @@
 # Optional env:
 #   ARK_ACCOUNT_ID           default 7   (accounts row holding the ark api_key + base_url)
 #   PROD_BASE                default https://api.tokenkey.dev
-#   PROBE_OPENAI_SOURCE_GROUP default GPT专线 (schedulable accounts copied into probe group)
-#   PROBE_ANTHROPIC_SOURCE_GROUP default `default` (the edge's native OAuth anthropic group;
+#   PROBE_OPENAI_SOURCE_GROUP_ID defaults via probe_source_group_id openai
+#   PROBE_OPENAI_SOURCE_GROUP optional legacy override by group name
+#   PROBE_ANTHROPIC_SOURCE_GROUP_ID defaults via probe_source_group_id anthropic_edge
 #                            probe runs ON an edge, NOT prod — see refresh-allowlist ANTHROPIC_EDGES)
+#   PROBE_ANTHROPIC_SOURCE_GROUP optional legacy override by group name
 #   ANTHROPIC_APP_CONTAINER  default tokenkey-caddy (edge app container; busybox wget, bypass Caddy)
 #   ANTHROPIC_APP_URL        default http://tokenkey:8080 (edge app, reached internally)
-#   PROBE_GEMINI_SOURCE_GROUP default google-vertex (PROD newapi Vertex group; ids 47/57/58/59)
-#   PROBE_DASHSCOPE_SOURCE_GROUP default Qwen (verified prod group, capital Q; CASE-SENSITIVE)
-#   PROBE_ZHIPU_SOURCE_GROUP default GLM (prod GLM group; CASE-SENSITIVE)
-#   PROBE_GROK_SOURCE_GROUP  default grok (verified edge native grok group; CASE-SENSITIVE)
+#   PROBE_ANTHROPIC_MIRROR_GROUP_ID defaults via probe_source_group_id anthropic_mirror
+#   PROBE_ANTHROPIC_MIRROR_GROUP optional legacy override by group name
+#   PROBE_GEMINI_SOURCE_GROUP_ID defaults via probe_source_group_id gemini_vertex
+#   PROBE_GEMINI_SOURCE_GROUP optional legacy override by group name
+#   PROBE_DASHSCOPE_SOURCE_GROUP_ID defaults via probe_source_group_id dashscope
+#   PROBE_DASHSCOPE_SOURCE_GROUP optional legacy override by group name
+#   PROBE_ZHIPU_SOURCE_GROUP_ID defaults via probe_source_group_id zhipu
+#   PROBE_ZHIPU_SOURCE_GROUP optional legacy override by group name
+#   PROBE_VOLCENGINE_SOURCE_GROUP_ID defaults via probe_source_group_id volcengine
+#   PROBE_VOLCENGINE_SOURCE_GROUP optional legacy override by group name
+#   PROBE_GROK_SOURCE_GROUP_ID defaults via probe_source_group_id grok_edge
+#   PROBE_GROK_SOURCE_GROUP optional legacy override by group name
 #   GROK_APP_CONTAINER       default tokenkey-caddy
 #   GROK_APP_URL             default http://tokenkey:8080
-#   PROBE_ANTIGRAVITY_SOURCE_GROUP default Google-Gemini (PROD antigravity group; CASE-SENSITIVE)
+#   PROBE_ANTIGRAVITY_SOURCE_GROUP_ID defaults via probe_source_group_id antigravity
+#   PROBE_ANTIGRAVITY_SOURCE_GROUP optional legacy override by group name
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
 # Output: one TSV line per model on stdout (keys never printed):
@@ -117,37 +137,71 @@ fi
 PSQL_ARRAY=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
-PROBE_OPENAI_SOURCE_GROUP="${PROBE_OPENAI_SOURCE_GROUP:-GPT专线}"
-# anthropic probes an EDGE's native OAuth pool directly (the edge `default` group),
+
+# Single runtime source for canonical source group ids. Display names are
+# operator-editable and drift often enough to produce false config_error rows;
+# every probe family below defaults through this function and only uses the
+# legacy PROBE_*_SOURCE_GROUP name override when explicitly set for diagnostics.
+probe_source_group_id() { # $1=logical source pool
+	case "$1" in
+	openai) echo 2 ;;
+	anthropic_edge) echo 1 ;;
+	anthropic_mirror) echo 1 ;;
+	gemini_vertex) echo 16 ;;
+	dashscope) echo 18 ;;
+	zhipu) echo 26 ;;
+	volcengine) echo 5 ;;
+	grok_edge) echo 4 ;;
+	antigravity) echo 21 ;;
+	*)
+		echo "probe-servable-models: unknown source group key '$1'" >&2
+		return 1
+		;;
+	esac
+}
+
+PROBE_OPENAI_SOURCE_GROUP_ID="${PROBE_OPENAI_SOURCE_GROUP_ID:-$(probe_source_group_id openai)}"
+PROBE_OPENAI_SOURCE_GROUP="${PROBE_OPENAI_SOURCE_GROUP:-}"
+# anthropic probes an EDGE's native OAuth pool directly (group_id=1 on deployable edges),
 # not the prod cc-* mirror accounts: the mirrors relay prod->edge and cool down on any
 # edge upstream blip, so a prod-gateway probe empty-pools (429 not_allowlisted) whenever
 # the mirror pool is exhausted — a false "unservable". One healthy edge is enough to
 # confirm a model; the orchestrator rotates across deployable edges (refresh-servable-
 # allowlist.py ANTHROPIC_EDGES) and a model is servable if ANY edge serves it.
-PROBE_ANTHROPIC_SOURCE_GROUP="${PROBE_ANTHROPIC_SOURCE_GROUP:-default}"  # edge native OAuth group
+PROBE_ANTHROPIC_SOURCE_GROUP_ID="${PROBE_ANTHROPIC_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic_edge)}"  # edge native OAuth group id
+PROBE_ANTHROPIC_SOURCE_GROUP="${PROBE_ANTHROPIC_SOURCE_GROUP:-}"
 ANTHROPIC_APP_CONTAINER="${ANTHROPIC_APP_CONTAINER:-tokenkey-caddy}"
 ANTHROPIC_APP_URL="${ANTHROPIC_APP_URL:-http://tokenkey:8080}"
 # Prod relay-health probe (ANTHROPIC_PROD_MIRROR_MODELS, warning-only — does NOT feed
-# the allowlist). prod serves claude via api-key MIRROR accounts that all sit in the
-# `claude` group but split by NAME prefix into two upstream relays: `cc-*` (anthropic
+# the allowlist). prod serves claude via api-key MIRROR accounts that all sit in
+# group_id=1 (current display name: claude) but split by NAME prefix into two upstream relays: `cc-*` (anthropic
 # OAuth edges) and `kiro-*` (Kiro edges). Each sub-pool is probed on its own key via the
 # prod gateway and emits a distinct platform tag (anthropic_prodmirror_cc / _kiro) that
 # parse_results ignores; the orchestrator warns when an edge-servable model fails here.
-PROBE_ANTHROPIC_MIRROR_GROUP="${PROBE_ANTHROPIC_MIRROR_GROUP:-claude}"
-PROBE_GEMINI_SOURCE_GROUP="${PROBE_GEMINI_SOURCE_GROUP:-google-vertex}"
-PROBE_DASHSCOPE_SOURCE_GROUP="${PROBE_DASHSCOPE_SOURCE_GROUP:-Qwen}"
-PROBE_ZHIPU_SOURCE_GROUP="${PROBE_ZHIPU_SOURCE_GROUP:-GLM}"
-PROBE_GROK_SOURCE_GROUP="${PROBE_GROK_SOURCE_GROUP:-grok}"
-# Gemini/Vertex now serves from the PROD `google-vertex` group (not edge us6), so the
+PROBE_ANTHROPIC_MIRROR_GROUP_ID="${PROBE_ANTHROPIC_MIRROR_GROUP_ID:-$(probe_source_group_id anthropic_mirror)}"
+PROBE_ANTHROPIC_MIRROR_GROUP="${PROBE_ANTHROPIC_MIRROR_GROUP:-}"
+PROBE_GEMINI_SOURCE_GROUP_ID="${PROBE_GEMINI_SOURCE_GROUP_ID:-$(probe_source_group_id gemini_vertex)}"
+PROBE_GEMINI_SOURCE_GROUP="${PROBE_GEMINI_SOURCE_GROUP:-}"
+PROBE_DASHSCOPE_SOURCE_GROUP_ID="${PROBE_DASHSCOPE_SOURCE_GROUP_ID:-$(probe_source_group_id dashscope)}"
+PROBE_DASHSCOPE_SOURCE_GROUP="${PROBE_DASHSCOPE_SOURCE_GROUP:-}"
+PROBE_ZHIPU_SOURCE_GROUP_ID="${PROBE_ZHIPU_SOURCE_GROUP_ID:-$(probe_source_group_id zhipu)}"
+PROBE_ZHIPU_SOURCE_GROUP="${PROBE_ZHIPU_SOURCE_GROUP:-}"
+PROBE_VOLCENGINE_SOURCE_GROUP_ID="${PROBE_VOLCENGINE_SOURCE_GROUP_ID:-$(probe_source_group_id volcengine)}"
+PROBE_VOLCENGINE_SOURCE_GROUP="${PROBE_VOLCENGINE_SOURCE_GROUP:-}"
+PROBE_GROK_SOURCE_GROUP_ID="${PROBE_GROK_SOURCE_GROUP_ID:-$(probe_source_group_id grok_edge)}"
+PROBE_GROK_SOURCE_GROUP="${PROBE_GROK_SOURCE_GROUP:-}"
+# Gemini/Vertex now serves from the PROD group_id=16 (currently named `Google-Vertex`;
+# display name is operator-editable, so the default binding is by id, not name). The
 # probe goes through the PROD public gateway with external curl like the other newapi
 # families — no edge-internal wget hop is needed (prod's Caddy is not CIDR-restricted).
 GROK_APP_CONTAINER="${GROK_APP_CONTAINER:-tokenkey-caddy}"
 GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
-# antigravity accounts (e.g. antigravity-us3/us4 in the "Google-Gemini" group) live in
-# the PROD DB and are scheduled from prod, so antigravity probes the PROD public gateway
-# with external curl — same transport as gemini/zhipu (prod Caddy is not CIDR-restricted),
-# NOT the edge-internal wget hop. The "-usN" suffix is an upstream label, not an edge.
-PROBE_ANTIGRAVITY_SOURCE_GROUP="${PROBE_ANTIGRAVITY_SOURCE_GROUP:-Google-Gemini}"
+# antigravity accounts (e.g. antigravity-us3/us4 in prod group_id=21) live in
+# the PROD DB and are scheduled from prod. Text probes use the PROD public
+# /antigravity/v1beta surface; Studio gemini-native IMAGE probes intentionally use
+# /v1/chat/completions because that is the customer UI path for image generation.
+PROBE_ANTIGRAVITY_SOURCE_GROUP_ID="${PROBE_ANTIGRAVITY_SOURCE_GROUP_ID:-$(probe_source_group_id antigravity)}"
+PROBE_ANTIGRAVITY_SOURCE_GROUP="${PROBE_ANTIGRAVITY_SOURCE_GROUP:-}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
@@ -161,6 +215,35 @@ emit() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; }
 cfgerr() { # $1=platform $2=diagnostic
 	printf '%s\t%s\t%s\t%s\n' "$1" "*" "000" "config_error"
 	printf 'probe-setup [%s]: %s\n' "$1" "$2" >&2
+}
+
+# Pick the stable-id binding by default. A non-empty legacy group-name override
+# is still supported for one-off diagnostics, but no default path depends on a
+# mutable display name.
+probe_bind_source() { # $1=group_id $2=legacy_group_name -> REPLY_BIND_KIND/VAL/LABEL
+	local group_id="$1" legacy_name="${2:-}"
+	if [ -n "$legacy_name" ]; then
+		REPLY_BIND_KIND=source_group
+		REPLY_BIND_VAL="$legacy_name"
+		REPLY_BIND_LABEL="source_group=$legacy_name"
+	else
+		REPLY_BIND_KIND=source_group_id
+		REPLY_BIND_VAL="$group_id"
+		REPLY_BIND_LABEL="source_group_id=$group_id"
+	fi
+}
+
+probe_bind_group_like() { # $1=group_id $2=legacy_group_name $3=SQL LIKE pattern
+	local group_id="$1" legacy_name="${2:-}" pattern="$3"
+	if [ -n "$legacy_name" ]; then
+		REPLY_BIND_KIND=group_like
+		REPLY_BIND_VAL="${legacy_name}|${pattern}"
+		REPLY_BIND_LABEL="source_group=${legacy_name} name LIKE ${pattern}"
+	else
+		REPLY_BIND_KIND=group_id_like
+		REPLY_BIND_VAL="${group_id}|${pattern}"
+		REPLY_BIND_LABEL="source_group_id=${group_id} name LIKE ${pattern}"
+	fi
 }
 
 verdict() { # $1=code $2=bodyfile -> echoes verdict
@@ -295,7 +378,17 @@ probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn (
 body_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
 body_resp() { printf '{"model":"%s","instructions":"You are a helpful assistant.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say OK"}]}],"stream":false}' "$1"; }
 body_img() { printf '{"model":"%s","prompt":"a small red circle on white","n":1,"size":"1024x1024"}' "$1"; }
+# Gemini-native image models generate through the chat surface. The model id itself
+# selects IMAGE output; the aspect-ratio payload mirrors Studio's optional extra_body.
+body_chat_image() { printf '{"model":"%s","max_tokens":1024,"stream":false,"messages":[{"role":"user","content":"Create a simple image of a small red circle on a white background."}],"extra_body":{"google":{"image_config":{"aspect_ratio":"1:1"}}}}' "$1"; }
+# Ark seedream 4.5/5.0 reject 1024x1024 with "image size must be at least
+# 3686400 pixels"; use the same 2K square tier Studio sends for Seedream.
+body_ark_img() { printf '{"model":"%s","prompt":"a small red circle on white","n":1,"size":"2048x2048"}' "$1"; }
 body_video() { printf '{"model":"%s","prompt":"a small red ball rolling on a table","seconds":"4"}' "$1"; }
+# VolcEngine through TokenKey uses the OpenAI-video gateway shape. The new-api
+# task adaptor turns this into Ark's upstream create-task shape; do not send the
+# direct Ark `content[]` body on the gateway path.
+body_volcengine_video() { printf '{"model":"%s","prompt":"a small red ball rolling on a table --resolution 480p --duration 5"}' "$1"; }
 # ark create-task shape (seedance text commands ride inside the prompt text);
 # smallest billable settings so an activated model costs as little as possible.
 body_ark_video() { printf '{"model":"%s","content":[{"type":"text","text":"a small red ball rolling on a table --resolution 480p --duration 5"}]}' "$1"; }
@@ -334,6 +427,20 @@ probe_zhipu() { # $1=key  (models from $ZHIPU_CHAT_MODELS)
 	probe_compat_endpoint newapi "$PROD" "$1" /v1/chat/completions "$ZHIPU_CHAT_MODELS" body_chat
 }
 
+probe_antigravity_v1beta() { # $1=key  (models from $ANTIGRAVITY_CHAT_MODELS)
+	local key="$1" m f code path
+	for m in $ANTIGRAVITY_CHAT_MODELS; do
+		f="$(mktemp)"
+		path="/antigravity/v1beta/models/${m}:generateContent"
+		code="$(curl -s -o "$f" -w '%{http_code}' -m 90 -X POST "$PROD$path" \
+			-H "x-goog-api-key: $key" -H 'content-type: application/json' \
+			--data-binary '{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16}}')"
+		emit antigravity "$m" "$code" "$(verdict "$code" "$f")"
+		rm -f "$f"
+		sleep "$REQ_SLEEP"
+	done
+}
+
 # Resolve a catalog probe key via __tk_probe_<scope>_*. Tracks scopes for EXIT cleanup.
 TK_PROBE_CATALOG_SCOPES=""
 tk_probe_catalog_key() { # $1=scope $2=platform $3=bind_kind $4=bind_val -> sets REPLY_KEY
@@ -356,39 +463,44 @@ tk_probe_catalog_cleanup() {
 
 main() {
 	trap tk_probe_catalog_cleanup EXIT
-	local reply_key okey gkey grkey dkey zkey arkacct arkkey arkbase
+	local reply_key okey gkey grkey dkey zkey vkey arkacct arkkey arkbase
+	local REPLY_BIND_KIND REPLY_BIND_VAL REPLY_BIND_LABEL
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
-		if tk_probe_catalog_key anthropic anthropic source_group "$PROBE_ANTHROPIC_SOURCE_GROUP"; then
+		probe_bind_source "$PROBE_ANTHROPIC_SOURCE_GROUP_ID" "$PROBE_ANTHROPIC_SOURCE_GROUP"
+		if tk_probe_catalog_key anthropic anthropic "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			reply_key="$REPLY_KEY"
 			probe_anthropic_internal "$reply_key"
 		else
-			cfgerr anthropic "failed to prepare __tk_probe_anthropic_* (source_group=$PROBE_ANTHROPIC_SOURCE_GROUP — this edge has no schedulable native OAuth account; rotate to another edge)"
+			cfgerr anthropic "failed to prepare __tk_probe_anthropic_* ($REPLY_BIND_LABEL — this edge has no schedulable native OAuth account; rotate to another edge)"
 		fi
 	fi
 	# Prod relay-health probe (warning-only): probe each prod mirror sub-pool (cc-* and
-	# kiro-*, split out of the `claude` group by name prefix) through the prod gateway.
+	# kiro-*, split out of prod group_id=1 by name prefix) through the prod gateway.
 	# Reserved-resources only — distinct scopes/tags; the orchestrator diffs the results
 	# against the edge-native servable set. A cold sub-pool config_errors (rotation cue).
 	if [ -n "${ANTHROPIC_PROD_MIRROR_MODELS:-}" ]; then
-		if tk_probe_catalog_key anthropic_prodmirror_cc anthropic group_like "${PROBE_ANTHROPIC_MIRROR_GROUP}|cc-%"; then
+		probe_bind_group_like "$PROBE_ANTHROPIC_MIRROR_GROUP_ID" "$PROBE_ANTHROPIC_MIRROR_GROUP" "cc-%"
+		if tk_probe_catalog_key anthropic_prodmirror_cc anthropic "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			probe_anthropic_prod_mirror "$REPLY_KEY" anthropic_prodmirror_cc
 		else
-			cfgerr anthropic_prodmirror_cc "no schedulable cc-* mirror in group '$PROBE_ANTHROPIC_MIRROR_GROUP' (prod anthropic-OAuth relay pool empty)"
+			cfgerr anthropic_prodmirror_cc "no schedulable cc-* mirror in $REPLY_BIND_LABEL (prod anthropic-OAuth relay pool empty)"
 		fi
-		if tk_probe_catalog_key anthropic_prodmirror_kiro anthropic group_like "${PROBE_ANTHROPIC_MIRROR_GROUP}|kiro-%"; then
+		probe_bind_group_like "$PROBE_ANTHROPIC_MIRROR_GROUP_ID" "$PROBE_ANTHROPIC_MIRROR_GROUP" "kiro-%"
+		if tk_probe_catalog_key anthropic_prodmirror_kiro anthropic "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			probe_anthropic_prod_mirror "$REPLY_KEY" anthropic_prodmirror_kiro
 		else
-			cfgerr anthropic_prodmirror_kiro "no schedulable kiro-* mirror in group '$PROBE_ANTHROPIC_MIRROR_GROUP' (prod Kiro relay pool empty)"
+			cfgerr anthropic_prodmirror_kiro "no schedulable kiro-* mirror in $REPLY_BIND_LABEL (prod Kiro relay pool empty)"
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
-		if tk_probe_catalog_key openai openai source_group "$PROBE_OPENAI_SOURCE_GROUP"; then
+		probe_bind_source "$PROBE_OPENAI_SOURCE_GROUP_ID" "$PROBE_OPENAI_SOURCE_GROUP"
+		if tk_probe_catalog_key openai openai "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			okey="$REPLY_KEY"
 			[ -n "${OPENAI_CHAT_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/chat/completions "$OPENAI_CHAT_MODELS" body_chat
 			[ -n "${OPENAI_RESPONSES_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/responses "$OPENAI_RESPONSES_MODELS" body_resp
 			[ -n "${OPENAI_IMAGE_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/images/generations "$OPENAI_IMAGE_MODELS" body_img
 		else
-			cfgerr openai "failed to prepare __tk_probe_openai_* (source_group=$PROBE_OPENAI_SOURCE_GROUP)"
+			cfgerr openai "failed to prepare __tk_probe_openai_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
 	# Ark families: DIRECT volcengine data-plane probe (activation truth). Bypasses
@@ -412,65 +524,88 @@ main() {
 			# served in prod regardless; this only affects probe classification). Do NOT ship
 			# a guessed shape. See SKILL.md "translation 族探测" note.
 			[ -n "${ARK_CHAT_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/chat/completions "$ARK_CHAT_MODELS" body_chat
-			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_img
+			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_ark_img
 			[ -n "${ARK_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/contents/generations/tasks "$ARK_VIDEO_MODELS" body_ark_video
 		fi
 	fi
 	# Dashscope/qwen family: newapi channel_type=17 (account 60 "Qwen", Ali) served
 	# through the PROD TK gateway /v1/chat/completions. Probe key is the reserved
-	# __tk_probe_newapi_qwen_key (accounts copied from PROBE_DASHSCOPE_SOURCE_GROUP);
-	# never printed. Routes at prod (the newapi pool is prod-served, unlike gemini).
+	# __tk_probe_newapi_qwen_key (accounts copied from PROBE_DASHSCOPE_SOURCE_GROUP_ID);
+	# never printed. Routes at prod.
 	if [ -n "${DASHSCOPE_CHAT_MODELS:-}" ]; then
-		if tk_probe_catalog_key newapi_qwen newapi source_group "$PROBE_DASHSCOPE_SOURCE_GROUP"; then
+		probe_bind_source "$PROBE_DASHSCOPE_SOURCE_GROUP_ID" "$PROBE_DASHSCOPE_SOURCE_GROUP"
+		if tk_probe_catalog_key newapi_qwen newapi "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			dkey="$REPLY_KEY"
 			probe_dashscope "$dkey"
 		else
-			cfgerr newapi "failed to prepare __tk_probe_newapi_qwen_* (source_group=$PROBE_DASHSCOPE_SOURCE_GROUP)"
+			cfgerr newapi "failed to prepare __tk_probe_newapi_qwen_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
 	# Zhipu/GLM family: newapi channel_type=26 (account 67 "GLM") served through
 	# the PROD TK gateway /v1/chat/completions. Probe key is the reserved
-	# __tk_probe_newapi_glm_key (accounts copied from PROBE_ZHIPU_SOURCE_GROUP); never printed.
+	# __tk_probe_newapi_glm_key (accounts copied from PROBE_ZHIPU_SOURCE_GROUP_ID); never printed.
 	if [ -n "${ZHIPU_CHAT_MODELS:-}" ]; then
-		if tk_probe_catalog_key newapi_glm newapi source_group "$PROBE_ZHIPU_SOURCE_GROUP"; then
+		probe_bind_source "$PROBE_ZHIPU_SOURCE_GROUP_ID" "$PROBE_ZHIPU_SOURCE_GROUP"
+		if tk_probe_catalog_key newapi_glm newapi "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			zkey="$REPLY_KEY"
 			probe_zhipu "$zkey"
 		else
-			cfgerr newapi "failed to prepare __tk_probe_newapi_glm_* (source_group=$PROBE_ZHIPU_SOURCE_GROUP)"
+			cfgerr newapi "failed to prepare __tk_probe_newapi_glm_* ($REPLY_BIND_LABEL)"
+		fi
+	fi
+	# VolcEngine/Ark media family: newapi channel_type=45 (account 7 "volcengine")
+	# served through the PROD TK gateway. This is the end-to-end serving probe
+	# (pricing gate + scheduler + model_mapping + new-api adaptor), distinct from
+	# ARK_* direct data-plane activation probes above.
+	if [ -n "${VOLCENGINE_IMAGE_MODELS:-}${VOLCENGINE_VIDEO_MODELS:-}" ]; then
+		probe_bind_source "$PROBE_VOLCENGINE_SOURCE_GROUP_ID" "$PROBE_VOLCENGINE_SOURCE_GROUP"
+		if tk_probe_catalog_key newapi_volcengine newapi "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
+			vkey="$REPLY_KEY"
+			[ -n "${VOLCENGINE_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$PROD" "$vkey" /v1/images/generations "$VOLCENGINE_IMAGE_MODELS" body_ark_img
+			[ -n "${VOLCENGINE_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$PROD" "$vkey" /v1/video/generations "$VOLCENGINE_VIDEO_MODELS" body_volcengine_video
+		else
+			cfgerr volcengine "failed to prepare __tk_probe_newapi_volcengine_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
 	# Grok family: native xAI OAuth pool on the edge (currently us4). Probe key is
-	# a TK api_key BOUND TO the edge-side grok group; never printed. The probe runs
+	# a TK api_key BOUND TO the edge-side grok group_id=4; never printed. The probe runs
 	# on the edge host and hits the app container directly, bypassing edge Caddy.
-	if [ -n "${GROK_CHAT_MODELS:-}" ]; then
-		if tk_probe_catalog_key grok grok source_group "$PROBE_GROK_SOURCE_GROUP"; then
+	if [ -n "${GROK_CHAT_MODELS:-}${GROK_IMAGE_MODELS:-}${GROK_VIDEO_MODELS:-}" ]; then
+		probe_bind_source "$PROBE_GROK_SOURCE_GROUP_ID" "$PROBE_GROK_SOURCE_GROUP"
+		if tk_probe_catalog_key grok grok "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			grkey="$REPLY_KEY"
-			probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
+			[ -n "${GROK_CHAT_MODELS:-}" ] && probe_grok_internal "$grkey" /v1/chat/completions "$GROK_CHAT_MODELS" body_chat
+			[ -n "${GROK_IMAGE_MODELS:-}" ] && probe_grok_internal "$grkey" /v1/images/generations "$GROK_IMAGE_MODELS" body_img
+			[ -n "${GROK_VIDEO_MODELS:-}" ] && probe_grok_internal "$grkey" /v1/video/generations "$GROK_VIDEO_MODELS" body_video
 		else
-			cfgerr grok "failed to prepare __tk_probe_grok_* (source_group=$PROBE_GROK_SOURCE_GROUP)"
+			cfgerr grok "failed to prepare __tk_probe_grok_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
-	# Antigravity family: accounts (e.g. antigravity-us3/us4 in the "Google-Gemini" group)
-	# live in the PROD DB and schedule from prod, so antigravity probes the PROD public
-	# gateway with external curl — same transport as gemini/zhipu, NOT the edge-internal
-	# wget hop (the "-usN" suffix is an upstream label, not an edge). Probe key is a TK
-	# api_key bound to the prod Google-Gemini group; never printed.
-	if [ -n "${ANTIGRAVITY_CHAT_MODELS:-}" ]; then
-		if tk_probe_catalog_key antigravity antigravity source_group "$PROBE_ANTIGRAVITY_SOURCE_GROUP"; then
+	# Antigravity family: accounts (e.g. antigravity-us3/us4 in prod group_id=21)
+	# live in the PROD DB and schedule from prod. Text/capability probes use the native
+	# /antigravity/v1beta Gemini surface. Studio image generation is different: the UI
+	# goes through /v1/chat/completions, where the gateway adapts gemini-*-image models
+	# to Antigravity/Gemini image output. Keep the families separate so a v1beta-only
+	# 404 cannot falsely eject a Studio-served image model.
+	if [ -n "${ANTIGRAVITY_CHAT_MODELS:-}${ANTIGRAVITY_IMAGE_MODELS:-}" ]; then
+		probe_bind_source "$PROBE_ANTIGRAVITY_SOURCE_GROUP_ID" "$PROBE_ANTIGRAVITY_SOURCE_GROUP"
+		if tk_probe_catalog_key antigravity antigravity "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			agkey="$REPLY_KEY"
-			probe_compat_endpoint antigravity "$PROD" "$agkey" /v1/chat/completions "$ANTIGRAVITY_CHAT_MODELS" body_chat
+			[ -n "${ANTIGRAVITY_CHAT_MODELS:-}" ] && probe_antigravity_v1beta "$agkey"
+			[ -n "${ANTIGRAVITY_IMAGE_MODELS:-}" ] && probe_compat_endpoint antigravity "$PROD" "$agkey" /v1/chat/completions "$ANTIGRAVITY_IMAGE_MODELS" body_chat_image
 		else
-			cfgerr antigravity "failed to prepare __tk_probe_antigravity_* (source_group=$PROBE_ANTIGRAVITY_SOURCE_GROUP — the prod Google-Gemini group has no schedulable antigravity account)"
+			cfgerr antigravity "failed to prepare __tk_probe_antigravity_* ($REPLY_BIND_LABEL — the prod antigravity source group has no schedulable antigravity account)"
 		fi
 	fi
 	# Gemini family: newapi/Vertex models. Live Vertex capacity moved from edge us6
-	# to the PROD `google-vertex` group (account ids 47/57/58/59), so gemini now probes
+	# to the PROD Vertex group_id=16 (account ids 47/57/58/59/74), so gemini now probes
 	# the PROD public gateway with external curl — identical transport to the other
 	# newapi families (zhipu/dashscope), NOT the edge-internal wget hop (that was only
 	# needed to bypass an edge Caddy /v1/* CIDR restriction; prod's gateway is public).
 	# emit tag stays `gemini` so parse_results maps results to the gemini allowlist.
 	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_CHATIMAGE_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then
-		if tk_probe_catalog_key newapi_google newapi source_group "$PROBE_GEMINI_SOURCE_GROUP"; then
+		probe_bind_source "$PROBE_GEMINI_SOURCE_GROUP_ID" "$PROBE_GEMINI_SOURCE_GROUP"
+		if tk_probe_catalog_key newapi_google newapi "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			gkey="$REPLY_KEY"
 			[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
 			# gemini-*-image generate via the chat/generateContent surface, NOT the
@@ -479,7 +614,7 @@ main() {
 			[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
 			[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_compat_endpoint gemini "$PROD" "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
 		else
-			cfgerr gemini "failed to prepare __tk_probe_newapi_google_* (source_group=$PROBE_GEMINI_SOURCE_GROUP)"
+			cfgerr gemini "failed to prepare __tk_probe_newapi_google_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
 	# Verdicts live in the emitted TSV, never in the exit code (config_error rows

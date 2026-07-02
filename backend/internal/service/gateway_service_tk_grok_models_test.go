@@ -82,3 +82,35 @@ func TestResolve_GrokImagineVideoWithChatOnlyMapping(t *testing.T) {
 		t.Fatalf("grok-imagine-video should resolve to grok group, got=%v err=%v", g, err)
 	}
 }
+
+func TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping(t *testing.T) {
+	account := &Account{
+		ID:          1,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"claude-sonnet-4-6": "grok-4.3",
+			},
+		},
+	}
+
+	if !account.IsModelSupported("grok-imagine-video") {
+		t.Fatal("grok native catalog video must not be blocked by chat-only model_mapping")
+	}
+
+	scheduler := &defaultOpenAIAccountScheduler{}
+	req := OpenAIAccountScheduleRequest{
+		RequestedModel: "grok-imagine-video",
+		GroupPlatform:  PlatformGrok,
+	}
+	if !scheduler.isAccountRequestCompatible(context.Background(), account, req) {
+		t.Fatal("grok-imagine-video must survive the OpenAI-compat account scheduler filter")
+	}
+
+	if account.IsModelSupported("veo-3.1-generate-001") {
+		t.Fatal("non-grok video models must still be rejected by chat-only grok mappings")
+	}
+}

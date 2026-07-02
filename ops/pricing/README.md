@@ -23,7 +23,7 @@ hand-maintained empirical sets in the same file.
 | File | Role |
 | --- | --- |
 | `probe-servable-models.sh` | Runs on prod or an edge via `ops/observability/run-probe.sh`. Sends one minimal real request per candidate model and emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. Always auto-ensures reusable `__tk_probe_<scope>_group` / `__tk_probe_<scope>_key` per platform via `probe_reserved_resources.sh` (no direct-key fallback, no dependency on `TK_SMOKE_API_KEY` or customer keys). The companion is mandatory — deliver it with `run-probe.sh --with ops/pricing/probe_reserved_resources.sh` (the orchestrator and every manual invocation below do). |
-| `probe_reserved_resources.sh` | Shared DB helpers for reserved probe groups/keys (same namespace as `tokenkey-account-model-probe`). Per-scope `flock` on `/tmp/tokenkey-account-model-probe-<scope>.lock` serializes `account_groups` mutations vs account-model probes. Catalog refresh copies schedulable accounts from canonical source groups, probes, then clears `account_groups` bindings and releases locks on EXIT. |
+| `probe_reserved_resources.sh` | Shared DB helpers for reserved probe groups/keys (same namespace as `tokenkey-account-model-probe`). Per-scope `flock` on `/tmp/tokenkey-account-model-probe-<scope>.lock` serializes `account_groups` mutations vs account-model probes. Catalog refresh copies schedulable accounts from canonical source group ids by default, probes, then clears `account_groups` bindings and releases locks on EXIT. Group-name overrides are legacy diagnostics only. |
 | `probe-traffic-proven-models.sh` | Runs on prod via `ops/observability/run-probe.sh`. Read-only over `usage_logs`: emits `platform⇥model⇥hits` for every model that served **real successful traffic** in the last `TRAFFIC_HOURS` (default 24). Feeds the `--skip-proven-by-traffic` short-circuit below. Positive evidence only — a model with no recent traffic is simply absent (never an unsupported signal). |
 | `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
 | `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
@@ -176,20 +176,33 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   (`-YYYYMMDD` for anthropic, `-YYYY-MM-DD` for openai), keep only the
   non-dated; drop `-thinking` pricing pseudo-entries.
 - OpenAI candidates are routed by family: `*codex*` → `/v1/responses`,
-  `*image*` → `/v1/images/generations` (best-effort — the GPT-line group has no
-  image account, so these read inconclusive and drop), everything else →
-  `/v1/chat/completions`.
+  `*image*` → `/v1/images/generations` (2026-07-02: group_id=2 returns 400
+  missing `api.model.images.request` scope, so GPT image stays out until an
+  image-scoped account probes 200), everything else → `/v1/chat/completions`.
 
 ## Caveats
 
+- The probe's default source pools are group-id anchored: prod `openai=2`,
+  `anthropic mirror=1`, `antigravity=21`, `Vertex/newapi=16`, `Qwen/newapi=18`,
+  `GLM/newapi=26`, `VolcEngine/newapi=5`; edge-native probes use `anthropic=1`
+  and `grok=4` on the target edge DB. Display names are operator-editable and
+  only accepted through explicit legacy `PROBE_*_SOURCE_GROUP` overrides for
+  diagnostics.
+- Antigravity has two distinct probe surfaces: text/capability checks use
+  `ANTIGRAVITY_CHAT_MODELS` on `/antigravity/v1beta`, while Studio
+  gemini-native image uses `ANTIGRAVITY_IMAGE_MODELS` on `/v1/chat/completions`.
+  Do not use a v1beta image 404 as a Studio image verdict.
+- VolcEngine/Ark has two distinct probe surfaces: `ARK_*` calls the upstream Ark
+  data plane directly and proves account activation; `VOLCENGINE_IMAGE_MODELS`
+  and `VOLCENGINE_VIDEO_MODELS` call the prod TokenKey gateway through group_id
+  `5` and prove end-to-end serving after pricing + `model_mapping` are live.
 - The probe tests anthropic **edge-native** — rotated across the deployable edges
-  (`deployable_edges()` from `edge-targets-lightsail.json`), servable if any edge serves —
-  gemini/Vertex through the **prod `google-vertex`** group, and openai through the
-  **GPT-line** group. A separate warning-only pass re-probes the edge-servable set through
-  the prod gateway per mirror sub-pool (`cc-*` anthropic-OAuth + `kiro-*` Kiro) and warns on
+  (`deployable_edges()` from `edge-targets-lightsail.json`), servable if any edge serves.
+  A separate warning-only pass re-probes the edge-servable set through the prod gateway
+  per mirror sub-pool (`cc-*` anthropic-OAuth + `kiro-*` Kiro) and warns on
   "edge serves but prod relay does not"; those rows never enter the allowlist. Models served
   exclusively by yet another group read inconclusive here and are dropped; provide that
-  group's key and extend the probe to re-add them.
+  group's group id and extend the probe to re-add them.
 - This is a snapshot. Re-run after the served fleet changes (new model family,
   account/tier changes, an upstream sunset).
 

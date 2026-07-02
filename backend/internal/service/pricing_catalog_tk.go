@@ -93,12 +93,9 @@ type PublicCatalogPricing struct {
 	CacheReadPer1K            float64 `json:"cache_read_per_1k,omitempty"`
 	CacheWritePer1K           float64 `json:"cache_write_per_1k,omitempty"`
 	// TK media units. BillingMode is "token" (default, omitted), "image"
-	// (per-generated-image) or "video" (per-second). For media models the
-	// token fields above are 0 and the per-image / per-second field carries the
-	// price — so a client can render "$0.04 /image" or "$0.40 /s" instead of a
-	// meaningless per-1k-token cell. Surfacing media here (previously skipped —
-	// see buildCatalogFromBytes / applyCatalogOverlayPricing) is the "batch 2"
-	// follow-up to docs/playground-media-redesign.md.
+	// (per-generated-image) or "video" (per-second). The per-image / per-second
+	// field is meaningful only when BillingMode says it is a media catalog row:
+	// some chat rows carry image-related price fields for multimodal inputs.
 	BillingMode         string  `json:"billing_mode,omitempty"`
 	OutputCostPerImage  float64 `json:"output_cost_per_image,omitempty"`
 	OutputCostPerSecond float64 `json:"output_cost_per_second,omitempty"`
@@ -288,11 +285,12 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 		if err := json.Unmarshal(rawEntry, &e); err != nil {
 			continue
 		}
-		// Keep token-priced entries AND media entries (per-image / per-second).
+		// Keep token-priced entries AND true media entries (per-image / per-second).
 		// Media has no token price, so the original token-only guard dropped the
-		// entire imagen-*/veo-*/seedream/seedance family — surface them now.
-		if e.InputCostPerToken == nil && e.OutputCostPerToken == nil &&
-			e.OutputCostPerImage == nil && e.OutputCostPerSecond == nil {
+		// entire imagen-*/veo-*/seedream/seedance family. Chat rows may also
+		// carry image-related price fields; those must not surface as empty
+		// catalog rows unless they have token prices.
+		if e.InputCostPerToken == nil && e.OutputCostPerToken == nil && catalogMediaBillingMode(&e) == "" {
 			continue
 		}
 		models = append(models, catalogModelFromEntry(name, &e))
@@ -467,13 +465,15 @@ func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel 
 		CacheReadPer1K:            perTokenTo1K(e.CacheReadInputTokenCost),
 		CacheWritePer1K:           perTokenTo1K(e.CacheCreationInputTokenCost),
 	}
-	// Media billing mode is derived from the priced unit (robust to a missing
-	// `mode`): per-second → video, per-image → image, else token (default).
-	switch {
-	case e.OutputCostPerSecond != nil && *e.OutputCostPerSecond > 0:
+	// Media billing mode is catalog membership truth for Studio. Trust explicit
+	// media modes, and keep a conservative fallback only for pure media rows
+	// whose mirrors forgot `mode`. Do not infer media from a per-image field on
+	// token-priced chat rows (Gemini chat rows can carry image-related costs).
+	switch catalogMediaBillingMode(e) {
+	case "video":
 		pricing.BillingMode = "video"
 		pricing.OutputCostPerSecond = *e.OutputCostPerSecond
-	case e.OutputCostPerImage != nil && *e.OutputCostPerImage > 0:
+	case "image":
 		pricing.BillingMode = "image"
 		pricing.OutputCostPerImage = *e.OutputCostPerImage
 	}
@@ -484,6 +484,24 @@ func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel 
 		ContextWindow:   e.MaxInputTokens,
 		MaxOutputTokens: e.MaxOutputTokens,
 		Capabilities:    catalogCapabilities(e),
+	}
+}
+
+func catalogMediaBillingMode(e *catalogRichEntry) string {
+	if e == nil {
+		return ""
+	}
+	hasTokenPrice := e.InputCostPerToken != nil || e.OutputCostPerToken != nil
+	pureMediaWithoutMode := e.Mode == "" && !hasTokenPrice
+	switch {
+	case e.OutputCostPerSecond != nil && *e.OutputCostPerSecond > 0 &&
+		(e.Mode == "video_generation" || pureMediaWithoutMode):
+		return "video"
+	case e.OutputCostPerImage != nil && *e.OutputCostPerImage > 0 &&
+		(e.Mode == "image_generation" || pureMediaWithoutMode):
+		return "image"
+	default:
+		return ""
 	}
 }
 

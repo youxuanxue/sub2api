@@ -606,6 +606,28 @@ else
     echo "  ok: served-models manifest agrees with price/display/migration"
 fi
 
+# ---- sub2api: Studio media coverage -----------------------------------------
+# Source of truth: backend media membership is catalog-driven (pricing overlay +
+# Go servable allowlists + newapi served-models manifest). Studio presentation is
+# allowed to be friendly, but every public servable image/video must have explicit
+# frontend metadata (image size/aspect contract or video durations); otherwise the
+# UI falls back to unsafe defaults and reopens the "catalog says usable, submit
+# fails" class.
+echo ""
+echo "=== sub2api: Studio media coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for Studio media coverage)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/studio-media-coverage.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: studio-media-coverage.py selftest"
+    echo "        — run: python3 scripts/checks/studio-media-coverage.py --selftest"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/studio-media-coverage.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: Studio presentation covers public servable media models"
+fi
+
 # ---- sub2api: modelops planner selftest --------------------------------------
 # The modelops planner is deliberately read-only: it mechanizes discovery/probe/
 # price/mapping/catalog-surface diffing and prints existing guarded apply
@@ -1713,6 +1735,85 @@ done < <(grep -rlF --include='*.md' --include='*.py' --include='*.sh' -e "$_prob
 if [ "$_probe_guard_err" -eq 0 ]; then
     echo "  ok: all $_probe_guard_files probe-servable-models.sh caller file(s) ship the companion via --with"
 else
+    errors=$((errors + 1))
+fi
+
+# Probe source pools must be anchored by group id, not mutable display names.
+# Legacy PROBE_*_SOURCE_GROUP env vars remain available for one-off diagnostics,
+# but their defaults must stay empty; otherwise an operator group rename becomes
+# a false config_error again.
+echo ""
+echo "=== sub2api: probe source group-id defaults ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by probe source group-id defaults check)"
+    errors=$((errors + 1))
+elif ! python3 - <<'PY'
+import re
+from pathlib import Path
+
+probe = Path("ops/pricing/probe-servable-models.sh").read_text(encoding="utf-8")
+errors = []
+expected_source_ids = {
+    "openai": 2,
+    "anthropic_edge": 1,
+    "anthropic_mirror": 1,
+    "gemini_vertex": 16,
+    "dashscope": 18,
+    "zhipu": 26,
+    "volcengine": 5,
+    "grok_edge": 4,
+    "antigravity": 21,
+}
+fn = re.search(r'^probe_source_group_id\(\).*?^}', probe, flags=re.M | re.S)
+if not fn:
+    errors.append("probe-servable-models.sh must define probe_source_group_id() as the source group-id SSOT")
+else:
+    body = fn.group(0)
+    for key, gid in expected_source_ids.items():
+        if not re.search(rf'^\s*{re.escape(key)}\)\s*echo\s+{gid}\s*;;', body, flags=re.M):
+            errors.append(f"probe_source_group_id {key} must map to group_id {gid}")
+
+required_defaults = {
+    "PROBE_OPENAI_SOURCE_GROUP_ID": "openai",
+    "PROBE_ANTHROPIC_SOURCE_GROUP_ID": "anthropic_edge",
+    "PROBE_ANTHROPIC_MIRROR_GROUP_ID": "anthropic_mirror",
+    "PROBE_GEMINI_SOURCE_GROUP_ID": "gemini_vertex",
+    "PROBE_DASHSCOPE_SOURCE_GROUP_ID": "dashscope",
+    "PROBE_ZHIPU_SOURCE_GROUP_ID": "zhipu",
+    "PROBE_VOLCENGINE_SOURCE_GROUP_ID": "volcengine",
+    "PROBE_GROK_SOURCE_GROUP_ID": "grok_edge",
+    "PROBE_ANTIGRAVITY_SOURCE_GROUP_ID": "antigravity",
+}
+for name, key in required_defaults.items():
+    pattern = rf'^{name}="\$\{{{name}:-\$\(\s*probe_source_group_id\s+{re.escape(key)}\s*\)\}}"'
+    if not re.search(pattern, probe, flags=re.M):
+        errors.append(f"{name} default must call probe_source_group_id {key}")
+
+legacy_names = [
+    "PROBE_OPENAI_SOURCE_GROUP",
+    "PROBE_ANTHROPIC_SOURCE_GROUP",
+    "PROBE_ANTHROPIC_MIRROR_GROUP",
+    "PROBE_GEMINI_SOURCE_GROUP",
+    "PROBE_DASHSCOPE_SOURCE_GROUP",
+    "PROBE_ZHIPU_SOURCE_GROUP",
+    "PROBE_VOLCENGINE_SOURCE_GROUP",
+    "PROBE_GROK_SOURCE_GROUP",
+    "PROBE_ANTIGRAVITY_SOURCE_GROUP",
+]
+for name in legacy_names:
+    if not re.search(rf'^{name}="\$\{{{name}:-\}}"', probe, flags=re.M):
+        errors.append(f"{name} default must stay empty; use {name}_ID for the default source pool")
+
+probe_lib = Path("ops/pricing/probe_reserved_resources.sh").read_text(encoding="utf-8")
+if "group_id_like)" not in probe_lib:
+    errors.append("probe_reserved_resources.sh must support group_id_like for mirror sub-pool probes")
+
+if errors:
+    print("\n".join(f"  FAIL: {err}" for err in errors))
+    raise SystemExit(1)
+print("  ok: probe defaults are group-id anchored; legacy group-name defaults are empty")
+PY
+then
     errors=$((errors + 1))
 fi
 

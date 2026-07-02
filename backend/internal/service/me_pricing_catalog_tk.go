@@ -754,16 +754,21 @@ func (s *MePricingCatalogService) fillAccountFallback(
 			}
 		}
 	}
-	var newapiManifestAllow map[string]struct{}
-	if targetGroup.Platform == PlatformNewAPI {
-		if ids := loadTkServedModelsManifestIDs(); len(ids) > 0 {
-			newapiManifestAllow = ids
-		}
-	}
 	for i := range accounts {
 		a := &accounts[i]
 		if !accountInGroupScope(a, targetGroup.Platform) {
 			continue
+		}
+		var newapiPresetAllow map[string]struct{}
+		if targetGroup.Platform == PlatformNewAPI {
+			presets := AccountModelMappingPresetIDs(ctx, PlatformNewAPI, a.ChannelType, s.availability)
+			if len(presets) == 0 {
+				continue
+			}
+			newapiPresetAllow = make(map[string]struct{}, len(presets))
+			for _, id := range presets {
+				newapiPresetAllow[id] = struct{}{}
+			}
 		}
 		if accountHasModelRestriction(a.Credentials) {
 			for _, modelID := range parseWhitelistFromCredentials(a.Credentials) {
@@ -772,8 +777,8 @@ func (s *MePricingCatalogService) fillAccountFallback(
 						continue
 					}
 				}
-				if newapiManifestAllow != nil {
-					if _, ok := newapiManifestAllow[modelID]; !ok {
+				if newapiPresetAllow != nil {
+					if _, ok := newapiPresetAllow[modelID]; !ok {
 						continue
 					}
 				}

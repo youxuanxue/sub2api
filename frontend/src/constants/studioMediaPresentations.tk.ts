@@ -18,8 +18,8 @@ export type StudioModality = 'image' | 'video'
 /**
  * The modality axis the Studio SHELL reasons about for key selection. Chat is a
  * peer Studio tab (folded in from the retired /playground), but it has no media
- * tier catalog — a key "serves chat" when its /v1/models pool exposes any
- * chat-classified id (modalityForModel). image/video keep the media-tier check.
+ * billing-mode catalog row — a key "serves chat" when its /v1/models pool exposes
+ * any chat-classified id (modalityForModel). image/video use catalog billing_mode.
  * Bake-off passes no picker modality (dual sub-modality → user owns the key).
  */
 export type PickerModality = StudioModality | 'chat'
@@ -56,7 +56,7 @@ function defaultDisplayName(modelId: string): string {
  * `modality`. Uses the public pricing catalog's billing_mode index (loaded once
  * at Studio bootstrap) — not the presentation table below.
  */
-export function modalityHasTiers(
+export function hasCatalogMediaModality(
   modality: StudioModality,
   availableIds: ReadonlySet<string>,
   catalogBilling: CatalogBillingIndex
@@ -85,7 +85,7 @@ export function groupServes(
     }
     return false
   }
-  return modalityHasTiers(modality, availableIds, catalogBilling)
+  return hasCatalogMediaModality(modality, availableIds, catalogBilling)
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -101,8 +101,8 @@ export interface ModalityKeyOption {
  * Pick the key the Studio should land on for `modality`.
  *
  * The Studio tab is dead unless the selected key's GROUP serves the modality —
- * image (Vertex/gemini), seedream-image (VolcEngine/newapi) and the video tiers
- * each live on a different platform group, so a single key rarely serves all
+ * image (Vertex/gemini), seedream-image (VolcEngine/newapi), and video models
+ * can live on different platform groups, so a single key rarely serves all
  * three. The historical bootstrap grabbed `trial`/`keys[0]` blind to modality,
  * which on prod routinely landed on an antigravity key with no image models
  * (the "当前分组暂无可用的图片模型" dead-end). This makes the choice modality-aware:
@@ -215,7 +215,7 @@ export const VIDEO_ASPECT_PRESETS: VideoAspectPreset[] = [
 /**
  * Fallback video duration default (seconds) used ONLY before a model is selected
  * or for a video model that declares no `videoDurations`. Real durations are
- * per-model and discrete (see MediaModel.videoDurations) — the global 1–60s
+ * per-model and discrete (see MediaModelPresentation.videoDurations) — the global 1–60s
  * slider was a footgun: it let users request (and get quoted for) durations the
  * model's UPSTREAM always rejects, e.g. a 53s Veo clip @ $0.60/s = $31.80 that
  * Vertex hard-fails (Veo accepts only 4/6/8s). The backend still clamps to
@@ -231,8 +231,9 @@ export const IMAGE_N_MAX = 4
  * Presentation overlay (NOT membership SSOT — catalog billing_mode is).
  *
  * Friendly names, badges, aspect ratios, discrete video durations, and verified
- * adaptor params. Models without an entry still appear when the catalog lists
- * them; they get conservative defaults until presentation is curated here.
+ * adaptor params. Runtime can build conservative defaults for future/private
+ * catalog rows; preflight requires repo-known public servable media to be
+ * explicitly curated here.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -251,7 +252,7 @@ export type StudioParam =
 
 export type QualityBadge = 'draft' | 'standard' | 'ultra' | 'fast' | 'cinematic'
 
-export interface MediaModel {
+export interface MediaModelPresentation {
   /** EXACT id sent to the gateway = billing key. Never substitute the display name. */
   modelId: string
   /** Friendly display name, e.g. "Imagen 4 · Ultra" (frontend-derived; no backend name). */
@@ -307,7 +308,7 @@ export interface MediaModel {
 }
 
 /** Presentation-only entries keyed by canonical model_id. */
-export const MEDIA_MODELS: MediaModel[] = [
+export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   // ── image (imagen/seedream honor NO advanced params per adaptor) ──
   {
     modelId: 'imagen-4.0-fast-generate-001',
@@ -324,6 +325,26 @@ export const MEDIA_MODELS: MediaModel[] = [
     modelId: 'seedream-4-0-250828',
     aliasIds: ['doubao-seedream-4-0-250828'],
     displayName: 'Seedream 4.0',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
+    modelId: 'doubao-seedream-5-0-260128',
+    displayName: 'Seedream 5.0',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
+    modelId: 'doubao-seedream-4-5-251128',
+    displayName: 'Seedream 4.5',
     qualityBadge: 'standard',
     qualityBadgeKey: 'studio.badge.standard',
     vendorLabel: VOLC,
@@ -417,8 +438,8 @@ export const MEDIA_MODELS: MediaModel[] = [
 
   // ── video ──
   {
-    modelId: 'seedance-1-0-pro-250528',
-    aliasIds: ['doubao-seedance-1-0-pro-250528'],
+    modelId: 'doubao-seedance-1-0-pro-250528',
+    aliasIds: ['seedance-1-0-pro-250528'],
     displayName: 'Seedance 1.0 · Pro',
     qualityBadge: 'standard',
     qualityBadgeKey: 'studio.badge.standard',
@@ -428,6 +449,40 @@ export const MEDIA_MODELS: MediaModel[] = [
     supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
     // Seedance 1.0 Pro: discrete 5s / 10s (Volcengine Ark, high confidence).
     videoDurations: [5, 10],
+  },
+  {
+    modelId: 'doubao-seedance-1-0-pro-fast-251015',
+    displayName: 'Seedance 1.0 · Pro Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Live Ark submit probe used the 5s minimum task shape; keep conservative
+    // until the official duration table for this fast SKU is captured.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-1-5-pro-251215',
+    displayName: 'Seedance 1.5 · Pro',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Local VolcEngine pricing capture only documents 5s examples for 1.5 Pro.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2-0-260128',
+    displayName: 'Seedance 2.0',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Local VolcEngine pricing capture only documents 5s output examples for 2.0.
+    videoDurations: [5],
   },
   {
     modelId: 'doubao-seedance-2-0-fast-260128',
@@ -441,19 +496,6 @@ export const MEDIA_MODELS: MediaModel[] = [
     // fast-variant discrete set 4/8/12 — conservative (never offer a value the
     // upstream rejects). TODO: verify against canonical Volcengine Ark docs.
     videoDurations: [4, 8, 12],
-  },
-  {
-    modelId: 'veo-3.1-fast-generate-001',
-    displayName: 'Veo 3.1 · Fast',
-    qualityBadge: 'fast',
-    qualityBadgeKey: 'studio.badge.fast',
-    vendorLabel: VERTEX,
-    modality: 'video',
-    // VeoParameters honors NegativePrompt + Seed; first-frame image supported.
-    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
-    // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence). With a
-    // first-frame/reference image upstream only returns 8s — not modeled here.
-    videoDurations: [4, 6, 8],
   },
   {
     modelId: 'veo-3.1-generate-001',
@@ -480,18 +522,18 @@ export const MEDIA_MODELS: MediaModel[] = [
   },
 ]
 
-function lookupPresentation(modelId: string): MediaModel | undefined {
-  const direct = MEDIA_MODELS.find((m) => m.modelId === modelId)
+function lookupPresentation(modelId: string): MediaModelPresentation | undefined {
+  const direct = MEDIA_MODEL_PRESENTATIONS.find((m) => m.modelId === modelId)
   if (direct) return direct
-  return MEDIA_MODELS.find((m) => m.aliasIds?.includes(modelId))
+  return MEDIA_MODEL_PRESENTATIONS.find((m) => m.aliasIds?.includes(modelId))
 }
 
-function buildMediaModelForCatalogRow(
+function buildMediaPresentationForCatalogRow(
   servedId: string,
   modality: StudioModality,
-  presentation: MediaModel | undefined,
+  presentation: MediaModelPresentation | undefined,
   vendor?: string
-): MediaModel {
+): MediaModelPresentation {
   if (presentation) return presentation
   return {
     modelId: servedId,
@@ -518,8 +560,8 @@ export interface MediaPrice {
 }
 export type MediaPriceMap = ReadonlyMap<string, MediaPrice>
 
-export interface ResolvedModel {
-  model: MediaModel
+export interface ResolvedMediaModel {
+  presentation: MediaModelPresentation
   /** The concrete id present in availableIds (primary or an alias). Billing key. */
   servedId: string
   /** Live price for this model (from the catalog), per modality. */
@@ -537,17 +579,14 @@ export function resolveAvailableModels(
   modality: StudioModality,
   availableIds: ReadonlySet<string>,
   priceMap: MediaPriceMap
-): ResolvedModel[] {
-  const out: ResolvedModel[] = []
+): ResolvedMediaModel[] {
+  const out: ResolvedMediaModel[] = []
   const seenCanonical = new Set<string>()
 
   for (const servedId of availableIds) {
     const price = priceMap.get(servedId)
     if (!price) continue
-    const rowModality =
-      price.billingMode ??
-      (price.perSecond != null ? 'video' : price.perImage != null ? 'image' : undefined)
-    if (rowModality !== modality) continue
+    if (price.billingMode !== modality) continue
 
     const baseImagePrice = modality === 'image' ? price.perImage : undefined
     const perSecond = modality === 'video' ? price.perSecond : undefined
@@ -558,8 +597,8 @@ export function resolveAvailableModels(
     if (seenCanonical.has(canonicalId)) continue
     seenCanonical.add(canonicalId)
 
-    const model = buildMediaModelForCatalogRow(servedId, modality, presentation, price.vendor)
-    out.push({ model, servedId, baseImagePrice, perSecond })
+    const resolvedPresentation = buildMediaPresentationForCatalogRow(servedId, modality, presentation, price.vendor)
+    out.push({ presentation: resolvedPresentation, servedId, baseImagePrice, perSecond })
   }
 
   out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))
@@ -570,9 +609,9 @@ export function resolveAvailableModels(
  * First model the Studio should auto-select for a modality: the cheapest served
  * model that is NOT a footgun (needsApikeyAccount). Null when none are servable.
  */
-export function defaultModelId(models: readonly ResolvedModel[]): string | null {
-  const safe = models.find((r) => !r.model.needsApikeyAccount)
-  return safe ? safe.model.modelId : null
+export function defaultModelId(models: readonly ResolvedMediaModel[]): string | null {
+  const safe = models.find((r) => !r.presentation.needsApikeyAccount)
+  return safe ? safe.presentation.modelId : null
 }
 
 /**
