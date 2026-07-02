@@ -1,5 +1,11 @@
 package service
 
+import (
+	"context"
+
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+)
+
 // TokenKey: the empirically-servable claude + gpt model sets, shared by the
 // public /pricing catalog (isPublicCatalogModelSupported) and the per-user
 // "Your Menu" unrestricted-account fallback (supportedCatalogModelIDsForPlatform).
@@ -363,8 +369,8 @@ func supportedCatalogModelIDsForPlatform(platform string) []string {
 
 // VertexNewAPIChannelServableModelIDs returns TokenKey's empirically verified
 // Gemini/Vertex wire IDs for newapi channel_type 41 (Vertex SA bridge). Admin
-// UIs use this as the preset model_mapping list — same SSOT as
-// supportedGeminiCatalogModels / public catalog gemini gate.
+// UIs use this as the preset model_mapping list — delegated to
+// AccountModelMappingPresetIDs (single SSOT).
 func VertexNewAPIChannelServableModelIDs() []string {
-	return supportedCatalogModelIDsForPlatform(PlatformGemini)
+	return AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVertexAi, nil)
 }

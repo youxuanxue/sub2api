@@ -280,6 +280,10 @@ func (s *stubAdminService) GetGroupModelsListCandidates(ctx context.Context, id 
 	return []string{"claude-sonnet-4-6"}, nil
 }
 
+func (s *stubAdminService) GetAccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int) ([]string, error) {
+	return service.AccountModelMappingPresetIDs(ctx, platform, channelType, nil), nil
+}
+
 func (s *stubAdminService) CreateGroup(ctx context.Context, input *service.CreateGroupInput) (*service.Group, error) {
 	group := service.Group{ID: 200, Name: input.Name, Status: service.StatusActive}
 	return &group, nil

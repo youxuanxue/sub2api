@@ -3,6 +3,7 @@ package service
 import (
 	_ "embed"
 	"encoding/json"
+	"sort"
 	"sync"
 )
 
@@ -22,31 +23,72 @@ type tkServedModelsManifestFile struct {
 }
 
 type tkServedModelsManifestEntry struct {
-	ModelID string `json:"model_id"`
+	ModelID     string `json:"model_id"`
+	ChannelType int    `json:"channel_type"`
 }
 
 var (
-	tkServedModelsManifestOnce sync.Once
-	tkServedModelsManifestIDs  map[string]struct{}
+	tkServedModelsManifestOnce             sync.Once
+	tkServedModelsManifestIDs              map[string]struct{}
+	tkServedModelsManifestIDsByChannelType map[int][]string
 )
 
 func loadTkServedModelsManifestIDs() map[string]struct{} {
+	loadTkServedModelsManifest()
+	return tkServedModelsManifestIDs
+}
+
+func loadTkServedModelsManifest() {
 	tkServedModelsManifestOnce.Do(func() {
 		var doc tkServedModelsManifestFile
 		if err := json.Unmarshal(tkServedModelsManifestRaw, &doc); err != nil {
 			tkServedModelsManifestIDs = map[string]struct{}{}
+			tkServedModelsManifestIDsByChannelType = map[int][]string{}
 			return
 		}
 		out := make(map[string]struct{}, len(doc.Entries))
+		byChannel := make(map[int]map[string]struct{})
 		for _, e := range doc.Entries {
 			if e.ModelID == "" {
 				continue
 			}
 			out[e.ModelID] = struct{}{}
+			if e.ChannelType <= 0 {
+				continue
+			}
+			if byChannel[e.ChannelType] == nil {
+				byChannel[e.ChannelType] = make(map[string]struct{})
+			}
+			byChannel[e.ChannelType][e.ModelID] = struct{}{}
 		}
 		tkServedModelsManifestIDs = out
+		tkServedModelsManifestIDsByChannelType = make(map[int][]string, len(byChannel))
+		for ct, ids := range byChannel {
+			list := make([]string, 0, len(ids))
+			for id := range ids {
+				list = append(list, id)
+			}
+			sort.Strings(list)
+			tkServedModelsManifestIDsByChannelType[ct] = list
+		}
 	})
-	return tkServedModelsManifestIDs
+}
+
+// tkServedModelsManifestPresetIDsByChannelType returns empirically verified
+// newapi model IDs for a channel_type declared in tk_served_models.json.
+// Unknown or unprobed channel types return nil.
+func tkServedModelsManifestPresetIDsByChannelType(channelType int) []string {
+	loadTkServedModelsManifest()
+	if channelType <= 0 {
+		return nil
+	}
+	ids := tkServedModelsManifestIDsByChannelType[channelType]
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out
 }
 
 // isTkCuratedNewAPIModelListed reports whether modelID is declared in the

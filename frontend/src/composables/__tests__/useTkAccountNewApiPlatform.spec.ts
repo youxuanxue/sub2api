@@ -22,14 +22,14 @@ const {
   showInfoMock,
   fetchUpstreamModelsMock,
   listChannelTypesMock,
-  listChannelTypeModelsMock,
+  getModelMappingPresetsMock,
 } = vi.hoisted(() => ({
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn(),
   showInfoMock: vi.fn(),
   fetchUpstreamModelsMock: vi.fn(),
   listChannelTypesMock: vi.fn(),
-  listChannelTypeModelsMock: vi.fn(),
+  getModelMappingPresetsMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -43,7 +43,10 @@ vi.mock('@/stores/app', () => ({
 vi.mock('@/api/admin/channels', () => ({
   fetchUpstreamModels: fetchUpstreamModelsMock,
   listChannelTypes: listChannelTypesMock,
-  listChannelTypeModels: listChannelTypeModelsMock,
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  getModelMappingPresets: getModelMappingPresetsMock,
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -74,11 +77,12 @@ describe('useTkAccountNewApiPlatform', () => {
     showInfoMock.mockReset()
     fetchUpstreamModelsMock.mockReset()
     listChannelTypesMock.mockReset()
-    listChannelTypeModelsMock.mockReset()
+    getModelMappingPresetsMock.mockReset()
     listChannelTypesMock.mockResolvedValue([])
-    listChannelTypeModelsMock.mockResolvedValue({
-      '41': ['gemini-2.5-flash', 'imagen-4.0-fast-generate-001'],
-    })
+    getModelMappingPresetsMock.mockResolvedValue([
+      'gemini-2.5-flash',
+      'imagen-4.0-fast-generate-001',
+    ])
   })
 
   describe('populateFromAccount', () => {
@@ -124,7 +128,7 @@ describe('useTkAccountNewApiPlatform', () => {
       expect(hook.modelMappings.value).toEqual([])
     })
 
-    it('Vertex ch41 + 空 mapping → 自动填入 channel-type-models 预设', async () => {
+    it('Vertex ch41 + 空 mapping → 自动填入 model-mapping-presets 预设', async () => {
       const hook = useTkAccountNewApiPlatform({ isNewapi: () => true })
       hook.populateFromAccount({ channel_type: 41, credentials: {} })
       await nextTick()

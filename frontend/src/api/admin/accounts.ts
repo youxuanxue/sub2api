@@ -649,6 +649,26 @@ export async function getAntigravityDefaultModelMapping(): Promise<Record<string
 }
 
 /**
+ * TokenKey servable model_mapping preset IDs for admin account Create/Edit auto-fill.
+ * Single SSOT for native platforms, grok, kiro, and newapi ch41 (Vertex SA).
+ */
+export async function getModelMappingPresets(
+  platform: string,
+  channelType = 0
+): Promise<string[]> {
+  const { data } = await apiClient.get<{ model_ids: string[] }>(
+    '/admin/accounts/model-mapping-presets',
+    {
+      params: {
+        platform,
+        ...(channelType > 0 ? { channel_type: channelType } : {}),
+      },
+    }
+  )
+  return data.model_ids ?? []
+}
+
+/**
  * Refresh OpenAI token using refresh token
  * @param refreshToken - The refresh token
  * @param proxyId - Optional proxy ID
@@ -852,6 +872,7 @@ export const accountsAPI = {
   importCodexSession,
   createOpenAICodexPAT,
   getAntigravityDefaultModelMapping,
+  getModelMappingPresets,
   batchClearError,
   batchRefresh,
   setPrivacy,

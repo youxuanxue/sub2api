@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn()
-}))
 vi.mock('@/api/admin/groups', () => ({
   getModelsListCandidates: vi.fn()
+}))
+vi.mock('@/api/admin/accounts', () => ({
+  getAntigravityDefaultModelMapping: vi.fn(),
+  getModelMappingPresets: vi.fn(),
 }))
 
 import {
@@ -28,6 +29,8 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('anthropic')).toEqual([])
     expect(getModelsByPlatform('gemini')).toEqual([])
     expect(getModelsByPlatform('antigravity')).toEqual([])
+    expect(getModelsByPlatform('grok')).toEqual([])
+    expect(getModelsByPlatform('kiro')).toEqual([])
   })
 
   it('newapi keeps its own static list (channel-driven, no backend allowlist)', () => {

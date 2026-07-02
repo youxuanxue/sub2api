@@ -58,6 +58,7 @@ type AdminService interface {
 	GetAllGroupsIncludingInactive(ctx context.Context) ([]Group, error)
 	GetGroup(ctx context.Context, id int64) (*Group, error)
 	GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error)
+	GetAccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int) ([]string, error)
 	CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error)
 	UpdateGroup(ctx context.Context, id int64, input *UpdateGroupInput) (*Group, error)
 	DeleteGroup(ctx context.Context, id int64) error
@@ -1869,6 +1870,12 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		}
 	}
 	return candidates, nil
+}
+
+func (s *adminServiceImpl) GetAccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int) ([]string, error) {
+	ids := AccountModelMappingPresetIDs(ctx, platform, channelType, s.availability)
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func defaultModelsListCandidateIDs(platform string) []string {

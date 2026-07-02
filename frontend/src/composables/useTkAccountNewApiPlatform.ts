@@ -1,12 +1,12 @@
 import { ref, computed, watch, type Ref, type ComputedRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { fetchUpstreamModels, listChannelTypeModels, type FetchedUpstreamModel } from '@/api/admin/channels'
+import { fetchUpstreamModels, type FetchedUpstreamModel } from '@/api/admin/channels'
+import { getModelMappingPresets } from '@/api/admin/accounts'
 import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
 import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
 import {
   isNewApiVertexServiceAccountChannelType,
-  NEW_API_CHANNEL_TYPE_VERTEX_AI,
 } from '@/constants/newApiChannelTypes.tk'
 import { buildModelMappingObject } from '@/composables/useModelWhitelist'
 import { unknownToErrorMessage } from '@/utils/authError'
@@ -77,39 +77,19 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
   const modelMappings = ref<Array<{ from: string; to: string }>>([])
   const restrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
   const fetchLoading = ref(false)
-  const channelTypeModelsByType = ref<Record<string, string[]>>({})
-  let channelTypeModelsLoad: Promise<void> | null = null
-
-  async function ensureChannelTypeModelsLoaded(): Promise<void> {
-    if (Object.keys(channelTypeModelsByType.value).length > 0) {
-      return
-    }
-    if (!channelTypeModelsLoad) {
-      channelTypeModelsLoad = listChannelTypeModels()
-        .then((data) => {
-          channelTypeModelsByType.value = data ?? {}
-        })
-        .catch(() => {
-          channelTypeModelsByType.value = {}
-        })
-    }
-    await channelTypeModelsLoad
-  }
 
   /**
-   * channel_type 41 (Vertex SA) has no upstream GET /v1/models — preset from
-   * GET /admin/channel-type-models (TokenKey empirical Gemini/Vertex allowlist).
+   * channel_type with a TK-verified preset (e.g. 41 Vertex SA) auto-fills from
+   * GET /admin/accounts/model-mapping-presets when whitelist is empty.
    */
   async function applyChannelTypePresetModelsIfEmpty(): Promise<void> {
-    if (!options.isNewapi() || !isNewApiVertexServiceAccountChannelType(channelType.value)) {
+    if (!options.isNewapi() || channelType.value <= 0) {
       return
     }
     if (restrictionMode.value !== 'whitelist' || allowedModels.value.length > 0) {
       return
     }
-    await ensureChannelTypeModelsLoaded()
-    const preset =
-      channelTypeModelsByType.value[String(NEW_API_CHANNEL_TYPE_VERTEX_AI)] ?? []
+    const preset = await getModelMappingPresets('newapi', channelType.value)
     if (preset.length === 0) {
       return
     }
@@ -260,9 +240,6 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
    */
   function bootstrap(): void {
     void channelTypesCatalog.load().catch(() => { /* 错误已写入 channelTypesCatalog.error */ })
-    if (options.isNewapi()) {
-      void ensureChannelTypeModelsLoaded()
-    }
   }
 
   /**
