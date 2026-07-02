@@ -55,7 +55,7 @@ func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupI
 			if !acc.IsOpenAICompatPoolMember(platform) {
 				continue
 			}
-			if acc.IsModelSupported(model) || (acc.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)) {
+			if s.isModelSupportedByAccount(acc, model) || (acc.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)) {
 				return true, true
 			}
 			continue

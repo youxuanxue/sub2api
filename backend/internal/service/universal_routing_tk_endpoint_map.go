@@ -86,7 +86,9 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 	case ShapeAnthropicMessages:
 		// Direct /v1/messages routes non-OpenAI-compatible groups through
 		// Gateway.Messages, which supports Anthropic, Antigravity, Gemini and
-		// Kiro. OpenAI-compatible groups are opt-in via messages-dispatch policy.
+		// Kiro. Gemini must stay in this native set so universal keys do not route
+		// Gemini Anthropic-shaped requests into OpenAI/Codex passthrough.
+		// OpenAI-compatible groups are opt-in via messages-dispatch policy.
 		out := []string{PlatformAnthropic, PlatformAntigravity, PlatformGemini, PlatformKiro}
 		if hasMessagesDispatch {
 			out = append(out, OpenAICompatPlatforms()...)
