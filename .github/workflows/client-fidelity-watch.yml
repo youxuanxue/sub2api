@@ -370,8 +370,14 @@ jobs:
           mkdir -p .cache/fingerprint/client-fidelity-watch
           RELEASE_JSON="$(find .cache/fingerprint/client-release-watch -path '*/report.json' -print -quit 2>/dev/null || true)"
           RELEASE_MD="$(find .cache/fingerprint/client-release-watch -path '*/report.md' -print -quit 2>/dev/null || true)"
-          RELEASE_LINKS="$(find .cache/fingerprint/client-release-watch -path '*/links.json' -print -quit 2>/dev/null || true)"
-          PROMPT_LINKS="$(find .cache/prompt-surface-watch -path '*/links.json' -print -quit 2>/dev/null || true)"
+          RELEASE_LINKS=""
+          if [ -d .cache/fingerprint/client-release-watch ]; then
+            RELEASE_LINKS="$(find .cache/fingerprint/client-release-watch -path '*/links.json' -print -quit)"
+          fi
+          PROMPT_LINKS=""
+          if [ -d .cache/prompt-surface-watch ]; then
+            PROMPT_LINKS="$(find .cache/prompt-surface-watch -path '*/links.json' -print -quit)"
+          fi
           PROMPT_JSON=".cache/prompt-surface-watch/report.json"
           PROMPT_MD=".cache/prompt-surface-watch/report.md"
           ARGS=(
