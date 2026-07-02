@@ -1,37 +1,37 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-01T02:23:44Z",
-  "git_sha": "",
+  "updated_at": "2026-07-02T05:56:30Z",
+  "git_sha": "f89337628c45c9a63547f1731cc5a77e014e86fe",
   "platforms": {
     "claude-code": {
       "pinned": "2.1.197",
-      "upstream_latest": "2.1.197",
-      "status": "aligned",
+      "upstream_latest": "2.1.198",
+      "status": "drift",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.197",
-          "published_at": "2026-06-30T17:56:37Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.197",
-          "raw_tag": "v2.1.197"
+          "version": "2.1.198",
+          "published_at": "2026-07-01T20:45:36Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.198",
+          "raw_tag": "v2.1.198"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.197",
+          "version": "2.1.198",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.197"
+          "raw_tag": "2.1.198"
         }
       }
     },
     "cc-stainless": {
       "pinned": "0.94.0",
-      "upstream_latest": "0.109.0",
+      "upstream_latest": "0.109.1",
       "status": "drift",
       "upstream_sources": {
         "npm @anthropic-ai/sdk": {
-          "version": "0.109.0",
+          "version": "0.109.1",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/sdk",
-          "raw_tag": "0.109.0"
+          "raw_tag": "0.109.1"
         }
       }
     },
@@ -88,14 +88,14 @@
     },
     "grok-cli": {
       "pinned": "0.2.77",
-      "upstream_latest": "0.2.77",
-      "status": "aligned",
+      "upstream_latest": "0.2.82",
+      "status": "drift",
       "upstream_sources": {
         "npm @xai-official/grok": {
-          "version": "0.2.77",
+          "version": "0.2.82",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@xai-official/grok",
-          "raw_tag": "0.2.77"
+          "raw_tag": "0.2.82"
         }
       }
     },
