@@ -33,7 +33,15 @@ func groupServesModel(ctx context.Context, provider availableModelsProvider, g G
 	served := provider(ctx, &gid, g.Platform)
 	if served != nil {
 		// 组有显式 model_mapping → 精确成员判定。
-		return modelInServedSet(model, served, g.Platform)
+		if modelInServedSet(model, served, g.Platform) {
+			return true
+		}
+		// Grok native OAuth: chat-only mapping entries must not hide the curated
+		// grok-imagine media + probed chat catalog that fillAccountFallback advertises.
+		if g.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model) {
+			return true
+		}
+		return false
 	}
 	// served == nil:native/permissive(无账号声明映射,或 provider 取数失败)。
 	if g.Platform == PlatformNewAPI {

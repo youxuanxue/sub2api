@@ -337,6 +337,37 @@
       "rationale": "Load-bearing QA evidence for the grok-native video arm: resolveGrokVideoCredential pins OAuth vs prod→edge relay api_key (revert to access_token-only silently re-breaks prod grok-us4 video submit), the xAI status-enum -> videoTerminalOutcome mapping (drift would skip terminal-success retention or terminal-failure refund), and the submit acknowledgement shape (must carry TK's public task id, not the upstream request_id)."
     },
     {
+      "path": "backend/internal/service/gateway_service_tk_grok_models.go",
+      "must_contain": [
+        "func mergeGrokNativeCatalogModels",
+        "func grokGroupServesNativeCatalogModel",
+        "supportedGrokCatalogModels"
+      ],
+      "rationale": "Unions the curated grok native catalog (grok-imagine media + probed chat ids) into GetAvailableModels and universal routing service checks. Grok accounts with chat-only credentials.model_mapping (messages-dispatch aliases) otherwise advertise grok-imagine-video in Studio/pricing but universal keys 403 with universal_no_entitled_group at /v1/video/generations submit."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "mergeGrokNativeCatalogModels(platform, modelSet)"
+      ],
+      "rationale": "Injection point wiring mergeGrokNativeCatalogModels into GetAvailableModels after account model_mapping aggregation. Upstream merges of the models-list helper can drop this line and silently re-break grok-imagine-video universal routing while the companion file still compiles."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_serving.go",
+      "must_contain": [
+        "grokGroupServesNativeCatalogModel(model)"
+      ],
+      "rationale": "Universal routing must treat curated grok native catalog models as served even when GetAvailableModels returns a chat-only explicit mapping set; without this guard Studio-advertised grok-imagine-video fails before dispatch with No platform in your plan can serve model."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_grok_models_test.go",
+      "must_contain": [
+        "TestResolve_GrokImagineVideoWithChatOnlyMapping",
+        "TestGetAvailableModels_GrokUnionsNativeCatalogWithChatMapping"
+      ],
+      "rationale": "Regression guard for grok-imagine-video universal routing when grok groups carry chat-only model_mapping: both GetAvailableModels union and Resolve(ShapeOpenAIVideo) must stay aligned with the pricing-catalog advertised native catalog."
+    },
+    {
       "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
       "must_contain": [
         ".POST(\"/videos/generations\""
