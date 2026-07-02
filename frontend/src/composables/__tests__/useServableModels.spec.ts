@@ -1,37 +1,36 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getModelsListCandidates } from '@/api/admin/groups'
+import { getModelMappingPresets } from '@/api/admin/accounts'
 
-vi.mock('@/api/admin/groups', () => ({
-  getModelsListCandidates: vi.fn()
+vi.mock('@/api/admin/accounts', () => ({
+  getModelMappingPresets: vi.fn()
 }))
 
 import { useServableModels, servableModelsFor, isApiBackedPlatform } from '../useServableModels'
 
-const mockGet = vi.mocked(getModelsListCandidates)
+const mockGet = vi.mocked(getModelMappingPresets)
 
 describe('useServableModels', () => {
   beforeEach(() => {
     mockGet.mockReset()
   })
 
-  it('isApiBackedPlatform covers the 4 self-healing platforms only', () => {
-    for (const p of ['anthropic', 'claude', 'openai', 'gemini', 'antigravity']) {
+  it('isApiBackedPlatform covers preset SSOT platforms', () => {
+    for (const p of ['anthropic', 'claude', 'openai', 'gemini', 'antigravity', 'grok', 'xai', 'kiro']) {
       expect(isApiBackedPlatform(p)).toBe(true)
     }
-    for (const p of ['newapi', 'zhipu', 'kiro', 'totally-unknown']) {
+    for (const p of ['newapi', 'zhipu', 'totally-unknown']) {
       expect(isApiBackedPlatform(p)).toBe(false)
     }
   })
 
-  it('ensureLoaded fetches the self-healing list with id=0 and caches it (claude→anthropic)', async () => {
+  it('ensureLoaded fetches the preset list and caches it (claude→anthropic)', async () => {
     mockGet.mockResolvedValueOnce(['claude-opus-4-8', 'claude-sonnet-4-6'])
     const { ensureLoaded } = useServableModels()
 
     await ensureLoaded('claude')
 
-    expect(mockGet).toHaveBeenCalledWith(0, 'anthropic')
+    expect(mockGet).toHaveBeenCalledWith('anthropic')
     expect(servableModelsFor('claude')).toEqual(['claude-opus-4-8', 'claude-sonnet-4-6'])
-    // cached: a second ensureLoaded does not refetch
     await ensureLoaded('anthropic')
     expect(mockGet).toHaveBeenCalledTimes(1)
   })
@@ -47,15 +46,13 @@ describe('useServableModels', () => {
   })
 
   it('surfaces the message from the interceptor-flattened error object (not [object Object])', async () => {
-    // api/client.ts rejects with a plain object { status, code, message }, not an
-    // Error — String(e) used to store "[object Object]" here.
-    mockGet.mockRejectedValueOnce({ status: 500, code: 'INTERNAL', message: 'candidate fetch failed' })
+    mockGet.mockRejectedValueOnce({ status: 500, code: 'INTERNAL', message: 'preset fetch failed' })
     const { ensureLoaded, error } = useServableModels()
 
     await ensureLoaded('gemini')
 
     expect(servableModelsFor('gemini')).toEqual([])
-    expect(error.value).toBe('candidate fetch failed')
+    expect(error.value).toBe('preset fetch failed')
     expect(error.value).not.toBe('[object Object]')
   })
 
