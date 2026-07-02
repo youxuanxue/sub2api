@@ -1182,11 +1182,13 @@
         "export function isBatchPassiveCapable(account: Account): boolean",
         "export function usesPassiveUsageOnMount(account: Account): boolean",
         "export function canSelfFetchUsage(account: Account): boolean",
+        "export function usesLocalUsageWindows(account: Account): boolean",
         "account.platform === 'kiro'",
         "account.platform === 'openai' && account.type === 'oauth'",
-        "account.platform === 'grok'"
+        "account.platform === 'newapi' || account.platform === 'grok'",
+        "account.platform === 'antigravity' && account.type !== 'oauth'"
       ],
-      "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro, Grok). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai/grok rows on edge/prod account lists."
+      "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro, and local-window adapters: NewAPI/Grok/Antigravity API-key stubs). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai/grok/newapi/antigravity rows on edge/prod account lists."
     },
     {
       "path": "frontend/src/composables/useTkAccountUsageBatch.ts",

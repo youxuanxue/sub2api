@@ -18,6 +18,17 @@
       "rationale": "TK companion that partitions the OpenAI-compat scheduling pool by `group.platform`. Without it, scheduling falls back to bare `IsOpenAI()` and silently excludes all newapi accounts (the original P0 regression that triggered docs/approved/newapi-as-fifth-platform.md)."
     },
     {
+      "path": "backend/internal/service/account_usage_service_tk_window_adapter.go",
+      "must_contain": [
+        "func accountUsageWindowAdapterFor(account *Account) accountUsageWindowAdapter",
+        "account.IsGrok() || account.Platform == PlatformNewAPI",
+        "return accountUsageWindowAdapterLocal",
+        "accountUsageWindowAdapterSupportsPassive",
+        "accountUsageWindowAdapterLocal"
+      ],
+      "rationale": "NewAPI accounts, including Vertex service_account channel_type=41, do not expose a common upstream percentage-quota protocol. They must stay in the shared local-window adapter so admin accounts and edge overview show TokenKey 5h/7d billing windows from usage_logs instead of '-'. Dropping this adapter branch recreates the empty-window operator bug."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
       "must_contain": [
         "listOpenAICompatSchedulableAccounts",
@@ -152,6 +163,16 @@
         "OPENAI_COMPAT_PLATFORMS"
       ],
       "rationale": "Canonical 5-platform enumeration consumed by every admin UI picker, filter, and segmented control. Dropping `newapi` here silently removes the platform from every selector."
+    },
+    {
+      "path": "frontend/src/utils/accountUsageBatch.tk.ts",
+      "must_contain": [
+        "export function usesLocalUsageWindows(account: Account): boolean",
+        "account.platform === 'newapi' || account.platform === 'grok'",
+        "account.platform === 'antigravity' && account.type !== 'oauth'",
+        "if (usesLocalUsageWindows(account)) return true"
+      ],
+      "rationale": "Frontend SSOT for local-window usage rows. NewAPI Vertex, Grok, and Antigravity relay stubs are served by the passive batch endpoint and render generic 5h/7d bars; losing this helper or narrowing it blanks those rows or reintroduces per-row /usage fan-out."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",

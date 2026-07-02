@@ -11,7 +11,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AccountUsageInfo } from '@/types'
+import type { AccountUsageInfo, WindowStats } from '@/types'
 
 /**
  * One account as reported by an edge. Mirrors backend handler.edgeAccountDTO /
@@ -83,6 +83,7 @@ export interface EdgeUsageWindows {
 export interface EdgeUsageProgress {
   utilization: number
   resets_at?: string | null
+  window_stats?: WindowStats | null
 }
 
 /** Kiro credits snapshot for one account (mirrors backend edgeKiroUsage). */

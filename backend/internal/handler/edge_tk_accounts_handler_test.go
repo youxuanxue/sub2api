@@ -67,7 +67,7 @@ func richAccount() service.Account {
 		},
 		Extra: map[string]any{
 			"max_sessions": 30,
-			"base_rpm":          28,
+			"base_rpm":     28,
 		},
 		Concurrency:    8,
 		Priority:       3,
@@ -334,8 +334,8 @@ func (f fakeUsageReader) GetPassiveUsage(_ context.Context, _ int64) (*service.U
 }
 
 func (f fakeUsageReader) GetPassiveUsageBatch(_ context.Context, accountIDs []int64) map[int64]*service.UsageInfo {
-	// The handler pre-filters ids to the passive-capable platforms; return the
-	// configured passive sample for each (nil sample => empty, cell shows "-").
+	// The service adapter owns passive capability filtering; this fake mirrors
+	// only the fan-out contract for handler tests.
 	usage := make(map[int64]*service.UsageInfo)
 	if f.passive == nil {
 		return usage
@@ -502,6 +502,50 @@ func TestEdgeAccountsHandler_PopulatesKiroUsageWindows(t *testing.T) {
 	require.Equal(t, "Kiro Pro", got.Usage.Kiro.SubscriptionTitle)
 	require.Equal(t, 10.0, got.Usage.Kiro.TrialPercent)
 	require.Equal(t, "ACTIVE", got.Usage.Kiro.TrialStatus)
+}
+
+func TestEdgeAccountsHandler_PassesLocalWindowAdaptersToUsageBatch(t *testing.T) {
+	acct := service.Account{
+		ID:          12,
+		Name:        "edge-newapi-vertex-1",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeServiceAccount,
+		ChannelType: 41,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		CreatedAt:   time.Now(),
+	}
+	stub := &edgeAccountsListerStub{accounts: []service.Account{acct}}
+	h := NewEdgeAccountsHandler(
+		stub,
+		fakeConcReader{m: map[int64]int{12: 1}},
+		nil,
+		nil,
+		fakeUsageReader{
+			passive: &service.UsageInfo{
+				Source:   "passive",
+				FiveHour: &service.UsageProgress{WindowStats: &service.WindowStats{Tokens: 2048}},
+				SevenDay: &service.UsageProgress{WindowStats: &service.WindowStats{Tokens: 8192}},
+			},
+		},
+	)
+	w := performEdgeAccountsRequest(t, h, "?platform=newapi")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Accounts, 1)
+	got := env.Data.Accounts[0]
+
+	require.NotNil(t, got.Usage, "newapi local-window adapter must reach edge overview passive batch")
+	require.NotNil(t, got.Usage.FiveHour)
+	require.NotNil(t, got.Usage.FiveHour.WindowStats)
+	require.Equal(t, int64(2048), got.Usage.FiveHour.WindowStats.Tokens)
+	require.NotNil(t, got.Usage.SevenDay)
+	require.NotNil(t, got.Usage.SevenDay.WindowStats)
+	require.Equal(t, int64(8192), got.Usage.SevenDay.WindowStats.Tokens)
 }
 
 func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {

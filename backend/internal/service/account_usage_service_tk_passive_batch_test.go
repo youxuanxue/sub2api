@@ -156,6 +156,28 @@ func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
 	require.Equal(t, int64(2), logRepo.singleCalls.Load(), "grok local 5h/7d windows come from usage logs")
 }
 
+func TestGetPassiveUsageBatch_IncludesLocalWindowAdapters(t *testing.T) {
+	accounts := []Account{
+		{ID: 10, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount, ChannelType: 41, Status: StatusActive},
+		{ID: 11, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Status: StatusActive},
+		{ID: 12, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive},
+	}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{10: 2.5, 11: 3.5}}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: accounts},
+		usageLogRepo: logRepo,
+		cache:        NewUsageCache(),
+	}
+
+	got := svc.GetPassiveUsageBatch(context.Background(), []int64{10, 11, 12})
+
+	require.Len(t, got, 2, "newapi and antigravity apikey stubs use local windows; antigravity oauth has no passive adapter")
+	require.Equal(t, 2.5, got[10].FiveHour.WindowStats.Cost)
+	require.Equal(t, 3.5, got[11].SevenDay.WindowStats.Cost)
+	require.NotContains(t, got, int64(12))
+	require.Equal(t, int64(4), logRepo.singleCalls.Load(), "two local-window accounts query 5h and 7d")
+}
+
 func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {
 	acct := Account{ID: 77, Platform: PlatformGrok, Type: AccountTypeOAuth}
 	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{77: 12.5}}
@@ -174,6 +196,28 @@ func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {
 	require.NotNil(t, usage.SevenDay.WindowStats)
 	require.Equal(t, 12.5, usage.FiveHour.WindowStats.Cost)
 	require.Equal(t, int64(2), logRepo.singleCalls.Load())
+}
+
+func TestAccountUsageService_NewAPIVertexUsesLocalWindowStats(t *testing.T) {
+	acct := Account{ID: 78, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount, ChannelType: 41}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{78: 4.25}}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: []Account{acct}},
+		usageLogRepo: logRepo,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 78)
+	require.NoError(t, err)
+	require.Equal(t, "passive", usage.Source)
+	require.NotNil(t, usage.FiveHour)
+	require.NotNil(t, usage.SevenDay)
+	require.Equal(t, 4.25, usage.FiveHour.WindowStats.Cost)
+	require.Equal(t, int64(2), logRepo.singleCalls.Load())
+
+	passive, err := svc.GetPassiveUsage(context.Background(), 78)
+	require.NoError(t, err)
+	require.NotNil(t, passive.FiveHour)
+	require.Equal(t, 4.25, passive.SevenDay.WindowStats.Cost)
 }
 
 func TestGetPassiveUsageBatch_EmptyAndNilSafe(t *testing.T) {

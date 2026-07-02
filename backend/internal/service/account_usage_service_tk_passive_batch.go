@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
@@ -14,10 +13,10 @@ import (
 //   - 对需要窗口统计的 Anthropic OAuth/SetupToken 账号，按 GetCurrentWindowStartTime().Unix()
 //     分桶，每个不同窗口起点只跑一条 GetAccountWindowStatsBatch（ANY($1)），结果预热进
 //     UsageCache.windowStatsCache（addWindowStats 命中即不再单查）；
-//   - 随后对每个账号调用既有的 GetPassiveUsage，保证返回 UsageInfo 与单查路径逐字节一致
+//   - 随后对每个账号调用同一内部 helper，保证返回 UsageInfo 与单查路径逐字节一致
 //     （含 OpenAI codex 被动重建、Anthropic 7d/7d-Sonnet 子窗、forbidden/ban 标记等）。
 //
-// 返回 map[accountID]*UsageInfo。无法服务被动用量的账号（如非 OAuth 的 apikey 账号、
+// 返回 map[accountID]*UsageInfo。无法服务被动用量的账号（如未接入 usage-window adapter 的账号、
 // 已删除账号）会被静默跳过，不在结果 map 中——上层据此让对应 cell 显示「-」，与单查
 // 路径报错后前端的降级行为一致。
 func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountIDs []int64) map[int64]*UsageInfo {
@@ -56,9 +55,7 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 		if account == nil {
 			continue
 		}
-		// 仅被动用量可服务的账号才纳入（与单查 gate 一致）：Anthropic OAuth/SetupToken、
-		// OpenAI OAuth、Kiro 或 Grok。其余（apikey 等）单查会报错，此处跳过让 cell 显示「-」。
-		if !account.IsAnthropicOAuthOrSetupToken() && !account.IsOpenAIOAuth() && !account.IsKiro() && !account.IsGrok() {
+		if !accountUsageWindowAdapterSupportsPassive(accountUsageWindowAdapterFor(account)) {
 			continue
 		}
 		// TK perf: the account is already fully loaded (GetByIDs above), so build
@@ -76,57 +73,10 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 	return result
 }
 
-// getPassiveUsageForAccount builds the passive UsageInfo from an already-loaded
-// *Account, skipping the GetByID that GetPassiveUsage(ctx, accountID) performs.
-//
-// It MUST stay byte-identical to GetPassiveUsage's body after its GetByID
-// (account_usage_service.go). GetPassiveUsage is an upstream-owned method, so
-// rather than refactor it to delegate here (an upstream edit), the post-fetch
-// logic is mirrored in this TK companion. Drift is caught mechanically by
-// TestGetPassiveUsageBatch_EqualsSinglePerAccount, which asserts this batch
-// path (now routed through getPassiveUsageForAccount) matches the per-account
-// GetPassiveUsage output.
-func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, account *Account) (*UsageInfo, error) {
-	if account == nil {
-		return nil, fmt.Errorf("get account failed: nil account")
-	}
-
-	// OpenAI OAuth (codex): rebuilt from Extra's codex_*_used_percent passive
-	// sampling, never probing upstream — same source as GetPassiveUsage.
-	if account.IsOpenAIOAuth() {
-		return s.buildPassiveOpenAIUsage(account), nil
-	}
-
-	// Kiro: rebuilt from Extra's kiro_usage_* passive sampling, never probing
-	// upstream — mirrors GetPassiveUsage's kiro branch.
-	if account.IsKiro() {
-		return s.buildPassiveKiroUsage(account), nil
-	}
-
-	// Grok/xAI has no upstream percentage quota API; expose local 5h/7d billing
-	// windows through the same passive batch path the account list already owns.
-	if account.IsGrok() {
-		return s.buildLocalWindowUsage(ctx, account), nil
-	}
-
-	if !account.IsAnthropicOAuthOrSetupToken() {
-		return nil, fmt.Errorf("passive usage only supported for Anthropic OAuth/SetupToken accounts")
-	}
-
-	info := s.estimateSetupTokenUsage(account)
-	info.Source = "passive"
-	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
-	info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
-	info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
-	s.addWindowStats(ctx, account, info)
-
-	return info, nil
-}
-
 // prefetchWindowStatsForPassive 把被动路径需要的窗口统计批量查询并写入
 // UsageCache.windowStatsCache，使随后的 GetPassiveUsage→addWindowStats 命中缓存、
-// 不再逐账号单查。仅纳入 Anthropic OAuth/SetupToken 账号（OpenAI 被动路径
-// buildPassiveOpenAIUsage 不读窗口统计）。失败开放：任何查询失败只是少预热几个
+// 不再逐账号单查。仅纳入 Anthropic OAuth/SetupToken 账号（OpenAI/Kiro 被动路径
+// 不读窗口统计，local-window adapter 读取固定 5h/7d）。失败开放：任何查询失败只是少预热几个
 // 账号，后续单查会自然回填。
 func (s *AccountUsageService) prefetchWindowStatsForPassive(ctx context.Context, accounts []*Account) {
 	if s.usageLogRepo == nil || s.cache == nil {

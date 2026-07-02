@@ -542,6 +542,113 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|0|8192')
   })
 
+  it('NewAPI Vertex 账号通过本地窗口 adapter 展示 5h/7d 统计', async () => {
+    getUsage.mockResolvedValue({
+      source: 'passive',
+      five_hour: {
+        utilization: 0,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: {
+          requests: 2,
+          tokens: 2048,
+          cost: 0.18,
+          standard_cost: 0.18,
+          user_cost: 0.18
+        }
+      },
+      seven_day: {
+        utilization: 0,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: {
+          requests: 7,
+          tokens: 8192,
+          cost: 0.72,
+          standard_cost: 0.72,
+          user_cost: 0.72
+        }
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2015,
+          platform: 'newapi',
+          type: 'service_account',
+          channel_type: 41,
+          credentials: {
+            project_id: 'tk-vertex-trial',
+            location: 'us-central1'
+          },
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true,
+          OpenAIQuotaResetCell: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(2015, 'passive')
+    expect(wrapper.text()).toContain('5h|0|2048')
+    expect(wrapper.text()).toContain('7d|0|8192')
+  })
+
+  it('Antigravity apikey relay 账号通过本地窗口 adapter 展示 5h/7d 统计', async () => {
+    getUsage.mockResolvedValue({
+      source: 'passive',
+      five_hour: {
+        utilization: 0,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: {
+          requests: 3,
+          tokens: 3072,
+          cost: 0.21,
+          standard_cost: 0.21,
+          user_cost: 0.21
+        }
+      },
+      seven_day: null
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2016,
+          platform: 'antigravity',
+          type: 'apikey',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true,
+          OpenAIQuotaResetCell: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(2016, 'passive')
+    expect(wrapper.text()).toContain('5h|0|3072')
+  })
+
   it('Anthropic OAuth 有列表 override 时手动刷新不回退为逐行 usage 请求', async () => {
     getUsage.mockResolvedValue({
       five_hour: {

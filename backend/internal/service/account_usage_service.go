@@ -324,162 +324,154 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 		return nil, fmt.Errorf("get account failed: %w", err)
 	}
 
-	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {
+	return s.getUsageForAccount(ctx, account, forceProbe)
+}
+
+func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	if account == nil {
+		return nil, fmt.Errorf("get account failed: nil account")
+	}
+
+	switch accountUsageWindowAdapterFor(account) {
+	case accountUsageWindowAdapterOpenAI:
 		usage, err := s.getOpenAIUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
-	}
-
-	if account.IsGrok() {
+	case accountUsageWindowAdapterLocal:
 		return s.buildLocalWindowUsage(ctx, account), nil
-	}
-
-	if account.Platform == PlatformGemini {
+	case accountUsageWindowAdapterGemini:
 		usage, err := s.getGeminiUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
-	}
-
-	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
-	if account.Platform == PlatformAntigravity {
+	case accountUsageWindowAdapterAntigravity:
+		// Antigravity OAuth 平台：使用 AntigravityQuotaFetcher 获取额度。
+		// Antigravity edge-relay apikey stubs 走 local adapter。
 		usage, err := s.getAntigravityUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
-	}
-
-	// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
-	// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。必须在 CanGetUsage()
-	// 之前分流——kiro 是 type=oauth，否则会误入下面的 Anthropic 路径用 kiro token
-	// 打 anthropic 端点必然失败。见 account_usage_service_tk_kiro.go。
-	if account.IsKiro() {
+	case accountUsageWindowAdapterKiro:
+		// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
+		// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。
 		usage, err := s.getKiroUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
-	}
-
-	if account.Platform == PlatformGrok {
-		usage, err := s.getGrokUsage(ctx, account)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
+	case accountUsageWindowAdapterAnthropic:
+		// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）。
+		if account.Type == AccountTypeSetupToken {
+			usage := s.estimateSetupTokenUsage(account)
+			s.addWindowStats(ctx, account, usage)
+			return usage, nil
 		}
-		return usage, err
-	}
-
-	// 只有oauth类型账号可以通过API获取usage（有profile scope）
-	if account.CanGetUsage() {
-		// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
-		// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
-		// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
-		// 见 account_usage_service_tk_banned_shortcircuit.go。
-		if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
-			if passive, perr := s.GetPassiveUsage(ctx, accountID); perr == nil && passive != nil {
-				enrichUsageWithAccountError(passive, account)
-				return passive, nil
-			}
-			info := &UsageInfo{Source: "active"}
-			enrichUsageWithAccountError(info, account)
-			return info, nil
-		}
-
-		var apiResp *ClaudeUsageResponse
-
-		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
-		if cached, ok := s.cache.apiCache.Load(accountID); ok {
-			if cache, ok := cached.(*apiUsageCache); ok {
-				age := time.Since(cache.timestamp)
-				if cache.err != nil && age < apiErrorCacheTTL {
-					// 负缓存命中：返回缓存的错误，避免重试风暴。
-					// force 也尊重负缓存：上游 usage 端点刚 429 时，手动「查询」
-					// 不应在 1 分钟内反复打它。
-					return nil, cache.err
-				}
-				// force（手动「查询」）跳过正缓存命中以强制刷新，对齐 41e7ae53
-				// 对 OpenAI manual refresh 的修复；singleflight + jitter + 负缓存仍生效。
-				if !forceProbe && cache.response != nil && age < apiCacheTTL {
-					apiResp = cache.response
-				}
-			}
-		}
-
-		// 2. 如果没有有效缓存，通过 singleflight 从 API 获取（防止并发击穿）
-		if apiResp == nil {
-			// 随机延迟：打散多账号并发请求，避免同一时刻大量相同 TLS 指纹请求
-			// 触发上游反滥用检测。延迟范围 0~800ms，仅在缓存未命中时生效。
-			jitter := time.Duration(rand.Int64N(int64(apiQueryMaxJitter)))
-			select {
-			case <-time.After(jitter):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-
-			flightKey := fmt.Sprintf("usage:%d", accountID)
-			result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
-				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
-				if cached, ok := s.cache.apiCache.Load(accountID); ok {
-					if cache, ok := cached.(*apiUsageCache); ok {
-						age := time.Since(cache.timestamp)
-						if cache.err != nil && age < apiErrorCacheTTL {
-							return nil, cache.err
-						}
-						if !forceProbe && cache.response != nil && age < apiCacheTTL {
-							return cache.response, nil
-						}
-					}
-				}
-				resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
-				if fetchErr != nil {
-					// 负缓存：缓存错误响应，防止后续请求重复触发 429
-					s.cache.apiCache.Store(accountID, &apiUsageCache{
-						err:       fetchErr,
-						timestamp: time.Now(),
-					})
-					return nil, fetchErr
-				}
-				// 缓存成功响应
-				s.cache.apiCache.Store(accountID, &apiUsageCache{
-					response:  resp,
-					timestamp: time.Now(),
-				})
-				return resp, nil
-			})
-			if flightErr != nil {
-				return nil, flightErr
-			}
-			apiResp, _ = result.(*ClaudeUsageResponse)
-		}
-
-		// 3. 构建 UsageInfo（每次都重新计算 RemainingSeconds）
-		now := time.Now()
-		usage := s.buildUsageInfo(apiResp, &now)
-
-		// 4. 添加窗口统计（有独立缓存，1 分钟）
-		s.addWindowStats(ctx, account, usage)
-
-		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
-		s.syncActiveToPassive(ctx, account.ID, usage)
-
-		s.tryClearRecoverableAccountError(ctx, account)
-		return usage, nil
-	}
-
-	// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）
-	if account.Type == AccountTypeSetupToken {
-		usage := s.estimateSetupTokenUsage(account)
-		// 添加窗口统计
-		s.addWindowStats(ctx, account, usage)
-		return usage, nil
+		return s.getAnthropicOAuthUsage(ctx, account, forceProbe)
 	}
 
 	// API Key账号不支持usage查询
 	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
+}
+
+func (s *AccountUsageService) getAnthropicOAuthUsage(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	accountID := account.ID
+	// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
+	// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
+	// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
+	// 见 account_usage_service_tk_banned_shortcircuit.go。
+	if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
+		if passive, perr := s.getPassiveUsageForAccount(ctx, account); perr == nil && passive != nil {
+			enrichUsageWithAccountError(passive, account)
+			return passive, nil
+		}
+		info := &UsageInfo{Source: "active"}
+		enrichUsageWithAccountError(info, account)
+		return info, nil
+	}
+
+	var apiResp *ClaudeUsageResponse
+
+	// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
+	if cached, ok := s.cache.apiCache.Load(accountID); ok {
+		if cache, ok := cached.(*apiUsageCache); ok {
+			age := time.Since(cache.timestamp)
+			if cache.err != nil && age < apiErrorCacheTTL {
+				// 负缓存命中：返回缓存的错误，避免重试风暴。
+				// force 也尊重负缓存：上游 usage 端点刚 429 时，手动「查询」
+				// 不应在 1 分钟内反复打它。
+				return nil, cache.err
+			}
+			// force（手动「查询」）跳过正缓存命中以强制刷新，对齐 41e7ae53
+			// 对 OpenAI manual refresh 的修复；singleflight + jitter + 负缓存仍生效。
+			if !forceProbe && cache.response != nil && age < apiCacheTTL {
+				apiResp = cache.response
+			}
+		}
+	}
+
+	// 2. 如果没有有效缓存，通过 singleflight 从 API 获取（防止并发击穿）
+	if apiResp == nil {
+		// 随机延迟：打散多账号并发请求，避免同一时刻大量相同 TLS 指纹请求
+		// 触发上游反滥用检测。延迟范围 0~800ms，仅在缓存未命中时生效。
+		jitter := time.Duration(rand.Int64N(int64(apiQueryMaxJitter)))
+		select {
+		case <-time.After(jitter):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		flightKey := fmt.Sprintf("usage:%d", accountID)
+		result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
+			// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
+			if cached, ok := s.cache.apiCache.Load(accountID); ok {
+				if cache, ok := cached.(*apiUsageCache); ok {
+					age := time.Since(cache.timestamp)
+					if cache.err != nil && age < apiErrorCacheTTL {
+						return nil, cache.err
+					}
+					if !forceProbe && cache.response != nil && age < apiCacheTTL {
+						return cache.response, nil
+					}
+				}
+			}
+			resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
+			if fetchErr != nil {
+				// 负缓存：缓存错误响应，防止后续请求重复触发 429
+				s.cache.apiCache.Store(accountID, &apiUsageCache{
+					err:       fetchErr,
+					timestamp: time.Now(),
+				})
+				return nil, fetchErr
+			}
+			// 缓存成功响应
+			s.cache.apiCache.Store(accountID, &apiUsageCache{
+				response:  resp,
+				timestamp: time.Now(),
+			})
+			return resp, nil
+		})
+		if flightErr != nil {
+			return nil, flightErr
+		}
+		apiResp, _ = result.(*ClaudeUsageResponse)
+	}
+
+	// 3. 构建 UsageInfo（每次都重新计算 RemainingSeconds）
+	now := time.Now()
+	usage := s.buildUsageInfo(apiResp, &now)
+
+	// 4. 添加窗口统计（有独立缓存，1 分钟）
+	s.addWindowStats(ctx, account, usage)
+
+	// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
+	s.syncActiveToPassive(ctx, account.ID, usage)
+
+	s.tryClearRecoverableAccountError(ctx, account)
+	return usage, nil
 }
 
 // buildPassiveWindow 从 Extra 的被动采样键重建一个用量窗口（7d / 7d-Sonnet 同构）。
@@ -508,57 +500,55 @@ func buildPassiveWindow(extra map[string]any, utilKey, resetKey string) *UsagePr
 	}
 }
 
-// GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。
-// 仅适用于 Anthropic OAuth / SetupToken 账号。
+// GetPassiveUsage 从账号对应的被动 adapter 构建 UsageInfo，不调用外部 API。
 func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int64) (*UsageInfo, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account failed: %w", err)
 	}
 
-	// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
-	// 5h/7d 窗口，绝不调用上游 /responses 探测——与 edge 自身 admin 页的「被动」
-	// 读取同源。prod 跨 edge 概览（edge accounts overview）借此渲染 OpenAI 账号的
-	// 用量窗口，与 anthropic 行为一致；在此之前 OpenAI 走到下面的 gate 直接报错，
-	// 概览只能显示「-」。
-	if account.IsOpenAIOAuth() {
+	return s.getPassiveUsageForAccount(ctx, account)
+}
+
+func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, account *Account) (*UsageInfo, error) {
+	if account == nil {
+		return nil, fmt.Errorf("get account failed: nil account")
+	}
+
+	switch accountUsageWindowAdapterFor(account) {
+	case accountUsageWindowAdapterOpenAI:
+		// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
+		// 5h/7d 窗口，绝不调用上游 /responses 探测。
 		return s.buildPassiveOpenAIUsage(account), nil
-	}
-
-	// Kiro 账号：从 Extra 的 kiro_usage_* 被动采样重建 credits/订阅/试用，绝不
-	// 调用上游 GetUsageLimits——edge accounts overview 跨全部账号扇出，渲染概览
-	// 时不能打上游。运维点「查询」走 active 路径（getKiroUsage）回写这些键。
-	if account.IsKiro() {
+	case accountUsageWindowAdapterKiro:
+		// Kiro 账号：从 Extra 的 kiro_usage_* 被动采样重建 credits/订阅/试用，绝不
+		// 调用上游 GetUsageLimits。
 		return s.buildPassiveKiroUsage(account), nil
-	}
-
-	// Grok/xAI does not expose the Codex-style upstream quota snapshot that OpenAI
-	// OAuth has, and it must not fall through to the Anthropic OAuth usage API.
-	// Surface local account billing windows so operators still see activity.
-	if account.IsGrok() {
+	case accountUsageWindowAdapterLocal:
+		// NewAPI / Grok / Antigravity edge stubs do not expose a common upstream
+		// percentage-quota protocol. Surface TokenKey account billing windows so
+		// operators still see activity from the same passive endpoint.
 		return s.buildLocalWindowUsage(ctx, account), nil
+	case accountUsageWindowAdapterAnthropic:
+		// 复用 estimateSetupTokenUsage 构建 5h 窗口（OAuth 和 SetupToken 逻辑一致）
+		info := s.estimateSetupTokenUsage(account)
+		info.Source = "passive"
+
+		// 设置采样时间
+		info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
+
+		// 构建 7d 窗口 + 7d Sonnet 子窗口（均从被动采样数据；7d-S 仅由 active 查询回写，
+		// 见 syncActiveToPassive——限流响应头里没有 sonnet 子窗）。
+		info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
+		info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
+
+		// 添加窗口统计
+		s.addWindowStats(ctx, account, info)
+
+		return info, nil
+	default:
+		return nil, fmt.Errorf("passive usage only supported for account usage window adapters")
 	}
-
-	if !account.IsAnthropicOAuthOrSetupToken() {
-		return nil, fmt.Errorf("passive usage only supported for Anthropic OAuth/SetupToken accounts")
-	}
-
-	// 复用 estimateSetupTokenUsage 构建 5h 窗口（OAuth 和 SetupToken 逻辑一致）
-	info := s.estimateSetupTokenUsage(account)
-	info.Source = "passive"
-
-	// 设置采样时间
-	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
-
-	// 构建 7d 窗口 + 7d Sonnet 子窗口（均从被动采样数据；7d-S 仅由 active 查询回写，
-	// 见 syncActiveToPassive——限流响应头里没有 sonnet 子窗）。
-	info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
-	info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
-
-	// 添加窗口统计
-	s.addWindowStats(ctx, account, info)
-
-	return info, nil
 }
 
 // buildPassiveOpenAIUsage 从 OpenAI OAuth（codex）账号 Extra 里的被动采样

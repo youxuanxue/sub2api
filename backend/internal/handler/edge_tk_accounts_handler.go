@@ -178,11 +178,11 @@ type edgeAccountDTO struct {
 	OverloadUntil    *time.Time `json:"overload_until,omitempty"`
 
 	// Configured caps (anthropic oauth/setup-token).
-	MaxSessions               int     `json:"max_sessions,omitempty"`
-	SessionIdleTimeoutMinutes int     `json:"session_idle_timeout_minutes,omitempty"`
-	BaseRPM                   int     `json:"base_rpm,omitempty"`
-	RPMStrategy               string  `json:"rpm_strategy,omitempty"`
-	RPMStickyBuffer           int     `json:"rpm_sticky_buffer,omitempty"`
+	MaxSessions               int    `json:"max_sessions,omitempty"`
+	SessionIdleTimeoutMinutes int    `json:"session_idle_timeout_minutes,omitempty"`
+	BaseRPM                   int    `json:"base_rpm,omitempty"`
+	RPMStrategy               string `json:"rpm_strategy,omitempty"`
+	RPMStickyBuffer           int    `json:"rpm_sticky_buffer,omitempty"`
 
 	// Live gauges (this edge's local Redis/DB). Pointers so "feature off" (nil)
 	// is distinguishable from a real 0; current_concurrency is always present.
@@ -225,9 +225,9 @@ type edgeModelRateLimit struct {
 	Reason           string     `json:"reason,omitempty"`
 }
 
-// edgeUsageWindows mirrors the minimal subset of service.UsageInfo the usage
-// cell reads (utilization + reset per window); window_stats is supplied
-// frontend-side from today_stats, so it is not duplicated here.
+// edgeUsageWindows mirrors the subset of service.UsageInfo the usage cell reads.
+// Local-window adapters rely on window_stats to display activity, so the edge
+// overview forwards it instead of only sending utilization/reset shells.
 type edgeUsageWindows struct {
 	Source         string             `json:"source"`
 	FiveHour       *edgeUsageProgress `json:"five_hour,omitempty"`
@@ -239,8 +239,9 @@ type edgeUsageWindows struct {
 }
 
 type edgeUsageProgress struct {
-	Utilization float64    `json:"utilization"`
-	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+	Utilization float64              `json:"utilization"`
+	ResetsAt    *time.Time           `json:"resets_at,omitempty"`
+	WindowStats *service.WindowStats `json:"window_stats,omitempty"`
 }
 
 // edgeKiroUsage is the wire shape of service.KiroUsageInfo's display subset: the
@@ -383,13 +384,25 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
 	w := &edgeUsageWindows{Source: u.Source}
 	if u.FiveHour != nil {
-		w.FiveHour = &edgeUsageProgress{Utilization: u.FiveHour.Utilization, ResetsAt: u.FiveHour.ResetsAt}
+		w.FiveHour = &edgeUsageProgress{
+			Utilization: u.FiveHour.Utilization,
+			ResetsAt:    u.FiveHour.ResetsAt,
+			WindowStats: u.FiveHour.WindowStats,
+		}
 	}
 	if u.SevenDay != nil {
-		w.SevenDay = &edgeUsageProgress{Utilization: u.SevenDay.Utilization, ResetsAt: u.SevenDay.ResetsAt}
+		w.SevenDay = &edgeUsageProgress{
+			Utilization: u.SevenDay.Utilization,
+			ResetsAt:    u.SevenDay.ResetsAt,
+			WindowStats: u.SevenDay.WindowStats,
+		}
 	}
 	if u.SevenDaySonnet != nil {
-		w.SevenDaySonnet = &edgeUsageProgress{Utilization: u.SevenDaySonnet.Utilization, ResetsAt: u.SevenDaySonnet.ResetsAt}
+		w.SevenDaySonnet = &edgeUsageProgress{
+			Utilization: u.SevenDaySonnet.Utilization,
+			ResetsAt:    u.SevenDaySonnet.ResetsAt,
+			WindowStats: u.SevenDaySonnet.WindowStats,
+		}
 	}
 	if k := u.KiroUsage; k != nil {
 		w.Kiro = &edgeKiroUsage{
@@ -485,22 +498,14 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		}
 	}
 
-	// Passive usage windows:
-	// anthropic OAuth/setup-token rebuild from passive_usage_* samples; openai
-	// OAuth (codex) rebuild from codex_*_used_percent; kiro rebuilds its credits /
-	// trial snapshot from kiro_usage_*. All go through GetPassiveUsage, which
-	// dispatches by platform. Other platforms have no passive window source here,
-	// so they are skipped (the cell shows "-").
-	// One batch call prefetches the window stats per window-start bucket, so the
-	// passive path no longer fans out an aggregation per OAuth account.
+	// Passive usage windows: pass every account to the AccountUsageService adapter
+	// owner. Unsupported accounts are omitted there, while Anthropic/OpenAI/Kiro
+	// and local-window adapters (NewAPI/Grok/edge stubs) stay aligned with
+	// GET /admin/accounts/:id/usage?source=passive.
 	if h.usage != nil {
 		ids := make([]int64, 0, len(accounts))
 		for i := range accounts {
-			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() && !acc.IsOpenAIOAuth() && !acc.IsKiro() {
-				continue
-			}
-			ids = append(ids, acc.ID)
+			ids = append(ids, accounts[i].ID)
 		}
 		if usage := h.usage.GetPassiveUsageBatch(ctx, ids); len(usage) > 0 {
 			g.usageWindows = usage
