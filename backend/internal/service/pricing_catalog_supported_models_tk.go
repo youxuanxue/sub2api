@@ -360,3 +360,11 @@ func supportedCatalogModelIDsForPlatform(platform string) []string {
 	}
 	return out
 }
+
+// VertexNewAPIChannelServableModelIDs returns TokenKey's empirically verified
+// Gemini/Vertex wire IDs for newapi channel_type 41 (Vertex SA bridge). Admin
+// UIs use this as the preset model_mapping list — same SSOT as
+// supportedGeminiCatalogModels / public catalog gemini gate.
+func VertexNewAPIChannelServableModelIDs() []string {
+	return supportedCatalogModelIDsForPlatform(PlatformGemini)
+}

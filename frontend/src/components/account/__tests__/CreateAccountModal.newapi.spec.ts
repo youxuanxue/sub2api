@@ -17,13 +17,24 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { defineComponent, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const { listChannelTypesMock, fetchUpstreamModelsMock, createAccountMock } = vi.hoisted(() => {
+const { listChannelTypesMock, fetchUpstreamModelsMock, listChannelTypeModelsMock, createAccountMock } = vi.hoisted(() => {
   return {
     listChannelTypesMock: vi.fn(),
     fetchUpstreamModelsMock: vi.fn(),
+    listChannelTypeModelsMock: vi.fn(),
     createAccountMock: vi.fn()
   }
 })
+
+const VERTEX_CH41_SERVABLE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-pro',
+  'imagen-4.0-fast-generate-001',
+  'imagen-4.0-generate-001',
+  'imagen-4.0-ultra-generate-001',
+  'veo-3.1-generate-001',
+]
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -58,7 +69,8 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/api/admin/channels', () => ({
   listChannelTypes: listChannelTypesMock,
-  fetchUpstreamModels: fetchUpstreamModelsMock
+  fetchUpstreamModels: fetchUpstreamModelsMock,
+  listChannelTypeModels: listChannelTypeModelsMock,
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
@@ -175,6 +187,8 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
   beforeEach(() => {
     listChannelTypesMock.mockReset()
     fetchUpstreamModelsMock.mockReset()
+    listChannelTypeModelsMock.mockReset()
+    listChannelTypeModelsMock.mockResolvedValue({})
     createAccountMock.mockReset()
   })
 
@@ -331,8 +345,9 @@ async function selectNewapiVertexChannel(wrapper: ReturnType<typeof mountModal>)
 
   const newApiFields = wrapper.findComponent(AccountNewApiPlatformFields)
   expect(newApiFields.exists()).toBe(true)
-  newApiFields.vm.$emit('update:channelType', NEW_API_CHANNEL_TYPE_VERTEX_AI)
+  await newApiFields.setValue(NEW_API_CHANNEL_TYPE_VERTEX_AI, 'channelType')
   await nextTick()
+  await flushPromises()
   return newApiFields
 }
 
@@ -340,22 +355,26 @@ describe('CreateAccountModal — NewAPI Vertex (channel_type 41)', () => {
   beforeEach(() => {
     listChannelTypesMock.mockReset()
     fetchUpstreamModelsMock.mockReset()
+    listChannelTypeModelsMock.mockReset()
     createAccountMock.mockReset()
     createAccountMock.mockResolvedValue({ id: 880 })
+    listChannelTypeModelsMock.mockResolvedValue({ '41': VERTEX_CH41_SERVABLE_MODELS })
   })
 
   it('AC-V1: hides transport credentials and creates service_account with SA JSON + model_mapping', async () => {
     const wrapper = mountModalWithVertexNewApiCatalog()
     await nextTick()
 
-    const newApiFields = await selectNewapiVertexChannel(wrapper)
+    await selectNewapiVertexChannel(wrapper)
+    await flushPromises()
+    await nextTick()
+
+    expect(listChannelTypeModelsMock).toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="model-whitelist-selector"]').text()).toContain('gemini-2.5-flash')
 
     expect(wrapper.html()).not.toMatch(/admin\.accounts\.newApiPlatform\.apiKey(?!Hint)/)
     expect(wrapper.find('[data-testid="vertex-sa-json-input"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('admin.accounts.vertexNewapiMediaHint')
-
-    newApiFields.vm.$emit('update:allowedModels', ['imagen-4.0-fast-generate-001', 'veo-3.1-generate-001'])
-    await nextTick()
 
     await wrapper.find('input[data-tour="account-form-name"]').setValue('vertex-trial-01')
     const jsonInput = wrapper.find('[data-testid="vertex-sa-json-input"]')
@@ -379,10 +398,9 @@ describe('CreateAccountModal — NewAPI Vertex (channel_type 41)', () => {
           client_email: 'svc@tk-vertex-trial.iam.gserviceaccount.com',
           location: 'us-central1',
           tier_id: 'vertex',
-          model_mapping: {
-            'imagen-4.0-fast-generate-001': 'imagen-4.0-fast-generate-001',
-            'veo-3.1-generate-001': 'veo-3.1-generate-001'
-          }
+          model_mapping: Object.fromEntries(
+            VERTEX_CH41_SERVABLE_MODELS.map((id) => [id, id] as const)
+          ),
         })
       })
     )
@@ -395,7 +413,11 @@ describe('CreateAccountModal — NewAPI Vertex (channel_type 41)', () => {
     const wrapper = mountModalWithVertexNewApiCatalog()
     await nextTick()
 
-    await selectNewapiVertexChannel(wrapper)
+    const newApiFields = await selectNewapiVertexChannel(wrapper)
+    await flushPromises()
+
+    newApiFields.vm.$emit('update:allowedModels', [])
+    await nextTick()
 
     await wrapper.find('input[data-tour="account-form-name"]').setValue('vertex-no-mapping')
     const jsonInput = wrapper.find('[data-testid="vertex-sa-json-input"]')
@@ -430,6 +452,8 @@ describe('CreateAccountModal — Grok relay stub', () => {
   beforeEach(() => {
     listChannelTypesMock.mockReset()
     fetchUpstreamModelsMock.mockReset()
+    listChannelTypeModelsMock.mockReset()
+    listChannelTypeModelsMock.mockResolvedValue({})
     createAccountMock.mockReset()
     createAccountMock.mockResolvedValue({ id: 953 })
   })

@@ -2585,9 +2585,16 @@ const {
   buildAuxiliaryCredentials: newapiBuildAuxiliaryCredentials,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
   refreshStoredPricingStatus: newapiRefreshStoredPricingStatus,
+  applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
   isNewapi: () => props.account?.platform === 'newapi',
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
+})
+
+watch(newapiChannelType, () => {
+  if (props.account?.platform === 'newapi') {
+    void newapiApplyChannelPresetIfEmpty()
+  }
 })
 
 // 第六平台 kiro：编辑时可轮换 access_token / refresh_token 与 IdC 字段。

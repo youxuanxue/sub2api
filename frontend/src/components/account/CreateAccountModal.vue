@@ -3674,6 +3674,7 @@ const {
   buildSubmitBundle: newapiBuildSubmitBundle,
   buildAuxiliaryCredentials: newapiBuildAuxiliaryCredentials,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
+  applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
   isNewapi: () => form.platform === 'newapi',
 })
@@ -3946,6 +3947,22 @@ const form = reactive({
   rate_multiplier: 1,
   group_ids: [] as number[],
   expires_at: null as number | null
+})
+
+watch(
+  () => form.platform,
+  (platform) => {
+    if (platform === 'newapi') {
+      newapiBootstrap()
+      void newapiApplyChannelPresetIfEmpty()
+    }
+  }
+)
+
+watch(newapiChannelType, () => {
+  if (form.platform === 'newapi') {
+    void newapiApplyChannelPresetIfEmpty()
+  }
 })
 
 const accountEmail = ref('')

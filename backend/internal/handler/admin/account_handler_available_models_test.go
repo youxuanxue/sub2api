@@ -305,7 +305,43 @@ func TestAccountHandlerGetAvailableModels_NewAPI_NoMappingReturnsEmpty(t *testin
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Empty(t, resp.Data, "no mapping → empty list (UI shows configure hint), NOT Claude catalog")
+	require.Empty(t, resp.Data)
+}
+
+func TestAccountHandlerGetAvailableModels_NewAPI_VertexNoMappingReturnsServablePreset(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:          503,
+			Name:        "newapi-vertex-no-mapping",
+			Platform:    service.PlatformNewAPI,
+			Type:        service.AccountTypeServiceAccount,
+			Status:      service.StatusActive,
+			ChannelType: 41,
+			Credentials: map[string]any{
+				"service_account_json": `{"project_id":"p"}`,
+				"location":             "us-central1",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/503/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["gemini-2.5-flash"])
+	require.True(t, ids["imagen-4.0-fast-generate-001"])
 }
 
 func TestAccountHandlerGetAvailableModels_KiroOAuthUsesShortModelIDs(t *testing.T) {
