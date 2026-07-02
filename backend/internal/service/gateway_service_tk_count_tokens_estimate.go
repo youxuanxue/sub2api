@@ -2,8 +2,10 @@ package service
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
@@ -67,6 +69,27 @@ func estimateAnthropicCountTokensInput(body []byte) int {
 		return 0
 	}
 	return total
+}
+
+func writeEstimatedAnthropicCountTokens(c *gin.Context, body []byte) {
+	if c == nil {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"input_tokens": estimateAnthropicCountTokensInput(body),
+	})
+}
+
+func shouldEstimateCountTokensLocally(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	switch account.Platform {
+	case PlatformAntigravity, PlatformGemini, PlatformKiro:
+		return true
+	default:
+		return false
+	}
 }
 
 func estimateTokensForAnthropicText(s string) int {
