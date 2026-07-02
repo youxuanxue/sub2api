@@ -4014,8 +4014,16 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
-	// OpenAI 透传模式：仅替换认证，允许所有模型
+	// OpenAI 透传模式：仅替换认证。空 mapping 时允许 openai-hint 模型；有 mapping 时
+	// 仍以 mapping 为准（与 IsModelSupported 一致）。非 openai-hint 模型不得因 passthrough
+	// 被 universal 路由误投到 Codex（1.8.74 prod smoke: gemini-2.5-flash @/v1/messages）。
 	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
+		if len(account.GetModelMapping()) > 0 {
+			return account.IsModelSupported(requestedModel)
+		}
+		if hint := universalModelPlatformHint(requestedModel); hint != "" && hint != PlatformOpenAI {
+			return false
+		}
 		return true
 	}
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
