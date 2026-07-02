@@ -10,6 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	dispatchNewAPIChatCompletions = bridge.DispatchChatCompletions
+	dispatchNewAPIResponses       = bridge.DispatchResponses
+)
+
 // ShouldDispatchToNewAPIBridge reports whether this OpenAI-gateway request should use the New API adaptor path.
 func (s *OpenAIGatewayService) ShouldDispatchToNewAPIBridge(account *Account, endpoint string) bool {
 	var st *SettingService
@@ -42,7 +47,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
-	out, apiErr := bridge.DispatchChatCompletions(ctx, c, in, body)
+	out, apiErr := dispatchNewAPIChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
@@ -89,7 +94,7 @@ func dispatchNewAPIAccountTestChatCompletions(
 		recordBridgeDispatchError()
 		return &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
-	_, apiErr := bridge.DispatchChatCompletions(ctx, c, in, body)
+	_, apiErr := dispatchNewAPIChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
 		return &NewAPIRelayError{Err: apiErr}
@@ -115,8 +120,17 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
-	out, apiErr := bridge.DispatchResponses(ctx, c, in, body)
+	out, apiErr := dispatchNewAPIResponses(ctx, c, in, body)
 	if apiErr != nil {
+		if isNewAPIResponsesConvertNotImplemented(apiErr) {
+			logger.L().Info("openai_gateway.newapi_bridge_dispatch",
+				zap.String("endpoint", BridgeEndpointResponses),
+				zap.Int("channel_type", account.ChannelType),
+				zap.String("bridge_path", "newapi_responses_chat_fallback"),
+				zap.Int64("account_id", account.ID),
+			)
+			return s.forwardResponsesViaNewAPIBridgeChatCompletions(ctx, c, account, body, in)
+		}
 		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointResponses),

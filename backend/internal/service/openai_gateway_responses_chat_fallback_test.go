@@ -5,13 +5,17 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	newapidto "github.com/QuantumNous/new-api/dto"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -174,6 +178,74 @@ func TestForwardResponses_AutoSupportedAccountStillUsesResponsesEndpoint(t *test
 	require.True(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestForwardAsResponsesDispatched_NewAPIConvertNotImplementedFallsBackToChatCompletions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	oldResponses := dispatchNewAPIResponses
+	oldChat := dispatchNewAPIChatCompletions
+	t.Cleanup(func() {
+		dispatchNewAPIResponses = oldResponses
+		dispatchNewAPIChatCompletions = oldChat
+	})
+
+	dispatchNewAPIResponses = func(context.Context, *gin.Context, bridge.ChannelContextInput, []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		return nil, newapitypes.NewError(errors.New("not implemented"), newapitypes.ErrorCodeConvertRequestFailed, newapitypes.ErrOptionWithSkipRetry())
+	}
+
+	var capturedPath string
+	var capturedChannelType int
+	var capturedChatBody []byte
+	dispatchNewAPIChatCompletions = func(_ context.Context, c *gin.Context, in bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		capturedPath = c.Request.URL.Path
+		capturedChannelType = in.ChannelType
+		capturedChatBody = append([]byte(nil), body...)
+		c.Writer.Header().Set("Content-Type", "application/json")
+		c.Writer.WriteHeader(http.StatusOK)
+		_, _ = c.Writer.Write([]byte(`{"id":"chatcmpl_bridge_fallback","object":"chat.completion","model":"deepseek-chat","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`))
+		return &bridge.DispatchOutcome{
+			Usage:         &newapidto.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5},
+			Model:         "deepseek-chat",
+			UpstreamModel: "deepseek-chat",
+			Stream:        false,
+		}, nil
+	}
+
+	body := []byte(`{"model":"deepseek-chat","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:          4301,
+		Name:        "newapi-deepseek",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 43,
+		Credentials: map[string]any{
+			"api_key":  "sk-newapi",
+			"base_url": "https://newapi.example",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	result, err := svc.ForwardAsResponsesDispatched(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.Equal(t, "/v1/chat/completions", capturedPath)
+	require.Equal(t, "/v1/responses", c.Request.URL.Path)
+	require.Equal(t, 43, capturedChannelType)
+	require.False(t, gjson.GetBytes(capturedChatBody, "input").Exists())
+	require.Equal(t, "hello", gjson.GetBytes(capturedChatBody, "messages.0.content").String())
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
 func forceChatResponsesFallbackAccount() *Account {

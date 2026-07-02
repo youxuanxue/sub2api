@@ -145,6 +145,50 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuth401DoesNotUseLo
 	require.NotNil(t, upstream.lastReq)
 }
 
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_APIKeyBareNotFoundUsesLocalEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusNotFound,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"message":"Not Found"}`)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          204,
+		Name:        "openai-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "http://upstream.example",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "gpt-5.4-mini")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Greater(t, int(gjson.GetBytes(rec.Body.Bytes(), "input_tokens").Int()), 0)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "http://upstream.example/v1/responses/input_tokens", upstream.lastReq.URL.String())
+}
+
 func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_NewAPIAuthGapUsesLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -165,6 +209,37 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_NewAPIAuthGapUsesLoc
 			"key":      "newapi-channel-key",
 			"base_url": "https://newapi.example",
 		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Greater(t, int(gjson.GetBytes(rec.Body.Bytes(), "input_tokens").Int()), 0)
+}
+
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_NewAPIVertexServiceAccountAuthGapUsesLocalEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gemini-3-pro-high","messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:          306,
+		Name:        "newapi-vertex",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeServiceAccount,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"service_account_json": `{"type":"service_account","project_id":"p","private_key_id":"k","private_key":"bad","client_email":"svc@example.com"}`,
+			"base_url":             "https://vertex.example",
+		},
+		ChannelType: 41,
 		Status:      StatusActive,
 		Schedulable: true,
 	}
