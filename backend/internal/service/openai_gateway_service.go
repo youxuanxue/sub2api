@@ -1562,16 +1562,6 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 	return true
 }
 
-// isOpenAICompatibleAccountEligibleForRequest keeps upstream scheduler helpers
-// available while delegating to TokenKey's compat-pool predicate. Parent shadow
-// health remains a caller-side check so DB lookups stay explicit.
-func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, platform, requireCompact) {
-		return false
-	}
-	return account.SupportsOpenAIEndpointCapability(requiredCapability)
-}
-
 func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision) {
 	// TK (PR #899 follow-up): the upstream codex usage-window auto-pause is retired
 	// in favour of the window-sched tri-state guard, the single outward window
@@ -2589,14 +2579,6 @@ func (s *OpenAIGatewayService) recheckOpenAICompatAccountFromDB(ctx context.Cont
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(latest) {
-		return nil
-	}
-	return latest
-}
-
-func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) *Account {
-	latest := s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, platform, requireCompact)
-	if latest == nil || !latest.SupportsOpenAIEndpointCapability(requiredCapability) {
 		return nil
 	}
 	return latest

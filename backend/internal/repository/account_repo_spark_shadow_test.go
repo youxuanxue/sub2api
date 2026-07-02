@@ -12,7 +12,7 @@ import (
 func TestAccountRepoSparkShadowRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil, nil)
 
 	parent := &service.Account{
 		Name:     "parent",
@@ -54,7 +54,7 @@ func TestListShadowsByParent(t *testing.T) {
 	// parent_account_id and quota_dimension='spark', excluding parent2's shadow and unrelated).
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil, nil)
 
 	// Create parent1 and its spark shadow
 	parent1 := &service.Account{
