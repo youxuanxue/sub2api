@@ -780,7 +780,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				// Beta policy block: return 400 immediately, no failover
 				var betaBlockedErr *service.BetaBlockedError
 				if errors.As(err, &betaBlockedErr) {
-					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+					service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
 					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", betaBlockedErr.Message)
 					return
 				}
@@ -808,7 +808,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				// See gateway_service_tk_canonical_oauth_guard.go.
 				var canonicalUARejectErr *service.CanonicalIngressUARejectedError
 				if errors.As(err, &canonicalUARejectErr) {
-					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+					service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
 					h.errorResponse(c, http.StatusForbidden, "permission_error", canonicalUARejectErr.Error())
 					return
 				}

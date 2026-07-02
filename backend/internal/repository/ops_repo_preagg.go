@@ -76,7 +76,6 @@ error_base AS (
     -- value so platform-level GROUPING SETS don't collide with the overall (platform=NULL) row.
     COALESCE(platform, 'unknown') AS platform,
     group_id AS group_id,
-    is_business_limited AS is_business_limited,
     error_owner AS error_owner,
     status_code AS client_status_code,
     COALESCE(upstream_status_code, status_code, 0) AS effective_status_code
@@ -91,13 +90,12 @@ error_agg AS (
     CASE WHEN GROUPING(platform) = 1 THEN NULL ELSE platform END AS platform,
     CASE WHEN GROUPING(group_id) = 1 THEN NULL ELSE group_id END AS group_id,
     COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400) AS error_count_total,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND is_business_limited) AS business_limited_count,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND NOT is_business_limited) AS error_count_sla,
+    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND COALESCE(error_owner, '') IN ('provider', 'platform')) AS error_count_sla,
     -- TK: same final-failure (client_status >= 400) gate as dashboard upstream_excl —
     -- recovered-to-200 provider retries must not count as upstream errors.
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) NOT IN (429, 529)) AS upstream_error_count_excl_429_529,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) = 429) AS upstream_429_count,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) = 529) AS upstream_529_count
+    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND error_owner = 'provider' AND COALESCE(effective_status_code, 0) NOT IN (429, 529)) AS upstream_error_count_excl_429_529,
+    COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(effective_status_code, 0) = 429) AS upstream_429_count,
+    COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(effective_status_code, 0) = 529) AS upstream_529_count
   FROM error_base
   GROUP BY GROUPING SETS (
     (bucket_start),
@@ -115,7 +113,6 @@ combined AS (
     COALESCE(u.success_count, 0) AS success_count,
     COALESCE(u.ttft_sample_count, 0) AS ttft_sample_count,
     COALESCE(e.error_count_total, 0) AS error_count_total,
-    COALESCE(e.business_limited_count, 0) AS business_limited_count,
     COALESCE(e.error_count_sla, 0) AS error_count_sla,
     COALESCE(e.upstream_error_count_excl_429_529, 0) AS upstream_error_count_excl_429_529,
     COALESCE(e.upstream_429_count, 0) AS upstream_429_count,
@@ -149,7 +146,6 @@ INSERT INTO ops_metrics_hourly (
   success_count,
   ttft_sample_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
   upstream_error_count_excl_429_529,
   upstream_429_count,
@@ -176,7 +172,6 @@ SELECT
   success_count,
   ttft_sample_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
   upstream_error_count_excl_429_529,
   upstream_429_count,
@@ -202,7 +197,6 @@ ON CONFLICT (bucket_start, COALESCE(platform, ''), COALESCE(group_id, 0)) DO UPD
   success_count = EXCLUDED.success_count,
   ttft_sample_count = EXCLUDED.ttft_sample_count,
   error_count_total = EXCLUDED.error_count_total,
-  business_limited_count = EXCLUDED.business_limited_count,
   error_count_sla = EXCLUDED.error_count_sla,
   upstream_error_count_excl_429_529 = EXCLUDED.upstream_error_count_excl_429_529,
   upstream_429_count = EXCLUDED.upstream_429_count,
@@ -249,7 +243,6 @@ INSERT INTO ops_metrics_daily (
   success_count,
   ttft_sample_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
   upstream_error_count_excl_429_529,
   upstream_429_count,
@@ -277,7 +270,6 @@ SELECT
   COALESCE(SUM(success_count), 0) AS success_count,
   COALESCE(SUM(ttft_sample_count), 0) AS ttft_sample_count,
   COALESCE(SUM(error_count_total), 0) AS error_count_total,
-  COALESCE(SUM(business_limited_count), 0) AS business_limited_count,
   COALESCE(SUM(error_count_sla), 0) AS error_count_sla,
   COALESCE(SUM(upstream_error_count_excl_429_529), 0) AS upstream_error_count_excl_429_529,
   COALESCE(SUM(upstream_429_count), 0) AS upstream_429_count,
@@ -315,7 +307,6 @@ ON CONFLICT (bucket_date, COALESCE(platform, ''), COALESCE(group_id, 0)) DO UPDA
   success_count = EXCLUDED.success_count,
   ttft_sample_count = EXCLUDED.ttft_sample_count,
   error_count_total = EXCLUDED.error_count_total,
-  business_limited_count = EXCLUDED.business_limited_count,
   error_count_sla = EXCLUDED.error_count_sla,
   upstream_error_count_excl_429_529 = EXCLUDED.upstream_error_count_excl_429_529,
   upstream_429_count = EXCLUDED.upstream_429_count,

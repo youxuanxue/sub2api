@@ -50,7 +50,7 @@ const (
 	opsErrInsufficientAccountBalance = "insufficient account balance"
 	opsErrInsufficientQuota          = "insufficient_quota"
 
-	// 上游错误码常量 — 错误分类 (normalizeOpsErrorType / classifyOpsPhase / classifyOpsIsBusinessLimited)
+	// 上游错误码常量 — 错误分类 (normalizeOpsErrorType / classifyOpsPhase / classifyOpsErrorOwner)
 	opsCodeInsufficientBalance   = "INSUFFICIENT_BALANCE"
 	opsCodeUsageLimitExceeded    = "USAGE_LIMIT_EXCEEDED"
 	opsCodeSubscriptionNotFound  = "SUBSCRIPTION_NOT_FOUND"
@@ -825,7 +825,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				// Severity should reflect the upstream failure, not the final client status (200).
 				Severity:          classifyOpsSeverity("upstream_error", effectiveUpstreamStatus),
 				StatusCode:        status,
-				IsBusinessLimited: false,
 				IsCountTokens:     isCountTokensRequest(c),
 
 				ErrorMessage: recoveredMsg,
@@ -922,7 +921,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		normalizedType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
 
-		phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
+		phase, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
 
 		entry := &service.OpsInsertErrorLogInput{
 			RequestID:       requestID,
@@ -968,7 +967,6 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			ErrorType:         normalizedType,
 			Severity:          classifyOpsSeverity(normalizedType, status),
 			StatusCode:        status,
-			IsBusinessLimited: isBusinessLimited,
 			IsCountTokens:     isCountTokensRequest(c),
 
 			ErrorMessage: parsed.Message,
@@ -1272,7 +1270,7 @@ func classifyOpsPhase(errType, message, code string) string {
 	if isOpsClientAuthError(code, msg) {
 		return "auth"
 	}
-	if isOpsLocalBusinessLimitError(code, msg) {
+	if isOpsLocalClientLimitError(code, msg) {
 		return "request"
 	}
 
@@ -1317,40 +1315,13 @@ func classifyOpsSeverity(errType string, status int) string {
 	return "P3"
 }
 
-func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status int) (phase string, isBusinessLimited bool, errorOwner string, errorSource string) {
+func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status int) (phase string, errorOwner string, errorSource string) {
 	phase = classifyOpsPhase(errType, message, code)
 	upstreamError := hasOpsUpstreamErrorContext(c)
-	// TK (mirror-edge metric pollution, 2026-06-06 yace load test): a relayed
-	// downstream-capacity verdict — an upstream (a TokenKey edge reached via a
-	// cc-<edge> apikey mirror account) answered 429/5xx with a "no available
-	// accounts" / "all available accounts exhausted" body — is OUR fleet capacity,
-	// not provider health. Fold it into routingCapacityLimited so it is owned as
-	// routing (out of upstream_error_rate) exactly like a LOCAL empty pool, mirroring
-	// the cooldown-ladder skip in ratelimit_service_tk_downstream_no_available.go.
-	// Boundary (anthropic_amplifier_exemption_boundary): only TokenKey phrases match;
-	// a real provider 429 (rate_limit_error) / raw 5xx still counts. See
-	// tkUpstreamDownstreamCapacity.
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
-	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
-	// TK: an upstream client-induced request rejection (invalid_request_error /
-	// request_too_large / 413 / unsupported-model-for-account) is caller-fault, not
-	// provider health. Own it to the client (request phase) instead of relabeling
-	// it as upstream/provider, so it stays OUT of upstream_error_rate and the
-	// provider-health P0 capacity alert. See tkUpstreamClientInducedRejection
-	// (prod P0 2026-06-05; mirrors the #602 amplifier boundary).
+	clientPolicyDenied := service.HasOpsClientPolicyDenied(c)
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
-	// TK (issue #625): a client/caller disconnect mid-flight surfaces as an upstream
-	// transport error with NO upstream HTTP status (context canceled). It is
-	// caller-fault, not provider health — own it to the client so one canceling
-	// client (and its prod->edge relay fan-out) cannot flood upstream_error_rate.
-	// See tkUpstreamClientCanceled (quad P0 2026-06-06; deadline-exceeded stays
-	// provider-owned).
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
-	// TK: a LOCAL pre-forward client request rejection (unservable model NAME →
-	// 400 invalid_request_error, no account selected, no upstream call). Own it to
-	// the client (request phase) regardless of the response envelope, so the
-	// /responses {error:{code}} shape is not mislabeled api_error→internal→platform.
-	// See markOpsClientRequestRejected (ops_error_logger_tk_client_request_rejected.go).
 	clientRequestRejected := hasOpsClientRequestRejected(c)
 	if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {
 		phase = "upstream"
@@ -1358,7 +1329,7 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {
 		phase = "request"
 	}
-	if clientBusinessLimited && !upstreamError && !routingCapacityLimited {
+	if clientPolicyDenied && !upstreamError && !routingCapacityLimited {
 		phase = "auth"
 	}
 	if clientRequestRejected && !upstreamError && !routingCapacityLimited {
@@ -1368,31 +1339,16 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 		phase = "routing"
 	}
 	msg := strings.ToLower(message)
-	localClientAuthError := !upstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
-	localBusinessLimited := !upstreamError && classifyOpsIsBusinessLimited(errType, phase, code, status, message, localClientAuthError)
-	isBusinessLimited = routingCapacityLimited || (clientBusinessLimited && !upstreamError) || localBusinessLimited
+	if !upstreamError {
+		if isOpsClientAuthError(code, msg) {
+			phase = "auth"
+		} else if isOpsLocalClientLimitError(code, msg) || phase == "billing" || phase == "concurrency" {
+			phase = "request"
+		}
+	}
 	errorOwner = classifyOpsErrorOwner(phase, message)
 	errorSource = classifyOpsErrorSource(phase, message)
-	return phase, isBusinessLimited, errorOwner, errorSource
-}
-
-func classifyOpsIsBusinessLimited(errType, phase, code string, status int, message string, localClientAuthError ...bool) bool {
-	if len(localClientAuthError) > 0 && localClientAuthError[0] {
-		return true
-	}
-	if isOpsLocalBusinessLimitError(code, strings.ToLower(message)) {
-		return true
-	}
-	if phase == "billing" || phase == "concurrency" {
-		// SLA/错误率排除“用户级业务限制”
-		return true
-	}
-	// Avoid treating upstream rate limits as business-limited.
-	if errType == "rate_limit_error" && strings.Contains(strings.ToLower(message), "upstream") {
-		return false
-	}
-	_ = status
-	return false
+	return phase, errorOwner, errorSource
 }
 
 func isOpsClientAuthError(code string, msg string) bool {
@@ -1417,7 +1373,7 @@ func isOpsClientAuthError(code string, msg string) bool {
 		strings.Contains(msg, "api key is not assigned to any group")
 }
 
-func isOpsLocalBusinessLimitError(code string, msg string) bool {
+func isOpsLocalClientLimitError(code string, msg string) bool {
 	switch strings.TrimSpace(code) {
 	case opsCodeInsufficientBalance,
 		opsCodeUsageLimitExceeded,

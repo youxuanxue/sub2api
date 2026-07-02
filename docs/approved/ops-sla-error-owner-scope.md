@@ -25,7 +25,7 @@ SSOT: `backend/internal/service/ops_sla_scope.go` (`IsOpsSLAFaultOwner`, `Comput
 
 ## Migration
 
-`backend/migrations/tk_056_drop_ops_business_limited.sql` drops:
+`backend/migrations/tk_057_drop_ops_business_limited.sql` drops:
 
 - `ops_error_logs.is_business_limited`
 - `ops_system_metrics.business_limited_count`

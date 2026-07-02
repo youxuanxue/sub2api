@@ -10752,7 +10752,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
 			// Local policy denial — keep strict-mode reject volume out of
 			// error-rate dashboards (parity with the /v1/messages handler branch).
-			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
 			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
 			return nil
 		}

@@ -68,7 +68,7 @@ func TestUpstreamExclExcludesRecoveredRows(t *testing.T) {
 	require.EqualValues(t, 1, overview.UpstreamErrorCountExcl429529,
 		"recovered-to-200 provider rows must not count toward upstream_excl")
 	require.EqualValues(t, 1, overview.Upstream429Count)
-	require.EqualValues(t, 3, overview.ErrorCountSLA, "final >=400 rows: provider 502 + client 502 + provider 429")
+	require.EqualValues(t, 2, overview.ErrorCountSLA, "SLA faults: provider 502 + provider 429; client 502 excluded")
 
 	// ── trends ───────────────────────────────────────────────────────────
 	trend, err := repo.GetErrorTrend(ctx, filter, 3600)

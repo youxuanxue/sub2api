@@ -32,12 +32,11 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		}})
 
 		errType := normalizeOpsErrorType("api_error", "")
-		phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Upstream request failed", "", http.StatusBadRequest)
+		phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Upstream request failed", "", http.StatusBadRequest)
 
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
 		require.Equal(t, "client_request", errorSource)
-		require.False(t, isBusinessLimited)
 	})
 
 	t.Run("openai /v1/responses unsupported-model surfaced as wrapped upstream_error (msg-only signal)", func(t *testing.T) {
@@ -49,7 +48,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		service.SetOpsUpstreamError(c, http.StatusBadRequest,
 			"The 'codex-mini-latest' model is not supported when using Codex with a ChatGPT account.", "")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner)
@@ -67,7 +66,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			"InvalidEndpointOrModel.NotFound: The model `doubao-lite-32k-240828` does not exist or you do not have access to it.",
 			"InvalidEndpointOrModel.NotFound")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase, "newapi 404 model-not-found must be client-owned, out of upstream_error_rate")
 		require.Equal(t, "client", errorOwner)
@@ -84,7 +83,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			"model_not_found: The model `qwen3.7-max-retired` does not exist or you do not have access to it.",
 			"model_not_found")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase, "dashscope 404 model_not_found must be client-owned")
 		require.Equal(t, "client", errorOwner)
@@ -102,7 +101,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			"invalid_request_error: The supported API model names are deepseek-v4-pro or deepseek-v4-flash, but you passed deepseek-v4-retired.",
 			"invalid_request_error")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase, "deepseek 400 invalid_request_error must be client-owned")
 		require.Equal(t, "client", errorOwner)
@@ -113,7 +112,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		c, _ := gin.CreateTestContext(rec)
 		service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "upstream service temporarily unavailable", "")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "upstream", phase, "a real 5xx must stay provider-owned")
 		require.Equal(t, "provider", errorOwner)
@@ -124,7 +123,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		c, _ := gin.CreateTestContext(rec)
 		service.SetOpsUpstreamError(c, http.StatusRequestEntityTooLarge, "request too large", "")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "request too large", "", http.StatusRequestEntityTooLarge)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "request too large", "", http.StatusRequestEntityTooLarge)
 
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner)
@@ -136,7 +135,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		service.SetOpsUpstreamError(c, http.StatusBadRequest,
 			`{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}`, "")
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "invalid request", "", http.StatusBadRequest)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "invalid request", "", http.StatusBadRequest)
 
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner)
@@ -154,7 +153,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			UpstreamResponseBody: `{"type":"error","error":{"type":"not_found_error","message":"model: opus"}}`,
 		}})
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "Unsupported model: opus", "", http.StatusBadRequest)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "Unsupported model: opus", "", http.StatusBadRequest)
 
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
@@ -184,7 +183,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			Detail: `{"error":{"message":"Claude Fable 5 is not available. Please use Opus 4.8. Learn more: https://www.anthropic.com/news/fable-mythos-access","type":"not_found_error"},"request_id":"req_011CbzedV3jWa6rNy"}`,
 		}})
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "Unsupported model: claude-fable-5", "", http.StatusBadRequest)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "Unsupported model: claude-fable-5", "", http.StatusBadRequest)
 
 		require.Equal(t, "request", phase, "availability-gating 404 must be client-owned, out of upstream_error_rate")
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it re-fires the us7 false P0")
@@ -210,7 +209,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			UpstreamStatusCode: http.StatusNotFound,
 		}})
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "not_found_error", "Upstream rejected the request", "", http.StatusNotFound)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "not_found_error", "Upstream rejected the request", "", http.StatusNotFound)
 
 		require.Equal(t, "request", phase, "empty-body 404 owned as not_found_error must be client-owned, out of upstream_error_rate")
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it re-fires the us3 false P0")
@@ -228,7 +227,7 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 			UpstreamStatusCode: http.StatusNotFound,
 		}})
 
-		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream gateway error", "", http.StatusInternalServerError)
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream gateway error", "", http.StatusInternalServerError)
 
 		require.Equal(t, "upstream", phase, "a masked 404 (upstream_error) with no not-found signal stays provider-owned")
 		require.Equal(t, "provider", errorOwner)
@@ -260,7 +259,7 @@ func TestClassifyOpsGenuineUpstreamErrorsStayProvider(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 			service.SetOpsUpstreamError(c, tc.status, tc.message, "")
 
-			phase, _, errorOwner, _ := classifyOpsErrorLog(c, tc.errType, tc.message, "", tc.final)
+			phase, errorOwner, _ := classifyOpsErrorLog(c, tc.errType, tc.message, "", tc.final)
 
 			require.Equal(t, "upstream", phase, "genuine provider/account-health errors must stay upstream")
 			require.Equal(t, "provider", errorOwner, "must keep counting toward upstream_error_rate")
@@ -278,10 +277,9 @@ func TestClassifyOpsRoutingCapacityWinsOverClientInduced(t *testing.T) {
 	service.SetOpsUpstreamError(c, http.StatusBadRequest,
 		"The 'gpt-4o' model is not supported when using Codex with a ChatGPT account.", "")
 
-	phase, isBusinessLimited, errorOwner, _ := classifyOpsErrorLog(c, "api_error",
+	phase, errorOwner, _ := classifyOpsErrorLog(c, "api_error",
 		"No available accounts", "", http.StatusServiceUnavailable)
 
 	require.Equal(t, "routing", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "platform", errorOwner)
 }

@@ -34,7 +34,7 @@ func (r *opsRepository) GetWindowStats(ctx context.Context, filter *service.OpsD
 		return nil, err
 	}
 
-	errorTotal, _, _, _, _, _, err := r.queryErrorCounts(ctx, filter, start, end)
+	errorTotal, _, _, _, _, err := r.queryErrorCounts(ctx, filter, start, end)
 	if err != nil {
 		return nil, err
 	}

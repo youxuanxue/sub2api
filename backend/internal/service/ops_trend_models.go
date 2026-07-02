@@ -39,9 +39,8 @@ type OpsThroughputTrendResponse struct {
 type OpsErrorTrendPoint struct {
 	BucketStart time.Time `json:"bucket_start"`
 
-	ErrorCountTotal      int64 `json:"error_count_total"`
-	BusinessLimitedCount int64 `json:"business_limited_count"`
-	ErrorCountSLA        int64 `json:"error_count_sla"`
+	ErrorCountTotal int64 `json:"error_count_total"`
+	ErrorCountSLA   int64 `json:"error_count_sla"`
 
 	UpstreamErrorCountExcl429529 int64 `json:"upstream_error_count_excl_429_529"`
 	Upstream429Count             int64 `json:"upstream_429_count"`
@@ -54,10 +53,10 @@ type OpsErrorTrendResponse struct {
 }
 
 type OpsErrorDistributionItem struct {
-	StatusCode      int   `json:"status_code"`
-	Total           int64 `json:"total"`
-	SLA             int64 `json:"sla"`
-	BusinessLimited int64 `json:"business_limited"`
+	StatusCode   int   `json:"status_code"`
+	Total        int64 `json:"total"`
+	SLAFaults    int64 `json:"sla_faults"`
+	ClientFaults int64 `json:"client_faults"`
 }
 
 type OpsErrorDistributionResponse struct {

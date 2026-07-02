@@ -25,9 +25,9 @@ func (r *opsRepository) GetTopErrorCause(ctx context.Context, filter *service.Op
 	//   upstream_error_rate -> upstream_excl set (provider-owned, non-429/529 final failures);
 	//   error_rate          -> all SLA errors (non-business-limited final failures).
 	if upstreamOnly {
-		where += " AND COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND NOT is_business_limited AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)"
+		where += " AND COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)"
 	} else {
-		where += " AND COALESCE(status_code, 0) >= 400 AND NOT is_business_limited"
+		where += " AND COALESCE(status_code, 0) >= 400"
 	}
 
 	q := `

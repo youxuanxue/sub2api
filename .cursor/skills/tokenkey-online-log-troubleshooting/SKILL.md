@@ -19,7 +19,8 @@ description: >-
 | 解析 prod / edge target（region / instance_id / domain） | 机械 | edge 经 `ops/stage0/edge_ssm_execution.py`（Lightsail tag-SSM `EdgeId`/`Platform=lightsail` → `mi-*`）/ `resolve-edge-lightsail-target.py`；prod 经 CFN `describe-stacks` |
 | SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod\|edge:<id> --script <probe.sh>` |
 | `ops_error_logs` 标准聚合（schema + by_status + upstream_events + 429-by-minute） | 机械 | `ops/observability/ops-error-triage.sh`（通过 run-probe.sh 投递） |
-| final-429 / 5xx 分类（config-cap vs 空池 #575 vs 真上游：by error_type/biz_limited/owner/phase + by group·model·account + 5min 桶） | 机械 | `ops/observability/probe-429-classify.sh`（通过 run-probe.sh 投递；`WINDOW_HOURS` 默认 3；§4 triage 的分类深挖） |
+| final-429 / 5xx 分类（config-cap vs 空池 #575 vs 真上游：by error_type/owner/phase + by group·model·account + 5min 桶） | 机械 | `ops/observability/probe-429-classify.sh`（通过 run-probe.sh 投递；`WINDOW_HOURS` 默认 3；§4 triage 的分类深挖） |
+| SLA Dashboard 等价拆解（success/error_total/error_sla/client_faults + by_status owner 口径 + top SLA messages） | 机械 | `ops/observability/probe-sla-breakdown.sh`（通过 run-probe.sh 投递；`WINDOW_HOURS` 默认 24；对齐 Admin Ops `error_owner` SLA 公式） |
 | ⚠写侧止血：恢复 anthropic 可调度 / 清陈旧冷却（`MODE=edge-oauth-pool` 恢复 OAuth 池+补 group_id / `prod-mirror-cooldown` 清 cc-·kiro- 镜像冷却；before/after 自证） | 机械(写) | `ops/observability/remediate-schedulable-pool.sh`（经 run-probe 投递；§10 交接修复时用，非只读、须先有结论） |
 | Docker access log 解析（status/model/minute/latency 直方图 + marker 计数） | 机械 | `ops/observability/parse-access-log.py --stdin\|--file\|--docker` |
 | live-host 运行态漂移（运行镜像 tag vs 部署 tag + deploy_via_ssm 注入的 env：SERVER_FRONTEND_URL / QA_CAPTURE_EXPORT_STORAGE_*）| 机械 | `ops/stage0/assert-live-host-state.sh <instance_id> [expected_tag]`（只读 SSM，advisory；verdict 逻辑+`--selftest` 在 `ops/stage0/live_host_state_verdict.py`，已进 preflight；deploy-stage0 部署后 + ops-daily-diagnostics 每日审计自动跑）|

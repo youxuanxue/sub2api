@@ -2064,7 +2064,7 @@ func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, stream
 	// 响应体污染成 `{"error":...}event: response.failed...` 这种畸形内容
 	// （gin 不阻止 commit 之后的写入）。这类拒绝不依赖兜底补写，直接跳过。
 	// 见 upstream Wei-Shaw/sub2api#3014。
-	if service.HasOpsClientBusinessLimited(c) {
+	if service.HasOpsClientPolicyDenied(c) {
 		return false
 	}
 	if service.IsResponseCommitted(c) {
@@ -2303,7 +2303,6 @@ func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.C
 		ErrorType:         "cyber_policy",
 		Severity:          "P3",
 		StatusCode:        mark.UpstreamStatus,
-		IsBusinessLimited: true,
 		ErrorMessage:      "cyber_policy: " + mark.Message,
 		// 原始 body 直接入队；ops service 落库前统一走 sanitizeErrorBodyForStorage 脱敏与截断。
 		ErrorBody:   mark.Body,
@@ -2351,7 +2350,6 @@ func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.Ops
 		ErrorType:         "cyber_policy_session_blocked",
 		Severity:          "P3",
 		StatusCode:        http.StatusForbidden,
-		IsBusinessLimited: true,
 		ErrorMessage:      "cyber_policy_session_blocked: request rejected locally by session block",
 		ErrorSource:       "gateway_local",
 		ErrorOwner:        "platform",

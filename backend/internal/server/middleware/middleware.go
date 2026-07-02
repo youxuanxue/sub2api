@@ -163,7 +163,7 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 			c.Next()
 			return
 		}
-		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned)
+		service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned)
 		writeError(c, http.StatusForbidden, "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.")
 		c.Abort()
 	}

@@ -20,8 +20,7 @@ func TestComputeDashboardHealthScore_DegradesOnBadSignals(t *testing.T) {
 	t.Parallel()
 
 	ov := &OpsDashboardOverview{
-		RequestCountTotal: 100,
-		RequestCountSLA:   100,
+		RequestCountTotal:   100,
 		SuccessCount:      90,
 		ErrorCountTotal:   10,
 		ErrorCountSLA:     10,
@@ -74,7 +73,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "perfect health",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               1.0,
 				ErrorRate:         0,
 				UpstreamErrorRate: 0,
@@ -94,7 +92,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "good health - SLA 99.8%",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.998,
 				ErrorRate:         0.003,
 				UpstreamErrorRate: 0.001,
@@ -114,7 +111,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "medium health - SLA 96%",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.96,
 				ErrorRate:         0.02,
 				UpstreamErrorRate: 0.01,
@@ -134,7 +130,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "DB failure",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.995,
 				ErrorRate:         0,
 				UpstreamErrorRate: 0,
@@ -153,7 +148,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "Redis failure",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.995,
 				ErrorRate:         0,
 				UpstreamErrorRate: 0,
@@ -172,7 +166,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "high CPU usage",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.995,
 				ErrorRate:         0,
 				UpstreamErrorRate: 0,
@@ -191,7 +184,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "combined failures - business degraded + infra healthy",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.90,
 				ErrorRate:         0.05,
 				UpstreamErrorRate: 0.02,
@@ -210,7 +202,6 @@ func TestComputeDashboardHealthScore_Comprehensive(t *testing.T) {
 			name: "combined failures - business healthy + infra degraded",
 			overview: &OpsDashboardOverview{
 				RequestCountTotal: 1000,
-				RequestCountSLA:   1000,
 				SLA:               0.998,
 				ErrorRate:         0.001,
 				UpstreamErrorRate: 0,

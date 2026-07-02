@@ -509,7 +509,6 @@ func buildOpsSummaryEmailHTML(title string, start, end time.Time, overview *OpsD
   <li><b>Total Requests</b>: %d</li>
   <li><b>Success</b>: %d</li>
   <li><b>Errors (SLA)</b>: %d</li>
-  <li><b>Business Limited</b>: %d</li>
   <li><b>SLA</b>: %.2f%%</li>
   <li><b>Error Rate</b>: %.2f%%</li>
   <li><b>Upstream Error Rate (excl 429/529)</b>: %.2f%%</li>
@@ -527,7 +526,6 @@ func buildOpsSummaryEmailHTML(title string, start, end time.Time, overview *OpsD
 		overview.RequestCountTotal,
 		overview.SuccessCount,
 		overview.ErrorCountSLA,
-		overview.BusinessLimitedCount,
 		overview.SLA*100,
 		overview.ErrorRate*100,
 		overview.UpstreamErrorRate*100,

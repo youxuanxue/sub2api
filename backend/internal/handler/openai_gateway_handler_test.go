@@ -1695,7 +1695,7 @@ func TestOpenAIGatewayEnsureForwardErrorResponse_SkipsAfterBusinessLimited(t *te
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
 	c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
 		"type":    "forbidden_error",
 		"message": "This account only allows Codex official clients",

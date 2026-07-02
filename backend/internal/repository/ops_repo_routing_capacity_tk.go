@@ -17,19 +17,16 @@ import (
 // the persisted discriminator that is set EXCLUSIVELY for capacity rejections
 // (ops_error_logger.go classifyOpsPhase + the routingCapacityLimited override),
 // so a single COUNT FILTER isolates them from user-level rate limits (phase
-// upstream/request/auth) with no new column. These rows are
-// is_business_limited=true and are therefore excluded from the dashboard's
-// error_rate/upstream_error_rate (numerator AND denominator) — so without this
-// count a thin-pool-race empty-pool storm is invisible to every ratio alert
-// rule, and (cooling no account) to the account-/pool-level incident channels
-// too. Keeping it off GetDashboardOverview avoids both an extra aggregate on the
-// dashboard hot path and a half-populated overview field across the raw vs
-// pre-aggregated query paths. The alert evaluator calls this for the
-// routing_capacity_rejection_count metric; see tk_035 for the seeded P0 rule.
+// upstream/request/auth) with no new column. Routing-phase platform faults count
+// toward SLA/error_rate; this dedicated count still powers the routing-capacity
+// P0 alert without adding a field to GetDashboardOverview. Keeping it off
+// GetDashboardOverview avoids an extra aggregate on the dashboard hot path.
+// The alert evaluator calls this for the routing_capacity_rejection_count
+// metric; see tk_035 for the seeded P0 rule.
 //
 // Scope/time come from buildErrorWhere (the same predicate the dashboard error
 // counts use): created_at window, is_count_tokens=FALSE, optional platform and
-// group_id. No status/is_business_limited filter is needed — error_phase
+// group_id. No extra status filter is needed — error_phase
 // 'routing' already implies a capacity rejection.
 func (r *opsRepository) CountRoutingCapacityRejections(ctx context.Context, filter *service.OpsDashboardFilter) (int64, error) {
 	if r == nil || r.db == nil {

@@ -38,10 +38,8 @@ export interface OpsDashboardOverview {
 
   success_count: number
   error_count_total: number
-  business_limited_count: number
   error_count_sla: number
   request_count_total: number
-  request_count_sla: number
 
   token_consumed: number
 
@@ -186,7 +184,6 @@ export interface OpsLatencyHistogramResponse {
 export interface OpsErrorTrendPoint {
   bucket_start: string
   error_count_total: number
-  business_limited_count: number
   error_count_sla: number
   upstream_error_count_excl_429_529: number
   upstream_429_count: number
@@ -201,8 +198,8 @@ export interface OpsErrorTrendResponse {
 export interface OpsErrorDistributionItem {
   status_code: number
   total: number
-  sla: number
-  business_limited: number
+  sla_faults: number
+  client_faults: number
 }
 
 export interface OpsErrorDistributionResponse {
@@ -997,8 +994,6 @@ export interface OpsErrorDetail extends OpsErrorLog {
   upstream_latency_ms?: number | null
   response_latency_ms?: number | null
   time_to_first_token_ms?: number | null
-
-  is_business_limited: boolean
 
   // Deleted key owner info (INVALID_API_KEY attribution)
   attempted_key_prefix?: string | null

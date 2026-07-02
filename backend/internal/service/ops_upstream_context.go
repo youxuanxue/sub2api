@@ -63,19 +63,19 @@ const (
 	// ops_error_logger 中间件检查此 key，为 true 时跳过错误记录。
 	OpsSkipPassthroughKey = "ops_skip_passthrough"
 
-	// Client-side configuration denials should remain visible in ops_error_logs,
-	// but should be excluded from SLA/error-rate calculations.
+	// Client-side configuration denials remain visible in ops_error_logs; phase/owner
+	// classification routes them to error_owner=client (SLA denominator only).
 	// ResponseCommittedKey 由 handleErrorResponse 系列函数在写完 HTTP 错误响应后设置。
 	// ensureForwardErrorResponse 检查此 key，为 true 时跳过兜底写入，避免在已完成的 JSON 后追加 SSE。
 	ResponseCommittedKey = "response_committed"
 
-	OpsClientBusinessLimitedKey                          = "ops_client_business_limited"
-	OpsClientBusinessLimitedReasonKey                    = "ops_client_business_limited_reason"
-	OpsClientBusinessLimitedReasonIPRestriction          = "api_key_ip_restriction"
-	OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable = "api_key_group_unavailable"
-	OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned  = "api_key_group_unassigned"
-	OpsClientBusinessLimitedReasonLocalFeatureGate       = "local_feature_gate"
-	OpsClientBusinessLimitedReasonLocalPolicyDenied      = "local_policy_denied"
+	OpsClientPolicyDeniedKey                          = "ops_client_policy_denied"
+	OpsClientPolicyDeniedReasonKey                    = "ops_client_policy_denied_reason"
+	OpsClientPolicyDeniedReasonIPRestriction          = "api_key_ip_restriction"
+	OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable = "api_key_group_unavailable"
+	OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned  = "api_key_group_unassigned"
+	OpsClientPolicyDeniedReasonLocalFeatureGate       = "local_feature_gate"
+	OpsClientPolicyDeniedReasonLocalPolicyDenied      = "local_policy_denied"
 )
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
@@ -125,21 +125,21 @@ func resolveOpsTLSFingerprintProfile(c *gin.Context, svc *TLSFingerprintProfileS
 	return profile
 }
 
-func MarkOpsClientBusinessLimited(c *gin.Context, reason string) {
+func MarkOpsClientPolicyDenied(c *gin.Context, reason string) {
 	if c == nil {
 		return
 	}
-	c.Set(OpsClientBusinessLimitedKey, true)
+	c.Set(OpsClientPolicyDeniedKey, true)
 	if reason = strings.TrimSpace(reason); reason != "" {
-		c.Set(OpsClientBusinessLimitedReasonKey, reason)
+		c.Set(OpsClientPolicyDeniedReasonKey, reason)
 	}
 }
 
-func HasOpsClientBusinessLimited(c *gin.Context) bool {
+func HasOpsClientPolicyDenied(c *gin.Context) bool {
 	if c == nil {
 		return false
 	}
-	v, ok := c.Get(OpsClientBusinessLimitedKey)
+	v, ok := c.Get(OpsClientPolicyDeniedKey)
 	if !ok {
 		return false
 	}

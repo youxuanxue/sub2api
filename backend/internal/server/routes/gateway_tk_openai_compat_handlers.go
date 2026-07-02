@@ -113,7 +113,7 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 			return
 		}
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
 					"type":    "invalid_request_error",
@@ -140,7 +140,7 @@ func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 			return
 		}
 		if !isNativeOpenAIMediaPlatform(getGroupPlatform(c)) {
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
 					"type":    "invalid_request_error",
