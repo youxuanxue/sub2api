@@ -56,11 +56,10 @@ func openAICompatErrorPlatformLabel(groupPlatform string) string {
 // When nil, collectOpenAICompatSelectionFailureStats falls back to account-level
 // model_mapping only (legacy unit tests).
 type openAICompatNoCandidateEval struct {
-	ctx                context.Context
-	svc                *OpenAIGatewayService
-	groupID            *int64
-	requireCompact     bool
-	requiredCapability OpenAIEndpointCapability
+	ctx            context.Context
+	svc            *OpenAIGatewayService
+	groupID        *int64
+	requireCompact bool
 }
 
 // tkOpenAICompatChannelPricingRestrictionError reports that the requested model is
