@@ -895,20 +895,29 @@
       "rationale": "PR #718: user recent-usage list shows only actual cost per log entry; the standard-cost span must not be restored by an upstream merge."
     },
     {
-      "path": "frontend/src/views/user/UsageView.vue",
+      "path": "frontend/src/components/admin/usage/UsageTable.vue",
       "must_contain": [
-        "const actualized = (cost?: number | null): number =>",
-        "actualized(tooltipData.input_cost)",
         "!getDisplayBillingMode(tooltipData) || getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN",
-        "'Billed Cost',"
+        "showAccountBilling",
+        "v-if=\"showAccountBilling\""
       ],
       "must_not_contain": [
-        "usage.original",
-        "formatMultiplier",
+        "actualized(tooltipData.input_cost)"
+      ],
+      "rationale": "PR #718 + upstream merge 2026-07: user usage records expose only actual billed amounts on the user page. The shared UsageTable now owns the tooltip; user pages pass showAccountBilling=false so Rate×N / Original rows stay hidden, while admin pages can still inspect account billing. The tooltip token branch must route through getDisplayBillingMode so historical image rows (no billing_mode) keep the Image branch."
+    },
+    {
+      "path": "frontend/src/views/user/UsageView.vue",
+      "must_contain": [
+        "'Billed Cost',",
+        "(log.actual_cost ?? 0).toFixed(8)",
+        ":show-account-billing=\"false\""
+      ],
+      "must_not_contain": [
         "'Rate Multiplier',",
         "'Original Cost',"
       ],
-      "rationale": "PR #718: user usage records expose only actual (rate-multiplied) amounts — tooltip cost breakdown is scaled via actualized(), the Rate×N / Original rows are gone, and the CSV export carries Billed Cost only. The tooltip token-branch must route through getDisplayBillingMode so historical image rows (no billing_mode) keep the Image branch. Upstream merges of this large upstream-shaped view tend to restore the raw multiplier/standard displays."
+      "rationale": "PR #718 + upstream merge 2026-07: the user usage CSV exports Billed Cost only and the user page disables account billing details in the shared UsageTable. Upstream merges of this large upstream-shaped view tend to restore raw multiplier/original-cost columns."
     },
     {
       "path": "frontend/src/utils/billingMode.ts",

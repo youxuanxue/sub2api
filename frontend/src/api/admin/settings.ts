@@ -565,6 +565,7 @@ export interface SystemSettings {
   // See docs/approved/sticky-routing.md.
   sticky_routing_enabled: boolean;
   rewrite_message_cache_control: boolean;
+  enable_client_dateline_normalization: boolean;
   antigravity_user_agent_version: string;
   openai_codex_user_agent: string;
   // codex_cli_only 加固
@@ -824,6 +825,7 @@ export interface UpdateSettingsRequest {
   enable_anthropic_cache_ttl_1h_injection?: boolean;
   sticky_routing_enabled?: boolean;
   rewrite_message_cache_control?: boolean;
+  enable_client_dateline_normalization?: boolean;
   antigravity_user_agent_version?: string;
   web_search_emulation_enabled?: boolean;
   openai_codex_user_agent?: string;

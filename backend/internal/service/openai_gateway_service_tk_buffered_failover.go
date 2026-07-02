@@ -76,11 +76,18 @@ func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseResult(
 	if clientMsg == "" {
 		clientMsg = "Upstream returned a failed response"
 	}
+	statusCode := http.StatusBadRequest
+	errType := "invalid_request_error"
+	if isOpenAIContextWindowError(clientMsg, payload) {
+		statusCode = http.StatusBadGateway
+		errType = "upstream_error"
+	}
 	if route == openAICompatBufferedRouteMessages {
 		s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "buffered_response_failed", clientMsg)
-		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
+		writeAnthropicError(c, statusCode, errType, clientMsg)
 	} else {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
+		s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "buffered_response_failed", payload, clientMsg)
+		writeChatCompletionsError(c, statusCode, errType, clientMsg)
 	}
 	return nil, fmt.Errorf("openai buffered response.failed (non-retryable): %s", message)
 }

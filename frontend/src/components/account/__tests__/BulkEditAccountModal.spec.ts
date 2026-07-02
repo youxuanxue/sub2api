@@ -21,34 +21,27 @@ vi.mock('@/api/admin', () => ({
   }
 }))
 
-vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn()
-}))
-
 // Antigravity (like anthropic/openai/gemini) is API-backed after R-003: the model
 // whitelist selector derives its candidates from the self-healing
-// models-list-candidates endpoint, not a static list. Mock it with a realistic
+// model-mapping preset endpoint, not a static list. Mock it with a realistic
 // antigravity candidate set (Gemini — including image models — plus Claude, and
 // NO GPT) so the platform-scoped whitelist renders deterministically.
-vi.mock('@/api/admin/groups', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/api/admin/groups')>()
-  return {
-    ...actual,
-    getModelsListCandidates: vi.fn(async (_id: number, platform?: string) => {
-      if (platform === 'antigravity') {
-        return [
-          'gemini-3.1-flash-image',
-          'gemini-2.5-flash-image',
-          'gemini-3-flash',
-          'gemini-2.5-pro',
-          'claude-sonnet-4-6',
-          'claude-opus-4-6'
-        ]
-      }
-      return []
-    })
-  }
-})
+vi.mock('@/api/admin/accounts', () => ({
+  getAntigravityDefaultModelMapping: vi.fn(),
+  getModelMappingPresets: vi.fn(async (platform?: string) => {
+    if (platform === 'antigravity') {
+      return [
+        'gemini-3.1-flash-image',
+        'gemini-2.5-flash-image',
+        'gemini-3-flash',
+        'gemini-2.5-pro',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6'
+      ]
+    }
+    return []
+  })
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -177,21 +170,21 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
-  it('OpenAI OAuth 批量编辑应提交 OAuth 专属 WS mode 字段', async () => {
+  it('OpenAI OAuth 批量编辑应提交 OAuth 专属 WS mode 字段（含 http_bridge）', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
       selectedTypes: ['oauth']
     })
 
     await wrapper.get('#bulk-edit-openai-ws-mode-enabled').setValue(true)
-    await wrapper.get('[data-testid="bulk-edit-openai-ws-mode-select"]').setValue('passthrough')
+    await wrapper.get('[data-testid="bulk-edit-openai-ws-mode-select"]').setValue('http_bridge')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
-        openai_oauth_responses_websockets_v2_mode: 'passthrough',
+        openai_oauth_responses_websockets_v2_mode: 'http_bridge',
         openai_oauth_responses_websockets_v2_enabled: true
       }
     })

@@ -203,6 +203,10 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldRpmLimit,
 				group.FieldMessagesCompactionEnabled,
 				group.FieldMessagesCompactionInputTokensThreshold,
+				group.FieldPeakRateEnabled,
+				group.FieldPeakStart,
+				group.FieldPeakEnd,
+				group.FieldPeakRateMultiplier,
 			)
 		}).
 		Only(ctx)
@@ -810,6 +814,10 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		AllowImageGeneration:                   g.AllowImageGeneration,
 		ImageRateIndependent:                   g.ImageRateIndependent,
 		ImageRateMultiplier:                    g.ImageRateMultiplier,
+		PeakRateEnabled:                        g.PeakRateEnabled,
+		PeakStart:                              g.PeakStart,
+		PeakEnd:                                g.PeakEnd,
+		PeakRateMultiplier:                     g.PeakRateMultiplier,
 		ImagePrice1K:                           g.ImagePrice1k,
 		ImagePrice2K:                           g.ImagePrice2k,
 		ImagePrice4K:                           g.ImagePrice4k,

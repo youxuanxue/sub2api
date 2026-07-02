@@ -15,6 +15,7 @@ import AnthropicUsageCell from './usage-cells/AnthropicUsageCell.vue'
 import OpenAIUsageCell from './usage-cells/OpenAIUsageCell.vue'
 import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
+import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 
@@ -42,6 +43,10 @@ const activeCell = computed(() => {
     usesLocalUsageWindows(account)
   ) {
     return OpenAIUsageCell
+  }
+
+  if (account.platform === 'grok') {
+    return account.type === 'oauth' ? GrokUsageCell : OpenAIUsageCell
   }
 
   if (account.platform === 'antigravity' && account.type === 'oauth') {

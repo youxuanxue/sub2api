@@ -203,11 +203,12 @@ type SystemSettings struct {
 	EnableAnthropicCacheTTL1hInjection     bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
 	// Sticky routing kill switch (default true).
 	// See docs/approved/sticky-routing.md §3.2.
-	StickyRoutingEnabled        bool   `json:"sticky_routing_enabled"`
-	RewriteMessageCacheControl  bool   `json:"rewrite_message_cache_control"`
-	AntigravityUserAgentVersion string `json:"antigravity_user_agent_version"`
-	ClaudeCodeUserAgentVersion  string `json:"claude_code_user_agent_version"`
-	OpenAICodexUserAgent        string `json:"openai_codex_user_agent"`
+	StickyRoutingEnabled              bool   `json:"sticky_routing_enabled"`
+	RewriteMessageCacheControl        bool   `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization bool   `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion       string `json:"antigravity_user_agent_version"`
+	ClaudeCodeUserAgentVersion        string `json:"claude_code_user_agent_version"`
+	OpenAICodexUserAgent              string `json:"openai_codex_user_agent"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -340,10 +341,14 @@ type PublicSettings struct {
 	BackendModeEnabled               bool                     `json:"backend_mode_enabled"`
 	PaymentEnabled                   bool                     `json:"payment_enabled"`
 	Version                          string                   `json:"version"`
-	BalanceLowNotifyEnabled          bool                     `json:"balance_low_notify_enabled"`
-	AccountQuotaNotifyEnabled        bool                     `json:"account_quota_notify_enabled"`
-	BalanceLowNotifyThreshold        float64                  `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL      string                   `json:"balance_low_notify_recharge_url"`
+	// 服务器全局时区（IANA 名称与当前 UTC 偏移，如 "Asia/Shanghai" / "+08:00"）。
+	// 高峰时段等按服务器本地时间判定的窗口，前端展示时据此标注，避免用户按浏览器本地时间误读。
+	ServerTimezone              string  `json:"server_timezone"`
+	ServerUTCOffset             string  `json:"server_utc_offset"`
+	BalanceLowNotifyEnabled     bool    `json:"balance_low_notify_enabled"`
+	AccountQuotaNotifyEnabled   bool    `json:"account_quota_notify_enabled"`
+	BalanceLowNotifyThreshold   float64 `json:"balance_low_notify_threshold"`
+	BalanceLowNotifyRechargeURL string  `json:"balance_low_notify_recharge_url"`
 
 	// TK cold-start
 	PricingCatalogPublic bool `json:"pricing_catalog_public"`

@@ -1,6 +1,6 @@
 .PHONY: build generate test test-unit test-integration test-e2e lint lint-security
 
-VERSION ?= $(shell tr -d '\r\n' < ./cmd/server/VERSION)
+VERSION ?= $(shell ./scripts/resolve-version.sh)
 LDFLAGS ?= -s -w -X main.Version=$(VERSION)
 GOLANGCI_LINT_CONCURRENCY ?= 4
 GOLANGCI_LINT_FAST_ARGS ?= --concurrency=$(GOLANGCI_LINT_CONCURRENCY)
