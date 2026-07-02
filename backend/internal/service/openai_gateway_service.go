@@ -417,6 +417,8 @@ type OpenAIGatewayService struct {
 	// gate (docs/approved/priced-or-it-doesnt-ship.md). Injected via
 	// SetPricingCatalogService (TK companion). nil = gate disabled (fail-open).
 	tkPricingCatalog *PricingCatalogService
+	// TK: shared with GatewayService via ProvideTKGroupUnsupportedModelCache.
+	tkGroupUnsupportedCache *tkGroupUnsupportedModelNegativeCache
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -1838,11 +1840,14 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 }
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64) (*Account, error) {
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
 	}
 
 	// TK: resolve scheduling-pool platform once per request and thread it
@@ -1871,12 +1876,12 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		// PURELY by unservable model name surfaces ErrUnsupportedModel (→ HTTP 400),
 		// not an empty-pool 429 — parity with the selectByLoadBalance path so
 		// count_tokens / sticky callers do not misclassify (prod 2026-06-13).
-		return nil, openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
 			ctx:            ctx,
 			svc:            s,
 			groupID:        groupID,
 			requireCompact: requireCompact,
-		})
+		}))
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -2123,11 +2128,14 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool) (*AccountSelectionResult, error) {
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
 	}
 
 	// TK: resolve scheduling-pool platform once per request and thread it

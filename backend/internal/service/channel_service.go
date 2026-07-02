@@ -147,6 +147,9 @@ type ChannelService struct {
 
 	cache   atomic.Value // *channelCache
 	cacheSF singleflight.Group
+
+	// TK: flush group×model unsupported negative cache when channel config changes.
+	groupUnsupportedModelCacheFlush func()
 }
 
 // NewChannelService 创建渠道服务实例。
@@ -347,10 +350,23 @@ func (s *ChannelService) invalidateCache() {
 	s.cache.Store((*channelCache)(nil))
 	s.cacheSF.Forget("channel_cache")
 
+	if s.groupUnsupportedModelCacheFlush != nil {
+		s.groupUnsupportedModelCacheFlush()
+	}
+
 	// 主动重建缓存，确保 CRUD 后立即生效
 	if _, err := s.buildCache(context.Background()); err != nil {
 		slog.Warn("failed to rebuild channel cache after invalidation", "error", err)
 	}
+}
+
+// SetGroupUnsupportedModelCacheFlusher registers a callback to flush the
+// selection-time unsupported-model negative cache when channel config changes.
+func (s *ChannelService) SetGroupUnsupportedModelCacheFlusher(fn func()) {
+	if s == nil {
+		return
+	}
+	s.groupUnsupportedModelCacheFlush = fn
 }
 
 // matchWildcard 在通配符定价中查找匹配项（最先匹配到优先）

@@ -718,6 +718,9 @@ type GatewayService struct {
 	// model name the upstream already confirmed not-found so we stop re-forwarding
 	// it. Always on, in-memory, 60s TTL. See gateway_service_tk_model_notfound_cache.go.
 	tkModelNotFoundCache *tkModelNotFoundNegativeCache
+	// TK: per-replica group×model negative cache for selection-time
+	// ErrUnsupportedModel verdicts. See gateway_service_tk_group_unsupported_cache.go.
+	tkGroupUnsupportedCache *tkGroupUnsupportedModelNegativeCache
 }
 
 // NewGatewayService creates a new GatewayService
@@ -1691,11 +1694,14 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 
 	// Claude Code 限制可能已将 groupID 解析为 fallback group，
 	// 渠道限制预检查必须使用解析后的分组。
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
 	}
 
 	// anthropic/gemini 分组支持混合调度（包含启用了 mixed_scheduling 的 antigravity 账户）
@@ -1741,13 +1747,17 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 	ctx = s.withGroupContext(ctx, group)
 
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
+
 	// Claude Code 限制可能已将 groupID 解析为 fallback group，
 	// 渠道限制预检查必须使用解析后的分组。
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
 	}
 
 	var stickyAccountID int64
@@ -3510,7 +3520,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))
 	}
 
 	// 4. 建立粘性绑定
@@ -3782,7 +3792,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))
 	}
 
 	// 4. 建立粘性绑定

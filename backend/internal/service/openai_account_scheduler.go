@@ -281,8 +281,13 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	// 入口对齐——channel pricing 限制属于 group/channel 治理面，必须在选号
 	// 前置拒绝。两个调度入口语义漂移会让运营在排查时彻底失去对账号选择
 	// 行为的预期。
-	if s != nil && s.service != nil && s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
-		return nil, decision, tkOpenAICompatChannelPricingRestrictionError(req.RequestedModel)
+	if s != nil && s.service != nil {
+		if err := s.service.tkGroupUnsupportedModelShortCircuit(req.GroupID, req.RequestedModel); err != nil {
+			return nil, decision, err
+		}
+		if s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
+			return nil, decision, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, tkOpenAICompatChannelPricingRestrictionError(req.RequestedModel))
+		}
 	}
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
@@ -1112,12 +1117,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// TK: when the schedulable pool was emptied PURELY because no account serves
 		// the requested model name, surface ErrUnsupportedModel (→ HTTP 400) instead
 		// of an empty-pool 429. See openAICompatNoCandidateError (TK companion).
-		return nil, 0, 0, 0, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
+		return nil, 0, 0, 0, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
 			ctx:            ctx,
 			svc:            s.service,
 			groupID:        req.GroupID,
 			requireCompact: req.RequireCompact,
-		})
+		}))
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -1459,6 +1464,9 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	requireCompact bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	decision := OpenAIAccountScheduleDecision{}
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, decision, err
+	}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
@@ -1518,7 +1526,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, decision, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+		return nil, decision, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
 	}
 
 	var stickyAccountID int64
