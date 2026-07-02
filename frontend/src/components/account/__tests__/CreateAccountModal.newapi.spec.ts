@@ -17,11 +17,18 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { defineComponent, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const { listChannelTypesMock, fetchUpstreamModelsMock, listChannelTypeModelsMock, createAccountMock } = vi.hoisted(() => {
+const {
+  listChannelTypesMock,
+  fetchUpstreamModelsMock,
+  listChannelTypeModelsMock,
+  getModelMappingPresetsMock,
+  createAccountMock
+} = vi.hoisted(() => {
   return {
     listChannelTypesMock: vi.fn(),
     fetchUpstreamModelsMock: vi.fn(),
     listChannelTypeModelsMock: vi.fn(),
+    getModelMappingPresetsMock: vi.fn(),
     createAccountMock: vi.fn()
   }
 })
@@ -74,7 +81,8 @@ vi.mock('@/api/admin/channels', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([])
+  getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
+  getModelMappingPresets: getModelMappingPresetsMock
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -189,6 +197,8 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     fetchUpstreamModelsMock.mockReset()
     listChannelTypeModelsMock.mockReset()
     listChannelTypeModelsMock.mockResolvedValue({})
+    getModelMappingPresetsMock.mockReset()
+    getModelMappingPresetsMock.mockResolvedValue([])
     createAccountMock.mockReset()
   })
 
@@ -241,6 +251,27 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     // because the component is mounted and its default mode is 'whitelist').
     const selectors = wrapper.findAll('[data-testid="model-whitelist-selector"]')
     expect(selectors.length).toBeGreaterThanOrEqual(1)
+    expect(wrapper.text()).toContain('admin.accounts.vertexNewapiMediaHint')
+  })
+
+  it('shows Gemini Vertex as chat-only and points media operators to the NewAPI Vertex path', async () => {
+    const wrapper = mountModal()
+    await nextTick()
+
+    await clickPlatform(wrapper, 'Gemini')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('admin.accounts.gemini.accountType.vertexTitle')
+    expect(wrapper.text()).toContain('admin.accounts.gemini.accountType.vertexDesc')
+
+    const serviceAccountButtons = wrapper.findAll('button').filter((b) =>
+      b.text().includes('admin.accounts.gemini.accountType.vertexTitle')
+    )
+    expect(serviceAccountButtons).toHaveLength(1)
+    await serviceAccountButtons[0].trigger('click')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('admin.accounts.vertexGeminiHint')
   })
 
   it('renders NewAPI credential fields with the real shared field subtree', async () => {
@@ -359,6 +390,8 @@ describe('CreateAccountModal — NewAPI Vertex (channel_type 41)', () => {
     createAccountMock.mockReset()
     createAccountMock.mockResolvedValue({ id: 880 })
     listChannelTypeModelsMock.mockResolvedValue({ '41': VERTEX_CH41_SERVABLE_MODELS })
+    getModelMappingPresetsMock.mockReset()
+    getModelMappingPresetsMock.mockResolvedValue(VERTEX_CH41_SERVABLE_MODELS)
   })
 
   it('AC-V1: hides transport credentials and creates service_account with SA JSON + model_mapping', async () => {
@@ -369,12 +402,13 @@ describe('CreateAccountModal — NewAPI Vertex (channel_type 41)', () => {
     await flushPromises()
     await nextTick()
 
-    expect(listChannelTypeModelsMock).toHaveBeenCalled()
+    expect(getModelMappingPresetsMock).toHaveBeenCalledWith('newapi', NEW_API_CHANNEL_TYPE_VERTEX_AI)
     expect(wrapper.find('[data-testid="model-whitelist-selector"]').text()).toContain('gemini-2.5-flash')
 
     expect(wrapper.html()).not.toMatch(/admin\.accounts\.newApiPlatform\.apiKey(?!Hint)/)
     expect(wrapper.find('[data-testid="vertex-sa-json-input"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('admin.accounts.vertexNewapiMediaHint')
+    expect(wrapper.text()).toContain('admin.accounts.vertexNewapiServiceAccountHint')
 
     await wrapper.find('input[data-tour="account-form-name"]').setValue('vertex-trial-01')
     const jsonInput = wrapper.find('[data-testid="vertex-sa-json-input"]')
@@ -454,6 +488,8 @@ describe('CreateAccountModal — Grok relay stub', () => {
     fetchUpstreamModelsMock.mockReset()
     listChannelTypeModelsMock.mockReset()
     listChannelTypeModelsMock.mockResolvedValue({})
+    getModelMappingPresetsMock.mockReset()
+    getModelMappingPresetsMock.mockResolvedValue([])
     createAccountMock.mockReset()
     createAccountMock.mockResolvedValue({ id: 953 })
   })
