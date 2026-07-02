@@ -17,6 +17,7 @@ import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
+import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
@@ -34,7 +35,13 @@ const activeCell = computed(() => {
     return AnthropicUsageCell
   }
 
-  if (account.platform === 'openai' && account.type === 'oauth') {
+  // Local-window adapters reuse the generic 5h/7d usage display. They do not
+  // have a common upstream percentage-quota protocol, but the backend returns
+  // TokenKey account billing windows through the same passive endpoint.
+  if (
+    (account.platform === 'openai' && account.type === 'oauth') ||
+    usesLocalUsageWindows(account)
+  ) {
     return OpenAIUsageCell
   }
 

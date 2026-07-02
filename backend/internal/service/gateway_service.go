@@ -382,6 +382,7 @@ var (
 		"You are Claude Code, Anthropic's official CLI for Claude",      // 标准版 & Agent SDK 版（含 running within...）
 		"You are a Claude agent, built on Anthropic's Claude Agent SDK", // Agent SDK 变体
 		"You are an interactive agent that helps users with software engineering tasks",
+		"You are an interactive CLI tool that helps users",
 		"You are a file search specialist for Claude Code",                     // Explore Agent 版
 		"You are a helpful AI assistant tasked with summarizing conversations", // Compact 版
 	}

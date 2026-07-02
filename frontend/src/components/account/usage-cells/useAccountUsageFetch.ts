@@ -16,6 +16,7 @@ import type { AccountUsageCellProps } from '../accountUsageCellProps'
 import {
   canSelfFetchUsage as accountCanSelfFetchUsage,
   isBatchPassiveCapable,
+  usesLocalUsageWindows,
   usesPassiveUsageOnMount as accountUsesPassiveUsageOnMount
 } from '@/utils/accountUsageBatch.tk'
 
@@ -297,6 +298,12 @@ export function useAccountUsageFetch(
 }
 
 export function showUsageWindowsForAccount(account: Account): boolean {
-  if (account.platform === 'gemini' || account.platform === 'kiro' || account.platform === 'grok') return true
+  if (
+    account.platform === 'gemini' ||
+    account.platform === 'kiro' ||
+    usesLocalUsageWindows(account)
+  ) {
+    return true
+  }
   return account.type === 'oauth' || account.type === 'setup-token'
 }

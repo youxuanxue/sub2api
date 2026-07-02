@@ -115,9 +115,11 @@
       <div v-if="aiCreditsDisplay" class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
         💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
       </div>
+      <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
     </div>
     <div v-else-if="aiCreditsDisplay" class="text-[10px] text-gray-500 dark:text-gray-400">
       💳 {{ t('admin.accounts.aiCreditsBalance') }}: {{ aiCreditsDisplay }}
+      <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" class="mt-1" />
     </div>
     <div v-else class="text-xs text-gray-400">-</div>
   </div>
@@ -127,6 +129,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
+import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps

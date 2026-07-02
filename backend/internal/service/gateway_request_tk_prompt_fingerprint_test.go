@@ -64,6 +64,16 @@ func TestTkExtractAnthropicPromptFingerprint_InteractiveAgentAnchor(t *testing.T
 	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
 }
 
+func TestTkExtractAnthropicPromptFingerprint_InteractiveCLIToolAnchor(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are an interactive CLI tool that helps users safely and efficiently.\n# Environment\nTZ=Asia/Shanghai"}]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, "interactive_cli_tool", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
+	require.Contains(t, fp.UnknownSurfaces, "cc_environment_section")
+}
+
 func TestTkExtractAnthropicPromptFingerprint_UnknownIdentity(t *testing.T) {
 	body := []byte(`{"system":[{"type":"text","text":"You are a generic assistant."}]}`)
 	fp := tkExtractAnthropicPromptFingerprint(body)

@@ -117,6 +117,41 @@ describe('toUsageInfo', () => {
     expect(info?.seven_day_sonnet?.resets_at).toBe('2026-06-22T14:00:00Z')
   })
 
+  it('forwards window_stats from edge local-window adapters', () => {
+    const info = toUsageInfo(
+      acct({
+        platform: 'newapi',
+        type: 'service_account',
+        usage: {
+          source: 'passive',
+          five_hour: {
+            utilization: 0,
+            window_stats: {
+              requests: 2,
+              tokens: 2048,
+              cost: 0.18,
+              standard_cost: 0.18,
+              user_cost: 0.18
+            }
+          },
+          seven_day: {
+            utilization: 0,
+            window_stats: {
+              requests: 7,
+              tokens: 8192,
+              cost: 0.72,
+              standard_cost: 0.72,
+              user_cost: 0.72
+            }
+          }
+        }
+      })
+    )
+
+    expect(info?.five_hour?.window_stats?.tokens).toBe(2048)
+    expect(info?.seven_day?.window_stats?.requests).toBe(7)
+  })
+
   it('lifts the edge kiro credits DTO into nested kiro_usage so the KiroUsageCell renders', () => {
     const info = toUsageInfo(
       acct({
@@ -124,6 +159,18 @@ describe('toUsageInfo', () => {
         type: 'oauth',
         usage: {
           source: 'passive',
+          upstream_quota: {
+            provider: 'kiro',
+            state: 'observed',
+            credits: [
+              {
+                key: 'kiro_credits',
+                current: 300,
+                limit: 1000,
+                remaining: 700
+              }
+            ]
+          },
           kiro: {
             current: 300,
             limit: 1000,
@@ -143,6 +190,8 @@ describe('toUsageInfo', () => {
     expect(info?.kiro_usage?.subscription_title).toBe('Kiro Pro')
     expect(info?.kiro_usage?.trial?.percent).toBe(10)
     expect(info?.kiro_usage?.trial?.expires_at).toBe('2026-07-15T00:00:00Z')
+    expect(info?.upstream_quota?.provider).toBe('kiro')
+    expect(info?.upstream_quota?.credits?.[0]?.remaining).toBe(700)
   })
 
   it('leaves kiro_usage null when the edge reported no kiro block', () => {

@@ -181,7 +181,7 @@ type AccountWithConcurrency struct {
 	CurrentConcurrency int `json:"current_concurrency"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	ActiveSessions *int `json:"active_sessions,omitempty"` // 当前活跃会话数
-	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	CurrentRPM     *int `json:"current_rpm,omitempty"`     // 当前分钟 RPM 计数
 	// EdgeID is the edge a prod anthropic mirror stub relays to (api-us1 → "us1"),
 	// empty for non-stub accounts. TK: lets the accounts UI expand a stub row into
 	// that edge's accounts inline (unified prod+edge governance). Derived, not

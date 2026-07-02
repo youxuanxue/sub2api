@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -153,11 +154,49 @@ func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
 	require.NotNil(t, got[9].FiveHour)
 	require.NotNil(t, got[9].SevenDay)
 	require.Equal(t, 1.25, got[9].FiveHour.WindowStats.Cost)
-	require.Equal(t, int64(2), logRepo.singleCalls.Load(), "grok local 5h/7d windows come from usage logs")
+	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "grok local 5h/7d windows must be batched in overview")
+	require.Zero(t, logRepo.singleCalls.Load(), "grok local overview path must not issue per-account window queries")
+}
+
+func TestGetPassiveUsageBatch_IncludesLocalWindowAdapters(t *testing.T) {
+	accounts := []Account{
+		{ID: 10, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount, ChannelType: 41, Status: StatusActive},
+		{ID: 11, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Status: StatusActive},
+		{ID: 12, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive},
+	}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{10: 2.5, 11: 3.5}}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: accounts},
+		usageLogRepo: logRepo,
+		cache:        NewUsageCache(),
+	}
+
+	got := svc.GetPassiveUsageBatch(context.Background(), []int64{10, 11, 12})
+
+	require.Len(t, got, 2, "newapi and antigravity apikey stubs use local windows; antigravity oauth has no passive adapter")
+	require.Equal(t, 2.5, got[10].FiveHour.WindowStats.Cost)
+	require.Equal(t, 3.5, got[11].SevenDay.WindowStats.Cost)
+	require.NotContains(t, got, int64(12))
+	require.Equal(t, int64(2), logRepo.batchCalls.Load(), "local-window accounts share 5h and 7d batch queries")
+	require.Zero(t, logRepo.singleCalls.Load(), "local-window overview path must not issue per-account window queries")
 }
 
 func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {
-	acct := Account{ID: 77, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	acct := Account{
+		ID:       77,
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			grokQuotaSnapshotExtraKey: xai.QuotaSnapshot{
+				Requests:         &xai.QuotaWindow{Limit: int64PtrForPassiveBatchTest(900), Remaining: int64PtrForPassiveBatchTest(800)},
+				Tokens:           &xai.QuotaWindow{Limit: int64PtrForPassiveBatchTest(15_000_000), Remaining: int64PtrForPassiveBatchTest(14_000_000)},
+				SubscriptionTier: "supergrok-heavy",
+				StatusCode:       200,
+				HeadersObserved:  true,
+				UpdatedAt:        "2026-07-02T05:06:30Z",
+			},
+		},
+	}
 	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{77: 12.5}}
 	svc := &AccountUsageService{
 		accountRepo:  &passiveBatchAccountRepo{accounts: []Account{acct}},
@@ -173,7 +212,76 @@ func TestAccountUsageService_GetUsage_GrokUsesLocalWindowStats(t *testing.T) {
 	require.NotNil(t, usage.SevenDay)
 	require.NotNil(t, usage.SevenDay.WindowStats)
 	require.Equal(t, 12.5, usage.FiveHour.WindowStats.Cost)
+	require.NotNil(t, usage.UpstreamQuota)
+	require.Equal(t, "grok", usage.UpstreamQuota.Provider)
+	require.Equal(t, "observed", usage.UpstreamQuota.State)
+	require.Equal(t, "supergrok-heavy", usage.UpstreamQuota.SubscriptionTier)
+	require.Len(t, usage.UpstreamQuota.Dimensions, 2)
+	require.Equal(t, "grok_requests", usage.UpstreamQuota.Dimensions[0].Key)
+	require.Equal(t, float64(800), *usage.UpstreamQuota.Dimensions[0].Remaining)
 	require.Equal(t, int64(2), logRepo.singleCalls.Load())
+}
+
+func TestAccountUsageService_NewAPIVertexUsesLocalWindowStats(t *testing.T) {
+	acct := Account{ID: 78, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount, ChannelType: 41}
+	logRepo := &passiveBatchUsageLogRepo{cost: map[int64]float64{78: 4.25}}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: []Account{acct}},
+		usageLogRepo: logRepo,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 78)
+	require.NoError(t, err)
+	require.Equal(t, "passive", usage.Source)
+	require.NotNil(t, usage.FiveHour)
+	require.NotNil(t, usage.SevenDay)
+	require.Equal(t, 4.25, usage.FiveHour.WindowStats.Cost)
+	require.NotNil(t, usage.UpstreamQuota)
+	require.Equal(t, "newapi", usage.UpstreamQuota.Provider)
+	require.Equal(t, "unsupported", usage.UpstreamQuota.State)
+	require.Equal(t, "unsupported", usage.UpstreamQuota.ErrorCode)
+	require.Equal(t, int64(2), logRepo.singleCalls.Load())
+
+	passive, err := svc.GetPassiveUsage(context.Background(), 78)
+	require.NoError(t, err)
+	require.NotNil(t, passive.FiveHour)
+	require.Equal(t, 4.25, passive.SevenDay.WindowStats.Cost)
+	require.Equal(t, "unsupported", passive.UpstreamQuota.State)
+}
+
+func TestAccountUsageService_KiroPassiveBuildsUpstreamQuotaCredits(t *testing.T) {
+	acct := Account{
+		ID:       79,
+		Platform: PlatformKiro,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"kiro_usage_current":      float64(300),
+			"kiro_usage_limit":        float64(1000),
+			"kiro_usage_percent":      float64(30),
+			"kiro_next_reset":         "2026-07-10",
+			"kiro_subscription_title": "Kiro Pro",
+			"kiro_usage_sampled_at":   "2026-07-02T00:00:00Z",
+		},
+	}
+	svc := &AccountUsageService{
+		accountRepo: &passiveBatchAccountRepo{accounts: []Account{acct}},
+		cache:       NewUsageCache(),
+	}
+
+	usage, err := svc.GetPassiveUsage(context.Background(), 79)
+
+	require.NoError(t, err)
+	require.NotNil(t, usage.KiroUsage)
+	require.NotNil(t, usage.UpstreamQuota)
+	require.Equal(t, "kiro", usage.UpstreamQuota.Provider)
+	require.Equal(t, "observed", usage.UpstreamQuota.State)
+	require.Len(t, usage.UpstreamQuota.Credits, 1)
+	require.Equal(t, "kiro_credits", usage.UpstreamQuota.Credits[0].Key)
+	require.Equal(t, float64(700), *usage.UpstreamQuota.Credits[0].Remaining)
+}
+
+func int64PtrForPassiveBatchTest(v int64) *int64 {
+	return &v
 }
 
 func TestGetPassiveUsageBatch_EmptyAndNilSafe(t *testing.T) {
