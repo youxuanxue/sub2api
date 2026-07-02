@@ -143,6 +143,18 @@ func TestTkNormalizeAnthropicCCPromptSurfaceNormalizesKnownSystemText(t *testing
 	require.Contains(t, got, "Today's date is 2026-07-01.")
 }
 
+func TestTkNormalizeAnthropicCCPromptSurfaceNormalizesInteractiveCLIToolSystemText(t *testing.T) {
+	in := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc-session"},{"type":"text","text":"You are an interactive CLI tool that helps users safely and efficiently.\n# Environment\nTZ=Asia/Shanghai\nPWD=/work\n\nToday's date is 2026/07/01."}],"messages":[{"role":"user","content":"hi"}]}`)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
+	require.True(t, changed)
+	got := string(out)
+	require.NotContains(t, got, "# Environment")
+	require.NotContains(t, got, "Asia/Shanghai")
+	require.NotContains(t, got, "PWD=/work")
+	require.Contains(t, got, "Today's date is 2026-07-01.")
+	require.Empty(t, tkCCPromptSurfaceBodyUnknownSurfaces(out))
+}
+
 func TestTkWireStillHasCCPromptSurfaceLeaks(t *testing.T) {
 	require.True(t, tkWireStillHasCCPromptSurfaceLeaks([]byte(`{"messages":[{"role":"user","content":"<system-reminder>\n# Environment\nTZ=Asia/Shanghai\n</system-reminder>"}]}`)))
 	require.False(t, tkWireStillHasCCPromptSurfaceLeaks([]byte(`{"messages":[{"role":"user","content":"# Environment\nTZ=Asia/Shanghai"}]}`)))
