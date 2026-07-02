@@ -35,6 +35,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	in bridge.ChannelContextInput,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	if c == nil {
+		return nil, fmt.Errorf("nil gin context")
+	}
 
 	var responsesReq apicompat.ResponsesRequest
 	if err := json.Unmarshal(body, &responsesReq); err != nil {
@@ -104,7 +107,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	captureWriter := newBridgeCaptureWriter(&buf)
 	origWriter := c.Writer
 	origPath := ""
-	if c != nil && c.Request != nil && c.Request.URL != nil {
+	if c.Request != nil && c.Request.URL != nil {
 		origPath = c.Request.URL.Path
 	}
 
@@ -114,7 +117,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	func() {
 		defer func() {
 			c.Writer = origWriter
-			if c != nil && c.Request != nil && c.Request.URL != nil {
+			if c.Request != nil && c.Request.URL != nil {
 				c.Request.URL.Path = origPath
 			}
 			if r := recover(); r != nil {
@@ -128,7 +131,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 			}
 		}()
 		c.Writer = captureWriter
-		if c != nil && c.Request != nil && c.Request.URL != nil {
+		if c.Request != nil && c.Request.URL != nil {
 			c.Request.URL.Path = "/v1/chat/completions"
 		}
 		out, apiErr = dispatchNewAPIChatCompletions(ctx, c, in, chatBody)
