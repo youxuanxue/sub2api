@@ -212,3 +212,32 @@ func TestSelectAccountWithScheduler_QwenGroupWrongModelReturnsUnsupported(t *tes
 	require.True(t, selection == nil || selection.Account == nil)
 	require.ErrorIs(t, err, ErrUnsupportedModel, "wrong model on Qwen-only group must be client-owned 400, not routing 429")
 }
+
+func TestSelectAccountWithLoadAwareness_QwenGroupWrongModelAliasReturnsUnsupported(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(18004)
+	qwenOnly := newapiAcctWithMapping(18041, "qwen-max", "qwen-plus")
+	channel := Channel{
+		ID:                 1,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceUpstream,
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformNewAPI, Models: []string{"qwen-max", "qwen-plus"}},
+		},
+	}
+	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, []*Account{&qwenOnly}, channel)
+	svc.cfg.Gateway.Scheduling.LoadBatchEnabled = true
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "gpt5.4-mini", nil)
+	require.Error(t, err)
+	require.True(t, selection == nil || selection.Account == nil)
+	require.ErrorIs(t, err, ErrUnsupportedModel, "load-awareness path must classify wrong-model as client 400")
+	assert.NotContains(t, err.Error(), "no available accounts")
+}
+
+func TestTkGroupUnsupportedModelCacheKey_AliasSpelling(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, tkGroupUnsupportedModelCacheKey(18, "gpt5.4-mini"), tkGroupUnsupportedModelCacheKey(18, "gpt-5.4-mini"))
+}

@@ -1464,6 +1464,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	requireCompact bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	decision := OpenAIAccountScheduleDecision{}
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
 		return nil, decision, err
 	}
