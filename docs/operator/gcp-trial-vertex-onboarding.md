@@ -51,15 +51,31 @@ Imagen / Veo **必须**走下面「推荐路径」；不要用 AI Studio API key
 - **不会出现** Base URL / API Key 输入框（ch41 走 Service Account，不是 apikey 中继）。
 - 下方出现 **Service Account JSON** 区域（拖放 / 选择文件 / 文本框粘贴）。
 
-### 2. 填写账号名与 model_mapping（必填）
+### 2. 填写账号名与可服务模型
 
 - **账号名称**：例 `vertex-trial-imagen-01`。
-- **模型限制 / model_mapping**：在 NewAPI 字段区用**白名单或映射**至少声明要服务的模型，例如：
-  - `imagen-4.0-fast-generate-001`
-  - `veo-3.1-generate-001`
-- **留空 model_mapping 无法保存**（前端会 toast 拒绝提交）。
+- **可服务模型**：在 Admin 模型限制里**直接添加**下列模型 ID（TokenKey 实测可用；映射 **from = to，与 ID 相同**即可）。
 
-可用「获取上游模型」拉列表后再勾选；媒体模型以 imagen / veo 系列为准。
+**试用最小集**（够跑第五节验证脚本）：
+
+| 用途 | 模型 ID |
+| --- | --- |
+| 图片 | `imagen-4.0-fast-generate-001` |
+| 视频 | `veo-3.1-generate-001` |
+
+**若要覆盖 Imagen 4 三档 / 多路视频**，可一并加上：
+
+| 用途 | 模型 ID | 说明 |
+| --- | --- | --- |
+| 图片 · Fast | `imagen-4.0-fast-generate-001` | 快、便宜（约 $0.02/张） |
+| 图片 · Standard | `imagen-4.0-generate-001` | 平衡（约 $0.04/张） |
+| 图片 · Ultra | `imagen-4.0-ultra-generate-001` | 高细节（约 $0.06/张） |
+| 视频 · Cinematic | `veo-3.1-generate-001` | 实测 200；**必须用 `-generate-001`** |
+| 视频 · Fast | `veo-3.1-fast-generate-001` | 可选；需账号已声明该 ID |
+
+> **不要**填 AI Studio 命名（如 `veo-3.1-generate-preview`）——Vertex 上会 404。完整说明见 `docs/examples/media-generation/README.md`。
+>
+> 至少声明上表「试用最小集」两个 ID，否则无法保存账号。
 
 ### 3. 粘贴 Service Account JSON
 
@@ -98,7 +114,7 @@ Imagen / Veo **必须**走下面「推荐路径」；不要用 AI Studio API key
 
 | 场景 | 操作 |
 | --- | --- |
-| 只改 Location / model_mapping / 并发等 | **JSON 文本框留空** → 服务端保留已有脱敏密钥，不会清空 SA |
+| 只改 Location / 可服务模型 / 并发等 | **JSON 文本框留空** → 服务端保留已有脱敏密钥，不会清空 SA |
 | 轮换 SA（换新 JSON 密钥） | 粘贴或上传**新** JSON → 提交前会校验 `project_id` / `client_email` / `private_key` |
 | 后端已脱敏（响应无 `service_account_json`） | 只要 `credentials_status.has_service_account_json = true`，且界面仍有 Project ID / Client Email，可空 JSON 保存 |
 
@@ -135,7 +151,7 @@ python3 docs/examples/media-generation/generate_media.py video "a puppy running 
 2. 账号类别选 **Vertex（service_account）**。
 3. 同样通过 **上传 / 拖放 / 粘贴 JSON** 填凭证，选 Location，保存。
 
-媒体（Imagen/Veo）仍优先用 **第二节 newapi + ch41**；两条路径共用 JSON 粘贴组件，但 newapi ch41 额外强制 model_mapping。
+媒体（Imagen/Veo）仍优先用 **第二节 newapi + ch41**；两条路径共用 JSON 粘贴组件，ch41 账号另需在模型限制里声明第二节列出的模型 ID。
 
 ---
 
@@ -145,10 +161,11 @@ python3 docs/examples/media-generation/generate_media.py video "a puppy running 
 | --- | --- |
 | 无法下载 SA JSON | 组织禁密钥 → 换个人账号/独立项目 |
 | 额度耗尽但 GCP 还有试用金 | 配成了 AI Studio prepay，不是 Vertex SA |
-| 保存时提示配置 model_mapping | ch41 未选任何模型 → 在白名单/映射里至少加 imagen 或 veo |
+| 保存时提示配置 model_mapping | 未添加上述模型 ID → 至少加 `imagen-4.0-fast-generate-001` 与 `veo-3.1-generate-001` |
 | imagen/veo 403 / 分组拒 | 分组未开「允许图片生成」或账号未进该分组 |
 | project / location 报错 | JSON 不完整或 Location 不支持该模型 → 试 `us-central1` |
-| 编辑时不想换密钥 | JSON 框留空，只改 Location / mapping |
+| 编辑时不想换密钥 | JSON 框留空，只改 Location 或模型列表 |
+| 视频 404 Publisher Model not found | 模型名用了 `-preview` 等 AI Studio 命名 → 改用 `veo-3.1-generate-001` |
 
 ---
 
