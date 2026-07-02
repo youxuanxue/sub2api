@@ -22,8 +22,9 @@ import (
 //
 // These tests pin the corrected classification: a relayed downstream-capacity
 // verdict ("no available accounts" / "all available accounts exhausted") is owned as
-// routing (phase=routing, error_owner=platform, businessLimited) so it drops out of
-// upstream_error_rate, while a genuine provider 429 (rate_limit_error) and raw 5xx
+// routing (phase=routing, error_owner=platform) so it stays out of
+// upstream_error_rate while still counting in SLA numerator; genuine provider 429
+// (rate_limit_error) and raw 5xx
 // keep counting. Setups mirror the relay forward site, which records an
 // appendOpsUpstreamError event carrying UpstreamStatusCode + UpstreamResponseBody.
 func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {

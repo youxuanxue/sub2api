@@ -5959,7 +5959,6 @@ export default {
         apiKey: 'API Key',
         clientIp: '客户端 IP',
         latency: '请求时长',
-        businessLimited: '业务限制',
         requestPath: '请求路径',
         inboundEndpoint: '入站端点',
         upstreamEndpoint: '上游端点',

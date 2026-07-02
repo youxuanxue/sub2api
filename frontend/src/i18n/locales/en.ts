@@ -5812,7 +5812,6 @@ export default {
         apiKey: 'API Key',
         clientIp: 'Client IP',
         latency: 'Request Duration',
-        businessLimited: 'Business Limited',
         requestPath: 'Request Path',
         inboundEndpoint: 'Inbound Endpoint',
         upstreamEndpoint: 'Upstream Endpoint',

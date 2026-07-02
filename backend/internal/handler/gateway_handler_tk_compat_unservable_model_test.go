@@ -119,7 +119,7 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 // TestCompatHandlersUnservableModelOpsClassification verifies the SECOND cascade
 // row (ops attribution): an unservable-model 400 on these two endpoints must log as
 // a CLIENT-owned request error (phase=request, error_owner=client, error_source=
-// client_request, is_business_limited=false) — NOT a routing-capacity event (the
+// client_request) — NOT a routing-capacity event (the
 // 429's mislabel) and NOT a gateway-internal error. Otherwise a client fault keeps
 // polluting the TK capacity/gateway dashboards.
 //

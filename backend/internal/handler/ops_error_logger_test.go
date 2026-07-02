@@ -473,7 +473,6 @@ func TestClassifyOpsAuthClientErrorsExcludedFromSLA(t *testing.T) {
 			require.Equal(t, "api_error", errType)
 			require.Equal(t, "auth", phase)
 			require.Equal(t, "client", errorOwner)
-			require.Equal(t, "client", errorOwner)
 			require.Equal(t, "client_request", errorSource)
 		})
 	}
@@ -728,7 +727,6 @@ func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
 			require.Equal(t, tt.wantErrType, errType)
 			require.Equal(t, tt.wantPhase, phase)
 			require.Equal(t, "client", errorOwner)
-			require.Equal(t, "client", errorOwner)
 			require.Equal(t, "client_request", errorSource)
 		})
 	}
@@ -746,7 +744,6 @@ func TestClassifyOpsIPRestrictionAccessDeniedExcludedFromSLA(t *testing.T) {
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "auth", phase)
 	require.Equal(t, "client", errorOwner)
-	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client_request", errorSource)
 }
 
@@ -761,7 +758,6 @@ func TestClassifyOpsClientPolicyDeniedMarkerExcludedFromSLAFault(t *testing.T) {
 
 	require.Equal(t, "invalid_request_error", errType)
 	require.Equal(t, "auth", phase)
-	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client_request", errorSource)
 }
@@ -999,8 +995,7 @@ func TestClassifyOpsUpstreamNoAvailableTextCountsAsPlatformRoutingFault(t *testi
 	)
 
 	require.Equal(t, "routing", phase, "relayed downstream-capacity verdict is routing, not provider health")
-	require.Equal(t, "platform", errorOwner, "TK fleet capacity is a platform routing fault in SLA numerator")
-	require.Equal(t, "platform", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
+	require.Equal(t, "platform", errorOwner, "platform routing fault (SLA numerator), not provider upstream_error_rate")
 }
 
 func TestParseOpsErrorResponsePreservesNestedStringCode(t *testing.T) {
