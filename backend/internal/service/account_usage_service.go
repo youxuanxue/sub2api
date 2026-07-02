@@ -1051,30 +1051,6 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 	return usage, nil
 }
 
-func (s *AccountUsageService) getGrokUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
-	if s.grokQuotaFetcher == nil {
-		now := time.Now()
-		return &UsageInfo{UpdatedAt: &now}, nil
-	}
-	usage := s.grokQuotaFetcher.BuildUsageInfo(account)
-	if usage.GrokQuotaSnapshotState == "" {
-		if usage.ErrorCode == "quota_unknown" {
-			usage.GrokQuotaSnapshotState = "unknown_until_first_response"
-		} else {
-			usage.GrokQuotaSnapshotState = "observed"
-		}
-	}
-
-	if s.usageLogRepo != nil && account != nil {
-		if stats, err := s.usageLogRepo.GetAccountTodayStats(ctx, account.ID); err == nil && stats != nil {
-			usage.GrokLocalUsage = windowStatsFromAccountStats(stats)
-		}
-	}
-
-	enrichUsageWithAccountError(usage, account)
-	return usage, nil
-}
-
 // recalcAntigravityRemainingSeconds 重新计算 Antigravity UsageInfo 中各窗口的 RemainingSeconds
 // 用于从缓存取出时更新倒计时，避免返回过时的剩余秒数
 func recalcAntigravityRemainingSeconds(info *UsageInfo) {

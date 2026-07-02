@@ -1,12 +1,8 @@
 package service
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // TokenKey: normalize Claude Code client geo steganography in outbound
@@ -33,6 +29,7 @@ var (
 	tkCCGeoStegoTodayDateRE    = regexp.MustCompile("Today[''\u2019\u02bc\u02b9]s date is (\\d{4})[/-](\\d{2})[/-](\\d{2})\\.")
 	tkCCGeoStegoTodayDateNowRE = regexp.MustCompile("Today[''\u2019\u02bc\u02b9]s date is now (\\d{4})[/-](\\d{2})[/-](\\d{2})\\.")
 	tkCCGeoStegoDateTokenRE    = regexp.MustCompile(`^(\d{4})[/-](\d{2})[/-](\d{2})$`)
+	tkPromptGeoSlashDateRE     = regexp.MustCompile(`(?i)Today.?s date is(?: now)? \d{4}/\d{2}/\d{2}\.`)
 )
 
 func tkNormalizeCCGeoStegoText(text string) (string, bool) {
@@ -59,128 +56,4 @@ func tkNormalizeCCGeoDateToken(date string) (string, bool) {
 
 func tkNormalizeAnthropicCCGeoStego(body []byte) ([]byte, bool) {
 	return tkNormalizeAnthropicCCPromptSurface(body, "")
-}
-
-func tkNormalizeAnthropicCCGeoStegoSystem(body []byte) ([]byte, bool) {
-	system := gjson.GetBytes(body, "system")
-	if !system.Exists() {
-		return body, false
-	}
-
-	switch system.Type {
-	case gjson.String:
-		newText, ok := tkNormalizeCCGeoStegoText(system.String())
-		if !ok {
-			return body, false
-		}
-		out, err := sjson.SetBytes(body, "system", newText)
-		if err != nil {
-			return body, false
-		}
-		return out, true
-	case gjson.JSON:
-		if !system.IsArray() {
-			return body, false
-		}
-		out := body
-		changed := false
-		for i, item := range system.Array() {
-			if item.Get("type").String() != "text" {
-				continue
-			}
-			text := item.Get("text").String()
-			newText, ok := tkNormalizeCCGeoStegoText(text)
-			if !ok {
-				continue
-			}
-			path := fmt.Sprintf("system.%d.text", i)
-			next, err := sjson.SetBytes(out, path, newText)
-			if err != nil {
-				continue
-			}
-			out = next
-			changed = true
-		}
-		return out, changed
-	default:
-		return body, false
-	}
-}
-
-func tkNormalizeAnthropicCCGeoStegoMessages(body []byte) ([]byte, bool) {
-	messages := gjson.GetBytes(body, "messages")
-	if !messages.IsArray() {
-		return body, false
-	}
-
-	out := body
-	changed := false
-	for mi, msg := range messages.Array() {
-		content := msg.Get("content")
-		switch content.Type {
-		case gjson.String:
-			newText, ok := tkNormalizeCCGeoStegoText(content.String())
-			if !ok {
-				continue
-			}
-			path := fmt.Sprintf("messages.%d.content", mi)
-			next, err := sjson.SetBytes(out, path, newText)
-			if err != nil {
-				continue
-			}
-			out = next
-			changed = true
-		case gjson.JSON:
-			if !content.IsArray() {
-				continue
-			}
-			for ci, block := range content.Array() {
-				blockType := block.Get("type").String()
-				if blockType == "text" {
-					text := block.Get("text").String()
-					newText, ok := tkNormalizeCCGeoStegoText(text)
-					if ok {
-						path := fmt.Sprintf("messages.%d.content.%d.text", mi, ci)
-						next, err := sjson.SetBytes(out, path, newText)
-						if err == nil {
-							out = next
-							changed = true
-						}
-					}
-				}
-				if block.Get("attachment.type").String() == "date_change" {
-					date := block.Get("attachment.newDate").String()
-					newDate, ok := tkNormalizeCCGeoDateToken(date)
-					if ok {
-						path := fmt.Sprintf("messages.%d.content.%d.attachment.newDate", mi, ci)
-						next, err := sjson.SetBytes(out, path, newDate)
-						if err == nil {
-							out = next
-							changed = true
-						}
-					}
-				}
-			}
-		}
-	}
-	return out, changed
-}
-
-var tkWireCCGeoStegoSlashDateRE = regexp.MustCompile(`Today's date is \d{4}/\d{2}/\d{2}\.`)
-var tkPromptGeoSlashDateRE = regexp.MustCompile(`(?i)Today.?s date is(?: now)? \d{4}/\d{2}/\d{2}\.`)
-
-func tkWireStillHasCCGeoStegoDateSignals(body []byte) bool {
-	if len(body) == 0 {
-		return false
-	}
-	s := string(body)
-	if tkPromptGeoSlashDateRE.MatchString(s) || tkWireCCGeoStegoSlashDateRE.MatchString(s) {
-		return true
-	}
-	if strings.Contains(s, "Today\u2019s") ||
-		strings.Contains(s, "Today\u02bcs") ||
-		strings.Contains(s, "Today\u02b9s") {
-		return true
-	}
-	return false
 }
