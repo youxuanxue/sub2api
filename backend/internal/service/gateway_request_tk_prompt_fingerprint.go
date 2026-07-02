@@ -31,6 +31,7 @@ var tkPromptSurfaceIdentityPrefixes = []struct {
 	{"claude_code_cli", "You are Claude Code, Anthropic's official CLI for Claude"},
 	{"claude_agent_sdk", "You are a Claude agent, built on Anthropic's Claude Agent SDK"},
 	{"interactive_agent", "You are an interactive agent that helps users with software engineering tasks"},
+	{"interactive_cli_tool", "You are an interactive CLI tool that helps users"},
 	{"file_search_specialist", "You are a file search specialist for Claude Code"},
 	{"summarization_assistant", "You are a helpful AI assistant tasked with summarizing conversations"},
 }

@@ -312,7 +312,9 @@ jobs:
               "sudo docker inspect tokenkey --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
-              "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health",
+              "echo ===INTERNAL_HEALTH===",
+              "if sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
+              "echo ===END_INTERNAL_HEALTH===",
               "SIG_OUT=/tmp/prod-ops-runtime-signals",
               "sudo rm -rf \"$SIG_OUT\" && sudo mkdir -p \"$SIG_OUT\" && sudo chmod 0777 \"$SIG_OUT\"",
               "sudo docker logs tokenkey --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true",
@@ -333,9 +335,15 @@ jobs:
           ]
           print(json.dumps({"commands": commands}))
           PY
+            RUNTIME_SSM_TRANSPORT_OK=false
             if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "prod-ops runtime diagnostics target=$TARGET_ID" --parameters "file://$OUT/runtime-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
+              RUNTIME_SSM_TRANSPORT_OK=true
               echo "runtime ssm command-id=$CMD_ID" >> "$STDOUT"
-              DEADLINE=$(( $(date +%s) + 180 ))
+              RUNTIME_WAIT_SECONDS=180
+              if [ "$TARGET_ID" = "prod" ]; then
+                RUNTIME_WAIT_SECONDS=300
+              fi
+              DEADLINE=$(( $(date +%s) + RUNTIME_WAIT_SECONDS ))
               STATUS="InProgress"
               while true; do
                 STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
@@ -347,6 +355,10 @@ jobs:
               aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/runtime-stderr.txt" 2>>"$STDERR" || true
               tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
               tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
+              if grep -q '^internal_health_status=failed' "$OUT/runtime-stdout.txt"; then
+                INTERNAL_HEALTH_SUMMARY="$(grep '^internal_health_status=failed' "$OUT/runtime-stdout.txt" | tail -1)"
+                add_finding "internal_health" "warning" "warning" "Internal container health probe failed for $TARGET_ID" "The in-container /health probe reported ${INTERNAL_HEALTH_SUMMARY}; runtime log signal collection continued." "internal-health|$TARGET_ID"
+              fi
               if grep -q '^===END_LOG_SIGNAL_COUNTS===$' "$OUT/runtime-stdout.txt"; then
                 awk '/^===LOG_SIGNAL_COUNTS===$/{f=1;next} /^===END_LOG_SIGNAL_COUNTS===$/{f=0} f' "$OUT/runtime-stdout.txt" > "$OUT/log-signal-counts.json" || true
                 python3 - <<'PY' "$OUT/log-signal-counts.json" "$FINDINGS" "$TARGET_ID" "$DIAGNOSTICS_LOG_SINCE"
@@ -409,7 +421,7 @@ jobs:
               if [ "$STATUS" = "Success" ]; then
                 add_finding "ssm_runtime" "ok" "info" "SSM runtime diagnostics passed for $TARGET_ID" "Docker runtime diagnostics completed on $INSTANCE_ID." "ssm-runtime|$TARGET_ID"
               else
-                add_finding "ssm_runtime" "manual_ops" "error" "SSM runtime diagnostics failed for $TARGET_ID" "SSM runtime diagnostics finished with status=$STATUS on $INSTANCE_ID." "ssm-runtime|$TARGET_ID|$STATUS"
+                add_finding "ssm_runtime" "manual_ops" "error" "SSM runtime diagnostics failed for $TARGET_ID" "SSM runtime diagnostics finished with status=$STATUS on $INSTANCE_ID after waiting up to ${RUNTIME_WAIT_SECONDS}s." "ssm-runtime|$TARGET_ID|$STATUS"
               fi
             else
               add_finding "ssm_send_command" "manual_ops" "error" "Could not send SSM command for $TARGET_ID" "SSM SendCommand failed for $INSTANCE_ID in $TARGET_REGION." "ssm-send|$TARGET_ID"
@@ -417,6 +429,8 @@ jobs:
 
             if [ "$INCLUDE_ERROR_CLUSTERING" != "true" ]; then
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
+            elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then
+              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks for the same transport root cause." "error-clustering|$TARGET_ID|runtime-ssm-send-failed"
             elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then
               # ops/stage0/deploy-error-clustering-binary.sh resolves InstanceId via
               # CloudFormation; Lightsail edges have no CFN stack. Lightweight diagnostics
