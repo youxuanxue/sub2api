@@ -226,6 +226,8 @@ class PlatformSpec:
     skill: str
     pin_path: str
     sources: list[SourceSpec] = field(default_factory=list)
+    actionable: bool = True
+    status_note: str = ""
 
 
 PIN_READERS: dict[str, Callable[[], str]] = {
@@ -259,7 +261,7 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
             "bash ops/anthropic/capture-cc-fingerprint.sh capture --http",
             "python3 ops/anthropic/capture_cc_fingerprint.py diff --bundle <bundle>",
         ],
-        "note": "Bump X-Stainless-Package-Version in claude/constants.go after capture confirms SDK semver.",
+        "note": "Advisory npm release watch only. Keep X-Stainless-Package-Version at captured wire ground truth unless capture/diff proves a change.",
     },
     "codex": {
         "skill": "tokenkey-codex-fingerprint-alignment",
@@ -358,6 +360,11 @@ PLATFORM_SPECS: list[PlatformSpec] = [
                 package="@anthropic-ai/sdk",
             ),
         ],
+        actionable=False,
+        status_note=(
+            "npm SDK semver is advisory; Claude Code on-wire X-Stainless-Package-Version "
+            "remains capture ground truth."
+        ),
     ),
     PlatformSpec(
         id="codex",
@@ -488,6 +495,8 @@ class PlatformResult:
     drift: bool
     fetch_errors: list[str] = field(default_factory=list)
     companion_of: str = ""
+    actionable: bool = True
+    status_note: str = ""
 
     def issue_signature(self) -> str:
         return f"client-release-{self.id}-{self.upstream_latest}"
@@ -516,6 +525,8 @@ def apply_companion_mirror(platforms: list[PlatformResult]) -> list[PlatformResu
                 drift=parent.drift,
                 fetch_errors=platform.fetch_errors,
                 companion_of=parent_id,
+                actionable=platform.actionable,
+                status_note=platform.status_note,
             )
         )
     return out
@@ -526,6 +537,8 @@ def actionable_drift(platforms: list[PlatformResult]) -> list[PlatformResult]:
     out: list[PlatformResult] = []
     for platform in platforms:
         if not platform.drift:
+            continue
+        if not platform.actionable:
             continue
         parent_id = platform.companion_of or COMPANION_OF.get(platform.id, "")
         if parent_id and parent_id in by_id and by_id[parent_id].drift:
@@ -538,7 +551,11 @@ def platform_to_dict(platform: PlatformResult, *, by_id: dict[str, PlatformResul
     payload = asdict(platform)
     parent_id = platform.companion_of or COMPANION_OF.get(platform.id, "")
     payload["issue_suppressed"] = bool(
-        platform.drift and parent_id and parent_id in by_id and by_id[parent_id].drift
+        platform.drift
+        and (
+            not platform.actionable
+            or (parent_id and parent_id in by_id and by_id[parent_id].drift)
+        )
     )
     return payload
 
@@ -592,6 +609,8 @@ def scan_platform(spec: PlatformSpec, *, offline_upstream: dict[str, Any] | None
         status=status,
         drift=drift,
         fetch_errors=fetch_errors,
+        actionable=spec.actionable,
+        status_note=spec.status_note,
     )
 
 
@@ -643,6 +662,13 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
         )
     lines.append("")
+    notes = [item for item in report.get("platforms") or [] if item.get("status_note")]
+    if notes:
+        lines.append("## Notes")
+        lines.append("")
+        for item in notes:
+            lines.append(f"- {item.get('name')}: {item.get('status_note')}")
+        lines.append("")
     drift_ids = report.get("drift_platform_ids") or []
     if drift_ids:
         lines.append("## Action required")
@@ -656,6 +682,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- Upstream latest: `{item.get('upstream_latest')}`")
             lines.append(f"- Pin path: `{item.get('pin_path')}`")
             lines.append(f"- Run skill: `{item.get('skill')}`")
+            if item.get("status_note"):
+                lines.append(f"- Note: {item.get('status_note')}")
             playbook = PLATFORM_PLAYBOOKS.get(item.get("id") or "", {})
             for cmd in playbook.get("first_commands") or []:
                 lines.append(f"- Next command: `{cmd}`")
@@ -714,6 +742,8 @@ def render_skill_plan(report: dict[str, Any]) -> str:
             f"- **Load skill:** `{skill}`",
             "- **Then run:**",
         ])
+        if item.get("status_note"):
+            lines.append(f"- Note: {item.get('status_note')}")
         for cmd in playbook.get("first_commands") or []:
             lines.append(f"  - `{cmd}`")
         lines.append("")
@@ -732,6 +762,8 @@ def write_state(path: Path, report: dict[str, Any]) -> None:
             "pinned": item.get("pinned"),
             "upstream_latest": item.get("upstream_latest"),
             "status": item.get("status"),
+            "actionable": item.get("actionable"),
+            "status_note": item.get("status_note"),
             "upstream_sources": item.get("upstream_sources"),
         }
     path.parent.mkdir(parents=True, exist_ok=True)
