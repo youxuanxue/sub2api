@@ -44,7 +44,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  validate:
+  marker-acknowledgement:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 so PR base..head plumbing resolves. submodules: recursive
