@@ -2126,11 +2126,11 @@
       "must_contain": [
         "func tkNormalizeAnthropicCCGeoStego",
         "tkNormalizeAnthropicCCPromptSurface",
-        "func tkWireStillHasCCGeoStegoDateSignals",
+        "tkPromptGeoSlashDateRE",
         "tkNormalizeChangeCCGeoStego",
         "Today's date is $1-$2-$3."
       ],
-      "rationale": "CC geo-stego date-line helpers; tkNormalizeAnthropicCCGeoStego delegates to gateway_request_tk_cc_prompt_surface.go."
+      "rationale": "CC geo-stego date-line helpers; tkNormalizeAnthropicCCGeoStego delegates to gateway_request_tk_cc_prompt_surface.go; tkPromptGeoSlashDateRE stays for prompt-surface fingerprint detection."
     },
     {
       "path": "backend/internal/service/account_tk_oauth_email.go",

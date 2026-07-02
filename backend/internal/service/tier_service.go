@@ -330,19 +330,6 @@ func extraInt(m map[string]any, key string) int {
 	}
 }
 
-func extraFloat(m map[string]any, key string) float64 {
-	switch v := m[key].(type) {
-	case float64:
-		return v
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
-	default:
-		return 0
-	}
-}
-
 func extraBool(m map[string]any, key string) bool {
 	b, _ := m[key].(bool)
 	return b
