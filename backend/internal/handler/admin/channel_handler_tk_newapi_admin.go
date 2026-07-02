@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapifusion "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -139,7 +141,12 @@ func (h *TKChannelAdminHandler) ListChannelTypes(c *gin.Context) {
 // ListChannelTypeModels returns default model IDs per channel type (same source as new-api "填入相关模型").
 // GET /api/v1/admin/channel-type-models
 func (h *TKChannelAdminHandler) ListChannelTypeModels(c *gin.Context) {
-	response.Success(c, newapifusion.ChannelTypeModelsJSON())
+	out := newapifusion.ChannelTypeModelsJSON()
+	if ids := service.VertexNewAPIChannelServableModelIDs(); len(ids) > 0 {
+		sort.Strings(ids)
+		out[strconv.Itoa(newapiconstant.ChannelTypeVertexAi)] = ids
+	}
+	response.Success(c, out)
 }
 
 type fetchUpstreamModelsRequest struct {
@@ -160,6 +167,19 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 	}
 	if !newapifusion.IsKnownChannelType(req.ChannelType) {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_TYPE", "invalid channel_type"))
+		return
+	}
+	// Vertex AI (ch41) authenticates via service account JSON, not upstream GET /v1/models.
+	// Return TokenKey's empirical Gemini/Vertex servable preset instead.
+	if req.ChannelType == newapiconstant.ChannelTypeVertexAi {
+		ids := service.VertexNewAPIChannelServableModelIDs()
+		sort.Strings(ids)
+		models := h.discoveryFilter.Apply(
+			c.Request.Context(),
+			service.PlatformGemini,
+			newapifusion.RawModelsFromIDs(ids),
+		)
+		response.Success(c, gin.H{"models": models})
 		return
 	}
 	if !newapifusion.UpstreamModelFetchAllowed(req.ChannelType) {

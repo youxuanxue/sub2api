@@ -28,6 +28,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
@@ -2084,6 +2085,21 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.Platform == service.PlatformNewAPI {
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
+			if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
+				ids := service.VertexNewAPIChannelServableModelIDs()
+				sort.Strings(ids)
+				models := make([]openai.Model, 0, len(ids))
+				for _, id := range ids {
+					models = append(models, openai.Model{
+						ID:          id,
+						Object:      "model",
+						Type:        "model",
+						DisplayName: id,
+					})
+				}
+				response.Success(c, models)
+				return
+			}
 			response.Success(c, []openai.Model{})
 			return
 		}

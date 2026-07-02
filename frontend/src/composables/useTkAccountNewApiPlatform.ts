@@ -1,9 +1,13 @@
 import { ref, computed, watch, type Ref, type ComputedRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { fetchUpstreamModels, type FetchedUpstreamModel } from '@/api/admin/channels'
+import { fetchUpstreamModels, listChannelTypeModels, type FetchedUpstreamModel } from '@/api/admin/channels'
 import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
 import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
+import {
+  isNewApiVertexServiceAccountChannelType,
+  NEW_API_CHANNEL_TYPE_VERTEX_AI,
+} from '@/constants/newApiChannelTypes.tk'
 import { buildModelMappingObject } from '@/composables/useModelWhitelist'
 import { unknownToErrorMessage } from '@/utils/authError'
 
@@ -73,6 +77,45 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
   const modelMappings = ref<Array<{ from: string; to: string }>>([])
   const restrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
   const fetchLoading = ref(false)
+  const channelTypeModelsByType = ref<Record<string, string[]>>({})
+  let channelTypeModelsLoad: Promise<void> | null = null
+
+  async function ensureChannelTypeModelsLoaded(): Promise<void> {
+    if (Object.keys(channelTypeModelsByType.value).length > 0) {
+      return
+    }
+    if (!channelTypeModelsLoad) {
+      channelTypeModelsLoad = listChannelTypeModels()
+        .then((data) => {
+          channelTypeModelsByType.value = data ?? {}
+        })
+        .catch(() => {
+          channelTypeModelsByType.value = {}
+        })
+    }
+    await channelTypeModelsLoad
+  }
+
+  /**
+   * channel_type 41 (Vertex SA) has no upstream GET /v1/models — preset from
+   * GET /admin/channel-type-models (TokenKey empirical Gemini/Vertex allowlist).
+   */
+  async function applyChannelTypePresetModelsIfEmpty(): Promise<void> {
+    if (!options.isNewapi() || !isNewApiVertexServiceAccountChannelType(channelType.value)) {
+      return
+    }
+    if (restrictionMode.value !== 'whitelist' || allowedModels.value.length > 0) {
+      return
+    }
+    await ensureChannelTypeModelsLoaded()
+    const preset =
+      channelTypeModelsByType.value[String(NEW_API_CHANNEL_TYPE_VERTEX_AI)] ?? []
+    if (preset.length === 0) {
+      return
+    }
+    allowedModels.value = [...preset]
+    restrictionMode.value = 'whitelist'
+  }
 
   // ---- 衍生 props --------------------------------------------------------
   const channelTypeOptions = computed(() =>
@@ -82,8 +125,15 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     const found = channelTypesCatalog.types.value.find((c) => c.channel_type === channelType.value)
     return found?.base_url || ''
   })
-  const fetchModelsEnabled = computed(() => isNewApiUpstreamFetchableChannelType(channelType.value))
+  const fetchModelsEnabled = computed(
+    () =>
+      isNewApiUpstreamFetchableChannelType(channelType.value) ||
+      isNewApiVertexServiceAccountChannelType(channelType.value)
+  )
   const fetchModelsDisabled = computed(() => {
+    if (isNewApiVertexServiceAccountChannelType(channelType.value)) {
+      return fetchLoading.value
+    }
     const hasBase = (baseUrl.value.trim() || selectedChannelTypeBaseUrl.value).length > 0
     if (!hasBase) return true
     if (apiKey.value.trim()) return false
@@ -105,6 +155,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
       if (!baseUrl.value.trim()) {
         baseUrl.value = found.base_url || ''
       }
+      void applyChannelTypePresetModelsIfEmpty()
     }
   )
 
@@ -123,6 +174,40 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
   ): Promise<void> {
     if (!channelType.value || channelType.value <= 0) {
       if (notify) appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+      return
+    }
+    if (isNewApiVertexServiceAccountChannelType(channelType.value)) {
+      fetchLoading.value = true
+      try {
+        const models = await fetchUpstreamModels({
+          base_url: '',
+          channel_type: channelType.value,
+          api_key: '',
+        })
+        if (!models.length) {
+          if (notify) appStore.showInfo(t('admin.accounts.newApiPlatform.fetchUpstreamModelsEmpty'))
+          return
+        }
+        const pricingStatus = buildPricingStatusMap(models)
+        upstreamModelPricingStatus.value = pricingStatus
+        if (mode === 'replace') {
+          allowedModels.value = models.map((model) => model.id)
+          restrictionMode.value = 'whitelist'
+        }
+        if (notify) {
+          appStore.showSuccess(
+            t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
+          )
+        }
+      } catch (e: unknown) {
+        if (notify) {
+          appStore.showError(
+            unknownToErrorMessage(e, t('admin.accounts.newApiPlatform.fetchUpstreamModelsFailed'))
+          )
+        }
+      } finally {
+        fetchLoading.value = false
+      }
       return
     }
     const base = baseUrl.value.trim() || selectedChannelTypeBaseUrl.value
@@ -175,6 +260,9 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
    */
   function bootstrap(): void {
     void channelTypesCatalog.load().catch(() => { /* 错误已写入 channelTypesCatalog.error */ })
+    if (options.isNewapi()) {
+      void ensureChannelTypeModelsLoaded()
+    }
   }
 
   /**
@@ -252,6 +340,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
       allowedModels.value = []
       modelMappings.value = []
     }
+    void applyChannelTypePresetModelsIfEmpty()
   }
 
   /**
@@ -315,6 +404,45 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     return { channelType: channelType.value, credentials }
   }
 
+  /**
+   * Model mapping + transit fields without base_url / api_key — for newapi Vertex
+   * service_account (channel_type 41) create/edit paths.
+   */
+  function buildAuxiliaryCredentials(): Record<string, unknown> | null {
+    const credentials: Record<string, unknown> = {}
+
+    const mapping = buildModelMappingObject(
+      restrictionMode.value,
+      allowedModels.value,
+      modelMappings.value
+    )
+    if (!mapping || Object.keys(mapping).length === 0) {
+      appStore.showError(t('admin.accounts.newApiPlatform.pleaseConfigureModelMapping'))
+      return null
+    }
+    credentials.model_mapping = mapping
+
+    if (Object.keys(upstreamModelPricingStatus.value).length > 0) {
+      credentials.model_pricing_status = { ...upstreamModelPricingStatus.value }
+    }
+
+    const statusTrim = statusCodeMapping.value.trim()
+    if (statusTrim) {
+      if (!isValidJsonObject(statusTrim)) {
+        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+        return null
+      }
+      credentials.status_code_mapping = statusTrim
+    }
+
+    const orgTrim = openaiOrganization.value.trim()
+    if (orgTrim) {
+      credentials.openai_organization = orgTrim
+    }
+
+    return credentials
+  }
+
   return {
     // refs
     channelType,
@@ -340,8 +468,10 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     reset,
     populateFromAccount,
     buildSubmitBundle,
+    buildAuxiliaryCredentials,
     handleFetchUpstreamModels,
     refreshStoredPricingStatus,
+    applyChannelTypePresetModelsIfEmpty,
   }
 }
 

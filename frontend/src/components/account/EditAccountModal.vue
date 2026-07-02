@@ -51,16 +51,9 @@
       <!-- kiro (6th platform, OAuth): token refresh paste path. Blank secrets keep current values. -->
       <div v-if="account.platform === 'kiro'" class="space-y-4">
         <AccountKiroPlatformFields
-          v-model:accessToken="kiroAccessToken"
-          v-model:refreshToken="kiroRefreshToken"
-          v-model:region="kiroRegion"
-          v-model:authMethod="kiroAuthMethod"
-          v-model:machineId="kiroMachineId"
-          v-model:clientId="kiroClientId"
-          v-model:clientSecret="kiroClientSecret"
-          v-model:profileArn="kiroProfileArn"
-          v-model:tosAcknowledged="kiroTosAcknowledged"
+          :fields="kiro.fields"
           variant="edit"
+          json-write-once
         />
       </div>
 
@@ -666,44 +659,12 @@
         </div>
       </div>
 
-      <!-- Vertex Service Account -->
-      <div v-if="(account.platform === 'gemini' || account.platform === 'anthropic') && account.type === 'service_account'" class="space-y-4">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label class="input-label">Project ID</label>
-            <input
-              v-model="editVertexProjectId"
-              type="text"
-              class="input font-mono"
-              readonly
-              :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
-            />
-            <p class="input-hint">{{ t('admin.accounts.vertexSaJsonEditHint') }}</p>
-          </div>
-          <div>
-            <label class="input-label">Location</label>
-            <select
-              v-model="editVertexLocation"
-              required
-              class="input font-mono"
-            >
-              <optgroup
-                v-for="group in VERTEX_LOCATION_OPTIONS"
-                :key="group.label"
-                :label="group.label"
-              >
-                <option
-                  v-for="option in group.options"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </optgroup>
-            </select>
-            <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
-          </div>
-        </div>
+      <!-- Vertex Service Account (Gemini / Anthropic native platform) -->
+      <div
+        v-if="(account.platform === 'gemini' || account.platform === 'anthropic') && account.type === 'service_account'"
+        class="space-y-4"
+      >
+        <VertexServiceAccountFields :fields="vertexSa" variant="edit" json-write-once />
 
         <!-- Model Restriction Section for Service Account -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -917,56 +878,8 @@
           @fetch-models="newapiHandleFetchUpstreamModels"
         />
 
-        <!-- Vertex Service Account credentials (SA JSON write-once + location) -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <div>
-            <label class="input-label">Service Account JSON</label>
-            <textarea
-              v-model="editVertexServiceAccountJson"
-              rows="4"
-              spellcheck="false"
-              autocomplete="off"
-              class="input font-mono text-xs"
-              :placeholder="t('admin.accounts.vertexSaJsonNewapiEditPlaceholder')"
-              @change="previewEditVertexServiceAccountJson"
-            ></textarea>
-            <p class="input-hint">{{ t('admin.accounts.vertexSaJsonNewapiEditHint') }}</p>
-          </div>
-          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label class="input-label">Project ID</label>
-              <input
-                v-model="editVertexProjectId"
-                type="text"
-                class="input font-mono"
-                readonly
-                :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
-              />
-            </div>
-            <div>
-              <label class="input-label">Location</label>
-              <select
-                v-model="editVertexLocation"
-                required
-                class="input font-mono"
-              >
-                <optgroup
-                  v-for="group in VERTEX_LOCATION_OPTIONS"
-                  :key="group.label"
-                  :label="group.label"
-                >
-                  <option
-                    v-for="option in group.options"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </optgroup>
-              </select>
-              <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
-            </div>
-          </div>
+          <VertexServiceAccountFields :fields="vertexSa" variant="edit" json-write-once />
         </div>
       </div>
 
@@ -2568,7 +2481,8 @@ import {
 } from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
-import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import VertexServiceAccountFields from './VertexServiceAccountFields.vue'
+import { useVertexServiceAccountFields } from '@/composables/useVertexServiceAccountFields'
 import {
   MIRROR_PLATFORM_OPTIONS,
   normalizeMirrorPlatform,
@@ -2668,27 +2582,23 @@ const {
   bootstrap: newapiBootstrap,
   populateFromAccount: newapiPopulateFromAccount,
   buildSubmitBundle: newapiBuildSubmitBundle,
+  buildAuxiliaryCredentials: newapiBuildAuxiliaryCredentials,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
   refreshStoredPricingStatus: newapiRefreshStoredPricingStatus,
+  applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
   isNewapi: () => props.account?.platform === 'newapi',
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
 })
 
+watch(newapiChannelType, () => {
+  if (props.account?.platform === 'newapi') {
+    void newapiApplyChannelPresetIfEmpty()
+  }
+})
+
 // 第六平台 kiro：编辑时可轮换 access_token / refresh_token 与 IdC 字段。
-const {
-  accessToken: kiroAccessToken,
-  refreshToken: kiroRefreshToken,
-  region: kiroRegion,
-  authMethod: kiroAuthMethod,
-  machineId: kiroMachineId,
-  clientId: kiroClientId,
-  clientSecret: kiroClientSecret,
-  profileArn: kiroProfileArn,
-  tosAcknowledged: kiroTosAcknowledged,
-  populateFromAccount: kiroPopulateFromAccount,
-  buildSubmitBundle: kiroBuildSubmitBundle,
-} = useTkAccountKiroPlatform()
+const kiro = useTkAccountKiroPlatform()
 
 // 第七平台 grok：编辑时的 refresh_token 轮换 + base_url。
 const {
@@ -2704,14 +2614,7 @@ const editBedrockSessionToken = ref('')
 const editBedrockRegion = ref('')
 const editBedrockForceGlobal = ref(false)
 const editBedrockApiKeyValue = ref('')
-const editVertexProjectId = ref('')
-const editVertexClientEmail = ref('')
-const editVertexLocation = ref('us-central1')
-// Write-once SA JSON for newapi (5th-platform) Vertex accounts: leave empty to
-// keep the stored secret; paste a fresh SA JSON to re-derive project_id /
-// client_email and rotate the key. Mirrors the api_key "leave empty to keep"
-// pattern; the stored secret is never echoed back into the DOM.
-const editVertexServiceAccountJson = ref('')
+const vertexSa = useVertexServiceAccountFields()
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
@@ -3164,55 +3067,6 @@ const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) =
 const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
-/**
- * Parse a freshly pasted Vertex Service Account JSON, normalize it, and
- * re-derive project_id / client_email into the edit refs. Mirrors
- * CreateAccountModal.applyVertexServiceAccountJson but writes the normalized
- * JSON back into editVertexServiceAccountJson so the submit path forwards a
- * compact, validated blob. Returns false (with a toast) on invalid input.
- *
- * Options:
- *   - silent:  suppress the validation toast (used by the on-blur preview,
- *     where the textarea may still be mid-edit; submit re-validates loudly).
- *   - rewrite: write the compact normalized JSON back into the textarea ref.
- *     The preview leaves the textarea untouched so the operator's formatting
- *     is not collapsed while they are still editing.
- */
-const applyEditVertexServiceAccountJson = (
-  raw: string,
-  opts: { silent?: boolean; rewrite?: boolean } = {}
-): boolean => {
-  const { silent = false, rewrite = true } = opts
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const projectId = (parsed.project_id as string) || ''
-    const clientEmail = (parsed.client_email as string) || ''
-    const privateKey = (parsed.private_key as string) || ''
-    if (!projectId || !clientEmail || !privateKey) {
-      if (!silent) appStore.showError(t('admin.accounts.vertexSaJsonMissingFields'))
-      return false
-    }
-    editVertexProjectId.value = projectId
-    editVertexClientEmail.value = clientEmail
-    if (rewrite) editVertexServiceAccountJson.value = JSON.stringify(parsed)
-    return true
-  } catch {
-    if (!silent) appStore.showError(t('admin.accounts.vertexSaJsonInvalid'))
-    return false
-  }
-}
-
-/**
- * On-blur preview for the newapi Vertex SA JSON textarea: silently re-derive
- * the read-only Project ID (and client_email) as soon as a valid JSON is
- * pasted, so the field stops showing the stale value before submit. Invalid /
- * partial input is left for the authoritative submit-time validation.
- */
-const previewEditVertexServiceAccountJson = (): void => {
-  const raw = editVertexServiceAccountJson.value.trim()
-  if (raw) applyEditVertexServiceAccountJson(raw, { silent: true, rewrite: false })
-}
-
 const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
@@ -3240,10 +3094,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
-  editVertexProjectId.value = ''
-  editVertexClientEmail.value = ''
-  editVertexLocation.value = 'us-central1'
-  editVertexServiceAccountJson.value = ''
+  vertexSa.reset()
   antigravityProjectId.value =
     newAccount.platform === 'antigravity' &&
     newAccount.type === 'oauth' &&
@@ -3407,8 +3258,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   loadTempUnschedRules(credentials)
 
   if (newAccount.platform === 'kiro') {
-    kiroPopulateFromAccount({
+    kiro.populateFromAccount({
       credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
+      credentials_status: newAccount.credentials_status,
     })
   }
   // 第七平台 grok OAuth：refresh_token 是敏感字段，编辑时留空表示保留现有值
@@ -3514,15 +3366,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     if (!credentials.model_pricing_status) {
       void newapiRefreshStoredPricingStatus()
     }
-    editVertexProjectId.value = (credentials.project_id as string) || ''
-    editVertexClientEmail.value = (credentials.client_email as string) || ''
-    editVertexLocation.value = (credentials.location as string) || (credentials.vertex_location as string) || 'us-central1'
-    editVertexServiceAccountJson.value = ''
+    vertexSa.populateFromCredentials(credentials)
   } else if ((newAccount.platform === 'gemini' || newAccount.platform === 'anthropic') && newAccount.type === 'service_account' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
-    editVertexProjectId.value = (credentials.project_id as string) || ''
-    editVertexClientEmail.value = (credentials.client_email as string) || ''
-    editVertexLocation.value = (credentials.location as string) || (credentials.vertex_location as string) || 'us-central1'
+    vertexSa.populateFromCredentials(credentials)
 
     // Load model mappings for service_account
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
@@ -4064,7 +3911,9 @@ const handleSubmit = async () => {
 
     if (props.account.platform === 'kiro') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const bundle = kiroBuildSubmitBundle('edit')
+      const bundle = kiro.buildSubmitBundle('edit', {
+        credentialsStatus: props.account.credentials_status,
+      })
       if (!bundle) return
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
@@ -4223,15 +4072,7 @@ const handleSubmit = async () => {
 
       updatePayload.credentials = newCredentials
     } else if (props.account.platform === 'newapi' && props.account.type === 'service_account') {
-      // 第五平台 newapi + Vertex service_account: 复用 newapi 结构化 selector
-      // 的 channel_type + model_mapping（与 apikey 路径同一套控件），但 **不** 走
-      // buildSubmitBundle —— 后者强制 base_url + api_key，二者对 Vertex 都不适用
-      // （ChannelBaseURLs[41]=VertexAI 上游为空串；鉴权走 SA JSON 而非 api_key）。
-      // 这里直接读 composable 暴露的 ref 拼装，叠加 Vertex 专属字段
-      // （service_account_json 写一次 / location / tier_id）。SA JSON 留空 = 保留
-      // 现有密钥（与 api_key 同语义），永不回吐脱敏后的存储值。
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       if (!newapiChannelType.value || newapiChannelType.value <= 0) {
         appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
@@ -4239,139 +4080,46 @@ const handleSubmit = async () => {
       }
       updatePayload.channel_type = newapiChannelType.value
 
-      // Vertex 鉴权不依赖 api_key / base_url：移除残留 api_key 避免误用，base_url
-      // 仅在账号原本携带时透传（不强制、不注入空串）。
-      delete newCredentials.api_key
-
-      const saModelMapping = buildModelMappingObject(
-        newapiRestrictionMode.value,
-        newapiAllowedModels.value,
-        newapiModelMappings.value
+      const merged = vertexSa.mergeCredentialsForEdit(
+        currentCredentials,
+        props.account.credentials_status
       )
-      if (saModelMapping) {
-        newCredentials.model_mapping = saModelMapping
-      } else {
-        delete newCredentials.model_mapping
-      }
-      if (Object.keys(newapiUpstreamModelPricingStatus.value).length > 0) {
-        newCredentials.model_pricing_status = { ...newapiUpstreamModelPricingStatus.value }
-      } else {
-        delete newCredentials.model_pricing_status
-      }
+      if (!merged) return
 
-      const saStatusCodeMapping = newapiStatusCodeMapping.value.trim()
-      if (saStatusCodeMapping) {
-        // Same validation the apikey path gets via buildSubmitBundle: a non-empty
-        // status_code_mapping must be a JSON object, else block (don't persist
-        // malformed transit config).
-        let saStatusCodeValid = false
-        try {
-          const parsed = JSON.parse(saStatusCodeMapping)
-          saStatusCodeValid = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-        } catch {
-          saStatusCodeValid = false
-        }
-        if (!saStatusCodeValid) {
-          appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
-          return
-        }
-        newCredentials.status_code_mapping = saStatusCodeMapping
-      } else {
-        delete newCredentials.status_code_mapping
-      }
-      const saOpenaiOrganization = newapiOpenAIOrganization.value.trim()
-      if (saOpenaiOrganization) {
-        newCredentials.openai_organization = saOpenaiOrganization
-      } else {
-        delete newCredentials.openai_organization
-      }
+      const auxiliary = newapiBuildAuxiliaryCredentials()
+      if (!auxiliary) return
 
-      if (!editVertexLocation.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexLocationRequired'))
+      delete merged.api_key
+      Object.assign(merged, auxiliary)
+
+      applyInterceptWarmup(merged, interceptWarmupRequests.value, 'edit')
+      if (!applyTempUnschedConfig(merged)) {
         return
       }
 
-      // SA JSON write-once: 用户粘贴了新 JSON → 解析 + 重导出 project_id /
-      // client_email + 轮换密钥；留空 → 保留现有（脱敏后存在性优先读
-      // credentials_status）。
-      const saJsonInput = editVertexServiceAccountJson.value.trim()
-      if (saJsonInput) {
-        if (!applyEditVertexServiceAccountJson(saJsonInput)) return
-        newCredentials.service_account_json = editVertexServiceAccountJson.value.trim()
-        newCredentials.project_id = editVertexProjectId.value.trim()
-        newCredentials.client_email = editVertexClientEmail.value.trim()
-      } else {
-        const credentialsStatus = props.account.credentials_status
-        const hasExistingServiceAccountJson = credentialsStatus
-          ? Boolean(
-              credentialsStatus.has_service_account_json || credentialsStatus.has_service_account
-            )
-          : Boolean(currentCredentials.service_account_json || currentCredentials.service_account)
-        if (!hasExistingServiceAccountJson) {
-          appStore.showError(t('admin.accounts.vertexSaJsonRequired'))
-          return
-        }
-        // 保留现有 project_id / client_email（populate 时已从 credentials 灌入）。
-        if (editVertexProjectId.value.trim()) newCredentials.project_id = editVertexProjectId.value.trim()
-        if (editVertexClientEmail.value.trim()) newCredentials.client_email = editVertexClientEmail.value.trim()
-      }
-      newCredentials.location = editVertexLocation.value.trim()
-      newCredentials.tier_id = 'vertex'
-
-      applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
-      if (!applyTempUnschedConfig(newCredentials)) {
-        return
-      }
-
-      updatePayload.credentials = newCredentials
+      updatePayload.credentials = merged
     } else if ((props.account.platform === 'gemini' || props.account.platform === 'anthropic') && props.account.type === 'service_account') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
-      if (!editVertexProjectId.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexSaJsonMissingProjectId'))
-        return
-      }
-      if (!editVertexClientEmail.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexSaJsonMissingClientEmail'))
-        return
-      }
-      if (!editVertexLocation.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexLocationRequired'))
-        return
-      }
+      const merged = vertexSa.mergeCredentialsForEdit(
+        currentCredentials,
+        props.account.credentials_status
+      )
+      if (!merged) return
 
-      // SA JSON 已脱敏不再随 credentials 返回，存在性优先读 credentials_status。
-      // 若后端尚未升级（无 credentials_status），回退读旧结构 service_account_json / service_account。
-      const credentialsStatus = props.account.credentials_status
-      const hasExistingServiceAccountJson = credentialsStatus
-        ? Boolean(
-            credentialsStatus.has_service_account_json || credentialsStatus.has_service_account
-          )
-        : Boolean(currentCredentials.service_account_json || currentCredentials.service_account)
-      if (!hasExistingServiceAccountJson) {
-        appStore.showError(t('admin.accounts.vertexSaJsonRequired'))
-        return
-      }
-      newCredentials.project_id = editVertexProjectId.value.trim()
-      newCredentials.client_email = editVertexClientEmail.value.trim()
-      newCredentials.location = editVertexLocation.value.trim()
-      newCredentials.tier_id = 'vertex'
-
-      // Add model mapping if configured
       const modelMapping = buildModelRestrictionMapping()
       if (modelMapping) {
-        newCredentials.model_mapping = modelMapping
+        merged.model_mapping = modelMapping
       } else {
-        delete newCredentials.model_mapping
+        delete merged.model_mapping
       }
 
-      applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
-      if (!applyTempUnschedConfig(newCredentials)) {
+      applyInterceptWarmup(merged, interceptWarmupRequests.value, 'edit')
+      if (!applyTempUnschedConfig(merged)) {
         return
       }
 
-      updatePayload.credentials = newCredentials
+      updatePayload.credentials = merged
     } else if (props.account.type === 'bedrock') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
