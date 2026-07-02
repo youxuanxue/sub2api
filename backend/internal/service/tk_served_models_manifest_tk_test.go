@@ -24,3 +24,25 @@ func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
 		t.Fatal("anthropic must not be newapi long-tail")
 	}
 }
+
+func TestTkServedModelsManifestPresetIDsByChannelType(t *testing.T) {
+	deepseek := tkServedModelsManifestPresetIDsByChannelType(43)
+	if len(deepseek) == 0 {
+		t.Fatal("deepseek channel_type 43 must have manifest presets")
+	}
+	if !containsString(deepseek, "deepseek-chat") {
+		t.Fatal("deepseek-chat must be in ch43 preset")
+	}
+	if tkServedModelsManifestPresetIDsByChannelType(25) != nil {
+		t.Fatal("unprobed channel_type 25 must return nil preset")
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}

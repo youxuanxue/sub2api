@@ -39,8 +39,39 @@ func TestAccountModelMappingPresetIDs_NewAPIVertexMatchesGeminiServable(t *testi
 
 func TestAccountModelMappingPresetIDs_NewAPIOtherChannelEmpty(t *testing.T) {
 	t.Parallel()
-	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeDeepSeek, nil)
+	// Moonshot (25) is not in tk_served_models manifest — no TK-verified preset.
+	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, 25, nil)
 	require.Empty(t, ids)
+}
+
+func TestAccountModelMappingPresetIDs_NewAPIDeepSeekUsesManifest(t *testing.T) {
+	t.Parallel()
+	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeDeepSeek, nil)
+	require.NotEmpty(t, ids)
+	require.Contains(t, ids, "deepseek-chat")
+	require.Contains(t, ids, "deepseek-v4-pro")
+}
+
+func TestAccountModelMappingPresetIDs_NewAPIAliUsesManifest(t *testing.T) {
+	t.Parallel()
+	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeAli, nil)
+	require.NotEmpty(t, ids)
+	require.Contains(t, ids, "qwen3.7-max")
+}
+
+func TestAccountModelMappingPresetIDs_NewAPIZhipuV4UsesManifest(t *testing.T) {
+	t.Parallel()
+	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeZhipu_v4, nil)
+	require.NotEmpty(t, ids)
+	require.Contains(t, ids, "glm-5-turbo")
+	require.NotContains(t, ids, "qwen3.7-max")
+}
+
+func TestAccountModelMappingPresetIDs_NewAPIVolcEngineUsesManifest(t *testing.T) {
+	t.Parallel()
+	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVolcEngine, nil)
+	require.NotEmpty(t, ids)
+	require.Contains(t, ids, "doubao-seed-2-0-pro-260215")
 }
 
 func TestAccountModelMappingPresetIDs_UnknownPlatformEmpty(t *testing.T) {

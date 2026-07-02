@@ -142,18 +142,27 @@ func (h *TKChannelAdminHandler) ListChannelTypes(c *gin.Context) {
 // GET /api/v1/admin/channel-type-models
 func (h *TKChannelAdminHandler) ListChannelTypeModels(c *gin.Context) {
 	out := newapifusion.ChannelTypeModelsJSON()
-	vertexIDs := service.VertexNewAPIChannelServableModelIDs()
-	if h.adminService != nil {
-		if ids, err := h.adminService.GetAccountModelMappingPresetIDs(
-			c.Request.Context(),
-			service.PlatformNewAPI,
-			newapiconstant.ChannelTypeVertexAi,
-		); err == nil && len(ids) > 0 {
-			vertexIDs = ids
+	ctx := c.Request.Context()
+	overlayPreset := func(channelType int) {
+		var ids []string
+		if h.adminService != nil {
+			var err error
+			ids, err = h.adminService.GetAccountModelMappingPresetIDs(ctx, service.PlatformNewAPI, channelType)
+			if err != nil {
+				return
+			}
+		} else if channelType == newapiconstant.ChannelTypeVertexAi {
+			ids = service.VertexNewAPIChannelServableModelIDs()
+		} else {
+			ids = service.NewAPIModelMappingPresetIDsForChannelType(channelType)
+		}
+		if len(ids) > 0 {
+			out[strconv.Itoa(channelType)] = ids
 		}
 	}
-	if len(vertexIDs) > 0 {
-		out[strconv.Itoa(newapiconstant.ChannelTypeVertexAi)] = vertexIDs
+	overlayPreset(newapiconstant.ChannelTypeVertexAi)
+	for _, ct := range service.NewAPIManifestPresetChannelTypes() {
+		overlayPreset(ct)
 	}
 	response.Success(c, out)
 }

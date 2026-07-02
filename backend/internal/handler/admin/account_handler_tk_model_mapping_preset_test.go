@@ -65,6 +65,28 @@ func TestGetModelMappingPresets_NewAPIVertex(t *testing.T) {
 	require.Contains(t, resp.Data.ModelIDs, "gemini-2.5-flash")
 }
 
+func TestGetModelMappingPresets_NewAPIDeepSeek(t *testing.T) {
+	router := setupModelMappingPresetsRouter(newStubAdminService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/admin/accounts/model-mapping-presets?platform=newapi&channel_type="+strconv.Itoa(newapiconstant.ChannelTypeDeepSeek),
+		nil,
+	)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data struct {
+			ModelIDs []string `json:"model_ids"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Contains(t, resp.Data.ModelIDs, "deepseek-chat")
+}
+
 func TestGetModelMappingPresets_InvalidPlatform(t *testing.T) {
 	router := setupModelMappingPresetsRouter(newStubAdminService())
 

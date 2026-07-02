@@ -28,7 +28,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
@@ -2085,16 +2084,16 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.Platform == service.PlatformNewAPI {
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
-				ids, err := h.adminService.GetAccountModelMappingPresetIDs(
-					c.Request.Context(),
-					service.PlatformNewAPI,
-					account.ChannelType,
-				)
-				if err != nil {
-					response.Error(c, http.StatusInternalServerError, "failed to resolve model mapping preset")
-					return
-				}
+			ids, err := h.adminService.GetAccountModelMappingPresetIDs(
+				c.Request.Context(),
+				service.PlatformNewAPI,
+				account.ChannelType,
+			)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "failed to resolve model mapping preset")
+				return
+			}
+			if len(ids) > 0 {
 				models := make([]openai.Model, 0, len(ids))
 				for _, id := range ids {
 					models = append(models, openai.Model{

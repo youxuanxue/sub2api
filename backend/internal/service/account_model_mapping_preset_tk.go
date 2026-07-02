@@ -24,6 +24,8 @@ func AccountModelMappingPresetIDs(ctx context.Context, platform string, channelT
 	case PlatformNewAPI:
 		if channelType == newapiconstant.ChannelTypeVertexAi {
 			ids = supportedCatalogModelIDsForPlatform(PlatformGemini)
+		} else {
+			ids = tkServedModelsManifestPresetIDsByChannelType(channelType)
 		}
 	default:
 		return nil
@@ -33,6 +35,24 @@ func AccountModelMappingPresetIDs(ctx context.Context, platform string, channelT
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// NewAPIModelMappingPresetIDsForChannelType exposes preset lookup for handlers
+// that cannot reach AdminService (tests, nil adminService fallback).
+func NewAPIModelMappingPresetIDsForChannelType(channelType int) []string {
+	return AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, channelType, nil)
+}
+
+// NewAPIManifestPresetChannelTypes returns channel_type values with TK-verified
+// presets in tk_served_models.json (excludes Vertex ch41, which uses Gemini catalog).
+func NewAPIManifestPresetChannelTypes() []int {
+	loadTkServedModelsManifest()
+	out := make([]int, 0, len(tkServedModelsManifestIDsByChannelType))
+	for ct := range tkServedModelsManifestIDsByChannelType {
+		out = append(out, ct)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func normalizeAccountModelMappingPresetPlatform(platform string) string {
