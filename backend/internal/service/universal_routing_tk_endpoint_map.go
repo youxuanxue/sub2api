@@ -89,9 +89,14 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		}
 		return out
 	case ShapeAnthropicCountTokens:
-		return []string{PlatformAnthropic, PlatformAntigravity}
+		out := []string{PlatformAnthropic, PlatformAntigravity}
+		out = append(out, OpenAICompatPlatforms()...)
+		return out
 	case ShapeOpenAIChat:
 		out := OpenAICompatPlatforms()
+		if universalModelPlatformHint(model) == PlatformAnthropic {
+			out = append(out, PlatformAnthropic)
+		}
 		// Gemini-native image models (gemini-*-image, nano-banana) ride
 		// /v1/chat/completions but are served by the antigravity pool — not
 		// openai-compat. Without antigravity in candidates, universal keys

@@ -64,8 +64,10 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
   再 → 候选平台集合,**从 `OpenAICompatPlatforms()` / `engine.capability` 派生**(不硬编码,
   满足 compat-pool 漂移门)。
   - `/v1/messages` → `[anthropic, antigravity]`(跨度内有 messages-dispatch 组时并入 openai-compat);
-    `…/count_tokens` → 仅 `[anthropic, antigravity]`。
-  - `/v1/chat/completions`、`/v1/responses`(含 codex、无前缀别名)→ `[openai, newapi, grok]`。
+    `…/count_tokens` → `[anthropic, antigravity] + openai-compat`(direct key 已支持
+    OpenAI/NewAPI/Grok count_tokens bridge,全能 key 同步纳入候选)。
+  - `/v1/chat/completions`、`/v1/responses`(含 codex、无前缀别名)→ `[openai, newapi, grok]`;
+    claude-* 模型额外纳入 `[anthropic]`,复用 direct Anthropic key 已支持的 OpenAI-shaped bridge。
   - `/v1/embeddings`、`/v1/images/generations`、`/v1/video/*` → capability(`[openai, newapi]`);
     `/v1/images/edits` → `[openai]`。
   - `/v1beta/models/*` POST → `[gemini, antigravity]`;GET 元数据(含 `/v1/models`)→ 跳过。
@@ -109,7 +111,8 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
 2. 一个请求只落一个平台,不拆分、**不跨平台 failover**。
 3. 模型不在任何被授权组 → 干脆报错(不静默兜底到错平台)。
 4. 同名模型撞多平台 → 模型提示偏向 + 确定性排序(可由 sort_order 调);非"自动选最便宜/最快"。
-5. `count_tokens` 仅 anthropic/antigravity;`/v1/models` PR1 回落默认(PR3 给并集)。
+5. `count_tokens` 按模型在 Anthropic/Antigravity/OpenAI-compatible 授权组内收敛;
+   `/v1/models` PR1 回落默认(PR3 给并集)。
 6. 安全:全能 key 泄露面=该用户全部授权平台 → 默认全能宜配 key 级总额度;想锁单平台关开关。
 7. images/edits 与 video 是 multipart/poll,按端点形状路由(候选≤2),不深挖 body 模型名。
 8. 后台没有的能力变不出来(无视频账号的平台不会凭空有视频)。

@@ -47,8 +47,8 @@ func TestResolve_NewapiPicksGroupThatServesModel(t *testing.T) {
 func TestResolve_NativeEmptyMappingDoesNotMatchOtherVendor(t *testing.T) {
 	ctx := context.Background()
 	span := []Group{
-		grp(2, PlatformOpenAI, 5, false),    // 中继组,nil served
-		grp(11, PlatformNewAPI, 10, false),  // deepseek
+		grp(2, PlatformOpenAI, 5, false),   // 中继组,nil served
+		grp(11, PlatformNewAPI, 10, false), // deepseek
 	}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
 	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
@@ -90,8 +90,8 @@ func TestResolve_GeminiNativeImageChatPicksAntigravity(t *testing.T) {
 func TestResolve_ImagenPicksVertexNewapiGroup(t *testing.T) {
 	ctx := context.Background()
 	span := []Group{
-		grp(2, PlatformOpenAI, 5, false),    // openai 中继,nil served(不支持 imagen)
-		grp(16, PlatformNewAPI, 10, false),  // google-vertex
+		grp(2, PlatformOpenAI, 5, false),   // openai 中继,nil served(不支持 imagen)
+		grp(16, PlatformNewAPI, 10, false), // google-vertex
 	}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
 	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
@@ -150,6 +150,24 @@ func TestResolve_NativeAnthropicRegression(t *testing.T) {
 	}
 }
 
+// 1.8.72 prod 实测:direct Anthropic key 已支持 Claude 模型走 /v1/chat/completions
+// 与 /v1/responses。全能 key 的 OpenAI-shaped chat/responses 也应在 claude-* 模型
+// 下把 Anthropic 组纳入候选,而不是因候选只含 openai-compat 返回 403。
+func TestResolve_ClaudeOpenAIShapePicksAnthropic(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(1, PlatformAnthropic, 5, false),
+		grp(2, PlatformOpenAI, 1, false),
+		grp(11, PlatformNewAPI, 2, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{})) // native groups only
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIChat, "claude-sonnet-4-6", "")
+	if err != nil || g == nil || g.ID != 1 {
+		t.Fatalf("claude @openai-shape 应落 anthropic gid=1, got=%v err=%v", g, err)
+	}
+}
+
 // 安全兜底:provider 未接线(nil)→ 退回平台级现状(不因新逻辑改变行为)。
 func TestResolve_NilProviderFallsBackToPlatformLevel(t *testing.T) {
 	ctx := context.Background()
@@ -201,11 +219,11 @@ func TestResolve_NoServingGroupWithoutHintFallsBack(t *testing.T) {
 // （direct key 绑死在 claude/Qwen 组,池里没有 deepseek 账号）。
 func user16Span() []Group {
 	return []Group{
-		dispatchGrp(5, PlatformNewAPI, 0, true),     // volcengine —— 最小 id,tiebreak 陷阱
-		grp(1, PlatformAnthropic, 1, false),         // claude(native,无 dispatch)
-		dispatchGrp(2, PlatformOpenAI, 0, true),     // GPT专线(native openai)
-		dispatchGrp(11, PlatformNewAPI, 0, true),    // deepseek
-		dispatchGrp(18, PlatformNewAPI, 0, true),    // Qwen
+		dispatchGrp(5, PlatformNewAPI, 0, true),  // volcengine —— 最小 id,tiebreak 陷阱
+		grp(1, PlatformAnthropic, 1, false),      // claude(native,无 dispatch)
+		dispatchGrp(2, PlatformOpenAI, 0, true),  // GPT专线(native openai)
+		dispatchGrp(11, PlatformNewAPI, 0, true), // deepseek
+		dispatchGrp(18, PlatformNewAPI, 0, true), // Qwen
 	}
 }
 
@@ -274,15 +292,45 @@ func TestResolve_MessagesDispatch_NewapiVendor_FilterIsLoadBearing(t *testing.T)
 	}
 }
 
-// count_tokens 候选恒为 [anthropic, antigravity],永不并入 openai-compat:deepseek 有 newapi
-// hint 且无组服务 → 403(不再盲落 anthropic 组后在下游打成 routing 429)。
-func TestResolve_CountTokensNeverDispatchesNewapi_User16(t *testing.T) {
+// 1.8.72 prod 实测:direct OpenAI/NewAPI/Grok key 的 /v1/messages/count_tokens 已可用
+// (OpenAI-compatible bridge)。全能 key 的 count_tokens 也应按模型收敛到对应
+// OpenAI-compatible vendor 组,而不是候选层 403。
+func TestResolve_CountTokensDispatchesOpenAICompat_User16(t *testing.T) {
 	ctx := context.Background()
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: user16Span()})
 	r.SetAvailableModelsProvider(user16ServingProvider())
-	g, err := r.Resolve(ctx, universalKey(16), ShapeAnthropicCountTokens, "deepseek-v4-flash", "")
-	if err != ErrUniversalNoEntitledGroup || g != nil {
-		t.Fatalf("count_tokens+deepseek 无 anthropic 服务组应 403, got=%v err=%v", g, err)
+	key := universalKey(16)
+
+	g, err := r.Resolve(ctx, key, ShapeAnthropicCountTokens, "deepseek-v4-flash", "")
+	if err != nil || g == nil || g.ID != 11 {
+		t.Fatalf("count_tokens+deepseek 应落 deepseek 组 gid=11, got=%v err=%v", g, err)
+	}
+
+	g, err = r.Resolve(ctx, key, ShapeAnthropicCountTokens, "qwen-max", "")
+	if err != nil || g == nil || g.ID != 18 {
+		t.Fatalf("count_tokens+qwen 应落 Qwen 组 gid=18, got=%v err=%v", g, err)
+	}
+
+	g, err = r.Resolve(ctx, key, ShapeAnthropicCountTokens, "gpt-5", "")
+	if err != nil || g == nil || g.ID != 2 {
+		t.Fatalf("count_tokens+gpt 应落 openai 组 gid=2, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_CountTokensDispatchesGrok(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(25, PlatformGrok, 0, false),
+		grp(2, PlatformOpenAI, 1, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		25: {"grok-4.3"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicCountTokens, "grok-4.3", "")
+	if err != nil || g == nil || g.ID != 25 {
+		t.Fatalf("count_tokens+grok 应落 grok 组 gid=25, got=%v err=%v", g, err)
 	}
 }
 
@@ -299,7 +347,6 @@ func TestResolve_UniversalBenchmarkUnservedModels_User16(t *testing.T) {
 		{ShapeOpenAIChat, "kimi-2.6"},
 		{ShapeOpenAIChat, "deepseek-v3-2-251201"},
 		{ShapeOpenAIChat, "glm-4-32b-0414-128k"},
-		{ShapeOpenAIChat, "claude-haiku-4-5"}, // anthropic hint, openai-compat 候选无 anthropic
 		{ShapeOpenAIChat, "gemini-pro-agent"},
 	}
 	for _, tc := range cases {

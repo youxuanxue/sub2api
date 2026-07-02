@@ -105,16 +105,24 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 		t.Errorf("messages with dispatch should include openai-compat: %v", withDispatch)
 	}
 
-	// count_tokens never includes openai-compat.
+	// count_tokens uses the same group-platform split handler as direct keys, so
+	// universal keys may route OpenAI-compatible models to the compat bridge.
 	ct := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", true, "")
-	if contains(ct, PlatformOpenAI) || contains(ct, PlatformNewAPI) {
-		t.Errorf("count_tokens must stay anthropic/antigravity: %v", ct)
+	if !contains(ct, PlatformAnthropic) || !contains(ct, PlatformAntigravity) ||
+		!contains(ct, PlatformOpenAI) || !contains(ct, PlatformNewAPI) || !contains(ct, PlatformGrok) {
+		t.Errorf("count_tokens candidates should include native anthropic pair plus openai-compat: %v", ct)
 	}
 
 	// chat = OpenAI-compat pool (includes grok).
 	chat := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "")
 	if !contains(chat, PlatformOpenAI) || !contains(chat, PlatformNewAPI) || !contains(chat, PlatformGrok) {
 		t.Errorf("chat candidates should be openai-compat pool: %v", chat)
+	}
+	// claude models on OpenAI-shaped chat/responses may route to Anthropic,
+	// matching direct-group gateway behavior.
+	chatClaude := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "claude-sonnet-4-6")
+	if !contains(chatClaude, PlatformAnthropic) {
+		t.Errorf("claude chat should include anthropic candidate: %v", chatClaude)
 	}
 	// gemini-native image on chat completions also includes antigravity.
 	chatImage := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "gemini-3.1-flash-image")
