@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from open_prompt_surface_watch_issues import (
     SIG_PROD_DRIFT,
     SIG_REGISTRY,
+    filename_safe,
+    issue_body_path,
     prod_drift_body,
     prod_recover_body,
     registry_failure_body,
@@ -43,6 +45,12 @@ class OpenPromptSurfaceWatchIssuesTest(unittest.TestCase):
         body = prod_recover_body("https://example/run/3", {"summary": {"count": 10, "has_actionable_drift": False}})
         self.assertIn("no actionable prod fingerprint drift", body)
         self.assertIn("https://example/run/3", body)
+
+    def test_issue_body_path_strips_colons_for_artifacts(self) -> None:
+        path = issue_body_path(SIG_PROD_DRIFT)
+        self.assertNotIn(":", path.name)
+        self.assertEqual(path.name, f"issue-{filename_safe(SIG_PROD_DRIFT)}.md")
+        self.assertIn("ps-sig-prod-drift", path.name)
 
 
 if __name__ == "__main__":

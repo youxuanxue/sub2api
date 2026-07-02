@@ -14,7 +14,7 @@ description: >-
 2. **指纹对齐（Layer 2，本 skill）** — 在 Cursor **加载本 skill 或单平台 skill 后**，跑
    `capture-all-fingerprints.sh` 做真实 capture/diff，再合一个 PR。
 
-CI 里 `.github/workflows/client-release-watch.yml` 跑 Layer 1 并开 tracking issue；
+CI 里 `.github/workflows/client-fidelity-watch.yml` 每日顺序跑 Layer 1 release scan → prompt registry-gate → prod aggregate，并开 tracking issue；
 人工/agent  remediation 从 Layer 1 的 skill 路由进入 Layer 2。
 
 一次对齐**所有**客户端指纹，合一个 PR。四条引擎**机制不同必须独立**——cc 主动重定向到

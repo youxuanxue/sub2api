@@ -1,13 +1,11 @@
 name: Prompt Surface Watch
 
+# Manual-only legacy entry. Daily schedule moved to client-fidelity-watch.yml.
 # Daily read-only watch: registry + fixture gateway gate in CI; prod fingerprint
 # aggregation via SSM on the same schedule. Opens/updates GitHub tracking issues
 # on registry-gate failure or prod actionable drift (closes when clear).
 
 on:
-  schedule:
-    # 08:03 Asia/Shanghai (23:03 UTC). After client-release-watch + cc-issue-watchdog.
-    - cron: "3 23 * * *"
   workflow_dispatch:
     inputs:
       since:
