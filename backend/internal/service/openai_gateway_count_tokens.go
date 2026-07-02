@@ -78,6 +78,10 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 
 	token, _, err := s.getInputTokensAuthToken(ctx, account)
 	if err != nil {
+		if isOpenAICompatCountTokensCapabilityGap(account, err) {
+			writeEstimatedAnthropicCountTokens(c, body)
+			return nil
+		}
 		writeAnthropicCountTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
 		return fmt.Errorf("get access token: %w", err)
 	}
@@ -108,18 +112,22 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	}
 
 	if resp.StatusCode >= 400 {
-		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
-
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if account.Type == AccountTypeOAuth && isOpenAIOAuthInputTokensUnsupported(resp.StatusCode) {
-			writeAnthropicCountTokensError(c, http.StatusNotFound, "not_found_error", "Token counting is not supported for this OpenAI account type")
+			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
 		if isOpenAIInputTokensUnsupported(resp.StatusCode, respBody) {
-			writeAnthropicCountTokensError(c, http.StatusNotFound, "not_found_error", "Token counting is not supported by upstream")
+			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
+		}
+		if isOpenAICompatInputTokensCapabilityGap(resp.StatusCode, upstreamMsg, respBody) {
+			writeEstimatedAnthropicCountTokens(c, body)
+			return nil
+		}
+
+		if s.rateLimitService != nil {
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
 		upstreamDetail := ""
@@ -148,8 +156,8 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 
 	inputTokens := gjson.GetBytes(respBody, "input_tokens")
 	if !inputTokens.Exists() {
-		writeAnthropicCountTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response missing input_tokens")
-		return fmt.Errorf("input_tokens response missing input_tokens field")
+		writeEstimatedAnthropicCountTokens(c, body)
+		return nil
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -243,4 +251,34 @@ func isOpenAIOAuthInputTokensUnsupported(statusCode int) bool {
 	default:
 		return false
 	}
+}
+
+func isOpenAICompatCountTokensCapabilityGap(account *Account, err error) bool {
+	if account == nil || err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if account.Platform == PlatformNewAPI {
+		return strings.Contains(msg, "api_key not found")
+	}
+	return false
+}
+
+func isOpenAICompatInputTokensCapabilityGap(statusCode int, upstreamMsg string, body []byte) bool {
+	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	if msg == "" {
+		msg = strings.ToLower(strings.TrimSpace(string(body)))
+	}
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "input_tokens") &&
+		(strings.Contains(msg, "missing") || strings.Contains(msg, "not found") || strings.Contains(msg, "unsupported")) {
+		return true
+	}
+	if strings.Contains(msg, "upstream returned 403") &&
+		(strings.Contains(msg, "access/policy rejection") || strings.Contains(msg, "rejected by upstream")) {
+		return true
+	}
+	return false
 }
