@@ -241,6 +241,7 @@ func TestGatewayRoutesGrokAllowsCountTokensAndResponses(t *testing.T) {
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
 	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
+	require.NotContains(t, w.Body.String(), "does not allow /v1/messages dispatch")
 
 	for _, path := range []string{
 		"/v1/responses",

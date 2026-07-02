@@ -97,7 +97,8 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 
 	// anthropic messages: native pair, no openai-compat unless a dispatch group exists.
 	base := universalCandidatePlatforms(ShapeAnthropicMessages, "", false, "")
-	if !contains(base, PlatformAnthropic) || !contains(base, PlatformAntigravity) || contains(base, PlatformOpenAI) {
+	if !contains(base, PlatformAnthropic) || !contains(base, PlatformAntigravity) ||
+		!contains(base, PlatformGemini) || !contains(base, PlatformKiro) || contains(base, PlatformOpenAI) {
 		t.Errorf("messages base candidates wrong: %v", base)
 	}
 	withDispatch := universalCandidatePlatforms(ShapeAnthropicMessages, "", true, "")
@@ -109,8 +110,13 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	// universal keys may route OpenAI-compatible models to the compat bridge.
 	ct := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", true, "")
 	if !contains(ct, PlatformAnthropic) || !contains(ct, PlatformAntigravity) ||
+		!contains(ct, PlatformGemini) || !contains(ct, PlatformKiro) ||
 		!contains(ct, PlatformOpenAI) || !contains(ct, PlatformNewAPI) || !contains(ct, PlatformGrok) {
 		t.Errorf("count_tokens candidates should include native anthropic pair plus openai-compat: %v", ct)
+	}
+	ctNoDispatch := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", false, "")
+	if contains(ctNoDispatch, PlatformOpenAI) || contains(ctNoDispatch, PlatformNewAPI) || contains(ctNoDispatch, PlatformGrok) {
+		t.Errorf("count_tokens without messages-dispatch should not include openai-compat: %v", ctNoDispatch)
 	}
 
 	// chat = OpenAI-compat pool (includes grok).
@@ -124,10 +130,23 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	if !contains(chatClaude, PlatformAnthropic) {
 		t.Errorf("claude chat should include anthropic candidate: %v", chatClaude)
 	}
+	chatGemini := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "gemini-2.5-flash")
+	if !contains(chatGemini, PlatformGemini) {
+		t.Errorf("gemini chat should include gemini candidate: %v", chatGemini)
+	}
 	// gemini-native image on chat completions also includes antigravity.
 	chatImage := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "gemini-3.1-flash-image")
 	if !contains(chatImage, PlatformAntigravity) {
 		t.Errorf("gemini-native image chat should include antigravity: %v", chatImage)
+	}
+
+	imageGrok := universalCandidatePlatforms(ShapeOpenAIImages, "", false, "grok-imagine")
+	if !contains(imageGrok, PlatformGrok) {
+		t.Errorf("grok image should include grok platform: %v", imageGrok)
+	}
+	imageEdit := universalCandidatePlatforms(ShapeOpenAIImagesEdit, "", false, "")
+	if !contains(imageEdit, PlatformOpenAI) || !contains(imageEdit, PlatformGrok) {
+		t.Errorf("image edits should include openai and grok platforms: %v", imageEdit)
 	}
 
 	// grok-native video on /v1/video/generations also includes grok (not task-adaptor).

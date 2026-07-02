@@ -92,7 +92,19 @@ func groupServesModel(ctx context.Context, provider availableModelsProvider, g G
 		return false
 	}
 	// 单 vendor 原生平台:模型平台 hint == 组平台。
-	return universalModelPlatformHint(model) == g.Platform
+	return nativePlatformHintMatchesGroup(g.Platform, model)
+}
+
+func nativePlatformHintMatchesGroup(platform, model string) bool {
+	hint := universalModelPlatformHint(model)
+	if hint == platform {
+		return true
+	}
+	// Kiro exposes Claude-family models through the Anthropic Messages shape, but
+	// keeps an isolated platform/pool. A provider fallback must not reject the
+	// only Kiro group for a claude-* model just because the broad model hint is
+	// "anthropic".
+	return platform == PlatformKiro && hint == PlatformAnthropic
 }
 
 // modelInServedSet 判定 model 是否在组的显式服务集里(精确 + 归一,与 IsModelSupported 同口径)。

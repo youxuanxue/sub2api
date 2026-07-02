@@ -63,13 +63,18 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
 - 形状映射 `universal_routing_tk_endpoint_map.go`:`c.FullPath()` + 方法 → `UniversalShape`,
   再 → 候选平台集合,**从 `OpenAICompatPlatforms()` / `engine.capability` 派生**(不硬编码,
   满足 compat-pool 漂移门)。
-  - `/v1/messages` → `[anthropic, antigravity]`(跨度内有 messages-dispatch 组时并入 openai-compat);
-    `…/count_tokens` → `[anthropic, antigravity] + openai-compat`(direct key 已支持
-    OpenAI/NewAPI/Grok count_tokens bridge,全能 key 同步纳入候选)。
+  - `/v1/messages` → `[anthropic, antigravity, gemini, kiro]`(跨度内有 messages-dispatch
+    组或 Grok messages 直通组时并入 openai-compat;resolver 再按组执行
+    `allow_messages_dispatch` 过滤);
+    `…/count_tokens` → `[anthropic, antigravity, gemini, kiro]` + 开了 dispatch 的
+    openai-compat 组(Grok 直通)。Gemini/Kiro/Antigravity 上游不暴露计数时走本地估算兜底。
   - `/v1/chat/completions`、`/v1/responses`(含 codex、无前缀别名)→ `[openai, newapi, grok]`;
-    claude-* 模型额外纳入 `[anthropic]`,复用 direct Anthropic key 已支持的 OpenAI-shaped bridge。
+    claude-* 模型额外纳入 `[anthropic]`,gemini-* 文本模型额外纳入 `[gemini]`,对齐 direct
+    key 的 OpenAI-shaped 入口路由。注意 route parity 不等于所有上游都已真支持
+    `/v1/responses`;实测报告必须继续区分 route-gate 与 live servability。
   - `/v1/embeddings`、`/v1/images/generations`、`/v1/video/*` → capability(`[openai, newapi]`);
-    `/v1/images/edits` → `[openai]`。
+    Grok 原生 image/video 模型额外纳入 `[grok]`;`/v1/images/edits` → `[openai, grok]`
+    (direct handler 当前支持这两个平台;multipart 不读模型,多组并存时按 universal 确定性排序)。
   - `/v1beta/models/*` POST → `[gemini, antigravity]`;GET 元数据(含 `/v1/models`)→ 跳过。
 - 解析器 `universal_routing_tk_resolver.go`:取(短 TTL 缓存的)权限跨度 `GetAvailableGroups` →
   跨度 ∩ 候选平台(active)→ **「组已服务模型集」真值过滤(见下)** → **确定性挑选(持订阅优先
@@ -77,9 +82,10 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
 
   **模型/模态服务真值过滤(`universal_routing_tk_serving.go`)**:旧版仅用前缀 hint(best-effort
   偏好)选平台,对「某组账号到底服不服务这个模型」零可见 —— newapi 多 vendor 平台(deepseek/
-  Qwen/volcengine/google-vertex/grok/…)里盲选必投错组 → 下游 `no available accounts`。现改为
-  按组的服务集来源**非对称**判别(真值源 = `GatewayService.GetAvailableModels`,与 `/v1/models`
-  同源):
+  Qwen/volcengine/google-vertex/grok/…)里盲选必投错组 → 下游 `no available accounts`。现优先
+  调用 `GatewayService.UniversalGroupSupportsModel`,复用 direct scheduler 的账号级模型支持语义;
+  provider 不可判断时再退回 `GatewayService.GetAvailableModels`(与 `/v1/models` 同源)的
+  服务集来源**非对称**判别:
   - 组有显式 `model_mapping`(含全部 newapi vendor 组)→ 精确成员判定 `M ∈ served`(deepseek/
     qwen/imagen/veo/seedance 落到声明该模型的组,排除别的 vendor 组);
   - 组无显式映射(native 空映射:anthropic/openai/gemini/antigravity 单一 vendor 平台的「空=透传」)
@@ -111,7 +117,7 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
 2. 一个请求只落一个平台,不拆分、**不跨平台 failover**。
 3. 模型不在任何被授权组 → 干脆报错(不静默兜底到错平台)。
 4. 同名模型撞多平台 → 模型提示偏向 + 确定性排序(可由 sort_order 调);非"自动选最便宜/最快"。
-5. `count_tokens` 按模型在 Anthropic/Antigravity/OpenAI-compatible 授权组内收敛;
+5. `count_tokens` 按模型在 Anthropic/Antigravity/Gemini/Kiro/OpenAI-compatible 授权组内收敛;
    `/v1/models` PR1 回落默认(PR3 给并集)。
 6. 安全:全能 key 泄露面=该用户全部授权平台 → 默认全能宜配 key 级总额度;想锁单平台关开关。
 7. images/edits 与 video 是 multipart/poll,按端点形状路由(候选≤2),不深挖 body 模型名。

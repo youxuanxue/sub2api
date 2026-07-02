@@ -130,6 +130,9 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 			continue
 		}
 		if _, ok := candidateSet[g.Platform]; ok {
+			if !universalGroupAllowsShape(g, shape) {
+				continue
+			}
 			eligible = append(eligible, g)
 		}
 	}
@@ -313,14 +316,41 @@ func (r *UniversalRoutingResolver) jitteredTTL(userID int64) time.Duration {
 	return base + time.Duration(bucket)*time.Second
 }
 
-// spanHasMessagesDispatch 报告跨度内是否有开了 messages-dispatch 的组（决定 /v1/messages
-// 是否把 openai-compat 平台并入候选——用 Claude 名映射到 GPT 模型的场景）。
+// universalGroupAllowsShape applies direct-key per-group endpoint policy after
+// platform candidates are formed. This keeps universal routing from selecting a
+// group that the same endpoint would reject for a direct key bound to that group.
+func universalGroupAllowsShape(g Group, shape UniversalShape) bool {
+	switch shape {
+	case ShapeAnthropicMessages:
+		if !IsOpenAICompatPlatform(g.Platform) {
+			return true
+		}
+		if g.Platform == PlatformGrok {
+			return true
+		}
+		return g.AllowMessagesDispatch
+	case ShapeAnthropicCountTokens:
+		if !IsOpenAICompatPlatform(g.Platform) {
+			return true
+		}
+		if g.Platform == PlatformGrok {
+			return true
+		}
+		return g.AllowMessagesDispatch
+	default:
+		return true
+	}
+}
+
+// spanHasMessagesDispatch 报告跨度内是否有开了 messages-dispatch 的 OpenAI-compatible
+// 组，或 Grok messages 直通组（决定 Anthropic-shaped 入口是否把 openai-compat 平台
+// 并入候选；具体组仍由 universalGroupAllowsShape 逐一过滤）。
 func spanHasMessagesDispatch(span []Group) bool {
 	for i := range span {
 		if isUniversalProbeGroup(span[i]) {
 			continue
 		}
-		if span[i].AllowMessagesDispatch {
+		if span[i].AllowMessagesDispatch || span[i].Platform == PlatformGrok {
 			return true
 		}
 	}

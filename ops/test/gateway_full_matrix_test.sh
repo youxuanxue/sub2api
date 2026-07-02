@@ -14,10 +14,11 @@
 # newapi / kiro / grok。没有「meta 平台」——/v1/models、/v1/usage、/v1/settings/public
 # 是控制面端点，作为矩阵前的预检，不在平台矩阵里。
 #
-# universal-key 命名空间盲区（关键）：universal 只能按模型前缀 hint 选平台。
-#   - claude-* 永远落 anthropic（到不了 kiro，kiro 也服务 claude-*）→ kiro 需一把绑 kiro
-#     组的 direct key（TK_FULLTEST_KIRO_KEY），缺则该行 SKIP。
-#   - antigravity 经其 forced-platform 路由 /antigravity/v1beta/...:generateContent 可达。
+# universal-key 命名空间盲区（关键）：universal 先按端点形状给候选平台，再用 direct
+# scheduler 同口径模型支持收敛；但同一 Claude 模型名同时存在于 anthropic/kiro 时仍无
+# 请求内信号可强制指定 kiro。Kiro 行仍用一把绑 kiro 组的 direct key
+#（TK_FULLTEST_KIRO_KEY）补测；缺则该行 SKIP。
+# Antigravity 经其 forced-platform 路由 /antigravity/v1beta/...:generateContent 可达。
 #
 # !! 计费告警 !!：image / video 行会向上游真实下单，产生真实费用（用你提供的 key 计费）。
 # 默认开启（“全部测一遍”）；不想花钱用 --skip-paid。
