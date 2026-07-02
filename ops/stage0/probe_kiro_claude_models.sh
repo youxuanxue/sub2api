@@ -8,14 +8,46 @@ MODELS="${MODELS:-claude-haiku-4-5-20251001 claude-haiku-4-5 claude-sonnet-4-5 c
 MAX_TOKENS="${MAX_TOKENS:-8}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-60}"
 
-results=()
 for model in $MODELS; do
-  out="$(ACCOUNT_ID="$ACCOUNT_ID" MODEL="$model" ENDPOINT=messages MAX_TOKENS="$MAX_TOKENS" \
+  err_file="$(mktemp)"
+  probe_error=""
+  if ! out="$(ACCOUNT_ID="$ACCOUNT_ID" MODEL="$model" ENDPOINT=messages MAX_TOKENS="$MAX_TOKENS" \
     REQUEST_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" PROBE_REUSE_MODE=1 \
-    bash "$SCRIPT_DIR/probe_account_model.sh" 2>/dev/null || true)"
-  verdict="$(printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("verdict","parse_error"))' 2>/dev/null || echo parse_error)"
-  http_code="$(printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("http_status",""))' 2>/dev/null || echo "")"
-  err_msg="$(printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("response_body_excerpt") or d.get("error") or "")[:120])' 2>/dev/null || echo "")"
-  printf '{"model":"%s","verdict":"%s","http_status":"%s","detail":"%s"}\n' \
-    "$model" "$verdict" "$http_code" "$(printf '%s' "$err_msg" | sed 's/"/\\"/g')"
+    bash "$SCRIPT_DIR/probe_account_model.sh" 2>"$err_file")"; then
+    probe_error="$(tr '\n' ' ' <"$err_file" | sed -E 's/[[:space:]]+/ /g' | cut -c1-240)"
+  fi
+  rm -f "$err_file"
+  TK_PROBE_RESULT_JSON="$out" TK_PROBE_ERROR="$probe_error" python3 - "$model" <<'PY'
+import json
+import os
+import re
+import sys
+
+model = sys.argv[1]
+raw = os.environ.get("TK_PROBE_RESULT_JSON", "")
+probe_error = os.environ.get("TK_PROBE_ERROR", "")
+
+try:
+    data = json.loads(raw)
+except Exception as exc:
+    detail = re.sub(r"\s+", " ", probe_error or str(exc)).strip()
+    row = {
+        "model": model,
+        "verdict": "parse_error",
+        "http_code": "",
+        "detail": detail[:120],
+    }
+else:
+    response = data.get("response") or {}
+    detail = response.get("body_excerpt") or data.get("error") or ""
+    detail = re.sub(r"\s+", " ", str(detail)).strip()
+    row = {
+        "model": model,
+        "verdict": data.get("verdict", "parse_error"),
+        "http_code": data.get("http_code", ""),
+        "detail": detail[:120],
+    }
+
+print(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+PY
 done
