@@ -54,7 +54,7 @@ func TestGatewayService_IsModelSupportedByAccount_OpenAIPassthroughRejectsForeig
 	passthrough := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
-		Extra:    map[string]any{
+		Extra: map[string]any{
 			"openai_passthrough": true,
 		},
 	}
@@ -66,7 +66,7 @@ func TestGatewayService_IsModelSupportedByAccount_OpenAIPassthroughRejectsForeig
 	mappedPassthrough := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
-		Extra:    map[string]any{
+		Extra: map[string]any{
 			"openai_passthrough": true,
 		},
 		Credentials: map[string]any{
