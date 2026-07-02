@@ -342,6 +342,7 @@ jobs:
       - name: Merge daily fidelity report
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_RESULT: ${{ needs.release-scan.result }}
           REGISTRY_RESULT: ${{ needs.registry-gate.result }}
           PROD_RESULT: ${{ needs.prod-aggregate.result }}
         run: |
@@ -352,6 +353,7 @@ jobs:
           PROMPT_JSON=".cache/prompt-surface-watch/report.json"
           PROMPT_MD=".cache/prompt-surface-watch/report.md"
           ARGS=(
+            --release-scan-result "$RELEASE_RESULT"
             --registry-gate-result "$REGISTRY_RESULT"
             --prod-aggregate-result "$PROD_RESULT"
             --run-url "$RUN_URL"

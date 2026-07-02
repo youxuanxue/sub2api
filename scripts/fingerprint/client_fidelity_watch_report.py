@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,12 @@ ROUTING_TABLE = [
         "label": "client-release:drift",
         "skill": "tokenkey-fingerprint-alignment-all or per-platform skill",
         "next_command": "bash ops/fingerprint/client-release-watch.sh plan",
+    },
+    {
+        "signal_type": "release-scan-failure",
+        "label": "client-release-watch",
+        "skill": "(inspect client release watch run)",
+        "next_command": "python3 scripts/fingerprint/client_release_watch.py --selftest",
     },
     {
         "signal_type": "registry-failure",
@@ -43,10 +48,18 @@ def collect_signals(
     *,
     release_report: dict[str, Any] | None,
     prompt_prod_report: dict[str, Any] | None,
+    release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
 ) -> list[dict[str, Any]]:
     signals: list[dict[str, Any]] = []
+
+    if release_scan_result == "failure":
+        signals.append({
+            "signal_type": "release-scan-failure",
+            "status": "actionable",
+            "detail": "release-scan job failed before producing a usable client release report",
+        })
 
     if registry_gate_result == "failure":
         signals.append({
@@ -84,7 +97,12 @@ def collect_signals(
             "detail": "prod-aggregate job failed (probe/aggregate error or actionable drift)",
         })
 
-    if not signals and registry_gate_result == "success" and prod_aggregate_result in {"success", "skipped"}:
+    if (
+        not signals
+        and release_scan_result == "success"
+        and registry_gate_result == "success"
+        and prod_aggregate_result in {"success", "skipped"}
+    ):
         signals.append({"signal_type": "aligned", "status": "clear", "detail": "no actionable fidelity signals"})
 
     return signals
@@ -110,6 +128,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
             lines.append(
                 f"- **release-drift** `{sig.get('platform_id')}`: pin `{sig.get('pinned')}` < upstream `{sig.get('upstream_latest')}` → skill `{sig.get('skill')}`"
             )
+        elif st == "release-scan-failure":
+            lines.append(f"- **release-scan-failure**: {sig.get('detail')}")
         elif st == "registry-failure":
             lines.append(f"- **registry-failure**: {sig.get('detail')}")
         elif st == "prod-drift":
@@ -142,6 +162,7 @@ def build_payload(
     release_markdown: str | None,
     prompt_prod_report: dict[str, Any] | None,
     prompt_prod_markdown: str | None,
+    release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
 ) -> dict[str, Any]:
@@ -150,13 +171,15 @@ def build_payload(
     signals = collect_signals(
         release_report=release_report,
         prompt_prod_report=prompt_prod_report,
+        release_scan_result=release_scan_result,
         registry_gate_result=registry_gate_result,
         prod_aggregate_result=prod_aggregate_result,
     )
     workflow_should_fail = any(
-        sig.get("signal_type") in {"registry-failure", "prod-drift"} and sig.get("status") == "actionable"
+        sig.get("signal_type") in {"release-scan-failure", "registry-failure", "prod-drift"}
+        and sig.get("status") == "actionable"
         for sig in signals
-    ) or registry_gate_result == "failure" or prod_aggregate_result == "failure"
+    ) or release_scan_result == "failure" or registry_gate_result == "failure" or prod_aggregate_result == "failure"
 
     return {
         "schema_version": 1,
@@ -164,7 +187,7 @@ def build_payload(
         "run_url": run_url,
         "workflow_should_fail": workflow_should_fail,
         "job_results": {
-            "release-scan": "success",
+            "release-scan": release_scan_result,
             "registry-gate": registry_gate_result,
             "prod-aggregate": prod_aggregate_result,
         },
@@ -185,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--release-report-md", type=Path)
     ap.add_argument("--prompt-prod-report-json", type=Path)
     ap.add_argument("--prompt-prod-report-md", type=Path)
+    ap.add_argument("--release-scan-result", default="success")
     ap.add_argument("--registry-gate-result", default="unknown")
     ap.add_argument("--prod-aggregate-result", default="unknown")
     ap.add_argument("--run-url", default="")
@@ -200,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
             release_markdown=None,
             prompt_prod_report={"summary": {"has_actionable_drift": True, "alerts": ["x=1"], "count": 1}},
             prompt_prod_markdown="- alert",
+            release_scan_result="success",
             registry_gate_result="success",
             prod_aggregate_result="failure",
         )
@@ -208,6 +233,19 @@ def main(argv: list[str] | None = None) -> int:
         assert any(s["signal_type"] == "prod-drift" for s in payload["signals"])
         md = render_markdown(payload)
         assert "release-drift" in md and "prod-drift" in md
+        failed_release = build_payload(
+            run_url="https://example/run/2",
+            release_report=None,
+            release_markdown=None,
+            prompt_prod_report=None,
+            prompt_prod_markdown=None,
+            release_scan_result="failure",
+            registry_gate_result="skipped",
+            prod_aggregate_result="skipped",
+        )
+        assert failed_release["workflow_should_fail"] is True
+        assert failed_release["job_results"]["release-scan"] == "failure"
+        assert any(s["signal_type"] == "release-scan-failure" for s in failed_release["signals"])
         print("client-fidelity-watch report selftest ok")
         return 0
 
@@ -222,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         release_markdown=release_md,
         prompt_prod_report=prompt_prod_report,
         prompt_prod_markdown=prompt_md,
+        release_scan_result=args.release_scan_result,
         registry_gate_result=args.registry_gate_result,
         prod_aggregate_result=args.prod_aggregate_result,
     )
