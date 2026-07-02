@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -671,49 +670,45 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping(t *tes
 	require.Equal(t, body, upstream.lastBody, "空模型名时请求体不应被修改")
 }
 
-func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotError(t *testing.T) {
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensUnsupported404UsesLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name            string
-		statusCode      int
-		respBody        string
-		wantPassthrough bool
-		wantFailover    bool
+		name         string
+		statusCode   int
+		respBody     string
+		wantEstimate bool
+		wantFailover bool
 	}{
 		{
-			name:            "404 endpoint not found passes through as 404",
-			statusCode:      http.StatusNotFound,
-			respBody:        `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
-			wantPassthrough: true,
+			name:         "404 endpoint not found uses local estimate",
+			statusCode:   http.StatusNotFound,
+			respBody:     `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
+			wantEstimate: true,
 		},
 		{
-			name:            "404 generic not found does not passthrough",
-			statusCode:      http.StatusNotFound,
-			respBody:        `{"error":{"message":"resource not found","type":"not_found_error"}}`,
-			wantPassthrough: false,
+			name:       "404 generic not found does not fallback",
+			statusCode: http.StatusNotFound,
+			respBody:   `{"error":{"message":"resource not found","type":"not_found_error"}}`,
 		},
 		{
-			name:            "400 Invalid URL does not passthrough",
-			statusCode:      http.StatusBadRequest,
-			respBody:        `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
-			wantPassthrough: false,
+			name:       "400 Invalid URL does not fallback",
+			statusCode: http.StatusBadRequest,
+			respBody:   `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
 		},
 		{
-			name:            "400 model error does not passthrough",
-			statusCode:      http.StatusBadRequest,
-			respBody:        `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
-			wantPassthrough: false,
+			name:       "400 model error does not fallback",
+			statusCode: http.StatusBadRequest,
+			respBody:   `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
 		},
 		{
 			// 契约更新（count_tokens failover 修复）：5xx 现在是 failover-eligible，
 			// ForwardCountTokens 返回 *UpstreamFailoverError 且不写客户端响应，
 			// 交由 handler 的 failover loop 换号。
-			name:            "500 internal error triggers failover",
-			statusCode:      http.StatusInternalServerError,
-			respBody:        `{"error":{"message":"internal error","type":"api_error"}}`,
-			wantPassthrough: false,
-			wantFailover:    true,
+			name:         "500 internal error triggers failover",
+			statusCode:   http.StatusInternalServerError,
+			respBody:     `{"error":{"message":"internal error","type":"api_error"}}`,
+			wantFailover: true,
 		},
 	}
 
@@ -759,16 +754,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 
 			err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
 
-			if tt.wantPassthrough {
-				// 返回 nil（不记录为错误），HTTP 状态码 404 + Anthropic 错误体
+			if tt.wantEstimate {
+				// 上游端点不支持：返回 nil（不记录为错误），HTTP 200 + 本地估算。
 				require.NoError(t, err)
-				require.Equal(t, http.StatusNotFound, rec.Code)
-				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-				require.Equal(t, "error", errResp["type"])
-				errObj, ok := errResp["error"].(map[string]any)
-				require.True(t, ok)
-				require.Equal(t, "not_found_error", errObj["type"])
+				require.Equal(t, http.StatusOK, rec.Code)
+				require.Greater(t, int(gjson.GetBytes(rec.Body.Bytes(), "input_tokens").Int()), 0)
 			} else if tt.wantFailover {
 				// failover-eligible：返回 *UpstreamFailoverError，状态码透传，
 				// 服务层不写客户端响应（默认 200，交由 handler 耗尽时回写）。

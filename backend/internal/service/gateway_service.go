@@ -10559,6 +10559,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		)
 	}
 
+	if shouldEstimateCountTokensLocally(account) {
+		writeEstimatedAnthropicCountTokens(c, body)
+		return nil
+	}
+
 	// TK canonical-OAuth strict ingress UA gate on count_tokens. Without this the
 	// allow-list gate would only cover /v1/messages and a third-party client could
 	// probe/drain a personal subscription via count_tokens (cohort signal bypass).
@@ -10611,14 +10616,6 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		// count_tokens request. Silent: this strip is an expected internal sanitize
 		// of normalize side effects, not a client schema bug, so it does not log.
 		body, _ = StripCountTokensUnsupportedFields(body)
-	}
-
-	// Antigravity upstream has no native count_tokens endpoint; return a local
-	// estimate so Claude Code clients get a 200 instead of a route-layer 404.
-	if account.Platform == PlatformAntigravity {
-		estimated := estimateAnthropicCountTokensInput(body)
-		c.JSON(http.StatusOK, gin.H{"input_tokens": estimated})
-		return nil
 	}
 
 	// 应用模型映射：
@@ -10753,15 +10750,14 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	if resp.StatusCode >= 400 {
 		// TK(#656): 部分国产 Anthropic 兼容中转站不支持 count_tokens 端点时，把
 		// 404/NoResourceFoundException 语义包装进非标准的 400/500 返回。优先在熔断与
-		// failover 之前短路：返回 404 让 Claude Code fallback 到本地 token 估算（与
-		// passthrough 路径一致），既不罚下账号（500-wrap 不计入熔断），也不浪费
+		// failover 之前短路：直接返回本地估算，既不罚下账号（500-wrap 不计入熔断），也不浪费
 		// failover 名额（同组其他账号多半同一上游、同样不支持）。
 		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
 			logger.LegacyPrintf("service.gateway",
-				"[count_tokens] Upstream does not support count_tokens (status=%d), returning 404: account=%d name=%s msg=%s",
+				"[count_tokens] Upstream does not support count_tokens (status=%d), returning local estimate: account=%d name=%s msg=%s",
 				resp.StatusCode, account.ID, account.Name,
 				truncateString(sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(respBody)), 512))
-			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
+			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
 
@@ -10896,24 +10892,24 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		// 同 ForwardCountTokens：count_tokens 预检端点的 400/429/529 不计入熔断
-		// （tkCountTokensSkipBreaker）。
-		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
-
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
-		// 中转站不支持 count_tokens 端点时（404），返回 404 让客户端 fallback 到本地估算。
+		// 中转站不支持 count_tokens 端点时（404），直接返回本地估算。
 		// 仅在错误消息明确指向 count_tokens endpoint 不存在时生效，避免误吞其他 404（如错误 base_url）。
 		// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
 		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
 			logger.LegacyPrintf("service.gateway",
-				"[count_tokens] Upstream does not support count_tokens (404), returning 404: account=%d name=%s msg=%s",
+				"[count_tokens] Upstream does not support count_tokens (404), returning local estimate: account=%d name=%s msg=%s",
 				account.ID, account.Name, truncateString(upstreamMsg, 512))
-			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
+			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
+		}
+
+		// 同 ForwardCountTokens：count_tokens 预检端点的 400/429/529 不计入熔断
+		// （tkCountTokensSkipBreaker）。
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
 		upstreamDetail := ""
