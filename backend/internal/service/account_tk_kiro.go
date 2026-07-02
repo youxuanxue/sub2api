@@ -31,16 +31,24 @@ func (a *Account) IsKiroMirrorStub() bool {
 
 const KiroDefaultTestModel = "claude-sonnet-4-5"
 
-// KiroAdminTestModels returns the safe client-facing model IDs for admin account
-// tests. Kiro rejects dated Anthropic snapshot IDs such as
-// claude-sonnet-4-5-20250929; the Kiro translator accepts the short IDs and
-// normalizes them to the CodeWhisperer wire form.
+// KiroAdminTestModels returns the empirically-servable client-facing Claude model
+// IDs for admin account tests and mapping presets. Dated Anthropic snapshot IDs
+// (e.g. claude-haiku-4-5-20251001) are normalized by the Kiro translator before
+// upstream; this list intentionally exposes the short undated IDs operators should
+// pick in the admin UI. Live probe source: ops/stage0/probe_kiro_claude_models.sh
+// (edge us6 account 2 + prod mirror 66, 2026-07-02).
 func KiroAdminTestModels() []claude.Model {
 	return []claude.Model{
 		{
 			ID:          KiroDefaultTestModel,
 			Type:        "model",
 			DisplayName: "Claude Sonnet 4.5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-haiku-4-5",
+			Type:        "model",
+			DisplayName: "Claude Haiku 4.5",
 			CreatedAt:   "",
 		},
 		{
@@ -53,6 +61,24 @@ func KiroAdminTestModels() []claude.Model {
 			ID:          "claude-sonnet-5",
 			Type:        "model",
 			DisplayName: "Claude Sonnet 5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-5",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-6",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.6",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-7",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.7",
 			CreatedAt:   "",
 		},
 		{

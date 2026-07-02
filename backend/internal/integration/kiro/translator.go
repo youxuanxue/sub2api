@@ -37,6 +37,16 @@ var modelAliases = []modelMapping{
 // (claude-sonnet-4-20250514) are not accidentally rewritten.
 var claudeVersionPattern = regexp.MustCompile(`claude-(opus|sonnet|haiku)-(\d+)-(\d{1,2})\b`)
 
+// claudeDatedSnapshotSuffix strips Anthropic dated snapshot tails such as
+// -20251001 after dash→dot normalization (claude-haiku-4-5-20251001 →
+// claude-haiku-4.5-20251001 → claude-haiku-4.5). Kiro/CodeWhisperer rejects
+// the intermediate form with HTTP 400 INVALID_MODEL_ID.
+var claudeDatedSnapshotSuffix = regexp.MustCompile(`(?i)-20\d{6}$`)
+
+func stripAnthropicDatedSnapshot(model string) string {
+	return claudeDatedSnapshotSuffix.ReplaceAllString(model, "")
+}
+
 // Thinking 模式提示
 const ThinkingModePrompt = `<thinking_mode>enabled</thinking_mode>
 <max_thinking_length>200000</max_thinking_length>`
@@ -80,19 +90,21 @@ func ParseModelAndThinking(model string, thinkingSuffix string) (string, bool) {
 	// 1) Explicit aliases: dated snapshots, cross-family legacy IDs, non-Anthropic fallbacks.
 	for _, m := range modelAliases {
 		if strings.Contains(lower, m.key) {
-			return m.value, thinking
+			return stripAnthropicDatedSnapshot(m.value), thinking
 		}
 	}
 
 	// 2) Format normalization: claude-{family}-N-M → claude-{family}-N.M.
 	//    New versions (claude-opus-4-8, etc.) flow through here without code changes.
 	if claudeVersionPattern.MatchString(lower) {
-		return claudeVersionPattern.ReplaceAllString(lower, "claude-$1-$2.$3"), thinking
+		return stripAnthropicDatedSnapshot(
+			claudeVersionPattern.ReplaceAllString(lower, "claude-$1-$2.$3"),
+		), thinking
 	}
 
 	// 3) Already a valid Kiro model (dot form or bare family like claude-sonnet-4): pass through.
 	if strings.HasPrefix(lower, "claude-") {
-		return model, thinking
+		return stripAnthropicDatedSnapshot(model), thinking
 	}
 
 	return model, thinking
