@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestOpenAICompatNoCandidateError(t *testing.T) {
 			newapiAcctWithMapping(39, "deepseek-v4-pro", "deepseek-v4-flash"),
 		}
 
-		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, nil)
+		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, nil, nil)
 
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrUnsupportedModel), "expected ErrUnsupportedModel, got %v", err)
@@ -56,7 +57,7 @@ func TestOpenAICompatNoCandidateError(t *testing.T) {
 			newapiAcctWithMapping(40, "deepseek-chat"),
 		}
 
-		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, nil)
+		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, nil, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -71,7 +72,7 @@ func TestOpenAICompatNoCandidateError(t *testing.T) {
 			newapiAcctWithMapping(39, "deepseek-chat"),
 		}
 
-		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, map[int64]struct{}{39: {}})
+		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, map[int64]struct{}{39: {}}, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -80,7 +81,7 @@ func TestOpenAICompatNoCandidateError(t *testing.T) {
 	t.Run("empty_model_never_unsupported", func(t *testing.T) {
 		accounts := []Account{newapiAcctWithMapping(39, "deepseek-v4-pro")}
 
-		err := openAICompatNoCandidateError("", PlatformNewAPI, false, accounts, nil)
+		err := openAICompatNoCandidateError("", PlatformNewAPI, false, accounts, nil, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -92,7 +93,7 @@ func TestOpenAICompatNoCandidateError(t *testing.T) {
 		// by the response-path unsupported-model classifier (path B).
 		accounts := []Account{{ID: 9, Platform: PlatformOpenAI}}
 
-		err := openAICompatNoCandidateError("gpt-9-turbo", "", false, accounts, nil)
+		err := openAICompatNoCandidateError("gpt-9-turbo", "", false, accounts, nil, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -121,4 +122,93 @@ func TestCollectOpenAICompatSelectionFailureStats(t *testing.T) {
 		assert.Equal(t, 1, stats.Unschedulable)
 		assert.False(t, tkSelectionFailedDueToUnsupportedModel(stats))
 	})
+}
+
+func TestCollectOpenAICompatSelectionFailureStatsForRequest_UpstreamChannelRestriction(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(18001)
+	channel := Channel{
+		ID:                 1,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceUpstream,
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformNewAPI, Models: []string{"qwen-max"}},
+		},
+	}
+	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, []*Account{newAPIAccount(18011, 7)}, channel)
+
+	// Passthrough account: IsModelSupported is true, but upstream channel pricing
+	// excludes gpt-5.4-mini — must classify as model_unsupported (client fault).
+	stats := svc.collectOpenAICompatSelectionFailureStatsForRequest(
+		ctx,
+		&groupID,
+		"gpt-5.4-mini",
+		false,
+		[]Account{*newAPIAccount(18011, 7)},
+		nil,
+	)
+	require.Equal(t, 1, stats.ModelUnsupported)
+	require.Equal(t, 0, stats.Unschedulable)
+	require.True(t, tkSelectionFailedDueToUnsupportedModel(stats))
+}
+
+func TestOpenAICompatNoCandidateError_UpstreamChannelRestrictionReturnsUnsupported(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(18002)
+	channel := Channel{
+		ID:                 1,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceUpstream,
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformNewAPI, Models: []string{"qwen-max"}},
+		},
+	}
+	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, []*Account{newAPIAccount(18021, 7)}, channel)
+
+	err := openAICompatNoCandidateError(
+		"gpt-5.4-mini",
+		PlatformNewAPI,
+		false,
+		[]Account{*newAPIAccount(18021, 7)},
+		nil,
+		&openAICompatNoCandidateEval{ctx: ctx, svc: svc, groupID: &groupID},
+	)
+	require.ErrorIs(t, err, ErrUnsupportedModel)
+	assert.NotContains(t, err.Error(), "no available accounts")
+}
+
+func TestSelectAccountWithScheduler_QwenGroupWrongModelReturnsUnsupported(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(18003)
+	qwenOnly := newapiAcctWithMapping(18031, "qwen-max", "qwen-plus")
+	channel := Channel{
+		ID:                 1,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceRequested,
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformNewAPI, Models: []string{"qwen-max", "qwen-plus"}},
+		},
+	}
+	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, []*Account{&qwenOnly}, channel)
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		ctx,
+		&groupID,
+		"",
+		"",
+		"gpt-5.4-mini",
+		nil,
+		OpenAIUpstreamTransportAny,
+		OpenAIEndpointCapabilityChatCompletions,
+		false,
+	)
+	require.Error(t, err)
+	require.True(t, selection == nil || selection.Account == nil)
+	require.ErrorIs(t, err, ErrUnsupportedModel, "wrong model on Qwen-only group must be client-owned 400, not routing 429")
 }

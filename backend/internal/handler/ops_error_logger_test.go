@@ -788,7 +788,6 @@ func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
 		"No available accounts: no available accounts supporting model: made-up-model",
 		"No available accounts: no available OpenAI accounts supporting model: made-up-model",
 		"No available Gemini accounts: no available Gemini accounts supporting model: made-up-model",
-		"No available accounts: no available accounts supporting model: made-up-model (channel pricing restriction)",
 	}
 
 	for _, message := range tests {

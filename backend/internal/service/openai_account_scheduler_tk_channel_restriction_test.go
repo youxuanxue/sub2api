@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -67,6 +68,7 @@ func TestP01_Scheduler_ChannelPricingRestriction_Blocks(t *testing.T) {
 
 	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-restricted", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, err, "P0-1: scheduler must block requests for models outside channel pricing whitelist")
+	require.True(t, errors.Is(err, ErrUnsupportedModel), "channel pricing restriction is a client model error, got %v", err)
 	require.True(t, selection == nil || selection.Account == nil, "no account may be selected when model is restricted")
 	require.Contains(t, strings.ToLower(err.Error()), "channel pricing restriction",
 		"error must clearly indicate the restriction reason for operator triage")

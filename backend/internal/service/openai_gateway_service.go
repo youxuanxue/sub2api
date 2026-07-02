@@ -1842,7 +1842,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	// TK: resolve scheduling-pool platform once per request and thread it
@@ -1871,7 +1871,12 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		// PURELY by unservable model name surfaces ErrUnsupportedModel (→ HTTP 400),
 		// not an empty-pool 429 — parity with the selectByLoadBalance path so
 		// count_tokens / sticky callers do not misclassify (prod 2026-06-13).
-		return nil, openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs)
+		return nil, openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
+			ctx:            ctx,
+			svc:            s,
+			groupID:        groupID,
+			requireCompact: requireCompact,
+		})
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -2122,7 +2127,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	// TK: resolve scheduling-pool platform once per request and thread it

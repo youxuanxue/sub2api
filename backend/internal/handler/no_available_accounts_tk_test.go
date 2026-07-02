@@ -38,15 +38,15 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Contains(t, msg, "No available accounts")
 	})
 
-	t.Run("wrapped_no_available_accounts_returns_429", func(t *testing.T) {
+	t.Run("channel_pricing_restriction_returns_400", func(t *testing.T) {
 		c, w := newCtx(t)
-		wrapped := fmt.Errorf("%w supporting model: gpt-5.2 (channel pricing restriction)", service.ErrNoAvailableAccounts)
+		wrapped := fmt.Errorf("%w: gpt-5.2 (channel pricing restriction)", service.ErrUnsupportedModel)
 		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "gpt-5.2")
 
-		require.Equal(t, http.StatusTooManyRequests, status)
-		assert.Equal(t, "api_error", errType)
-		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
-		assert.Contains(t, msg, "gpt-5.2")
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
+		assert.Equal(t, service.TkUnsupportedModelMessage("gpt-5.2"), msg)
+		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
 	t.Run("unsupported_model_returns_400_invalid_request", func(t *testing.T) {

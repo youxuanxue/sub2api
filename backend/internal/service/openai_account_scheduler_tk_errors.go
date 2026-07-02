@@ -1,6 +1,10 @@
 package service
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
 
 // openAICompatErrorPlatformLabel returns the platform identifier to embed in
 // "no available accounts" error messages produced by the OpenAI-compat
@@ -46,9 +50,44 @@ func openAICompatErrorPlatformLabel(groupPlatform string) string {
 // openai/newapi pools with the anthropic 400 behavior. The len(accounts)==0 branch
 // (no schedulable account seen at all → no model evidence) and the post-load-balance
 // "couldn't acquire a slot" branches stay 429: those are genuine capacity gaps.
-func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactBlocked bool, accounts []Account, excludedIDs map[int64]struct{}) error {
+//
+// openAICompatNoCandidateEval carries scheduler context needed to classify a
+// pool-emptied failure as "model unservable in this group" vs transient capacity.
+// When nil, collectOpenAICompatSelectionFailureStats falls back to account-level
+// model_mapping only (legacy unit tests).
+type openAICompatNoCandidateEval struct {
+	ctx            context.Context
+	svc            *OpenAIGatewayService
+	groupID        *int64
+	requireCompact bool
+}
+
+// tkOpenAICompatChannelPricingRestrictionError reports that the requested model is
+// outside the group's channel servable/pricing allowlist. Caller fault → HTTP 400
+// (ErrUnsupportedModel), not an empty-pool 429 that pollutes SLA / capacity alerts.
+func tkOpenAICompatChannelPricingRestrictionError(requestedModel string) error {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return fmt.Errorf("%w (channel pricing restriction)", ErrUnsupportedModel)
+	}
+	return fmt.Errorf("%w: %s (channel pricing restriction)", ErrUnsupportedModel, requestedModel)
+}
+
+func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactBlocked bool, accounts []Account, excludedIDs map[int64]struct{}, eval *openAICompatNoCandidateEval) error {
 	if requestedModel != "" {
-		stats := collectOpenAICompatSelectionFailureStats(accounts, requestedModel, excludedIDs)
+		var stats selectionFailureStats
+		if eval != nil && eval.svc != nil && eval.ctx != nil {
+			stats = eval.svc.collectOpenAICompatSelectionFailureStatsForRequest(
+				eval.ctx,
+				eval.groupID,
+				requestedModel,
+				eval.requireCompact,
+				accounts,
+				excludedIDs,
+			)
+		} else {
+			stats = collectOpenAICompatSelectionFailureStats(accounts, requestedModel, excludedIDs)
+		}
 		if tkSelectionFailedDueToUnsupportedModel(stats) {
 			return fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))
 		}
@@ -60,32 +99,15 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 }
 
 // collectOpenAICompatSelectionFailureStats categorizes each schedulable account
-// that survived to the candidate filter into the shared selectionFailureStats so
-// tkSelectionFailedDueToUnsupportedModel can decide "purely unsupported model" vs
-// "transient capacity". It deliberately only distinguishes the model-support axis
-// (Account.IsModelSupported — the same check isAccountRequestCompatible applies):
-//
-//   - account does NOT support the model name  → ModelUnsupported (evidence the
-//     name is unserved);
-//   - account supports the model but was excluded or filtered for any other
-//     reason (runtime block, capability, transport, upstream restriction) →
-//     Unschedulable, which SUPPRESSES the 400: the model IS served, just not
-//     selectable right now, so the client should get the 429 capacity hint, not a
-//     misleading "Unsupported model".
-//
-// Eligible is 0 by construction here (any fully-eligible account would be in
-// `filtered`); ModelRateLimited is not tracked on this path (account-level rate
-// limits are filtered out of the schedulable list upstream). The net predicate
-// therefore fires only when at least one account is model-unsupported AND none
-// supports the model.
+// in the group's pool using account-level model_mapping only. Prefer
+// collectOpenAICompatSelectionFailureStatsForRequest when channel upstream
+// restrictions apply.
 func collectOpenAICompatSelectionFailureStats(accounts []Account, requestedModel string, excludedIDs map[int64]struct{}) selectionFailureStats {
 	stats := selectionFailureStats{Total: len(accounts)}
 	for i := range accounts {
 		acc := &accounts[i]
 		if excludedIDs != nil {
 			if _, excluded := excludedIDs[acc.ID]; excluded {
-				// A previously-attempted account may well serve the model; never
-				// let an excluded account contribute "unsupported" evidence.
 				stats.Unschedulable++
 				continue
 			}
@@ -98,4 +120,59 @@ func collectOpenAICompatSelectionFailureStats(accounts []Account, requestedModel
 		stats.Unschedulable++
 	}
 	return stats
+}
+
+// collectOpenAICompatSelectionFailureStatsForRequest mirrors the scheduler's
+// model-servability axis: account model_mapping AND per-account upstream channel
+// restrictions (BillingModelSourceUpstream). Prod 2026-07: a Qwen-group direct
+// key hammering gpt-5.4-mini produced routing/platform 429s because passthrough
+// accounts reported IsModelSupported=true while channel upstream pricing excluded
+// the upstream model — those accounts must count as model_unsupported (client
+// fault), not unschedulable capacity.
+func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForRequest(
+	ctx context.Context,
+	groupID *int64,
+	requestedModel string,
+	requireCompact bool,
+	accounts []Account,
+	excludedIDs map[int64]struct{},
+) selectionFailureStats {
+	stats := selectionFailureStats{Total: len(accounts)}
+	needsUpstreamCheck := s != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	for i := range accounts {
+		acc := &accounts[i]
+		if excludedIDs != nil {
+			if _, excluded := excludedIDs[acc.ID]; excluded {
+				stats.Unschedulable++
+				continue
+			}
+		}
+		if requestedModel != "" && s.isOpenAICompatModelUnservableForRequest(ctx, groupID, acc, requestedModel, requireCompact, needsUpstreamCheck) {
+			stats.ModelUnsupported++
+			stats.SampleMappingIDs = appendSelectionFailureSampleID(stats.SampleMappingIDs, acc.ID)
+			continue
+		}
+		stats.Unschedulable++
+	}
+	return stats
+}
+
+func (s *OpenAIGatewayService) isOpenAICompatModelUnservableForRequest(
+	ctx context.Context,
+	groupID *int64,
+	account *Account,
+	requestedModel string,
+	requireCompact bool,
+	needsUpstreamCheck bool,
+) bool {
+	if account == nil || strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	if !account.IsModelSupported(requestedModel) {
+		return true
+	}
+	if needsUpstreamCheck && groupID != nil && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
+		return true
+	}
+	return false
 }

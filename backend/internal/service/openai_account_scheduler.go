@@ -282,7 +282,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	// 前置拒绝。两个调度入口语义漂移会让运营在排查时彻底失去对账号选择
 	// 行为的预期。
 	if s != nil && s.service != nil && s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
-		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, req.RequestedModel)
+		return nil, decision, tkOpenAICompatChannelPricingRestrictionError(req.RequestedModel)
 	}
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
@@ -1112,7 +1112,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// TK: when the schedulable pool was emptied PURELY because no account serves
 		// the requested model name, surface ErrUnsupportedModel (→ HTTP 400) instead
 		// of an empty-pool 429. See openAICompatNoCandidateError (TK companion).
-		return nil, 0, 0, 0, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs)
+		return nil, 0, 0, 0, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
+			ctx:            ctx,
+			svc:            s.service,
+			groupID:        req.GroupID,
+			requireCompact: req.RequireCompact,
+		})
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -1513,7 +1518,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, decision, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	var stickyAccountID int64
