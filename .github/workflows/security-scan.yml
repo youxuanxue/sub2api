@@ -1,16 +1,18 @@
 name: Security Scan
 
+# Weekly-only deep security scan. Push/PR security gates live in backend-ci.yml
+# (backend-security / frontend-security) — duplicate job names here would collide
+# with branch-protection required checks.
 on:
-  push:
-  pull_request:
   schedule:
     - cron: '0 3 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  backend-security:
+  security-scan-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,7 +37,7 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-  frontend-security:
+  security-scan-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

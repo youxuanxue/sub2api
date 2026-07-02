@@ -31,7 +31,7 @@ Per dev-rules §"Hard Constraint Wiring" — every soft rule above MUST have an 
 
 **Anchor advancement.** `.main-ancestry-anchor` is a one-way ratchet: a known-good SHA every future HEAD must descend from (baseline `62482fa9bc30ac292ecca92341ef055a024d8a26`, locked after the PR #307 orphan-reset incident). To advance it: open a PR that updates the file AND carries the literal marker `main-ancestry-anchor-advance` + a one-line justification in a commit message. Guard Check 2 also requires the new SHA to be a descendant of the old one — the descendant check is the real ratchet, the marker is the human-attention gate.
 
-**Branch protection on `main`** SHOULD list `Upstream Merge PR Shape / validate` and `Main Ancestry Guard / validate` as required status checks (Settings → Branches → main). Known limit: GitHub doesn't expose merge-method choice, so these gates can't stop a manual "Squash and merge" click on a merge PR — they only make the wrong shape fail CI.
+**Branch protection on `main`** requires CI jobs `preflight`, `test-unit`, `test-integration`, `frontend`, `golangci-lint`, `backend-security`, `frontend-security`, plus PR gates `main-ancestry-guard` and `marker-acknowledgement`. Do **not** require `upstream-merge-pr-shape` globally — it only runs on `merge/upstream-*` PRs and skips elsewhere. Known limit: GitHub doesn't expose merge-method choice, so these gates can't stop a manual "Squash and merge" click on a merge PR — they only make the wrong shape fail CI.
 
 ## Convergence & minimal invasion (especially large upstream files)
 

@@ -78,7 +78,8 @@ name: Upstream Merge PR Shape
 #      (preflight parity, mechanical forward-drift guard).
 #
 # A green check here is a hard prerequisite for merging. Branch protection
-# on `main` should require this workflow status for `merge/upstream-*` PRs.
+# on `main` should require the `upstream-merge-pr-shape` job status for
+# `merge/upstream-*` PRs (do not add it to the global required-check list).
 
 on:
   pull_request:
@@ -90,7 +91,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  validate:
+  upstream-merge-pr-shape:
     if: startsWith(github.head_ref, 'merge/upstream-')
     runs-on: ubuntu-latest
     steps:

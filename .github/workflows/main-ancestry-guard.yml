@@ -44,7 +44,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  validate:
+  main-ancestry-guard:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 ensures PR base is reachable locally — GitHub Actions
