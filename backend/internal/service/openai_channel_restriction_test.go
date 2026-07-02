@@ -35,7 +35,7 @@ func TestOpenAISelectAccountForModelWithExclusions_ChannelMappedRestrictionRejec
 
 	groupID := int64(10)
 	_, err := svc.SelectAccountForModelWithExclusions(context.Background(), &groupID, "", "gpt-4.1", nil)
-	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.ErrorIs(t, err, ErrUnsupportedModel)
 	require.Contains(t, err.Error(), "channel pricing restriction")
 }
 
