@@ -1,12 +1,13 @@
 ---
 title: Upstream Merge 2026-07-02 High-Risk Anchor
-status: pending
-approved_by: pending
+status: approved
+approved_by: xuejiao (PR #1154 merge)
+approved_at: 2026-07-02
 created: 2026-07-02
 authors: [agent]
 risk: high
-related_prs: []
-related_commits: []
+related_prs: [1154]
+related_commits: [39c769ee2dade9b41f9c3f64051909a131cdd8db]
 ---
 
 # Upstream Merge 2026-07-02 High-Risk Anchor
