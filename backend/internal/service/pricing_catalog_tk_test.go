@@ -42,9 +42,14 @@ const litellmFixtureJSON = `{
     "supports_function_calling": true,
     "supports_vision": true
   },
-  "broken-no-prices": {
-    "litellm_provider": "noprice"
-  }
+	  "broken-no-prices": {
+	    "litellm_provider": "noprice"
+	  },
+	  "chat-image-input-only": {
+	    "output_cost_per_image": 0.00012,
+	    "mode": "chat",
+	    "litellm_provider": "vertex_ai-language-models"
+	  }
 }`
 
 func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
@@ -58,8 +63,8 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 	assert.Equal(t, "list", resp.Object)
 	assert.Equal(t, ts, resp.UpdatedAt, "updated_at must reflect source mtime")
 
-	// sample_spec is filtered out; broken-no-prices is dropped (no price fields).
-	require.Len(t, resp.Data, 2, "expected 2 valid entries (sample_spec + no-price entry skipped)")
+	// sample_spec is filtered out; no-price and chat image-input-only rows are dropped.
+	require.Len(t, resp.Data, 2, "expected 2 valid token-priced entries")
 
 	// Sorted alphabetically by model_id, so claude- < gpt-.
 	claude := resp.Data[0]
@@ -92,7 +97,8 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 	const fixture = `{
 	  "imagen-4.0-generate-001": {"output_cost_per_image":0.04,"mode":"image_generation","litellm_provider":"vertex_ai"},
-	  "veo-3.1-generate-001":    {"output_cost_per_second":0.4,"mode":"video_generation","litellm_provider":"vertex_ai"}
+	  "veo-3.1-generate-001":    {"output_cost_per_second":0.4,"mode":"video_generation","litellm_provider":"vertex_ai"},
+	  "legacy-image-no-mode":    {"output_cost_per_image":0.02,"litellm_provider":"vertex_ai"}
 	}`
 	resp := buildCatalogFromBytes([]byte(fixture), time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC))
 	require.NotNil(t, resp)
@@ -113,6 +119,33 @@ func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 	assert.Equal(t, "video", vid.Pricing.BillingMode)
 	assert.InDelta(t, 0.4, vid.Pricing.OutputCostPerSecond, 1e-9)
 	assert.Zero(t, vid.Pricing.OutputCostPerImage)
+
+	legacy, ok := byID["legacy-image-no-mode"]
+	require.True(t, ok, "pure media rows without mode keep the backwards-compatible media fallback")
+	assert.Equal(t, "image", legacy.Pricing.BillingMode)
+	assert.InDelta(t, 0.02, legacy.Pricing.OutputCostPerImage, 1e-9)
+}
+
+func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) {
+	const fixture = `{
+	  "gemini-3.1-pro-low": {
+	    "input_cost_per_token":0.000002,
+	    "output_cost_per_token":0.000012,
+	    "output_cost_per_image":0.00012,
+	    "mode":"chat",
+	    "litellm_provider":"vertex_ai-language-models"
+	  }
+	}`
+	resp := buildCatalogFromBytes([]byte(fixture), time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
+	require.NotNil(t, resp)
+	require.Len(t, resp.Data, 1)
+
+	row := resp.Data[0]
+	assert.Equal(t, "gemini-3.1-pro-low", row.ModelID)
+	assert.Empty(t, row.Pricing.BillingMode, "chat rows must not become Studio media membership")
+	assert.Zero(t, row.Pricing.OutputCostPerImage, "per-image fields on chat rows are not media output prices")
+	assert.InDelta(t, 0.002, row.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.012, row.Pricing.OutputPer1KTokens, 1e-12)
 }
 
 // TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay

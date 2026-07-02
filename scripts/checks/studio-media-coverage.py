@@ -2,11 +2,12 @@
 """Guard Studio media presentation coverage.
 
 Backend media membership is catalog-driven: an image/video model becomes public
-usable when it is priced in tk_pricing_overlay.json and present in one of the
-servable sources (Go allowlists or the newapi served-models manifest). Studio
-metadata is presentation-only, but it must not lag backend public media models:
-images need explicit presentation plus a safe size/aspect contract, and videos
-need explicit presentation plus non-empty discrete durations.
+usable when the public pricing catalog carries `billing_mode=image|video` and
+the model id is present in one of the servable sources (Go allowlists or the
+newapi served-models manifest). Studio metadata is presentation-only, but it
+must not lag backend public media models: images need explicit presentation
+plus a safe size/aspect contract, and videos need explicit presentation plus
+non-empty discrete durations.
 """
 
 from __future__ import annotations
@@ -18,16 +19,14 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+BASE_CATALOG = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
 OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
 GO_ALLOWLIST = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
 MEDIA_PRESENTATIONS = REPO / "frontend/src/constants/studioMediaPresentations.tk.ts"
 
 MODALITIES = ("image", "video")
-MEDIA_PRICE_FIELDS = {
-    "image": ("image_generation", "output_cost_per_image"),
-    "video": ("video_generation", "output_cost_per_second"),
-}
+TOKEN_PRICE_FIELDS = ("input_cost_per_token", "output_cost_per_token")
 GO_SERVABLE_MAPS = (
     "supportedAnthropicCatalogModels",
     "supportedOpenAICatalogModels",
@@ -37,14 +36,75 @@ GO_SERVABLE_MAPS = (
 )
 
 
-def priced_media_ids(overlay_text: str, modality: str) -> set[str]:
-    expected_mode, cost_field = MEDIA_PRICE_FIELDS[modality]
-    data = json.loads(overlay_text)
-    out: set[str] = set()
-    for model_id, entry in data.items():
+def _positive(entry: dict[str, object], field: str) -> bool:
+    value = entry.get(field)
+    return isinstance(value, (int, float)) and value > 0
+
+
+def _has_price_field(entry: dict[str, object], field: str) -> bool:
+    return field in entry and entry.get(field) is not None
+
+
+def _catalog_media_modality(entry: dict[str, object]) -> str | None:
+    mode = entry.get("mode")
+    has_token_price = any(_has_price_field(entry, field) for field in TOKEN_PRICE_FIELDS)
+    pure_media_without_mode = not mode and not has_token_price
+    if _positive(entry, "output_cost_per_second") and (
+        mode == "video_generation" or pure_media_without_mode
+    ):
+        return "video"
+    if _positive(entry, "output_cost_per_image") and (
+        mode == "image_generation" or pure_media_without_mode
+    ):
+        return "image"
+    return None
+
+
+def _priced_catalog_row(entry: dict[str, object]) -> bool:
+    return any(
+        _has_price_field(entry, field)
+        for field in (*TOKEN_PRICE_FIELDS, "output_cost_per_image", "output_cost_per_second")
+    )
+
+
+def _overlay_catalog_entry(entry: dict[str, object]) -> dict[str, object]:
+    # Matches applyCatalogOverlayPricing's synthetic catalogRichEntry: overlay
+    # entries get token fields (zero when absent) plus explicit media fields.
+    out: dict[str, object] = {
+        "litellm_provider": entry.get("litellm_provider", ""),
+        "mode": entry.get("mode", ""),
+        "input_cost_per_token": entry.get("input_cost_per_token", 0),
+        "output_cost_per_token": entry.get("output_cost_per_token", 0),
+    }
+    for field in ("output_cost_per_image", "output_cost_per_second"):
+        if _positive(entry, field):
+            out[field] = entry[field]
+    return out
+
+
+def catalog_media_ids(catalog_text: str, overlay_text: str, modality: str) -> set[str]:
+    catalog = json.loads(catalog_text)
+    overlay = json.loads(overlay_text)
+    rows: dict[str, dict[str, object]] = {}
+    for model_id, entry in catalog.items():
+        if model_id == "sample_spec" or not isinstance(entry, dict):
+            continue
+        if _priced_catalog_row(entry):
+            rows[model_id] = dict(entry)
+
+    for model_id, entry in overlay.items():
         if model_id.startswith("_") or not isinstance(entry, dict):
             continue
-        if entry.get("mode") == expected_mode or (entry.get(cost_field) or 0) > 0:
+        is_media = _positive(entry, "output_cost_per_image") or _positive(entry, "output_cost_per_second")
+        if not _positive(entry, "input_cost_per_token") and not _positive(entry, "output_cost_per_token") and not is_media:
+            continue
+        if model_id in rows:
+            continue
+        rows[model_id] = _overlay_catalog_entry(entry)
+
+    out: set[str] = set()
+    for model_id, entry in rows.items():
+        if _catalog_media_modality(entry) == modality:
             out.add(model_id)
     return out
 
@@ -76,12 +136,13 @@ def servable_source_ids(go_text: str, manifest_text: str) -> set[str]:
 
 
 def public_servable_media_ids(
+    catalog_text: str,
     overlay_text: str,
     go_text: str,
     manifest_text: str,
     modality: str,
 ) -> set[str]:
-    return priced_media_ids(overlay_text, modality) & servable_source_ids(go_text, manifest_text)
+    return catalog_media_ids(catalog_text, overlay_text, modality) & servable_source_ids(go_text, manifest_text)
 
 
 def _media_presentations_array(ts_text: str) -> str:
@@ -154,9 +215,9 @@ def frontend_media_presentations(ts_text: str) -> dict[str, dict[str, object]]:
     return out
 
 
-def coverage_errors(overlay_text: str, go_text: str, manifest_text: str, ts_text: str) -> list[str]:
+def coverage_errors(catalog_text: str, overlay_text: str, go_text: str, manifest_text: str, ts_text: str) -> list[str]:
     public_by_modality = {
-        modality: public_servable_media_ids(overlay_text, go_text, manifest_text, modality)
+        modality: public_servable_media_ids(catalog_text, overlay_text, go_text, manifest_text, modality)
         for modality in MODALITIES
     }
     presentations = frontend_media_presentations(ts_text)
@@ -208,13 +269,14 @@ def coverage_errors(overlay_text: str, go_text: str, manifest_text: str, ts_text
 
 def check(quiet: bool = False) -> int:
     try:
+        catalog_text = BASE_CATALOG.read_text(encoding="utf-8")
         overlay_text = OVERLAY.read_text(encoding="utf-8")
         go_text = GO_ALLOWLIST.read_text(encoding="utf-8")
         manifest_text = MANIFEST.read_text(encoding="utf-8")
         ts_text = MEDIA_PRESENTATIONS.read_text(encoding="utf-8")
-        errors = coverage_errors(overlay_text, go_text, manifest_text, ts_text)
+        errors = coverage_errors(catalog_text, overlay_text, go_text, manifest_text, ts_text)
         counts = {
-            modality: len(public_servable_media_ids(overlay_text, go_text, manifest_text, modality))
+            modality: len(public_servable_media_ids(catalog_text, overlay_text, go_text, manifest_text, modality))
             for modality in MODALITIES
         }
     except Exception as exc:  # noqa: BLE001
@@ -235,6 +297,22 @@ def check(quiet: bool = False) -> int:
 
 
 def selftest() -> int:
+    catalog = json.dumps(
+        {
+            "base-catalog-image": {
+                "mode": "image_generation",
+                "output_cost_per_image": 0.011,
+                "litellm_provider": "vertex_ai",
+            },
+            "gemini-3.1-pro-low": {
+                "mode": "chat",
+                "input_cost_per_token": 0.000002,
+                "output_cost_per_token": 0.000012,
+                "output_cost_per_image": 0.00012,
+                "litellm_provider": "vertex_ai-language-models",
+            },
+        }
+    )
     overlay = json.dumps(
         {
             "imagen-4.0-generate-001": {"mode": "image_generation", "output_cost_per_image": 0.04},
@@ -252,8 +330,9 @@ def selftest() -> int:
     )
     go = (
         'var supportedGeminiCatalogModels = map[string]struct{}{\n'
-        '\t"imagen-4.0-generate-001": {},\n\t"veo-3.1-generate-001": {},\n}\n'
-        'var supportedAntigravityCatalogModels = map[string]struct{}{\n\t"gemini-3-pro-image": {},\n}\n'
+        '\t"base-catalog-image": {},\n\t"imagen-4.0-generate-001": {},\n\t"veo-3.1-generate-001": {},\n}\n'
+        'var supportedAntigravityCatalogModels = map[string]struct{}{\n'
+        '\t"gemini-3-pro-image": {},\n\t"gemini-3.1-pro-low": {},\n}\n'
         'var supportedGrokCatalogModels = map[string]struct{}{\n'
         '\t"grok-imagine-image": {},\n\t"grok-imagine-video": {},\n}\n'
     )
@@ -265,19 +344,22 @@ def selftest() -> int:
             }
         }
     )
-    assert public_servable_media_ids(overlay, go, manifest, "image") == {
+    assert public_servable_media_ids(catalog, overlay, go, manifest, "image") == {
+        "base-catalog-image",
         "doubao-seedream-5-0-260128",
         "gemini-3-pro-image",
         "grok-imagine-image",
         "imagen-4.0-generate-001",
     }
-    assert public_servable_media_ids(overlay, go, manifest, "video") == {
+    assert "gemini-3.1-pro-low" not in public_servable_media_ids(catalog, overlay, go, manifest, "image")
+    assert public_servable_media_ids(catalog, overlay, go, manifest, "video") == {
         "doubao-seedance-1-0-pro-fast-251015",
         "grok-imagine-video",
         "veo-3.1-generate-001",
     }
     ts = """
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
+  { modelId: 'base-catalog-image', modality: 'image', imageSizes: IMAGEN_IMAGE_SIZES },
   { modelId: 'imagen-4.0-generate-001', modality: 'image', imageSizes: IMAGEN_IMAGE_SIZES },
   { modelId: 'gemini-3-pro-image-preview', aliasIds: ['gemini-3-pro-image'], modality: 'image', flatImageBilling: true, imageSizes: GEMINI_IMAGE_SIZES },
   { modelId: 'grok-imagine-image', modality: 'image', flatPricePerImage: true },
@@ -291,14 +373,14 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     assert presentations["gemini-3-pro-image"]["model_id"] == "gemini-3-pro-image-preview"
     assert presentations["grok-imagine-image"]["flat_price_per_image"] is True
     assert presentations["veo-3.1-generate-001"]["durations"] == [4, 6, 8]
-    assert not coverage_errors(overlay, go, manifest, ts)
+    assert not coverage_errors(catalog, overlay, go, manifest, ts)
 
     bad_ts = """
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   { modelId: 'doubao-seedream-5-0-260128', modality: 'image' },
 ]
 """
-    bad_errors = coverage_errors(overlay, "", manifest, bad_ts)
+    bad_errors = coverage_errors(catalog, overlay, "", manifest, bad_ts)
     assert any("imageSizes or explicit flatPricePerImage" in err for err in bad_errors), bad_errors
 
     alias_ts = """

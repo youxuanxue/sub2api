@@ -158,6 +158,15 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(resolveAvailableModels('image', IMAGEN3, priceless)).toEqual([])
   })
 
+  it('does not infer media modality from price fields when billingMode is missing', () => {
+    const out = resolveAvailableModels(
+      'image',
+      new Set(['gemini-3.1-pro-low']),
+      new Map([['gemini-3.1-pro-low', { perImage: 0.00012 }]])
+    )
+    expect(out).toEqual([])
+  })
+
   it('resolves a model + price via an alias id and reports the served id', () => {
     const out = resolveAvailableModels(
       'image',

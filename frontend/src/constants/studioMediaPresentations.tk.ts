@@ -586,10 +586,7 @@ export function resolveAvailableModels(
   for (const servedId of availableIds) {
     const price = priceMap.get(servedId)
     if (!price) continue
-    const rowModality =
-      price.billingMode ??
-      (price.perSecond != null ? 'video' : price.perImage != null ? 'image' : undefined)
-    if (rowModality !== modality) continue
+    if (price.billingMode !== modality) continue
 
     const baseImagePrice = modality === 'image' ? price.perImage : undefined
     const perSecond = modality === 'video' ? price.perSecond : undefined

@@ -68,13 +68,14 @@ function mediaPriceFromCatalogRow(
   vendor: string | undefined
 ): MediaPrice | undefined {
   const billingMode = normalizeBillingMode(billingModeRaw)
+  if (!billingMode) return undefined
   const hasImage = perImage != null && perImage > 0
   const hasVideo = perSecond != null && perSecond > 0
-  if (!hasImage && !hasVideo) return undefined
+  if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo)) return undefined
   return {
-    perImage: hasImage ? perImage : undefined,
-    perSecond: hasVideo ? perSecond : undefined,
-    billingMode: billingMode ?? (hasVideo ? 'video' : hasImage ? 'image' : undefined),
+    perImage: billingMode === 'image' && hasImage ? perImage : undefined,
+    perSecond: billingMode === 'video' && hasVideo ? perSecond : undefined,
+    billingMode,
     vendor,
   }
 }
