@@ -17,31 +17,8 @@ func isOpenAICompatPlatform(platform string) bool {
 	return service.IsOpenAICompatPlatform(platform)
 }
 
-func isOpenAIResponsesCompatibleGatewayPlatform(platform string) bool {
-	switch platform {
-	case service.PlatformOpenAI, service.PlatformGrok:
-		return true
-	default:
-		return false
-	}
-}
-
-func rejectGrokUnsupportedEndpoint(c *gin.Context, endpoint string) {
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-	c.JSON(http.StatusNotFound, gin.H{
-		"error": gin.H{
-			"type":    "not_found_error",
-			"message": endpoint + " is not supported for Grok groups",
-		},
-	})
-}
-
 func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
-			rejectGrokUnsupportedEndpoint(c, "Messages API")
-			return
-		}
 		if isOpenAICompatPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.Messages(c)
 			return
@@ -52,30 +29,8 @@ func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 
 func tkOpenAICompatCountTokensPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformOpenAI {
-			h.OpenAIGateway.CountTokens(c)
-			return
-		}
 		if isOpenAICompatPlatform(getGroupPlatform(c)) {
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			c.JSON(http.StatusNotFound, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "not_found_error",
-					"message": "Token counting is not supported for this platform",
-				},
-			})
-			return
-		}
-		if isOpenAIResponsesCompatibleGatewayPlatform(getGroupPlatform(c)) {
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			c.JSON(http.StatusNotFound, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "not_found_error",
-					"message": "Token counting is not supported for this platform",
-				},
-			})
+			h.OpenAIGateway.CountTokens(c)
 			return
 		}
 		h.Gateway.CountTokens(c)
@@ -94,10 +49,6 @@ func tkOpenAICompatResponsesPOST(h *handler.Handlers) gin.HandlerFunc {
 
 func tkOpenAICompatResponsesWebSocketGET(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok {
-			rejectGrokUnsupportedEndpoint(c, "Responses WebSocket API")
-			return
-		}
 		h.OpenAIGateway.ResponsesWebSocket(c)
 	}
 }

@@ -142,34 +142,32 @@ func TestGatewayRoutesGrokAllowsChatCompletions(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesGrokRejectsUnsupportedOpenAICompatEndpoints(t *testing.T) {
+func TestGatewayRoutesGrokAllowsMessages(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
-	for _, tc := range []struct {
-		method string
-		path   string
-	}{
-		{http.MethodPost, "/v1/messages"},
-		{http.MethodGet, "/v1/responses"},
-		{http.MethodGet, "/responses"},
-		{http.MethodGet, "/backend-api/codex/responses"},
+	for _, path := range []string{
+		"/v1/messages",
 	} {
-		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{"model":"grok"}`))
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
-		require.Contains(t, w.Body.String(), "not supported for Grok groups")
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should reach Messages handler", path)
+		require.NotContains(t, w.Body.String(), "not supported for Grok groups")
 	}
+}
+
+func TestGatewayRoutesGrokAllowsCountTokensAndResponses(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"grok","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "Token counting is not supported for this platform")
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
 
 	for _, path := range []string{
 		"/v1/responses",
@@ -183,6 +181,30 @@ func TestGatewayRoutesGrokRejectsUnsupportedOpenAICompatEndpoints(t *testing.T) 
 		router.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should still reach Responses handler", path)
 	}
+}
+
+func TestGatewayRoutesNewAPICountTokensPathIsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
+}
+
+func TestGatewayRoutesGrokCountTokensPathIsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
 }
 
 // TestGatewayRoutesVideoGenerationPathsAreRegistered protects the four async

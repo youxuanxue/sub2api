@@ -19,6 +19,11 @@
 #       [--comment "free text"] \
 #       [--timeout-seconds 120]
 #
+# Endpoint route-gate matrix (group.platform × gateway path, prod):
+#   bash ops/observability/run-probe.sh --target prod \
+#       --script ops/observability/probe-endpoint-matrix.sh \
+#       --with ops/pricing/probe_reserved_resources.sh
+#
 #   --target prod        resolves region+instance from CloudFormation
 #                        (stack=tokenkey-prod-stage0, region=us-east-1)
 #   --target edge:<id>   resolves via ops/stage0/edge_ssm_execution.py when

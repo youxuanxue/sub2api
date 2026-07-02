@@ -700,9 +700,12 @@
     {
       "path": "frontend/src/views/admin/groupsMessagesDispatch.ts",
       "must_contain": [
-        "opus_mapped_model: \"gpt-5.5\","
+        "opus_mapped_model: \"gpt-5.5\",",
+        "GROK_MESSAGES_DISPATCH_DEFAULTS",
+        "grok-4.3",
+        "grok-code-fast-1"
       ],
-      "rationale": "Frontend mirror of the Go code-default opus family mapping (backend/internal/service/openai_messages_dispatch.go defaultOpenAIMessagesDispatchOpusMappedModel = gpt-5.5). The admin form prefills this value when group config is empty; if the two copies drift the UI shows a default the gateway will not apply. Keep both sides in lockstep."
+      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.5/gpt-5.3-codex/gpt-5.4-mini; grok groups prefilled with grok-4.3/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
     },
     {
       "path": "frontend/src/components/keys/UseKeyModal.vue",
