@@ -1,10 +1,12 @@
 ---
 title: Ops SLA error_owner scope
-status: pending
-approved_by: pending
+status: approved
+approved_by: "xuejiao (PR #1156 approval, 2026-07-02)"
+approved_at: 2026-07-02
 created: 2026-07-02
 owners: [tk-platform]
-scope: "Admin Ops SLA / error distribution public contract + tk_057 migration"
+related_prs: [1156]
+scope: "Admin Ops SLA / error distribution public contract + tk_057/tk_058 migrations"
 ---
 
 # Ops SLA error_owner scope
@@ -31,6 +33,10 @@ SSOT: `backend/internal/service/ops_sla_scope.go` (`IsOpsSLAFaultOwner`, `Comput
 - `ops_system_metrics.business_limited_count`
 - `ops_metrics_hourly.business_limited_count`
 - `ops_metrics_daily.business_limited_count`
+
+`backend/migrations/tk_058_update_routing_capacity_alert_description.sql` updates the
+seeded `routing_capacity_rejection_count` alert description to match the new
+`error_owner` SLA semantics.
 
 ## Public contract deltas
 
