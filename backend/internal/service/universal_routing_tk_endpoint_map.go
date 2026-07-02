@@ -27,7 +27,7 @@ const (
 	ShapeOpenAIChat                                 // POST /v1/chat/completions、/v1/responses
 	ShapeOpenAIEmbeddings                           // POST /v1/embeddings
 	ShapeOpenAIImages                               // POST /v1/images/generations
-	ShapeOpenAIImagesEdit                           // POST /v1/images/edits（仅 openai）
+	ShapeOpenAIImagesEdit                           // POST /v1/images/edits（openai + grok）
 	ShapeOpenAIVideo                                // POST /v1/video/generations + GET poll
 	ShapeGemini                                     // POST /v1beta/models/{model}:action
 )
@@ -75,32 +75,45 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 //   - forcedPlatform 非空（如 /antigravity 路由）→ 仅在该平台内解析。
 //   - openai-compat 集合从 OpenAICompatPlatforms() 派生；embeddings/images/video
 //     从 engine.capability 派生；anthropic/gemini 原生形状用原生平台常量。
-//   - hasMessagesDispatch：跨度内存在开了 messages-dispatch 的组时，/v1/messages
-//     才把 openai-compat 平台并入候选（用 Claude 名映射到 GPT 的场景）。
+//   - hasMessagesDispatch：跨度内存在开了 messages-dispatch 的组（或 Grok messages
+//     直通组）时，Anthropic-shaped 入口才把 openai-compat 平台并入候选；resolver
+//     之后还会按组逐一执行 allow_messages_dispatch 过滤。
 func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, hasMessagesDispatch bool, model string) []string {
 	if forcedPlatform != "" {
 		return []string{forcedPlatform}
 	}
 	switch shape {
 	case ShapeAnthropicMessages:
-		out := []string{PlatformAnthropic, PlatformAntigravity}
-		// Gemini /v1/messages (Anthropic-shaped bridge + tools) must reach gemini or
-		// antigravity pools — not openai-compat Codex passthrough.
-		if universalModelPlatformHint(model) == PlatformGemini {
-			out = append(out, PlatformGemini)
-		}
+		// Direct /v1/messages routes non-OpenAI-compatible groups through
+		// Gateway.Messages, which supports Anthropic, Antigravity, Gemini and
+		// Kiro. Gemini must stay in this native set so universal keys do not route
+		// Gemini Anthropic-shaped requests into OpenAI/Codex passthrough.
+		// OpenAI-compatible groups are opt-in via messages-dispatch policy.
+		out := []string{PlatformAnthropic, PlatformAntigravity, PlatformGemini, PlatformKiro}
 		if hasMessagesDispatch {
 			out = append(out, OpenAICompatPlatforms()...)
 		}
 		return out
 	case ShapeAnthropicCountTokens:
-		out := []string{PlatformAnthropic, PlatformAntigravity}
-		out = append(out, OpenAICompatPlatforms()...)
+		// Direct count_tokens has native/local-estimate coverage for
+		// Anthropic/Antigravity/Gemini/Kiro. OpenAI-compatible count_tokens uses
+		// the messages-dispatch bridge and is filtered per group below.
+		out := []string{PlatformAnthropic, PlatformAntigravity, PlatformGemini, PlatformKiro}
+		if hasMessagesDispatch {
+			out = append(out, OpenAICompatPlatforms()...)
+		}
 		return out
 	case ShapeOpenAIChat:
 		out := OpenAICompatPlatforms()
 		if universalModelPlatformHint(model) == PlatformAnthropic {
 			out = append(out, PlatformAnthropic)
+		}
+		// Direct Gemini groups support /v1/chat/completions through
+		// GeminiMessagesCompatService.ForwardAsChatCompletions. Universal keys
+		// must reach the same group for Gemini text models instead of returning
+		// 403 at candidate filtering time.
+		if universalModelPlatformHint(model) == PlatformGemini {
+			out = append(out, PlatformGemini)
 		}
 		// Gemini-native image models (gemini-*-image, nano-banana) ride
 		// /v1/chat/completions but are served by the antigravity pool — not
@@ -114,9 +127,13 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 	case ShapeOpenAIEmbeddings:
 		return capabilityPlatforms(engine.BridgeEndpointEmbeddings)
 	case ShapeOpenAIImages:
-		return capabilityPlatforms(engine.BridgeEndpointImages)
+		out := capabilityPlatforms(engine.BridgeEndpointImages)
+		if universalModelPlatformHint(model) == PlatformGrok {
+			out = append(out, PlatformGrok)
+		}
+		return out
 	case ShapeOpenAIImagesEdit:
-		return []string{PlatformOpenAI} // /v1/images/edits 仅 openai（handler 层硬门）
+		return []string{PlatformOpenAI, PlatformGrok}
 	case ShapeOpenAIVideo:
 		out := capabilityPlatforms(engine.BridgeEndpointVideoSubmit)
 		// grok-imagine-video rides the native xAI OAuth video API (channel_type=0),

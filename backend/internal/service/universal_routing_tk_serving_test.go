@@ -389,6 +389,112 @@ func TestResolve_ClaudeOpenAIShapePicksAnthropic(t *testing.T) {
 	}
 }
 
+func TestResolve_GeminiAnthropicShapePicksGemini(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(40, PlatformGemini, 5, false),
+		grp(2, PlatformOpenAI, 1, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		40: {"gemini-2.5-flash"},
+		2:  {"gpt-5"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, "gemini-2.5-flash", "")
+	if err != nil || g == nil || g.ID != 40 {
+		t.Fatalf("gemini @/v1/messages 应落 gemini gid=40, got=%v err=%v", g, err)
+	}
+	g, err = r.Resolve(ctx, universalKey(1), ShapeAnthropicCountTokens, "gemini-2.5-flash", "")
+	if err != nil || g == nil || g.ID != 40 {
+		t.Fatalf("gemini @count_tokens 应落 gemini gid=40, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GeminiOpenAIShapePicksGemini(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(40, PlatformGemini, 5, false),
+		grp(2, PlatformOpenAI, 1, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		40: {"gemini-2.5-flash"},
+		2:  {"gpt-5"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIChat, "gemini-2.5-flash", "")
+	if err != nil || g == nil || g.ID != 40 {
+		t.Fatalf("gemini @openai-shape 应落 gemini gid=40, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_KiroAnthropicShapePicksKiroWhenOnlyEntitled(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{grp(70, PlatformKiro, 5, false)}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{})) // native Kiro fallback
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, "claude-sonnet-4-6", "")
+	if err != nil || g == nil || g.ID != 70 {
+		t.Fatalf("claude @/v1/messages with only kiro entitlement 应落 kiro gid=70, got=%v err=%v", g, err)
+	}
+	g, err = r.Resolve(ctx, universalKey(1), ShapeAnthropicCountTokens, "claude-sonnet-4-6", "")
+	if err != nil || g == nil || g.ID != 70 {
+		t.Fatalf("claude @count_tokens with only kiro entitlement 应落 kiro gid=70, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_MessagesDispatchFiltersPerGroupPolicy(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		dispatchGrp(2, PlatformOpenAI, 1, false), // serves gpt but direct /messages would 403
+		dispatchGrp(11, PlatformNewAPI, 5, true), // opens compat candidates but does not serve gpt
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		2:  {"gpt-5"},
+		11: {"deepseek-chat"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, "gpt-5", "")
+	if err != ErrUniversalNoEntitledGroup || g != nil {
+		t.Fatalf("universal must not pick a direct-disallowed /messages group, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_CountTokensFiltersPerGroupPolicy(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		dispatchGrp(2, PlatformOpenAI, 1, false), // serves gpt but direct count_tokens would 403
+		dispatchGrp(11, PlatformNewAPI, 5, true), // opens compat candidates but does not serve gpt
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		2:  {"gpt-5"},
+		11: {"deepseek-chat"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicCountTokens, "gpt-5", "")
+	if err != ErrUniversalNoEntitledGroup || g != nil {
+		t.Fatalf("universal must not pick a direct-disallowed count_tokens group, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GrokMessagesDoesNotRequireMessagesDispatch(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{dispatchGrp(25, PlatformGrok, 0, false)}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		25: {"grok-4.3"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, "grok-4.3", "")
+	if err != nil || g == nil || g.ID != 25 {
+		t.Fatalf("grok /v1/messages 应与 direct key 一样不要求 messages_dispatch, got=%v err=%v", g, err)
+	}
+}
+
 // 安全兜底:provider 未接线(nil)→ 退回平台级现状(不因新逻辑改变行为)。
 func TestResolve_NilProviderFallsBackToPlatformLevel(t *testing.T) {
 	ctx := context.Background()
@@ -568,6 +674,24 @@ func TestResolve_CountTokensDispatchesGrok(t *testing.T) {
 	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicCountTokens, "grok-4.3", "")
 	if err != nil || g == nil || g.ID != 25 {
 		t.Fatalf("count_tokens+grok 应落 grok 组 gid=25, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GrokImagePicksGrok(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(25, PlatformGrok, 0, false),
+		grp(2, PlatformOpenAI, 1, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		25: {"grok-imagine"},
+		2:  {"gpt-image-1"},
+	}))
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIImages, "grok-imagine", "")
+	if err != nil || g == nil || g.ID != 25 {
+		t.Fatalf("grok image 应落 grok 组 gid=25, got=%v err=%v", g, err)
 	}
 }
 

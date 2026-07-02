@@ -22,13 +22,16 @@ Universal Key 按「入口端点形状 + 请求模型名」在请求期把一把
 
 ### universal-key 命名空间盲区（务必知道）
 
-universal 只能按**模型前缀 hint** 选平台
-（`backend/internal/service/universal_routing_tk_endpoint_map.go`）：
+universal 先按**端点形状**给候选平台，再用 direct scheduler 同口径的模型支持判定收敛
+（`backend/internal/service/universal_routing_tk_endpoint_map.go` +
+`backend/internal/service/universal_routing_tk_serving.go`）。它已经不是单纯前缀匹配。
 
-- `claude-*` 永远落 **anthropic** → 到不了 **kiro**（kiro 也服务 claude-*）。
-  **kiro 需一把绑 kiro 组的 direct key**（`TK_FULLTEST_KIRO_KEY`），缺则该行 SKIP。
-- `gemini-*` 落 **gemini** → 到不了 antigravity 的原生调度。
-  **antigravity 经其 forced-platform 路由** `/antigravity/v1beta/models/<m>:generateContent` 强制到达。
+仍然存在的盲区是**同一个模型名同时被多个平台服务**时，普通请求体里没有“我要哪个平台”的信号：
+
+- `claude-*` 可由 **anthropic** 和 **kiro** 服务；universal 会按授权跨度和排序选择一个后端组。
+  矩阵里的 **kiro 行仍需一把绑 kiro 组的 direct key**（`TK_FULLTEST_KIRO_KEY`）补测，缺则该行 SKIP。
+- antigravity 的原生 Gemini 调度经 forced-platform 路由
+  `/antigravity/v1beta/models/<m>:generateContent` 强制到达。
 
 ## 用法
 

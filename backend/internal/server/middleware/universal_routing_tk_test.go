@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -228,6 +229,30 @@ func TestPeekModelFromJSONBody_RestoresBody(t *testing.T) {
 	}
 }
 
+func TestPeekImageEditModel_MultipartRestoresBody(t *testing.T) {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	require.NoError(t, writer.WriteField("prompt", "edit this"))
+	filePart, err := writer.CreateFormFile("image", "cat.png")
+	require.NoError(t, err)
+	_, err = filePart.Write([]byte("fake-png"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField("model", "grok-imagine"))
+	require.NoError(t, writer.Close())
+
+	body := append([]byte(nil), buf.Bytes()...)
+	c, _ := newTestCtx(http.MethodPost, "/v1/images/edits", "")
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+
+	if got := peekImageEditModel(c); got != "grok-imagine" {
+		t.Fatalf("peek image-edit model = %q want grok-imagine", got)
+	}
+	rest, err := io.ReadAll(c.Request.Body)
+	require.NoError(t, err)
+	require.Equal(t, body, rest, "downstream image handler must see original multipart body after peek")
+}
+
 func TestPeekModelFromJSONBody_RestoresCompressedBody(t *testing.T) {
 	const payload = `{"model":"grok-4","messages":[{"role":"user","content":"hi"}]}`
 	var gz bytes.Buffer
@@ -439,6 +464,54 @@ func TestMaybeResolveUniversal_VideoSubmitPeeksModelAndRoutesToVideoGroup(t *tes
 	if !strings.Contains(string(rest), `"model":"`+videoModel+`"`) {
 		t.Fatalf("video submit body not restored after peek: %q", string(rest))
 	}
+}
+
+func TestMaybeResolveUniversal_ImageEditMultipartRoutesByModel(t *testing.T) {
+	const imageModel = "grok-imagine"
+	openaiGroup := activeGroup(2, service.PlatformOpenAI) // lower id: would win without model convergence
+	openaiGroup.AllowImageGeneration = true
+	grokGroup := activeGroup(25, service.PlatformGrok)
+	grokGroup.AllowImageGeneration = true
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{openaiGroup, grokGroup}})
+	resolver.SetAvailableModelsProvider(func(_ context.Context, groupID *int64, _ string) []string {
+		if groupID == nil {
+			return nil
+		}
+		switch *groupID {
+		case openaiGroup.ID:
+			return []string{"gpt-image-1"}
+		case grokGroup.ID:
+			return []string{imageModel}
+		default:
+			return nil
+		}
+	})
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	require.NoError(t, writer.WriteField("prompt", "edit this"))
+	filePart, err := writer.CreateFormFile("image", "cat.png")
+	require.NoError(t, err)
+	_, err = filePart.Write([]byte("fake-png"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField("model", imageModel))
+	require.NoError(t, writer.Close())
+	body := append([]byte(nil), buf.Bytes()...)
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/images/edits", "")
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("image edit resolve should succeed (continue auth)")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != grokGroup.ID {
+		t.Fatalf("image edit must route by multipart model to grok group %d, got %v", grokGroup.ID, apiKey.GroupID)
+	}
+	rest, err := io.ReadAll(c.Request.Body)
+	require.NoError(t, err)
+	require.Equal(t, body, rest, "downstream image-edit handler must see original multipart body after peek")
 }
 
 // The GET poll path carries no body and no model — it must NOT attempt to read a
