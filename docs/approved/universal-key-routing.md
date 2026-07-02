@@ -74,7 +74,7 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
     `/v1/responses`;实测报告必须继续区分 route-gate 与 live servability。
   - `/v1/embeddings`、`/v1/images/generations`、`/v1/video/*` → capability(`[openai, newapi]`);
     Grok 原生 image/video 模型额外纳入 `[grok]`;`/v1/images/edits` → `[openai, grok]`
-    (direct handler 当前支持这两个平台;multipart 不读模型,多组并存时按 universal 确定性排序)。
+    (direct handler 当前支持这两个平台;JSON/multipart 的 `model` 字段用于在两者间收敛)。
   - `/v1beta/models/*` POST → `[gemini, antigravity]`;GET 元数据(含 `/v1/models`)→ 跳过。
 - 解析器 `universal_routing_tk_resolver.go`:取(短 TTL 缓存的)权限跨度 `GetAvailableGroups` →
   跨度 ∩ 候选平台(active)→ **「组已服务模型集」真值过滤(见下)** → **确定性挑选(持订阅优先
@@ -120,7 +120,8 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
 5. `count_tokens` 按模型在 Anthropic/Antigravity/Gemini/Kiro/OpenAI-compatible 授权组内收敛;
    `/v1/models` PR1 回落默认(PR3 给并集)。
 6. 安全:全能 key 泄露面=该用户全部授权平台 → 默认全能宜配 key 级总额度;想锁单平台关开关。
-7. images/edits 与 video 是 multipart/poll,按端点形状路由(候选≤2),不深挖 body 模型名。
+7. images/edits 仅读取 JSON/multipart 的 `model` 字段用于路由,不解析/复制上传内容;
+   video submit 读取 JSON 模型名,poll 复用任务记录里的 submit-time 路由。
 8. 后台没有的能力变不出来(无视频账号的平台不会凭空有视频)。
 
 ## 5. 守卫

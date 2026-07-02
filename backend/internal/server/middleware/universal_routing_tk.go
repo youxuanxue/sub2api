@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"strings"
 
@@ -135,8 +137,7 @@ func universalShapeLabel(shape service.UniversalShape) string {
 }
 
 // peekUniversalModel 取请求模型名（仅作平台偏好提示）。body 类端点读 body 后“原样还原”
-// （连同原始头），让后续 handler 的 body 读取行为字节级不受影响；gemini 取 URL；
-// images/edits 是 multipart（不读 body）。
+// （连同原始头），让后续 handler 的 body 读取行为字节级不受影响；gemini 取 URL。
 //
 // video：POST 提交（submit）是 JSON body，必须读出模型名 —— 候选平台 [openai, newapi]
 // 跨多个后端组（如 google-vertex ch41 / volcengine ch45 才支持视频，而 deepseek ch43 /
@@ -154,7 +155,7 @@ func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 		}
 		return c.Param("model")
 	case service.ShapeOpenAIImagesEdit:
-		return "" // multipart：无需模型
+		return peekImageEditModel(c)
 	case service.ShapeOpenAIVideo:
 		if c.Request != nil && strings.EqualFold(c.Request.Method, http.MethodPost) {
 			return peekModelFromJSONBody(c) // submit：JSON body 含 model
@@ -169,34 +170,101 @@ func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 // 关键：还原的是“原始字节 + 原始头”，绝不改动 Content-Encoding/Length，使 handler 后续
 // 调用 ReadRequestBodyWithPrealloc 的行为与本中间件未运行时完全一致。
 func peekModelFromJSONBody(c *gin.Context) string {
-	if c.Request == nil || c.Request.Body == nil {
+	raw, ok := readAndRestoreUniversalBody(c)
+	if !ok {
 		return ""
+	}
+	return extractModelFromJSONBytes(c, raw)
+}
+
+// peekImageEditModel reads the model field for /v1/images/edits. Unlike generic
+// JSON endpoints, image edits are commonly multipart; only the small "model"
+// form field is copied, while upload parts are skipped by the multipart reader.
+func peekImageEditModel(c *gin.Context) string {
+	raw, ok := readAndRestoreUniversalBody(c)
+	if !ok {
+		return ""
+	}
+	if model := extractModelFromJSONBytes(c, raw); model != "" {
+		return model
+	}
+	peekBytes := universalPeekBytes(c, raw)
+	if len(peekBytes) == 0 {
+		return ""
+	}
+	return extractMultipartModelField(c.GetHeader("Content-Type"), peekBytes)
+}
+
+func readAndRestoreUniversalBody(c *gin.Context) ([]byte, bool) {
+	if c.Request == nil || c.Request.Body == nil {
+		return nil, false
 	}
 	raw, err := io.ReadAll(c.Request.Body) // 受上游 bodyLimit(MaxBytesReader) 约束
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
 	if err != nil {
-		// body 可能已被部分消费；尽力还原已读到的字节，避免 handler 拿到空 body。
-		c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+		return nil, false
+	}
+	return raw, true
+}
+
+func extractModelFromJSONBytes(c *gin.Context, raw []byte) string {
+	peekBytes := universalPeekBytes(c, raw)
+	if len(peekBytes) == 0 {
 		return ""
 	}
-	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
-
-	peekBytes := raw
-	if enc := strings.ToLower(strings.TrimSpace(c.Request.Header.Get("Content-Encoding"))); enc != "" && enc != "identity" {
-		// 仅对较小的压缩体解码取模型,界定额外解码内存(模型名是平台偏好提示,
-		// 大体跳过只是退回确定性挑组,不影响功能)。原始体已还原,不受影响。
-		if len(raw) > universalPeekMaxCompressedBytes {
-			return ""
-		}
-		if decoded, derr := pkghttputil.DecodeContentEncodedBody(enc, raw); derr == nil {
-			peekBytes = decoded
-		}
-	}
-
 	var probe struct {
 		Model string `json:"model"`
 	}
 	_ = json.Unmarshal(peekBytes, &probe)
 	return strings.TrimSpace(probe.Model)
+}
+
+func universalPeekBytes(c *gin.Context, raw []byte) []byte {
+	peekBytes := raw
+	if enc := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Encoding"))); enc != "" && enc != "identity" {
+		// 仅对较小的压缩体解码取模型,界定额外解码内存(模型名是平台偏好提示,
+		// 大体跳过只是退回确定性挑组,不影响功能)。原始体已还原,不受影响。
+		if len(raw) > universalPeekMaxCompressedBytes {
+			return nil
+		}
+		if decoded, derr := pkghttputil.DecodeContentEncodedBody(enc, raw); derr == nil {
+			peekBytes = decoded
+		}
+	}
+	return peekBytes
+}
+
+const universalMultipartModelMaxBytes = 8 << 10
+
+func extractMultipartModelField(contentType string, raw []byte) string {
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
+		return ""
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return ""
+	}
+	reader := multipart.NewReader(bytes.NewReader(raw), boundary)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return ""
+		}
+		if err != nil {
+			return ""
+		}
+		if strings.TrimSpace(part.FormName()) != "model" {
+			_ = part.Close()
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(part, universalMultipartModelMaxBytes+1))
+		_ = part.Close()
+		if readErr != nil || len(data) > universalMultipartModelMaxBytes {
+			return ""
+		}
+		return strings.TrimSpace(string(data))
+	}
 }
 
 // geminiModelFromAction 从 "{model}:{action}"（或纯 "{model}"）里取模型名。
