@@ -158,7 +158,7 @@ func TestGatewayRoutesGrokAllowsMessages(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesGrokRejectsUnsupportedOpenAICompatEndpoints(t *testing.T) {
+func TestGatewayRoutesGrokAllowsCountTokensAndResponses(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"grok","messages":[{"role":"user","content":"hi"}]}`))

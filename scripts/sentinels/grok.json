@@ -366,9 +366,10 @@
       "path": "backend/internal/server/routes/gateway_test.go",
       "must_contain": [
         "TestGatewayRoutesGrokAllowsChatCompletions",
-        "TestGatewayRoutesGrokAllowsMessages"
+        "TestGatewayRoutesGrokAllowsMessages",
+        "TestGatewayRoutesGrokCountTokensPathIsRegistered"
       ],
-      "rationale": "Route-table guards: grok groups must reach OpenAIGateway ChatCompletions and Messages (prod→edge relay uses raw CC and Anthropic→Responses compat). Re-adding rejectGrokUnsupportedEndpoint for either path silently breaks grok clients while /v1/responses still works."
+      "rationale": "Route-table guards: grok groups must reach OpenAIGateway ChatCompletions, Messages, and count_tokens (prod→edge relay uses raw CC, Anthropic→Responses compat, and Claude Code token counting). Re-adding rejectGrokUnsupportedEndpoint or reverting tkOpenAICompatCountTokensPOST routing silently breaks grok clients while /v1/responses still works."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw_test.go",
