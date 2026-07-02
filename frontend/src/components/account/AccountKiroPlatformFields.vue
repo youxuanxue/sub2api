@@ -16,54 +16,55 @@ const props = withDefaults(
   }
 )
 
+const fields = props.fields
 const { t } = useI18n()
 
 const tokenJsonModel = computed({
-  get: () => props.fields.tokenJsonInput.value,
+  get: () => fields.tokenJsonInput.value,
   set: (value: string) => {
-    props.fields.tokenJsonInput.value = value
+    fields.tokenJsonInput.value = value
   }
 })
 
 const registrationJsonModel = computed({
-  get: () => props.fields.registrationJsonInput.value,
+  get: () => fields.registrationJsonInput.value,
   set: (value: string) => {
-    props.fields.registrationJsonInput.value = value
+    fields.registrationJsonInput.value = value
   }
 })
 
 const regionModel = computed({
-  get: () => props.fields.region.value,
+  get: () => fields.region.value,
   set: (value: string) => {
-    props.fields.region.value = value
+    fields.region.value = value
   }
 })
 
 const authMethodModel = computed({
-  get: () => props.fields.authMethod.value,
+  get: () => fields.authMethod.value,
   set: (value: 'social' | 'idc') => {
-    props.fields.authMethod.value = value
+    fields.authMethod.value = value
   }
 })
 
 const machineIdModel = computed({
-  get: () => props.fields.machineId.value,
+  get: () => fields.machineId.value,
   set: (value: string) => {
-    props.fields.machineId.value = value
+    fields.machineId.value = value
   }
 })
 
 const profileArnModel = computed({
-  get: () => props.fields.profileArn.value,
+  get: () => fields.profileArn.value,
   set: (value: string) => {
-    props.fields.profileArn.value = value
+    fields.profileArn.value = value
   }
 })
 
 const tosModel = computed({
-  get: () => props.fields.tosAcknowledged.value,
+  get: () => fields.tosAcknowledged.value,
   set: (value: boolean) => {
-    props.fields.tosAcknowledged.value = value
+    fields.tosAcknowledged.value = value
   }
 })
 

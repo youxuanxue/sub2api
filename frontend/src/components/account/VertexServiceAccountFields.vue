@@ -17,19 +17,20 @@ const props = withDefaults(
   }
 )
 
+const fields = props.fields
 const { t } = useI18n()
 
 const jsonInputModel = computed({
-  get: () => props.fields.jsonInput.value,
+  get: () => fields.jsonInput.value,
   set: (value: string) => {
-    props.fields.jsonInput.value = value
+    fields.jsonInput.value = value
   }
 })
 
 const locationModel = computed({
-  get: () => props.fields.location.value,
+  get: () => fields.location.value,
   set: (value: string) => {
-    props.fields.location.value = value
+    fields.location.value = value
   }
 })
 

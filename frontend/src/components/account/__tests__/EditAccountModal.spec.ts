@@ -577,6 +577,38 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.project_id).toBe('demo-project')
   })
 
+  it('preserves stored Vertex SA JSON when edit textarea is left empty (write-once)', async () => {
+    const account = buildVertexAccount()
+    account.credentials = {
+      project_id: 'demo-project',
+      client_email: 'sa@example.iam.gserviceaccount.com',
+      location: 'us-central1',
+      tier_id: 'vertex'
+    }
+    account.credentials_status = { has_service_account_json: true }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get<HTMLTextAreaElement>('[data-testid="vertex-sa-json-input"]').element.value).toBe('')
+
+    await wrapper.get<HTMLSelectElement>('select').setValue('europe-west1')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials as Record<string, unknown>
+    expect(credentials).toMatchObject({
+      project_id: 'demo-project',
+      client_email: 'sa@example.iam.gserviceaccount.com',
+      location: 'europe-west1',
+      tier_id: 'vertex'
+    })
+    expect(credentials).not.toHaveProperty('service_account_json')
+  })
+
   it('allows saving Vertex SA account against legacy backend without credentials_status', async () => {
     // 新前端 + 旧后端：credentials_status 缺失，但 credentials.service_account_json 仍是明文，应允许保存
     const account = buildVertexAccount()
@@ -612,6 +644,38 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).not.toHaveBeenCalled()
+  })
+
+  it('preserves stored Kiro tokens when token JSON textarea is left empty (write-once)', async () => {
+    const account = buildKiroAccount()
+    account.credentials_status = { has_access_token: true, has_refresh_token: true }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get<HTMLTextAreaElement>('[data-testid="kiro-token-json-input"]').element.value).toBe('')
+
+    await wrapper.get<HTMLInputElement>('input[placeholder="us-east-1"]').setValue('eu-west-1')
+    await wrapper
+      .get<HTMLInputElement>('input[placeholder="admin.accounts.kiroPlatform.machineIdPlaceholder"]')
+      .setValue('updated-machine-id')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials as Record<string, unknown>
+    expect(credentials).toMatchObject({
+      region: 'eu-west-1',
+      auth_method: 'social',
+      machine_id: 'updated-machine-id',
+      tos_acknowledged: true
+    })
+    expect(credentials).not.toHaveProperty('access_token')
+    expect(credentials).not.toHaveProperty('refresh_token')
+    expect(credentials).not.toHaveProperty('client_secret')
   })
 
   it('renders and submits Kiro credential fields in edit mode', async () => {
