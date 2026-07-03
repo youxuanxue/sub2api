@@ -244,7 +244,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-A"}',
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-B"}',
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-A"}',
-            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-only"}',
+            'CC_CAPTURE {"model":"claude-sonnet-4-6","anthropic_beta":"sonnet-only"}',
             'CC_CAPTURE {"model":"claude-opus-4-5-20251101","anthropic_beta":"opus-only"}',
         ]
         with tempfile.TemporaryDirectory() as tmp:
