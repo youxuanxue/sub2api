@@ -21,13 +21,17 @@ type opsFeishuNotificationState struct {
 	limiter  *slidingWindowLimiter
 	notifier *opsFeishuNotifier
 	sentAt   map[string]time.Time
+	// firedFeishuEventIDs records alert events whose P0 firing card was actually
+	// delivered, so auto-resolve can send a paired green recovery card.
+	firedFeishuEventIDs map[int64]struct{}
 }
 
 func newOpsFeishuNotificationState() *opsFeishuNotificationState {
 	return &opsFeishuNotificationState{
-		limiter:  newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
-		notifier: newOpsFeishuNotifier(),
-		sentAt:   map[string]time.Time{},
+		limiter:             newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
+		notifier:            newOpsFeishuNotifier(),
+		sentAt:              map[string]time.Time{},
+		firedFeishuEventIDs: map[int64]struct{}{},
 	}
 }
 
@@ -124,6 +128,54 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertFeishu(ctx context.Context, run
 		return false
 	}
 	state.markSent(rule, event)
+	state.markFiringDelivered(event)
+	return true
+}
+
+func (s *OpsAlertEvaluatorService) maybeSendAlertFeishuRecovery(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rule *OpsAlertRule, event *OpsAlertEvent, currentMetricValue float64) bool {
+	if s == nil || s.opsService == nil || rule == nil || event == nil {
+		return false
+	}
+	if s.isEdgeNode() && isEdgeSuppressedAlertRule(rule) {
+		return false
+	}
+	if !shouldSendOpsAlertFeishuRecovery(rule, event) {
+		return false
+	}
+	cfg, err := s.opsService.GetEmailNotificationConfig(ctx)
+	if err != nil || cfg == nil || !cfg.Feishu.Enabled {
+		return false
+	}
+	if strings.TrimSpace(cfg.Feishu.WebhookURL) == "" {
+		return false
+	}
+	if runtimeCfg != nil && runtimeCfg.Silencing.Enabled {
+		if isOpsAlertSilenced(time.Now().UTC(), rule, event, runtimeCfg.Silencing) {
+			return false
+		}
+	}
+	state := s.feishuState
+	if state == nil {
+		state = newOpsFeishuNotificationState()
+		s.feishuState = state
+	}
+	if !state.shouldSendRecovery(rule, event) {
+		return false
+	}
+	notifier := state.notifier
+	if notifier == nil {
+		notifier = newOpsFeishuNotifier()
+	}
+	frontendURL := ""
+	if s.cfg != nil {
+		frontendURL = s.cfg.Server.FrontendURL
+	}
+	current := currentMetricValue
+	if err := notifier.sendRecovery(ctx, cfg.Feishu, frontendURL, rule, event, &current); err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] feishu recovery send failed event_id=%d rule_id=%d error=%s", event.ID, rule.ID, err.Error())
+		return false
+	}
+	state.markRecoverySent(rule, event)
 	return true
 }
 
@@ -131,6 +183,19 @@ func shouldSendOpsAlertToFeishu(rule *OpsAlertRule, event *OpsAlertEvent) bool {
 	return rule != nil && event != nil &&
 		strings.EqualFold(strings.TrimSpace(event.Status), OpsAlertStatusFiring) &&
 		strings.EqualFold(strings.TrimSpace(rule.Severity), "P0") &&
+		strings.EqualFold(strings.TrimSpace(event.Severity), "P0") &&
+		rule.NotifyEmail
+}
+
+func shouldSendOpsAlertFeishuRecovery(rule *OpsAlertRule, event *OpsAlertEvent) bool {
+	if rule == nil || event == nil {
+		return false
+	}
+	status := strings.TrimSpace(event.Status)
+	if !strings.EqualFold(status, OpsAlertStatusResolved) && !strings.EqualFold(status, OpsAlertStatusManualResolved) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(rule.Severity), "P0") &&
 		strings.EqualFold(strings.TrimSpace(event.Severity), "P0") &&
 		rule.NotifyEmail
 }
@@ -171,6 +236,53 @@ func (s *opsFeishuNotificationState) markSent(rule *OpsAlertRule, event *OpsAler
 	s.sentAt[opsFeishuDedupeKey(rule, event)] = time.Now().UTC()
 }
 
+func (s *opsFeishuNotificationState) markFiringDelivered(event *OpsAlertEvent) {
+	if s == nil || event == nil || event.ID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.firedFeishuEventIDs == nil {
+		s.firedFeishuEventIDs = map[int64]struct{}{}
+	}
+	s.firedFeishuEventIDs[event.ID] = struct{}{}
+}
+
+func (s *opsFeishuNotificationState) shouldSendRecovery(rule *OpsAlertRule, event *OpsAlertEvent) bool {
+	if s == nil || rule == nil || event == nil || event.ID <= 0 {
+		return false
+	}
+	s.mu.Lock()
+	_, paired := s.firedFeishuEventIDs[event.ID]
+	if !paired {
+		s.mu.Unlock()
+		return false
+	}
+	key := opsFeishuRecoveryDedupeKey(rule, event)
+	_, seen := s.sentAt[key]
+	s.mu.Unlock()
+	if seen {
+		return false
+	}
+	if s.limiter == nil {
+		s.limiter = newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour)
+	}
+	return s.limiter.Allow(time.Now().UTC())
+}
+
+func (s *opsFeishuNotificationState) markRecoverySent(rule *OpsAlertRule, event *OpsAlertEvent) {
+	if s == nil || rule == nil || event == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sentAt == nil {
+		s.sentAt = map[string]time.Time{}
+	}
+	s.sentAt[opsFeishuRecoveryDedupeKey(rule, event)] = time.Now().UTC()
+	delete(s.firedFeishuEventIDs, event.ID)
+}
+
 func opsFeishuDedupeKey(rule *OpsAlertRule, event *OpsAlertEvent) string {
 	if rule == nil || event == nil {
 		return ""
@@ -189,4 +301,11 @@ func opsFeishuDedupeKey(rule *OpsAlertRule, event *OpsAlertEvent) string {
 		parts = append(parts, fmt.Sprintf("%s:%v", k, event.Dimensions[k]))
 	}
 	return strings.Join(parts, "|")
+}
+
+func opsFeishuRecoveryDedupeKey(rule *OpsAlertRule, event *OpsAlertEvent) string {
+	if rule == nil || event == nil {
+		return ""
+	}
+	return fmt.Sprintf("recovery:event:%d|rule:%d", event.ID, rule.ID)
 }

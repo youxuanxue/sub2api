@@ -85,6 +85,17 @@ func (n *opsFeishuNotifier) sendAlert(ctx context.Context, cfg OpsFeishuAlertCon
 	return sendFeishuPayload(ctx, n.httpClient, cfg, payload)
 }
 
+func (n *opsFeishuNotifier) sendRecovery(ctx context.Context, cfg OpsFeishuAlertConfig, frontendURL string, rule *OpsAlertRule, event *OpsAlertEvent, currentMetricValue *float64) error {
+	if n == nil {
+		n = newOpsFeishuNotifier()
+	}
+	payload, err := n.buildRecoveryPayload(cfg, frontendURL, rule, event, currentMetricValue)
+	if err != nil {
+		return err
+	}
+	return sendFeishuPayload(ctx, n.httpClient, cfg, payload)
+}
+
 // feishuCardPayload builds the interactive-card envelope (header template/title
 // + lark_md body) and signs it when a secret is configured. Both the ops alert
 // path (buildPayload) and the account-incident path reuse it so the card shape +
@@ -180,6 +191,23 @@ func (n *opsFeishuNotifier) buildPayload(cfg OpsFeishuAlertConfig, frontendURL s
 	return feishuCardPayload(cfg, now, "red", title, text), nil
 }
 
+func (n *opsFeishuNotifier) buildRecoveryPayload(cfg OpsFeishuAlertConfig, frontendURL string, rule *OpsAlertRule, event *OpsAlertEvent, currentMetricValue *float64) (map[string]any, error) {
+	if rule == nil || event == nil {
+		return nil, errors.New("missing alert context")
+	}
+	nodeLabel, dashboardURL := deriveOpsNodeIdentity(frontendURL)
+	text := buildOpsFeishuRecoveryText(rule, event, nodeLabel, dashboardURL, currentMetricValue)
+	now := time.Now
+	if n != nil && n.now != nil {
+		now = n.currentTime
+	}
+	title := "TokenKey P0 告警已恢复"
+	if nodeLabel != "" && nodeLabel != "overall" {
+		title = title + " · " + nodeLabel
+	}
+	return feishuCardPayload(cfg, now, "green", title, text), nil
+}
+
 func (n *opsFeishuNotifier) currentTime() time.Time {
 	if n != nil && n.now != nil {
 		return n.now()
@@ -250,6 +278,62 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 		topCauseLine,
 		escapeFeishuText(formatAlertTime(event.FiredAt)),
 		advice,
+	)
+}
+
+func buildOpsFeishuRecoveryText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel, dashboardURL string, currentMetricValue *float64) string {
+	metricValue := "-"
+	thresholdValue := fmt.Sprintf("%.2f", rule.Threshold)
+	if event.MetricValue != nil {
+		metricValue = fmt.Sprintf("%.2f", *event.MetricValue)
+	}
+	if event.ThresholdValue != nil {
+		thresholdValue = fmt.Sprintf("%.2f", *event.ThresholdValue)
+	}
+	currentValue := "-"
+	if currentMetricValue != nil {
+		currentValue = fmt.Sprintf("%.2f", *currentMetricValue)
+	}
+	dimensions := formatOpsFeishuDimensions(event.Dimensions)
+	if dimensions == "" {
+		dimensions = "overall"
+	}
+	if strings.TrimSpace(nodeLabel) == "" {
+		nodeLabel = "overall"
+	}
+	durationText := "未知"
+	resolvedAt := time.Time{}
+	if event.ResolvedAt != nil {
+		resolvedAt = event.ResolvedAt.UTC()
+	}
+	if !event.FiredAt.IsZero() && !resolvedAt.IsZero() {
+		d := resolvedAt.Sub(event.FiredAt.UTC())
+		if d < 0 {
+			d = 0
+		}
+		durationText = formatPoolOutageDuration(d)
+	}
+	resolvedTimeText := "-"
+	if !resolvedAt.IsZero() {
+		resolvedTimeText = formatAlertTime(resolvedAt)
+	}
+	note := "指标已回落到阈值以下，告警自动解除。建议确认根因是否已消除，避免复发。"
+	if strings.TrimSpace(dashboardURL) != "" {
+		note = fmt.Sprintf("[打开 Ops Dashboard](%s) 复核指标与账号可用性。指标已回落到阈值以下，告警自动解除。", dashboardURL)
+	}
+	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**触发值**：%s\n**当前值**：%s\n**范围**：%s\n**持续时长**：%s\n**触发时间**：%s\n**恢复时间**：%s\n\n**说明**：%s",
+		escapeFeishuText(nodeLabel),
+		escapeFeishuText(strings.TrimSpace(rule.Name)),
+		escapeFeishuText(strings.TrimSpace(rule.MetricType)),
+		escapeFeishuText(strings.TrimSpace(rule.Operator)),
+		escapeFeishuText(thresholdValue),
+		escapeFeishuText(metricValue),
+		escapeFeishuText(currentValue),
+		escapeFeishuText(dimensions),
+		escapeFeishuText(durationText),
+		escapeFeishuText(formatAlertTime(event.FiredAt)),
+		escapeFeishuText(resolvedTimeText),
+		note,
 	)
 }
 
