@@ -114,6 +114,7 @@
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
         "useStudioVideoCardActions",
+        "useStudioImageCardActions",
         "useStudioVideoSubmitOptions",
         "data-testid=\"bakeoff-video-generate-audio\"",
         "mountStudioImageLibrary",
@@ -122,7 +123,7 @@
         "data-testid=\"bakeoff-video-copy-card-link\"",
         "test-id=\"bakeoff-video-preview\""
       ],
-      "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here."
+      "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here. Both image and video card-level download actions are wired through their respective shared composables (useStudioImageCardActions / useStudioVideoCardActions) per CLAUDE.md 5.1 SSOT; the image anchor prevents a merge from reverting the image download back to a direct downloadMedia bypass."
     },
     {
       "path": "frontend/src/utils/mediaCostEstimate.tk.ts",
@@ -1000,9 +1001,10 @@
         "mountStudioImageLibrary",
         "useStudioImagePreview",
         "StudioImagePreviewLightbox",
-        "pricesFlat"
+        "pricesFlat",
+        "useStudioImageCardActions"
       ],
-      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
+      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). useStudioImageCardActions is the shared image download owner (SSOT sibling of the video path's useStudioVideoCardActions) — dropping the wiring reverts the view to a private downloadMedia bypass. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
     },
     {
       "path": "frontend/src/views/user/studio/VideoStudio.vue",
@@ -1085,6 +1087,17 @@
         "onInlineCopyUnsupported"
       ],
       "rationale": "Shared card-level copy-link + download actions for VideoStudio and BakeOff succeeded panels. urlExpired download path warns instead of opening a dead upstream tab."
+    },
+    {
+      "path": "frontend/src/composables/useStudioImageCardActions.ts",
+      "must_contain": [
+        "export function useStudioImageCardActions",
+        "export function studioImageDownloadFilename",
+        "downloadMedia",
+        "downloadCardImage",
+        "downloadAllImages"
+      ],
+      "rationale": "Image sibling of useStudioVideoCardActions (Studio SSOT table in docs/global/agent-reference.md): the single owner of the image card/lightbox download action and the staggered batch export. It delegates the actual save to studioDownload.tk's downloadMedia (data:/blob:/remote handling) and pins the canonical tokenkey-<id>.png filename both ImageStudio and BakeOff use, closing the ImageStudio direct-downloadMedia bypass. Silent upstream-merge deletion would orphan the ImageStudio download wiring or tempt views to re-inline their own anchor-click download."
     },
     {
       "path": "frontend/src/views/user/studio/components/StudioVideoPreviewLightbox.vue",

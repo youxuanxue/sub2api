@@ -229,7 +229,7 @@
               v-if="modality === 'image' && p.src"
               type="button"
               class="text-[11px] font-medium text-primary-600 dark:text-primary-300"
-              @click="downloadImage(p.src, p.modelId)"
+              @click="downloadCardImage({ id: p.modelId, src: p.src })"
             >
               {{ t('studio.image.download') }}
             </button>
@@ -296,7 +296,7 @@
                   v-if="imageHistoryItemAvailable(img)"
                   type="button"
                   class="text-[10px] font-medium text-primary-600 dark:text-primary-300"
-                  @click="downloadImage(img.src, img.id)"
+                  @click="downloadCardImage(img)"
                 >
                   {{ t('studio.image.download') }}
                 </button>
@@ -447,7 +447,6 @@ import {
   videoTaskCopyLinkAvailable,
   videoCopyLinkAvailable,
 } from '@/utils/studioMedia.tk'
-import { downloadMedia } from '@/utils/studioDownload.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
@@ -458,6 +457,7 @@ import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVid
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { useAppStore } from '@/stores/app'
 import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import { useStudioImageCardActions } from '@/composables/useStudioImageCardActions'
 import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
 import { useStudioVideoSubmitOptions } from '@/composables/useStudioVideoSubmitOptions'
 import { useStudioVideoPreview } from '@/composables/useStudioVideoPreview'
@@ -659,9 +659,9 @@ function openVideoHistoryPreview(task: VideoTaskItem): void {
   openVideoPreviewFromUrl(modelLabel(task.model), task.estCost, task.url, task.id, task.urlExpired)
 }
 
-function downloadImage(src: string, id: string): void {
-  downloadMedia(src, `tokenkey-${id}.png`)
-}
+// Card-level image download rides the shared Studio image owner (SSOT with
+// ImageStudio's useStudioImageCardActions); the view only adapts call sites.
+const { downloadCardImage } = useStudioImageCardActions()
 
 function modelLabel(modelId: string): string {
   const hit = models.value.find((r) => r.presentation.modelId === modelId || r.servedId === modelId)

@@ -261,7 +261,7 @@ import {
   IMAGE_SIZE_MULTIPLIER,
 } from '@/utils/mediaCostEstimate.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
-import { downloadMedia } from '@/utils/studioDownload.tk'
+import { useStudioImageCardActions } from '@/composables/useStudioImageCardActions'
 import { imageHistoryItemAvailable } from '@/utils/studioMedia.tk'
 import {
   imageHistoryPromptTitle,
@@ -472,9 +472,9 @@ async function reversePrompt(): Promise<void> {
   }
 }
 
-function download(img: ImageHistoryItem): void {
-  downloadMedia(img.src, `tokenkey-${img.id}.png`)
-}
+// Card/lightbox download rides the shared Studio image owner (SSOT with the
+// video path's useStudioVideoCardActions); the view only renames the handler.
+const { downloadCardImage: download, downloadAllImages } = useStudioImageCardActions()
 
 function reuseAndClose(img: ImageHistoryItem): void {
   reuse(img)
@@ -485,13 +485,10 @@ onMounted(() => {
   void mountStudioImageLibrary(props.apiKey, props.gatewayBase, library)
 })
 
-// Batch export: browsers throttle a burst of synchronous downloads, so stagger
-// each save. Order matches the on-screen grid (newest first).
+// Batch export order matches the on-screen grid (newest first); the stagger
+// that keeps browsers from dropping burst downloads lives in the owner.
 function downloadAll(): void {
-  const imgs = library.images.value
-  imgs.forEach((img, i) => {
-    window.setTimeout(() => download(img), i * 350)
-  })
+  downloadAllImages(library.images.value)
 }
 
 async function generate(): Promise<void> {

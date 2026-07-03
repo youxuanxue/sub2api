@@ -1,0 +1,185 @@
+name: Upstream Conflict Surface
+
+# Mechanical enforcement of the missing axis of CLAUDE.md §5 upstream
+# discipline. The existing gates cover WHAT a PR deletes
+# (upstream-override-marker.py), the SHAPE of upstream-merge PRs
+# (upstream-merge-pr-shape.yml), and main's history (main-ancestry-guard.yml) —
+# none of them answers "does THIS PR make the next `git merge upstream/main`
+# more painful?". Historically that pain surfaced reactively as post-merge
+# compile-fix commits. Two jobs turn it into a PR-time signal:
+#
+#   conflict-surface-gate (BLOCKING, with an explicit opt-out):
+#     scripts/checks/upstream-conflict-surface.sh computes the conflict-file
+#     sets of merge-tree(upstream/main, head) and merge-tree(upstream/main,
+#     base). If head introduces conflict files that base does not have, the
+#     gate fails — unless the PR body carries the literal marker
+#         upstream-conflict-surface-accepted
+#     which downgrades the failure to a warning (`edited` is in the trigger
+#     list so adding the marker re-runs the gate without a new commit).
+#
+#   insertion-invasiveness-advisory (NEVER BLOCKS, continue-on-error):
+#     scripts/checks/upstream-insertion-invasiveness.py classifies diff hunks
+#     in upstream-shared Go files as EOF append / new top-level decl /
+#     func-body insertion, so reviewers see the merge-cost shape in the step
+#     summary. Func-body insertions are the #1 future-conflict driver;
+#     CLAUDE.md §5 prefers *_tk_*.go companion files.
+#
+# The upstream fetch MUST fail loud: silently skipping it would turn the gate
+# into a vacuous green (both merge-tree calls would fail ref resolution).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'base ref/sha to compare against (default: origin/main)'
+        required: false
+        default: 'origin/main'
+      head:
+        description: 'head ref/sha under test (default: checked-out HEAD)'
+        required: false
+        default: 'HEAD'
+
+permissions:
+  contents: read
+
+jobs:
+  conflict-surface-gate:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 so PR base and head commits are both reachable locally;
+      # submodules intentionally NOT checked out — this gate only uses git
+      # plumbing (merge-tree) on the host repo.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Add upstream remote and fetch (fail loud)
+        run: |
+          if ! git remote get-url upstream >/dev/null 2>&1; then
+            git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+          fi
+          if ! git fetch upstream main --quiet; then
+            echo "::error::git fetch upstream main FAILED — the conflict-surface gate cannot compute"
+            echo "::error::merge-tree(upstream/main, ...) without it. This step must never be skipped"
+            echo "::error::silently (a vacuous green here defeats the gate). Re-run the job; if the"
+            echo "::error::upstream repo moved, update the remote URL in this workflow."
+            exit 1
+          fi
+
+      - name: Resolve base/head commits
+        id: refs
+        env:
+          # workflow_dispatch inputs go through env, never inline shell
+          # interpolation (injection surface). PR-event SHAs come from the
+          # event payload and are validated hex, but take the same env path.
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          IN_BASE: ${{ github.event.inputs.base }}
+          IN_HEAD: ${{ github.event.inputs.head }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_REF="$PR_BASE_SHA"
+            HEAD_REF="$PR_HEAD_SHA"
+          else
+            BASE_REF="${IN_BASE:-origin/main}"
+            HEAD_REF="${IN_HEAD:-HEAD}"
+          fi
+          BASE_SHA=$(git rev-parse --verify "${BASE_REF}^{commit}") || {
+            echo "::error::cannot resolve base '$BASE_REF' to a commit (deleted/force-pushed base?)"
+            exit 1
+          }
+          HEAD_SHA=$(git rev-parse --verify "${HEAD_REF}^{commit}") || {
+            echo "::error::cannot resolve head '$HEAD_REF' to a commit"
+            exit 1
+          }
+          echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved base=$BASE_SHA head=$HEAD_SHA"
+
+      - name: Conflict-surface delta gate
+        env:
+          # PR body via env only — it is attacker-controlled free text and must
+          # never be inlined into the shell script (command injection).
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ steps.refs.outputs.base }}
+          HEAD_SHA: ${{ steps.refs.outputs.head }}
+        run: |
+          rc=0
+          bash scripts/checks/upstream-conflict-surface.sh \
+            --upstream-ref upstream/main \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --summary-file "$GITHUB_STEP_SUMMARY" || rc=$?
+
+          if [ "$rc" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::upstream-conflict-surface.sh failed with exit $rc (git/environment error, not a verdict)."
+            exit "$rc"
+          fi
+
+          # rc == 1: new conflict files. PR-body marker downgrades to warning.
+          MARKER='upstream-conflict-surface-accepted'
+          case "${PR_BODY:-}" in
+            *"$MARKER"*)
+              echo "::warning::This PR introduces NEW conflict files against upstream/main, but the PR body"
+              echo "::warning::carries the literal marker '$MARKER' — accepted explicitly, downgraded to a warning."
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "> :warning: marker \`$MARKER\` present in PR body — gate downgraded to warning." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+          esac
+          echo "::error::This PR introduces NEW conflict files against upstream/main (see step summary)."
+          echo "::error::Either restructure the change (companion *_tk_*.go / *.tk.ts file, pure append —"
+          echo "::error::CLAUDE.md §5 minimal-invasion patterns), or accept the future merge cost explicitly"
+          echo "::error::by adding the literal marker '$MARKER' to the PR body, then re-run."
+          exit 1
+
+  insertion-invasiveness-advisory:
+    # Advisory only: reports the SHAPE of upstream touches. Never blocks a PR —
+    # continue-on-error keeps the check green even if the recon itself errors.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Add upstream remote and fetch (fail loud)
+        run: |
+          if ! git remote get-url upstream >/dev/null 2>&1; then
+            git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+          fi
+          if ! git fetch upstream main --quiet; then
+            echo "::error::git fetch upstream main FAILED — advisory recon cannot run without upstream/main."
+            exit 1
+          fi
+
+      - name: Insertion invasiveness recon (advisory)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          IN_BASE: ${{ github.event.inputs.base }}
+          IN_HEAD: ${{ github.event.inputs.head }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_REF="$PR_BASE_SHA"
+            HEAD_REF="$PR_HEAD_SHA"
+          else
+            BASE_REF="${IN_BASE:-origin/main}"
+            HEAD_REF="${IN_HEAD:-HEAD}"
+          fi
+          python3 scripts/checks/upstream-insertion-invasiveness.py --selftest
+          python3 scripts/checks/upstream-insertion-invasiveness.py \
+            --base "$BASE_REF" \
+            --head "$HEAD_REF" \
+            --upstream-ref upstream/main \
+            --summary-file "$GITHUB_STEP_SUMMARY"
