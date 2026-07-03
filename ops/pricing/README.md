@@ -23,6 +23,7 @@ hand-maintained empirical sets in the same file.
 | File | Role |
 | --- | --- |
 | `probe-servable-models.sh` | Runs on prod or an edge via `ops/observability/run-probe.sh`. Sends one minimal real request per candidate model and emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. Always auto-ensures reusable `__tk_probe_<scope>_group` / `__tk_probe_<scope>_key` per platform via `probe_reserved_resources.sh` (no direct-key fallback, no dependency on `TK_SMOKE_API_KEY` or customer keys). The companion is mandatory — deliver it with `run-probe.sh --with ops/pricing/probe_reserved_resources.sh` (the orchestrator and every manual invocation below do). |
+| `probe-antigravity-gemini25pro-literal.sh` | Focused prod probe for literal Antigravity chat ids on the `Google-Gemini` source group (default: `gemini-pro-agent`, `gemini-2.5-pro`). Hits both `/v1/chat/completions` and `/antigravity/v1beta/models/{id}:generateContent`, emits TSV plus a non-secret account snapshot. Companion: `probe_reserved_resources.sh`. Used when the broad servable refresh batch cannot distinguish generateContent timeout vs routing gaps for `gemini-2.5-pro`. |
 | `probe_reserved_resources.sh` | Shared DB helpers for reserved probe groups/keys (same namespace as `tokenkey-account-model-probe`). Per-scope `flock` on `/tmp/tokenkey-account-model-probe-<scope>.lock` serializes `account_groups` mutations vs account-model probes. Catalog refresh copies schedulable accounts from canonical source group ids by default, probes, then clears `account_groups` bindings and releases locks on EXIT. Group-name overrides are legacy diagnostics only. |
 | `probe-traffic-proven-models.sh` | Runs on prod via `ops/observability/run-probe.sh`. Read-only over `usage_logs`: emits `platform⇥model⇥hits` for every model that served **real successful traffic** in the last `TRAFFIC_HOURS` (default 24). Feeds the `--skip-proven-by-traffic` short-circuit below. Positive evidence only — a model with no recent traffic is simply absent (never an unsupported signal). |
 | `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
@@ -205,6 +206,22 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   group's group id and extend the probe to re-add them.
 - This is a snapshot. Re-run after the served fleet changes (new model family,
   account/tier changes, an upstream sunset).
+
+### Antigravity `gemini-2.5-pro` literal probe
+
+The broad servable batch times out on `gemini-2.5-pro` generateContent (see
+`docs/all-platform-model-inventory.md`). When you need a focused before/after
+signal without rerunning the full refresh:
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/pricing/probe-antigravity-gemini25pro-literal.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --timeout-seconds 180
+```
+
+Optional: `PROBE_MODELS='gemini-2.5-pro'` or
+`PROBE_ANTIGRAVITY_SOURCE_GROUP='Google-Gemini'`.
 
 See also `.cursor/skills/tokenkey-online-log-troubleshooting` for the prod
 read-only access posture and `ops/observability/run-probe.sh` for the SSM

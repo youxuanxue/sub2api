@@ -32,7 +32,8 @@ description: >-
   家族，Gemini 另走 discovered + seed）、**24h 流量短路**（从 `usage_logs` 拉近窗成功流量、
   与候选集求交、跳过 SSM 探测）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
   `servable`、dated 去重、Go map splice、分批避开 SSM 等待窗口、自动开 PR——全在
-  `refresh-servable-allowlist.py` / `probe-servable-models.sh` / `probe-traffic-proven-models.sh`，
+  `refresh-servable-allowlist.py` / `probe-servable-models.sh` /
+  `probe-traffic-proven-models.sh` / `probe-antigravity-gemini25pro-literal.sh`，
   `selftest` 子命令覆盖，preflight `servable-allowlist generator selftest` 门禁 + sentinel 守 splice 标记。
 - **真判断（留给人/agent）**：① `inconclusive`（429/502/503）的取舍——它常是「该探测组没有
   这类账号」而非模型本身不可用（如 image 经 GPT专线组、专用 codex 池）；要不要给别的组 key
@@ -217,6 +218,25 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 - grok imagine 图/视频族走 edge-internal `/v1/images/generations` / `/v1/video/generations`。
   Antigravity 文本/能力探测走 `/antigravity/v1beta`；Studio `gemini-*-image` 图片必须走
   `ANTIGRAVITY_IMAGE_MODELS` 的 `/v1/chat/completions`，否则会把 v1beta 404 误判成 Studio 不可用。
+
+### Antigravity `gemini-2.5-pro` 专项（literal id，不进 `run` splice）
+
+全量 `ANTIGRAVITY_CHAT_MODELS` 批里 `gemini-2.5-pro` 的 `:generateContent` 常 **000 timeout /
+inconclusive**（见 `docs/all-platform-model-inventory.md`），与 chat 路径结论混在一起难判根因。
+用 **`probe-antigravity-gemini25pro-literal.sh`** 窄打 Google-Gemini 源组（默认
+`gemini-pro-agent` + `gemini-2.5-pro`），**同一 key** 并排探 `/v1/chat/completions` 与
+`/antigravity/v1beta/models/{id}:generateContent`，附账号快照（无 secret）：
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/pricing/probe-antigravity-gemini25pro-literal.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --timeout-seconds 180
+# 可选：PROBE_MODELS='gemini-2.5-pro'  PROBE_ANTIGRAVITY_SOURCE_GROUP='Google-Gemini'
+```
+
+**何时用**：antigravity allowlist 手维决策前、或 refresh 批里该 id 长期 inconclusive 需区分
+「路由/超时」vs「上游不支持」。结果**不进** `refresh-servable-allowlist.py parse_results`。
 
 ## 判断要点 / 坑
 
