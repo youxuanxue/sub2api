@@ -40,7 +40,9 @@ Do not infer support from route registration alone. Classify evidence as route-g
    from a hand-maintained list:
    `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --list --include-paid --show-excluded`.
    Run rows with `--run`; paid rows are skipped by default and require
-   `--include-paid`.
+   `--include-paid`. To enforce "displayed + priced rows must actually work",
+   use `--gate`; this derives display actions from the probe verdict and does
+   not add another catalog source.
 
 6. Need model catalog/mapping drift instead of endpoint behavior:
    use `tokenkey-modelops-planner`; return here after the catalog source is fixed.
@@ -83,12 +85,16 @@ SSOT-derived all-model matrix:
 ```bash
 bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --list --include-paid --show-excluded
 bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --run
+bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --show-excluded
 ```
 
 This wraps `ops/test/gateway_model_ssot_matrix.py`. The matrix source is the
 live `/api/v1/public/pricing` projection, which is built from the servable
 allowlists, curated newapi manifest, and pricing sources. Do not add a separate
-hard-coded "all models" list.
+hard-coded "all models" list. `gate` translates live results into minimal
+display actions (`keep_displayed`, `hide_or_provision`, `hide_or_add_pool`,
+`hide_or_fix_entitlement`, `reprobe_required`, etc.) at runtime; those actions
+are evidence for catalog/menu cleanup, not a fourth manually maintained status.
 
 Probe resource hygiene:
 
@@ -120,6 +126,11 @@ unbinds reusable probe resources; it does not delete rows.
   displayed+priced rows that do not currently map to a universal platform or
   endpoint candidate and should drive catalog/routing cleanup instead of being
   silently folded into PASS/SKIP totals.
+- "Can be displayed" is a release gate, not an extra source of truth: derive it
+  from `/pricing` rows plus the current `--gate` result. A row that is publicly
+  displayed and priced should remain visible only when the gate says
+  `keep_displayed`; other actions mean hide/disable the row, add capacity, map
+  the vendor, or rerun with a non-throttled pool before making a product claim.
 
 ## Reporting Format
 

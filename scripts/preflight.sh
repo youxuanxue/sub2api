@@ -1716,8 +1716,10 @@ fi
 
 # ---- sub2api: SSOT endpoint matrix selftest ---------------------------------
 # ops/test/gateway_model_ssot_matrix.py derives endpoint probe rows from the
-# public pricing projection instead of a hand-maintained model list. CI only
-# runs its offline fixture selftest; live list/run remain operator actions.
+# public pricing projection instead of a hand-maintained model list. Its gate
+# translates live probe verdicts into display actions without adding another
+# catalog source. CI only runs its offline fixture selftest; live list/run/gate
+# remain operator actions.
 echo ""
 echo "=== sub2api: SSOT endpoint matrix selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then

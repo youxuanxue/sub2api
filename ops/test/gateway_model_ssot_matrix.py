@@ -67,6 +67,8 @@ class ExcludedRow:
     vendor: str
     model: str
     reason: str
+    modality: str = ""
+    paid: bool = False
 
 
 def fetch_json(url: str, timeout: float) -> dict[str, Any]:
@@ -113,6 +115,10 @@ def modality_for(row: dict[str, Any]) -> str:
     return "text"
 
 
+def paid_probe_for_modality(modality: str) -> bool:
+    return modality in {"image", "video"}
+
+
 def text_protocols(platform: str) -> list[tuple[str, str, str, str]]:
     rows: list[tuple[str, str, str, str]] = [
         ("messages", "POST", "/v1/messages", ""),
@@ -136,15 +142,16 @@ def rows_from_public_catalog(payload: dict[str, Any], source: str) -> tuple[list
         vendor = str(item.get("vendor") or "").strip()
         if not model:
             continue
+        modality = modality_for(item)
+        paid_probe = paid_probe_for_modality(modality)
         if not priced(item):
-            excluded.append(ExcludedRow(vendor, model, "not_priced_in_public_catalog"))
+            excluded.append(ExcludedRow(vendor, model, "not_priced_in_public_catalog", modality, paid_probe))
             continue
         platform = VENDOR_PLATFORM.get(vendor)
         if not platform:
-            excluded.append(ExcludedRow(vendor, model, "vendor_not_mapped_to_universal_platform"))
+            excluded.append(ExcludedRow(vendor, model, "vendor_not_mapped_to_universal_platform", modality, paid_probe))
             continue
 
-        modality = modality_for(item)
         if modality == "text":
             for protocol, method, path, note in text_protocols(platform):
                 rows.append(MatrixRow(platform, vendor, model, modality, protocol, method, path, False, source, note))
@@ -152,7 +159,7 @@ def rows_from_public_catalog(payload: dict[str, Any], source: str) -> tuple[list
             if platform in {"openai", "newapi"}:
                 rows.append(MatrixRow(platform, vendor, model, modality, "embeddings", "POST", "/v1/embeddings", False, source))
             else:
-                excluded.append(ExcludedRow(vendor, model, "embeddings_not_in_universal_endpoint_candidates"))
+                excluded.append(ExcludedRow(vendor, model, "embeddings_not_in_universal_endpoint_candidates", modality, False))
         elif modality == "image":
             if platform == "antigravity" and is_antigravity_image_model(model):
                 rows.append(
@@ -174,7 +181,7 @@ def rows_from_public_catalog(payload: dict[str, Any], source: str) -> tuple[list
         elif modality == "video":
             rows.append(MatrixRow(platform, vendor, model, modality, "video", "POST", "/v1/video/generations", True, source))
         else:
-            excluded.append(ExcludedRow(vendor, model, f"unknown_modality:{modality}"))
+            excluded.append(ExcludedRow(vendor, model, f"unknown_modality:{modality}", modality, paid_probe))
     rows.sort(key=lambda r: (r.platform, r.modality, r.model, r.protocol))
     excluded.sort(key=lambda r: (r.vendor, r.model, r.reason))
     return rows, excluded
@@ -197,6 +204,34 @@ def filter_rows(rows: list[MatrixRow], args) -> list[MatrixRow]:
     if wanted:
         rows = [r for r in rows if r.model in wanted]
     return rows
+
+
+def filter_excluded(excluded: list[ExcludedRow], args) -> list[ExcludedRow]:
+    rows = excluded
+    wanted = requested_models(args)
+    if wanted:
+        rows = [r for r in rows if r.model in wanted]
+    if args.only_protocol:
+        rows = [r for r in rows if excluded_matches_protocol(r, args.only_protocol)]
+    if args.only_platform and not wanted:
+        return []
+    if args.limit and not wanted and not args.only_protocol:
+        return []
+    return rows
+
+
+def excluded_matches_protocol(row: ExcludedRow, protocol: str) -> bool:
+    if protocol == "embeddings":
+        return row.modality == "embeddings"
+    if protocol == "image":
+        return row.modality == "image"
+    if protocol == "video":
+        return row.modality == "video"
+    if protocol == "chat_image":
+        return row.modality == "image"
+    if protocol in {"messages", "count_tokens", "chat", "responses", "gemini_generate"}:
+        return row.modality == "text"
+    return False
 
 
 def requested_models(args) -> set[str]:
@@ -322,6 +357,36 @@ def classify(code: int, body_text: str, ok: bool) -> tuple[str, str]:
     return "FAIL", f"unexpected HTTP {code}"
 
 
+def display_gate_decision(result: str, note: str) -> tuple[str, str]:
+    """Translate a probe verdict into the minimal display action.
+
+    This is intentionally derived from live probe evidence. It is not a fourth
+    catalog fact to maintain by hand.
+    """
+    reason = note.lower()
+    if result == "PASS":
+        return "keep_displayed", ""
+    if result == "FAIL":
+        return "hide_or_fix_gateway", note or "gateway failure"
+    if "not authorized" in reason:
+        return "hide_or_fix_entitlement", note
+    if "model/protocol not provisioned" in reason:
+        return "hide_or_provision", note
+    if "empty schedulable pool" in reason:
+        return "hide_or_add_pool", note
+    if "throttle" in reason or "transient" in reason or "timeout" in reason or "interrupted" in reason:
+        return "reprobe_required", note
+    return "hide_or_classify_skip", note or "unclassified SKIP"
+
+
+def excluded_display_decision(row: ExcludedRow, include_paid: bool) -> tuple[bool, str, str]:
+    if row.reason == "not_priced_in_public_catalog":
+        return False, "not_displayed", row.reason
+    if row.paid and not include_paid:
+        return False, "paid_probe_not_in_scope", row.reason
+    return True, "hide_or_map_vendor", row.reason
+
+
 def post_json(base_url: str, path: str, key: str, body: dict[str, Any], timeout: float) -> tuple[int, str]:
     url = base_url.rstrip("/") + path
     data = json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -353,6 +418,17 @@ def row_to_record(row: MatrixRow) -> dict[str, Any]:
     return asdict(row)
 
 
+def probe_matrix_row(args, row: MatrixRow) -> tuple[int, str, str, str]:
+    path = render_path(row)
+    code, body_text = post_json(args.base_url, path, args.key, compact_body(row.protocol, row.model), args.timeout)
+    try:
+        body = json.loads(body_text) if body_text else {}
+    except json.JSONDecodeError:
+        body = {}
+    result, note = classify(code, body_text, shape_ok(row.protocol, code, body, body_text))
+    return code, result, note, body_text
+
+
 def cmd_list(args) -> int:
     rows, excluded = load_matrix(args)
     rows = filter_rows(rows, args)
@@ -367,10 +443,11 @@ def cmd_list(args) -> int:
     print("platform\tvendor\tmodel\tmodality\tprotocol\tmethod\tpath\tpaid\tnote")
     for r in rows:
         print(f"{r.platform}\t{r.vendor}\t{r.model}\t{r.modality}\t{r.protocol}\t{r.method}\t{r.path}\t{int(r.paid)}\t{r.note}")
-    if args.show_excluded and excluded:
+    scoped_excluded = filter_excluded(excluded, args)
+    if args.show_excluded and scoped_excluded:
         print("\n# excluded")
         print("vendor\tmodel\treason")
-        for e in excluded:
+        for e in scoped_excluded:
             print(f"{e.vendor}\t{e.model}\t{e.reason}")
     return 0
 
@@ -380,6 +457,7 @@ def cmd_run(args) -> int:
     if not key:
         print("ERROR: TK_FULLTEST_KEY is required for run", file=sys.stderr)
         return 2
+    args.key = key
     rows, excluded = load_matrix(args)
     rows = filter_rows(rows, args)
     if not args.include_paid:
@@ -390,13 +468,7 @@ def cmd_run(args) -> int:
     pass_count = skip_count = fail_count = 0
     print("platform\tmodality\tprotocol\tmodel\thttp\tresult\tnote")
     for row in rows:
-        path = render_path(row)
-        code, body_text = post_json(args.base_url, path, key, compact_body(row.protocol, row.model), args.timeout)
-        try:
-            body = json.loads(body_text) if body_text else {}
-        except json.JSONDecodeError:
-            body = {}
-        result, note = classify(code, body_text, shape_ok(row.protocol, code, body, body_text))
+        code, result, note, _body_text = probe_matrix_row(args, row)
         if result == "PASS":
             pass_count += 1
         elif result == "SKIP":
@@ -404,8 +476,63 @@ def cmd_run(args) -> int:
         else:
             fail_count += 1
         print(f"{row.platform}\t{row.modality}\t{row.protocol}\t{row.model}\t{code}\t{result}\t{note}")
-    print(f"PASS={pass_count} SKIP={skip_count} FAIL={fail_count} EXCLUDED={len(excluded)}")
+    print(f"PASS={pass_count} SKIP={skip_count} FAIL={fail_count} EXCLUDED={len(filter_excluded(excluded, args))}")
     return 1 if fail_count else 0
+
+
+def cmd_gate(args) -> int:
+    key = args.key or os.environ.get("TK_FULLTEST_KEY", "")
+    if not key:
+        print("ERROR: TK_FULLTEST_KEY is required for gate", file=sys.stderr)
+        return 2
+    args.key = key
+    rows, excluded = load_matrix(args)
+    rows = filter_rows(rows, args)
+    if not args.include_paid:
+        rows = [r for r in rows if not r.paid]
+    if args.limit:
+        rows = rows[: args.limit]
+
+    scoped_excluded = filter_excluded(excluded, args)
+    no_rows_count = 1 if not rows and not scoped_excluded else 0
+    keep_count = block_count = reprobe_count = fail_count = excluded_block_count = 0
+    print("platform\tmodality\tprotocol\tmodel\thttp\tresult\tdisplay_gate\taction")
+    if no_rows_count:
+        print("n/a\tn/a\tn/a\tn/a\t0\tSKIP\tnot_in_public_pricing_scope\tno displayed+priced matrix rows matched")
+    for row in rows:
+        code, result, note, _body_text = probe_matrix_row(args, row)
+        gate, action = display_gate_decision(result, note)
+        if gate == "keep_displayed":
+            keep_count += 1
+        elif gate == "reprobe_required":
+            reprobe_count += 1
+        else:
+            block_count += 1
+        if result == "FAIL":
+            fail_count += 1
+        print(f"{row.platform}\t{row.modality}\t{row.protocol}\t{row.model}\t{code}\t{result}\t{gate}\t{action}")
+
+    scoped_excluded = []
+    for excluded_row in filter_excluded(excluded, args):
+        blocks, gate, action = excluded_display_decision(excluded_row, args.include_paid)
+        if blocks:
+            excluded_block_count += 1
+        if blocks or args.show_nonblocking_excluded:
+            scoped_excluded.append((excluded_row, gate, action))
+    if args.show_excluded and scoped_excluded:
+        if scoped_excluded:
+            print("\n# excluded")
+            print("vendor\tmodality\tmodel\tpaid\tdisplay_gate\taction")
+            for excluded_row, gate, action in scoped_excluded:
+                print(f"{excluded_row.vendor}\t{excluded_row.modality}\t{excluded_row.model}\t{int(excluded_row.paid)}\t{gate}\t{action}")
+
+    print(
+        "DISPLAY_KEEP="
+        f"{keep_count} DISPLAY_BLOCK={block_count + excluded_block_count} "
+        f"REPROBE_REQUIRED={reprobe_count} FAIL={fail_count} "
+        f"EXCLUDED_BLOCK={excluded_block_count} NO_ROWS={no_rows_count}"
+    )
+    return 1 if (block_count or reprobe_count or fail_count or excluded_block_count) else 0
 
 
 def cmd_selftest(_args) -> int:
@@ -439,6 +566,17 @@ def cmd_selftest(_args) -> int:
     assert classify(400, '{"error":{"message":"Upstream rejected the request"}}', False)[0] == "SKIP"
     assert classify(400, '{"error":{"message":"This model only support stream mode"}}', False)[0] == "SKIP"
     assert shape_ok("chat", 200, {}, "data: {\"choices\":[]}\n\ndata: [DONE]\n")
+    assert display_gate_decision("PASS", "") == ("keep_displayed", "")
+    assert display_gate_decision("SKIP", "model/protocol not provisioned")[0] == "hide_or_provision"
+    assert display_gate_decision("SKIP", "empty schedulable pool")[0] == "hide_or_add_pool"
+    assert display_gate_decision("SKIP", "upstream throttle/transient")[0] == "reprobe_required"
+    assert display_gate_decision("FAIL", "unexpected 400")[0] == "hide_or_fix_gateway"
+    mapped_block = ExcludedRow("bedrock", "bedrock-x", "vendor_not_mapped_to_universal_platform", "text", False)
+    assert excluded_display_decision(mapped_block, include_paid=False)[0] is True
+    not_priced = ExcludedRow("openai", "free-x", "not_priced_in_public_catalog", "text", False)
+    assert excluded_display_decision(not_priced, include_paid=False)[0] is False
+    assert excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "embeddings")
+    assert not excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "chat")
     print("gateway_model_ssot_matrix selftest: PASS")
     return 0
 
@@ -477,6 +615,14 @@ def main() -> int:
     run_p.add_argument("--key", default="")
     run_p.add_argument("--include-paid", action="store_true", help="actually send image/video requests")
     run_p.set_defaults(func=cmd_run)
+
+    gate_p = sub.add_parser("gate", help="fail unless displayed+priced rows in scope are live-supported")
+    add_source_args(gate_p)
+    gate_p.add_argument("--key", default="")
+    gate_p.add_argument("--include-paid", action="store_true", help="include image/video rows in the display gate")
+    gate_p.add_argument("--show-excluded", action="store_true", help="show public-pricing rows that cannot map to a universal endpoint")
+    gate_p.add_argument("--show-nonblocking-excluded", action="store_true", help="also show excluded rows outside the current gate scope")
+    gate_p.set_defaults(func=cmd_gate)
 
     selftest_p = sub.add_parser("selftest", help="run offline unit tests")
     selftest_p.set_defaults(func=cmd_selftest)
