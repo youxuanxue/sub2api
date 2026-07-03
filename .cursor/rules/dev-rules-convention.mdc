@@ -17,9 +17,13 @@ alwaysApply: true
 ├── .codex/skills                    → ../.cursor/skills（Codex 项目级技能 symlink；项目 .gitignore 自定是否 track）
 ├── .agents/skills                   → ../.cursor/skills（Antigravity 工作区技能 symlink；同上）
 ├── scripts/preflight.sh             ← 可选项目 wrapper
-└── .git/hooks/pre-commit            ← install-hooks.sh 安装；按
+└── .git/hooks/{pre-commit,commit-msg} ← install-hooks.sh 安装；pre-commit 按
                                         scripts/preflight.sh
-                                        → dev-rules/templates/preflight.sh fallback
+                                        → dev-rules/templates/preflight.sh fallback；
+                                        commit-msg 直跑 token 类检查（高风险锚点、
+                                        契约删除公告）——唯一同时知道 staged paths
+                                        + 待提交 message 的本地阶段，token 缺失
+                                        在此硬拦截
 
 家目录消费端（symlink，由 sync.sh 维护）：
 ~/.cursor/rules/      → dev-rules/rules/
