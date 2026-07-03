@@ -991,7 +991,6 @@ func TestBuildForUser_AuthorizedGroupsIndexExcludesUnprovisionedNewapiVertexVide
 	)
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
-	require.NotNil(t, resp.AuthorizedGroupsByModel)
 	groups := resp.AuthorizedGroupsByModel["veo-3.1-generate-001"]
 	assert.Empty(t, groups,
 		"Studio universal key entitlements must not advertise Vertex video until the paid gate proves it is provisioned")
