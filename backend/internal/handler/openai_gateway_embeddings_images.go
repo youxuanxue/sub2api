@@ -534,6 +534,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		}
 		writerSizeBeforeForward := c.Writer.Size()
 		TkSetBridgeGinAuth(c, subject.UserID, groupName)
+		logOpenAIImageGenerationRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)
 		result, err := h.gatewayService.ForwardAsImageGenerationsDispatched(c.Request.Context(), c, account, forwardBody, defaultMappedModel)
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()

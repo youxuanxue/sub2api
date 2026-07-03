@@ -2853,9 +2853,27 @@
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
       "must_contain": [
-        "TkImageModelUnpriced"
+        "TkImageModelUnpriced",
+        "logOpenAIImageGenerationRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)"
       ],
-      "rationale": "Second TK hook for the media unpriced-reject policy: ImageGenerations() is the OpenAI-compat pool entry for POST /images/generations (newapi groups route here, NOT through openai_images.go Images()). The first guard rollout missed this entry and unpriced image requests sailed to the upstream — caught by local e2e. Dropping this call silently re-opens that exact hole."
+      "rationale": "Second TK hook for the media unpriced-reject policy: ImageGenerations() is the OpenAI-compat pool entry for POST /images/generations (newapi groups route here, NOT through openai_images.go Images()). The first guard rollout missed this entry and unpriced image requests sailed to the upstream — caught by local e2e. Dropping this call silently re-opens that exact hole. The logOpenAIImageGenerationRequestAudit injection is the Studio/ImageStudio/BakeOff prompt+size audit hook for POST /v1/images/generations; losing it compiles clean but removes ops visibility for image request debugging (probe-studio-image-request-audit.sh)."
+    },
+    {
+      "path": "backend/internal/handler/openai_image_request_audit_tk.go",
+      "must_contain": [
+        "func logOpenAIImageGenerationRequestAudit(",
+        "func logOpenAIStudioChatImageRequestAudit(",
+        "tkImageRequestAuditComponent = \"audit.openai_image_request\"",
+        "logredact.RedactText(preview)"
+      ],
+      "rationale": "TK companion for Studio image request audit logging: captures prompt hash/preview (redacted), size/forward_model, and X-TokenKey-Studio-* trace headers on /v1/images/generations and Studio-traced Gemini image chat paths. Deleting this file silently removes the audit sink that probe-studio-image-request-audit.sh reads."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)"
+      ],
+      "rationale": "Studio Gemini-native image requests hit /v1/chat/completions with X-TokenKey-Studio-Source containing 'studio'+'image'; this one-line audit hook is the only server-side prompt trace for that path. Upstream merges that rewrite the forward block can drop it without compile failure while ImageStudio/BakeOff chat-image debugging goes blind."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_saturation_penalty.go",

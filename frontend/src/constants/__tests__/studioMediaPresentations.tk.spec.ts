@@ -193,6 +193,10 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out.every((r) => r.presentation.imageSizes === SEEDREAM_IMAGE_SIZES)).toBe(true)
   })
 
+  it('declares a valid Seedream default wire size, not an aspect-ratio token', () => {
+    expect(SEEDREAM_IMAGE_SIZES[0]).toEqual({ ratio: '1:1', value: '2048x2048' })
+  })
+
   it('uses the routed doubao Seedance id as canonical and treats no-prefix as an alias', () => {
     const out = resolveAvailableModels(
       'video',

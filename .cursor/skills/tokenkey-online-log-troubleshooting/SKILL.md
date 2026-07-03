@@ -32,6 +32,7 @@ description: >-
 | Admin model rollup timing（dashboard/models 冷态慢：raw 7d group-by vs usage_dashboard_model_daily + raw today 耗时/一致性） | 机械 | `ops/observability/probe-admin-model-rollup-timing.sh`（经 run-probe 投递；只读 SELECT + EXPLAIN ANALYZE） |
 | Admin group rollup timing（usage/dashboard group distribution 冷态慢：raw 7d group-by vs usage_dashboard_group_daily + raw today 耗时/一致性） | 机械 | `ops/observability/probe-admin-group-rollup-timing.sh`（经 run-probe 投递；只读 SELECT + EXPLAIN ANALYZE） |
 | 图片/视频盯盘（成功计量计费 + 错误分面 + 计费异常 + last-seen；区分 image vs video、空池 429 vs 真上游错误 vs 缺权限 401） | 机械 | `ops/observability/probe-image-video-billing.sh`（窗口盯盘，`WINDOW_MIN`/`CTX_HOURS`）+ `ops/observability/probe-image-video-deepctx.sh`（openai 账号池/报错归属/流量出处一次性深挖），均经 run-probe 投递；只读 `row_to_json` |
+| Studio 图片请求审计（Image Studio / BakeOff prompt 是否实际提交、是否同一轮、size/model 是否被前后端改写） | 机械 | `ops/observability/probe-studio-image-request-audit.sh`（经 run-probe 投递；查 `ops_system_logs component=audit.openai_image_request`；按 `WINDOW_MINUTES` / user / api_key / model / `studio_run_id` / `prompt_sha256` / request id 过滤） |
 | 用户级盯盘（一组 user_id 的请求 + 错误 + 计量计费 + 图片/视频 breakout + last-seen，单次 SSM 往返，对齐 30min 汇报节奏） | 机械 | `ops/observability/probe-user-billing-watch.sh`（经 run-probe 投递；`USER_IDS` 逗号分隔整数默认 `1,16`、`WINDOW_MINUTES` 默认 30；只读 `row_to_json`，复用 probe-image-video-billing.sh 的 image/video 判别谓词） |
 | Gateway UA/TLS / usage_logs / ops / docker 指纹交叉对比（窄时间窗） | 机械 | `ops/observability/probe-gateway-ua-tls-compare.sh`（通过 run-probe.sh 投递；`WINDOW_MINUTES` 收窄 DB 窗） |
 | `SUB2API_DEBUG_GATEWAY_BODY` 日志拉回本机（SSM gzip → S3 presigned PUT → 本地 gunzip） | 机械 | `ops/observability/fetch-gateway-debug-log.sh --target prod\|edge:<id>`（**本地** orchestrator，不走 run-probe） |
@@ -285,6 +286,79 @@ env 契约（脚本 header 是 ground truth）：
 | `docker_ua_tls_lines` | 含 UA/TLS 关键词的 docker 行样本（尾部截断） |
 
 **何时用**：edge 间 UA/TLS 行为差异、OAuth TLS fingerprint 是否生效、outage 窗口内 gateway 是否仍有 completed 行、与 §5 access log 解析互补（本 probe 偏 cross-table 指纹，parse-access-log 偏 status/latency 直方图）。
+
+## 5.1.1) Studio 图片请求审计（机械化）
+
+用户反馈 Image Studio / BakeOff 图片结果严重不符合 prompt、怀疑 prompt 被改写、同一轮对比里某个模型提交了旧 prompt，或报错截图只显示 `Failed to fetch` / `Upstream request failed` 时，先用本 probe 固定证据。它查的是后端写入 `ops_system_logs` 的 `audit.openai_image_request` 行，覆盖：
+
+- `/v1/images/generations`：Imagen / Seedream / Grok 等 OpenAI-compatible image 入口，`surface=images.generations`。
+- `/v1/chat/completions`：Studio 走 Gemini-native 图片的 chat 入口，只有带 Studio image trace header 时记录，`surface=chat.completions`。
+
+```bash
+# 最近 60 分钟 Studio 图片请求审计（默认 LIMIT=20）
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-studio-image-request-audit.sh \
+  --env WINDOW_MINUTES=60 \
+  --timeout-seconds 120
+
+# 用户刚反馈且知道 user/api key/model：收窄到具体人和模型
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-studio-image-request-audit.sh \
+  --env WINDOW_MINUTES=30 \
+  --env USER_ID=1 \
+  --env MODEL=imagen-4.0-generate-001 \
+  --timeout-seconds 120
+
+# 用户截图/前端 console 拿到了同一轮 BakeOff run id：按轮次查
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-studio-image-request-audit.sh \
+  --env STUDIO_RUN_ID=studio-bakeoff-image-... \
+  --env LIMIT=40 \
+  --timeout-seconds 120
+
+# 已知某个 prompt hash：查是否还有其他模型/轮次提交了同一 prompt
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-studio-image-request-audit.sh \
+  --env PROMPT_SHA256=<64-hex> \
+  --env WINDOW_MINUTES=360 \
+  --timeout-seconds 120
+```
+
+env 契约（脚本 header 是 ground truth）：
+
+| env | 默认 | 含义 |
+|---|---|---|
+| `WINDOW_MINUTES` | 60 | 回看分钟数，正整数；只影响窗口内分段，`last-seen with filters` 会忽略窗口给空窗兜底。 |
+| `LIMIT` | 20 | `samples` 行数上限。 |
+| `USER_ID` / `API_KEY_ID` / `ACCOUNT_ID` | （空） | 精确过滤身份或账号；整数。 |
+| `MODEL` | （空） | 同时匹配 top-level `model`、`extra.requested_model`、`extra.forward_model`。 |
+| `STUDIO_SOURCE` | （空） | `studio.image` 或 `studio.bakeoff.image`。 |
+| `STUDIO_RUN_ID` / `STUDIO_PANEL_ID` | （空） | 前端 trace header；BakeOff 同一次点击应共享一个 `studio_run_id`，panel 通常是模型 id。 |
+| `PROMPT_SHA256` | （空） | prompt 原文 SHA-256；用于比较，不输出完整 prompt。 |
+| `REQUEST_ID` / `CLIENT_REQUEST_ID` | （空） | 与 `ops_error_logs`、Docker access log、usage_logs 交叉定位。 |
+
+输出解读：
+
+| 分段 | 用途 |
+|---|---|
+| `summary` | 看窗口内是否有 audit 行、涉及几个用户/key/run/prompt hash。 |
+| `by source/model/size` | 直接看 `requested_model`/`forward_model`、`size`/`forward_size`、入口 `surface` 是否符合预期。 |
+| `by studio run` | BakeOff 一次点击的模型集合、panel 数、prompt hash 数；同一轮 `prompt_hashes > 1` 是强信号：前端实际提交了不同 prompt。 |
+| `prompt consistency by run` | 同一 `studio_run_id` 下逐个 prompt hash 展开，带 200 字节 preview；用来判断“旧 prompt/页面状态错乱” vs “同 prompt 但模型输出不佳”。 |
+| `samples` | 少量样本，含 `prompt_preview`（已脱敏且最多 1024 bytes）、`prompt_sha256`、`prompt_bytes`/`prompt_runes`、body hash、size/model、Studio trace。 |
+| `related ops_error_logs by request_id` | 同窗口内按 request id 关联真实错误；若为空，不代表请求成功，只代表没有匹配到 error row。 |
+| `last-seen with filters` | 空窗口时判断是“确实没打到审计点”还是时间窗太窄。 |
+
+判断纪律：
+- `prompt_preview` 只是脱敏截断预览，不能当完整 prompt；严格比较用 `prompt_sha256` + `prompt_bytes`/`prompt_runes`。
+- 同一 `studio_run_id`、不同模型的 `prompt_sha256` 一致：当前证据不支持“后端改了 prompt”；继续看 `size` / `forward_size` / `forward_model` / upstream error。
+- 同一 `studio_run_id` 出现多个 `prompt_sha256`：优先怀疑前端提交旧状态、页面 hydrate/缓存错乱、或用户看的不是同一轮结果；再用 `studio_panel_id` 和 `request_id` 定位具体 panel。
+- `requested_model != forward_model` 或 `size != forward_size`：说明后端确实改写了转发字段，必须回到 handler / mapper 查为什么。
+- 查不到 audit 行：只说明当前部署/窗口/入口没有该审计证据；旧事故仍只能靠 `usage_logs`、`ops_error_logs`、Docker access log、以及已开启时的 §5.2 gateway debug body 推断，不能反推“prompt 没被改”。
 
 ## 5.2) Debug gateway body 日志拉回本机（机械化，本地 orchestrator）
 

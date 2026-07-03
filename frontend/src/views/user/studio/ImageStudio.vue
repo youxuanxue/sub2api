@@ -243,7 +243,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt } from '@/api/playground'
+import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt, gatewayTraceRunId } from '@/api/playground'
 import { extractImageItems, extractChatImageItems, pickVisionChatModel } from '@/constants/playgroundMedia.tk'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import {
@@ -498,6 +498,7 @@ async function generate(): Promise<void> {
   errorMessage.value = ''
   errorCode.value = ''
   sending.value = true
+  const trace = { studioSource: 'studio.image', studioRunId: gatewayTraceRunId('studio-image') }
   try {
     // Gemini-native image rides /v1/chat/completions (image returned as markdown in
     // the chat response — the universal path that works for antigravity + newapi
@@ -509,7 +510,7 @@ async function generate(): Promise<void> {
         prompt: text,
         aspectRatio: sentSize.value, // ratio code → extra_body.google.image_config.aspect_ratio
         inputImage: inputImage.value || undefined // image-to-image when an input image is staged
-      })
+      }, undefined, trace)
       items = extractChatImageItems(raw)
     } else {
       const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
@@ -517,7 +518,7 @@ async function generate(): Promise<void> {
         prompt: text,
         size: sentSize.value,
         n: n.value,
-      })
+      }, undefined, trace)
       items = extractImageItems(raw)
     }
     if (!items.length) throw new Error(t('studio.image.noResult'))

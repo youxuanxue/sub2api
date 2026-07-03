@@ -46,6 +46,18 @@ export const PLAYGROUND_FETCH_TIMEOUT_MS = 60_000
  */
 export const PLAYGROUND_VIDEO_FETCH_TIMEOUT_MS = 180_000
 
+export interface GatewayRequestTrace {
+  studioSource?: string
+  studioRunId?: string
+  studioPanelId?: string
+}
+
+export function gatewayTraceRunId(prefix: string): string {
+  const safePrefix = safeGatewayHeaderValue(prefix) || 'studio'
+  const randomPart = Math.random().toString(36).slice(2, 8)
+  return `${safePrefix}-${Date.now().toString(36)}-${randomPart}`
+}
+
 function stripTrailingSlashes(u: string): string {
   return u.replace(/\/+$/, '')
 }
@@ -90,7 +102,7 @@ export async function gatewayListModels(
 async function gatewayRequestJSON(
   apiKey: string,
   url: string,
-  init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs: number },
+  init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs: number; trace?: GatewayRequestTrace },
   signal?: AbortSignal
 ): Promise<unknown> {
   const ctrl = new AbortController()
@@ -111,6 +123,7 @@ async function gatewayRequestJSON(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
+        ...gatewayTraceHeaders(init.trace),
         ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {})
       },
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
@@ -139,6 +152,22 @@ async function gatewayRequestJSON(
       signal.removeEventListener('abort', onAbort)
     }
   }
+}
+
+function gatewayTraceHeaders(trace?: GatewayRequestTrace): Record<string, string> {
+  if (!trace) return {}
+  const headers: Record<string, string> = {}
+  const source = safeGatewayHeaderValue(trace.studioSource)
+  const runId = safeGatewayHeaderValue(trace.studioRunId)
+  const panelId = safeGatewayHeaderValue(trace.studioPanelId)
+  if (source) headers['X-TokenKey-Studio-Source'] = source
+  if (runId) headers['X-TokenKey-Studio-Run-Id'] = runId
+  if (panelId) headers['X-TokenKey-Studio-Panel-Id'] = panelId
+  return headers
+}
+
+function safeGatewayHeaderValue(value: string | undefined): string {
+  return (value || '').replace(/[\r\n]/g, ' ').trim().slice(0, 128)
 }
 
 export async function gatewayChatCompletion(
@@ -182,7 +211,8 @@ export async function gatewayImageGenerations(
   apiKey: string,
   gatewayBaseUrl: string,
   body: ImageGenerationRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  trace?: GatewayRequestTrace
 ): Promise<unknown> {
   const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/images/generations`
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
@@ -191,7 +221,7 @@ export async function gatewayImageGenerations(
   return gatewayRequestJSON(
     apiKey,
     url,
-    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS },
+    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS, trace },
     signal
   )
 }
@@ -273,7 +303,8 @@ export async function gatewayGeminiImageViaChat(
   apiKey: string,
   gatewayBaseUrl: string,
   body: GeminiImageViaChatRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  trace?: GatewayRequestTrace
 ): Promise<unknown> {
   const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
   const payload: Record<string, unknown> = {
@@ -287,7 +318,7 @@ export async function gatewayGeminiImageViaChat(
   return gatewayRequestJSON(
     apiKey,
     url,
-    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS },
+    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS, trace },
     signal
   )
 }

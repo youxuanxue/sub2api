@@ -51,6 +51,11 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "image request audit component",
+			event: &logger.LogEvent{Level: "info", Component: "audit.openai_image_request"},
+			want:  true,
+		},
+		{
 			name: "audit component from fields (real zap path)",
 			event: &logger.LogEvent{
 				Level:     "info",

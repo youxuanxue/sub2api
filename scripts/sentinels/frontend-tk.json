@@ -886,9 +886,11 @@
       "must_contain": [
         "gatewayImageGenerations",
         "gatewayVideoFetch",
-        "/v1/video/generations/"
+        "/v1/video/generations/",
+        "X-TokenKey-Studio-Source",
+        "gatewayTraceHeaders"
       ],
-      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go."
+      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go. gatewayTraceHeaders forwards X-TokenKey-Studio-* on Studio image/video submits so backend audit.openai_image_request can correlate BakeOff/ImageStudio runs."
     },
     {
       "path": "frontend/src/components/user/dashboard/UserDashboardCharts.vue",
