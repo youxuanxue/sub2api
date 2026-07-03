@@ -95,6 +95,9 @@ hard-coded "all models" list. `gate` translates live results into minimal
 display actions (`keep_displayed`, `hide_or_provision`, `hide_or_add_pool`,
 `hide_or_fix_entitlement`, `reprobe_required`, etc.) at runtime; those actions
 are evidence for catalog/menu cleanup, not a fourth manually maintained status.
+The default non-paid gate is only a cost guard. It does not prove image/video
+servability; every paid media support claim needs an explicit `--include-paid`
+gate result.
 
 Probe resource hygiene:
 

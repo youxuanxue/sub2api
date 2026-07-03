@@ -50,6 +50,9 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | `/tmp/tokenkey-ssot-focused-newapi-chat-1.8.76-20260703-150241.log` | Focused rerun: GLM and Qwen preview chat rows pass when probed with required stream / thinking request shape |
 | `/tmp/tokenkey-ssot-display-gate-nonpaid-1.8.76-20260703.log` | SSOT display gate for non-paid rows: `DISPLAY_KEEP=308 DISPLAY_BLOCK=97 REPROBE_REQUIRED=3 FAIL=0 EXCLUDED_BLOCK=9`; gate intentionally fails until non-`keep_displayed` rows are hidden, provisioned, mapped, or reprobed |
 | `/tmp/tokenkey-ssot-gate-paid-media-1.8.76-20260703.log` | Focused paid-media gate: Gemini image and newapi image/video are `keep_displayed`; Gemini video is `hide_or_provision` |
+| `/tmp/tokenkey-ssot-gate-paid-image-full-1.8.76-20260703.log` | Full SSOT paid image gate: `DISPLAY_KEEP=6 DISPLAY_BLOCK=0 REPROBE_REQUIRED=2 FAIL=0`; Gemini image and newapi Seedream rows are display-safe; Grok image rows need retry/non-transient proof |
+| `/tmp/tokenkey-ssot-gate-paid-video-full-1.8.76-20260703.log` | Full SSOT paid video gate: `DISPLAY_KEEP=5 DISPLAY_BLOCK=1 REPROBE_REQUIRED=1 FAIL=0`; newapi Seedance rows are display-safe; Gemini video is `hide_or_provision`; Grok video needs retry/non-transient proof |
+| `/tmp/tokenkey-ssot-gate-paid-grok-media-retry-1.8.76-20260703.log` | Focused Grok paid media retry: all three Grok media rows still returned `502` and remain `reprobe_required`, not display-safe |
 | `/tmp/tokenkey-ssot-gate-embeddings-protocol-1.8.76-20260703.log` | SSOT embedding gate: Vertex AI embedding rows are `hide_or_map_vendor`; no live universal embedding row is display-safe yet |
 | `/tmp/tokenkey-ssot-gate-embedding-1.8.76-20260703.log` | Focused `text-embedding-3-small` gate: `NO_ROWS=1`; that hardcoded probe model is not currently in the displayed+priced SSOT matrix |
 | `/tmp/tokenkey-probe-cleanup-dryrun-1.8.76-20260703-134455.log` | active probe groups/keys remain `0/0`; no apply needed |
@@ -66,15 +69,16 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | openai | image `gpt-image-1` | unknown | unknown | not_authorized for the current universal key in the hardcoded matrix; not present in the current displayed+priced SSOT paid-media rows | paid-media post-1.8.76 log; focused paid-media gate | If OpenAI image should be a visible product surface, first add the catalog/entitlement path, then require a `keep_displayed` gate result. |
 | openai | embeddings `text-embedding-3-small` | unknown | unknown | unknown: repeated hardcoded-matrix SKIP `429`; not present in the current displayed+priced SSOT matrix | universal logs; embedding retry log; focused embedding gate | Do not treat this as display-safe. If OpenAI embeddings should be displayed, add the SSOT pricing/catalog row and rerun the embedding gate with a non-throttled pool. |
 | gemini | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported | direct route-gate log; universal retry log | First universal run hit transient `429`; retry passed. |
-| gemini | image `imagen-4.0-fast-generate-001` | unknown | unknown | supported | paid-media post-1.8.76 log | Direct live parity still needs a schedulable direct pool. |
+| gemini | image | unknown | unknown | supported for all current SSOT paid image rows: `imagen-4.0-fast-generate-001`, `imagen-4.0-generate-001`, `imagen-4.0-ultra-generate-001` | full paid image gate | Direct live parity still needs a schedulable direct pool. |
 | gemini | video `veo-3.1-generate-001` | unknown | unknown | route_open_unservable: model/account not provisioned on current pool; display gate says `hide_or_provision` | paid-media post-1.8.76 log; focused paid-media gate | Hide/disable this paid surface until Gemini video account/model provisioning changes and gate returns `keep_displayed`. |
 | antigravity | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | Keep direct-vs-universal parity watch when Gemini `/v1beta` routing changes. |
 | newapi | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | Reprobe after newapi channel mapping or compatibility-pool changes. |
-| newapi | image/video | unknown | unknown | supported for `doubao-seedream-4-0-250828` and `doubao-seedance-2-0-260128` | paid-media post-1.8.76 log | Expand with the SSOT matrix when intentionally probing all paid media rows. |
+| newapi | image/video | unknown | unknown | supported for all current SSOT paid image/video rows: Seedream 4.0/4.5/5.0 and Seedance 1.0/1.5/2.0 variants | full paid image/video gates | Keep `--include-paid` probes explicit; default non-paid gates do not prove media servability. |
+| grok | image/video | unknown | unknown | unknown: current paid media rows return repeated `502` and remain `reprobe_required` | full paid image/video gates; focused Grok retry | Do not display as serviceable until a non-transient paid gate returns `keep_displayed`, or hide/disable these rows. |
 | kiro | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported for text | direct route-gate log; universal retry log | If direct Kiro serving is claimed, run account-model probe against the target account/model. |
 | grok | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | No full-matrix rerun needed unless Grok model default or relay changes. |
 | all platforms with `/v1/responses` GET prelude | WebSocket prelude | open: `426` upgrade required | unknown | unknown | direct route-gate log | Treat `426` as expected route-open prelude, not a failure. |
-| public `/pricing` SSOT projection | all derived non-paid model/protocol rows | n/a | n/a | no gateway schema `FAIL`, but the display gate is not clean: 308 rows can stay displayed, 97 rows should hide/provision, 3 rows need reprobe, and 9 excluded rows need mapping or hiding | SSOT matrix list, full non-paid run, focused rerun logs, display gate log | Use this as the full-matrix source and release gate. Do not hand-maintain a second all-model list. Paid full-matrix execution still requires explicit `--include-paid`. |
+| public `/pricing` SSOT projection | all derived non-paid model/protocol rows | n/a | n/a | no gateway schema `FAIL`, but the display gate is not clean: 308 rows can stay displayed, 97 rows should hide/provision, 3 rows need reprobe, and 9 excluded rows need mapping or hiding | SSOT matrix list, full non-paid run, focused rerun logs, display gate log | Use this as the full-matrix source and release gate. Do not hand-maintain a second all-model list. Paid rows are never proven by default; each paid media claim needs an explicit `--include-paid` gate. |
 
 ## Display Gate Rule
 
@@ -107,9 +111,11 @@ This keeps `/pricing` as the single derived matrix source while turning every
    in the displayed+priced SSOT matrix, and the displayed Vertex AI embedding
    rows are `hide_or_map_vendor`. Decide whether to map/provision universal
    embeddings or remove/hide those rows from the relevant surface.
-3. Paid media gate outcome: Gemini image and newapi image/video can stay
-   displayed; Gemini video is `hide_or_provision`. `gpt-image-1` is still only a
-   hardcoded probe row for the current key, not a displayed+priced SSOT row.
+3. Paid media gate outcome: Gemini image and all current newapi Seedream /
+   Seedance rows can stay displayed. Gemini video is `hide_or_provision`. Grok
+   image/video rows remain `reprobe_required` after retry and are not
+   display-safe. `gpt-image-1` is still only a hardcoded probe row for the
+   current key, not a displayed+priced SSOT row.
 4. Reprobe the three `reprobe_required` rows from the non-paid gate with a
    longer timeout or a cleaner pool before deciding whether they are displayable
    or should join the hide/provision list.
