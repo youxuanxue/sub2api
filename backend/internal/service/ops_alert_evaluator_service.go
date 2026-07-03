@@ -349,6 +349,12 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] resolve event failed (event=%d): %v", activeEvent.ID, err)
 			} else {
 				eventsResolved++
+				resolvedEvent := *activeEvent
+				resolvedEvent.Status = OpsAlertStatusResolved
+				resolvedEvent.ResolvedAt = &resolvedAt
+				if s.maybeSendAlertFeishuRecovery(ctx, runtimeCfg, rule, &resolvedEvent, metricValue) {
+					feishuSent++
+				}
 			}
 		}
 	}
