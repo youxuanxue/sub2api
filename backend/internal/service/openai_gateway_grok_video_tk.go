@@ -133,6 +133,10 @@ func (s *OpenAIGatewayService) grokNativeVideoSubmit(
 	if upstreamModel != "" && upstreamModel != reqModel {
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
 	}
+	upstreamBody, err := normalizeGrokVideoSubmitBody(upstreamBody)
+	if err != nil {
+		return nil, err
+	}
 
 	token, grokBase, cerr := resolveGrokVideoCredential(account)
 	if cerr != nil {

@@ -312,6 +312,8 @@ func TestIsVideoSupportedChannelType(t *testing.T) {
 		channelType int
 		want        bool
 	}{
+		{"gemini", 24, true},
+		{"vertex_ai", 41, true},
 		{"volcengine", 45, true},
 		{"doubao_video", 54, true},
 		{"unknown_zero", 0, false},

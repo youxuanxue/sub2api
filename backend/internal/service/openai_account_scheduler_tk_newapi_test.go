@@ -87,6 +87,16 @@ func newAPIAccount(id int64, channelType int) *Account {
 	}
 }
 
+func newAPIVideoAccount(id int64, channelType int, model string) *Account {
+	account := newAPIAccount(id, channelType)
+	account.Credentials = map[string]any{
+		"model_mapping": map[string]any{
+			model: model,
+		},
+	}
+	return account
+}
+
 func openAIAccount(id int64, priority int) *Account {
 	return &Account{
 		ID:          id,
@@ -261,4 +271,62 @@ func TestUS015_SchedulerBucket_PartitionedByPlatform(t *testing.T) {
 	got := snap.bucketFor(gpid, PlatformNewAPI, SchedulerModeSingle)
 	require.Equal(t, PlatformNewAPI, got.Platform)
 	require.Equal(t, groupID, got.GroupID)
+}
+
+func TestSelectAccountWithSchedulerForVideo_FiltersUnsupportedChannelType(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(80009)
+	const model = "veo-3.1-generate-001"
+	bad := newAPIVideoAccount(80901, 43, model)
+	bad.Priority = 0
+	good := newAPIVideoAccount(80902, 41, model)
+	good.Priority = 10
+	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{bad, good})
+
+	selection, _, err := svc.SelectAccountWithSchedulerForVideo(ctx, &groupID, "", model, nil, OpenAIUpstreamTransportAny)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(80902), selection.Account.ID, "video selection must skip model-mapped accounts whose channel_type cannot submit video")
+	require.Equal(t, 41, selection.Account.ChannelType)
+}
+
+func TestSelectAccountWithSchedulerForVideo_RejectsPoolWithoutVideoChannel(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(80010)
+	const model = "veo-3.1-generate-001"
+	bad := newAPIVideoAccount(81001, 43, model)
+	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{bad})
+
+	selection, _, err := svc.SelectAccountWithSchedulerForVideo(ctx, &groupID, "", model, nil, OpenAIUpstreamTransportAny)
+	require.Error(t, err)
+	require.True(t, selection == nil || selection.Account == nil)
+}
+
+func TestAdvancedSchedulerVideoSkipsUnsupportedStickyAccount(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(80011)
+	const model = "veo-3.1-generate-001"
+	const sessionHash = "sess-video-sticky"
+	bad := newAPIVideoAccount(81101, 43, model)
+	bad.Priority = 0
+	good := newAPIVideoAccount(81102, 41, model)
+	good.Priority = 10
+	svc, sched := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{bad, good})
+	svc.cache = &stubGatewayCache{sessionBindings: map[string]int64{}}
+	require.NoError(t, svc.BindStickySession(ctx, &groupID, sessionHash, bad.ID))
+
+	selection, decision, err := sched.Select(ctx, OpenAIAccountScheduleRequest{
+		GroupID:              &groupID,
+		GroupPlatform:        PlatformNewAPI,
+		SessionHash:          sessionHash,
+		RequestedModel:       model,
+		RequiredTransport:    OpenAIUpstreamTransportAny,
+		RequiredVideoSupport: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(81102), selection.Account.ID, "sticky video routing must not reuse a non-video account")
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 }

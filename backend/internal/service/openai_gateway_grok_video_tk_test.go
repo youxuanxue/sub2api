@@ -197,6 +197,24 @@ func TestNormalizeGrokVideoStatus(t *testing.T) {
 	}
 }
 
+func TestNormalizeGrokVideoSubmitBodyMapsOpenAICompatDuration(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","prompt":"waves","duration_seconds":"4.2","seconds":"4"}`)
+	got, err := normalizeGrokVideoSubmitBody(raw)
+	if err != nil {
+		t.Fatalf("normalizeGrokVideoSubmitBody error: %v", err)
+	}
+	if strings.Contains(string(got), "duration_seconds") || strings.Contains(string(got), "seconds") {
+		t.Fatalf("OpenAI-compat duration aliases must be stripped before xAI submit: %s", got)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(got, &payload); err != nil {
+		t.Fatalf("normalized body is not JSON: %v (%s)", err, got)
+	}
+	if payload["duration"] != float64(4) {
+		t.Fatalf("duration = %#v, want 4 from seconds alias", payload["duration"])
+	}
+}
+
 // TestBuildGrokVideoSubmitResponse verifies the synchronous submit
 // acknowledgement carries TK's PUBLIC task id (the client polls
 // GET /v1/videos/{id} with it) and the OpenAI-Video submit shape the handler
