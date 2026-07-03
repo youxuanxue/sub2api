@@ -47,6 +47,12 @@
           color="amber"
         />
         <div
+          v-if="kiro.trial.limit"
+          class="pl-[36px] text-[9px] leading-tight text-gray-400 dark:text-gray-500"
+        >
+          {{ formatCredits(kiro.trial.current) }} / {{ formatCredits(kiro.trial.limit) }}
+        </div>
+        <div
           v-if="kiro.trial.expires_at"
           class="pl-[36px] text-[9px] leading-tight text-gray-400 dark:text-gray-500"
         >
@@ -54,15 +60,26 @@
         </div>
       </template>
 
-      <!-- Subscription title -->
-      <div
-        v-if="kiro.subscription_title"
-        class="text-[9px] leading-tight text-gray-400 dark:text-gray-500 truncate max-w-[200px]"
-        :title="kiro.subscription_title"
-      >
-        {{ kiro.subscription_title }}
-      </div>
-      <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
+      <!-- Bonus / promotional credits -->
+      <template v-for="bonus in kiro.bonuses ?? []" :key="bonusKey(bonus)">
+        <UsageProgressBar
+          :label="bonusLabel(bonus)"
+          :utilization="bonus.percent ?? 0"
+          :resets-at="bonus.expires_at || null"
+          color="emerald"
+        />
+        <div
+          v-if="bonus.limit"
+          class="pl-[36px] text-[9px] leading-tight text-gray-400 dark:text-gray-500"
+        >
+          {{ formatCredits(bonus.current) }} / {{ formatCredits(bonus.limit) }}
+        </div>
+      </template>
+
+      <UpstreamQuotaSummary
+        :quota="usageInfo?.upstream_quota"
+        :hidden-credit-key-prefixes="upstreamQuotaHiddenCreditPrefixes"
+      />
 
       <div class="flex items-center gap-1.5 mt-0.5">
         <span
@@ -130,6 +147,7 @@ import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import { formatDateOnly } from '@/utils/format'
+import type { KiroBonusInfo } from '@/types'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps
@@ -140,18 +158,27 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
+const upstreamQuotaHiddenCreditPrefixes = ['kiro_']
 
 const { loading, activeQueryLoading, error, usageInfo, loadActiveUsage } = useAccountUsageFetch(
   props,
   rootRef
 )
 
-// kiro_usage rides on the same AccountUsageInfo the other cells read (active getUsage
-// JSON, or the edge passive DTO lifted in edgeAccounts.tk.ts → toUsageInfo).
 const kiro = computed(() => usageInfo.value?.kiro_usage ?? null)
 
 function formatCredits(n?: number): string {
   if (n == null) return '0'
   return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+function bonusKey(bonus: KiroBonusInfo): string {
+  return bonus.code || bonus.label || 'bonus'
+}
+
+function bonusLabel(bonus: KiroBonusInfo): string {
+  const label = (bonus.label || bonus.code || '').trim()
+  if (!label) return t('admin.accounts.usageWindow.kiroBonus')
+  return label.length <= 8 ? label : `${label.slice(0, 7)}…`
 }
 </script>

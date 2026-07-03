@@ -54,23 +54,35 @@ type Account struct {
 	BanTime      int64  `json:"banTime,omitempty"`
 }
 
+// KiroBonusInfo is one promotional/bonus credits bucket from getUsageLimits.
+type KiroBonusInfo struct {
+	Code      string  `json:"code,omitempty"`
+	Label     string  `json:"label,omitempty"`
+	Current   float64 `json:"current,omitempty"`
+	Limit     float64 `json:"limit,omitempty"`
+	Percent   float64 `json:"percent,omitempty"` // 0-100
+	Status    string  `json:"status,omitempty"`
+	ExpiresAt int64   `json:"expiresAt,omitempty"` // unix seconds
+}
+
 // AccountInfo carries the account metadata returned by RefreshAccountInfo.
 // Fields cover exactly what rest.go populates.
 type AccountInfo struct {
-	Email             string  `json:"email,omitempty"`
-	UserId            string  `json:"userId,omitempty"`
-	SubscriptionType  string  `json:"subscriptionType,omitempty"`
-	SubscriptionTitle string  `json:"subscriptionTitle,omitempty"`
-	UsageCurrent      float64 `json:"usageCurrent,omitempty"`
-	UsageLimit        float64 `json:"usageLimit,omitempty"`
-	UsagePercent      float64 `json:"usagePercent,omitempty"`
-	NextResetDate     string  `json:"nextResetDate,omitempty"`
-	LastRefresh       int64   `json:"lastRefresh,omitempty"`
-	TrialUsageCurrent float64 `json:"trialUsageCurrent,omitempty"`
-	TrialUsageLimit   float64 `json:"trialUsageLimit,omitempty"`
-	TrialUsagePercent float64 `json:"trialUsagePercent,omitempty"`
-	TrialStatus       string  `json:"trialStatus,omitempty"`
-	TrialExpiresAt    int64   `json:"trialExpiresAt,omitempty"`
+	Email             string          `json:"email,omitempty"`
+	UserId            string          `json:"userId,omitempty"`
+	SubscriptionType  string          `json:"subscriptionType,omitempty"`
+	SubscriptionTitle string          `json:"subscriptionTitle,omitempty"`
+	UsageCurrent      float64         `json:"usageCurrent,omitempty"`
+	UsageLimit        float64         `json:"usageLimit,omitempty"`
+	UsagePercent      float64         `json:"usagePercent,omitempty"`
+	NextResetDate     string          `json:"nextResetDate,omitempty"`
+	LastRefresh       int64           `json:"lastRefresh,omitempty"`
+	TrialUsageCurrent float64         `json:"trialUsageCurrent,omitempty"`
+	TrialUsageLimit   float64         `json:"trialUsageLimit,omitempty"`
+	TrialUsagePercent float64         `json:"trialUsagePercent,omitempty"`
+	TrialStatus       string          `json:"trialStatus,omitempty"`
+	TrialExpiresAt    int64           `json:"trialExpiresAt,omitempty"`
+	Bonuses           []KiroBonusInfo `json:"bonuses,omitempty"`
 }
 
 // PromptFilterRule defines a single custom prompt sanitization rule used by

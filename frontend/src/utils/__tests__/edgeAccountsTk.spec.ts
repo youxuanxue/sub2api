@@ -177,9 +177,22 @@ describe('toUsageInfo', () => {
             percent: 30,
             next_reset_date: '2026-07-01',
             subscription_title: 'Kiro Pro',
+            trial_current: 5,
+            trial_limit: 50,
             trial_percent: 10,
             trial_status: 'ACTIVE',
-            trial_expires_at: '2026-07-15T00:00:00Z'
+            trial_expires_at: '2026-07-15T00:00:00Z',
+            bonuses: [
+              {
+                code: 'WELCOME500',
+                label: 'Welcome Bonus',
+                current: 120,
+                limit: 500,
+                percent: 24,
+                status: 'ACTIVE',
+                expires_at: '2026-08-01T00:00:00Z'
+              }
+            ]
           }
         }
       })
@@ -189,7 +202,10 @@ describe('toUsageInfo', () => {
     expect(info?.kiro_usage?.next_reset_date).toBe('2026-07-01')
     expect(info?.kiro_usage?.subscription_title).toBe('Kiro Pro')
     expect(info?.kiro_usage?.trial?.percent).toBe(10)
+    expect(info?.kiro_usage?.trial?.current).toBe(5)
+    expect(info?.kiro_usage?.trial?.limit).toBe(50)
     expect(info?.kiro_usage?.trial?.expires_at).toBe('2026-07-15T00:00:00Z')
+    expect(info?.kiro_usage?.bonuses?.[0]?.code).toBe('WELCOME500')
     expect(info?.upstream_quota?.provider).toBe('kiro')
     expect(info?.upstream_quota?.credits?.[0]?.remaining).toBe(700)
   })

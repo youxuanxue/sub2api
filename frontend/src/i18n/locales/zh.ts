@@ -4003,7 +4003,8 @@ export default {
         activeQuery: '查询',
         kiroCredits: '额度',
         kiroTrial: '试用',
-        kiroTrialExpires: '试用到期'
+        kiroTrialExpires: '试用到期',
+        kiroBonus: '奖励'
       },
       openaiQuotaReset: {
         count: '次数',

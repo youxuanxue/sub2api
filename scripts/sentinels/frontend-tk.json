@@ -174,7 +174,9 @@
       "path": "frontend/src/components/account/usage-cells/UpstreamQuotaSummary.vue",
       "must_contain": [
         "hiddenDimensionKeys?: string[]",
-        "const visibleDimensions = computed",
+        "hiddenCreditKeys?: string[]",
+        "hiddenCreditKeyPrefixes?: string[]",
+        "const visibleCredits = computed",
         "visibleDimensions.value.map(formatDimensionLine)"
       ],
       "rationale": "Shared usage-window quota summary de-duplication owner. Account usage cells render primary 5h/7d bars first, then UpstreamQuotaSummary renders only supplemental upstream quota facts after filtering dimensions already represented by those bars. Anchors prevent an upstream-shaped component rewrite from silently reintroducing duplicate grey quota chips beside the canonical progress bars."
@@ -196,6 +198,15 @@
         "openai_codex_7d"
       ],
       "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: the 5h and 7d progress bars are canonical, while UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from restoring duplicate Codex window chips."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/KiroUsageCell.vue",
+      "must_contain": [
+        ":hidden-credit-key-prefixes=\"upstreamQuotaHiddenCreditPrefixes\"",
+        "upstreamQuotaHiddenCreditPrefixes = ['kiro_']",
+        "kiro.bonuses"
+      ],
+      "rationale": "Kiro credits/trial/bonus progress bars are the canonical visual owner; UpstreamQuotaSummary must hide all kiro_* credit chips to avoid repeating the same monthly/trial/bonus numbers while still showing the subscription tier badge."
     },
     {
       "path": "frontend/src/views/admin/AccountsView.vue",

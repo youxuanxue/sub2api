@@ -53,14 +53,27 @@ const props = defineProps<{
   quota?: UpstreamQuotaInfo | null
   maxItems?: number
   hiddenDimensionKeys?: string[]
+  hiddenCreditKeys?: string[]
+  hiddenCreditKeyPrefixes?: string[]
 }>()
 
 const { t } = useI18n()
 
 const quota = computed(() => props.quota ?? null)
 const hiddenDimensionKeys = computed(() => new Set(props.hiddenDimensionKeys ?? []))
+const hiddenCreditKeys = computed(() => new Set(props.hiddenCreditKeys ?? []))
+const hiddenCreditKeyPrefixes = computed(() => props.hiddenCreditKeyPrefixes ?? [])
 const visibleDimensions = computed(() =>
   (quota.value?.dimensions ?? []).filter(dim => !hiddenDimensionKeys.value.has(dim.key))
+)
+const visibleCredits = computed(() =>
+  (quota.value?.credits ?? []).filter(credit => {
+    if (hiddenCreditKeys.value.has(credit.key)) return false
+    for (const prefix of hiddenCreditKeyPrefixes.value) {
+      if (prefix && credit.key.startsWith(prefix)) return false
+    }
+    return true
+  })
 )
 const visible = computed(() => {
   if (!quota.value) return false
@@ -72,7 +85,7 @@ const visible = computed(() => {
     !!quota.value.subscription_tier_raw ||
     !!quota.value.retry_after_seconds ||
     visibleDimensions.value.length > 0 ||
-    (quota.value.credits?.length ?? 0) > 0
+    visibleCredits.value.length > 0
   )
 })
 
@@ -118,7 +131,7 @@ const retryAfterLabel = computed(() => {
 const quotaLines = computed(() => {
   const max = props.maxItems ?? 3
   const lines = [
-    ...(quota.value?.credits ?? []).map(formatCreditLine).filter(Boolean),
+    ...visibleCredits.value.map(formatCreditLine).filter(Boolean),
     ...visibleDimensions.value.map(formatDimensionLine).filter(Boolean)
   ] as Array<{ key: string; text: string; title: string }>
   return lines.slice(0, max)

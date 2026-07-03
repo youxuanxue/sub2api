@@ -1103,6 +1103,16 @@ export interface AccountUsageInfo {
   kiro_usage?: KiroUsageInfo | null
 }
 
+export interface KiroBonusInfo {
+  code?: string
+  label?: string
+  current?: number
+  limit?: number
+  percent?: number
+  status?: string
+  expires_at?: string | null
+}
+
 // Kiro credits 快照（对齐后端 service.KiroUsageInfo）。percent 为 0-100。
 export interface KiroUsageInfo {
   current?: number
@@ -1117,6 +1127,7 @@ export interface KiroUsageInfo {
     status?: string
     expires_at?: string | null
   } | null
+  bonuses?: KiroBonusInfo[] | null
 }
 
 // OpenAI Codex usage snapshot (from response headers)

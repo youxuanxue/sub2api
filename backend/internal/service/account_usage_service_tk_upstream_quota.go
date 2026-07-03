@@ -183,6 +183,26 @@ func buildKiroUpstreamQuota(usage *UsageInfo) *UpstreamQuotaInfo {
 			Status:      k.Trial.Status,
 		})
 	}
+	for _, bonus := range k.Bonuses {
+		current := bonus.Current
+		limit := bonus.Limit
+		percent := bonus.Percent
+		remaining := limit - current
+		if remaining < 0 {
+			remaining = 0
+		}
+		label := firstNonEmptyQuotaString(bonus.Label, bonus.Code, "Kiro bonus")
+		info.Credits = append(info.Credits, UpstreamQuotaCredit{
+			Key:         kiroBonusQuotaKey(bonus.Code),
+			Label:       label,
+			Current:     &current,
+			Limit:       &limit,
+			Remaining:   &remaining,
+			Utilization: &percent,
+			ExpiresAt:   bonus.ExpiresAt,
+			Status:      bonus.Status,
+		})
+	}
 	info.State = "observed"
 	return info
 }
