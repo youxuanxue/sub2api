@@ -40,7 +40,8 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 
 | platform/group | endpoint | direct route-gate | direct live servability | universal live servability | evidence | fallback / next action |
 |---|---|---|---|---|---|---|
-| anthropic | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | partial: text SKIP timeout; count_tokens supported | direct route-gate log; universal paid-media log | Reprobe Anthropic text only when capacity/account pool changes; count_tokens is already covered. |
+| anthropic | `/v1/messages`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | unknown: text SKIP timeout | direct route-gate log; universal paid-media log | Reprobe Anthropic text only when capacity/account pool changes. |
+| anthropic | `/v1/messages/count_tokens` | open | route_open_unservable: empty direct probe pool returned `429` | supported | direct route-gate log; universal paid-media log | Count-tokens universal path is covered; direct live support needs a schedulable direct pool. |
 | openai | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text and responses | direct route-gate log; universal paid-media log | No full-matrix rerun needed unless OpenAI gateway routing changes. |
 | openai | image `gpt-image-1` | unknown | unknown | unknown: SKIP timeout/connection interruption | universal paid-media log | Retry paid OpenAI image only when investigating media capacity or after upstream/account change. |
 | openai | embeddings `text-embedding-3-small` | unknown | unknown | unknown: SKIP `429` upstream throttle | universal paid-media log | Focused retry when embedding support matters; not a gateway regression. |
@@ -52,7 +53,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | newapi | image/video | unknown | unknown | supported for `doubao-seedream-4-0-250828` and `doubao-seedance-2-0-260128` | universal paid-media log | Keep as paid-media baseline; focused paid reprobe after media channel changes. |
 | kiro | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported for text | direct route-gate log; universal paid-media log | If direct Kiro serving is claimed, run account-model probe against the target account/model. |
 | grok | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal paid-media log | No full-matrix rerun needed unless Grok model default or relay changes. |
-| all platforms with `/v1/responses` GET prelude | WebSocket prelude | open: `426` upgrade required | supported as route-gate prelude | unknown | direct route-gate log | Treat `426` as expected route-open prelude, not a failure. |
+| all platforms with `/v1/responses` GET prelude | WebSocket prelude | open: `426` upgrade required | unknown | unknown | direct route-gate log | Treat `426` as expected route-open prelude, not a failure. |
 
 ## Next Probe Focus
 
@@ -67,4 +68,3 @@ stable probe conclusions, evidence pointers, and the next probe focus.
    compatibility claim or a routing change touches embeddings.
 5. After every direct/account probe, run probe-resource cleanup dry-run. Apply
    cleanup if active `__tk_probe_*` groups or keys are nonzero.
-
