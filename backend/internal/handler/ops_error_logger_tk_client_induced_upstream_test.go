@@ -23,6 +23,21 @@ import (
 func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	t.Run("local Anthropic tool context guard is request/client owned", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			Kind:    service.OpsUpstreamKindClientToolContextCorrupt,
+			Message: "Invalid Anthropic tool continuation: tool_result must be immediately preceded by the assistant tool_use message.",
+		}})
+
+		phase, errorOwner, errorSource := classifyOpsErrorLog(c, "invalid_request_error", "Invalid Anthropic tool continuation", "", http.StatusBadRequest)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+		require.Equal(t, "client_request", errorSource)
+	})
+
 	t.Run("openai chat/completions unsupported-model 400 (structured invalid_request_error body)", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)

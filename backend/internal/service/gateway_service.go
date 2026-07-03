@@ -5358,6 +5358,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if account.Platform == PlatformAnthropic {
 		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
 	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false); err != nil {
+			return nil, err
+		}
+	}
 
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, body)
@@ -6110,6 +6115,11 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	// account has been recently throwing signature_error.
 	if account.Platform == PlatformAnthropic {
 		input.Body = s.applySigPreemptIfArmed(ctx, c, account, input.Body, input.RequestModel)
+	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, input.Body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), true); err != nil {
+			return nil, err
+		}
 	}
 
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
@@ -10869,6 +10879,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	if account.Platform == PlatformAnthropic {
 		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
 	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false); err != nil {
+			return err
+		}
+	}
 
 	// 构建上游请求
 	upstreamReq, wireBody, err := s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
@@ -11046,6 +11061,11 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	// TK: CC prompt-surface normalize (passthrough skips the full normalize hook).
 	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
 		body, _ = tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, body)
+	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), true); err != nil {
+			return err
+		}
 	}
 
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)

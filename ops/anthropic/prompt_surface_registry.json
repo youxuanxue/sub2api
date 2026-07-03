@@ -49,6 +49,51 @@
       "prod_alert_value": "cc_user_email"
     },
     {
+      "id": "orphan_tool_result_context",
+      "probe_module": "tool_continuation_shape",
+      "locations": ["messages[].content[].type"],
+      "signals": ["tool_result not immediately preceded by a matching assistant tool_use"],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "orphan_tool_result_context"
+    },
+    {
+      "id": "missing_tool_result_for_tool_use",
+      "probe_module": "tool_continuation_shape",
+      "locations": ["messages[].content[].type"],
+      "signals": ["assistant tool_use not fully answered by the immediately following user tool_result message"],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "missing_tool_result_for_tool_use"
+    },
+    {
+      "id": "tool_result_not_leading",
+      "probe_module": "tool_continuation_shape",
+      "locations": ["messages[].content[].type"],
+      "signals": ["tool_result appears after non-tool_result content in a user message"],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "tool_result_not_leading"
+    },
+    {
+      "id": "tool_result_missing_tool_use_id",
+      "probe_module": "tool_continuation_shape",
+      "locations": ["messages[].content[].tool_use_id"],
+      "signals": ["tool_result is missing tool_use_id"],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "tool_result_missing_tool_use_id"
+    },
+    {
+      "id": "tool_result_without_system_surface",
+      "probe_module": "tool_continuation_shape",
+      "locations": ["system", "messages[].content[].type"],
+      "signals": ["tool_result with no system block and no system-reminder"],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "tool_result_without_system_surface"
+    },
+    {
       "id": "system_identity_anchor",
       "probe_module": "system_anchor",
       "locations": ["system[].text"],

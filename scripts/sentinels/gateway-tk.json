@@ -3,6 +3,45 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/gateway_request_tk_prompt_fingerprint.go",
+      "must_contain": [
+        "HasToolResult         bool",
+        "HasAssistantToolUse   bool",
+        "tkValidateAnthropicToolContext(body, false)",
+        "tool_result_without_system_surface",
+        "slog.Bool(\"has_tool_result\", fp.HasToolResult)"
+      ],
+      "rationale": "Anthropic prompt fingerprint logs must keep tool-continuation visibility: whether the forwarded body contains user/tool_result, whether any assistant/tool_use exists, and whether a tool_result body is missing the expected Claude Code system surface. These fields are the production watch signal for the oh-3-g(#13) incident class; dropping them compiles cleanly but blinds client-fidelity-watch to orphan tool_result context before it reaches account-health symptoms."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_tool_context_guard.go",
+      "must_contain": [
+        "func tkValidateAnthropicToolContext(body []byte, requireSystemSurface bool)",
+        "func (s *GatewayService) tkRejectInvalidAnthropicToolContext(",
+        "OpsUpstreamKindClientToolContextCorrupt",
+        "tool_result must be immediately preceded by the assistant tool_use message",
+        "tool_result_without_system_surface"
+      ],
+      "rationale": "Local Anthropic tool-context guard for corrupt continuations: a user/tool_result must be immediately preceded by the assistant/tool_use it answers, all tool_use ids must match, and Claude Code OAuth continuations must retain the expected system surface. The guard rejects the request locally with client-owned invalid_request_error before any upstream call. If an upstream merge drops this companion, malformed resumed sessions can again burn Anthropic account health with provider-looking 400s."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_tool_context_guard_test.go",
+      "must_contain": [
+        "TestTkValidateAnthropicToolContext_FlagsToolResultOnly",
+        "TestTkValidateAnthropicToolContext_AllowsSdkToolContinuation",
+        "TestTkRejectInvalidAnthropicToolContext_WritesLocalClientErrorAndOpsEvent"
+      ],
+      "rationale": "Focused regressions for the Anthropic tool-context guard: incident-shaped tool_result-only bodies are rejected, valid SDK tool continuations pass, and local rejection writes the client-owned ops event used by downstream classification."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false)",
+        "s.tkRejectInvalidAnthropicToolContext(ctx, c, account, input.Body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), true)"
+      ],
+      "rationale": "Load-bearing wiring for the local Anthropic tool-context guard on both OAuth and API-key passthrough forwarding/count_tokens paths. The companion helper alone is insufficient; if these gateway_service.go call sites are dropped, corrupt user/tool_result continuations will bypass local validation and hit upstream accounts again."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_openai_client_induced_403.go",
       "must_contain": [
         "func tkIsOpenAIClientInducedCapability403(upstreamMsg string, responseBody []byte) string",
