@@ -249,16 +249,16 @@ type edgeUsageProgress struct {
 // credits budget (current/limit/percent), the monthly reset date, the订阅 title,
 // and the optional trial allowance (percent + expiry + status).
 type edgeKiroUsage struct {
-	Current           float64           `json:"current,omitempty"`
-	Limit             float64           `json:"limit,omitempty"`
-	Percent           float64           `json:"percent,omitempty"`
-	NextResetDate     string            `json:"next_reset_date,omitempty"`
-	SubscriptionTitle string            `json:"subscription_title,omitempty"`
-	TrialCurrent      float64           `json:"trial_current,omitempty"`
-	TrialLimit        float64           `json:"trial_limit,omitempty"`
-	TrialPercent      float64           `json:"trial_percent,omitempty"`
-	TrialStatus       string            `json:"trial_status,omitempty"`
-	TrialExpiresAt    *time.Time        `json:"trial_expires_at,omitempty"`
+	Current           float64                 `json:"current,omitempty"`
+	Limit             float64                 `json:"limit,omitempty"`
+	Percent           float64                 `json:"percent,omitempty"`
+	NextResetDate     string                  `json:"next_reset_date,omitempty"`
+	SubscriptionTitle string                  `json:"subscription_title,omitempty"`
+	TrialCurrent      float64                 `json:"trial_current,omitempty"`
+	TrialLimit        float64                 `json:"trial_limit,omitempty"`
+	TrialPercent      float64                 `json:"trial_percent,omitempty"`
+	TrialStatus       string                  `json:"trial_status,omitempty"`
+	TrialExpiresAt    *time.Time              `json:"trial_expires_at,omitempty"`
 	Bonuses           []service.KiroBonusInfo `json:"bonuses,omitempty"`
 }
 

@@ -20,13 +20,13 @@ var kiroBonusKeySanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 // free-trial allowance with its own expiry. Percent is 0-100 to match
 // UsageProgress.Utilization so the edge DTO can render it as a window bar.
 type KiroUsageInfo struct {
-	Current           float64          `json:"current,omitempty"`
-	Limit             float64          `json:"limit,omitempty"`
-	Percent           float64          `json:"percent,omitempty"` // 0-100
-	NextResetDate     string           `json:"next_reset_date,omitempty"`
-	SubscriptionTitle string           `json:"subscription_title,omitempty"`
-	Trial             *KiroTrialInfo   `json:"trial,omitempty"`
-	Bonuses           []KiroBonusInfo  `json:"bonuses,omitempty"`
+	Current           float64         `json:"current,omitempty"`
+	Limit             float64         `json:"limit,omitempty"`
+	Percent           float64         `json:"percent,omitempty"` // 0-100
+	NextResetDate     string          `json:"next_reset_date,omitempty"`
+	SubscriptionTitle string          `json:"subscription_title,omitempty"`
+	Trial             *KiroTrialInfo  `json:"trial,omitempty"`
+	Bonuses           []KiroBonusInfo `json:"bonuses,omitempty"`
 }
 
 // KiroBonusInfo is one promotional/bonus credits bucket from getUsageLimits.
