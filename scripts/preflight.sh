@@ -2252,6 +2252,10 @@ echo "=== sub2api: platform registry drift ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by platform-registry-drift.py)"
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/test_platform_registry_drift.py >/dev/null; then
+    echo "  FAIL: platform-registry-drift regression tests failed"
+    echo "        — run: python3 scripts/checks/test_platform_registry_drift.py"
+    errors=$((errors + 1))
 elif ! python3 ./scripts/checks/platform-registry-drift.py --quiet; then
     errors=$((errors + 1))
 else
