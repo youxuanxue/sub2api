@@ -39,7 +39,7 @@ bash ops/observability/run-probe.sh \
 
 - 成功请求数（`reqs` / `billed_reqs` / `zero_cost_reqs`）。
 - 计费 `total_cost` vs 实际 `actual_cost`，标注倍率 `actual_cost / total_cost`（`total_cost=0` 时写 `N/A`，不要反向用 `total/actual`）。
-- 真客户端失败数 + 主错误类型（尤其空池 429 / 502 / 上游 4xx-5xx）；若某错误类型窗口内 `n > 10`，额外列出对应 key、分组，以及该 key 是否为 universal key。
+- 真客户端失败数 + 主错误类型（尤其空池 429 / 502 / 上游 4xx-5xx）；若某错误类型窗口内 `n > 10`，额外列出对应 key、分组、错误模型，以及该 key 是否为 universal key。
 - 主力模型 Top3（按请求数；成本结构异于请求数时可补一句按成本的首位）。
 - **与对话里上一窗的环比**：请求 / 成本 / 错误各给 ↑↓= 箭头。
 
