@@ -264,7 +264,7 @@ func (s *APIKeyService) SetUniversalAvailableModelsProvider(p availableModelsPro
 }
 
 // SetUniversalModelSupportProvider 后期绑定全能 Key 解析器的 direct-scheduler 同口径
-// 组模型支持判定源。构造期 GatewayService 尚不存在,故经 wire 就绪钩子注入。
+// 组模型+协议支持判定源。构造期 GatewayService 尚不存在,故经 wire 就绪钩子注入。
 func (s *APIKeyService) SetUniversalModelSupportProvider(p groupModelSupportProvider) {
 	if s == nil || s.universalResolver == nil {
 		return
