@@ -215,6 +215,44 @@ func TestNormalizeGrokVideoSubmitBodyMapsOpenAICompatDuration(t *testing.T) {
 	}
 }
 
+func TestBuildGrokVideoV1URLs(t *testing.T) {
+	cases := []struct {
+		name   string
+		base   string
+		submit string
+		fetch  string
+	}{
+		{
+			name:   "edge root base",
+			base:   "https://api-us4.tokenkey.dev",
+			submit: "https://api-us4.tokenkey.dev/v1/videos/generations",
+			fetch:  "https://api-us4.tokenkey.dev/v1/videos/req-123",
+		},
+		{
+			name:   "v1 base",
+			base:   "https://api.x.ai/v1",
+			submit: "https://api.x.ai/v1/videos/generations",
+			fetch:  "https://api.x.ai/v1/videos/req-123",
+		},
+		{
+			name:   "trailing slash v1 base",
+			base:   "https://api.x.ai/v1/",
+			submit: "https://api.x.ai/v1/videos/generations",
+			fetch:  "https://api.x.ai/v1/videos/req-123",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := buildGrokVideoSubmitURL(tc.base); got != tc.submit {
+				t.Fatalf("submit URL = %q, want %q", got, tc.submit)
+			}
+			if got := buildGrokVideoFetchURL(tc.base, "req-123"); got != tc.fetch {
+				t.Fatalf("fetch URL = %q, want %q", got, tc.fetch)
+			}
+		})
+	}
+}
+
 // TestBuildGrokVideoSubmitResponse verifies the synchronous submit
 // acknowledgement carries TK's PUBLIC task id (the client polls
 // GET /v1/videos/{id} with it) and the OpenAI-Video submit shape the handler

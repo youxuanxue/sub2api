@@ -443,6 +443,10 @@ func TestFrontendServer_Middleware(t *testing.T) {
 			"/health/inflight",
 			"/responses",
 			"/responses/compact",
+			"/images/generations",
+			"/video/generations",
+			"/videos",
+			"/videos/generations",
 		}
 
 		for _, path := range apiPaths {
@@ -488,6 +492,36 @@ func TestFrontendServer_Middleware(t *testing.T) {
 		assert.True(t, nextCalled, "next handler should be called for compact API route")
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.JSONEq(t, `{"ok":true}`, w.Body.String())
+	})
+
+	t.Run("skips_video_post_routes", func(t *testing.T) {
+		provider := &mockSettingsProvider{
+			settings: map[string]string{"test": "value"},
+		}
+
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		for _, path := range []string{"/video/generations", "/videos", "/videos/generations"} {
+			t.Run(path, func(t *testing.T) {
+				router := gin.New()
+				router.Use(server.Middleware())
+				nextCalled := false
+				router.POST(path, func(c *gin.Context) {
+					nextCalled = true
+					c.String(http.StatusOK, `{"ok":true}`)
+				})
+
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-imagine-video"}`))
+				req.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(w, req)
+
+				assert.True(t, nextCalled, "next handler should be called for video API route")
+				assert.Equal(t, http.StatusOK, w.Code)
+				assert.JSONEq(t, `{"ok":true}`, w.Body.String())
+			})
+		}
 	})
 
 	t.Run("serves_index_for_spa_routes", func(t *testing.T) {
@@ -691,6 +725,10 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 			"/health/inflight",
 			"/responses",
 			"/responses/compact",
+			"/images/generations",
+			"/video/generations",
+			"/videos",
+			"/videos/generations",
 		}
 
 		for _, path := range apiPaths {

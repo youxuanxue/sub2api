@@ -518,9 +518,9 @@ func grokImageResolutionFromOpenAISize(size string) string {
 	}
 	switch tier {
 	case ImageBillingSize1K:
-		return "1K"
+		return "1k"
 	case ImageBillingSize2K, ImageBillingSize4K:
-		return "2K"
+		return "2k"
 	default:
 		return ""
 	}
