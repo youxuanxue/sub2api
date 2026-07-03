@@ -252,21 +252,7 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	// attached it (error-rate rules). Rendered as its own line right under 范围 so
 	// an operator can tell a real fire from client noise (e.g. a hammered
 	// access-gated model) without drilling the dashboard.
-	topCauseLine := ""
-	if cause := opsFeishuTopCause(event.Dimensions); cause != "" {
-		topCauseLine = fmt.Sprintf("\n**主因**：%s", escapeFeishuText(cause))
-	}
-	// routing_capacity_rejection_count attaches the per-user (client) concentration
-	// as its own dimension so it renders on a SECOND line under 主因 (readability,
-	// instead of a long single line), and so it can be dropped on edge nodes where
-	// the only client is the prod mirror-relay. Absent on edges and non-rejection
-	// rules.
-	if users := opsFeishuTopCauseUsers(event.Dimensions); users != "" {
-		topCauseLine += fmt.Sprintf("\n**用户**：%s", escapeFeishuText(users))
-	}
-	if models := opsFeishuTopCauseModels(event.Dimensions); models != "" {
-		topCauseLine += fmt.Sprintf("\n**模型**：%s", escapeFeishuText(models))
-	}
+	topCauseLine := buildOpsFeishuTopCauseLines(event.Dimensions)
 	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
@@ -321,7 +307,8 @@ func buildOpsFeishuRecoveryText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLa
 	if strings.TrimSpace(dashboardURL) != "" {
 		note = fmt.Sprintf("[打开 Ops Dashboard](%s) 复核指标与账号可用性。指标已回落到阈值以下，告警自动解除。", dashboardURL)
 	}
-	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**触发值**：%s\n**当前值**：%s\n**范围**：%s\n**持续时长**：%s\n**触发时间**：%s\n**恢复时间**：%s\n\n**说明**：%s",
+	topCauseLine := buildOpsFeishuTopCauseLines(event.Dimensions)
+	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**触发值**：%s\n**当前值**：%s\n**范围**：%s%s\n**持续时长**：%s\n**触发时间**：%s\n**恢复时间**：%s\n\n**说明**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
 		escapeFeishuText(strings.TrimSpace(rule.MetricType)),
@@ -330,11 +317,28 @@ func buildOpsFeishuRecoveryText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLa
 		escapeFeishuText(metricValue),
 		escapeFeishuText(currentValue),
 		escapeFeishuText(dimensions),
+		topCauseLine,
 		escapeFeishuText(durationText),
 		escapeFeishuText(formatAlertTime(event.FiredAt)),
 		escapeFeishuText(resolvedTimeText),
 		note,
 	)
+}
+
+// buildOpsFeishuTopCauseLines renders 主因/用户/模型 breakdown lines shared by
+// firing and recovery cards from evaluator-stashed event dimensions.
+func buildOpsFeishuTopCauseLines(dimensions map[string]any) string {
+	lines := ""
+	if cause := opsFeishuTopCause(dimensions); cause != "" {
+		lines += fmt.Sprintf("\n**主因**：%s", escapeFeishuText(cause))
+	}
+	if users := opsFeishuTopCauseUsers(dimensions); users != "" {
+		lines += fmt.Sprintf("\n**用户**：%s", escapeFeishuText(users))
+	}
+	if models := opsFeishuTopCauseModels(dimensions); models != "" {
+		lines += fmt.Sprintf("\n**模型**：%s", escapeFeishuText(models))
+	}
+	return lines
 }
 
 // opsFeishuTopCause extracts the pre-formatted "主因" string the alert evaluator

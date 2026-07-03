@@ -302,6 +302,10 @@ func TestOpsFeishuNotifierBuildsRecoveryPayload(t *testing.T) {
 	event.ResolvedAt = &resolvedAt
 	event.FiredAt = firedAt
 	current := 0.0
+	event.Dimensions = map[string]any{
+		"top_cause":       `newapi ×128（#16 "Agent-陈乐晗-qwen" ×128）`,
+		"top_cause_models": "gpt5.4-mini ×128",
+	}
 
 	payload, err := notifier.buildRecoveryPayload(OpsFeishuAlertConfig{}, "https://api.tokenkey.dev", testOpsFeishuRule(), event, &current)
 	require.NoError(t, err)
@@ -314,6 +318,10 @@ func TestOpsFeishuNotifierBuildsRecoveryPayload(t *testing.T) {
 	require.Contains(t, text, "**当前值**")
 	require.Contains(t, text, "**持续时长**")
 	require.Contains(t, text, "1分")
+	require.Contains(t, text, "**主因**")
+	require.Contains(t, text, "newapi ×128")
+	require.Contains(t, text, "**模型**")
+	require.Contains(t, text, "gpt5.4-mini ×128")
 }
 
 func TestMaybeSendAlertFeishuRecoverySendsPairedGreenCard(t *testing.T) {

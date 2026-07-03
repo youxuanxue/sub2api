@@ -139,7 +139,8 @@
         "SigningSecret",
         "deriveOpsNodeIdentity",
         "buildRecoveryPayload",
-        "buildOpsFeishuRecoveryText"
+        "buildOpsFeishuRecoveryText",
+        "buildOpsFeishuTopCauseLines"
       ],
       "rationale": "Feishu webhook delivery must keep secrets out of logs/errors and support the optional bot signing secret. These are safety properties that compile cleanly if accidentally removed. deriveOpsNodeIdentity turns the per-node frontend_url into the card's node label + ops dashboard deep-link; removing it compiles cleanly but makes every node's P0 card indistinguishable again. buildRecoveryPayload/buildOpsFeishuRecoveryText are the paired green-card path for auto-resolved P0 ops rules; dropping them silently removes recovery notifications while firing cards still page."
     },
