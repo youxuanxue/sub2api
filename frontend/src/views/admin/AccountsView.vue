@@ -1396,6 +1396,10 @@ const cols = computed(() =>
 
 const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
 const openMenu = (a: Account, e: MouseEvent) => {
+  // Safety net when a menu action opens a modal but a ghost click hits the row
+  // "more" trigger before the deferred menu close runs.
+  if (isAnyModalOpen.value) return
+
   menu.acc = a
 
   const target = e.currentTarget as HTMLElement
