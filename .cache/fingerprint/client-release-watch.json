@@ -1,41 +1,41 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-02T06:18:06Z",
-  "git_sha": "df8d6532de0bc90bc1c129e31b51de2cb32bbadb",
+  "updated_at": "2026-07-03T00:15:28Z",
+  "git_sha": "9bd4844c9d5b41ac5a85bb3bb826ee124f546781",
   "platforms": {
     "claude-code": {
       "pinned": "2.1.198",
-      "upstream_latest": "2.1.198",
-      "status": "aligned",
+      "upstream_latest": "2.1.199",
+      "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.198",
-          "published_at": "2026-07-01T20:45:36Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.198",
-          "raw_tag": "v2.1.198"
+          "version": "2.1.199",
+          "published_at": "2026-07-02T23:35:18Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.199",
+          "raw_tag": "v2.1.199"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.198",
+          "version": "2.1.199",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.198"
+          "raw_tag": "2.1.199"
         }
       }
     },
     "cc-stainless": {
       "pinned": "0.94.0",
-      "upstream_latest": "0.109.1",
+      "upstream_latest": "0.110.0",
       "status": "drift",
       "actionable": false,
       "status_note": "npm SDK semver is advisory; Claude Code on-wire X-Stainless-Package-Version remains capture ground truth.",
       "upstream_sources": {
         "npm @anthropic-ai/sdk": {
-          "version": "0.109.1",
+          "version": "0.110.0",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/sdk",
-          "raw_tag": "0.109.1"
+          "raw_tag": "0.110.0"
         }
       }
     },
@@ -143,16 +143,16 @@
     },
     "kiro-cli": {
       "pinned": "2.10.0",
-      "upstream_latest": "2.10.0",
-      "status": "aligned",
+      "upstream_latest": "2.11.0",
+      "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro-cli": {
-          "version": "2.10.0",
+          "version": "2.11.0",
           "published_at": "",
-          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.10.0/Kiro%20CLI.dmg",
-          "raw_tag": "2.10.0"
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.11.0/Kiro%20CLI.dmg",
+          "raw_tag": "2.11.0"
         }
       }
     }
