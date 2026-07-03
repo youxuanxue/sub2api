@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-03T03:31:50Z",
-  "git_sha": "27e5b6f0a004b2fe5b4b6fdbc9e8e28cfd65e68d",
+  "updated_at": "2026-07-03T04:41:10Z",
+  "git_sha": "62198a4f2d35e90b1c760848ac060e3a244df28d",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.198",
+      "pinned": "2.1.199",
       "upstream_latest": "2.1.199",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
