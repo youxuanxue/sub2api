@@ -16,7 +16,7 @@
 #   tk_probe_bind_from_group SCOPE GNAME    -> copy schedulable accounts from source group name (legacy)
 #   tk_probe_bind_from_group_id SCOPE GID    -> copy schedulable accounts from source group id
 #   tk_probe_bind_from_group_id_like SCOPE GID PATTERN -> copy source group id accounts whose name matches SQL LIKE
-#   tk_probe_clear_bindings SCOPE           -> remove account_groups rows only
+#   tk_probe_clear_bindings SCOPE           -> remove account_groups rows and disable probe key/group
 #   tk_probe_prepare_catalog SCOPE PLATFORM BIND_KIND BIND_VAL -> ensure + bind + key
 #   tk_probe_reuse_lock_path SCOPE              -> lock file path (shared with account-model-probe)
 #   tk_probe_acquire_reuse_lock SCOPE           -> flock until release (serializes account_groups mutations)
