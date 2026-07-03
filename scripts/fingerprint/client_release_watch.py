@@ -305,9 +305,10 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
         "umbrella_skill": "tokenkey-fingerprint-alignment-all",
         "first_commands": [
             "brew info --cask kiro-cli",
-            "bash ops/kiro/capture-kiro-fingerprint.sh check env",
+            "/Applications/Kiro\\ CLI.app/Contents/MacOS/kiro-cli --version",
+            "rg DefaultKiroCLIVersion backend/internal/pkg/kiro/constants.go",
         ],
-        "note": "Homebrew kiro-cli semver is distinct from Kiro IDE; bump DefaultKiroCLIVersion after CLI capture.",
+        "note": "Homebrew kiro-cli semver is distinct from Kiro IDE; verify the local CLI binary before bumping DefaultKiroCLIVersion.",
     },
     "gemini-cli": {
         "skill": "tokenkey-gemini-fingerprint-alignment",

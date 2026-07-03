@@ -1,7 +1,7 @@
 {
   "version": 1,
   "rationale": "Static anchors for Claude Code geo-stego + prompt-surface normalizers.",
-  "cc_version": "2.1.198",
+  "cc_version": "2.1.199",
   "binary_default_path": "~/.local/share/claude/versions/{cc_version}",
   "binary_must_contain": [
     "setTimeZone",
