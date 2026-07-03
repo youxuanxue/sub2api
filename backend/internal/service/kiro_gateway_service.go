@@ -109,7 +109,7 @@ func (s *KiroGatewayService) Forward(
 	}
 
 	if req.Stream {
-		result, err := s.forwardStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+		result, err := s.forwardStreaming(ctx, c, account, doer, kiroAcct, payload, &req, requestID, model, startTime)
 		if err == nil {
 			PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
 		}
@@ -211,6 +211,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 func (s *KiroGatewayService) forwardStreaming(
 	ctx context.Context,
 	c *gin.Context,
+	account *Account,
 	doer kiroproto.HTTPDoer,
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
@@ -314,12 +315,29 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	// If the upstream failed before producing any content, surface the error so
 	// the handler can decide on failover instead of emitting a half-finished
-	// SSE stream. (Once content has begun — enc.started — we close out the
-	// stream cleanly because the client has already received a 200 + bytes.)
+	// SSE stream. Once content has begun, SSE has no resume/failover point; send
+	// a protocol-level error event instead of forging message_delta/message_stop,
+	// otherwise clients such as Claude Code treat an incomplete Kiro stream as a
+	// successful assistant turn.
 	// classifyKiroForwardError maps a recognized HTTP 400 INVALID_MODEL_ID into
 	// a typed *KiroInvalidModelError so the handler can return a clean 400.
 	if callErr != nil && !enc.started {
 		return nil, classifyKiroForwardError(callErr, model)
+	}
+	if callErr != nil {
+		msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
+		recordKiroStreamError(c, account, msg)
+		writeKiroStreamError(c, flusher, "stream_read_error", msg)
+		return nil, fmt.Errorf("kiro stream read error: %w", callErr)
+	}
+	if callbackErr != nil && !enc.started {
+		return nil, fmt.Errorf("kiro stream error: %w", callbackErr)
+	}
+	if callbackErr != nil {
+		msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
+		recordKiroStreamError(c, account, msg)
+		writeKiroStreamError(c, flusher, "stream_read_error", msg)
+		return nil, fmt.Errorf("kiro stream callback error: %w", callbackErr)
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
@@ -347,13 +365,6 @@ func (s *KiroGatewayService) forwardStreaming(
 	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()
 
-	if callbackErr != nil {
-		// Content already streamed; log-level handling happens in the handler via
-		// the returned ForwardResult/usage. We still return nil error to avoid a
-		// double-write to the client after SSE has begun.
-		_ = callbackErr
-	}
-
 	return &ForwardResult{
 		RequestID:     requestID,
 		Usage:         ClaudeUsage{InputTokens: inputTokens, OutputTokens: outputToks},
@@ -364,6 +375,49 @@ func (s *KiroGatewayService) forwardStreaming(
 		FirstTokenMs:  firstTokMs,
 		BillingTier:   kiroproto.KiroEstimatedBillingTier,
 	}, nil
+}
+
+func recordKiroStreamError(c *gin.Context, account *Account, message string) {
+	setOpsUpstreamError(c, 0, message, "")
+	event := OpsUpstreamErrorEvent{
+		Platform:           PlatformKiro,
+		UpstreamStatusCode: 0,
+		Kind:               "stream_error",
+		Message:            message,
+	}
+	if account != nil {
+		event.Platform = account.Platform
+		event.AccountID = account.ID
+		event.AccountName = account.Name
+	}
+	appendOpsUpstreamError(c, event)
+}
+
+func writeKiroStreamError(c *gin.Context, flusher http.Flusher, errType, message string) {
+	if c == nil || c.Writer == nil {
+		return
+	}
+	if errType == "" {
+		errType = "stream_read_error"
+	}
+	if message == "" {
+		message = errType
+	}
+	body, err := json.Marshal(map[string]any{
+		"type": "error",
+		"error": map[string]string{
+			"type":    errType,
+			"message": message,
+		},
+	})
+	if err != nil {
+		body = []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`, errType, message))
+	}
+	_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", body)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	MarkResponseCommitted(c)
 }
 
 // logKiroCredits records the Kiro upstream credits cost at info level for
