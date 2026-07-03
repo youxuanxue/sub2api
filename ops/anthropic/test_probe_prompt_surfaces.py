@@ -125,6 +125,48 @@ class TestPromptSurfaceAnalyze(unittest.TestCase):
                     ],
                 },
             },
+            {
+                "scenario": "raw_body_system_reminder_tool_result",
+                "body": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "<system-reminder>\nToday's date is 2026-07-03.\n</system-reminder>",
+                                }
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "tool_use", "id": "toolu_01", "name": "Bash", "input": {}}],
+                        },
+                        {
+                            "role": "user",
+                            "content": [{"type": "tool_result", "tool_use_id": "toolu_01", "content": "ok"}],
+                        },
+                    ]
+                },
+            },
+            {
+                "scenario": "duplicate_tool_result",
+                "body_wire": {
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "tool_use", "id": "toolu_01", "name": "Bash", "input": {}}],
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "tool_result", "tool_use_id": "toolu_01", "content": "first"},
+                                {"type": "tool_result", "tool_use_id": "toolu_01", "content": "second"},
+                            ],
+                        },
+                    ]
+                },
+            },
         ]
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
             for rec in records:
@@ -151,6 +193,12 @@ class TestPromptSurfaceAnalyze(unittest.TestCase):
         self.assertTrue(non_immediate["has_tool_result"])
         self.assertTrue(non_immediate["has_assistant_tool_use"])
         self.assertIn("orphan_tool_result_context", non_immediate["unknown_surfaces"])
+        raw_body = next(r for r in rows if r.get("scenario") == "raw_body_system_reminder_tool_result")
+        self.assertTrue(raw_body["has_tool_result"])
+        self.assertNotIn("tool_result_without_system_surface", raw_body["unknown_surfaces"])
+        duplicate = next(r for r in rows if r.get("scenario") == "duplicate_tool_result")
+        self.assertTrue(duplicate["has_tool_result"])
+        self.assertIn("duplicate_tool_result_for_tool_use", duplicate["unknown_surfaces"])
 
 
 class TestPromptSurfaceAggregate(unittest.TestCase):

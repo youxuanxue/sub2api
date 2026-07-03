@@ -58,6 +58,22 @@ func TestTkValidateAnthropicToolContext_FlagsMissingParallelToolResult(t *testin
 	require.Equal(t, "toolu_b", violation.ToolUseID)
 }
 
+func TestTkValidateAnthropicToolContext_FlagsDuplicateToolResult(t *testing.T) {
+	body := []byte(`{
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_a","name":"Read","input":{}}]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_a","content":"first"},
+				{"type":"tool_result","tool_use_id":"toolu_a","content":"second"}
+			]}
+		]
+	}`)
+	violation := tkValidateAnthropicToolContext(body, false)
+	require.NotNil(t, violation)
+	require.Equal(t, "duplicate_tool_result_for_tool_use", violation.Reason)
+	require.Equal(t, "toolu_a", violation.ToolUseID)
+}
+
 func TestTkValidateAnthropicToolContext_FlagsToolResultWithoutSystemWhenRequired(t *testing.T) {
 	body := []byte(`{
 		"messages":[

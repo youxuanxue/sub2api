@@ -66,6 +66,10 @@ func tkValidateAnthropicToolContext(body []byte, requireSystemSurface bool) *tkA
 		}
 		resultSet := make(map[string]struct{}, len(resultIDs))
 		for _, id := range resultIDs {
+			if _, duplicate := resultSet[id]; duplicate {
+				return tkToolContextViolation("duplicate_tool_result_for_tool_use", i, id,
+					"Invalid Anthropic tool continuation: tool_result.tool_use_id is duplicated in the user message.")
+			}
 			if _, ok := toolUseIDs[id]; !ok {
 				return tkToolContextViolation("orphan_tool_result_context", i, id,
 					"Invalid Anthropic tool continuation: tool_result.tool_use_id has no matching tool_use in the immediately preceding assistant message.")

@@ -187,9 +187,27 @@ def analyze_tool_continuation_shape(messages, system_texts: list[str], message_t
     }
 
 
+def extract_message_texts(messages) -> list[str]:
+    texts: list[str] = []
+    if not isinstance(messages, list):
+        return texts
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    texts.append(str(block.get("text") or ""))
+    return texts
+
+
 def tool_result_ids_from_user_content(content: list) -> tuple[list[str], str]:
     result_ids: list[str] = []
     seen_non_tool_result = False
+    seen_result_ids: set[str] = set()
     for block in content:
         if not isinstance(block, dict):
             seen_non_tool_result = True
@@ -202,6 +220,9 @@ def tool_result_ids_from_user_content(content: list) -> tuple[list[str], str]:
         tool_use_id = str(block.get("tool_use_id") or "").strip()
         if not tool_use_id:
             return [], "tool_result_missing_tool_use_id"
+        if tool_use_id in seen_result_ids:
+            return [], "duplicate_tool_result_for_tool_use"
+        seen_result_ids.add(tool_use_id)
         result_ids.append(tool_use_id)
     return result_ids, ""
 
@@ -242,20 +263,12 @@ def analyze_record(registry: dict, geo_mod, rec: dict) -> dict:
     if wire is not None:
         system_texts = geo_mod.extract_system_texts(wire.get("system"))
         raw_messages = wire.get("messages")
-        for msg in raw_messages or []:
-            if not isinstance(msg, dict):
-                continue
-            content = msg.get("content")
-            if isinstance(content, str):
-                message_texts.append(content)
-            elif isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        message_texts.append(str(block.get("text") or ""))
+        message_texts = extract_message_texts(raw_messages)
     else:
         body = rec.get("body") or {}
         system_texts = geo_mod.extract_system_texts(body.get("system"))
         raw_messages = body.get("messages")
+        message_texts = extract_message_texts(raw_messages)
     sys_row = analyze_system_surfaces(registry, system_texts)
     tool_row = analyze_tool_continuation_shape(raw_messages, system_texts, message_texts)
     unknown: list[str] = []

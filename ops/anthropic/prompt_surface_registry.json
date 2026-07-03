@@ -85,6 +85,15 @@
       "prod_alert_value": "tool_result_missing_tool_use_id"
     },
     {
+      "id": "duplicate_tool_result_for_tool_use",
+      "probe_module": "tool_continuation_shape",
+      "locations": ["messages[].content[].tool_use_id"],
+      "signals": ["multiple tool_result blocks answer the same tool_use_id"],
+      "gateway_normalize": null,
+      "prod_fingerprint_field": "unknown_surfaces",
+      "prod_alert_value": "duplicate_tool_result_for_tool_use"
+    },
+    {
       "id": "tool_result_without_system_surface",
       "probe_module": "tool_continuation_shape",
       "locations": ["system", "messages[].content[].type"],

@@ -136,6 +136,21 @@ func TestTkExtractAnthropicPromptFingerprint_FlagsNonImmediateToolResult(t *test
 	require.Contains(t, fp.UnknownSurfaces, "orphan_tool_result_context")
 }
 
+func TestTkExtractAnthropicPromptFingerprint_FlagsDuplicateToolResult(t *testing.T) {
+	body := []byte(`{
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_01","content":"first"},
+				{"type":"tool_result","tool_use_id":"toolu_01","content":"second"}
+			]}
+		]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.Contains(t, fp.UnknownSurfaces, "duplicate_tool_result_for_tool_use")
+}
+
 func TestTkExtractAnthropicPromptFingerprint_AllowsSdkToolContinuationWithContext(t *testing.T) {
 	body := []byte(`{
 		"system":[
