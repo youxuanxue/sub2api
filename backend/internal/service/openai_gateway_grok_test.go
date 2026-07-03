@@ -287,6 +287,45 @@ func TestForwardGrokMediaImagesGenerationNormalizesImagineAlias(t *testing.T) {
 	require.Equal(t, ImageBillingSize1K, result.ImageSize)
 }
 
+func TestForwardGrokMediaAllowsEdgeRelayBaseURLWithAllowlistEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"grok-imagine-image","prompt":"draw a cat"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	account := &Account{
+		ID:          65,
+		Name:        "grok-us4",
+		Platform:    PlatformGrok,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "edge-grok-key",
+			"base_url": "https://api-us4.tokenkey.dev",
+		},
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":[]}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:       true,
+			UpstreamHosts: []string{"api.x.ai"},
+		}}},
+		httpUpstream: upstream,
+	}
+
+	_, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointImagesGenerations, "", body, "application/json")
+	require.NoError(t, err)
+	require.Equal(t, "https://api-us4.tokenkey.dev/v1/images/generations", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer edge-grok-key", upstream.lastReq.Header.Get("Authorization"))
+}
+
 func TestForwardGrokMediaImagesEditMultipartConvertsToJSON(t *testing.T) {
 	t.Setenv(xai.EnvAllowUnsafeURLOverrides, "true")
 	gin.SetMode(gin.TestMode)
@@ -608,7 +647,10 @@ func TestForwardGrokResponsesStreamingUsesXAIResponsesAndSnapshots(t *testing.T)
 func TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses(t *testing.T) {
 	t.Parallel()
 
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+		Enabled:       true,
+		UpstreamHosts: []string{"api.x.ai"},
+	}}}}
 	account := &Account{
 		ID:       65,
 		Platform: PlatformGrok,

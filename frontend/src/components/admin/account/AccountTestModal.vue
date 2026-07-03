@@ -3,6 +3,7 @@
     :show="show"
     :title="t('admin.accounts.testAccountConnection')"
     width="normal"
+    :z-index="10000"
     @close="handleClose"
   >
     <div class="space-y-4">

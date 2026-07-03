@@ -26,7 +26,7 @@ func (s *OpenAIGatewayService) resolveGrokInputTokensUpstream(account *Account) 
 		if strings.TrimSpace(baseURL) == "" {
 			return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
 		}
-		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 		if err != nil {
 			return "", err
 		}

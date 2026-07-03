@@ -3918,7 +3918,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	switch account.Type {
 	case AccountTypeOAuth:
 		if account.IsGrokOAuth() {
-			validatedURL, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
+			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
 			if err != nil {
 				return nil, err
 			}
@@ -3932,7 +3932,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
 		}
 		if baseURL != "" {
-			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 			if err != nil {
 				return nil, err
 			}
@@ -4872,7 +4872,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	switch account.Type {
 	case AccountTypeOAuth:
 		if account.IsGrokOAuth() {
-			validatedURL, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
+			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
 			if err != nil {
 				return nil, err
 			}
@@ -4890,7 +4890,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			}
 			targetURL = openaiPlatformAPIURL
 		} else {
-			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 			if err != nil {
 				return nil, err
 			}
@@ -6498,15 +6498,35 @@ func (s *OpenAIGatewayService) replaceModelInSSEBody(body, fromModel, toModel st
 }
 
 func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
+	return s.validateUpstreamBaseURLWithExtraHosts(raw, nil)
+}
+
+func (s *OpenAIGatewayService) validateUpstreamBaseURLForAccount(account *Account, raw string) (string, error) {
+	var extraHosts []string
+	if isEdgeMirrorStub(account, edgeIDPattern) {
+		if host := edgeMirrorHostFromBaseURL(raw); host != "" {
+			extraHosts = append(extraHosts, host)
+		}
+	}
+	return s.validateUpstreamBaseURLWithExtraHosts(raw, extraHosts)
+}
+
+func (s *OpenAIGatewayService) validateUpstreamBaseURLWithExtraHosts(raw string, extraHosts []string) (string, error) {
+	if s.cfg == nil || !s.cfg.Security.URLAllowlist.Enabled {
+		allowInsecureHTTP := false
+		if s.cfg != nil {
+			allowInsecureHTTP = s.cfg.Security.URLAllowlist.AllowInsecureHTTP
+		}
+		normalized, err := urlvalidator.ValidateURLFormat(raw, allowInsecureHTTP)
 		if err != nil {
 			return "", fmt.Errorf("invalid base_url: %w", err)
 		}
 		return normalized, nil
 	}
+	allowedHosts := append([]string{}, s.cfg.Security.URLAllowlist.UpstreamHosts...)
+	allowedHosts = append(allowedHosts, extraHosts...)
 	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
+		AllowedHosts:     allowedHosts,
 		RequireAllowlist: true,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
@@ -6514,6 +6534,16 @@ func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, erro
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
 	return normalized, nil
+}
+
+func edgeMirrorHostFromBaseURL(raw string) string {
+	normalized := normalizeEdgeBaseURL(raw)
+	if !edgeIDPattern.MatchString(normalized) {
+		return ""
+	}
+	trimmed := strings.TrimPrefix(strings.TrimPrefix(normalized, "https://"), "http://")
+	host, _, _ := strings.Cut(trimmed, "/")
+	return host
 }
 
 // buildOpenAIResponsesURL 组装 OpenAI Responses 端点。

@@ -141,7 +141,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 		baseURL = "https://api.openai.com"
 	}
-	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+	validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}

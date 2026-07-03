@@ -46,7 +46,7 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 			}
 			return buildOpenAIV1SegmentURL("", segment), nil
 		}
-		validated, err := s.validateUpstreamBaseURL(raw)
+		validated, err := s.validateUpstreamBaseURLForAccount(account, raw)
 		if err != nil {
 			return "", err
 		}
@@ -56,7 +56,7 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 		// NOT the ChatGPT platform base. The Bearer is the grok OAuth token resolved
 		// by GetAccessToken's grok branch.
 		if account.IsGrokOAuth() {
-			validated, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
+			validated, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
 			if err != nil {
 				return "", err
 			}
