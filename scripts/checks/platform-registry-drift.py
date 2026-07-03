@@ -299,7 +299,7 @@ def parse_ent_platform_field(text: str) -> tuple[list[str] | None, int]:
     scope_end = m.end() + next_field.start() if next_field else len(text)
     field_chain = text[m.end() : scope_end]
 
-    values_m = re.search(r"\.Values\s*\(([^)]*)\)", field_chain)
+    values_m = re.search(r"\.\s*Values\s*\(([^)]*)\)", field_chain)
     if not values_m:
         return None, line
 
