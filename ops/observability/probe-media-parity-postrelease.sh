@@ -29,6 +29,7 @@ GROK_GROUP_ID="${GROK_GROUP_ID:-25}"
 VEO_MODEL="${VEO_MODEL:-veo-3.1-generate-001}"
 GROK_IMAGE_MODELS="${GROK_IMAGE_MODELS:-grok-imagine-image grok-imagine-image-quality}"
 GROK_VIDEO_MODEL="${GROK_VIDEO_MODEL:-grok-imagine-video}"
+GROK_VIDEO_PATHS="${GROK_VIDEO_PATHS:-/v1/video/generations /v1/videos/generations}"
 
 TK_PROBE_PARITY_SCOPES=""
 
@@ -165,6 +166,13 @@ body_video() {
 
 snippet() {
 	head -c 260 "$1" | tr '\r\n\t' '   ' | sed 's/[[:space:]]\+/ /g'
+}
+
+path_label() {
+	local path="${1#/}"
+	path="${path//\//_}"
+	path="${path//-/_}"
+	printf '%s' "$path"
 }
 
 shape_for() { # $1=modality $2=http_code $3=bodyfile
@@ -338,8 +346,12 @@ main() {
 			post_probe "direct_${model}" direct "$GROK_DIRECT_KEY_ID" "$GROK_DIRECT_KEY" image "$model" /v1/images/generations "$(body_image "$model")"
 			post_probe "universal_${model}" universal "$UNIVERSAL_KEY_ID" "$UNIVERSAL_KEY" image "$model" /v1/images/generations "$(body_image "$model")"
 		done
-		post_probe direct_grok_video direct "$GROK_DIRECT_KEY_ID" "$GROK_DIRECT_KEY" video "$GROK_VIDEO_MODEL" /v1/video/generations "$(body_video "$GROK_VIDEO_MODEL")"
-		post_probe universal_grok_video universal "$UNIVERSAL_KEY_ID" "$UNIVERSAL_KEY" video "$GROK_VIDEO_MODEL" /v1/video/generations "$(body_video "$GROK_VIDEO_MODEL")"
+		local path suffix
+		for path in $GROK_VIDEO_PATHS; do
+			suffix="$(path_label "$path")"
+			post_probe "direct_grok_video_${suffix}" direct "$GROK_DIRECT_KEY_ID" "$GROK_DIRECT_KEY" video "$GROK_VIDEO_MODEL" "$path" "$(body_video "$GROK_VIDEO_MODEL")"
+			post_probe "universal_grok_video_${suffix}" universal "$UNIVERSAL_KEY_ID" "$UNIVERSAL_KEY" video "$GROK_VIDEO_MODEL" "$path" "$(body_video "$GROK_VIDEO_MODEL")"
+		done
 	fi
 }
 
