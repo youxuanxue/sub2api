@@ -183,10 +183,10 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 			if len(served) > 0 {
 				eligible = served
 			} else if knownAll {
-				if hint := universalModelPlatformHint(model); hint != "" {
+				if hint := universalRequestPlatformHint(shape, model); hint != "" {
 					return nil, ErrUniversalNoEntitledGroup
 				}
-			} else if hint := universalModelPlatformHint(model); hint != "" && modelsProvider != nil {
+			} else if hint := universalRequestPlatformHint(shape, model); hint != "" && modelsProvider != nil {
 				return nil, ErrUniversalNoEntitledGroup
 			}
 		}
@@ -195,7 +195,7 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 	// 模型平台提示：若提示命中且跨度内有该平台的 eligible 组，仅在这些组里挑（偏向，
 	// 非硬过滤——提示未命中则退回全体 eligible）。这样 openai-compat 形状下能把
 	// grok-4→grok、gpt-5→openai、seedream→newapi 偏向到对的平台。
-	if hint := universalModelPlatformHint(model); hint != "" {
+	if hint := universalRequestPlatformHint(shape, model); hint != "" {
 		hinted := eligible[:0:0]
 		for _, g := range eligible {
 			if g.Platform == hint {

@@ -149,6 +149,7 @@
         :rate-multiplier="1"
         :catalog-loading="mediaCatalogLoading"
         @spent="refreshBalance"
+        @modality-change="onBakeoffModalityChange"
       />
     </div>
   </AppLayout>
@@ -181,6 +182,7 @@ import {
   pickModalityKey,
   type ModalityKeyOption,
   type PickerModality,
+  type StudioModality,
   type MediaPrice,
   type MediaPriceMap,
 } from '@/constants/studioMediaPresentations.tk'
@@ -205,6 +207,7 @@ function initialView(): StudioView {
   return (VIEW_MODES as readonly string[]).includes(m) ? (m as StudioView) : 'chat'
 }
 const view = ref<StudioView>(initialView())
+const bakeoffModality = ref<StudioModality>('video')
 const keys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const gatewayBase = ref('')
@@ -212,6 +215,7 @@ const gatewayBase = ref('')
 // group up front so the picker (and the dropdown annotations) can reason about
 // EVERY key's modality, not just the one currently selected.
 const groupModelSets = ref<Map<string, Set<string>>>(new Map())
+const groupProbeReps = ref<Map<string, ApiKey>>(new Map())
 /** Cross-group entitlement index (me/pricing-catalog authorized_groups_by_model). */
 const userEntitledIds = ref<Set<string>>(new Set())
 const universalPriceMap = ref<MediaPriceMap>(new Map())
@@ -259,12 +263,11 @@ const availableIds = computed<Set<string>>(() =>
 
 const anyKeyServesVideo = computed(() => keys.value.some((k) => keyServesModality(k, 'video')))
 
-// The single modality the picker can optimize a key for. Bake-off has its OWN
-// internal image/video toggle, so no single key serves both of its sub-modes —
-// we leave its key selection to the user there (null = don't auto-pick / annotate).
-// Chat / image / video each map straight to a PickerModality.
+// The single modality the picker can optimize a key for. Bake-off has its own
+// internal image/video toggle, but the shell still owns key selection so the
+// selected key must track the active sub-modality.
 const pickerModality = computed<PickerModality | null>(() =>
-  view.value === 'bakeoff' ? null : view.value
+  view.value === 'bakeoff' ? bakeoffModality.value : view.value
 )
 
 function modalityOptions(): ModalityKeyOption[] {
@@ -352,10 +355,29 @@ function orderedGroupEntries(reps: Map<string, ApiKey>, priorityGk: string): [st
 
 let backgroundProbeGen = 0
 
+async function ensurePickerGroupProbes(): Promise<void> {
+  const missing = [...groupProbeReps.value.entries()].filter(([gk]) => !groupModelSets.value.has(gk))
+  if (missing.length === 0) return
+  modelsLoading.value = true
+  try {
+    await probeGroupEntries(missing)
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
 function repickKeyForCurrentModality(): void {
   const m = pickerModality.value
   if (!m) return
   selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value, catalogBillingIndex.value)
+}
+
+async function onBakeoffModalityChange(modality: StudioModality): Promise<void> {
+  bakeoffModality.value = modality
+  if (!probed.value || view.value !== 'bakeoff') return
+  await ensurePickerGroupProbes()
+  selectedKeyId.value = pickModalityKey(modalityOptions(), modality, selectedKeyId.value, catalogBillingIndex.value)
+  if (selectedKeyId.value != null) await ensurePriceCatalog(selectedKeyId.value)
 }
 
 /** Finish probing groups the fast path skipped; refresh key annotations when done. */
@@ -414,8 +436,9 @@ watch(view, async (v) => {
   if (!probed.value) return
   const m = pickerModality.value
   if (!m) return
+  if (m === 'image' || m === 'video') await ensurePickerGroupProbes()
   selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value, catalogBillingIndex.value)
-  if (v === 'image' || v === 'video') {
+  if (v === 'image' || v === 'video' || v === 'bakeoff') {
     const id = selectedKeyId.value
     if (id != null) await ensurePriceCatalog(id)
   }
@@ -447,6 +470,7 @@ async function bootstrap(): Promise<void> {
     }
 
     const reps = groupRepresentatives(keys.value)
+    groupProbeReps.value = reps
     const seedGk = groupKeyOf(seedKey)
     const hasUniversal = keys.value.some(isUniversalKey)
     const landingView = view.value
@@ -494,13 +518,13 @@ async function bootstrap(): Promise<void> {
         modelsLoading.value = false
         return
       }
-      selectedKeyId.value = seed
+      selectedKeyId.value = pickModalityKey(modalityOptions(), bakeoffModality.value, seed, catalogBillingIndex.value)
       if (ordered.length > 1) {
         void finishBackgroundProbe(reps, new Set([seedGk]))
       } else {
         modelsLoading.value = false
       }
-      await ensurePriceCatalog(seed)
+      if (selectedKeyId.value != null) await ensurePriceCatalog(selectedKeyId.value)
       probed.value = true
       return
     }

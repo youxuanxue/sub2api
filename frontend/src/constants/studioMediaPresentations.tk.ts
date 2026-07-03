@@ -20,7 +20,8 @@ export type StudioModality = 'image' | 'video'
  * peer Studio tab (folded in from the retired /playground), but it has no media
  * billing-mode catalog row — a key "serves chat" when its /v1/models pool exposes
  * any chat-classified id (modalityForModel). image/video use catalog billing_mode.
- * Bake-off passes no picker modality (dual sub-modality → user owns the key).
+ * Bake-off reports its active sub-modality to the shell, so the selected key
+ * still tracks image vs video just like the dedicated tabs.
  */
 export type PickerModality = StudioModality | 'chat'
 
@@ -70,8 +71,8 @@ export function hasCatalogMediaModality(
 /**
  * Whether this group's pool serves `modality` for the SHELL's key picker.
  * Dispatches chat (any chat-classified id in the pool) vs media (catalog
- * billing_mode). Bake-off passes no picker modality (dual sub-modality → user
- * owns the key).
+ * billing_mode). Bake-off passes its active image/video sub-modality, so
+ * the shell keeps the selected key aligned with the child mode.
  */
 export function groupServes(
   modality: PickerModality,
@@ -93,7 +94,7 @@ export interface ModalityKeyOption {
   id: number
   /** A key literally named "trial" is the historical default landing key. */
   isTrial: boolean
-  /** Model ids exposed by this key's group (its GET /v1/models pool). */
+  /** Model ids exposed by this key's group, or universal entitlement ids. */
   availableIds: ReadonlySet<string>
 }
 
