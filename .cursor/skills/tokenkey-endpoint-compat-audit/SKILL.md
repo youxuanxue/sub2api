@@ -115,6 +115,23 @@ Use these verdict labels:
 - `not_authorized`: key owner lacks the group/platform.
 - `unknown`: not probed; include the exact missing command or secret.
 
+## Baseline Persistence
+
+After a release audit, endpoint-routing fix, media probe, or
+direct-vs-universal parity investigation, update
+`docs/ops/endpoint-compat-baseline.md`.
+
+Persist only curated conclusions:
+
+- probe date, target, code anchor, command, paid-probe approval state;
+- compact verdict rows using the labels above;
+- raw log path or artifact URL, not full response bodies;
+- `FAIL`, `SKIP`, and `unknown` rows that should drive the next focused probe;
+- probe-resource cleanup status for active `__tk_probe_*` groups/keys.
+
+Do not store transient raw output in git. The baseline is for choosing the next
+probe focus, not for archiving every curl response.
+
 ## Parity Fix Checklist
 
 When a universal key differs from a direct key for the same model:
