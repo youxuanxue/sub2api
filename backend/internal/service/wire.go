@@ -845,9 +845,9 @@ func ProvideTKGatewayPricingAvailability(
 
 // TKUniversalModelsProviderReady is a wire sentinel: holding it proves
 // APIKeyService's universal-key resolver has been wired to GatewayService's
-// direct-scheduler model support predicate, with GetAvailableModels retained as
-// a degraded fallback. provideCleanup (cmd/server/wire.go) consumes this type as
-// an unused parameter to force wire to evaluate the side-effect.
+// direct-scheduler model+protocol support predicate, with GetAvailableModels
+// retained as a degraded fallback. provideCleanup (cmd/server/wire.go) consumes
+// this type as an unused parameter to force wire to evaluate the side-effect.
 type TKUniversalModelsProviderReady struct{}
 
 // ProvideTKUniversalModelsProvider wires the universal-key resolver's model
@@ -862,7 +862,7 @@ func ProvideTKUniversalModelsProvider(
 	gw *GatewayService,
 ) TKUniversalModelsProviderReady {
 	if api != nil && gw != nil {
-		api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsModel)
+		api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)
 		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
 	}
 	return TKUniversalModelsProviderReady{}

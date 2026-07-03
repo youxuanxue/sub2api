@@ -10,6 +10,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -254,15 +255,23 @@ func (s *OpenAIGatewayService) BindGrokMediaVideoRequestAccount(ctx context.Cont
 }
 
 func (e GrokMediaEndpoint) upstreamURL(baseURL, requestID string) (string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return "", fmt.Errorf("grok media base url is required")
+	}
 	switch e {
 	case GrokMediaEndpointImagesGenerations:
-		return xai.BuildImagesGenerationsURL(baseURL)
+		return buildOpenAIV1SegmentURL(baseURL, "images/generations"), nil
 	case GrokMediaEndpointImagesEdits:
-		return xai.BuildImagesEditsURL(baseURL)
+		return buildOpenAIV1SegmentURL(baseURL, "images/edits"), nil
 	case GrokMediaEndpointVideosGenerations:
-		return xai.BuildVideosGenerationsURL(baseURL)
+		return buildOpenAIV1SegmentURL(baseURL, "videos/generations"), nil
 	case GrokMediaEndpointVideoStatus:
-		return xai.BuildVideoURL(baseURL, requestID)
+		requestID = strings.TrimSpace(requestID)
+		if requestID == "" {
+			return "", fmt.Errorf("request id is required")
+		}
+		return buildOpenAIV1SegmentURL(baseURL, "videos/"+url.PathEscape(requestID)), nil
 	default:
 		return "", fmt.Errorf("unsupported grok media endpoint: %s", e)
 	}
@@ -290,7 +299,11 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if err != nil {
 		return nil, err
 	}
-	targetURL, err := endpoint.upstreamURL(account.GetGrokBaseURL(), requestID)
+	validatedBaseURL, err := s.validateUpstreamBaseURLForAccount(account, account.GetGrokBaseURL())
+	if err != nil {
+		return nil, err
+	}
+	targetURL, err := endpoint.upstreamURL(validatedBaseURL, requestID)
 	if err != nil {
 		return nil, err
 	}

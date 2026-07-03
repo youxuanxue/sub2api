@@ -9,7 +9,7 @@ import "context"
 // google-vertex/grok/…,多组是按 vendor 专属倍率计费的有意设计)里盲选必投错组 →
 // 下游 `no available accounts`。本文件给解析器加一道「组是否真支持该模型」的判别。
 //
-// 当前优先使用 UniversalGroupSupportsModel:复用 direct scheduler 的账号级模型支持语义,
+// 当前优先使用 UniversalGroupSupportsRequest:复用 direct scheduler 的账号级模型+协议支持语义,
 // 让 universal key 与同组 direct key 对同一模型的 routing entitlement 保持一致。
 // GetAvailableModels 仍保留为 provider unknown 时的 degraded fallback;fallback 按组服务集
 // 来源非对称分流(见 docs/approved/universal-key-routing.md):
@@ -30,18 +30,28 @@ import "context"
 // 现状行为 —— 安全兜底,绝不黑洞 universal 流量。
 type availableModelsProvider func(ctx context.Context, groupID *int64, platform string) []string
 
-// groupModelSupportProvider 以 direct scheduler 的账号级语义判定某组是否能服务模型。
+// groupModelSupportProvider 以 direct scheduler 的账号级语义判定某组是否能服务模型+协议形态。
 // known=false 表示 provider 取数失败/未能判断,解析器会退回 availableModelsProvider 的
 // 旧口径,避免因为观测源短暂不可用而把 universal 流量误拒。
-type groupModelSupportProvider func(ctx context.Context, groupID *int64, platform, model string) (serves bool, known bool)
+type groupModelSupportProvider func(ctx context.Context, groupID *int64, platform, model string, shape UniversalShape) (serves bool, known bool)
 
-// UniversalGroupSupportsModel reports whether the direct gateway scheduler could
+// UniversalGroupSupportsModel preserves the old model-only contract for tests and
+// degraded callers. New universal routing uses UniversalGroupSupportsRequest so
+// endpoint-specific capabilities (video, embeddings, image-capability gates) stay
+// aligned with direct keys.
+func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupID *int64, platform, model string) (bool, bool) {
+	return s.UniversalGroupSupportsRequest(ctx, groupID, platform, model, ShapeSkip)
+}
+
+// UniversalGroupSupportsRequest reports whether the direct gateway scheduler could
 // find at least one account in group/platform that supports model. This is the
 // universal-key parity hook: it preserves per-account semantics that a group-level
 // served-model union loses, especially unrestricted passthrough accounts, wildcard
 // mappings, Anthropic short-id normalization, Antigravity default mappings, and
-// OpenAI alias spelling.
-func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupID *int64, platform, model string) (bool, bool) {
+// OpenAI alias spelling. It also includes the endpoint shape's account capability
+// gates so a group that can "name-match" a model but cannot serve that protocol
+// does not win universal routing and fail later as an empty direct pool.
+func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, groupID *int64, platform, model string, shape UniversalShape) (bool, bool) {
 	if s == nil || s.accountRepo == nil || platform == "" {
 		return false, false
 	}
@@ -53,6 +63,9 @@ func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupI
 		acc := &accounts[i]
 		if IsOpenAICompatPlatform(platform) {
 			if !acc.IsOpenAICompatPoolMember(platform) {
+				continue
+			}
+			if !universalOpenAICompatAccountSupportsShape(acc, shape) {
 				continue
 			}
 			if s.isModelSupportedByAccount(acc, model) || (acc.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)) {
@@ -67,6 +80,19 @@ func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupI
 		}
 	}
 	return false, true
+}
+
+func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {
+	switch shape {
+	case ShapeOpenAIEmbeddings:
+		return accountSupportsOpenAIRequestCapabilities(account, OpenAIEndpointCapabilityEmbeddings, "", false)
+	case ShapeOpenAIImages, ShapeOpenAIImagesEdit:
+		return accountSupportsOpenAIRequestCapabilities(account, "", OpenAIImagesCapabilityBasic, false)
+	case ShapeOpenAIVideo:
+		return accountSupportsOpenAIRequestCapabilities(account, "", "", true)
+	default:
+		return true
+	}
 }
 
 // groupServesModel 是 GetAvailableModels fallback 的组服务集判定(上述三分流)。

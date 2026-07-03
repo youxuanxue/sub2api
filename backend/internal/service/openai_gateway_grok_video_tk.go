@@ -142,7 +142,7 @@ func (s *OpenAIGatewayService) grokNativeVideoSubmit(
 	if cerr != nil {
 		return nil, cerr
 	}
-	base, err := s.validateUpstreamBaseURL(grokBase)
+	base, err := s.validateUpstreamBaseURLForAccount(account, grokBase)
 	if err != nil {
 		return nil, fmt.Errorf("invalid grok base_url: %w", err)
 	}
@@ -205,7 +205,7 @@ func (s *OpenAIGatewayService) grokNativeVideoFetch(
 			account = acc
 			if freshToken, freshBase, rerr := resolveGrokVideoCredential(acc); rerr == nil {
 				token = freshToken // re-resolve: OAuth Bearer may rotate; relay api_key is stable
-				if b, verr := s.validateUpstreamBaseURL(freshBase); verr == nil && b != "" {
+				if b, verr := s.validateUpstreamBaseURLForAccount(acc, freshBase); verr == nil && b != "" {
 					base = strings.TrimRight(b, "/")
 				}
 			}

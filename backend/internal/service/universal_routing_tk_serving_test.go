@@ -19,7 +19,7 @@ func servedProvider(byGroup map[int64][]string) availableModelsProvider {
 }
 
 func supportProvider(byGroup map[int64]bool) groupModelSupportProvider {
-	return func(_ context.Context, gid *int64, _ string, _ string) (bool, bool) {
+	return func(_ context.Context, gid *int64, _ string, _ string, _ UniversalShape) (bool, bool) {
 		if gid == nil {
 			return false, false
 		}
@@ -88,7 +88,7 @@ func TestResolve_ModelSupportProviderUnknownFallsBackToServedSet(t *testing.T) {
 		2:  {"gpt-5.4-mini"},
 		18: {"qwen-max"},
 	}))
-	r.SetModelSupportProvider(func(context.Context, *int64, string, string) (bool, bool) {
+	r.SetModelSupportProvider(func(context.Context, *int64, string, string, UniversalShape) (bool, bool) {
 		return false, false
 	})
 	g, err := r.Resolve(ctx, universalKey(16), ShapeOpenAIChat, "gpt5.4-mini", "")
@@ -183,6 +183,45 @@ func TestUniversalGroupSupportsModel_NewapiRequiresCompatPoolMember(t *testing.T
 			t.Fatalf("newapi channel_type>0 should serve mapped model, got serves=%v known=%v", serves, known)
 		}
 	})
+}
+
+func TestResolve_VeoVideoRequiresVideoCapableVertexGroup(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(2, PlatformOpenAI, 0, false),
+		grp(16, PlatformNewAPI, 60, false),
+	}
+	veoMapping := map[string]any{"veo-3.1-generate-001": "veo-3.1-generate-001"}
+	svc := &GatewayService{
+		accountRepo: groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          63,
+				GroupIDs:    []int64{2},
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 0,
+			},
+			{
+				ID:          47,
+				GroupIDs:    []int64{16},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 41,
+				Credentials: map[string]any{"model_mapping": veoMapping},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIVideo, "veo-3.1-generate-001", "")
+	if err != nil || g == nil || g.ID != 16 {
+		t.Fatalf("veo video universal must skip openai channel_type=0 and pick vertex gid=16, got=%v err=%v", g, err)
+	}
 }
 
 func TestModelInServedSet_UsesDirectMappingAliases(t *testing.T) {
@@ -282,7 +321,7 @@ func TestResolve_GeminiMessagesAnthropicShapeAvoidsOpenAIPassthrough(t *testing.
 			},
 		}},
 	}
-	r.SetModelSupportProvider(svc.UniversalGroupSupportsModel)
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
 
 	g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, "gemini-2.5-flash", "")
 	if err != nil || g == nil || g.ID != 9 {

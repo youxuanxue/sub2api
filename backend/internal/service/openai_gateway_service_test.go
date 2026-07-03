@@ -2251,6 +2251,37 @@ func TestOpenAIValidateUpstreamBaseURLEnabledEnforcesAllowlist(t *testing.T) {
 	}
 }
 
+func TestOpenAIValidateUpstreamBaseURLForAccountAllowsEdgeMirrorOnly(t *testing.T) {
+	cfg := &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{
+				Enabled:       true,
+				UpstreamHosts: []string{"api.x.ai"},
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "edge-key",
+			"base_url": "https://api-us4.tokenkey.dev",
+		},
+	}
+
+	normalized, err := svc.validateUpstreamBaseURLForAccount(account, "https://api-us4.tokenkey.dev")
+	if err != nil {
+		t.Fatalf("expected edge mirror host to pass, got %v", err)
+	}
+	if normalized != "https://api-us4.tokenkey.dev" {
+		t.Fatalf("unexpected normalized url %q", normalized)
+	}
+	if _, err := svc.validateUpstreamBaseURLForAccount(account, "https://evil.example.com"); err == nil {
+		t.Fatalf("edge mirror extra host must not allow arbitrary hosts")
+	}
+}
+
 func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
 	repo := &snapshotUpdateAccountRepo{updateExtraCalls: make(chan map[string]any, 1)}
 	svc := &OpenAIGatewayService{accountRepo: repo}

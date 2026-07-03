@@ -80,7 +80,7 @@ func (r *UniversalRoutingResolver) SetAvailableModelsProvider(p availableModelsP
 	r.mu.Unlock()
 }
 
-// SetModelSupportProvider 后期注入 direct-scheduler 同口径的组模型支持判定源。
+// SetModelSupportProvider 后期注入 direct-scheduler 同口径的组模型+协议支持判定源。
 // nil-safe; provider 取数未知时 Resolve 会退回 availableModelsProvider。
 func (r *UniversalRoutingResolver) SetModelSupportProvider(p groupModelSupportProvider) {
 	if r == nil {
@@ -157,7 +157,7 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 			for i := range eligible {
 				if supportProvider != nil {
 					gid := eligible[i].ID
-					serves, known := supportProvider(ctx, &gid, eligible[i].Platform, model)
+					serves, known := supportProvider(ctx, &gid, eligible[i].Platform, model, shape)
 					if !known {
 						knownAll = false
 						continue

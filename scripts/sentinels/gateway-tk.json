@@ -3495,7 +3495,7 @@
         "universalShapeRequiresImageGenerationEnabled",
         "filterGroupsAllowImageGeneration",
         "supportProvider groupModelSupportProvider",
-        "supportProvider(ctx, &gid, eligible[i].Platform, model)",
+        "supportProvider(ctx, &gid, eligible[i].Platform, model, shape)",
         "else if hint := universalModelPlatformHint(model); hint != \"\"",
         "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
       ],
@@ -3506,23 +3506,26 @@
       "must_contain": [
         "type groupModelSupportProvider func(",
         "func (s *GatewayService) UniversalGroupSupportsModel(",
+        "func (s *GatewayService) UniversalGroupSupportsRequest(",
         "s.listSchedulableAccounts(ctx, groupID, platform, false)",
         "acc.IsOpenAICompatPoolMember(platform)",
+        "universalOpenAICompatAccountSupportsShape",
+        "accountSupportsOpenAIRequestCapabilities(account, \"\", \"\", true)",
         "s.isModelSupportedByAccount(acc, model)",
         "s.isModelSupportedByAccountWithContext(ctx, acc, model)",
         "modelInServedSet(model string, served []string, platform string)",
         "normalizeRequestedModelForLookup(platform, model)"
       ],
-      "rationale": "Universal-key model routing must use the same account-level model-support predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model while existing /v1/models output still looks plausible."
+      "rationale": "Universal-key routing must use the same account-level model+protocol predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, endpoint-shape capability gates (including video-capable accounts), the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model/protocol while existing /v1/models output still looks plausible."
     },
     {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "ProvideTKUniversalModelsProvider(",
-        "api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsModel)",
+        "api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)",
         "api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)"
       ],
-      "rationale": "ProvideTKUniversalModelsProvider is the runtime injection point for universal-key model routing truth. The direct-scheduler support provider must be wired alongside GetAvailableModels; tests can call SetUniversalModelSupportProvider directly and still pass if an upstream merge drops this wire call, leaving production on the old lossy fallback. Pin both setter calls so the app cannot silently boot without direct-key parity."
+      "rationale": "ProvideTKUniversalModelsProvider is the runtime injection point for universal-key model+protocol routing truth. The direct-scheduler support provider must be wired alongside GetAvailableModels; tests can call SetUniversalModelSupportProvider directly and still pass if an upstream merge drops this wire call, leaving production on the old lossy fallback. Pin both setter calls so the app cannot silently boot without direct-key parity."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_serving_test.go",
