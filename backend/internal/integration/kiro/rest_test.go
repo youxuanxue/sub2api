@@ -150,3 +150,55 @@ func TestIsInvalidProfileArnError(t *testing.T) {
 		t.Fatal("401 should not match invalid profileArn")
 	}
 }
+
+func TestRefreshAccountInfo_MapsBonusesFromUsageBreakdown(t *testing.T) {
+	var usageCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "getUsageLimits"):
+			usageCalls.Add(1)
+			_, _ = io.WriteString(w, `{
+				"usageBreakdownList": [{
+					"resourceType": "AGENTIC_REQUEST",
+					"currentUsage": 300,
+					"usageLimit": 1000,
+					"bonuses": [{
+						"bonusCode": "WELCOME500",
+						"displayName": "Welcome Bonus",
+						"currentUsage": 120,
+						"usageLimit": 500,
+						"status": "ACTIVE",
+						"expiresAt": 1893456000
+					}]
+				}],
+				"nextDateReset": 1893456000,
+				"subscriptionInfo": {"subscriptionTitle": "KIRO POWER"}
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	installTestRestClient(t, srv)
+
+	account := &Account{
+		AccessToken: "tok",
+		ProfileArn:  "arn:aws:codewhisperer:us-east-1:1:profile/test",
+	}
+	info, err := RefreshAccountInfo(account)
+	if err != nil {
+		t.Fatalf("RefreshAccountInfo() error = %v", err)
+	}
+	if usageCalls.Load() != 1 {
+		t.Fatalf("getUsageLimits calls = %d, want 1", usageCalls.Load())
+	}
+	if len(info.Bonuses) != 1 {
+		t.Fatalf("bonuses = %+v, want one entry", info.Bonuses)
+	}
+	if info.Bonuses[0].Code != "WELCOME500" || info.Bonuses[0].Limit != 500 {
+		t.Fatalf("bonus = %+v", info.Bonuses[0])
+	}
+	if info.Bonuses[0].Percent != 24 {
+		t.Fatalf("bonus percent = %v, want 24", info.Bonuses[0].Percent)
+	}
+}

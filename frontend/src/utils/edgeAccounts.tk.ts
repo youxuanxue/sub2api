@@ -444,13 +444,30 @@ export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
           next_reset_date: k.next_reset_date,
           subscription_title: k.subscription_title,
           trial:
-            k.trial_percent != null || k.trial_expires_at || k.trial_status
+            k.trial_percent != null ||
+            k.trial_current != null ||
+            k.trial_limit != null ||
+            k.trial_expires_at ||
+            k.trial_status
               ? {
+                  current: k.trial_current,
+                  limit: k.trial_limit,
                   percent: k.trial_percent,
                   status: k.trial_status,
                   expires_at: k.trial_expires_at ?? null
                 }
-              : null
+              : null,
+          bonuses: k.bonuses?.length
+            ? k.bonuses.map(b => ({
+                code: b.code,
+                label: b.label,
+                current: b.current,
+                limit: b.limit,
+                percent: b.percent,
+                status: b.status,
+                expires_at: b.expires_at ?? null
+              }))
+            : null
         }
       : null
   }

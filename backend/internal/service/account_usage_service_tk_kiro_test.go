@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 )
@@ -40,6 +41,17 @@ func TestBuildKiroUsageFromInfo_MapsCreditsAndTrial(t *testing.T) {
 		TrialUsagePercent: 0.1,
 		TrialStatus:       "ACTIVE",
 		TrialExpiresAt:    1893456000,
+		Bonuses: []kiroproto.KiroBonusInfo{
+			{
+				Code:      "WELCOME500",
+				Label:     "Welcome Bonus",
+				Current:   120,
+				Limit:     500,
+				Percent:   24,
+				Status:    "ACTIVE",
+				ExpiresAt: 1893456000,
+			},
+		},
 	}
 
 	usage := buildKiroUsageFromInfo(info)
@@ -71,6 +83,12 @@ func TestBuildKiroUsageFromInfo_MapsCreditsAndTrial(t *testing.T) {
 	if ku.Trial.ExpiresAt == nil || ku.Trial.ExpiresAt.Unix() != 1893456000 {
 		t.Fatalf("trial expires_at = %v, want unix 1893456000", ku.Trial.ExpiresAt)
 	}
+	if len(ku.Bonuses) != 1 {
+		t.Fatalf("bonuses = %+v, want one entry", ku.Bonuses)
+	}
+	if ku.Bonuses[0].Code != "WELCOME500" || ku.Bonuses[0].Limit != 500 {
+		t.Fatalf("bonus = %+v", ku.Bonuses[0])
+	}
 }
 
 func TestBuildKiroUsageFromInfo_NoTrialWhenAbsent(t *testing.T) {
@@ -99,6 +117,7 @@ func TestBuildPassiveKiroUsage_RoundTripFromExtra(t *testing.T) {
 			"kiro_trial_percent":      float64(10),
 			"kiro_trial_status":       "ACTIVE",
 			"kiro_trial_expiry":       float64(1893456000),
+			"kiro_bonuses":            `[{"code":"WELCOME500","label":"Welcome Bonus","current":120,"limit":500,"percent":24,"status":"ACTIVE","expires_at":"2026-07-01T00:00:00Z"}]`,
 			"kiro_usage_sampled_at":   "2026-06-27T00:00:00Z",
 		},
 	}
@@ -119,6 +138,9 @@ func TestBuildPassiveKiroUsage_RoundTripFromExtra(t *testing.T) {
 	}
 	if ku.Trial == nil || ku.Trial.Status != "ACTIVE" || ku.Trial.ExpiresAt == nil {
 		t.Fatalf("trial not reconstructed: %+v", ku.Trial)
+	}
+	if len(ku.Bonuses) != 1 || ku.Bonuses[0].Code != "WELCOME500" {
+		t.Fatalf("bonuses not reconstructed: %+v", ku.Bonuses)
 	}
 	if usage.UpdatedAt == nil {
 		t.Fatal("UpdatedAt should come from kiro_usage_sampled_at")
@@ -189,6 +211,7 @@ func TestSyncKiroActiveToPassive_ClearsStaleTrialAndSubscriptionKeys(t *testing.
 		"kiro_trial_status",
 		"kiro_trial_expiry",
 		"kiro_next_reset",
+		"kiro_bonuses",
 	} {
 		if got, ok := repo.updates[key]; !ok || got != nil {
 			t.Fatalf("%s = %v (present=%v), want explicit nil clear", key, got, ok)
@@ -217,6 +240,55 @@ func TestPersistKiroProfileArnIfChanged_WritesResolvedArn(t *testing.T) {
 	}
 	if got := account.GetKiroProfileArn(); got != "arn:aws:codewhisperer:us-east-1:1:profile/fresh" {
 		t.Fatalf("in-memory profile_arn = %q", got)
+	}
+}
+
+func TestBuildKiroUpstreamQuota_IncludesTrialAndBonuses(t *testing.T) {
+	now := time.Now()
+	expires := now.Add(24 * time.Hour)
+	usage := &UsageInfo{
+		Source:    "active",
+		UpdatedAt: &now,
+		KiroUsage: &KiroUsageInfo{
+			Current:           300,
+			Limit:             1000,
+			Percent:           30,
+			SubscriptionTitle: "KIRO POWER",
+			Trial: &KiroTrialInfo{
+				Current: 5,
+				Limit:   50,
+				Percent: 10,
+				Status:  "ACTIVE",
+			},
+			Bonuses: []KiroBonusInfo{
+				{
+					Code:    "WELCOME500",
+					Label:   "Welcome Bonus",
+					Current: 120,
+					Limit:   500,
+					Percent: 24,
+					Status:  "ACTIVE",
+					ExpiresAt: &expires,
+				},
+			},
+		},
+	}
+
+	info := buildKiroUpstreamQuota(usage)
+	if info == nil || info.State != "observed" {
+		t.Fatalf("upstream quota = %+v", info)
+	}
+	if len(info.Credits) != 3 {
+		t.Fatalf("credits len = %d, want 3", len(info.Credits))
+	}
+	if info.Credits[0].Key != "kiro_credits" {
+		t.Fatalf("first credit key = %q", info.Credits[0].Key)
+	}
+	if info.Credits[1].Key != "kiro_trial" {
+		t.Fatalf("second credit key = %q", info.Credits[1].Key)
+	}
+	if info.Credits[2].Key != "kiro_bonus_welcome500" {
+		t.Fatalf("third credit key = %q", info.Credits[2].Key)
 	}
 }
 

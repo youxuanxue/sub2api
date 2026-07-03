@@ -4894,7 +4894,8 @@ export default {
         activeQuery: 'Query',
         kiroCredits: 'Credits',
         kiroTrial: 'Trial',
-        kiroTrialExpires: 'Trial ends'
+        kiroTrialExpires: 'Trial ends',
+        kiroBonus: 'Bonus'
       },
       openaiQuotaReset: {
         count: 'Credits',

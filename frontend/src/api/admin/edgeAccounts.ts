@@ -88,15 +88,29 @@ export interface EdgeUsageProgress {
 }
 
 /** Kiro credits snapshot for one account (mirrors backend edgeKiroUsage). */
+export interface EdgeKiroBonusUsage {
+  code?: string
+  label?: string
+  current?: number
+  limit?: number
+  percent?: number
+  status?: string
+  expires_at?: string | null
+}
+
+/** Kiro credits snapshot for one account (mirrors backend edgeKiroUsage). */
 export interface EdgeKiroUsage {
   current?: number
   limit?: number
   percent?: number
   next_reset_date?: string
   subscription_title?: string
+  trial_current?: number
+  trial_limit?: number
   trial_percent?: number
   trial_status?: string
   trial_expires_at?: string | null
+  bonuses?: EdgeKiroBonusUsage[] | null
 }
 
 /** Credential-free 订阅 projection (mirrors backend edgeSubscription). */

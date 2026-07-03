@@ -420,7 +420,7 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 		}
 	}
 
-	// 解析试用配额信息
+	// 解析试用配额与 bonus credits
 	if len(usage.UsageBreakdownList) > 0 {
 		breakdown := usage.UsageBreakdownList[0]
 		if breakdown.FreeTrialInfo != nil {
@@ -439,6 +439,33 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 					info.TrialExpiresAt = int64(f)
 				}
 			}
+		}
+		for _, bonus := range breakdown.Bonuses {
+			label := strings.TrimSpace(bonus.DisplayName)
+			if label == "" {
+				label = strings.TrimSpace(bonus.BonusCode)
+			}
+			if label == "" && bonus.CurrentUsage <= 0 && bonus.UsageLimit <= 0 {
+				continue
+			}
+			item := KiroBonusInfo{
+				Code:    strings.TrimSpace(bonus.BonusCode),
+				Label:   label,
+				Current: bonus.CurrentUsage,
+				Limit:   bonus.UsageLimit,
+				Status:  strings.TrimSpace(bonus.Status),
+			}
+			if item.Limit > 0 {
+				item.Percent = (item.Current / item.Limit) * 100
+			}
+			if bonus.ExpiresAt != "" {
+				if ts, err := bonus.ExpiresAt.Int64(); err == nil && ts > 0 {
+					item.ExpiresAt = ts
+				} else if f, err := bonus.ExpiresAt.Float64(); err == nil && f > 0 {
+					item.ExpiresAt = int64(f)
+				}
+			}
+			info.Bonuses = append(info.Bonuses, item)
 		}
 	}
 

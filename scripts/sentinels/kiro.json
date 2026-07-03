@@ -425,6 +425,8 @@
         "persistKiroProfileArnIfChanged",
         "func (s *AccountUsageService) buildPassiveKiroUsage",
         "func buildKiroUsageFromInfo",
+        "buildPassiveKiroBonuses",
+        "kiro_bonuses",
         "func (s *AccountUsageService) syncKiroActiveToPassive"
       ],
       "rationale": "The kiro usage producer. getKiroUsage calls the vendored CodeWhisperer GetUsageLimits (RefreshAccountInfo) on the manual 查询 path and writes the snapshot back to passive Extra via syncKiroActiveToPassive; buildPassiveKiroUsage rebuilds it with no upstream call for the edge accounts overview; buildKiroUsageFromInfo maps kiro.AccountInfo (credits/重置/试用/订阅) onto UsageInfo.KiroUsage. Losing this file regresses kiro accounts to empty usage windows (no credits/额度/重置/试用 ever populated)."
@@ -445,6 +447,7 @@
         "func attachUpstreamQuotaForAccount",
         "func buildKiroUpstreamQuota",
         "Key:         \"kiro_credits\"",
+        "kiroBonusQuotaKey",
         "Key:         \"kiro_trial\""
       ],
       "rationale": "Unified upstream_quota adapter for Kiro credits/subscription/trial. Kiro has no 5h/7d upstream window; its upstream capacity is CodeWhisperer credits + monthly reset + trial expiry. Losing this projection leaves UsageInfo.KiroUsage present but the shared upstream quota UI blank."
