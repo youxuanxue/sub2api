@@ -141,6 +141,19 @@ jobs:
           echo "::error::by adding the literal marker '$MARKER' to the PR body, then re-run."
           exit 1
 
+  platform-registry-drift:
+    # Blocking: Go ↔ TS platform registry lockstep. Drift causes silent data
+    # loss (dispatch-config wipe) or admin UI rendering holes. No external
+    # dependencies — just python3 + the checkout.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Platform registry drift gate
+        run: python3 scripts/checks/platform-registry-drift.py
+
   insertion-invasiveness-advisory:
     # Advisory only: reports the SHAPE of upstream touches. Never blocks a PR —
     # continue-on-error keeps the check green even if the recon itself errors.
