@@ -112,6 +112,84 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   GROUP BY 1,2,3,4,5,6,7 ORDER BY n DESC LIMIT 40) t;" 2>&1
 
 echo
+echo "=== errors: key/group breakdown for error types over 10 (window) ==="
+$PSQL -c "WITH base AS (
+  SELECT
+    user_id,
+    CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
+    status_code,
+    upstream_status_code,
+    error_phase,
+    error_type,
+    error_owner,
+    api_key_id,
+    api_key_prefix,
+    deleted_key_name,
+    group_id,
+    created_at
+  FROM ops_error_logs
+  WHERE user_id IN (${IDS}) AND created_at >= now() - ${W}
+), frequent AS (
+  SELECT
+    user_id,
+    surface,
+    status_code,
+    upstream_status_code,
+    error_phase,
+    error_type,
+    error_owner,
+    count(*) AS error_type_n
+  FROM base
+  GROUP BY 1,2,3,4,5,6,7
+  HAVING count(*) > 10
+)
+SELECT row_to_json(t) FROM (SELECT
+  f.user_id,
+  f.surface,
+  f.status_code,
+  f.upstream_status_code,
+  f.error_phase,
+  f.error_type,
+  f.error_owner,
+  f.error_type_n,
+  b.api_key_id,
+  COALESCE(ak.name, b.deleted_key_name, '') AS api_key_name,
+  COALESCE(b.api_key_prefix, '') AS api_key_prefix,
+  b.group_id,
+  COALESCE(g.name, '') AS group_name,
+  (COALESCE(ak.routing_mode, 'direct') = 'universal') AS is_universal_key,
+  count(*) AS key_group_n,
+  max(b.created_at) AT TIME ZONE 'UTC' AS last_at_utc
+  FROM frequent f
+  JOIN base b
+    ON b.user_id = f.user_id
+   AND b.surface = f.surface
+   AND b.status_code IS NOT DISTINCT FROM f.status_code
+   AND b.upstream_status_code IS NOT DISTINCT FROM f.upstream_status_code
+   AND b.error_phase IS NOT DISTINCT FROM f.error_phase
+   AND b.error_type IS NOT DISTINCT FROM f.error_type
+   AND b.error_owner IS NOT DISTINCT FROM f.error_owner
+  LEFT JOIN api_keys ak ON ak.id = b.api_key_id AND ak.deleted_at IS NULL
+  LEFT JOIN groups g ON g.id = b.group_id AND g.deleted_at IS NULL
+  GROUP BY
+    f.user_id,
+    f.surface,
+    f.status_code,
+    f.upstream_status_code,
+    f.error_phase,
+    f.error_type,
+    f.error_owner,
+    f.error_type_n,
+    b.api_key_id,
+    COALESCE(ak.name, b.deleted_key_name, ''),
+    COALESCE(b.api_key_prefix, ''),
+    b.group_id,
+    COALESCE(g.name, ''),
+    (COALESCE(ak.routing_mode, 'direct') = 'universal')
+  ORDER BY f.error_type_n DESC, key_group_n DESC, f.user_id, b.api_key_id NULLS LAST, b.group_id NULLS LAST
+  LIMIT 80) t;" 2>&1
+
+echo
 echo "=== errors: last 12 samples (desensitized) ==="
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   created_at AT TIME ZONE 'UTC' AS ts_utc, user_id,
