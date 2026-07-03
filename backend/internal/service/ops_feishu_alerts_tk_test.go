@@ -234,7 +234,7 @@ func TestMaybeSendAlertFeishuP0Only(t *testing.T) {
 			},
 		},
 		{
-			name: "resolved event never sends",
+			name: "resolved event does not send firing card",
 			mutate: func(rule *OpsAlertRule, event *OpsAlertEvent) {
 				event.Status = OpsAlertStatusResolved
 			},
@@ -290,6 +290,81 @@ func TestMaybeSendAlertFeishuRateLimitsAcrossDistinctDimensions(t *testing.T) {
 	require.Equal(t, 1, doer.calls)
 }
 
+func TestOpsFeishuNotifierBuildsRecoveryPayload(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1700000060, 0).UTC()
+	firedAt := time.Unix(1700000000, 0).UTC()
+	resolvedAt := now
+	notifier := &opsFeishuNotifier{now: func() time.Time { return now }}
+	event := testOpsFeishuEvent(42)
+	event.Status = OpsAlertStatusResolved
+	event.ResolvedAt = &resolvedAt
+	event.FiredAt = firedAt
+	current := 0.0
+	event.Dimensions = map[string]any{
+		"top_cause":       `newapi ×128（#16 "Agent-陈乐晗-qwen" ×128）`,
+		"top_cause_models": "gpt5.4-mini ×128",
+	}
+
+	payload, err := notifier.buildRecoveryPayload(OpsFeishuAlertConfig{}, "https://api.tokenkey.dev", testOpsFeishuRule(), event, &current)
+	require.NoError(t, err)
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	text := string(body)
+	require.Contains(t, text, "TokenKey P0 告警已恢复 · prod")
+	require.Contains(t, text, "green")
+	require.Contains(t, text, "**触发值**")
+	require.Contains(t, text, "**当前值**")
+	require.Contains(t, text, "**持续时长**")
+	require.Contains(t, text, "1分")
+	require.Contains(t, text, "**主因**")
+	require.Contains(t, text, "newapi ×128")
+	require.Contains(t, text, "**模型**")
+	require.Contains(t, text, "gpt5.4-mini ×128")
+}
+
+func TestMaybeSendAlertFeishuRecoverySendsPairedGreenCard(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	firing := testOpsFeishuEvent(99)
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, firing))
+	require.Equal(t, 1, doer.calls)
+	require.Contains(t, doer.bodies[0], "TokenKey P0 告警")
+
+	resolvedAt := firing.FiredAt.Add(time.Minute)
+	resolved := *firing
+	resolved.Status = OpsAlertStatusResolved
+	resolved.ResolvedAt = &resolvedAt
+
+	require.True(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, &resolved, 0))
+	require.Equal(t, 2, doer.calls)
+	require.Contains(t, doer.bodies[1], "TokenKey P0 告警已恢复")
+	require.Contains(t, doer.bodies[1], "green")
+
+	require.False(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, &resolved, 0))
+	require.Equal(t, 2, doer.calls, "recovery must dedupe per event")
+}
+
+func TestMaybeSendAlertFeishuRecoverySkipsWithoutPriorFiringCard(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	resolvedAt := time.Unix(1700000060, 0).UTC()
+	resolved := testOpsFeishuEvent(7)
+	resolved.Status = OpsAlertStatusResolved
+	resolved.ResolvedAt = &resolvedAt
+
+	require.False(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, resolved, 0))
+	require.Equal(t, 0, doer.calls)
+}
+
 func TestMaybeSendAlertFeishuFailureDoesNotMarkCooldown(t *testing.T) {
 	t.Parallel()
 
@@ -318,9 +393,10 @@ func newOpsFeishuAlertEvaluatorForTest(t *testing.T, feishu OpsFeishuAlertConfig
 	return &OpsAlertEvaluatorService{
 		opsService: &OpsService{settingRepo: repo},
 		feishuState: &opsFeishuNotificationState{
-			limiter:  newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
-			notifier: &opsFeishuNotifier{httpClient: doer},
-			sentAt:   map[string]time.Time{},
+			limiter:             newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
+			notifier:            &opsFeishuNotifier{httpClient: doer},
+			sentAt:              map[string]time.Time{},
+			firedFeishuEventIDs: map[int64]struct{}{},
 		},
 	}
 }
