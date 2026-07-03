@@ -45,7 +45,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 decide() { bash "$REPO_ROOT/scripts/release-decide-version.sh" --emit-suggested-bump; }
-field() { printf '%s\n' "$1" | grep "^$2=" | head -1 | cut -d= -f2-; }
+# grep exits 1 when a key is absent (e.g. suggested_next_version on tag-only);
+# with set -e that used to abort the whole script silently after NEXT_VERSION=.
+field() { printf '%s\n' "$1" | grep "^$2=" | head -1 | cut -d= -f2- || true; }
 
 DECISION="$(decide)"
 ACTION="$(field "$DECISION" action)"
@@ -71,10 +73,24 @@ case "$ACTION" in
   *) echo "[release-bump-and-tag] ERROR: unknown action '$ACTION'" >&2; exit 1 ;;
 esac
 
+BUMP_ROUTE="direct-push"
+if [ "$ACTION" = "bump-and-tag" ]; then
+  BUMP_ROUTE="$(bash "$REPO_ROOT/scripts/release-main-push-route.sh" 2>/dev/null || echo direct-push)"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "[release-bump-and-tag] dry-run: action=$ACTION target_tag=$TARGET_TAG"
-  echo "[release-bump-and-tag] dry-run: would create ephemeral worktree from origin/main, $( [ "$ACTION" = bump-and-tag ] && echo 'bump VERSION + push origin HEAD:main, ' )then run release-tag.sh $TARGET_TAG"
+  if [ "$ACTION" = "bump-and-tag" ] && [ "$BUMP_ROUTE" = "bump-via-pr" ]; then
+    echo "[release-bump-and-tag] dry-run: main is branch-protected → would run scripts/release-bump-via-pr.sh, then release-tag.sh $TARGET_TAG"
+  else
+    echo "[release-bump-and-tag] dry-run: would create ephemeral worktree from origin/main, $( [ "$ACTION" = bump-and-tag ] && echo 'bump VERSION + push origin HEAD:main, ' )then run release-tag.sh $TARGET_TAG"
+  fi
   exit 0
+fi
+
+if [ "$ACTION" = "bump-and-tag" ] && [ "$BUMP_ROUTE" = "bump-via-pr" ]; then
+  echo "[release-bump-and-tag] main is branch-protected; delegating to release-bump-via-pr.sh"
+  exec bash "$REPO_ROOT/scripts/release-bump-via-pr.sh"
 fi
 
 # Sibling placement keeps backend's `replace ../../new-api` resolvable from the
@@ -125,9 +141,15 @@ if [ "$ACTION" = "bump-and-tag" ]; then
 
 no-web-impact"
   echo "[release-bump-and-tag] pushing bump commit to origin/main"
-  if ! git -C "$WT_DIR" push origin HEAD:main; then
-    echo "[release-bump-and-tag] ERROR: push rejected — origin/main moved since the worktree was created." >&2
-    echo "                       Re-run this script; it will re-base the bump on the new origin/main." >&2
+  PUSH_ERR=""
+  if ! PUSH_ERR="$(git -C "$WT_DIR" push origin HEAD:main 2>&1)"; then
+    echo "$PUSH_ERR" >&2
+    if printf '%s\n' "$PUSH_ERR" | grep -qiE 'protected branch|pull request|GH006'; then
+      echo "[release-bump-and-tag] main is branch-protected; run: bash scripts/release-bump-via-pr.sh" >&2
+    else
+      echo "[release-bump-and-tag] ERROR: push rejected — origin/main moved since the worktree was created." >&2
+      echo "                       Re-run this script; it will re-base the bump on the new origin/main." >&2
+    fi
     exit 1
   fi
 fi
