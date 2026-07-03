@@ -2298,7 +2298,7 @@ else
         if [ "$_cs_rc" -eq 1 ]; then
             echo "  warn: new upstream conflict files detected (advisory; CI gate blocks)"
         elif [ "$_cs_rc" -gt 1 ]; then
-            echo "  warn: upstream-conflict-surface.sh exited $cs_rc (advisory)"
+            echo "  warn: upstream-conflict-surface.sh exited $_cs_rc (advisory)"
         fi
     fi
 fi
