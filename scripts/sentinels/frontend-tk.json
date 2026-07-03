@@ -170,6 +170,33 @@
       "rationale": "TablePageLayout's `fluid` prop and matching modifier-scoped CSS rules. The fluid wrapper rule must keep `overflow-x-auto` (not `overflow-x-hidden`) so a narrow viewport falls back to a scrollbar instead of clipping rightmost columns. Sibling guard to the DataTable.vue fluid-overflow sentinel above — both paths must move in lockstep."
     },
     {
+      "path": "frontend/src/components/account/usage-cells/UpstreamQuotaSummary.vue",
+      "must_contain": [
+        "hiddenDimensionKeys?: string[]",
+        "const visibleDimensions = computed",
+        "visibleDimensions.value.map(formatDimensionLine)"
+      ],
+      "rationale": "Shared usage-window quota summary de-duplication owner. Account usage cells render primary 5h/7d bars first, then UpstreamQuotaSummary renders only supplemental upstream quota facts after filtering dimensions already represented by those bars. Anchors prevent an upstream-shaped component rewrite from silently reintroducing duplicate grey quota chips beside the canonical progress bars."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/AnthropicUsageCell.vue",
+      "must_contain": [
+        ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
+        "anthropic_5h",
+        "anthropic_7d_sonnet"
+      ],
+      "rationale": "Anthropic OAuth usage windows have one canonical visual owner: the 5h, 7d, and 7d S progress bars. The upstream_quota block may still carry the same dimensions for contract consumers, but the UI must filter them out of the supplemental summary to avoid repeating the same window percentages in the Edge panel and Accounts list."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/OpenAIUsageCell.vue",
+      "must_contain": [
+        ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
+        "openai_codex_5h",
+        "openai_codex_7d"
+      ],
+      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: the 5h and 7d progress bars are canonical, while UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from restoring duplicate Codex window chips."
+    },
+    {
       "path": "frontend/src/views/admin/AccountsView.vue",
       "must_contain": [
         "<TablePageLayout fluid>",
