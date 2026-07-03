@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import AccountActionMenu from '../AccountActionMenu.vue'
 import type { Account } from '@/types'
 
@@ -116,11 +116,32 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     expect(sparkBtn).toBeDefined()
 
     sparkBtn!.click()
-    await wrapper.vm.$nextTick()
+    await flushPromises()
 
     const emitted = wrapper.emitted('create-spark-shadow')
     expect(emitted).toBeTruthy()
     expect(emitted![0][0]).toMatchObject({ id: account.id, platform: 'openai' })
+    expect(wrapper.emitted('close')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('测试连接先 emit test，nextTick 后再 emit close（避免 ghost click 重开菜单）', async () => {
+    const account = makeAccount({ platform: 'anthropic', type: 'apikey', name: 'cc-us5' })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const testBtn = getBodyButtons().find((b) => b.textContent?.includes('admin.accounts.testConnection'))
+    expect(testBtn).toBeDefined()
+
+    testBtn!.click()
+    expect(wrapper.emitted('test')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeFalsy()
+
+    await flushPromises()
+    expect(wrapper.emitted('close')).toBeTruthy()
 
     wrapper.unmount()
   })
