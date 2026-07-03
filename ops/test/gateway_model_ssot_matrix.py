@@ -43,7 +43,6 @@ VENDOR_PLATFORM = {
     "x-ai": "grok",
 }
 
-OPENAI_COMPAT_TEXT_PLATFORMS = {"openai", "newapi", "grok"}
 GEMINI_NATIVE_PLATFORMS = {"gemini", "antigravity"}
 MESSAGE_POLICY_PLATFORMS = {"openai", "newapi"}
 
@@ -436,14 +435,14 @@ def cmd_list(args) -> int:
         rows = [r for r in rows if not r.paid]
     if args.limit:
         rows = rows[: args.limit]
+    scoped_excluded = filter_excluded(excluded, args)
 
     if args.format == "json":
-        print(json.dumps({"rows": [row_to_record(r) for r in rows], "excluded": [asdict(e) for e in excluded]}, indent=2, sort_keys=True))
+        print(json.dumps({"rows": [row_to_record(r) for r in rows], "excluded": [asdict(e) for e in scoped_excluded]}, indent=2, sort_keys=True))
         return 0
     print("platform\tvendor\tmodel\tmodality\tprotocol\tmethod\tpath\tpaid\tnote")
     for r in rows:
         print(f"{r.platform}\t{r.vendor}\t{r.model}\t{r.modality}\t{r.protocol}\t{r.method}\t{r.path}\t{int(r.paid)}\t{r.note}")
-    scoped_excluded = filter_excluded(excluded, args)
     if args.show_excluded and scoped_excluded:
         print("\n# excluded")
         print("vendor\tmodel\treason")
