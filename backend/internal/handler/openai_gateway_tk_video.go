@@ -146,15 +146,13 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	// Single account selection; video submit is one-shot (no streaming retries).
 	selectionCtx, groupName := h.tkOpenAIChatSelectionCtx(c, apiKey, reqModel)
-	selection, _, err := h.gatewayService.SelectAccountWithScheduler(
+	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForVideo(
 		selectionCtx,
 		apiKey.GroupID,
-		"",
 		sessionHash,
 		reqModel,
 		map[int64]struct{}{},
 		service.OpenAIUpstreamTransportAny,
-		false,
 	)
 	if err != nil || selection == nil || selection.Account == nil {
 		reqLog.Warn("openai_video_submit.account_select_failed", zap.Error(err))

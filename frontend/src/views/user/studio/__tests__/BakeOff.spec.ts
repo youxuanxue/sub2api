@@ -115,12 +115,12 @@ const videoProps = {
   availableIds: new Set([
     'doubao-seedance-1-0-pro-250528',
     'doubao-seedance-2-0-fast-260128',
-    'veo-3.1-generate-001',
+    'doubao-seedance-1-5-pro-251215',
   ]),
   priceMap: new Map([
     ['doubao-seedance-1-0-pro-250528', { perSecond: 0.1088, billingMode: 'video' }],
     ['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194, billingMode: 'video' }],
-    ['veo-3.1-generate-001', { perSecond: 0.6, billingMode: 'video' }],
+    ['doubao-seedance-1-5-pro-251215', { perSecond: 0.1161, billingMode: 'video' }],
   ]),
 }
 
@@ -163,11 +163,11 @@ describe('BakeOff video duration default', () => {
     await wrapper.get('[data-testid="bakeoff-duration-8"]').trigger('click')
     expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-8')
 
-    await wrapper.get('[data-testid="bakeoff-duration-6"]').trigger('click')
-    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-6')
+    await wrapper.get('[data-testid="bakeoff-duration-4"]').trigger('click')
+    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-4')
 
     await selectModels(wrapper, [2])
-    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-12')
+    expect(selectedDurationChip(wrapper).attributes('data-testid')).toBe('bakeoff-duration-10')
   })
 })
 

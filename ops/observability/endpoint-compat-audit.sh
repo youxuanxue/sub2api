@@ -11,6 +11,8 @@ TARGET="${TK_ENDPOINT_AUDIT_TARGET:-prod}"
 SKIP_PAID=0
 WITH_EXTRAS=0
 MODE="print"
+SSOT_SUBCOMMAND="list"
+SSOT_ARGS=()
 
 usage() {
 	cat <<'EOF'
@@ -18,6 +20,7 @@ Usage:
   bash ops/observability/endpoint-compat-audit.sh --print
   bash ops/observability/endpoint-compat-audit.sh --direct-route-gate
   bash ops/observability/endpoint-compat-audit.sh --universal-matrix [--skip-paid] [--with-extras]
+  bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix [--list|--run|--gate] [--include-paid] [--show-excluded] [--limit N]
   bash ops/observability/endpoint-compat-audit.sh --all [--skip-paid] [--with-extras]
 
 Environment:
@@ -29,6 +32,8 @@ Environment:
 Verdict split:
   direct-route-gate checks group.platform x endpoint local route gates on prod.
   universal-matrix checks real end-to-end servability through one universal key.
+  ssot-model-matrix derives model/protocol rows from live /api/v1/public/pricing.
+  ssot-model-matrix --gate fails unless displayed+priced rows in scope pass live probes.
 EOF
 }
 
@@ -37,9 +42,22 @@ while [[ $# -gt 0 ]]; do
 		--print) MODE="print" ;;
 		--direct-route-gate) MODE="direct" ;;
 		--universal-matrix) MODE="universal" ;;
+		--ssot-model-matrix) MODE="ssot" ;;
 		--all) MODE="all" ;;
 		--skip-paid) SKIP_PAID=1 ;;
+		--include-paid) SSOT_ARGS+=(--include-paid) ;;
 		--with-extras) WITH_EXTRAS=1 ;;
+		--list) SSOT_SUBCOMMAND="list" ;;
+		--run) SSOT_SUBCOMMAND="run" ;;
+		--gate) SSOT_SUBCOMMAND="gate" ;;
+		--show-excluded) SSOT_ARGS+=(--show-excluded) ;;
+		--show-nonblocking-excluded) SSOT_ARGS+=(--show-nonblocking-excluded) ;;
+		--json) SSOT_ARGS+=(--format json) ;;
+		--limit|--only-platform|--only-protocol|--model|--base-url|--timeout)
+			[[ $# -ge 2 ]] || { echo "$1 requires a value" >&2; usage >&2; exit 2; }
+			SSOT_ARGS+=("$1" "$2")
+			shift
+			;;
 		-h|--help) usage; exit 0 ;;
 		*) echo "unknown arg: $1" >&2; usage >&2; exit 2 ;;
 	esac
@@ -60,6 +78,10 @@ fi
 if [[ "$WITH_EXTRAS" == "1" ]]; then
 	universal_cmd+=(--with-extras)
 fi
+ssot_cmd=(python3 "$ROOT/ops/test/gateway_model_ssot_matrix.py" "$SSOT_SUBCOMMAND")
+if ((${#SSOT_ARGS[@]} > 0)); then
+	ssot_cmd+=("${SSOT_ARGS[@]}")
+fi
 
 print_cmd() {
 	printf '%q ' "$@"
@@ -72,12 +94,17 @@ case "$MODE" in
 		print_cmd "${direct_cmd[@]}"
 		echo "# Universal full matrix"
 		print_cmd "${universal_cmd[@]}"
+		echo "# SSOT-derived model/protocol matrix"
+		print_cmd "${ssot_cmd[@]}"
 		;;
 	direct)
 		exec "${direct_cmd[@]}"
 		;;
 	universal)
 		exec "${universal_cmd[@]}"
+		;;
+	ssot)
+		exec "${ssot_cmd[@]}"
 		;;
 	all)
 		"${direct_cmd[@]}"

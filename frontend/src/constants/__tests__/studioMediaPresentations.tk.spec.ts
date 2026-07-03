@@ -34,29 +34,26 @@ const IMAGEN_CATALOG = catalogFromIds([
   ['imagen-4.0-fast-generate-001', 'image'],
   ['imagen-4.0-generate-001', 'image'],
 ])
-const VEO_CATALOG = catalogFromIds([['veo-3.1-generate-001', 'video']])
-const GROK_VIDEO_CATALOG = catalogFromIds([['grok-imagine-video', 'video']])
+const SEEDANCE_CATALOG = catalogFromIds([['doubao-seedance-1-0-pro-250528', 'video']])
 const EMPTY_CATALOG = buildCatalogBillingIndex([])
 
-// A Vertex group serves Imagen image models + the Veo cinematic video model.
+// Image and video can be served by different groups.
 const IMAGEN = new Set(['imagen-4.0-fast-generate-001', 'imagen-4.0-generate-001'])
-const VEO = new Set(['veo-3.1-generate-001'])
-const GROK_VIDEO = new Set(['grok-imagine-video'])
+const SEEDANCE = new Set(['doubao-seedance-1-0-pro-250528'])
 // An antigravity/gemini-text group serves none of the Studio media catalog rows.
 const ANTIGRAVITY = new Set(['claude-sonnet-4-5', 'gemini-3-flash'])
 
 describe('hasCatalogMediaModality', () => {
   it('is true when the pool backs at least one catalog media model', () => {
     expect(hasCatalogMediaModality('image', IMAGEN, IMAGEN_CATALOG)).toBe(true)
-    expect(hasCatalogMediaModality('video', VEO, VEO_CATALOG)).toBe(true)
-    expect(hasCatalogMediaModality('video', GROK_VIDEO, GROK_VIDEO_CATALOG)).toBe(true)
+    expect(hasCatalogMediaModality('video', SEEDANCE, SEEDANCE_CATALOG)).toBe(true)
   })
 
   it('is false for a pool with no catalog media model', () => {
     expect(hasCatalogMediaModality('image', ANTIGRAVITY, IMAGEN_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('video', ANTIGRAVITY, VEO_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('image', VEO, IMAGEN_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('video', IMAGEN, VEO_CATALOG)).toBe(false)
+    expect(hasCatalogMediaModality('video', ANTIGRAVITY, SEEDANCE_CATALOG)).toBe(false)
+    expect(hasCatalogMediaModality('image', SEEDANCE, IMAGEN_CATALOG)).toBe(false)
+    expect(hasCatalogMediaModality('video', IMAGEN, SEEDANCE_CATALOG)).toBe(false)
     expect(hasCatalogMediaModality('image', new Set(), EMPTY_CATALOG)).toBe(false)
   })
 
@@ -74,13 +71,13 @@ describe('groupServes (chat as a peer picker modality)', () => {
 
   it('does NOT serve chat for an image/video-only pool', () => {
     expect(groupServes('chat', IMAGEN, IMAGEN_CATALOG)).toBe(false)
-    expect(groupServes('chat', VEO, VEO_CATALOG)).toBe(false)
+    expect(groupServes('chat', SEEDANCE, SEEDANCE_CATALOG)).toBe(false)
     expect(groupServes('chat', new Set(), EMPTY_CATALOG)).toBe(false)
   })
 
   it('delegates to catalog billing for image/video', () => {
     expect(groupServes('image', IMAGEN, IMAGEN_CATALOG)).toBe(true)
-    expect(groupServes('video', VEO, VEO_CATALOG)).toBe(true)
+    expect(groupServes('video', SEEDANCE, SEEDANCE_CATALOG)).toBe(true)
     expect(groupServes('image', ANTIGRAVITY, IMAGEN_CATALOG)).toBe(false)
   })
 })
@@ -111,9 +108,9 @@ describe('pickModalityKey', () => {
   })
 
   it('re-targets per modality (image vs video live on different groups)', () => {
-    const opts = [opt(1, false, IMAGEN), opt(2, false, VEO)]
+    const opts = [opt(1, false, IMAGEN), opt(2, false, SEEDANCE)]
     expect(pickModalityKey(opts, 'image', null, IMAGEN_CATALOG)).toBe(1)
-    expect(pickModalityKey(opts, 'video', null, VEO_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'video', null, SEEDANCE_CATALOG)).toBe(2)
   })
 
   it('lands a chat key on a chat-serving group, off a media-only current key', () => {
@@ -220,18 +217,6 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out[0].presentation.videoDurations).toEqual([5])
   })
 
-  it('surfaces grok-imagine-video when priced and in the group pool', () => {
-    const out = resolveAvailableModels(
-      'video',
-      GROK_VIDEO,
-      new Map([['grok-imagine-video', { perSecond: 0.08, billingMode: 'video', vendor: 'xai' }]])
-    )
-    expect(out).toHaveLength(1)
-    expect(out[0].presentation.modelId).toBe('grok-imagine-video')
-    expect(out[0].presentation.displayName).toBe('Grok Imagine · Video')
-    expect(out[0].perSecond).toBe(0.08)
-  })
-
   it('builds conservative defaults for a future/private catalog row without curated presentation', () => {
     const unknownId = 'future-video-model-xyz'
     const out = resolveAvailableModels(
@@ -258,11 +243,11 @@ describe('resolveAvailableModels (transparent model picker)', () => {
   it('video pool surfaces only served+priced video models with per-second price', () => {
     const out = resolveAvailableModels(
       'video',
-      new Set(['veo-3.1-generate-001']),
-      new Map([['veo-3.1-generate-001', { perSecond: 0.4, billingMode: 'video' }]])
+      new Set(['doubao-seedance-2-0-fast-260128']),
+      new Map([['doubao-seedance-2-0-fast-260128', { perSecond: 0.1194, billingMode: 'video' }]])
     )
-    expect(out.map((r) => r.presentation.modelId)).toEqual(['veo-3.1-generate-001'])
-    expect(out[0].perSecond).toBe(0.4)
+    expect(out.map((r) => r.presentation.modelId)).toEqual(['doubao-seedance-2-0-fast-260128'])
+    expect(out[0].perSecond).toBe(0.1194)
   })
 
   it('skips ids whose billing_mode does not match the requested modality', () => {
@@ -314,9 +299,6 @@ describe('capability map honesty (verified against new-api adaptors)', () => {
       expect(m.supportedParams).toEqual([])
     }
   })
-  it('veo honors negativePrompt + seed + firstFrameImage', () => {
-    expect(byId('veo-3.1-generate-001').supportedParams).toEqual(['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'])
-  })
   it('seedance honors seed + firstFrameImage but NOT negativePrompt (adaptor drops it)', () => {
     const s = byId('doubao-seedance-1-0-pro-250528').supportedParams
     expect(s).toContain('seed')
@@ -366,15 +348,15 @@ describe('video durations (per-model discrete, never a footgun)', () => {
     expect(videoDurationDefault([])).toBe(VIDEO_DURATION_DEFAULT)
   })
 
-  it('Veo 3.1 accepts exactly 4/6/8s; Seedance uses documented discrete seconds; Grok Imagine 5s', () => {
-    expect(byId('veo-3.1-generate-001').videoDurations).toEqual([4, 6, 8])
+  it('Seedance uses documented discrete seconds; unprovisioned paid media has no Studio card', () => {
+    expect(MEDIA_MODEL_PRESENTATIONS.find((m) => m.modelId === 'veo-3.1-generate-001')).toBeUndefined()
+    expect(MEDIA_MODEL_PRESENTATIONS.find((m) => m.modelId === 'grok-imagine-video')).toBeUndefined()
     expect(byId('veo-3.1-fast-generate-001')).toBeUndefined()
     expect(byId('doubao-seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])
     expect(byId('doubao-seedance-1-0-pro-fast-251015').videoDurations).toEqual([5])
     expect(byId('doubao-seedance-1-5-pro-251215').videoDurations).toEqual([5])
     expect(byId('doubao-seedance-2-0-260128').videoDurations).toEqual([5])
     expect(byId('doubao-seedance-2-0-fast-260128').videoDurations).toEqual([4, 8, 12])
-    expect(byId('grok-imagine-video').videoDurations).toEqual([5])
   })
 })
 
@@ -385,17 +367,12 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
   // and Imagen must send the ratio code verbatim.
   const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
 
-  it('image models with flatPricePerImage may omit imageSizes (grok-imagine)', () => {
-    const flatNoSizes = MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'image' && m.flatPricePerImage && !m.imageSizes)
-    expect(flatNoSizes.some((m) => m.modelId.startsWith('grok-imagine-'))).toBe(true)
-  })
-
-  it('other image models carry imageSizes; video carry none', () => {
+  it('image models carry imageSizes; video carry none', () => {
     // Gemini-native image regained its aspect picker: a prod canary (2026-06-17) confirmed
     // cloudcode-pa honors imageConfig.aspectRatio for all 10 documented ratios, lifting the
     // #807 R-001 "no picker" deferral. So every image model now carries imageSizes; only
     // video models (passthrough hint, separate VIDEO_ASPECT_PRESETS) carry none.
-    for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'image' && !m.flatPricePerImage)) {
+    for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'image')) {
       expect(m.imageSizes && m.imageSizes.length).toBeTruthy()
     }
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'video')) {

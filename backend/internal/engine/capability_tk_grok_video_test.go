@@ -27,6 +27,8 @@ func TestIsVideoSupportedForAccount(t *testing.T) {
 		// non-grok: defers to the channel_type-derived registry predicate.
 		{"openai_ct0_unsupported", domain.PlatformOpenAI, 0, false},
 		{"anthropic_ct0_unsupported", domain.PlatformAnthropic, 0, false},
+		{"newapi_gemini_supported", domain.PlatformNewAPI, 24, true},
+		{"newapi_vertex_ai_supported", domain.PlatformNewAPI, 41, true},
 		{"newapi_volcengine_supported", domain.PlatformNewAPI, 45, true},
 		{"newapi_doubao_video_supported", domain.PlatformNewAPI, 54, true},
 		{"newapi_unknown_unsupported", domain.PlatformNewAPI, 9999, false},

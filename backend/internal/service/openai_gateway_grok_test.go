@@ -246,7 +246,7 @@ func TestForwardGrokMediaImagesGenerationNormalizesImagineAlias(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	body := []byte(`{"model":"grok-imagine","prompt":"draw a cat"}`)
+	body := []byte(`{"model":"grok-imagine","prompt":"draw a cat","size":"1024x1024"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -277,14 +277,14 @@ func TestForwardGrokMediaImagesGenerationNormalizesImagineAlias(t *testing.T) {
 	require.Equal(t, http.MethodPost, upstream.lastReq.Method)
 	require.Equal(t, "Bearer api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "application/json", upstream.lastReq.Header.Get("Content-Type"))
-	require.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"draw a cat"}`, string(upstream.lastBody))
+	require.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"draw a cat","resolution":"1K","aspect_ratio":"1:1"}`, string(upstream.lastBody))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"data":[]}`, recorder.Body.String())
 	require.Equal(t, "xai-image-req", result.RequestID)
 	require.Equal(t, "grok-imagine-image-quality", result.Model)
 	require.Equal(t, "grok-imagine-image-quality", result.BillingModel)
 	require.Equal(t, 1, result.ImageCount)
-	require.Equal(t, ImageBillingSize2K, result.ImageSize)
+	require.Equal(t, ImageBillingSize1K, result.ImageSize)
 }
 
 func TestForwardGrokMediaImagesEditMultipartConvertsToJSON(t *testing.T) {
@@ -345,7 +345,7 @@ func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) 
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	body := []byte(`{"model":"grok-imagine-video-1.5","prompt":"waves"}`)
+	body := []byte(`{"model":"grok-imagine-video-1.5","prompt":"waves","seconds":"4"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos/generations", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -373,6 +373,7 @@ func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) 
 	result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
 	require.NoError(t, err)
 	require.Equal(t, "https://xai.test/v1/videos/generations", upstream.lastReq.URL.String())
+	require.JSONEq(t, `{"model":"grok-imagine-video-1.5","prompt":"waves","duration":4}`, string(upstream.lastBody))
 	require.Equal(t, "video-request-123", result.ResponseID)
 	require.Equal(t, "grok-imagine-video-1.5", result.BillingModel)
 	require.Equal(t, 3, result.Usage.InputTokens)

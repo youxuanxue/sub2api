@@ -37,13 +37,14 @@ import (
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
 //     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
-//     that returned 200 — gemini-2.5-flash/-flash-lite/-pro, imagen-4.0
-//     fast/generate/ultra, veo-3.1-generate-001. Dropped as not-currently-
+//     that returned 200 — gemini-2.5-flash/-flash-lite/-pro and imagen-4.0
+//     fast/generate/ultra. Dropped as not-currently-
 //     servable through that Vertex project/region: gemini-2.0-* and gemini-3.x
 //     chat (uniform 502 while 2.5 served — a project/region availability
-//     signal, not transient), and the gemini-*-image generateContent models
-//     (500 via /v1/images/generations — those ride the chat endpoint, not the
-//     images predict surface; re-probe via chat to add them).
+//     signal, not transient), veo-3.1-generate-001 (2026-07-03 paid gate:
+//     hide_or_provision), and the gemini-*-image generateContent models (500
+//     via /v1/images/generations — those ride the chat endpoint, not the images
+//     predict surface; re-probe via chat to add them).
 //
 // Maintenance: this is an empirical snapshot, refreshed by re-running the
 // probe (ops/observability/run-probe.sh) when the served fleet changes. An
@@ -146,7 +147,6 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 	"imagen-4.0-fast-generate-001":  {},
 	"imagen-4.0-generate-001":       {},
 	"imagen-4.0-ultra-generate-001": {},
-	"veo-3.1-generate-001":          {},
 	// servable-allowlist:end gemini
 }
 
@@ -180,9 +180,12 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 // channel, so before this set both the channel stage and the whitelist stage
 // of the per-user menu produced nothing and a grok group showed an EMPTY
 // "分组目录" (incident 2026-06-20). The set is the SAME grok IDs the public
-// /pricing catalog surfaces: the priced grok-imagine media family plus grok
-// chat ids whose official xAI price is in tk_pricing_overlay.json and whose
-// edge-us4 native-grok live probe returned 200 on 2026-06-22.
+// /pricing catalog surfaces: grok chat ids whose official xAI price is in
+// tk_pricing_overlay.json and whose edge-us4 native-grok live probe returned
+// 200 on 2026-06-22. The grok-imagine paid media ids remain priced for
+// billing, but are intentionally not displayed/routed by this curated set
+// until an explicit paid-media gate returns keep_displayed (2026-07-03 paid
+// gate and focused retry both returned 502/reprobe_required).
 //
 // Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
 // anthropic/openai/gemini and does not cover grok yet). Back-compat aliases
@@ -198,9 +201,6 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-4.3":                     {},
 	"grok-build-0.1":               {},
 	"grok-code-fast-1":             {},
-	"grok-imagine-image":           {},
-	"grok-imagine-image-quality":   {},
-	"grok-imagine-video":           {},
 	// servable-allowlist:end grok
 }
 

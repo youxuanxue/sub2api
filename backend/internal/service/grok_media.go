@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -283,6 +284,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if account.Platform != PlatformGrok {
 		return nil, fmt.Errorf("account platform %s is not supported for grok media", account.Platform)
 	}
+	clientRequestInfo := ParseGrokMediaRequest(contentType, body)
 
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -336,8 +338,8 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	defer func() { _ = resp.Body.Close() }()
 
 	requestIDHeader := firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id"))
-	requestInfo := ParseGrokMediaRequest(contentType, body)
-	requestModel := requestInfo.Model
+	upstreamRequestInfo := ParseGrokMediaRequest(contentType, body)
+	requestModel := upstreamRequestInfo.Model
 	if resp.StatusCode >= 400 {
 		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
 		return s.handleGrokMediaErrorResponse(ctx, resp, c, account, requestIDHeader, requestModel)
@@ -349,7 +351,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		return nil, err
 	}
 	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
-	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)
+	usage := grokMediaUsageFromResponse(endpoint, clientRequestInfo, respBody)
 	return &OpenAIForwardResult{
 		RequestID:        requestIDHeader,
 		ResponseID:       usage.ResponseID,
@@ -433,16 +435,173 @@ func normalizeGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, cont
 	if !endpoint.RequiresRequestBody() || !gjson.ValidBytes(body) {
 		return body, contentType, nil
 	}
+	out := body
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	upstreamModel := normalizeGrokMediaModelForEndpoint(endpoint, model)
-	if upstreamModel == "" || upstreamModel == model {
-		return body, contentType, nil
+	if upstreamModel != "" && upstreamModel != model {
+		var err error
+		out, err = sjson.SetBytes(out, "model", upstreamModel)
+		if err != nil {
+			return nil, "", fmt.Errorf("rewrite grok media model: %w", err)
+		}
 	}
-	out, err := sjson.SetBytes(body, "model", upstreamModel)
-	if err != nil {
-		return nil, "", fmt.Errorf("rewrite grok media model: %w", err)
+
+	switch endpoint {
+	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits:
+		var err error
+		out, err = normalizeGrokImageForwardBody(out)
+		if err != nil {
+			return nil, "", err
+		}
+	case GrokMediaEndpointVideosGenerations:
+		var err error
+		out, err = normalizeGrokVideoSubmitBody(out)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	return out, contentType, nil
+}
+
+func normalizeGrokImageForwardBody(body []byte) ([]byte, error) {
+	if !gjson.ValidBytes(body) {
+		return body, nil
+	}
+	size := gjson.GetBytes(body, "size")
+	if !size.Exists() {
+		return body, nil
+	}
+	out := body
+	sizeValue := strings.TrimSpace(size.String())
+	if !gjson.GetBytes(out, "resolution").Exists() {
+		if resolution := grokImageResolutionFromOpenAISize(sizeValue); resolution != "" {
+			next, err := sjson.SetBytes(out, "resolution", resolution)
+			if err != nil {
+				return nil, fmt.Errorf("rewrite grok image resolution: %w", err)
+			}
+			out = next
+		}
+	}
+	if !gjson.GetBytes(out, "aspect_ratio").Exists() {
+		if aspectRatio := grokAspectRatioFromOpenAIImageSize(sizeValue); aspectRatio != "" {
+			next, err := sjson.SetBytes(out, "aspect_ratio", aspectRatio)
+			if err != nil {
+				return nil, fmt.Errorf("rewrite grok image aspect_ratio: %w", err)
+			}
+			out = next
+		}
+	}
+	next, err := sjson.DeleteBytes(out, "size")
+	if err != nil {
+		return nil, fmt.Errorf("drop grok image size: %w", err)
+	}
+	return next, nil
+}
+
+func grokImageResolutionFromOpenAISize(size string) string {
+	tier, ok := ClassifyImageBillingTier(size)
+	if !ok {
+		return ""
+	}
+	switch tier {
+	case ImageBillingSize1K:
+		return "1K"
+	case ImageBillingSize2K, ImageBillingSize4K:
+		return "2K"
+	default:
+		return ""
+	}
+}
+
+func grokAspectRatioFromOpenAIImageSize(size string) string {
+	width, height, ok := parseImageBillingDimensions(size)
+	if !ok || width <= 0 || height <= 0 {
+		return ""
+	}
+	divisor := gcdInt(width, height)
+	ratio := fmt.Sprintf("%d:%d", width/divisor, height/divisor)
+	switch ratio {
+	case "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2":
+		return ratio
+	default:
+		return ""
+	}
+}
+
+func gcdInt(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a == 0 {
+		return 1
+	}
+	return a
+}
+
+func normalizeGrokVideoSubmitBody(body []byte) ([]byte, error) {
+	if !gjson.ValidBytes(body) {
+		return body, nil
+	}
+	out := body
+	if !gjson.GetBytes(out, "duration").Exists() {
+		if seconds, ok := grokVideoDurationFromBody(out); ok {
+			next, err := sjson.SetBytes(out, "duration", seconds)
+			if err != nil {
+				return nil, fmt.Errorf("rewrite grok video duration: %w", err)
+			}
+			out = next
+		}
+	}
+	for _, field := range []string{"seconds", "duration_seconds"} {
+		if !gjson.GetBytes(out, field).Exists() {
+			continue
+		}
+		next, err := sjson.DeleteBytes(out, field)
+		if err != nil {
+			return nil, fmt.Errorf("drop grok video %s: %w", field, err)
+		}
+		out = next
+	}
+	return out, nil
+}
+
+func grokVideoDurationFromBody(body []byte) (int64, bool) {
+	for _, field := range []string{"seconds", "duration_seconds"} {
+		value := gjson.GetBytes(body, field)
+		if seconds, ok := grokVideoDurationValue(value); ok {
+			return seconds, true
+		}
+	}
+	return 0, false
+}
+
+func grokVideoDurationValue(value gjson.Result) (int64, bool) {
+	if !value.Exists() {
+		return 0, false
+	}
+	var seconds float64
+	switch value.Type {
+	case gjson.Number:
+		seconds = value.Float()
+	case gjson.String:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(value.String()), 64)
+		if err != nil {
+			return 0, false
+		}
+		seconds = parsed
+	default:
+		return 0, false
+	}
+	if seconds <= 0 {
+		return 0, false
+	}
+	return int64(math.Ceil(seconds)), true
 }
 
 func normalizeGrokMediaModelForEndpoint(endpoint GrokMediaEndpoint, model string) string {

@@ -1714,6 +1714,24 @@ else
     echo "  ok: display-coverage audit selftest"
 fi
 
+# ---- sub2api: SSOT endpoint matrix selftest ---------------------------------
+# ops/test/gateway_model_ssot_matrix.py derives endpoint probe rows from the
+# public pricing projection instead of a hand-maintained model list. Its gate
+# translates live probe verdicts into display actions without adding another
+# catalog source. CI only runs its offline fixture selftest; live list/run/gate
+# remain operator actions.
+echo ""
+echo "=== sub2api: SSOT endpoint matrix selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by gateway_model_ssot_matrix.py)"
+    errors=$((errors + 1))
+elif ! python3 ops/test/gateway_model_ssot_matrix.py selftest >/dev/null 2>&1; then
+    echo "  FAIL: gateway_model_ssot_matrix.py selftest (re-run: python3 ops/test/gateway_model_ssot_matrix.py selftest)"
+    errors=$((errors + 1))
+else
+    echo "  ok: SSOT endpoint matrix selftest"
+fi
+
 # probe-servable-models.sh unconditionally sources its companion
 # probe_reserved_resources.sh (reserved-only; no direct-key fallback). run-probe.sh
 # only ships the companion to the remote host when the caller passes --with, so any
