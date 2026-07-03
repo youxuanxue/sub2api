@@ -69,6 +69,16 @@
 #        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
 #        acceptance semantics reachable through the standalone validator script,
 #        so projection/export drift is caught mechanically instead of by eyeballing.
+#   Node version alignment       — CI frontend jobs must setup-node the same
+#        major as the release Dockerfile (ARG NODE_IMAGE). Driven by
+#        `scripts/checks/node-version-align.py`.
+#   platform registry drift      — Go ↔ TS platform registry lockstep
+#        (OpenAI-compat list, dispatch-config platforms, Platform universe).
+#        Driven by `scripts/checks/platform-registry-drift.py`.
+#   upstream deletion ledger     — every upstream-owned file deleted in TK must
+#        appear verbatim in `docs/DEPRECATIONS.md` (CLAUDE.md §5.x). Driven by
+#        `scripts/checks/upstream-deletion-ledger.py`. Skips when upstream remote
+#        absent (CI without `upstream` fetch).
 ##
 # Usage:  ./scripts/preflight.sh [--fix]
 # Exit 0 = all sections passed.  Non-zero = at least one failed.
@@ -2189,6 +2199,51 @@ elif ! python3 ./scripts/checks/release-cache-key-parity.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: release/warm cache key prefix + directionality in sync"
+fi
+
+# ---- sub2api: Node version alignment -----------------------------------------
+# CI frontend jobs must build/test on the same Node major as the release
+# Dockerfile (ARG NODE_IMAGE). Drift → CI validates on a different runtime
+# than the shipped artifact. Gate: scripts/checks/node-version-align.py.
+echo ""
+echo "=== sub2api: Node version alignment ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by node-version-align.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/node-version-align.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: CI setup-node majors match Dockerfile NODE_IMAGE"
+fi
+
+# ---- sub2api: platform registry drift ----------------------------------------
+# Go ↔ TS platform registry lockstep: OpenAI-compat list, dispatch-config
+# platforms, Platform constant universe. Drift → admin UI cannot render or
+# silently drops dispatch config. Gate: scripts/checks/platform-registry-drift.py.
+echo ""
+echo "=== sub2api: platform registry drift ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by platform-registry-drift.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/platform-registry-drift.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: Go ↔ TS platform registries in lockstep"
+fi
+
+# ---- sub2api: upstream deletion ledger ---------------------------------------
+# Every upstream-owned file deleted in TK must be documented in
+# docs/DEPRECATIONS.md (CLAUDE.md §5.x). Skips gracefully when the upstream
+# remote is absent. Gate: scripts/checks/upstream-deletion-ledger.py.
+echo ""
+echo "=== sub2api: upstream deletion ledger ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by upstream-deletion-ledger.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/upstream-deletion-ledger.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: upstream deletions documented in DEPRECATIONS.md"
 fi
 
 echo ""

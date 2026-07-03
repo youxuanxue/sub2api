@@ -110,7 +110,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
+          # frontend builder. Gate: scripts/checks/node-version-align.py.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies
@@ -206,7 +208,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
+          # frontend builder. Gate: scripts/checks/node-version-align.py.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install dependencies
@@ -356,7 +360,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
+          # frontend builder. Gate: scripts/checks/node-version-align.py.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies

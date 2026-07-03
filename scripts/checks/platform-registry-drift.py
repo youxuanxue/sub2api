@@ -1,0 +1,359 @@
+#!/usr/bin/env python3
+"""platform-registry-drift.py — Go ↔ TS platform registry lockstep guard.
+
+The platform registry is written by hand on BOTH sides of the wire and the
+comments merely *ask* for lockstep. This check makes the ask mechanical.
+Three mirrored pairs, backend Go is the single source of truth:
+
+  1. OpenAI-compat platforms
+       backend/internal/engine/provider.go        OpenAICompatPlatforms()
+       frontend/src/constants/gatewayPlatforms.ts OPENAI_COMPAT_PLATFORMS
+     (preflight's "newapi compat-pool drift" gate only covers the backend
+     half; this closes the frontend half.)
+
+  2. Group dispatch-config platforms
+       backend/internal/service/openai_messages_dispatch_tk_newapi.go
+         tkGroupKeepsDispatchConfig  (= compat set ∪ explicit `g.Platform ==
+         PlatformX` comparisons in the predicate body)
+       frontend/src/constants/gatewayPlatforms.ts GROUP_DISPATCH_CONFIG_PLATFORMS
+     Drift here is silent data loss: the backend sanitizer wipes
+     messages_dispatch_model_config on save for any platform the predicate
+     does not keep, while the frontend form happily shows the field.
+
+  3. Platform constant universe
+       backend/internal/domain/constants.go       Platform* string constants
+       frontend/src/types/index.ts                AccountPlatform union
+     BOTH directions are hard failures:
+       - backend-only value → admin UI cannot type/render the platform
+         (filters, forms, badge maps silently fall through);
+       - frontend-only value → the union advertises a platform the backend
+         rejects, so typed forms/filters can emit an invalid value.
+
+Go constant names (`domain.PlatformX` / service aliases `PlatformX`) are
+resolved to their string values from constants.go, so the comparison is on
+wire values, not identifiers. All parsers tolerate gofmt / prettier
+re-wrapping (multiline slice literals, `|`-prefixed union members, single or
+double quotes).
+
+A parse failure (function renamed, const moved, union rewritten as an enum)
+exits 2 — the checker must be updated together with the refactor, never
+silently pass.
+
+Exit codes
+----------
+
+  0 — all three pairs agree
+  1 — drift detected (details on stderr, both sides' file:line + sets)
+  2 — parse / environment failure
+
+Usage
+-----
+
+  python3 scripts/checks/platform-registry-drift.py [--root <dir>] [--quiet]
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+DOMAIN_CONSTANTS = "backend/internal/domain/constants.go"
+ENGINE_PROVIDER = "backend/internal/engine/provider.go"
+DISPATCH_PREDICATE = "backend/internal/service/openai_messages_dispatch_tk_newapi.go"
+TS_GATEWAY_PLATFORMS = "frontend/src/constants/gatewayPlatforms.ts"
+TS_TYPES_INDEX = "frontend/src/types/index.ts"
+
+
+class ParseFailure(Exception):
+    """Registry shape changed beyond what this checker understands."""
+
+
+def line_of(text: str, offset: int) -> int:
+    return text[:offset].count("\n") + 1
+
+
+def read(root: Path, rel: str) -> str:
+    path = root / rel
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise ParseFailure(f"{rel}: cannot read: {e}") from e
+
+
+def parse_domain_constants(text: str) -> dict[str, tuple[str, int]]:
+    """Platform* string constants → {name: (value, line)}."""
+    consts: dict[str, tuple[str, int]] = {}
+    for m in re.finditer(r'^\s*(Platform[A-Za-z0-9_]*)\s*=\s*"([^"]*)"', text, re.M):
+        consts[m.group(1)] = (m.group(2), line_of(text, m.start()))
+    if not consts:
+        raise ParseFailure(
+            f"{DOMAIN_CONSTANTS}: no `PlatformX = \"...\"` constants found — "
+            "platform block moved/renamed? Update platform-registry-drift.py."
+        )
+    return consts
+
+
+def resolve_go_idents(
+    tokens: list[tuple[str, str]], consts: dict[str, tuple[str, int]], where: str
+) -> list[str]:
+    """Resolve (ident, literal) capture pairs to string values via constants.go."""
+    values: list[str] = []
+    for ident, literal in tokens:
+        if ident:
+            if ident not in consts:
+                raise ParseFailure(
+                    f"{where}: references `{ident}` but {DOMAIN_CONSTANTS} defines no "
+                    f"such constant (known: {', '.join(sorted(consts))})"
+                )
+            values.append(consts[ident][0])
+        else:
+            values.append(literal)
+    return values
+
+
+GO_MEMBER_RE = r'(?:domain\.)?(Platform[A-Za-z0-9_]+)|"([^"]*)"'
+
+
+def parse_go_compat(text: str, consts: dict[str, tuple[str, int]]) -> tuple[list[str], int]:
+    """OpenAICompatPlatforms() []string { return []string{...} } → values."""
+    m = re.search(r"func\s+OpenAICompatPlatforms\s*\(\s*\)\s*\[\]string\s*\{", text)
+    if not m:
+        raise ParseFailure(
+            f"{ENGINE_PROVIDER}: `func OpenAICompatPlatforms() []string` not found — "
+            "renamed/moved? Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+    # Anchor on `return []string{...}` so earlier []string literals (local
+    # variables, log arguments, etc.) in the same function body are skipped.
+    slice_m = re.compile(r"return\s+\[\]string\s*\{([^{}]*)\}", re.S).search(text, m.end())
+    if not slice_m:
+        raise ParseFailure(
+            f"{ENGINE_PROVIDER}:{line}: OpenAICompatPlatforms body has no "
+            "`return []string{{...}}` literal"
+        )
+    tokens = re.findall(GO_MEMBER_RE, slice_m.group(1))
+    if not tokens:
+        raise ParseFailure(
+            f"{ENGINE_PROVIDER}:{line}: OpenAICompatPlatforms slice literal parsed empty"
+        )
+    return resolve_go_idents(tokens, consts, f"{ENGINE_PROVIDER}:{line}"), line
+
+
+def parse_go_dispatch(
+    text: str, consts: dict[str, tuple[str, int]], compat: list[str]
+) -> tuple[list[str], int]:
+    """tkGroupKeepsDispatchConfig → compat set (if delegated) ∪ explicit
+    `g.Platform == PlatformX` comparisons in the predicate body."""
+    m = re.search(r"func\s+tkGroupKeepsDispatchConfig\s*\([^)]*\)\s*bool\s*\{", text)
+    if not m:
+        raise ParseFailure(
+            f"{DISPATCH_PREDICATE}: `func tkGroupKeepsDispatchConfig(...) bool` not found — "
+            "renamed/moved? Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+    end = text.find("\n}", m.end())  # gofmt: top-level func closes at column 0
+    if end == -1:
+        raise ParseFailure(f"{DISPATCH_PREDICATE}:{line}: cannot find end of function body")
+    body = text[m.end() : end]
+
+    values: list[str] = []
+    if re.search(
+        r"\b(?:isOpenAICompatPlatformGroup|(?:engine\.|service\.)?IsOpenAICompatPlatform)\s*\(",
+        body,
+    ):
+        values.extend(compat)
+    cmp_tokens = re.findall(
+        r"g\.Platform\s*==\s*(?:" + GO_MEMBER_RE + r")", body
+    ) + re.findall(
+        r"(?:(?:domain\.)?(Platform[A-Za-z0-9_]+)|\"([^\"]*)\")\s*==\s*g\.Platform", body
+    )
+    values.extend(resolve_go_idents(cmp_tokens, consts, f"{DISPATCH_PREDICATE}:{line}"))
+    if not values:
+        raise ParseFailure(
+            f"{DISPATCH_PREDICATE}:{line}: tkGroupKeepsDispatchConfig neither delegates to the "
+            "compat predicate nor compares g.Platform to any constant — body shape changed? "
+            "Update platform-registry-drift.py."
+        )
+    return values, line
+
+
+def parse_ts_array(text: str, name: str, rel: str) -> tuple[list[str], int]:
+    """export const NAME[: type] = ['a', 'b', ...] → values (prettier-tolerant)."""
+    m = re.search(rf"export\s+const\s+{name}\b[^=]*=", text)
+    if not m:
+        raise ParseFailure(
+            f"{rel}: `export const {name}` not found — renamed/moved? "
+            "Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+    open_m = re.compile(r"\s*\[").match(text, m.end())
+    if not open_m:
+        raise ParseFailure(f"{rel}:{line}: {name} is not assigned an array literal")
+    close = text.find("]", open_m.end())
+    if close == -1:
+        raise ParseFailure(f"{rel}:{line}: {name} array literal is not closed")
+    values = [
+        a or b
+        for a, b in re.findall(r"'([^']*)'|\"([^\"]*)\"", text[open_m.end() : close])
+    ]
+    if not values:
+        raise ParseFailure(f"{rel}:{line}: {name} array literal parsed empty")
+    return values, line
+
+
+def parse_ts_union(text: str, name: str, rel: str) -> tuple[list[str], int]:
+    """export type NAME = 'a' | 'b' | ... → values (prettier-tolerant:
+    accepts multiline unions with leading `|`)."""
+    m = re.search(rf"export\s+type\s+{name}\s*=", text)
+    if not m:
+        raise ParseFailure(
+            f"{rel}: `export type {name}` not found — renamed/moved? "
+            "Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+    member = re.compile(r"\s*\|?\s*(?:'([^']*)'|\"([^\"]*)\")")
+    comment = re.compile(r"\s*//[^\n]*")
+    values: list[str] = []
+    pos = m.end()
+    while True:
+        # Skip inline comments (// ...) before attempting the next member
+        cm = comment.match(text, pos)
+        if cm:
+            pos = cm.end()
+            continue
+        mm = member.match(text, pos)
+        if not mm:
+            break
+        values.append(mm.group(1) or mm.group(2))
+        pos = mm.end()
+    if not values:
+        raise ParseFailure(f"{rel}:{line}: {name} union parsed empty (not a string union?)")
+    return values, line
+
+
+def fmt_set(values: list[str]) -> str:
+    return "[" + ", ".join(sorted(set(values))) + "]"
+
+
+def compare_pair(
+    label: str,
+    go_values: list[str],
+    go_loc: str,
+    ts_values: list[str],
+    ts_loc: str,
+) -> list[str]:
+    """Return failure lines (empty when the pair agrees as a set)."""
+    go_set, ts_set = set(go_values), set(ts_values)
+    if go_set == ts_set:
+        return []
+    lines = [
+        f"FAIL: {label} drift (backend Go is the source of truth)",
+        f"  backend  {go_loc}  {fmt_set(go_values)}",
+        f"  frontend {ts_loc}  {fmt_set(ts_values)}",
+    ]
+    only_backend = sorted(go_set - ts_set)
+    only_frontend = sorted(ts_set - go_set)
+    if only_backend:
+        lines.append(f"  only in backend (frontend must add): {', '.join(only_backend)}")
+    if only_frontend:
+        lines.append(f"  only in frontend (no backend truth — remove or add the Go side first): "
+                     f"{', '.join(only_frontend)}")
+    return lines
+
+
+def run(root: Path) -> tuple[list[list[str]], list[str]]:
+    """Returns (failures, ok_lines)."""
+    consts = parse_domain_constants(read(root, DOMAIN_CONSTANTS))
+
+    engine_text = read(root, ENGINE_PROVIDER)
+    go_compat, go_compat_line = parse_go_compat(engine_text, consts)
+
+    dispatch_text = read(root, DISPATCH_PREDICATE)
+    go_dispatch, go_dispatch_line = parse_go_dispatch(dispatch_text, consts, go_compat)
+
+    ts_const_text = read(root, TS_GATEWAY_PLATFORMS)
+    ts_compat, ts_compat_line = parse_ts_array(
+        ts_const_text, "OPENAI_COMPAT_PLATFORMS", TS_GATEWAY_PLATFORMS
+    )
+    ts_dispatch, ts_dispatch_line = parse_ts_array(
+        ts_const_text, "GROUP_DISPATCH_CONFIG_PLATFORMS", TS_GATEWAY_PLATFORMS
+    )
+
+    ts_types_text = read(root, TS_TYPES_INDEX)
+    ts_union, ts_union_line = parse_ts_union(ts_types_text, "AccountPlatform", TS_TYPES_INDEX)
+
+    domain_values = [v for v, _ in consts.values()]
+    domain_line = min(line for _, line in consts.values())
+
+    failures: list[list[str]] = []
+    ok_lines: list[str] = []
+
+    for label, gv, gl, tv, tl in [
+        (
+            "OpenAI-compat platform list",
+            go_compat,
+            f"{ENGINE_PROVIDER}:{go_compat_line} OpenAICompatPlatforms()",
+            ts_compat,
+            f"{TS_GATEWAY_PLATFORMS}:{ts_compat_line} OPENAI_COMPAT_PLATFORMS",
+        ),
+        (
+            "group dispatch-config platform list",
+            go_dispatch,
+            f"{DISPATCH_PREDICATE}:{go_dispatch_line} tkGroupKeepsDispatchConfig",
+            ts_dispatch,
+            f"{TS_GATEWAY_PLATFORMS}:{ts_dispatch_line} GROUP_DISPATCH_CONFIG_PLATFORMS",
+        ),
+        (
+            "platform constant universe",
+            domain_values,
+            f"{DOMAIN_CONSTANTS}:{domain_line} Platform* constants",
+            ts_union,
+            f"{TS_TYPES_INDEX}:{ts_union_line} AccountPlatform union",
+        ),
+    ]:
+        fail = compare_pair(label, gv, gl, tv, tl)
+        if fail:
+            failures.append(fail)
+        else:
+            ok_lines.append(f"ok: {label} in lockstep {fmt_set(gv)}")
+
+    return failures, ok_lines
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--root", type=Path, default=REPO_ROOT,
+                    help="repo root to check (default: this script's repo)")
+    ap.add_argument("--quiet", action="store_true",
+                    help="suppress success output (used by preflight wrapper)")
+    args = ap.parse_args()
+
+    try:
+        failures, ok_lines = run(args.root.resolve())
+    except ParseFailure as e:
+        print(f"[platform-registry-drift] PARSE FAILURE: {e}", file=sys.stderr)
+        return 2
+
+    if failures:
+        for fail in failures:
+            print("[platform-registry-drift] " + fail[0], file=sys.stderr)
+            for line in fail[1:]:
+                print(line, file=sys.stderr)
+        print(
+            "\nFix: backend Go is the single source of truth — align the frontend "
+            "list/union to it (or land the backend change first).",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not args.quiet:
+        for line in ok_lines:
+            print(f"[platform-registry-drift] {line}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
