@@ -472,8 +472,8 @@ async function reversePrompt(): Promise<void> {
   }
 }
 
-// Card/lightbox download rides the shared Studio image owner (SSOT with the
-// video path's useStudioVideoCardActions); the view only renames the handler.
+// Card/lightbox download rides the shared Studio image owner
+// (useStudioImageCardActions — image sibling of useStudioVideoCardActions).
 const { downloadCardImage: download, downloadAllImages } = useStudioImageCardActions()
 
 function reuseAndClose(img: ImageHistoryItem): void {
