@@ -448,7 +448,7 @@ tk_probe_catalog_key() { # $1=scope $2=platform $3=bind_kind $4=bind_val -> sets
 	if ! tk_probe_prepare_catalog "$scope" "$platform" "$bind_kind" "$bind_val"; then
 		return 1
 	fi
-	TK_PROBE_CATALOG_SCOPES="${TK_PROBE_CATALOG_SCOPES} ${scope}"
+	TK_PROBE_CATALOG_SCOPES="${TK_PROBE_CATALOG_SCOPES} ${TK_PROBE_SCOPE:-$scope}"
 	REPLY_KEY="$TK_PROBE_KEY"
 }
 

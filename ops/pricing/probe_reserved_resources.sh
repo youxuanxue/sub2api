@@ -29,6 +29,8 @@ TK_PROBE_LOCK_TIMEOUT_SECONDS="${TK_PROBE_LOCK_TIMEOUT_SECONDS:-${PROBE_LOCK_TIM
 TK_PROBE_GROUP_ID=""
 TK_PROBE_KEY=""
 TK_PROBE_KEY_ID=""
+TK_PROBE_SCOPE=""
+TK_PROBE_REQUESTED_SCOPE=""
 TK_PROBE_LOCK_SCOPES=()
 TK_PROBE_LOCK_FDS=()
 
@@ -103,6 +105,68 @@ import sys
 scope = re.sub(r"[^a-z0-9]+", "_", sys.argv[1].strip().lower()).strip("_")
 print((scope or "platform")[:48])
 PY
+}
+
+tk_probe_scope_slug() {
+	python3 - "$1" <<'PY'
+import re
+import sys
+
+scope = re.sub(r"[^a-z0-9]+", "_", sys.argv[1].strip().lower()).strip("_")
+print((scope or "value")[:48])
+PY
+}
+
+tk_probe_scope_for_account_ids() {
+	python3 - "$1" <<'PY'
+import hashlib
+import re
+import sys
+
+ids = re.findall(r"\d+", sys.argv[1])
+if not ids:
+    print("acct_none")
+elif len(ids) == 1:
+    print(f"acct_{ids[0]}")
+else:
+    normalized = ",".join(sorted(ids, key=lambda x: int(x)))
+    print("acctset_" + hashlib.sha1(normalized.encode()).hexdigest()[:10])
+PY
+}
+
+tk_probe_canonical_scope() { # $1=requested $2=platform $3=bind_kind $4=bind_val
+	local requested="$1" platform="$2" bind_kind="$3" bind_val="$4"
+	local platform_slug source pattern ids_slug
+	if [ "${TK_PROBE_LEGACY_SCOPE:-0}" = "1" ]; then
+		printf '%s' "$requested"
+		return 0
+	fi
+	platform_slug="$(tk_probe_scope_slug "$platform")"
+	case "$bind_kind" in
+	source_group_id)
+		printf '%s_srcgrp_%s' "$platform_slug" "$(tk_probe_scope_slug "$bind_val")"
+		;;
+	group_id_like)
+		source="${bind_val%%|*}"
+		pattern="$(tk_probe_scope_slug "${bind_val#*|}")"
+		printf '%s_srcgrp_%s_%s' "$platform_slug" "$(tk_probe_scope_slug "$source")" "$pattern"
+		;;
+	source_group)
+		printf '%s_group_%s' "$platform_slug" "$(tk_probe_scope_slug "$bind_val")"
+		;;
+	group_like)
+		source="${bind_val%%|*}"
+		pattern="$(tk_probe_scope_slug "${bind_val#*|}")"
+		printf '%s_group_%s_%s' "$platform_slug" "$(tk_probe_scope_slug "$source")" "$pattern"
+		;;
+	account_ids)
+		ids_slug="$(tk_probe_scope_for_account_ids "$bind_val")"
+		printf '%s_%s' "$platform_slug" "$ids_slug"
+		;;
+	*)
+		tk_probe_scope_slug "$requested"
+		;;
+	esac
 }
 
 tk_probe_group_name() {
@@ -216,6 +280,11 @@ tk_probe_ensure_key() { # $1=scope
 		echo "probe_reserved_resources: ensure_key requires TK_PROBE_GROUP_ID" >&2
 		return 1
 	fi
+	new_key="sk-tkprobe-$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
+PY
+)"
 	local existing_id
 	existing_id="$(tk_probe_sql_scalar "
 SELECT COALESCE((
@@ -233,6 +302,7 @@ SELECT COALESCE((
 UPDATE api_keys
 SET
   user_id = ${TK_PROBE_USER_ID},
+  key = '$(tk_probe_sql_escape "$new_key")',
   status = 'active',
   routing_mode = 'direct',
   quota = 0,
@@ -251,11 +321,6 @@ WHERE id = ${TK_PROBE_KEY_ID}
 RETURNING key;
 ")"
 	else
-		new_key="sk-tkprobe-$(python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
-PY
-)"
 		TK_PROBE_KEY_ID="$(tk_probe_sql_scalar "
 INSERT INTO api_keys (
   user_id, key, name, group_id, status, routing_mode,
@@ -289,9 +354,23 @@ SELECT COALESCE((
   WHERE name = '$(tk_probe_sql_escape "$group_name")' AND deleted_at IS NULL
   ORDER BY id LIMIT 1
 ), '');
-")"
+	")"
 	if [[ "$group_id" =~ ^[0-9]+$ ]]; then
 		tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${group_id};" >/dev/null
+		tk_probe_psql -c "
+UPDATE api_keys
+SET status = 'disabled',
+    updated_at = NOW()
+WHERE group_id = ${group_id}
+  AND name = '$(tk_probe_sql_escape "$(tk_probe_key_name "$scope")")'
+  AND deleted_at IS NULL;
+UPDATE groups
+SET status = 'disabled',
+    updated_at = NOW()
+WHERE id = ${group_id}
+  AND name = '$(tk_probe_sql_escape "$group_name")'
+  AND deleted_at IS NULL;
+" >/dev/null
 	fi
 }
 
@@ -474,7 +553,10 @@ SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
 # (group_like bind_val = "GROUP|PATTERN", split on the first '|').
 # (group_id_like bind_val = "GROUP_ID|PATTERN", split on the first '|').
 tk_probe_prepare_catalog() { # $1=scope $2=platform $3=bind_kind $4=bind_val
-	local scope="$1" platform="$2" bind_kind="$3" bind_val="$4"
+	local requested_scope="$1" platform="$2" bind_kind="$3" bind_val="$4" scope
+	scope="$(tk_probe_canonical_scope "$requested_scope" "$platform" "$bind_kind" "$bind_val")"
+	TK_PROBE_REQUESTED_SCOPE="$requested_scope"
+	TK_PROBE_SCOPE="$scope"
 	TK_PROBE_GROUP_ID=""
 	TK_PROBE_KEY=""
 	TK_PROBE_KEY_ID=""
@@ -496,5 +578,8 @@ tk_probe_prepare_catalog() { # $1=scope $2=platform $3=bind_kind $4=bind_val
 		echo "probe_reserved_resources: unknown bind_kind '$bind_kind'" >&2
 		return 1
 		;;
-	esac
+	esac || {
+		tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true # preflight-allow: cleanup failed probe resource
+		return 1
+	}
 }

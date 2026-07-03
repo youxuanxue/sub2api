@@ -70,6 +70,18 @@ bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras
 
 This wraps `ops/test/gateway_full_matrix_test.sh`.
 
+Probe resource hygiene:
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/cleanup-probe-resources.sh
+```
+
+Default is dry-run. To disable leftover active `__tk_probe_*` groups/keys after
+diagnostics, pass `--env TK_PROBE_CLEANUP_APPLY=1`. The script disables and
+unbinds reusable probe resources; it does not delete rows.
+
 ## Interpretation Rules
 
 - `route_verdict=open` means the local route/platform gate did not reject the request. It does not prove the selected upstream can serve the model.

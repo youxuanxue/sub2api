@@ -200,6 +200,58 @@ func TestAuthMiddleware_UniversalKeySwapsBackingGroupEndToEnd(t *testing.T) {
 	}
 }
 
+func TestGoogleAuthMiddleware_UniversalGeminiShapeSwapsToAntigravityGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	antigravityGroup := service.Group{ID: 21, Name: "uni-antigravity", Status: service.StatusActive, Platform: service.PlatformAntigravity, SubscriptionType: service.SubscriptionTypeStandard, Hydrated: true}
+	user := &service.User{ID: 8, Role: service.RoleUser, Status: service.StatusActive, Balance: 100, Concurrency: 3}
+	apiKey := &service.APIKey{ID: 101, UserID: user.ID, Key: "uni-google-key", Status: service.StatusActive, RoutingMode: service.RoutingModeUniversal, User: user}
+
+	apiKeyRepo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+		if key != apiKey.Key {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		clone := *apiKey
+		cu := *user
+		clone.User = &cu
+		return &clone, nil
+	}}
+	userRepo := &stubUserRepo{getByID: func(_ context.Context, id int64) (*service.User, error) {
+		if id != user.ID {
+			return nil, service.ErrUserNotFound
+		}
+		cu := *user
+		return &cu, nil
+	}}
+	groupRepo := &universalGroupRepoStub{active: []service.Group{antigravityGroup}}
+	subRepo := &stubUserSubscriptionRepo{}
+
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, subRepo, nil, nil, cfg)
+	subscriptionService := service.NewSubscriptionService(groupRepo, subRepo, nil, nil, cfg)
+
+	router := gin.New()
+	router.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	var seenPlatform string
+	var seenGroupID int64
+	router.POST("/v1beta/models/*modelAction", func(c *gin.Context) {
+		if k, ok := GetAPIKeyFromContext(c); ok && k.GroupID != nil && k.Group != nil {
+			seenGroupID = *k.GroupID
+			seenPlatform = k.Group.Platform
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-agent:generateContent", strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	req.Header.Set("x-goog-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, antigravityGroup.ID, seenGroupID)
+	require.Equal(t, service.PlatformAntigravity, seenPlatform)
+}
+
 func newTestCtx(method, path, body string) (*gin.Context, *httptest.ResponseRecorder) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

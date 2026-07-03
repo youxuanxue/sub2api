@@ -83,7 +83,7 @@ M_ANTIGRAVITY_TEXT="${TK_FULLTEST_MODEL_ANTIGRAVITY_TEXT:-gemini-3-flash-agent}"
 M_NEWAPI_TEXT="${TK_FULLTEST_MODEL_NEWAPI_TEXT:-deepseek-chat}"
 M_NEWAPI_IMAGE="${TK_FULLTEST_MODEL_NEWAPI_IMAGE:-doubao-seedream-4-0-250828}"
 M_NEWAPI_VIDEO="${TK_FULLTEST_MODEL_NEWAPI_VIDEO:-doubao-seedance-2-0-260128}"
-M_GROK_TEXT="${TK_FULLTEST_MODEL_GROK_TEXT:-grok-4}"
+M_GROK_TEXT="${TK_FULLTEST_MODEL_GROK_TEXT:-grok-4.3}"
 M_KIRO_TEXT="${TK_FULLTEST_MODEL_KIRO_TEXT:-claude-sonnet-4-6}"
 
 # ---- 结果累计 ----
@@ -140,15 +140,19 @@ BODYFILE=""
 do_post() {
   local path="$1" key="$2" body="$3"
   BODYFILE="$(mktemp)"
-  CODE="$(curl -sS -o "$BODYFILE" -w '%{http_code}' -m "$TIMEOUT" -X POST "$BASE$path" \
+  if ! CODE="$(curl -sS -o "$BODYFILE" -w '%{http_code}' -m "$TIMEOUT" -X POST "$BASE$path" \
     -H "Authorization: Bearer $key" -H 'anthropic-version: 2023-06-01' \
-    -H 'content-type: application/json' --data-binary "$body" 2>/dev/null || echo 000)"
+    -H 'content-type: application/json' --data-binary "$body" 2>/dev/null)"; then
+    CODE="000"
+  fi
 }
 do_get() {
   local path="$1" key="$2"
   BODYFILE="$(mktemp)"
-  CODE="$(curl -sS -o "$BODYFILE" -w '%{http_code}' -m "$TIMEOUT" "$BASE$path" \
-    -H "Authorization: Bearer $key" 2>/dev/null || echo 000)"
+  if ! CODE="$(curl -sS -o "$BODYFILE" -w '%{http_code}' -m "$TIMEOUT" "$BASE$path" \
+    -H "Authorization: Bearer $key" 2>/dev/null)"; then
+    CODE="000"
+  fi
 }
 
 # shape_ok JQFILTER -> echo 1 if 200 & filter true else 0
