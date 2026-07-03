@@ -215,6 +215,52 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	require.Contains(t, out, "event: message_stop")
 }
 
+func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	frame := buildKiroEventStreamMessage("assistantResponseEvent",
+		[]byte(`{"content":"partial answer","inputTokens":8,"outputTokens":3}`))
+	truncatedPrelude := []byte{0, 0, 0, 20}
+	upstream := &kiroFakeUpstream{body: append(frame, truncatedPrelude...)}
+
+	svc := NewKiroGatewayService(upstream, nil, nil)
+
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 16,
+		"stream":     true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: true}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.True(t, IsResponseCommitted(c))
+
+	out := rec.Body.String()
+	require.Contains(t, out, "event: message_start")
+	require.Contains(t, out, "partial answer")
+	require.Contains(t, out, "event: error")
+	require.Contains(t, out, `"type":"stream_read_error"`)
+	require.Contains(t, out, "upstream stream disconnected: unexpected EOF")
+	require.NotContains(t, out, "event: message_delta")
+	require.NotContains(t, out, "event: message_stop")
+
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "stream_error", events[0].Kind)
+	require.Equal(t, PlatformKiro, events[0].Platform)
+	require.Equal(t, int64(99), events[0].AccountID)
+	require.Contains(t, events[0].Message, "unexpected EOF")
+}
+
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
 // modeling the Kiro upstream rejecting a request (e.g. 400 INVALID_MODEL_ID).
 // The vendored CallKiroAPIWithDoer reads the body into its error string, so all
