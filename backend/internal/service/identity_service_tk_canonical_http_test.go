@@ -186,6 +186,43 @@ func TestGetOrCreateFingerprint_CanonicalProfile_DoesNotAdoptIngressUAUpgrade(t 
 	require.Equal(t, "client-seed", fp.ClientID)
 }
 
+func TestGetOrCreateFingerprint_CanonicalProfile_NormalizesObservedIncidentUAs(t *testing.T) {
+	resetResolver(t)
+	cache := &fingerprintCacheRecorder{}
+	svc := NewIdentityService(cache)
+
+	observedUAs := []string{
+		"claude-cli/2.1.187 (external, cli)",
+		"claude-cli/2.1.197 (external, cli)",
+		"claude-cli/2.1.195 (external, claude-vscode, agent-sdk/0.3.195)",
+		"claude-cli/2.1.196 (external, claude-vscode, agent-sdk/0.3.196)",
+		"claude-cli/2.1.198 (external, claude-vscode, agent-sdk/0.3.198)",
+	}
+	expectedUA := GetCanonicalUserAgentForContext(context.Background())
+	var clientID string
+
+	for _, ua := range observedUAs {
+		t.Run(ua, func(t *testing.T) {
+			hdr := http.Header{}
+			hdr.Set("User-Agent", ua)
+			hdr.Set("X-Stainless-Package-Version", "9.9.9")
+			hdr.Set("X-Stainless-OS", "Linux")
+			hdr.Set("X-Stainless-Runtime-Version", "v99.99.99")
+
+			fp, err := svc.GetOrCreateFingerprint(context.Background(), 13, hdr, canonicalTLSFingerprintProfileName)
+			require.NoError(t, err)
+			require.Equal(t, expectedUA, fp.UserAgent)
+			require.Equal(t, canonicalHTTPObservedStatic.StainlessPackageVersion, fp.StainlessPackageVersion)
+			require.Equal(t, canonicalHTTPObservedStatic.StainlessOS, fp.StainlessOS)
+			require.Equal(t, canonicalHTTPObservedStatic.StainlessRuntimeVersion, fp.StainlessRuntimeVersion)
+			if clientID == "" {
+				clientID = fp.ClientID
+			}
+			require.Equal(t, clientID, fp.ClientID)
+		})
+	}
+}
+
 func TestGetOrCreateFingerprint_CanonicalProfile_AdoptsResolverUpdate(t *testing.T) {
 	resetResolver(t)
 	cache := &fingerprintCacheRecorder{}

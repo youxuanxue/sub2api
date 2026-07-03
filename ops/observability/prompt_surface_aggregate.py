@@ -25,6 +25,12 @@ def canonical_geo_classes(registry: dict) -> set[str]:
     return {"NONE", "ISO_DASH_ASCII"}
 
 
+def truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() == "true"
+
+
 def aggregate(payload: dict, registry: dict) -> dict:
     fps = payload.get("fingerprints") or []
     sig_counter: Counter[str] = Counter()
@@ -33,6 +39,8 @@ def aggregate(payload: dict, registry: dict) -> dict:
     unknown_surfaces: Counter[str] = Counter()
     noncanonical_geo = 0
     cc_environment = 0
+    tool_result_rows = 0
+    tool_result_without_assistant_tool_use = 0
     canonical_geo = canonical_geo_classes(registry)
 
     for row in fps:
@@ -52,6 +60,11 @@ def aggregate(payload: dict, registry: dict) -> dict:
                     unknown_surfaces[item] += 1
                     if item == "cc_environment_section":
                         cc_environment += 1
+        has_tool_result = truthy(row.get("has_tool_result"))
+        if has_tool_result:
+            tool_result_rows += 1
+            if not truthy(row.get("has_assistant_tool_use")):
+                tool_result_without_assistant_tool_use += 1
 
     alerts: list[str] = []
     agg_cfg = registry.get("aggregate") or {}
@@ -70,6 +83,8 @@ def aggregate(payload: dict, registry: dict) -> dict:
         "unknown_surfaces": dict(unknown_surfaces),
         "noncanonical_geo_count": noncanonical_geo,
         "cc_environment_leak_count": cc_environment,
+        "tool_result_rows": tool_result_rows,
+        "tool_result_without_assistant_tool_use": tool_result_without_assistant_tool_use,
         "alerts": alerts,
         "has_actionable_drift": bool(alerts),
     }
@@ -109,6 +124,9 @@ def main() -> int:
         "",
         f"- rows: {report['summary']['count']}",
         f"- actionable_drift: {report['summary']['has_actionable_drift']}",
+        f"- tool_result_rows: {report['summary']['tool_result_rows']}",
+        "- tool_result_without_assistant_tool_use: "
+        f"{report['summary']['tool_result_without_assistant_tool_use']}",
     ]
     for alert in report["summary"].get("alerts") or []:
         md_lines.append(f"- alert: {alert}")

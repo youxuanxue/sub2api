@@ -101,6 +101,79 @@ func TestTkExtractAnthropicPromptFingerprint_PlainUserPromptSurfaceSample(t *tes
 	require.Empty(t, fp.UnknownSurfaces)
 }
 
+func TestTkExtractAnthropicPromptFingerprint_FlagsToolResultOnlyWithoutSystem(t *testing.T) {
+	body := []byte(`{
+		"max_tokens":64000,
+		"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"raw json:\n-rw-r--r-- data.json","is_error":false}]}],
+		"model":"claude-opus-4-8",
+		"stream":true,
+		"thinking":{"type":"adaptive"}
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.False(t, fp.HasAssistantToolUse)
+	require.Equal(t, 0, fp.SystemBlockCount)
+	require.False(t, fp.HasSystemReminder)
+	require.ElementsMatch(t, []string{
+		"orphan_tool_result_context",
+		"tool_result_without_system_surface",
+	}, fp.UnknownSurfaces)
+	require.True(t, fp.shouldLogPromptFingerprint(nil, ""))
+}
+
+func TestTkExtractAnthropicPromptFingerprint_FlagsNonImmediateToolResult(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK."}],
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"echo late"}}]},
+			{"role":"user","content":[{"type":"text","text":"unrelated user turn"}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"late"}]}
+		]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.True(t, fp.HasAssistantToolUse)
+	require.Contains(t, fp.UnknownSurfaces, "orphan_tool_result_context")
+}
+
+func TestTkExtractAnthropicPromptFingerprint_FlagsDuplicateToolResult(t *testing.T) {
+	body := []byte(`{
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_01","content":"first"},
+				{"type":"tool_result","tool_use_id":"toolu_01","content":"second"}
+			]}
+		]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.Contains(t, fp.UnknownSurfaces, "duplicate_tool_result_for_tool_use")
+}
+
+func TestTkExtractAnthropicPromptFingerprint_AllowsSdkToolContinuationWithContext(t *testing.T) {
+	body := []byte(`{
+		"system":[
+			{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.198.b93; cc_entrypoint=claude-vscode;"},
+			{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK."}
+		],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday's date is 2026-07-03.\n</system-reminder>"},{"type":"text","text":"run echo"}]},
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"echo TOOL_OK"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"TOOL_OK"}]}
+		],
+		"max_tokens":64000,
+		"thinking":{"type":"adaptive"}
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.True(t, fp.HasAssistantToolUse)
+	require.Equal(t, 2, fp.SystemBlockCount)
+	require.Equal(t, "claude_agent_sdk", fp.IdentityAnchorID)
+	require.NotContains(t, fp.UnknownSurfaces, "orphan_tool_result_context")
+	require.NotContains(t, fp.UnknownSurfaces, "tool_result_without_system_surface")
+}
+
 func TestTkPromptFingerprintShouldLog_OnNormalize(t *testing.T) {
 	fp := tkExtractAnthropicPromptFingerprint([]byte(`{"messages":[]}`))
 	require.True(t, fp.shouldLogPromptFingerprint(

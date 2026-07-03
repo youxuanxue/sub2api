@@ -32,6 +32,11 @@ const (
 	// these; gateway.anthropic_request_normalized slog is the canonical audit path.
 	OpsUpstreamKindRequestNormalized = "request_normalized"
 
+	// OpsUpstreamKindClientToolContextCorrupt marks a local Anthropic request
+	// rejection before any upstream call because user/tool_result context no
+	// longer matches the required immediately preceding assistant/tool_use turn.
+	OpsUpstreamKindClientToolContextCorrupt = "client_tool_context_corrupt"
+
 	// OpsInternalErrorDetailKey carries a sanitized, truncated detail string for
 	// internal-phase errors (cache/redis/db/context failures) that bubble up as
 	// 5xx from middleware. Distinct from upstream-* keys so dashboards don't

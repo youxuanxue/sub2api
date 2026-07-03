@@ -41,6 +41,8 @@ type tkAnthropicPromptFingerprint struct {
 	IdentityAnchorID      string
 	BillingPrefixPresent  bool
 	HasSystemReminder     bool
+	HasToolResult         bool
+	HasAssistantToolUse   bool
 	PromptSurfaceClasses  []tkCCPromptSurfaceClass
 	ReminderDateLineClass string
 	GeoStegoCanonical     bool
@@ -79,7 +81,18 @@ func tkExtractAnthropicPromptFingerprint(body []byte) tkAnthropicPromptFingerpri
 	messages := gjson.GetBytes(body, "messages")
 	if messages.IsArray() {
 		for _, msg := range messages.Array() {
-			tkApplyMessageContentFingerprint(msg.Get("content"), &fp)
+			role := msg.Get("role").String()
+			content := msg.Get("content")
+			tkApplyMessageContentFingerprint(content, &fp)
+			tkApplyMessageToolFingerprint(content, role, &fp)
+		}
+	}
+	if fp.HasToolResult {
+		if violation := tkValidateAnthropicToolContext(body, false); violation != nil {
+			fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, violation.Reason)
+		}
+		if fp.SystemBlockCount == 0 && !fp.HasSystemReminder {
+			fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "tool_result_without_system_surface")
 		}
 	}
 
@@ -104,8 +117,10 @@ func tkApplySystemTextFingerprint(text string, fp *tkAnthropicPromptFingerprint)
 		strings.Contains(text, claudeCodeBillingHeaderPrefix) {
 		fp.BillingPrefixPresent = true
 	}
-	if fp.IdentityAnchorID == tkIdentityAnchorAbsent {
-		fp.IdentityAnchorID = tkMatchPromptIdentityAnchor(text)
+	anchor := tkMatchPromptIdentityAnchor(text)
+	if fp.IdentityAnchorID == tkIdentityAnchorAbsent ||
+		(fp.IdentityAnchorID == tkIdentityAnchorUnknown && anchor != tkIdentityAnchorAbsent) {
+		fp.IdentityAnchorID = anchor
 	}
 	if tkCCPromptSurfaceClassTracksLeaks(cls) {
 		dateClass := tkClassifyGeoStegoDateLine(text)
@@ -156,6 +171,22 @@ func tkApplyMessageContentFingerprint(content gjson.Result, fp *tkAnthropicPromp
 						fp.UnknownSurfaces = appendUniqueString(fp.UnknownSurfaces, "geo_stego_date_line")
 					}
 				}
+			}
+		}
+	}
+}
+
+func tkApplyMessageToolFingerprint(content gjson.Result, role string, fp *tkAnthropicPromptFingerprint) {
+	if content.Type != gjson.JSON || !content.IsArray() {
+		return
+	}
+	for _, block := range content.Array() {
+		switch block.Get("type").String() {
+		case "tool_result":
+			fp.HasToolResult = true
+		case "tool_use":
+			if role == "assistant" {
+				fp.HasAssistantToolUse = true
 			}
 		}
 	}
@@ -221,11 +252,13 @@ func tkPromptSurfaceSignature(fp tkAnthropicPromptFingerprint) string {
 		classParts = append(classParts, string(cls))
 	}
 	raw := fmt.Sprintf(
-		"sys=%d|id=%s|bill=%t|rem=%t|classes=%s|date=%s|geo=%t|unk=%s",
+		"sys=%d|id=%s|bill=%t|rem=%t|tool_result=%t|assistant_tool_use=%t|classes=%s|date=%s|geo=%t|unk=%s",
 		fp.SystemBlockCount,
 		fp.IdentityAnchorID,
 		fp.BillingPrefixPresent,
 		fp.HasSystemReminder,
+		fp.HasToolResult,
+		fp.HasAssistantToolUse,
 		strings.Join(classParts, "+"),
 		fp.ReminderDateLineClass,
 		fp.GeoStegoCanonical,
@@ -318,6 +351,8 @@ func tkLogAnthropicPromptFingerprint(
 		slog.String("identity_anchor_id", fp.IdentityAnchorID),
 		slog.Bool("billing_prefix_present", fp.BillingPrefixPresent),
 		slog.Bool("has_system_reminder", fp.HasSystemReminder),
+		slog.Bool("has_tool_result", fp.HasToolResult),
+		slog.Bool("has_assistant_tool_use", fp.HasAssistantToolUse),
 		slog.String("prompt_surface_classes", tkJoinPromptSurfaceClasses(fp.PromptSurfaceClasses)),
 		slog.String("reminder_date_line_class", fp.ReminderDateLineClass),
 		slog.Bool("geo_stego_canonical", fp.GeoStegoCanonical),

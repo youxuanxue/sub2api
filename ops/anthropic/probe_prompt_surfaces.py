@@ -145,27 +145,132 @@ def analyze_system_surfaces(registry: dict, system_texts: list[str]) -> dict:
     }
 
 
+def analyze_tool_continuation_shape(messages, system_texts: list[str], message_texts: list[str]) -> dict:
+    has_tool_result = False
+    has_assistant_tool_use = False
+    violation = ""
+    if isinstance(messages, list):
+        for i, msg in enumerate(messages):
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "")
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            if role == "user":
+                result_ids, result_violation = tool_result_ids_from_user_content(content)
+                if result_violation and not violation:
+                    violation = result_violation
+                if result_ids:
+                    has_tool_result = True
+                    if not violation:
+                        violation = validate_previous_assistant_tool_use(messages, i, result_ids)
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_type = str(block.get("type") or "")
+                if block_type == "tool_result":
+                    has_tool_result = True
+                elif block_type == "tool_use" and role == "assistant":
+                    has_assistant_tool_use = True
+    unknown: list[str] = []
+    has_system_reminder = any("<system-reminder>" in text for text in message_texts)
+    if violation:
+        unknown.append(violation)
+    if has_tool_result and not system_texts and not has_system_reminder:
+        unknown.append("tool_result_without_system_surface")
+    return {
+        "has_tool_result": has_tool_result,
+        "has_assistant_tool_use": has_assistant_tool_use,
+        "tool_continuation_violation": violation,
+        "tool_continuation_unknown_surfaces": unknown,
+    }
+
+
+def extract_message_texts(messages) -> list[str]:
+    texts: list[str] = []
+    if not isinstance(messages, list):
+        return texts
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    texts.append(str(block.get("text") or ""))
+    return texts
+
+
+def tool_result_ids_from_user_content(content: list) -> tuple[list[str], str]:
+    result_ids: list[str] = []
+    seen_non_tool_result = False
+    seen_result_ids: set[str] = set()
+    for block in content:
+        if not isinstance(block, dict):
+            seen_non_tool_result = True
+            continue
+        if str(block.get("type") or "") != "tool_result":
+            seen_non_tool_result = True
+            continue
+        if seen_non_tool_result:
+            return [], "tool_result_not_leading"
+        tool_use_id = str(block.get("tool_use_id") or "").strip()
+        if not tool_use_id:
+            return [], "tool_result_missing_tool_use_id"
+        if tool_use_id in seen_result_ids:
+            return [], "duplicate_tool_result_for_tool_use"
+        seen_result_ids.add(tool_use_id)
+        result_ids.append(tool_use_id)
+    return result_ids, ""
+
+
+def validate_previous_assistant_tool_use(messages: list, index: int, result_ids: list[str]) -> str:
+    if index == 0:
+        return "orphan_tool_result_context"
+    previous = messages[index - 1]
+    if not isinstance(previous, dict) or str(previous.get("role") or "") != "assistant":
+        return "orphan_tool_result_context"
+    tool_use_ids: set[str] = set()
+    previous_content = previous.get("content")
+    if isinstance(previous_content, list):
+        for block in previous_content:
+            if not isinstance(block, dict) or str(block.get("type") or "") != "tool_use":
+                continue
+            tool_use_id = str(block.get("id") or "").strip()
+            if tool_use_id:
+                tool_use_ids.add(tool_use_id)
+    if not tool_use_ids:
+        return "orphan_tool_result_context"
+    result_set = set(result_ids)
+    for tool_use_id in result_ids:
+        if tool_use_id not in tool_use_ids:
+            return "orphan_tool_result_context"
+    for tool_use_id in tool_use_ids:
+        if tool_use_id not in result_set:
+            return "missing_tool_result_for_tool_use"
+    return ""
+
+
 def analyze_record(registry: dict, geo_mod, rec: dict) -> dict:
     geo_row = geo_mod.analyze_record(rec)
     wire = geo_mod.body_wire_from_record(rec)
     system_texts: list[str] = []
     message_texts: list[str] = []
+    raw_messages = None
     if wire is not None:
         system_texts = geo_mod.extract_system_texts(wire.get("system"))
-        for msg in wire.get("messages") or []:
-            if not isinstance(msg, dict):
-                continue
-            content = msg.get("content")
-            if isinstance(content, str):
-                message_texts.append(content)
-            elif isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        message_texts.append(str(block.get("text") or ""))
+        raw_messages = wire.get("messages")
+        message_texts = extract_message_texts(raw_messages)
     else:
         body = rec.get("body") or {}
         system_texts = geo_mod.extract_system_texts(body.get("system"))
+        raw_messages = body.get("messages")
+        message_texts = extract_message_texts(raw_messages)
     sys_row = analyze_system_surfaces(registry, system_texts)
+    tool_row = analyze_tool_continuation_shape(raw_messages, system_texts, message_texts)
     unknown: list[str] = []
     if geo_row.get("needs_normalize"):
         unknown.append("geo_stego_date_line")
@@ -176,9 +281,11 @@ def analyze_record(registry: dict, geo_mod, rec: dict) -> dict:
         unknown.append("cc_environment_section")
     if "The user's email address is" in combined_text:
         unknown.append("cc_user_email")
+    unknown.extend(tool_row["tool_continuation_unknown_surfaces"])
     return {
         **geo_row,
         **sys_row,
+        **tool_row,
         "unknown_surfaces": unknown,
         "needs_attention": bool(unknown),
     }

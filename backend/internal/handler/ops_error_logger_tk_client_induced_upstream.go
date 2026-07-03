@@ -35,6 +35,9 @@ import (
 // identity verification required) are NOT — they stay provider-owned because they
 // genuinely report account health and SHOULD keep counting toward upstream_error_rate.
 func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool {
+	if tkOpsHasUpstreamEventKind(c, service.OpsUpstreamKindClientToolContextCorrupt) {
+		return true
+	}
 	status := tkOpsUpstreamStatusCode(c)
 	// 413 request_too_large is always caller-fault: the body cleared TokenKey's
 	// local body-limit middleware (handler.request_body_limit) but exceeded the
@@ -129,6 +132,22 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 		strings.Contains(combined, "request_too_large") ||
 		strings.Contains(combined, "request too large") ||
 		strings.Contains(combined, "is not supported when using")
+}
+
+func tkOpsHasUpstreamEventKind(c *gin.Context, kind string) bool {
+	if c == nil || strings.TrimSpace(kind) == "" {
+		return false
+	}
+	if v, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
+		if events, ok := v.([]*service.OpsUpstreamErrorEvent); ok {
+			for _, ev := range events {
+				if ev != nil && strings.TrimSpace(ev.Kind) == kind {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // tkOpsIsAccountLevel4xx matches the upstream 4xx phrases that report account
