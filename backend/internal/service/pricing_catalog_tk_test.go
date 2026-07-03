@@ -397,16 +397,20 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"antigravity", "gemini-3.1-flash-image", true},
 		{"antigravity", "gemini-3.1-flash-image-preview", true},
 		{"vertex_ai-language-models", "gemini-3.1-flash-image", false}, // not served by gemini/Vertex accounts
-		// grok (xai vendor → grok platform): gated to the priced overlay set.
+		{"vertex_ai", "veo-3.1-generate-001", false},                   // paid gate 2026-07-03: hide_or_provision
+		// grok (xai vendor → grok platform): gated to the paid-gate-verified native set.
 		{"xai", "grok-4.3", true},
 		{"xai", "grok-4.20-0309-reasoning", true},
 		{"xai", "grok-build-0.1", true},
 		{"xai", "grok-code-fast-1", true},
-		{"xai", "grok-imagine-video", true},
-		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
-		{"xai", "grok-4", false},             // third-party-priced / unverified legacy slug
-		{"xai", "grok-latest", false},        // priced alias, not public-listed
-		{"", "anything", true},               // unknown vendor: pass-through
+		{"xai", "grok-imagine-video", false},  // paid gate retry stayed 502/reprobe_required
+		{"x-ai", "grok-imagine-image", false}, // openrouter-style x-ai alias maps too
+		{"xai", "grok-imagine-image-quality", false},
+		{"xai", "grok-4", false},      // third-party-priced / unverified legacy slug
+		{"xai", "grok-latest", false}, // priced alias, not public-listed
+		{"volcengine", "doubao-seedream-4-0-250828", true},
+		{"volcengine", "doubao-seedance-1-0-pro-250528", true},
+		{"", "anything", true}, // unknown vendor: pass-through
 	}
 	for _, c := range cases {
 		assert.Equalf(t, c.want, isPublicCatalogModelSupported(c.vendor, c.model),
@@ -469,14 +473,19 @@ func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 		"grok-4.20-0309-non-reasoning",
 		"grok-build-0.1",
 		"grok-code-fast-1",
-		"grok-imagine-image",
-		"grok-imagine-image-quality",
-		"grok-imagine-video",
 	} {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected grok menu to advertise %q", want)
 	}
-	for _, deny := range []string{"grok-4", "grok-latest", "grok-code-fast-1-0825", "claude-opus-4-8"} {
+	for _, deny := range []string{
+		"grok-4",
+		"grok-latest",
+		"grok-code-fast-1-0825",
+		"grok-imagine-image",
+		"grok-imagine-image-quality",
+		"grok-imagine-video",
+		"claude-opus-4-8",
+	} {
 		_, ok := set[deny]
 		assert.Falsef(t, ok, "grok menu must not advertise %q (unpriced/off-platform)", deny)
 	}

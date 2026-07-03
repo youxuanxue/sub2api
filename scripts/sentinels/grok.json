@@ -286,7 +286,7 @@
         "IsOpenAICompatPlatform(a.Platform)",
         "grokAccountServesNativeCatalogModel(a, requestedModel)"
       ],
-      "rationale": "grok must be INSIDE the OpenAI-compat image-capability gate. accountSupportsOpenAICapabilities (openai_account_scheduler.go) runs Account.SupportsOpenAIImageCapability on EVERY OpenAI-compat candidate selection; for a non-openai account that predicate IS the gate. It previously hardcoded `!a.IsOpenAI() && a.Platform != PlatformNewAPI`, silently excluding every grok account so all grok chat/image requests fast-failed with 'no available accounts' (excluded_account_count=0) — the marquee first-real-use scheduling bug (grok last_used=never until then; survived restart because it is a deterministic logic gate). Switching it to IsOpenAICompatPlatform(a.Platform) (the openai/newapi/grok single-source predicate) fixed it. Grok native catalog models must also bypass chat-only credentials.model_mapping at Account.IsModelSupported, because the scheduler re-filters after universal routing; without that anchor Studio-advertised grok-imagine-video resolves to the grok group, then the group pool empties into 'No available accounts'. No compile error and no other non-grok path pins these lines, so an upstream merge that reverts either gate silently re-breaks grok scheduling."
+      "rationale": "grok must be INSIDE the OpenAI-compat image-capability gate. accountSupportsOpenAICapabilities (openai_account_scheduler.go) runs Account.SupportsOpenAIImageCapability on EVERY OpenAI-compat candidate selection; for a non-openai account that predicate IS the gate. It previously hardcoded `!a.IsOpenAI() && a.Platform != PlatformNewAPI`, silently excluding every grok account so all grok chat/image requests fast-failed with 'no available accounts' (excluded_account_count=0) — the marquee first-real-use scheduling bug (grok last_used=never until then; survived restart because it is a deterministic logic gate). Switching it to IsOpenAICompatPlatform(a.Platform) (the openai/newapi/grok single-source predicate) fixed it. Grok native catalog models must also bypass chat-only credentials.model_mapping at Account.IsModelSupported, because the scheduler re-filters after universal routing; without that anchor curated Grok chat models can resolve to the grok group, then the group pool empties into 'No available accounts'. No compile error and no other non-grok path pins these lines, so an upstream merge that reverts either gate silently re-breaks grok scheduling."
     },
     {
       "path": "backend/internal/service/account_tk_grok_capability_test.go",
@@ -357,30 +357,30 @@
         "func grokAccountServesNativeCatalogModel",
         "supportedGrokCatalogModels"
       ],
-      "rationale": "Unions the curated grok native catalog (grok-imagine media + probed chat ids) into GetAvailableModels, universal routing service checks, and account-level scheduler checks. Grok accounts with chat-only credentials.model_mapping (messages-dispatch aliases) otherwise advertise grok-imagine-video in Studio/pricing but either universal keys 403 with universal_no_entitled_group or, after resolving to grok, the scheduler empties the account pool into No available accounts."
+      "rationale": "Unions the curated grok native catalog (currently paid-gate-verified chat ids; grok-imagine media stays priced but hidden until a paid gate returns keep_displayed) into GetAvailableModels, universal routing service checks, and account-level scheduler checks. Grok accounts with chat-only credentials.model_mapping (messages-dispatch aliases) otherwise hide curated Grok catalog models from universal keys, or after resolving to grok, the scheduler empties the account pool into No available accounts."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "mergeGrokNativeCatalogModels(platform, modelSet)"
       ],
-      "rationale": "Injection point wiring mergeGrokNativeCatalogModels into GetAvailableModels after account model_mapping aggregation. Upstream merges of the models-list helper can drop this line and silently re-break grok-imagine-video universal routing while the companion file still compiles."
+      "rationale": "Injection point wiring mergeGrokNativeCatalogModels into GetAvailableModels after account model_mapping aggregation. Upstream merges of the models-list helper can drop this line and silently re-break curated Grok catalog routing while the companion file still compiles."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_serving.go",
       "must_contain": [
         "grokGroupServesNativeCatalogModel(model)"
       ],
-      "rationale": "Universal routing must treat curated grok native catalog models as served even when GetAvailableModels returns a chat-only explicit mapping set; without this guard Studio-advertised grok-imagine-video fails before dispatch with No platform in your plan can serve model."
+      "rationale": "Universal routing must treat curated grok native catalog models as served even when GetAvailableModels returns a chat-only explicit mapping set; without this guard curated Grok catalog models fail before dispatch with No platform in your plan can serve model."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_grok_models_test.go",
       "must_contain": [
-        "TestResolve_GrokImagineVideoWithChatOnlyMapping",
+        "TestResolve_GrokNativeCatalogWithChatOnlyMapping",
         "TestGetAvailableModels_GrokUnionsNativeCatalogWithChatMapping",
         "TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping"
       ],
-      "rationale": "Regression guard for grok-imagine-video routing when grok groups carry chat-only model_mapping: GetAvailableModels union, Resolve(ShapeOpenAIVideo), and the final OpenAI-compat scheduler predicate must stay aligned with the pricing-catalog advertised native catalog."
+      "rationale": "Regression guard for curated Grok native catalog routing when grok groups carry chat-only model_mapping: GetAvailableModels union, Resolve(ShapeOpenAIChat), and the final OpenAI-compat scheduler predicate must stay aligned with the pricing-catalog advertised native catalog while unverified paid media stays out."
     },
     {
       "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",

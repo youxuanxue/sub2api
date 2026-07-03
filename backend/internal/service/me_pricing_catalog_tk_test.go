@@ -967,14 +967,11 @@ func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.
 	)
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
-	require.Len(t, resp.Models, 1, "Vertex ch41 must use Gemini/Vertex preset catalog, not the long-tail manifest")
-	require.Equal(t, "veo-3.1-generate-001", resp.Models[0].ModelID)
-	require.Equal(t, "video", resp.Models[0].BillingMode)
-	require.NotNil(t, resp.Models[0].YourPrice.PerSecond)
-	assert.InDelta(t, 0.6, *resp.Models[0].YourPrice.PerSecond, 1e-9)
+	assert.Empty(t, resp.Models,
+		"Vertex ch41 must use the Gemini/Vertex preset catalog: qwen-plus is off-channel, and veo stays hidden until paid gate returns keep_displayed")
 }
 
-func TestBuildForUser_AuthorizedGroupsIndexIncludesNewapiVertexVideo(t *testing.T) {
+func TestBuildForUser_AuthorizedGroupsIndexExcludesUnprovisionedNewapiVertexVideo(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "gpt", "openai", 1.0)
 	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
@@ -996,10 +993,8 @@ func TestBuildForUser_AuthorizedGroupsIndexIncludesNewapiVertexVideo(t *testing.
 	require.NoError(t, err)
 	require.NotNil(t, resp.AuthorizedGroupsByModel)
 	groups := resp.AuthorizedGroupsByModel["veo-3.1-generate-001"]
-	require.Len(t, groups, 1, "Studio universal key entitlements are derived from this cross-group index")
-	assert.Equal(t, int64(50), groups[0].ID)
-	assert.Equal(t, "newapi", groups[0].Platform)
-	assert.False(t, groups[0].IsCurrentForKey)
+	assert.Empty(t, groups,
+		"Studio universal key entitlements must not advertise Vertex video until the paid gate proves it is provisioned")
 }
 
 func TestBuildForUser_AccountWhitelist_NewapiUnknownChannelHidden(t *testing.T) {
@@ -1282,9 +1277,10 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	require.Contains(t, byID, "grok-code-fast-1")
 	require.NotNil(t, byID["grok-code-fast-1"].YourPrice.InputPer1K)
 	assert.InDelta(t, 0.001, *byID["grok-code-fast-1"].YourPrice.InputPer1K, 1e-9)
-	// The grok-imagine media models surface even without a catalog row joined.
-	require.Contains(t, byID, "grok-imagine-image")
-	require.Contains(t, byID, "grok-imagine-video")
+	// The grok-imagine paid media rows remain priced for billing, but are not
+	// advertised until an explicit paid-media gate returns keep_displayed.
+	require.NotContains(t, byID, "grok-imagine-image")
+	require.NotContains(t, byID, "grok-imagine-video")
 }
 
 // TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the

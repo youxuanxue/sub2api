@@ -161,12 +161,12 @@ describe('MediaStudioView bootstrap', () => {
     })
     getMePricingCatalog.mockResolvedValue({
       authorized_groups_by_model: {
-        'veo-3.1-generate-001': [{ group_id: 3, group_name: 'vertex' }],
+        'doubao-seedance-1-0-pro-250528': [{ group_id: 3, group_name: 'volcengine' }],
       },
       models: [],
     })
     getPublicPricing.mockResolvedValue({
-      data: [{ model_id: 'veo-3.1-generate-001', pricing: { output_cost_per_second: 0.5 } }],
+      data: [{ model_id: 'doubao-seedance-1-0-pro-250528', pricing: { output_cost_per_second: 0.1088 } }],
     })
     gatewayListModels.mockResolvedValue({ data: [] })
 
@@ -186,13 +186,13 @@ describe('MediaStudioView bootstrap', () => {
     listKeys.mockResolvedValue({
       items: [{ id: 1, name: 'trial', key: 'sk-test', group: { id: 10, name: 'g1' } }],
     })
-    gatewayListModels.mockResolvedValue({ data: [{ id: 'veo-3.1-generate-001' }] })
+    gatewayListModels.mockResolvedValue({ data: [{ id: 'doubao-seedance-1-0-pro-250528' }] })
     getPublicPricing.mockResolvedValue({
       data: [
         {
-          model_id: 'veo-3.1-generate-001',
+          model_id: 'doubao-seedance-1-0-pro-250528',
           billing_mode: 'video',
-          pricing: { output_cost_per_second: 0.5 },
+          pricing: { output_cost_per_second: 0.1088 },
         },
       ],
     })
@@ -223,9 +223,9 @@ describe('MediaStudioView bootstrap', () => {
     resolvePerKey({
       models: [
         {
-          model_id: 'veo-3.1-generate-001',
+          model_id: 'doubao-seedance-1-0-pro-250528',
           billing_mode: 'video',
-          your_price: { currency: 'USD', per_second: 0.5 },
+          your_price: { currency: 'USD', per_second: 0.1088 },
         },
       ],
     })

@@ -412,26 +412,6 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     flatImageBilling: true,
     imageSizes: GEMINI_IMAGE_SIZES,
   },
-  {
-    modelId: 'grok-imagine-image',
-    displayName: 'Grok Imagine · Standard',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: XAI,
-    modality: 'image',
-    supportedParams: [],
-    flatPricePerImage: true,
-  },
-  {
-    modelId: 'grok-imagine-image-quality',
-    displayName: 'Grok Imagine · Quality',
-    qualityBadge: 'ultra',
-    qualityBadgeKey: 'studio.badge.ultra',
-    vendorLabel: XAI,
-    modality: 'image',
-    supportedParams: [],
-    flatPricePerImage: true,
-  },
   // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
   // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
   // add it here with needsApikeyAccount: true.
@@ -496,29 +476,6 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     // fast-variant discrete set 4/8/12 — conservative (never offer a value the
     // upstream rejects). TODO: verify against canonical Volcengine Ark docs.
     videoDurations: [4, 8, 12],
-  },
-  {
-    modelId: 'veo-3.1-generate-001',
-    displayName: 'Veo 3.1 · Cinematic',
-    qualityBadge: 'cinematic',
-    qualityBadgeKey: 'studio.badge.cinematic',
-    vendorLabel: VERTEX,
-    modality: 'video',
-    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
-    // Veo 3.1: discrete 4/6/8s (Vertex AI official, high confidence).
-    videoDurations: [4, 6, 8],
-  },
-  {
-    modelId: 'grok-imagine-video',
-    displayName: 'Grok Imagine · Video',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: XAI,
-    modality: 'video',
-    // Native xAI arm: first-frame image_url only (no negativePrompt / generateAudio).
-    supportedParams: ['firstFrameImage'],
-    // Live probe 2026-06-19: 5s text-to-video succeeded; expand when xAI docs capture full set.
-    videoDurations: [5],
   },
 ]
 

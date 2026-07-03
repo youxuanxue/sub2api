@@ -31,6 +31,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
 | SSOT model matrix command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --list --include-paid --show-excluded` |
 | SSOT display gate command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --show-excluded` |
+| In-PR display remediation | Gemini video `veo-3.1-generate-001` and Grok paid media are removed from the shared catalog/Menu allowlists until a future explicit paid gate returns `keep_displayed`; Seedream/Seedance rows that passed the paid gate stay visible. |
 | Cleanup command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/cleanup-probe-resources.sh` |
 
 ### Evidence Pointers
@@ -74,7 +75,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | antigravity | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | Keep direct-vs-universal parity watch when Gemini `/v1beta` routing changes. |
 | newapi | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | Reprobe after newapi channel mapping or compatibility-pool changes. |
 | newapi | image/video | unknown | unknown | supported for all current SSOT paid image/video rows: Seedream 4.0/4.5/5.0 and Seedance 1.0/1.5/2.0 variants | full paid image/video gates | Keep `--include-paid` probes explicit; default non-paid gates do not prove media servability. |
-| grok | image/video | unknown | unknown | unknown: current paid media rows return repeated `502` and remain `reprobe_required` | full paid image/video gates; focused Grok retry | Do not display as serviceable until a non-transient paid gate returns `keep_displayed`, or hide/disable these rows. |
+| grok | image/video | unknown | unknown | unknown: current paid media rows return repeated `502` and remain `reprobe_required` | full paid image/video gates; focused Grok retry | This PR hides them from the shared catalog/Menu allowlist until a non-transient paid gate returns `keep_displayed`. |
 | kiro | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported for text | direct route-gate log; universal retry log | If direct Kiro serving is claimed, run account-model probe against the target account/model. |
 | grok | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | No full-matrix rerun needed unless Grok model default or relay changes. |
 | all platforms with `/v1/responses` GET prelude | WebSocket prelude | open: `426` upgrade required | unknown | unknown | direct route-gate log | Treat `426` as expected route-open prelude, not a failure. |
@@ -112,10 +113,11 @@ This keeps `/pricing` as the single derived matrix source while turning every
    rows are `hide_or_map_vendor`. Decide whether to map/provision universal
    embeddings or remove/hide those rows from the relevant surface.
 3. Paid media gate outcome: Gemini image and all current newapi Seedream /
-   Seedance rows can stay displayed. Gemini video is `hide_or_provision`. Grok
-   image/video rows remain `reprobe_required` after retry and are not
-   display-safe. `gpt-image-1` is still only a hardcoded probe row for the
-   current key, not a displayed+priced SSOT row.
+   Seedance rows can stay displayed. This PR removes Gemini video from the
+   Gemini/Vertex preset because it is `hide_or_provision`, and removes Grok
+   paid media from the Grok shared allowlist because the focused retry remained
+   `reprobe_required`. `gpt-image-1` is still only a hardcoded probe row for
+   the current key, not a displayed+priced SSOT row.
 4. Reprobe the three `reprobe_required` rows from the non-paid gate with a
    longer timeout or a cleaner pool before deciding whether they are displayable
    or should join the hide/provision list.
