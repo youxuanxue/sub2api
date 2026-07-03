@@ -3,7 +3,7 @@
 
 The platform registry is written by hand on BOTH sides of the wire and the
 comments merely *ask* for lockstep. This check makes the ask mechanical.
-Three mirrored pairs, backend Go is the single source of truth:
+Five mirrored pairs, backend Go is the single source of truth:
 
   1. OpenAI-compat platforms
        backend/internal/engine/provider.go        OpenAICompatPlatforms()
@@ -29,6 +29,20 @@ Three mirrored pairs, backend Go is the single source of truth:
        - frontend-only value → the union advertises a platform the backend
          rejects, so typed forms/filters can emit an invalid value.
 
+  4. Ent schema platform enum coverage
+       backend/internal/engine/provider.go        AllSchedulingPlatforms()
+       backend/ent/schema/account.go              field.String("platform")
+     The ent schema does NOT use a Values() enum constraint — the platform
+     field is a free string. This check is therefore informational: it
+     verifies the field exists (it would be a hard error if the schema
+     regressed to a constrained enum that omitted a scheduling platform).
+
+  5. Frontend style mapping coverage
+       backend/internal/engine/provider.go        AllSchedulingPlatforms()
+       frontend/src/constants/gatewayPlatforms.ts SOFT_BADGE + LABEL_TEXT
+     A platform missing from the style maps renders as unstyled (gray
+     fallback) in the admin UI — easy to miss in review.
+
 Go constant names (`domain.PlatformX` / service aliases `PlatformX`) are
 resolved to their string values from constants.go, so the comparison is on
 wire values, not identifiers. All parsers tolerate gofmt / prettier
@@ -42,7 +56,7 @@ silently pass.
 Exit codes
 ----------
 
-  0 — all three pairs agree
+  0 — all five pairs agree
   1 — drift detected (details on stderr, both sides' file:line + sets)
   2 — parse / environment failure
 
@@ -63,6 +77,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DOMAIN_CONSTANTS = "backend/internal/domain/constants.go"
 ENGINE_PROVIDER = "backend/internal/engine/provider.go"
 DISPATCH_PREDICATE = "backend/internal/service/openai_messages_dispatch_tk_newapi.go"
+ENT_SCHEMA_ACCOUNT = "backend/ent/schema/account.go"
 TS_GATEWAY_PLATFORMS = "frontend/src/constants/gatewayPlatforms.ts"
 TS_TYPES_INDEX = "frontend/src/types/index.ts"
 
@@ -234,6 +249,108 @@ def parse_ts_union(text: str, name: str, rel: str) -> tuple[list[str], int]:
     return values, line
 
 
+def parse_go_all_scheduling(
+    text: str, consts: dict[str, tuple[str, int]]
+) -> tuple[list[str], int]:
+    """AllSchedulingPlatforms() []string { return []string{...} } → values."""
+    m = re.search(r"func\s+AllSchedulingPlatforms\s*\(\s*\)\s*\[\]string\s*\{", text)
+    if not m:
+        raise ParseFailure(
+            f"{ENGINE_PROVIDER}: `func AllSchedulingPlatforms() []string` not found — "
+            "renamed/moved? Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+    slice_m = re.compile(r"return\s+\[\]string\s*\{([^{}]*)\}", re.S).search(text, m.end())
+    if not slice_m:
+        raise ParseFailure(
+            f"{ENGINE_PROVIDER}:{line}: AllSchedulingPlatforms body has no "
+            "`return []string{{...}}` literal"
+        )
+    tokens = re.findall(GO_MEMBER_RE, slice_m.group(1))
+    if not tokens:
+        raise ParseFailure(
+            f"{ENGINE_PROVIDER}:{line}: AllSchedulingPlatforms slice literal parsed empty"
+        )
+    return resolve_go_idents(tokens, consts, f"{ENGINE_PROVIDER}:{line}"), line
+
+
+def parse_ent_platform_field(text: str) -> tuple[list[str] | None, int]:
+    """Parse ent schema account.go for the platform field definition.
+
+    Returns (enum_values, line) where enum_values is:
+      - a list of string values if the field uses .Values("a","b",...) constraint
+      - None if the field is a free string (no Values() enum)
+
+    Raises ParseFailure if the platform field is not found at all.
+    """
+    m = re.search(r'field\.String\(\s*"platform"\s*\)', text)
+    if not m:
+        raise ParseFailure(
+            f"{ENT_SCHEMA_ACCOUNT}: `field.String(\"platform\")` not found — "
+            "platform field removed or renamed? Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+
+    # Look for a .Values(...) call chained on the same field builder.
+    # The field builder ends at a comma or closing paren at the same indent.
+    # Scan forward from the field.String("platform") match until we hit the next
+    # field.* definition or the end of the Fields() return block.
+    next_field = re.search(r"field\.\w+\(", text[m.end() :])
+    scope_end = m.end() + next_field.start() if next_field else len(text)
+    field_chain = text[m.end() : scope_end]
+
+    values_m = re.search(r"\.Values\s*\(([^)]*)\)", field_chain)
+    if not values_m:
+        return None, line
+
+    values = [
+        a or b
+        for a, b in re.findall(r'"([^"]*)"|`([^`]*)`', values_m.group(1))
+    ]
+    if not values:
+        raise ParseFailure(
+            f"{ENT_SCHEMA_ACCOUNT}:{line}: platform field has .Values() but "
+            "the values list parsed empty"
+        )
+    return values, line
+
+
+def parse_ts_record_keys(text: str, name: str, rel: str) -> tuple[list[str], int]:
+    """const NAME: Record<...> = { key1: ..., key2: ..., } → keys.
+
+    Parses both `Record<string, string>` and `Record<SomeType, string>` shapes.
+    Tolerates multiline objects and trailing commas.
+    """
+    m = re.search(rf"(?:export\s+)?const\s+{name}\b[^=]*=\s*\{{", text)
+    if not m:
+        raise ParseFailure(
+            f"{rel}: `const {name}` with object literal not found — "
+            "renamed/moved? Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+
+    # Find the matching closing brace (simple: no nested objects expected in
+    # Tailwind class string maps).
+    depth = 1
+    pos = m.end()
+    while pos < len(text) and depth > 0:
+        if text[pos] == "{":
+            depth += 1
+        elif text[pos] == "}":
+            depth -= 1
+        pos += 1
+    if depth != 0:
+        raise ParseFailure(f"{rel}:{line}: {name} object literal is not closed")
+
+    body = text[m.end() : pos - 1]
+    # Keys can be bare identifiers or quoted strings.
+    keys = re.findall(r"(?:^|,)\s*(?:'([^']*)'|\"([^\"]*)\"|([\w]+))\s*:", body)
+    values = [a or b or c for a, b, c in keys]
+    if not values:
+        raise ParseFailure(f"{rel}:{line}: {name} object literal has no keys")
+    return values, line
+
+
 def fmt_set(values: list[str]) -> str:
     return "[" + ", ".join(sorted(set(values))) + "]"
 
@@ -264,12 +381,32 @@ def compare_pair(
     return lines
 
 
+def compare_superset(
+    label: str,
+    required: list[str],
+    required_loc: str,
+    actual: list[str],
+    actual_loc: str,
+) -> list[str]:
+    """Return failure lines when `actual` is not a superset of `required`."""
+    missing = sorted(set(required) - set(actual))
+    if not missing:
+        return []
+    return [
+        f"FAIL: {label} — missing required values",
+        f"  required {required_loc}  {fmt_set(required)}",
+        f"  actual   {actual_loc}  {fmt_set(actual)}",
+        f"  missing: {', '.join(missing)}",
+    ]
+
+
 def run(root: Path) -> tuple[list[list[str]], list[str]]:
     """Returns (failures, ok_lines)."""
     consts = parse_domain_constants(read(root, DOMAIN_CONSTANTS))
 
     engine_text = read(root, ENGINE_PROVIDER)
     go_compat, go_compat_line = parse_go_compat(engine_text, consts)
+    go_sched, go_sched_line = parse_go_all_scheduling(engine_text, consts)
 
     dispatch_text = read(root, DISPATCH_PREDICATE)
     go_dispatch, go_dispatch_line = parse_go_dispatch(dispatch_text, consts, go_compat)
@@ -290,6 +427,8 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
 
     failures: list[list[str]] = []
     ok_lines: list[str] = []
+
+    # --- CHECKs 1-3: exact bilateral lockstep ---
 
     for label, gv, gl, tv, tl in [
         (
@@ -319,6 +458,62 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
             failures.append(fail)
         else:
             ok_lines.append(f"ok: {label} in lockstep {fmt_set(gv)}")
+
+    # --- CHECK 4: ent schema platform enum coverage ---
+    # The ent schema uses field.String("platform") without a Values() enum
+    # constraint (free string), so this check is informational: it verifies the
+    # field still exists as a free string. If someone adds a Values() enum to the
+    # schema, this check catches any scheduling platform omitted from that enum.
+
+    ent_text = read(root, ENT_SCHEMA_ACCOUNT)
+    ent_values, ent_line = parse_ent_platform_field(ent_text)
+
+    if ent_values is not None:
+        # Schema constrains platform to an enum — every scheduling platform must
+        # be in that enum or accounts for it cannot be persisted.
+        fail = compare_superset(
+            "ent schema platform enum ⊇ AllSchedulingPlatforms()",
+            go_sched,
+            f"{ENGINE_PROVIDER}:{go_sched_line} AllSchedulingPlatforms()",
+            ent_values,
+            f"{ENT_SCHEMA_ACCOUNT}:{ent_line} field.String(\"platform\").Values()",
+        )
+        if fail:
+            failures.append(fail)
+        else:
+            ok_lines.append(
+                f"ok: ent schema platform enum covers all scheduling platforms "
+                f"{fmt_set(go_sched)}"
+            )
+    else:
+        ok_lines.append(
+            f"ok: ent schema platform field is a free string (no Values() enum) — "
+            f"no coverage gap possible [{ENT_SCHEMA_ACCOUNT}:{ent_line}]"
+        )
+
+    # --- CHECK 5: frontend style mapping coverage ---
+    # Every scheduling platform should have entries in the admin UI style maps
+    # (SOFT_BADGE and LABEL_TEXT). A missing key falls through to a generic gray
+    # fallback — functional but visually inconsistent and easy to miss in review.
+
+    for map_name in ("SOFT_BADGE", "LABEL_TEXT"):
+        ts_keys, ts_keys_line = parse_ts_record_keys(
+            ts_const_text, map_name, TS_GATEWAY_PLATFORMS
+        )
+        fail = compare_superset(
+            f"frontend {map_name} style map ⊇ AllSchedulingPlatforms()",
+            go_sched,
+            f"{ENGINE_PROVIDER}:{go_sched_line} AllSchedulingPlatforms()",
+            ts_keys,
+            f"{TS_GATEWAY_PLATFORMS}:{ts_keys_line} {map_name}",
+        )
+        if fail:
+            failures.append(fail)
+        else:
+            ok_lines.append(
+                f"ok: {map_name} style map covers all scheduling platforms "
+                f"{fmt_set(go_sched)}"
+            )
 
     return failures, ok_lines
 

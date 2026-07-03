@@ -110,7 +110,7 @@ const (
 	SubscriptionStatusExpired   = domain.SubscriptionStatusExpired
 	SubscriptionStatusSuspended = domain.SubscriptionStatusSuspended
 	// SubscriptionStatusRevoked 是 soft-deleted 订阅的 API 展示态，不写入 status 字段。
-	SubscriptionStatusRevoked = "revoked"
+	SubscriptionStatusRevoked = domain.SubscriptionStatusRevoked
 )
 
 // TokenKey bridge setting keys
