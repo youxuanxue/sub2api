@@ -39,6 +39,11 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 2
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "approve-github-run-env: jq not on PATH" >&2
+  exit 2
+fi
+
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || {
   echo "approve-github-run-env: gh repo view failed" >&2
   exit 2
@@ -48,9 +53,9 @@ deadline=$(( $(date +%s) + TIMEOUT ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   ENV_ID="$(gh api "repos/$REPO/actions/runs/$RUN_ID/pending_deployments" --jq '.[0].environment.id // empty' 2>/dev/null || true)"
   if [ -n "$ENV_ID" ]; then
-    gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/pending_deployments" --input - <<EOF
-{"environment_ids":[$ENV_ID],"state":"approved","comment":"$COMMENT"}
-EOF
+    PAYLOAD="$(jq -n --argjson env_id "$ENV_ID" --arg comment "$COMMENT" \
+      '{environment_ids: [$env_id], state: "approved", comment: $comment}')"
+    gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/pending_deployments" --input - <<<"$PAYLOAD"
     echo "approve-github-run-env: run=$RUN_ID env_id=$ENV_ID approved"
     gh run view "$RUN_ID" --json status --jq '.status' 2>/dev/null || true
     exit 0

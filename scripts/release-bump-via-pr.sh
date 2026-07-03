@@ -148,7 +148,9 @@ fi
 
 echo "[release-bump-via-pr] merging PR #$PR_NUM"
 if ! gh pr merge "$PR_NUM" --squash --delete-branch 2>&1; then
-  echo "[release-bump-via-pr] WARN: merge ok but local branch cleanup may fail if worktree still holds branch; safe to ignore" >&2
+  echo "[release-bump-via-pr] ERROR: gh pr merge failed; refusing to tag until bump is on main" >&2
+  echo "[release-bump-via-pr] resume after fixing merge: bash scripts/release-bump-via-pr.sh --pr $PR_NUM" >&2
+  exit 1
 fi
 
 git -C "$REPO_ROOT" fetch origin main --tags --quiet
