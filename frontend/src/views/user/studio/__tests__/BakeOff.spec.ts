@@ -40,6 +40,7 @@ vi.mock('@/stores/app', () => ({
 vi.mock('@/api/playground', () => ({
   gatewayImageGenerations: vi.fn(),
   gatewayGeminiImageViaChat: vi.fn(),
+  gatewayTraceRunId: vi.fn((prefix: string) => `${prefix}-test-run`),
   gatewayVideoSubmit: vi.fn(),
   gatewayImagePresign: vi.fn(),
 }))
@@ -264,19 +265,55 @@ describe('BakeOff image routing', () => {
     expect(playground.gatewayGeminiImageViaChat).toHaveBeenCalledWith(
       'sk-test',
       'https://api.example.com',
-      expect.objectContaining({ model: 'gemini-3.1-flash-image', aspectRatio: '1:1' })
+      expect.objectContaining({ model: 'gemini-3.1-flash-image', aspectRatio: '1:1' }),
+      undefined,
+      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'gemini-3.1-flash-image' })
     )
     expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
       'sk-test',
       'https://api.example.com',
-      expect.objectContaining({ model: 'imagen-4.0-fast-generate-001', size: '1:1' })
+      expect.objectContaining({ model: 'imagen-4.0-fast-generate-001', size: '1:1' }),
+      undefined,
+      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'imagen-4.0-fast-generate-001' })
     )
     expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
       'sk-test',
       'https://api.example.com',
-      expect.objectContaining({ model: 'seedream-4-0-250828', size: '1:1' })
+      expect.objectContaining({ model: 'seedream-4-0-250828', size: '2048x2048' }),
+      undefined,
+      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'seedream-4-0-250828' })
     )
     expect(libraryMock.addImages).toHaveBeenCalled()
+  })
+
+  it('omits image size for image models without curated size support', async () => {
+    const wrapper = mount(BakeOff, {
+      props: {
+        ...baseProps,
+        availableIds: new Set(['imagen-4.0-fast-generate-001', 'grok-imagine-image']),
+        priceMap: new Map([
+          ['imagen-4.0-fast-generate-001', { perImage: 0.02, billingMode: 'image' }],
+          ['grok-imagine-image', { perImage: 0.02, billingMode: 'image' }],
+        ]),
+      },
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    })
+    await wrapper.get('[data-testid="bakeoff-mode-image"]').trigger('click')
+    for (const tier of wrapper.findAll('[data-testid="bakeoff-tier"]')) {
+      await tier.trigger('click')
+    }
+    await wrapper.get('textarea').setValue('a red apple')
+    await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
+    await flushPromises()
+
+    const grokCall = vi.mocked(playground.gatewayImageGenerations).mock.calls.find((call) => {
+      return call[2].model === 'grok-imagine-image'
+    })
+    expect(grokCall?.[2]).toEqual({
+      model: 'grok-imagine-image',
+      prompt: 'a red apple',
+      n: 1,
+    })
   })
 
   it('allows selecting five image models for bake-off', async () => {

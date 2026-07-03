@@ -40,6 +40,35 @@ describe('gatewayImageGenerations payload', () => {
     await gatewayImageGenerations('k', 'http://x', { model: 'm', prompt: 'hi', size: '1024x1024', n: 2 })
     expect(getBody()).toEqual({ model: 'm', prompt: 'hi', size: '1024x1024', n: 2 })
   })
+
+  it('adds Studio trace headers without changing the image payload', async () => {
+    let sentBody: Record<string, unknown> = {}
+    let sentHeaders: Record<string, string> = {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        sentBody = JSON.parse((init.body as string) || '{}')
+        sentHeaders = init.headers as Record<string, string>
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+    )
+
+    await gatewayImageGenerations(
+      'k',
+      'http://x',
+      { model: 'imagen-4.0-fast-generate-001', prompt: 'hi' },
+      undefined,
+      { studioSource: 'studio.bakeoff.image', studioRunId: 'run-1', studioPanelId: 'imagen-fast' }
+    )
+
+    expect(sentBody).toEqual({ model: 'imagen-4.0-fast-generate-001', prompt: 'hi' })
+    expect(sentHeaders['X-TokenKey-Studio-Source']).toBe('studio.bakeoff.image')
+    expect(sentHeaders['X-TokenKey-Studio-Run-Id']).toBe('run-1')
+    expect(sentHeaders['X-TokenKey-Studio-Panel-Id']).toBe('imagen-fast')
+  })
 })
 
 describe('gatewayImagePresign', () => {

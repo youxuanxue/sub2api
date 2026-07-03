@@ -418,7 +418,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayVideoSubmit } from '@/api/playground'
+import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayTraceRunId, gatewayVideoSubmit } from '@/api/playground'
 import {
   extractChatImageItems,
   extractImageItems,
@@ -489,8 +489,8 @@ const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions
 const { generateAudio } = useStudioVideoSubmitOptions()
 
 const MAX_PANELS = 6
-/** Imagen / seedream: ratio code on /v1/images/generations (see ImageStudio sentSize). */
-const DEFAULT_IMAGEN_SIZE = '1:1'
+/** Fallback only for models that do not curate imageSizes. Undefined means omit `size`. */
+const DEFAULT_BAKEOFF_IMAGE_SIZE: string | undefined = undefined
 /** Gemini-native image: aspect_ratio via /v1/chat/completions extra_body.google.image_config. */
 const DEFAULT_GEMINI_ASPECT = '1:1'
 
@@ -517,6 +517,8 @@ interface BakePanel {
   /** Video only: this model's snapped duration (seconds) actually submitted. */
   seconds?: number
   state: 'idle' | 'processing' | 'succeeded' | 'failed'
+  /** Exact size/aspect value submitted for image panels; absent means omit size. */
+  imageSize?: string
   src?: string
   taskId?: string
   url?: string
@@ -695,7 +697,7 @@ function panelSeconds(r: ResolvedMediaModel): number {
 const totalCost = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGEN_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+      return sum + bakeoffImageCost(r)
     }
     return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier })
   }, 0)
@@ -705,7 +707,12 @@ const totalCost = computed(() =>
 const totalHold = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageHoldCost({ baseImagePrice: r.baseImagePrice || 0, n: 1, rateMultiplier: props.rateMultiplier })
+      if (bakeoffImagePricesFlat(r)) return sum + bakeoffImageCost(r)
+      return sum + estimateImageHoldCost({
+        baseImagePrice: r.baseImagePrice || 0,
+        n: 1,
+        rateMultiplier: props.rateMultiplier,
+      })
     }
     return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier })
   }, 0)
@@ -764,6 +771,7 @@ async function run(): Promise<void> {
   running.value = true
   lastRunPrompt.value = text
   const runTs = Date.now()
+  const studioRunId = gatewayTraceRunId(`studio-bakeoff-${runTs}`)
   activeRunTs.value = runTs
   poll.stopAll()
   // Seed panels.
@@ -772,9 +780,10 @@ async function run(): Promise<void> {
     servedId: r.servedId,
     label: r.presentation.displayName,
     vendorLabel: r.presentation.vendorLabel,
+    imageSize: modality.value === 'image' ? bakeoffImageSize(r) : undefined,
     cost:
       modality.value === 'image'
-        ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGEN_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+        ? bakeoffImageCost(r)
         : estimateVideoCost({ perSecond: r.perSecond || 0, seconds: panelSeconds(r), rateMultiplier: props.rateMultiplier }),
     seconds: modality.value === 'video' ? panelSeconds(r) : undefined,
     state: 'processing',
@@ -786,7 +795,7 @@ async function run(): Promise<void> {
       await Promise.all(
         panels.value.map(async (panel) => {
           try {
-            const items = await generateBakeoffImage(panel.servedId, text)
+            const items = await generateBakeoffImage(panel.servedId, text, panel.imageSize, studioRunId)
             if (!items.length) throw new Error('no_image')
             const it = items[0]
             panel.src = it.src
@@ -799,7 +808,7 @@ async function run(): Promise<void> {
               revisedPrompt: it.revisedPrompt,
               model: panel.servedId,
               vendorLabel: panel.vendorLabel,
-              size: DEFAULT_IMAGEN_SIZE,
+              size: panel.imageSize ?? '',
               cost: panel.cost,
               ts: runTs,
             })
@@ -860,21 +869,44 @@ async function run(): Promise<void> {
 }
 
 /** Route like ImageStudio: gemini-native via chat; imagen/seedream via /v1/images/generations. */
-async function generateBakeoffImage(modelId: string, prompt: string) {
+function bakeoffImageSize(r: ResolvedMediaModel): string | undefined {
+  return r.presentation.imageSizes?.[0]?.value ?? DEFAULT_BAKEOFF_IMAGE_SIZE
+}
+
+function bakeoffImagePricesFlat(r: ResolvedMediaModel): boolean {
+  return !!r.presentation.flatImageBilling || !!r.presentation.flatPricePerImage
+}
+
+function bakeoffImageCost(r: ResolvedMediaModel): number {
+  return estimateImageCost({
+    baseImagePrice: r.baseImagePrice || 0,
+    size: bakeoffImagePricesFlat(r) ? '1K' : bakeoffImageSize(r) || '2K',
+    n: 1,
+    rateMultiplier: props.rateMultiplier,
+  })
+}
+
+async function generateBakeoffImage(modelId: string, prompt: string, imageSize?: string, studioRunId?: string) {
+  const trace = {
+    studioSource: 'studio.bakeoff.image',
+    studioRunId,
+    studioPanelId: modelId,
+  }
   if (isGeminiNativeImageModel(modelId)) {
     const raw = await gatewayGeminiImageViaChat(props.apiKey, props.gatewayBase, {
       model: modelId,
       prompt,
-      aspectRatio: DEFAULT_GEMINI_ASPECT,
-    })
+      aspectRatio: imageSize || DEFAULT_GEMINI_ASPECT,
+    }, undefined, trace)
     return extractChatImageItems(raw)
   }
-  const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
+  const payload: Parameters<typeof gatewayImageGenerations>[2] = {
     model: modelId,
     prompt,
-    size: DEFAULT_IMAGEN_SIZE,
     n: 1,
-  })
+  }
+  if (imageSize) payload.size = imageSize
+  const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, payload, undefined, trace)
   return extractImageItems(raw)
 }
 
