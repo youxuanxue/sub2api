@@ -19,7 +19,10 @@
         :show-now-when-idle="true"
         color="emerald"
       />
-      <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
+      <UpstreamQuotaSummary
+        :quota="usageInfo?.upstream_quota"
+        :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
+      />
       <OpenAIQuotaResetCell :account="account">
         <template #pre-actions>
           <button
@@ -82,6 +85,10 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
+const upstreamQuotaWindowDimensionKeys = [
+  'openai_codex_5h',
+  'openai_codex_7d'
+]
 
 const { loading, activeQueryLoading, usageInfo, loadActiveUsage } = useAccountUsageFetch(
   props,

@@ -718,6 +718,70 @@ describe('AccountUsageCell', () => {
     expect(getUsage).not.toHaveBeenCalled()
   })
 
+  it('Anthropic OAuth 不在上游摘要里重复展示已渲染的 5h/7d 窗口', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2017,
+          platform: 'anthropic',
+          type: 'oauth',
+          extra: {}
+        }),
+        usageOverride: {
+          source: 'passive',
+          updated_at: null,
+          five_hour: {
+            utilization: 0,
+            resets_at: '2099-03-07T12:00:00Z',
+            remaining_seconds: 3600
+          },
+          seven_day: {
+            utilization: 19,
+            resets_at: '2099-03-13T12:00:00Z',
+            remaining_seconds: 3600
+          },
+          seven_day_sonnet: {
+            utilization: 91,
+            resets_at: '2099-03-13T12:00:00Z',
+            remaining_seconds: 3600
+          },
+          upstream_quota: {
+            provider: 'anthropic',
+            source: 'passive',
+            state: 'observed',
+            subscription_tier: 'Max',
+            dimensions: [
+              { key: 'anthropic_5h', label: '5h', window: '5h', utilization: 0 },
+              { key: 'anthropic_7d', label: '7d', window: '7d', utilization: 19 },
+              { key: 'anthropic_7d_sonnet', label: '7d Sonnet', window: '7d', utilization: 91 }
+            ]
+          }
+        }
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('5h|0')
+    expect(wrapper.text()).toContain('7d|19')
+    expect(wrapper.text()).toContain('7d S|91')
+    expect(wrapper.text()).toContain('anthropic')
+    expect(wrapper.text()).toContain('Max')
+    expect(wrapper.text()).not.toContain('5h 5h 0%')
+    expect(wrapper.text()).not.toContain('7d 7d 19%')
+    expect(wrapper.text()).not.toContain('7d Sonnet 7d 91%')
+  })
+
   it('OpenAI OAuth 在无 codex 快照时会回退显示 usage 接口窗口', async () => {
 	getUsage.mockResolvedValue({
 	  five_hour: {

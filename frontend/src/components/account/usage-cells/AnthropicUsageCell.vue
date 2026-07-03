@@ -57,7 +57,10 @@
         :resets-at="usageInfo.seven_day_sonnet.resets_at"
         color="purple"
       />
-      <UpstreamQuotaSummary :quota="usageInfo.upstream_quota" />
+      <UpstreamQuotaSummary
+        :quota="usageInfo.upstream_quota"
+        :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
+      />
       <div class="flex items-center gap-1.5 mt-0.5">
         <span
           v-if="usageInfo.source === 'passive'"
@@ -109,6 +112,11 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
+const upstreamQuotaWindowDimensionKeys = [
+  'anthropic_5h',
+  'anthropic_7d',
+  'anthropic_7d_sonnet'
+]
 
 const { loading, activeQueryLoading, error, usageInfo, loadActiveUsage } = useAccountUsageFetch(
   props,
