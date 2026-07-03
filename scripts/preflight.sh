@@ -79,6 +79,13 @@
 #        appear verbatim in `docs/DEPRECATIONS.md` (CLAUDE.md §5.x). Driven by
 #        `scripts/checks/upstream-deletion-ledger.py`. Skips when upstream remote
 #        absent (CI without `upstream` fetch).
+#   upstream conflict surface (advisory) — locally advisory (warn, never block);
+#        CI blocks via `.github/workflows/upstream-conflict-surface.yml`. Reports
+#        whether HEAD introduces new conflict files vs upstream/main. Skips when
+#        upstream remote absent. `scripts/checks/upstream-conflict-surface.sh`.
+#   upstream insertion invasiveness (advisory) — classifies hunk-level
+#        invasiveness of upstream-shaped Go file changes. Never blocks. Skips when
+#        upstream remote absent. `scripts/checks/upstream-insertion-invasiveness.py`.
 ##
 # Usage:  ./scripts/preflight.sh [--fix]
 # Exit 0 = all sections passed.  Non-zero = at least one failed.
@@ -2262,6 +2269,59 @@ elif ! python3 ./scripts/checks/upstream-deletion-ledger.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: upstream deletions documented in DEPRECATIONS.md"
+fi
+
+# ---- sub2api: upstream conflict surface (conditional) -----------------------
+# Requires `upstream` remote — skips gracefully when absent (plain clones,
+# worktrees without upstream fetch). When present, reports whether HEAD
+# introduces NEW conflict files against upstream/main vs the PR base.
+# CI runs this as a blocking gate (upstream-conflict-surface.yml); here it is
+# advisory (warn only) to keep local preflight fast and non-blocking.
+echo ""
+echo "=== sub2api: upstream conflict surface (advisory) ==="
+if ! git remote get-url upstream >/dev/null 2>&1; then
+    echo "  skip: no upstream remote (clone without upstream fetch)"
+elif ! git rev-parse --verify --quiet upstream/main >/dev/null 2>&1; then
+    echo "  skip: upstream/main not fetched"
+else
+    _base="${PREFLIGHT_BASE:-origin/main}"
+    _base_sha=$(git rev-parse --verify --quiet "${_base}^{commit}" 2>/dev/null) || _base_sha=""
+    _head_sha=$(git rev-parse --verify --quiet "HEAD^{commit}" 2>/dev/null) || _head_sha=""
+    if [ -z "$_base_sha" ] || [ -z "$_head_sha" ]; then
+        echo "  skip: cannot resolve base/head commits"
+    else
+        _cs_rc=0
+        bash ./scripts/checks/upstream-conflict-surface.sh \
+            --upstream-ref upstream/main \
+            --base "$_base_sha" \
+            --head "$_head_sha" 2>&1 || _cs_rc=$?
+        if [ "$_cs_rc" -eq 1 ]; then
+            echo "  warn: new upstream conflict files detected (advisory; CI gate blocks)"
+        elif [ "$_cs_rc" -gt 1 ]; then
+            echo "  warn: upstream-conflict-surface.sh exited $cs_rc (advisory)"
+        fi
+    fi
+fi
+
+# ---- sub2api: upstream insertion invasiveness (advisory) --------------------
+# Advisory only: classifies how invasively this branch touches upstream-shaped
+# Go files (EOF append vs func-body insert). Never blocks locally; CI runs
+# the full report in upstream-conflict-surface.yml.
+echo ""
+echo "=== sub2api: upstream insertion invasiveness (advisory) ==="
+if ! git remote get-url upstream >/dev/null 2>&1; then
+    echo "  skip: no upstream remote"
+elif ! command -v python3 >/dev/null 2>&1; then
+    echo "  skip: python3 not on PATH"
+else
+    _inv_rc=0
+    python3 ./scripts/checks/upstream-insertion-invasiveness.py \
+        --base "${PREFLIGHT_BASE:-origin/main}" \
+        --head HEAD \
+        --upstream-ref upstream/main 2>&1 || _inv_rc=$?
+    if [ "$_inv_rc" -ne 0 ]; then
+        echo "  warn: upstream-insertion-invasiveness.py exited $_inv_rc (advisory)"
+    fi
 fi
 
 echo ""
