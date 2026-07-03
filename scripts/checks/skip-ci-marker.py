@@ -34,10 +34,20 @@ Usage
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 
 MARKERS = ("[skip ci]", "[ci skip]")
+
+# Lines that look like `<hex-sha> <subject>` in a PR body are commit listings,
+# not instructions to GitHub.  The actual commit messages are scanned separately
+# via --commits-range with --first-parent, so the body listing of upstream
+# (second-parent) commit subjects that happen to contain `[skip ci]` must not
+# trigger this gate.  Without this exemption, upstream-merge PRs that faithfully
+# list all commit subjects (as required by the PR-body hook) would deadlock:
+# the hook demands the exact subject, the marker gate rejects it.
+_COMMIT_LINE_RE = re.compile(r"^[0-9a-f]{7,40}\s")
 
 
 def first_parent_commit_bodies(commit_range: str) -> str:
@@ -47,8 +57,17 @@ def first_parent_commit_bodies(commit_range: str) -> str:
     )
 
 
-def scan(label: str, text: str, failures: list[str]) -> None:
-    hit = next((m for m in MARKERS if m in text), None)
+def _strip_commit_listing_lines(text: str) -> str:
+    """Remove lines that look like commit listings from body text."""
+    return "\n".join(
+        line for line in text.splitlines()
+        if not _COMMIT_LINE_RE.match(line)
+    )
+
+
+def scan(label: str, text: str, failures: list[str], *, strip_commit_lines: bool = False) -> None:
+    effective = _strip_commit_listing_lines(text) if strip_commit_lines else text
+    hit = next((m for m in MARKERS if m in effective), None)
     if hit:
         failures.append(f"{label}: contains bracketed '{hit}'")
 
@@ -80,7 +99,7 @@ def main() -> int:
     if args.title is not None:
         scan("PR title", args.title, failures)
     if args.body is not None:
-        scan("PR body", args.body, failures)
+        scan("PR body", args.body, failures, strip_commit_lines=True)
     if args.commits_range is not None:
         try:
             bodies = first_parent_commit_bodies(args.commits_range)
