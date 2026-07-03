@@ -13,7 +13,9 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（内部串 `release-decide-version.sh` + `release-tag.sh`；永不写共享 checkout） |
+| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（`bump-and-tag` 且 main 受保护时自动 `exec release-bump-via-pr.sh`；永不写共享 checkout） |
+| **VERSION bump 经 PR（main 分支保护）** | 机械 | `bash scripts/release-bump-via-pr.sh [--dry-run] [--pr N]`（worktree bump → PR → CI → squash merge → `release-bump-and-tag.sh` tag-only） |
+| main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（`gh api …/branches/main/protection`） |
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用） |
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
@@ -22,8 +24,8 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
-| prod 镜像预热（deploy 前，把 ~150s pull 移出关键路径） | 机械 | `gh workflow run warm-image-stage0.yml` + 自批 + watch（只读、非致命；命令形状见 §「部署目标矩阵 → prod」） |
-| prod Environment approval（canary 绿后） | 机械 | `gh api -X POST …/pending_deployments`（命令形状见 §「部署目标矩阵 → prod」；批不批、何时批是判断） |
+| prod 镜像预热（deploy 前，把 ~150s pull 移出关键路径） | 机械 | `gh workflow run warm-image-stage0.yml` + `approve-github-run-env.sh` + watch（只读、非致命；见 §「部署目标矩阵 → prod」） |
+| prod / warm Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（批不批、何时批是判断） |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
 | Edge smoke 分阶段（infra / edge-native-oauth / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；**upgrade/rollback 默认 infra**；canary 显式 **full**（infra + 容器内 per-account OAuth 拟真 `probe_account_model`）；`main-via-edge` 为可选 prod 中转链路 |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
@@ -42,7 +44,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z] [anthropic_config_check=false]
+/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z] [anthropic_config_check=false] [main_via_edge=false]
 ```
 
 | 参数 | 语义 |
@@ -50,7 +52,8 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（edges 均为 Lightsail，路由到 `deploy-edge-lightsail-stage0.yml`）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_instance。 |
-| `target=all` | release 一次 → canary **upgrade (full，显式 `--smoke-phase full`)** → prod deploy（CI smoke）→ 可选 canary **main-via-edge** → 其余 Edge **upgrade (infra only，`rollout-edges.sh`)** → followup → **默认** Anthropic OAuth snapshot/check。 |
+| `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check。`main_via_edge=true` 才跑可选段。 |
+| `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
@@ -122,16 +125,44 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 - GitHub Environment：**`prod`**、各 Edge 的 `edge-<edge_id>`（若有 Required reviewers，需人工批准）。新 edge 可参考已上线 edge 的变量/密钥结构，但 `EDGE_GHCR_PAT_SSM_NAME` 必须使用该 edge 自己的 SSM 路径。
 - **禁止**：VERSION bump / 发版 commit 的正文里出现字面量 `[skip ci]` 或 `[ci skip]`（任意位置都不行）。
 
-## 决策 + bump + tag：单命令（worktree 隔离）
+## 决策 + bump + tag：worktree 隔离（两条 bump 路径）
+
+**发版前先决策**（只读）：
 
 ```bash
-bash scripts/release-bump-and-tag.sh            # 决策→（按需 bump+push）→ release-tag.sh
-bash scripts/release-bump-and-tag.sh --dry-run  # 只看决策与计划，不写任何东西
+bash scripts/release-decide-version.sh --emit-suggested-bump
+bash scripts/release-bump-and-tag.sh --dry-run   # 含 main 保护探测（bump-via-pr vs direct-push）
 ```
 
-脚本内部消费 `release-decide-version.sh` 的三态并自动路由：`skip-bump-skip-tag` 直接退出（用现有 tag deploy）；`tag-only` / `bump-and-tag` 都在**临时 sibling worktree（detached at origin/main）**里完成 VERSION 写入、commit、push、`release-tag.sh`，结束即清理。
+**canonical 入口**（Agent 只跑这一条；脚本内部路由）：
 
-**为什么禁止在共享 checkout 里手动 bump**：主 checkout 可能被并行 agent 切到 feature 分支或塞满 WIP（已三次实录），手动 `git checkout main && git pull` 轻则把 origin/main 合进别人分支，重则把 bump 提交落到别人分支上；pre-commit preflight 扫整个工作树，别人的 WIP 还会拦住干净的 VERSION 提交。worktree 隔离一次性消除这三种失败模式。`release-tag.sh` 仍是唯一 tag 门禁（skip-ci / VERSION 一致 / HEAD==origin/main）——不要手 `git tag`。
+```bash
+bash scripts/release-bump-and-tag.sh            # decide → bump（direct 或 PR 子流程）→ tag
+```
+
+| `release-decide-version` action | 脚本行为 |
+|---|---|
+| `skip-bump-skip-tag` | 退出 0；用现有 tag 继续 deploy |
+| `tag-only` | worktree @ origin/main → `release-tag.sh` |
+| `bump-and-tag` + `release-main-push-route` = **direct-push** | worktree bump → `push origin HEAD:main` → tag |
+| `bump-and-tag` + route = **bump-via-pr** | 自动 `exec release-bump-via-pr.sh`（PR → merge → tag-only） |
+
+**protected main 子流程**（也可单独跑/resume）：
+
+```bash
+bash scripts/release-bump-via-pr.sh              # 全流程
+bash scripts/release-bump-via-pr.sh --dry-run
+bash scripts/release-bump-via-pr.sh --pr 1169   # CI 已绿、仅 merge+tag
+```
+
+PR 路径纪律：
+
+- bump commit 正文必须含 `no-web-impact`（preflight web surface 机械检查）。
+- CI 仅 **preflight** 段 flaky 时：`gh run rerun <run_id> --failed`，再 `--pr N` resume；**不要**为通过 CI 改 VERSION。
+- merge 后 worktree 可能占着 `chore/bump-version-*` 分支 → `gh pr merge` 本地删分支失败可忽略；成功路径结束时会 `worktree remove --force`。
+- merge 后**必须** `git fetch origin main --tags`，再 tag（`release-bump-via-pr.sh` 末尾已调用 `release-bump-and-tag.sh`）。
+
+**为什么禁止在共享 checkout 里手动 bump**：主 checkout 可能被并行 agent 切到 feature 分支或塞满 WIP（已三次实录）。worktree 隔离 + `release-tag.sh` 门禁（skip-ci / VERSION / HEAD==origin/main）——不要手 `git tag`。
 
 ## 标准流程：release 新镜像
 
@@ -154,13 +185,10 @@ gh workflow run warm-image-stage0.yml -f tag="$TARGET_TAG"
 # 避免 --limit 1 抓到上一次已 completed 的旧 run。必要时 sleep 几秒等 run 出现。
 WARM_RUN_ID=$(gh run list --workflow=warm-image-stage0.yml --event=workflow_dispatch --limit 5 \
   --json databaseId,status --jq '[.[]|select(.status!="completed")][0].databaseId')
-# 2) 自批 prod Environment（warm 只读，自批安全；与 deploy 同一 --input JSON 形状，
-#    -f/-F 在数组字段上类型推断不可靠）。run 卡在 waiting 后才有 pending_deployment，
-#    必要时轮询到 .[0] 出现再批。
-WARM_ENV_ID=$(gh api "repos/{owner}/{repo}/actions/runs/$WARM_RUN_ID/pending_deployments" --jq '.[0].environment.id')
-gh api -X POST "repos/{owner}/{repo}/actions/runs/$WARM_RUN_ID/pending_deployments" --input - <<EOF
-{"environment_ids":[$WARM_ENV_ID],"state":"approved","comment":"read-only image prewarm for $TARGET_TAG"}
-EOF
+# 2) 自批 prod Environment（warm 只读，自批安全）
+bash scripts/stage0/approve-github-run-env.sh \
+  --run-id "$WARM_RUN_ID" \
+  --comment "read-only image prewarm for $TARGET_TAG"
 # 3) watch 到完成；非致命——失败也继续 deploy（deploy 自己付 pull）
 gh run watch "$WARM_RUN_ID" --exit-status || echo "warm non-fatal failure — proceeding to deploy (it will pay the in-band pull)"
 ```
@@ -173,18 +201,17 @@ gh workflow run deploy-stage0.yml \
   -f tag="$TARGET_TAG"
 ```
 
-**Environment approval（机械命令，时机是判断）**：run 卡在 `waiting` 时，若执行账号是 `prod` Environment 的 required reviewer，Agent 可在 canary 绿后自批——用 `--input` 传 JSON（`-f`/`-F` 的类型推断在数组字段上不可靠，曾产生「POST 成功但 jq 报错」的半失败困惑）：
+**Environment approval（机械命令，时机是判断）**：canary full smoke 绿后再批 prod deploy：
 
 ```bash
 RUN_ID=<deploy run id>
-ENV_ID=$(gh api "repos/{owner}/{repo}/actions/runs/$RUN_ID/pending_deployments" --jq '.[0].environment.id')
-gh api -X POST "repos/{owner}/{repo}/actions/runs/$RUN_ID/pending_deployments" --input - <<EOF
-{"environment_ids":[$ENV_ID],"state":"approved","comment":"canary <edge> full smoke OK (run <canary run id>)"}
-EOF
+bash scripts/stage0/approve-github-run-env.sh \
+  --run-id "$RUN_ID" \
+  --comment "canary <edge> full smoke OK (run <canary run id>)"
 gh run view "$RUN_ID" --json status --jq .status   # 期望 in_progress
 ```
 
-若 API 返回 403（执行账号非 reviewer），则回落人工批准，不要换号绕过。
+若 API 返回 403（执行账号非 reviewer），则回落人工批准，不要换号绕过。底层仍为 `gh api …/pending_deployments` POST JSON（`-f`/`-F` 在数组字段上不可靠）。
 
 **target=all 注意**：prod 不再被 release 自动 queue，所以**先不要 dispatch prod deploy**——等第一个 deployable Edge canary full smoke 绿后，再 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`，然后按上面的 approval 命令自批。canary-first 顺序由"先不 dispatch deploy"自然保证，不再依赖"先不批准"的提前 waiting run。**prod 的 warm（上面的预热块）是例外**：它只读、与 canary 无依赖，应在 canary full smoke **跑的同时**就提前 dispatch+自批，让镜像 pull 与 canary 并行——这样 canary 绿后 dispatch prod deploy 时层已在盘上，净省一次 pull 的墙钟。
 
@@ -252,7 +279,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 3. Canary upgrade + full smoke：`dispatch-edge-deploy.sh --edge-id=$CANARY_EDGE --operation upgrade --tag=$TARGET_TAG --smoke-phase full`，watch 到 success。
 4. 推进 prod deploy：canary full smoke 绿后 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`（prod 不再自动 queue），按 approval 命令自批，watch 到 success。
 5. **prod 验收（CI 唯一源）**：在本次 `deploy-stage0` run log 搜索 `tk_post_deploy_smoke: OK`，并核对 models/chat/messages 等 shape（见「prod 真实测试」§A）。**不要**在本地再跑完整 `post_deploy_smoke.sh`，除非 CI secret 缺失或日志不可解析。
-6. **（可选）canary main-via-edge**：`dispatch-edge-deploy.sh --edge-id $CANARY_EDGE --operation smoke --smoke-phase main-via-edge`（验证 prod→Edge 中转）。缺 **`TK_SMOKE_API_KEY`** 则标记 partial，不 rollback。
+6. **main-via-edge（默认跳过）**：除非 `main_via_edge=true`，摘要写 `main-via-edge: skipped (default)`。显式跑时用 `dispatch-edge-deploy.sh --edge-id $CANARY_EDGE --operation smoke --smoke-phase main-via-edge`。缺 **`TK_SMOKE_API_KEY`** 记 partial，不 rollback。
 7. **其余 deployable Edge（单命令，bounded-parallel fail-stop）**：
 
    ```bash
@@ -278,6 +305,16 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 - `/v1/chat/completions`：`object=chat.completion`，`choices[]` 非空，`usage` 存在。
 - `/v1/messages`：`type=message`，`role=assistant`，`content[]` 有文本，`usage` 存在。
 - Gemini / OpenAI OAuth 探针：workflow 已配置 `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 时应在 log 中按模型出现对应 section（软警告 vs 硬失败见 `post_deploy_smoke.sh`）。
+
+**Gemini tools 探针 verdict（路由回归 vs 运行时资源）** — CI log 里 `POST …/v1/messages (gemini, with tools)`：
+
+| HTTP / 日志 | 含义 | rollout |
+|---|---|---|
+| **400** + Codex / ChatGPT account 文案 | universal 误路由 OpenAI passthrough（如 #1168） | **red** — 停 rollout，优先 rollback |
+| **429** + `gemini section soft-skipped` / runtime resource | 账号 cooldown，非 schema 回归 | **green/yellow** — 不 rollback；`tk_post_deploy_smoke: OK` 仍可过 |
+| **200** + 正常 shape | 探针通过 | green |
+
+**硬门禁仍是** log 末行 **`tk_post_deploy_smoke: OK`**；上述表只解释 warning 语义，不可替代 OK 行。
 
 若 CI 因 smoke model 不在 key 的 `/v1/models` 列表失败：改 **`prod`** Environment 对应的 **`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS`** 后 **重跑 deploy-stage0**。
 
@@ -615,7 +652,7 @@ bash scripts/release-rollout-summary.sh --mode release
 - **有效提交**：feat/fix/chore 分类。
 - **影响面与验证重点**：Gemini、OpenAI OAuth、pricing/model-list、frontend、sentinel、upstream 删除等按实际变更列出。
 - **Anthropic OAuth 配置检查**：§「发版后 Anthropic OAuth 配置检查」固定块；violation 时列 `post-release-check.json` 里的 edge / guard / balance 摘要。
-- **未部署或未覆盖目标**：例如某些 edge 仍 `deployable=false`、用户只要求 prod、缺少 main-gateway-via-edge smoke secret、等待人工审批等。
+- **未部署或未覆盖目标**：例如某些 edge 仍 `deployable=false`、用户只要求 prod、**main-via-edge: skipped (default)**、缺少 main-gateway-via-edge smoke secret、等待人工审批等。
 
 ## release 之后 main 是否还有提交
 
@@ -625,8 +662,12 @@ bash scripts/release-rollout-summary.sh --mode release
 
 | 现象 | 处理 |
 |------|------|
-| release 时主 checkout 在别的分支 / 有别人的 WIP | 正常现象（并行 agent），不要去切分支、stash 或还原别人的文件；`release-bump-and-tag.sh` 本来就不读写当前 checkout，直接跑它。 |
-| `release-bump-and-tag.sh` push 被拒（origin/main moved） | 期间有新 PR 合入；直接重跑脚本，它会基于新的 origin/main 重建 worktree。 |
+| `release-bump-and-tag.sh` 无输出且 exit 1（action=tag-only） | 已修：`field()` grep 无匹配 + `set -e` 静默退出。升级后重跑；临时绕过 = worktree @ origin/main + `release-tag.sh vX.Y.Z`。 |
+| `push origin HEAD:main` / GH006 **Protected branch** | 不要手改保护规则。跑 `bash scripts/release-bump-via-pr.sh`（或让 `release-bump-and-tag.sh` 自动 delegate）。 |
+| bump PR CI 仅 **preflight** flaky fail | `gh run rerun <run_id> --failed`，再 `release-bump-via-pr.sh --pr <N>`；不要改 VERSION 对冲。 |
+| 发版后残留 `sub2api-release-*` / `sub2api-bump-pr-*` worktree | `git worktree list` → `git worktree remove --force <path>`；否则后续 `worktree add` / `gh pr merge --delete-branch` 会失败。 |
+| release 时主 checkout 在别的分支 / 有别人的 WIP | 正常现象（并行 agent），不要去切分支、stash 或还原别人的文件；release 脚本本来就不读写当前 checkout。 |
+| `release-bump-and-tag.sh` push 被拒（origin/main moved，非 protected） | 期间有新 PR 合入；直接重跑脚本，它会基于新的 origin/main 重建 worktree。 |
 | `release-tag.sh` 报 HEAD 含 skip-ci 标记 | 修改触发打 tag 的最近一次提交说明后重试，或按 `CLAUDE.md` 用 `gh workflow dispatch` 触发 `release.yml`。 |
 | `tag already exists on origin` | 升 `VERSION` 再打新 tag，或仅 dispatch deploy 已有 tag。 |
 | deploy 报单架构 manifest | 重新跑 `release.yml` 且 `simple_release=false`；prod / Edge 都不要 override。 |
@@ -639,8 +680,10 @@ bash scripts/release-rollout-summary.sh --mode release
 | 发版后 tick 报 `No such container: tokenkey` | 先确认在用新版 `ops/observability/probe-post-release-tick.sh`；它默认 `CONTAINER=auto` 会解析 prod blue/green active container。不要手工猜 `tokenkey-green`；若仍失败，看 tick stdout 的 `container_resolution`。 |
 | `TK_SMOKE_GITHUB_ENV=prod` 报 `unexpected gh variables response` | 旧版 `load_smoke_github_env.py` 对单页 gh api 响应断言成 list 的 bug，已修；若复现先 `gh api repos/{owner}/{repo}/environments/prod/variables` 看原始形状。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
+| prod smoke Gemini tools **429** + soft-skip + **`tk_post_deploy_smoke: OK`** | 运行时资源/cooldown，**不是** passthrough 路由回归；verdict green/yellow，不 rollback。若要 200 证据，cooldown 后重跑 deploy-stage0 smoke。 |
+| prod smoke Gemini tools **400** + Codex 账号文案 | 路由回归（#1168 类）；**red**，rollback `previous_tag` 并停 edge rollout。 |
 | prod smoke 报 configured smoke model not listed in GET /v1/models | 不是代码回归，改 **`prod`** Environment 对应的 **`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS`** 为 `TK_SMOKE_API_KEY` 可见模型后重跑。 |
-| `gh` 请求持续报 `read ... 127.0.0.1:7890: connection reset by peer` | 先用 `env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh <cmd>` 做无代理重试；恢复后再继续 watch。 |
+| `gh` 请求持续报 `read ... 127.0.0.1:7890: connection reset by peer` | 先用 `env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh <cmd>` 做无代理重试；恢复后再继续 watch/dispatch。 |
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
 | 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |
 | 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
@@ -649,7 +692,10 @@ bash scripts/release-rollout-summary.sh --mode release
 
 - `.cursor/skills/tokenkey-anthropic-oauth-config/SKILL.md` — 发版后 check violation 的 plan/apply/verify canonical 路径。
 
-- `scripts/release-bump-and-tag.sh` — release 全步骤单命令（worktree 隔离；内部调下面两个）。
+- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；protected main 时 delegate PR 子流程）。
+- `scripts/release-bump-via-pr.sh` — VERSION bump 经 PR + merge + tag。
+- `scripts/release-main-push-route.sh` — direct-push vs bump-via-pr 探测。
+- `scripts/stage0/approve-github-run-env.sh` — Environment 门禁自批（warm / prod / edge）。
 - `scripts/release-decide-version.sh` — VERSION/tag 三态决策。
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
