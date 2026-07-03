@@ -24,6 +24,7 @@ description: >-
 | 运营说法 / 症状 | 走哪条分支 |
 | --- | --- |
 | 目录/Menu 过时、模型可能不再 200、要刷新 allowlist | **分支 B**（本 skill 路由后读写入子 skill） |
+| Antigravity `gemini-2.5-pro` generateContent 超时 / inconclusive，要窄探 chat vs v1beta | **分支 B** → `tokenkey-servable-model-refresh` §「Antigravity gemini-2.5-pro 专项」 |
 | Qwen/DeepSeek mapping 漂、429 空池、60↔72 mirror | **分支 A** |
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe`（诊断，非 hub 子分支） |
