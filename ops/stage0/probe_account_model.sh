@@ -31,6 +31,14 @@ sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
 
+new_probe_api_key() {
+  printf 'sk-%s-%s' "$PROBE_ID" "$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
+PY
+)"
+}
+
 fail_json() {
   local message="$1"
   python3 - "$message" <<'PY'
@@ -177,11 +185,7 @@ if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
     fail_json "timed out waiting for probe reuse lock"
   fi
 else
-  API_KEY="sk-${PROBE_ID}-$(python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
-PY
-)"
+  API_KEY="$(new_probe_api_key)"
 fi
 
 GROUP_ID=""
@@ -194,7 +198,8 @@ cleanup() {
     if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
       "${PSQL[@]}" -c "
 	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
-	UPDATE groups SET updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
+	UPDATE api_keys SET status='disabled', updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(sql_escape "$KEY_NAME")' AND deleted_at IS NULL;
+	UPDATE groups SET status='disabled', updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
 	" >/dev/null 2>&1 || true # preflight-allow: swallow
     else
       "${PSQL[@]}" -c "
@@ -305,6 +310,7 @@ ON CONFLICT (account_id, group_id) DO NOTHING;
 " >/dev/null
 
 if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+  NEW_API_KEY="$(new_probe_api_key)"
   API_KEY_ROW="$("${PSQL[@]}" -c "
 WITH existing AS (
   SELECT id
@@ -323,6 +329,7 @@ SELECT COALESCE((SELECT id::text FROM existing), '');
 UPDATE api_keys
 SET
   user_id = ${PROBE_USER_ID},
+  key = '$(sql_escape "$NEW_API_KEY")',
   status = 'active',
   routing_mode = 'direct',
   quota = 0,
@@ -341,11 +348,7 @@ WHERE id = ${API_KEY_ID}
 RETURNING key;
 " | tr -d '\n')"
   else
-    API_KEY="sk-${PROBE_ID}-$(python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
-PY
-)"
+    API_KEY="$NEW_API_KEY"
     psql_capture_numeric API_KEY_ID "failed to insert probe API key name=${KEY_NAME} group_id=${GROUP_ID}" "
 INSERT INTO api_keys (
   user_id, key, name, group_id, status, routing_mode,

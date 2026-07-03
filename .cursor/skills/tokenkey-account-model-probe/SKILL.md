@@ -5,7 +5,7 @@ description: Probe a specific TokenKey prod or edge account against one model by
 
 # TokenKey Account Model Probe
 
-Run a live, low-cost probe for one account and one model. Default path reuses one reserved exclusive `__tk_probe_<platform>_group` and `__tk_probe_<platform>_key` per target host/platform, temporarily binds only the target account, sends one real gateway request, then removes the account binding. This avoids accumulating one-off debug groups and keys.
+Run a live, low-cost probe for one account and one model. Default path reuses one reserved exclusive `__tk_probe_<platform>_group` and `__tk_probe_<platform>_key` per target host/platform, temporarily binds only the target account, sends one real gateway request, then removes the account binding and disables the probe resources. This avoids accumulating or leaving active one-off debug groups and keys.
 
 Use `ops/observability/run-probe.sh`; do not SSH manually.
 
@@ -39,7 +39,7 @@ Useful options:
 - `REQUEST_TIMEOUT_SECONDS=90` caps the in-container gateway request.
 - `PROBE_REUSE_MODE=1` is the default: reuse `__tk_probe_<platform>_group` / `__tk_probe_<platform>_key`.
 - `PROBE_REUSE_MODE=0` creates a one-off `__tk_probe_tkprobe-*` group/key and soft-deletes it on cleanup.
-- `KEEP_PROBE_ARTIFACTS=1` keeps the current account binding for manual follow-up. In one-off mode it also keeps that temporary group/key. Default is cleanup.
+- `KEEP_PROBE_ARTIFACTS=1` keeps the current account binding for manual follow-up. In one-off mode it also keeps that temporary group/key; in reuse mode it leaves the reserved group/key active until manual cleanup. Default is cleanup.
 - `PROBE_LOCK_TIMEOUT_SECONDS=120` caps waiting for another same-platform reuse probe to finish.
 - `APP_CONTAINER=tokenkey APP_URL=http://localhost:8080` are the default in-container request target.
 
@@ -60,7 +60,7 @@ Never paste returned API keys or credentials. The script intentionally prints ID
 
 - Prefer this skill over creating permanent admin groups for single-account debugging.
 - This is a live probe. It may consume a tiny amount of quota and can update normal usage tables.
-- Default reuse mode intentionally leaves at most one reserved probe group/key per platform on each target host, and removes account binding after the request.
+- Default reuse mode intentionally leaves at most one reserved probe group/key per platform on each target host, disables it after cleanup, and removes account binding after the request.
 - Probe groups must stay exclusive, grant `user_allowed_groups` only to the probe key owner, and remain direct probe-key only; they must not enter universal-key routing candidates.
 - Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, and `responses` for Codex/OpenAI responses.
 - If the goal is "can the raw upstream credential serve this model" for an API-key-compatible account, direct upstream curl can be a follow-up, but the default gateway probe is the authoritative TokenKey-path proof.

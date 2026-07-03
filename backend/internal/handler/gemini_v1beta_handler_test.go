@@ -50,6 +50,38 @@ func TestGeminiV1BetaHandler_PlatformRoutingInvariant(t *testing.T) {
 	}
 }
 
+func TestGeminiV1BetaGroupPlatformAllowed(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiKey   *service.APIKey
+		expected bool
+	}{
+		{name: "nil key", apiKey: nil, expected: false},
+		{name: "nil group", apiKey: &service.APIKey{}, expected: false},
+		{
+			name:     "gemini group",
+			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformGemini}},
+			expected: true,
+		},
+		{
+			name:     "antigravity group",
+			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformAntigravity}},
+			expected: true,
+		},
+		{
+			name:     "openai group",
+			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, geminiV1BetaGroupPlatformAllowed(tt.apiKey))
+		})
+	}
+}
+
 // TestGeminiV1BetaHandler_ListModelsAntigravityFallback 验证 ListModels 的 antigravity 降级逻辑
 // 当没有 gemini 账户但有 antigravity 账户时，应返回静态模型列表
 func TestGeminiV1BetaHandler_ListModelsAntigravityFallback(t *testing.T) {

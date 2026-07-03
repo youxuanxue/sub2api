@@ -25,15 +25,42 @@ PSQL_ARRAY=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -
 PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
 
-# Canonical prod source groups (case-sensitive); override via env if needed.
-declare -A SOURCE_GROUP=(
-	[anthropic]="${PROBE_ANTHROPIC_MIRROR_GROUP:-claude}"
-	[openai]="${PROBE_OPENAI_SOURCE_GROUP:-GPT专线}"
-	[gemini]="${PROBE_GEMINI_PLATFORM_SOURCE_GROUP:-Gemini-PA}"
-	[antigravity]="${PROBE_ANTIGRAVITY_SOURCE_GROUP:-Google-Gemini}"
-	[newapi]="${PROBE_NEWAPI_SOURCE_GROUP:-Qwen}"
-	[kiro]="${PROBE_KIRO_SOURCE_GROUP:-kiro}"
-	[grok]="${PROBE_GROK_SOURCE_GROUP:-grok}"
+# Canonical prod source group ids. Display names are operator-editable and have
+# drifted often enough to produce false config_error rows; legacy name overrides
+# remain available only for explicit diagnostics.
+probe_source_group_id() { # $1=logical source pool
+	case "$1" in
+	openai) echo 2 ;;
+	anthropic_mirror) echo 1 ;;
+	gemini_vertex) echo 16 ;;
+	dashscope) echo 18 ;;
+	grok_prod) echo 25 ;;
+	antigravity) echo 21 ;;
+	*)
+		echo "probe-endpoint-matrix: unknown source group key '$1'" >&2
+		return 1
+		;;
+	esac
+}
+
+declare -A SOURCE_GROUP_ID=(
+	[anthropic]="${PROBE_ANTHROPIC_MIRROR_GROUP_ID:-$(probe_source_group_id anthropic_mirror)}"
+	[openai]="${PROBE_OPENAI_SOURCE_GROUP_ID:-$(probe_source_group_id openai)}"
+	[gemini]="${PROBE_GEMINI_SOURCE_GROUP_ID:-$(probe_source_group_id gemini_vertex)}"
+	[antigravity]="${PROBE_ANTIGRAVITY_SOURCE_GROUP_ID:-$(probe_source_group_id antigravity)}"
+	[newapi]="${PROBE_NEWAPI_SOURCE_GROUP_ID:-${PROBE_DASHSCOPE_SOURCE_GROUP_ID:-$(probe_source_group_id dashscope)}}"
+	[kiro]="${PROBE_KIRO_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic_mirror)}"
+	[grok]="${PROBE_GROK_SOURCE_GROUP_ID:-$(probe_source_group_id grok_prod)}"
+)
+
+declare -A SOURCE_GROUP_NAME=(
+	[anthropic]="${PROBE_ANTHROPIC_MIRROR_GROUP:-}"
+	[openai]="${PROBE_OPENAI_SOURCE_GROUP:-}"
+	[gemini]="${PROBE_GEMINI_PLATFORM_SOURCE_GROUP:-${PROBE_GEMINI_SOURCE_GROUP:-}}"
+	[antigravity]="${PROBE_ANTIGRAVITY_SOURCE_GROUP:-}"
+	[newapi]="${PROBE_NEWAPI_SOURCE_GROUP:-${PROBE_DASHSCOPE_SOURCE_GROUP:-}}"
+	[kiro]="${PROBE_KIRO_SOURCE_GROUP:-}"
+	[grok]="${PROBE_GROK_SOURCE_GROUP:-}"
 )
 
 MODEL_claude='claude-sonnet-4-6'
@@ -64,6 +91,76 @@ classify_route() { # $1=code $2=bodyfile -> open|closed|other
 }
 
 snippet() { head -c 180 "$1" | tr '\n' ' ' | sed 's/[[:space:]]+/ /g'; }
+
+copy_source_group_policy() { # $1=bind_kind $2=bind_val
+	local bind_kind="$1" bind_val="$2" where=""
+	if [[ ! "$TK_PROBE_GROUP_ID" =~ ^[0-9]+$ ]]; then
+		return 0
+	fi
+	case "$bind_kind" in
+	source_group)
+		where="src.name = '$(tk_probe_sql_escape "$bind_val")'"
+		;;
+	group_like)
+		where="src.name = '$(tk_probe_sql_escape "${bind_val%%|*}")'"
+		;;
+	source_group_id)
+		[[ "$bind_val" =~ ^[0-9]+$ ]] || return 0
+		where="src.id = ${bind_val}"
+		;;
+	group_id_like)
+		local source_group_id="${bind_val%%|*}"
+		[[ "$source_group_id" =~ ^[0-9]+$ ]] || return 0
+		where="src.id = ${source_group_id}"
+		;;
+	*)
+		return 0
+		;;
+	esac
+	tk_probe_psql -c "
+UPDATE groups dst
+SET
+  allow_messages_dispatch = src.allow_messages_dispatch,
+  messages_dispatch_model_config = src.messages_dispatch_model_config,
+  allow_image_generation = src.allow_image_generation,
+  updated_at = NOW()
+FROM groups src
+WHERE dst.id = ${TK_PROBE_GROUP_ID}
+  AND ${where}
+  AND src.deleted_at IS NULL;
+" >/dev/null 2>&1 || true # preflight-allow: swallow
+	tk_probe_psql -c "
+UPDATE api_keys
+SET updated_at = NOW()
+WHERE group_id = ${TK_PROBE_GROUP_ID}
+  AND deleted_at IS NULL;
+" >/dev/null 2>&1 || true # preflight-allow: swallow
+}
+
+prepare_route_gate_probe() { # $1=scope $2=platform $3=bind_kind $4=bind_val
+	local scope="$1" platform="$2" bind_kind="$3" bind_val="$4"
+	if tk_probe_prepare_catalog "$scope" "$platform" "$bind_kind" "$bind_val"; then
+		copy_source_group_policy "$bind_kind" "$bind_val"
+		return 0
+	fi
+	scope="${TK_PROBE_SCOPE:-$scope}"
+
+	# Route-gate evidence is still meaningful with an empty probe group: closed
+	# endpoints return the local 404 feature gate, while open endpoints proceed
+	# to scheduler/account selection and usually report 429 no-available-accounts.
+	TK_PROBE_GROUP_ID=""
+	TK_PROBE_KEY=""
+	TK_PROBE_KEY_ID=""
+	if ! tk_probe_acquire_reuse_lock "$scope"; then
+		return 1
+	fi
+	tk_probe_ensure_group "$scope" "$platform" || return 1
+	tk_probe_ensure_key "$scope" || return 1
+	tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};" >/dev/null 2>&1 || true # preflight-allow: route-gate empty pool fallback
+	copy_source_group_policy "$bind_kind" "$bind_val"
+	echo "probe-endpoint-matrix: continuing with empty probe group for route-gate scope=$scope platform=$platform source=$bind_kind:$bind_val" >&2
+	return 0
+}
 
 body_messages() {
 	local m="$1"
@@ -166,63 +263,54 @@ tk_probe_catalog_cleanup() {
 
 main() {
 	trap tk_probe_catalog_cleanup EXIT
-	local platform scope source bind_kind bind_val key
+	local platform scope source_name source_id bind_kind bind_val key
 
 	printf 'platform\tendpoint\thttp_code\troute_verdict\tsnippet\n'
 
 	for platform in anthropic openai gemini antigravity newapi kiro grok; do
 		scope="endpoint_matrix_${platform}"
-		source="${SOURCE_GROUP[$platform]:-}"
-		bind_kind=source_group
-		bind_val="$source"
+		source_name="${SOURCE_GROUP_NAME[$platform]:-}"
+		source_id="${SOURCE_GROUP_ID[$platform]:-}"
+		if [ -n "$source_name" ]; then
+			bind_kind=source_group
+			bind_val="$source_name"
+		else
+			bind_kind=source_group_id
+			bind_val="$source_id"
+		fi
 
 		# anthropic prod matrix uses cc-* mirrors (platform=anthropic on claude group)
 		if [ "$platform" = anthropic ]; then
-			bind_kind=group_like
-			bind_val="${source}|cc-%"
+			if [ -n "$source_name" ]; then
+				bind_kind=group_like
+				bind_val="${source_name}|cc-%"
+			else
+				bind_kind=group_id_like
+				bind_val="${source_id}|cc-%"
+			fi
 		fi
 		# kiro: prod has no native platform=kiro customer group; bind kiro-* prod
 		# mirrors (platform=anthropic credentials) while keeping probe group.platform=kiro
 		# so route gates match a kiro-platform API key.
 		if [ "$platform" = kiro ]; then
-			bind_kind=group_like
-			bind_val="${SOURCE_GROUP[anthropic]}|kiro-%"
+			if [ -n "$source_name" ]; then
+				bind_kind=group_like
+				bind_val="${source_name}|kiro-%"
+			else
+				bind_kind=group_id_like
+				bind_val="${source_id}|kiro-%"
+			fi
 		fi
 		# grok on prod: grok group schedules on prod gateway (mirrors may relay to edge)
 		if [ "$platform" = grok ]; then
 			:
 		fi
 
-		if ! tk_probe_prepare_catalog "$scope" "$platform" "$bind_kind" "$bind_val"; then
-			emit "$platform" '*' '000' 'config_error' "failed source=$source bind=$bind_kind:$bind_val"
+		if ! prepare_route_gate_probe "$scope" "$platform" "$bind_kind" "$bind_val"; then
+			emit "$platform" '*' '000' 'config_error' "failed source_id=$source_id source_name=$source_name bind=$bind_kind:$bind_val"
 			continue
 		fi
-		# Mirror dispatch + image flags from the canonical source group so messages
-		# probes reflect prod group policy (probe groups default allow_messages_dispatch=false).
-		if [ "$bind_kind" = source_group ]; then
-			tk_probe_psql -c "
-UPDATE groups dst
-SET
-  allow_messages_dispatch = src.allow_messages_dispatch,
-  messages_dispatch_model_config = src.messages_dispatch_model_config,
-  allow_image_generation = src.allow_image_generation,
-  updated_at = NOW()
-FROM groups src
-WHERE dst.id = ${TK_PROBE_GROUP_ID}
-  AND src.name = '$(tk_probe_sql_escape "$source")'
-  AND src.deleted_at IS NULL;
-" >/dev/null 2>&1 || true # preflight-allow: swallow
-			# Bust in-memory API key cache: group policy is copied above but running
-			# replicas may still serve stale AllowMessagesDispatch from Redis until
-			# the key row is touched.
-			tk_probe_psql -c "
-UPDATE api_keys
-SET updated_at = NOW()
-WHERE group_id = ${TK_PROBE_GROUP_ID}
-  AND deleted_at IS NULL;
-" >/dev/null 2>&1 || true # preflight-allow: swallow
-		fi
-		TK_PROBE_CATALOG_SCOPES="${TK_PROBE_CATALOG_SCOPES} ${scope}"
+		TK_PROBE_CATALOG_SCOPES="${TK_PROBE_CATALOG_SCOPES} ${TK_PROBE_SCOPE:-$scope}"
 		key="$TK_PROBE_KEY"
 		pick_auth_and_probe "$platform" "$key"
 		sleep 1
