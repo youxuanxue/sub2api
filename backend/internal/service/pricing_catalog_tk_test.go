@@ -332,8 +332,9 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 
 // TestPublicCatalog_FiltersUnservableClaudeAndGpt covers the support filter
 // (pricing_catalog_supported_models_tk.go): retired/unservable claude + gpt
-// rows are pruned, servable ones kept, newapi long-tail rows require a
-// tk_served_models.json entry, and other vendors pass through unchanged.
+// rows are pruned, servable ones kept, newapi long-tail rows require
+// display=true in tk_served_models.json, and unknown vendors stay hidden until
+// a universal platform mapping exists.
 func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	const fixture = `{
 	  "claude-opus-4-8":           {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
@@ -345,7 +346,9 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	  "gemini-2.5-pro":            {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
 	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"},
 	  "deepseek-v3-2-251201":      {"input_cost_per_token":0.0000002,"output_cost_per_token":0.0000004,"litellm_provider":"volcengine"},
-	  "glm-4-32b-0414-128k":       {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"}
+	  "glm-4-32b-0414-128k":       {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"},
+	  "glm-5-turbo":               {"input_cost_per_token":0.0000012,"output_cost_per_token":0.000004,"litellm_provider":"zhipu"},
+	  "minimax-m2.7":              {"input_cost_per_token":0.000001,"output_cost_per_token":0.000008,"litellm_provider":"minimax"}
 	}`
 	s := &PricingCatalogService{}
 	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
@@ -371,11 +374,12 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.False(t, got["claude-opus-4-6-20260205"], "dated-snapshot claude pruned")
 	assert.False(t, got["gpt-4o"], "unservable gpt pruned")
 	assert.False(t, got["gpt-3.5-turbo"], "legacy gpt pruned")
-	// Other vendors untouched (filter only curates claude + gpt families).
 	assert.True(t, got["gemini-2.5-pro"], "gemini vendor passes through")
-	assert.True(t, got["deepseek-chat"], "manifest-listed deepseek kept")
+	assert.True(t, got["deepseek-chat"], "manifest display=true deepseek kept")
 	assert.False(t, got["deepseek-v3-2-251201"], "priced-but-unlisted volcengine residue pruned")
 	assert.False(t, got["glm-4-32b-0414-128k"], "withdrawn GLM SKU pruned from storefront")
+	assert.False(t, got["glm-5-turbo"], "manifest display=false GLM SKU hidden from storefront")
+	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
 }
 
 func TestIsPublicCatalogModelSupported(t *testing.T) {
@@ -384,14 +388,17 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		want          bool
 	}{
 		{"anthropic", "claude-opus-4-8", true},
+		{"anthropic", "claude-fable-5", true},
+		{"anthropic", "claude-opus-4-1", true},
 		{"anthropic", "claude-3-haiku-20240307", false},
 		{"anthropic", "claude-opus-4-6-20260205", false},
 		{"openai", "gpt-5.4", true},
-		{"openai", "gpt-5.6-sol", true},
-		{"openai", "gpt-5.6-terra", true},
-		{"openai", "gpt-5.6-luna", true},
-		{"openai", "gpt-5.6", true},
-		{"openai", "gpt-5.6-chat-latest", true},
+		{"openai", "gpt-5.5-pro", false},
+		{"openai", "gpt-5.6-sol", false},
+		{"openai", "gpt-5.6-terra", false},
+		{"openai", "gpt-5.6-luna", false},
+		{"openai", "gpt-5.6", false},
+		{"openai", "gpt-5.6-chat-latest", false},
 		{"openai", "gpt-5-mini", true},   // servable extra beyond canonical
 		{"openai", "gpt-5.2", false},     // canonical but probe-unservable (502)
 		{"openai", "gpt-image-2", false}, // not servable on a probeable path
@@ -402,6 +409,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"volcengine", "deepseek-v3-2-251201", false},
 		{"zhipu", "glm-4-32b-0414-128k", false},
 		{"zhipu", "glm-5.2", true},
+		{"zhipu", "glm-5-turbo", false},
 		// antigravity (2026-06-13 empirical probe, refreshed 2026-06-23): gated to the gemini-only set.
 		{"antigravity", "gemini-2.5-flash", true},
 		{"antigravity", "gemini-2.5-flash-lite", true},
@@ -433,7 +441,10 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"xai", "grok-latest", false}, // priced alias, not public-listed
 		{"volcengine", "doubao-seedream-4-0-250828", true},
 		{"volcengine", "doubao-seedance-1-0-pro-250528", true},
-		{"", "anything", true}, // unknown vendor: pass-through
+		{"", "anything", false},             // unknown vendor: hidden
+		{"minimax", "minimax-m2.7", false},  // priced but not mapped to universal platform
+		{"moonshot", "kimi-k2.6", false},    // priced but not mapped to universal platform
+		{"bedrock", "bedrock-model", false}, // priced but not mapped to universal platform
 	}
 	for _, c := range cases {
 		assert.Equalf(t, c.want, isPublicCatalogModelSupported(c.vendor, c.model),

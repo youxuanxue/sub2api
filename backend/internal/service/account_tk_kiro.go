@@ -90,6 +90,26 @@ func KiroAdminTestModels() []claude.Model {
 	}
 }
 
+// kiroMirrorStubSupportsModel constrains prod Anthropic API-key mirror stubs
+// that forward to the Kiro platform. They intentionally have empty
+// credentials.model_mapping so older menu code could still show a useful
+// catalog, but empty mapping must not mean "all Anthropic models" for routing:
+// the downstream Kiro pool rejects Fable and older Opus ids even when CC API-key
+// accounts in the same Anthropic group can serve them.
+func kiroMirrorStubSupportsModel(requestedModel string) bool {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return true
+	}
+	normalized := claude.NormalizeModelID(requestedModel)
+	for _, m := range KiroAdminTestModels() {
+		if requestedModel == m.ID || normalized == m.ID {
+			return true
+		}
+	}
+	return false
+}
+
 // CanonicalKiroTLSProfileName is the name of the TLS fingerprint profile captured
 // from a real Kiro IDE ClientHello (deploy/aws/stage0/tk_canonical_kiro_ide.json,
 // seeded by migration tk_014). It is intentionally distinct from the Claude Code

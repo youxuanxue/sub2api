@@ -75,22 +75,25 @@
         "supportedGeminiCatalogModels",
         "supportedAntigravityCatalogModels",
         "supportedGrokCatalogModels",
+        "isTkCuratedNewAPICatalogRowDisplayed",
         "servable-allowlist:begin anthropic",
         "servable-allowlist:begin openai",
         "servable-allowlist:begin gemini",
         "servable-allowlist:begin antigravity",
         "servable-allowlist:begin grok"
       ],
-      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels, gemini-only per operator policy — claude routed to anthropic, gpt-oss off antigravity) is hand-maintained from the 2026-06-13 empirical probe (the refresh tool has no antigravity family, so it never rewrites the antigravity anchors); losing it silently reverts antigravity to passthrough. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail vendors are gated separately via tk_served_models_manifest_tk.go."
+      "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels, gemini-only per operator policy — claude routed to anthropic, gpt-oss off antigravity) is hand-maintained from the 2026-06-13 empirical probe (the refresh tool has no antigravity family, so it never rewrites the antigravity anchors); losing it silently reverts antigravity to passthrough. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
       "must_contain": [
         "//go:embed tk_served_models.json",
         "func isTkCuratedNewAPIModelListed(",
+        "func isTkCuratedNewAPIModelDisplayed(",
+        "func isTkCuratedNewAPICatalogRowDisplayed(",
         "func isNewAPILongTailCatalogVendor("
       ],
-      "rationale": "Runtime embed of tk_served_models.json — gates public /pricing and newapi Group Catalog whitelist rows to manifest-listed models only. Without it, priced overlay residue (deepseek-v3-2-251201) and withdrawn SKUs reappear on the storefront and mislead users into 400/429 requests."
+      "rationale": "Runtime embed of tk_served_models.json — gates runtime newapi intent to manifest-listed models and public /pricing + Group Catalog display rows to manifest display=true only. Without it, priced overlay residue (deepseek-v3-2-251201), withdrawn SKUs, or entitlement-blocked GLM rows reappear on storefront/menu surfaces and mislead users into 400/429 requests while still looking priced."
     },
     {
       "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
@@ -117,7 +120,7 @@
         "TestSupportedCatalogModelIDsForPlatform_Antigravity",
         "TestSupportedCatalogModelIDsForPlatform_Grok"
       ],
-      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, the antigravity gate is gemini-only (claude + gpt-oss excluded), and non-curated vendors pass through. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
+      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, the antigravity gate is gemini-only (claude + gpt-oss excluded), curated newapi display=false rows are hidden, and unknown/unmapped vendors stay hidden until a universal mapping exists. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",
@@ -183,7 +186,7 @@
         "#812-class gap",
         "def _selftest("
       ],
-      "rationale": "The served-models manifest drift guard — asserts backend/internal/service/tk_served_models.json (the THIN intent layer: 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no') AGREES with the three mechanisms it sits above: (A1) tk_pricing_overlay.json non-zero price, (A2) the Go servable-allowlist maps in pricing_catalog_supported_models_tk.go (display=true => present, parsed between the `servable-allowlist:begin/end <platform>` markers), and (A3) the tk_*.sql model_mapping migrations (served_on account => quoted model_id co-occurs with `id = <account>`). A3 is the #812-catching direction: a model priced + advertised-as-intended but never wired onto the serving account's model_mapping yields an empty pool => 429/503. The `served-via-admin-ui` literal is the reviewable A3 opt-out for mappings applied out-of-band of any migration (needed for deepseek-v4-pro/flash on account 39, whose model_mapping predates the tk_*.sql era). Pinning the script + its load-bearing literals stops a silent drop on upstream merge (the guard would otherwise just stop running with no compile error) and forces any rename of the splice markers / opt-out token to update this anchor in the same change. Wired into scripts/preflight.sh ('sub2api: catalog serving drift') and .github/workflows/upstream-merge-pr-shape.yml (Check 14) — preflight/CI parity."
+      "rationale": "The served-models manifest drift guard — asserts backend/internal/service/tk_served_models.json (the THIN intent layer: 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no') AGREES with the mechanisms it sits above: (A1) tk_pricing_overlay.json non-zero price, (A2) display intent (native display=true => present in the Go servable-allowlist maps parsed between the `servable-allowlist:begin/end <platform>` markers; newapi display is owned by this manifest), and (A3) the tk_*.sql model_mapping migrations (served_on account => quoted model_id co-occurs with `id = <account>`). A3 is the #812-catching direction: a model priced + advertised-as-intended but never wired onto the serving account's model_mapping yields an empty pool => 429/503. The `served-via-admin-ui` literal is the reviewable A3 opt-out for mappings applied out-of-band of any migration (needed for deepseek-v4-pro/flash on account 39, whose model_mapping predates the tk_*.sql era). Pinning the script + its load-bearing literals stops a silent drop on upstream merge (the guard would otherwise just stop running with no compile error) and forces any rename of the splice markers / opt-out token to update this anchor in the same change. Wired into scripts/preflight.sh ('sub2api: catalog serving drift') and .github/workflows/upstream-merge-pr-shape.yml (Check 14) — preflight/CI parity."
     },
     {
       "path": "backend/internal/service/tk_served_models.json",

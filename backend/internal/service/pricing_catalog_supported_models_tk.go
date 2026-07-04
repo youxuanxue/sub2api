@@ -91,12 +91,6 @@ import (
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
-	// claude-fable-5 prep (2026-07-01): Anthropic announced Fable 5 restoration
-	// after the US Commerce export-control lift; OAuth fleet was still 404 on
-	// 2026-07-01 edge probes, so this is an operator prep entry (pricing/Menu
-	// ready before upstream 200). Self-heal still prunes model_not_found until
-	// live traffic confirms servability; refresh-servable-allowlist.py keeps the
-	// empirical contract on the next full probe.
 	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},
 	"claude-opus-4-1":   {},
@@ -128,12 +122,6 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.4-mini":        {},
 	"gpt-5.4-pro":         {},
 	"gpt-5.5":             {},
-	"gpt-5.5-pro":         {},
-	"gpt-5.6":             {},
-	"gpt-5.6-chat-latest": {},
-	"gpt-5.6-luna":        {},
-	"gpt-5.6-sol":         {},
-	"gpt-5.6-terra":       {},
 	// servable-allowlist:end openai
 }
 
@@ -218,11 +206,12 @@ var supportedGrokCatalogModels = map[string]struct{}{
 // decoration path.
 func isPublicCatalogModelSupported(vendor, modelID string) bool {
 	// Fifth-platform newapi long-tail: only manifest-listed models may appear on
-	// /pricing. Unlisted newapi long-tail residue is excluded from BuildPublicCatalog
-	// overlay fill and from IsModelPriced membership; native platforms use their
-	// empirical allowlists below.
+	// /pricing when their manifest display bit is true. Unlisted newapi long-tail
+	// residue is excluded from BuildPublicCatalog overlay fill and from
+	// IsModelPriced membership; hidden-but-listed rows may remain priced and
+	// explicitly servable, but are not advertised.
 	if isNewAPILongTailCatalogVendor(vendor) {
-		return isTkCuratedNewAPICatalogRowListed(vendor, modelID)
+		return isTkCuratedNewAPICatalogRowDisplayed(vendor, modelID)
 	}
 	switch inferPlatformFromVendor(vendor) {
 	case PlatformAnthropic:
@@ -259,14 +248,14 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 		_, ok := supportedGrokCatalogModels[modelID]
 		return ok
 	default:
-		return true
+		return false
 	}
 }
 
 // FilterPublicCatalogToServable returns a shallow copy of resp with the
-// claude + gpt rows narrowed to the empirically-servable allowlists, the
-// newapi long-tail rows narrowed to tk_served_models.json, and every other
-// vendor's rows pass through unchanged.
+// native rows narrowed to their empirically-servable allowlists and the newapi
+// long-tail rows narrowed to display=true in tk_served_models.json. Unknown
+// vendors are hidden until a universal platform mapping exists.
 //
 // This is the PRESENTATION-layer filter for GET /api/v1/public/pricing ONLY.
 // It deliberately does NOT live inside BuildPublicCatalog / buildCatalogFromBytes,

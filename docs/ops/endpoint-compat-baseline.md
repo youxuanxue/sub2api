@@ -36,6 +36,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | Studio Imagen no-platform triage command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-studio-imagen-no-platform.sh` |
 | Focused parity fix anchors | `backend/internal/service/universal_routing_tk_serving.go`; `backend/internal/service/openai_gateway_service.go`; `backend/internal/service/grok_media.go`; `backend/internal/service/openai_gateway_grok.go`; `backend/internal/service/openai_gateway_grok_video_tk.go`; `backend/internal/web/embed_on.go` |
 | Display remediation state | Imagen standard, Veo 3.1, Grok Imagine image/quality, and Grok Imagine video are live displayed+priced SSOT rows. The post-#1207 focused paid SSOT gate returned `DISPLAY_KEEP=5 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`; direct and universal probes returned matching `200` shapes for the same focused media set. Native Gemini Google One pool (`Google-Gemini` group 8; accounts `gemini-eng-g2`/`gemini-am-g2`) was retired on 2026-07-04 after direct account probes returned upstream `429`; do not claim native Gemini text support until a new pool live-probes `200`. |
+| Non-paid SSOT cleanup state | Post-#1210 live gate returned `DISPLAY_KEEP=321 DISPLAY_BLOCK=86 REPROBE_REQUIRED=1 FAIL=0 EXCLUDED_BLOCK=9`. The in-flight local projection for this cleanup reduces the known action list to `DISPLAY_KEEP=318 DISPLAY_BLOCK=49 REPROBE_REQUIRED=1 FAIL=0 EXCLUDED_BLOCK=9` before deploy by hiding unsupported display rows, blocking known unsupported protocol surfaces, and keeping paid media out of the default gate. Re-run the live gate after deploy before claiming a clean non-paid surface. |
 | Cleanup command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/cleanup-probe-resources.sh` |
 
 ### Evidence Pointers
@@ -54,6 +55,8 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | `/tmp/tokenkey-ssot-focused-newapi-responses-1.8.76-20260703-150240.log` | Focused rerun: selected newapi `/v1/responses` rows are model/protocol-not-provisioned `SKIP`, not gateway schema `FAIL` |
 | `/tmp/tokenkey-ssot-focused-newapi-chat-1.8.76-20260703-150241.log` | Focused rerun: GLM and Qwen preview chat rows pass when probed with required stream / thinking request shape |
 | `/tmp/tokenkey-ssot-display-gate-nonpaid-1.8.76-20260703.log` | SSOT display gate for non-paid rows: `DISPLAY_KEEP=308 DISPLAY_BLOCK=97 REPROBE_REQUIRED=3 FAIL=0 EXCLUDED_BLOCK=9`; gate intentionally fails until non-`keep_displayed` rows are hidden, provisioned, mapped, or reprobed |
+| `/tmp/tokenkey-ssot-display-gate-nonpaid-post1210-20260704T070908Z.log` | Post-native-Gemini-retirement non-paid live gate: `DISPLAY_KEEP=321 DISPLAY_BLOCK=86 REPROBE_REQUIRED=1 FAIL=0 EXCLUDED_BLOCK=9`; native Gemini rows are gone, remaining blockers are display/protocol/provisioning actions. |
+| `/tmp/tokenkey-ssot-display-gate-nonpaid-localprojection-20260704T075010Z.log` | In-flight local projection for the non-paid cleanup: `DISPLAY_KEEP=318 DISPLAY_BLOCK=49 REPROBE_REQUIRED=1 FAIL=0 EXCLUDED_BLOCK=9`; this is not a deployed live result yet. |
 | `/tmp/tokenkey-ssot-gate-paid-media-1.8.76-20260703.log` | Focused paid-media gate: Gemini image and newapi image/video are `keep_displayed`; Gemini video is `hide_or_provision` |
 | `/tmp/tokenkey-ssot-gate-paid-image-full-1.8.76-20260703.log` | Full SSOT paid image gate: `DISPLAY_KEEP=6 DISPLAY_BLOCK=0 REPROBE_REQUIRED=2 FAIL=0`; Gemini image and newapi Seedream rows are display-safe; Grok image rows need retry/non-transient proof |
 | `/tmp/tokenkey-ssot-gate-paid-video-full-1.8.76-20260703.log` | Full SSOT paid video gate: `DISPLAY_KEEP=5 DISPLAY_BLOCK=1 REPROBE_REQUIRED=1 FAIL=0`; newapi Seedance rows are display-safe; Gemini video is `hide_or_provision`; Grok video needs retry/non-transient proof |
@@ -85,6 +88,10 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | `/tmp/tokenkey-media-parity-post1207-20260704T060045Z.log` | post-`v1.8.80` focused paid direct-vs-universal parity: Imagen image, Veo video, Grok image, Grok quality image, Grok `/v1/video/generations`, and Grok xAI-native `/v1/videos/generations` all returned `200` with expected shapes. Universal key id 5 resolved the matching source groups 16/25; direct probe keys reused source-group mirrors. |
 | `/tmp/tokenkey-probe-cleanup-dryrun-post1207-20260704T0602Z.log` | probe-resource cleanup dry-run after post-#1207 paid probes: active probe groups/keys remain `0/0`; no apply needed. |
 | 2026-07-04 prod SSM retirement verification | `Google-Gemini` group 8 and accounts 22/24 are soft-deleted; `account_groups` and `user_allowed_groups` rows for group 8 are `0`; `probe-caps PLATFORM=gemini` shows no active Gemini accounts and Redis `active_ids` is empty; probe cleanup shows active `__tk_probe_*` resources `0/0`. |
+| `/tmp/tokenkey-anthropic-caps-fable-check-20260704T075317Z.log` | Anthropic group 1 has active native API-key accounts `cc-us5`/`cc-us6` plus Kiro mirror stubs. Recent prod errors show Kiro mirror stubs reject `claude-fable-5` and `claude-opus-4-1`; those stubs must not claim the full Anthropic catalog. |
+| `/tmp/tokenkey-account50-cc-us5-fable-messages-20260704T075400Z.log` | Account-model probe: native Anthropic account 50 `cc-us5` served `claude-fable-5` on `/v1/messages` with HTTP `200`; usage attribution matched account 50. |
+| `/tmp/tokenkey-account50-cc-us5-opus41-messages-20260704T080501Z.log` | Account-model probe: native Anthropic account 50 `cc-us5` served `claude-opus-4-1` on `/v1/messages` with HTTP `200`; usage attribution matched account 50. |
+| `/tmp/tokenkey-account55-cc-us6-fable-messages-after-reset-20260704T080253Z.log` | Account-model probe: native Anthropic account 55 `cc-us6` returned gateway `429 No available accounts` while carrying Fable class cooldown. Operator confirmed this was quota/cooldown, not evidence that the model is unsupported. |
 
 ## Compatibility Matrix
 
@@ -92,6 +99,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 |---|---|---|---|---|---|---|
 | anthropic | `/v1/messages`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported | direct route-gate log; universal retry log | No text rerun needed unless Anthropic capacity/account pool changes. |
 | anthropic | `/v1/messages/count_tokens` | open | route_open_unservable: empty direct probe pool returned `429` | supported | direct route-gate log; universal retry log | Count-tokens universal path is covered; direct live support needs a schedulable direct pool. |
+| anthropic group 1 native API-key accounts | `/v1/messages` for `claude-fable-5` and `claude-opus-4-1` | open | supported on native account 50 `cc-us5`; account 55 `cc-us6` quota/cooldown is not unsupported evidence | pre-fix universal/direct can wrongly select Kiro mirror stubs in the same group and return Kiro unsupported-model errors | account-model probe logs; caps/error triage | Deploy the Kiro mirror-stub model gate so Fable/Opus 4.1 select native Anthropic accounts only, then rerun direct-vs-universal parity. |
 | openai | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text and responses | direct route-gate log; universal retry log | No full-matrix rerun needed unless OpenAI gateway routing changes. |
 | openai | image `gpt-image-1` | unknown | unknown | not_authorized for the current universal key in the hardcoded matrix; not present in the current displayed+priced SSOT paid-media rows | paid-media post-1.8.76 log; focused paid-media gate | If OpenAI image should be a visible product surface, first add the catalog/entitlement path, then require a `keep_displayed` gate result. |
 | openai | embeddings `text-embedding-3-small` | unknown | unknown | unknown: repeated hardcoded-matrix SKIP `429`; not present in the current displayed+priced SSOT matrix | universal logs; embedding retry log; focused embedding gate | Do not treat this as display-safe. If OpenAI embeddings should be displayed, add the SSOT pricing/catalog row and rerun the embedding gate with a non-throttled pool. |
@@ -106,7 +114,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | kiro | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported for text | direct route-gate log; universal retry log | If direct Kiro serving is claimed, run account-model probe against the target account/model. |
 | grok | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | No full-matrix rerun needed unless Grok model default or relay changes. |
 | all platforms with `/v1/responses` GET prelude | WebSocket prelude | open: `426` upgrade required | unknown | unknown | direct route-gate log | Treat `426` as expected route-open prelude, not a failure. |
-| public `/pricing` SSOT projection | all derived non-paid model/protocol rows | n/a | n/a | no gateway schema `FAIL`, but the display gate is not clean: 308 rows can stay displayed, 97 rows should hide/provision, 3 rows need reprobe, and 9 excluded rows need mapping or hiding | SSOT matrix list, full non-paid run, focused rerun logs, display gate log | Use this as the full-matrix source and release gate. Do not hand-maintain a second all-model list. Paid rows are never proven by default; each paid media claim needs an explicit `--include-paid` gate. |
+| public `/pricing` SSOT projection | all derived non-paid model/protocol rows | n/a | n/a | no gateway schema `FAIL`, but the display gate must be clean before product claim. Post-#1210 live gate: 321 keep, 86 block, 1 reprobe, 9 excluded. In-flight local projection: 318 keep, 49 block, 1 reprobe, 9 excluded before deploy. | SSOT matrix list, full non-paid run, focused rerun logs, display gate logs | Use this as the full-matrix source and release gate. Do not hand-maintain a second all-model list. Paid rows are never proven by default; each paid media claim needs an explicit `--include-paid` gate. |
 
 ## Display Gate Rule
 
@@ -126,15 +134,21 @@ public /pricing row + SSOT matrix probe verdict -> display gate action
 
 This keeps `/pricing` as the single derived matrix source while turning every
 `SKIP` or excluded displayed+priced row into a concrete product action.
+For curated newapi rows, `tk_served_models.json` uses the existing `display`
+boolean as the display projection: `display=true` means priced+mapped+allowed on
+public catalog/menu surfaces; `display=false` keeps runtime pricing/mapping
+intent but hides the row until provisioning or a later SSOT gate proves it.
 
 ## Next Probe Focus
 
-1. Treat the non-paid display gate as the current product action list. The
-   dominant `hide_or_provision` blockers are selected newapi `/v1/responses`,
-   Antigravity/Gemini OpenAI-compatible text protocols, Grok non-default
-   `/v1/messages`, future OpenAI catalog rows, and a small Anthropic catalog
-   prep set. Either hide/disable those model+protocol surfaces or provision
-   real support; do not leave them as visible "maybe works" entries.
+1. Treat the post-#1210 non-paid display gate as the current product action
+   list. The cleanup path is: hide future OpenAI rows (`gpt-5.5-pro`,
+   `gpt-5.6*`) until provisioned, hide entitlement-blocked GLM rows
+   (`glm-4.5-airx`, `glm-4.5-x`, `glm-4.7-flashx`, `glm-5-turbo`), hide
+   unmapped vendors by default, and block known unsupported protocol surfaces
+   such as Antigravity chat/responses, Grok non-default messages, and selected
+   newapi responses. Fable/Opus 4.1 should stay visible only through native
+   Anthropic accounts, not Kiro mirror stubs.
 2. Embeddings are not display-safe. `text-embedding-3-small` is not currently
    in the displayed+priced SSOT matrix, and the displayed Vertex AI embedding
    rows are `hide_or_map_vendor`. Decide whether to map/provision universal
@@ -147,13 +161,13 @@ This keeps `/pricing` as the single derived matrix source while turning every
    projection contains the priced row and the focused paid SSOT gate returns
    `keep_displayed`. `gpt-image-1` is still only a hardcoded probe row for the
    current key, not a displayed+priced SSOT row.
-4. Reprobe the three `reprobe_required` rows from the non-paid gate with a
-   longer timeout or a cleaner pool before deciding whether they are displayable
-   or should join the hide/provision list.
-5. The SSOT matrix currently excludes public-pricing rows whose vendors do not
-   map to a universal platform/endpoint candidate. Decide whether those rows
-   should become real universal surfaces or be removed/hidden from the relevant
-   catalog surface.
+4. Reprobe the remaining `reprobe_required` non-paid row with a longer timeout
+   or a cleaner pool before deciding whether it is displayable or should join
+   the hide/provision list.
+5. Excluded public-pricing rows whose vendors do not map to a universal
+   platform/endpoint candidate should remain hidden by default. Re-display only
+   after a real platform mapping/provisioning path exists and the gate returns
+   `keep_displayed`.
 6. Run the SSOT display gate before release close-out:
    `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --show-excluded`
    for non-paid rows, and add `--include-paid` when paid media is intentionally

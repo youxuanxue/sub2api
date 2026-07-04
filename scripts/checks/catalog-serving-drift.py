@@ -9,8 +9,9 @@ mechanisms and must AGREE with each:
   (1) per-account credentials.model_mapping — the runtime servable WHITELIST, written
       by tk_NNN_*.sql migrations (and admin-UI edits). The DECLARED-served signal.
   (2) tk_pricing_overlay.json + the runtime litellm mirror — the PRICE.
-  (3) the Go servable-allowlist maps in pricing_catalog_supported_models_tk.go — the
-      curated DISPLAY allowlist (only anthropic/openai/gemini/antigravity have one).
+  (3) display intent — newapi uses this manifest's `display` bit directly; native
+      platforms still use the Go servable-allowlist maps in
+      pricing_catalog_supported_models_tk.go.
 
 This guard hardens the #812-class regression (a model priced + advertised-as-intended
 but never actually wired onto the serving account's model_mapping => empty pool =>
@@ -20,8 +21,8 @@ but never actually wired onto the serving account's model_mapping => empty pool 
   A1 PRICE        every entry resolves to a non-zero price in its declared price_source
                   (overlay key > 0 for the mode; mirror => overlay does not zero it;
                   channel => notes documents the channel source).            HARD-FAIL
-  A2 DISPLAY      display==true => model_id present in the platform's Go allowlist map.
-                  newapi has NO map, so every newapi entry MUST be display=false.  HARD
+  A2 DISPLAY      native display==true => model_id present in the platform's Go
+                  allowlist map. newapi display is owned by this manifest.     HARD
   A3 SERVED_ON    every served_on account => some tk_*.sql model_mapping migration maps
                   model_id onto that account (quoted id co-occurring with `id = <A>`).
                   This is the #812-catching direction.                        HARD-FAIL
@@ -62,7 +63,7 @@ MODE_FIELDS = {
     "chat": ("input_cost_per_token", "output_cost_per_token"),
 }
 
-# Platforms that actually have a Go servable-allowlist map (A2 only meaningful here).
+# Native platforms that actually have a Go servable-allowlist map.
 ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity")
 
 # A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
@@ -236,11 +237,12 @@ def evaluate(
                 )
 
         # ---- A2 display => allowlist -------------------------------------------
-        if entry["display"]:
+        if entry["display"] and platform != "newapi":
             if platform not in ALLOWLIST_PLATFORMS:
                 errors.append(
                     f"{key}: display=true on platform {platform!r} which has NO Go "
-                    f"servable-allowlist map — display must be false (false promise guard)"
+                    f"servable-allowlist map or manifest display owner — display must "
+                    f"be false (false promise guard)"
                 )
             elif model_id not in allowlist.get(platform, set()):
                 errors.append(
@@ -325,7 +327,7 @@ def _selftest() -> int:
         "newapi/good-chat": {
             "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": False, "notes": "ok",
+            "display": True, "notes": "ok",
         },
         "newapi/mirror-chat": {
             "platform": "newapi", "model_id": "mirror-chat", "served_on": ["60"],
@@ -382,8 +384,8 @@ def _selftest() -> int:
         failures.append("A1: $0 overlay shadowing a mirror entry not flagged")
 
     # --- A2: display=true on a no-map platform, and missing from a real map -----
-    errs, _ = run({"newapi/disp": {
-        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
+    errs, _ = run({"other/disp": {
+        "platform": "bedrock", "model_id": "good-chat", "served_on": ["60"],
         "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
         "display": True, "notes": "served-via-admin-ui",
     }})

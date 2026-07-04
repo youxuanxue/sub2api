@@ -6,11 +6,26 @@ func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
 	if !isTkCuratedNewAPIModelListed("deepseek-chat") {
 		t.Fatal("deepseek-chat must be manifest-listed")
 	}
+	if !isTkCuratedNewAPIModelListed("glm-5-turbo") {
+		t.Fatal("hidden GLM models remain manifest-listed for account presets/pricing intent")
+	}
 	if isTkCuratedNewAPIModelListed("deepseek-v3-2-251201") {
 		t.Fatal("deepseek-v3-2-251201 must not be manifest-listed")
 	}
 	if isTkCuratedNewAPIModelListed("glm-4-32b-0414-128k") {
 		t.Fatal("glm-4-32b-0414-128k must not be manifest-listed after upstream 400 withdrawal")
+	}
+}
+
+func TestIsTkCuratedNewAPIModelDisplayed(t *testing.T) {
+	if !isTkCuratedNewAPIModelDisplayed("deepseek-chat") {
+		t.Fatal("display=true manifest rows must be public-display eligible")
+	}
+	if isTkCuratedNewAPIModelDisplayed("glm-5-turbo") {
+		t.Fatal("display=false manifest rows must stay hidden from public catalog")
+	}
+	if isTkCuratedNewAPIModelDisplayed("deepseek-v3-2-251201") {
+		t.Fatal("unlisted models must not be public-display eligible")
 	}
 }
 

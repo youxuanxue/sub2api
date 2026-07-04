@@ -25,11 +25,13 @@ type tkServedModelsManifestFile struct {
 type tkServedModelsManifestEntry struct {
 	ModelID     string `json:"model_id"`
 	ChannelType int    `json:"channel_type"`
+	Display     bool   `json:"display"`
 }
 
 var (
 	tkServedModelsManifestOnce             sync.Once
 	tkServedModelsManifestIDs              map[string]struct{}
+	tkServedModelsManifestDisplayIDs       map[string]struct{}
 	tkServedModelsManifestIDsByChannelType map[int][]string
 )
 
@@ -43,16 +45,21 @@ func loadTkServedModelsManifest() {
 		var doc tkServedModelsManifestFile
 		if err := json.Unmarshal(tkServedModelsManifestRaw, &doc); err != nil {
 			tkServedModelsManifestIDs = map[string]struct{}{}
+			tkServedModelsManifestDisplayIDs = map[string]struct{}{}
 			tkServedModelsManifestIDsByChannelType = map[int][]string{}
 			return
 		}
 		out := make(map[string]struct{}, len(doc.Entries))
+		display := make(map[string]struct{}, len(doc.Entries))
 		byChannel := make(map[int]map[string]struct{})
 		for _, e := range doc.Entries {
 			if e.ModelID == "" {
 				continue
 			}
 			out[e.ModelID] = struct{}{}
+			if e.Display {
+				display[e.ModelID] = struct{}{}
+			}
 			if e.ChannelType <= 0 {
 				continue
 			}
@@ -62,6 +69,7 @@ func loadTkServedModelsManifest() {
 			byChannel[e.ChannelType][e.ModelID] = struct{}{}
 		}
 		tkServedModelsManifestIDs = out
+		tkServedModelsManifestDisplayIDs = display
 		tkServedModelsManifestIDsByChannelType = make(map[int][]string, len(byChannel))
 		for ct, ids := range byChannel {
 			list := make([]string, 0, len(ids))
@@ -102,6 +110,20 @@ func isTkCuratedNewAPIModelListed(modelID string) bool {
 	return ok
 }
 
+// isTkCuratedNewAPIModelDisplayed reports whether a manifest-listed model is
+// allowed to appear in public catalog/model-menu surfaces. It is deliberately
+// narrower than isTkCuratedNewAPIModelListed: listing means the model is a
+// priced/wired runtime candidate; display means the latest SSOT gate says the
+// product can safely advertise it.
+func isTkCuratedNewAPIModelDisplayed(modelID string) bool {
+	if modelID == "" {
+		return false
+	}
+	loadTkServedModelsManifest()
+	_, ok := tkServedModelsManifestDisplayIDs[modelID]
+	return ok
+}
+
 // isTkCuratedNewAPICatalogRowListed is the shared SSOT gate for newapi long-tail
 // rows across /pricing display, IsModelPriced membership, and overlay fill.
 // Native platforms and unrelated vendors pass through unchanged.
@@ -110,6 +132,17 @@ func isTkCuratedNewAPICatalogRowListed(vendor, modelID string) bool {
 		return true
 	}
 	return isTkCuratedNewAPIModelListed(modelID)
+}
+
+// isTkCuratedNewAPICatalogRowDisplayed is the display-surface sibling of
+// isTkCuratedNewAPICatalogRowListed. Hidden manifest rows may still be priced
+// and usable by explicitly mapped accounts, but public /pricing must not
+// advertise them until the SSOT display gate marks them display=true.
+func isTkCuratedNewAPICatalogRowDisplayed(vendor, modelID string) bool {
+	if !isNewAPILongTailCatalogVendor(vendor) {
+		return true
+	}
+	return isTkCuratedNewAPIModelDisplayed(modelID)
 }
 
 // isNewAPILongTailCatalogVendor reports whether a catalog row's vendor string
