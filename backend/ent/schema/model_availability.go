@@ -57,6 +57,8 @@ func (ModelAvailability) Mixin() []ent.Mixin {
 
 func (ModelAvailability) Fields() []ent.Field {
 	return []ent.Field{
+		// SSOT: must match domain.Platform* constants in
+		// internal/domain/constants.go (all 7 gateway platforms).
 		field.Enum("platform").
 			Values("openai", "anthropic", "gemini", "antigravity", "newapi", "kiro", "grok"),
 		field.String("model_id").

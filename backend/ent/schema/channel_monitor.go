@@ -34,6 +34,9 @@ func (ChannelMonitor) Fields() []ent.Field {
 		field.String("name").
 			NotEmpty().
 			MaxLen(100),
+		// SSOT: must match MonitorProvider* constants in
+		// internal/service/channel_monitor_const.go. Only platforms with
+		// implemented monitoring adapters are listed here.
 		field.Enum("provider").
 			Values("openai", "anthropic", "gemini"),
 		field.String("api_mode").

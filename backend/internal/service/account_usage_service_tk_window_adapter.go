@@ -2,13 +2,14 @@ package service
 
 type accountUsageWindowAdapter string
 
+// SSOT: platform values sourced from domain.Platform* via domain_constants.go.
 const (
 	accountUsageWindowAdapterUnsupported accountUsageWindowAdapter = ""
-	accountUsageWindowAdapterAnthropic   accountUsageWindowAdapter = "anthropic"
-	accountUsageWindowAdapterOpenAI      accountUsageWindowAdapter = "openai"
-	accountUsageWindowAdapterGemini      accountUsageWindowAdapter = "gemini"
-	accountUsageWindowAdapterAntigravity accountUsageWindowAdapter = "antigravity"
-	accountUsageWindowAdapterKiro        accountUsageWindowAdapter = "kiro"
+	accountUsageWindowAdapterAnthropic   accountUsageWindowAdapter = PlatformAnthropic
+	accountUsageWindowAdapterOpenAI      accountUsageWindowAdapter = PlatformOpenAI
+	accountUsageWindowAdapterGemini      accountUsageWindowAdapter = PlatformGemini
+	accountUsageWindowAdapterAntigravity accountUsageWindowAdapter = PlatformAntigravity
+	accountUsageWindowAdapterKiro        accountUsageWindowAdapter = PlatformKiro
 	accountUsageWindowAdapterLocal       accountUsageWindowAdapter = "local"
 )
 

@@ -52,7 +52,7 @@ const (
 	ContentModerationProtocolAnthropicMessages = "anthropic_messages"
 	ContentModerationProtocolOpenAIResponses   = "openai_responses"
 	ContentModerationProtocolOpenAIChat        = "openai_chat_completions"
-	ContentModerationProtocolGemini            = "gemini"
+	ContentModerationProtocolGemini            = "gemini" // protocol enum value, not platform — coincidentally matches PlatformGemini
 	ContentModerationProtocolOpenAIImages      = "openai_images"
 
 	defaultContentModerationBaseURL   = "https://api.openai.com"
@@ -2765,7 +2765,7 @@ func (s *ContentModerationService) RecordCyberPolicyEvent(ctx context.Context, i
 		GroupID:         cloneInt64Ptr(in.GroupID),
 		GroupName:       in.GroupName,
 		Endpoint:        in.Endpoint,
-		Provider:        "openai",
+		Provider:        PlatformOpenAI, // SSOT: domain.Platform* via domain_constants.go
 		Model:           in.Model,
 		Mode:            "post_upstream",
 		Action:          ContentModerationActionCyberPolicy,

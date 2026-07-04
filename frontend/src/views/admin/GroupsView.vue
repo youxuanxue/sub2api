@@ -129,20 +129,7 @@
 
           <template #cell-platform="{ value }">
             <span
-              :class="[
-                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                value === 'anthropic'
-                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                    : value === 'openai'
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    : value === 'newapi'
-                      ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-                      : value === 'antigravity'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                        : value === 'grok'
-                          ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-              ]"
+              :class="tkAdminGroupsPlatformTableCellClass(value)"
             >
               <PlatformIcon :platform="value" size="xs" />
               {{ t("admin.groups.platforms." + value) }}
@@ -936,7 +923,7 @@
         </div>
 
         <!-- 支持的模型系列（仅 antigravity 平台） -->
-        <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-if="createForm.platform === PLATFORM_ANTIGRAVITY" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.supportedScopes.title") }}
@@ -1010,7 +997,7 @@
         </div>
 
         <!-- MCP XML 协议注入（仅 antigravity 平台） -->
-        <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-if="createForm.platform === PLATFORM_ANTIGRAVITY" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.mcpXml.title") }}
@@ -1067,7 +1054,7 @@
         </div>
 
         <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
-        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-if="createForm.platform === PLATFORM_ANTHROPIC" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.claudeCode.title") }}
@@ -1425,9 +1412,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini/NewAPI) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini', 'newapi'].includes(
-              createForm.platform,
-            )
+            hasAccountFilters(createForm.platform)
           "
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4 space-y-4"
         >
@@ -1436,7 +1421,7 @@
           </h4>
 
           <!-- require_oauth_only toggle (newapi 账号始终是 API Key 形态，隐藏) -->
-          <div v-if="createForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <div v-if="hasOAuthAccounts(createForm.platform)" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >{{ t("admin.groups.accountFilters.oauthOnly") }}</label
@@ -1473,7 +1458,7 @@
           </div>
 
           <!-- require_privacy_set toggle (newapi 账号无 OAuth privacy 字段，隐藏) -->
-          <div v-if="createForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <div v-if="hasOAuthAccounts(createForm.platform)" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >{{ t("admin.groups.accountFilters.privacySetOnly") }}</label
@@ -1530,7 +1515,7 @@
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
         <div
           v-if="
-            ['anthropic', 'antigravity'].includes(createForm.platform) &&
+            hasInvalidRequestFallback(createForm.platform) &&
             createForm.subscription_type !== 'subscription'
           "
           class="border-t pt-4"
@@ -1549,7 +1534,7 @@
         </div>
 
         <!-- 模型路由配置（仅 anthropic 平台） -->
-        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-if="createForm.platform === PLATFORM_ANTHROPIC" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.modelRouting.title") }}
@@ -2341,7 +2326,7 @@
         </div>
 
         <!-- 支持的模型系列（仅 antigravity 平台） -->
-        <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-if="editForm.platform === PLATFORM_ANTIGRAVITY" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.supportedScopes.title") }}
@@ -2415,7 +2400,7 @@
         </div>
 
         <!-- MCP XML 协议注入（仅 antigravity 平台） -->
-        <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-if="editForm.platform === PLATFORM_ANTIGRAVITY" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.mcpXml.title") }}
@@ -2472,7 +2457,7 @@
         </div>
 
         <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
-        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-if="editForm.platform === PLATFORM_ANTHROPIC" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.claudeCode.title") }}
@@ -2826,9 +2811,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini/NewAPI) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini', 'newapi'].includes(
-              editForm.platform,
-            )
+            hasAccountFilters(editForm.platform)
           "
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4 space-y-4"
         >
@@ -2837,7 +2820,7 @@
           </h4>
 
           <!-- require_oauth_only toggle (newapi 账号始终是 API Key 形态，隐藏) -->
-          <div v-if="editForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <div v-if="hasOAuthAccounts(editForm.platform)" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >{{ t("admin.groups.accountFilters.oauthOnly") }}</label
@@ -2874,7 +2857,7 @@
           </div>
 
           <!-- require_privacy_set toggle (newapi 账号无 OAuth privacy 字段，隐藏) -->
-          <div v-if="editForm.platform !== 'newapi'" class="flex items-center justify-between">
+          <div v-if="hasOAuthAccounts(editForm.platform)" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >{{ t("admin.groups.accountFilters.privacySetOnly") }}</label
@@ -2931,7 +2914,7 @@
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
         <div
           v-if="
-            ['anthropic', 'antigravity'].includes(editForm.platform) &&
+            hasInvalidRequestFallback(editForm.platform) &&
             editForm.subscription_type !== 'subscription'
           "
           class="border-t pt-4"
@@ -2950,7 +2933,7 @@
         </div>
 
         <!-- 模型路由配置（仅 anthropic 平台） -->
-        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-if="editForm.platform === PLATFORM_ANTHROPIC" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.modelRouting.title") }}
@@ -3229,17 +3212,7 @@
                 <span
                   :class="[
                     'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-                    group.platform === 'anthropic'
-                      ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                      : group.platform === 'openai'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : group.platform === 'newapi'
-                          ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
-                          : group.platform === 'antigravity'
-                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                            : group.platform === 'grok'
-                              ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                    tkAdminPlatformSoftBadgeClass(group.platform),
                   ]"
                 >
                   {{ t("admin.groups.platforms." + group.platform) }}
@@ -3333,7 +3306,17 @@ import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 import { usePlatformOptions } from "@/composables/usePlatformOptions";
-import { isOpenAICompatPlatform, hasMessagesDispatchConfig } from "@/constants/gatewayPlatforms";
+import {
+  isOpenAICompatPlatform,
+  hasMessagesDispatchConfig,
+  hasAccountFilters,
+  hasInvalidRequestFallback,
+  hasOAuthAccounts,
+  tkAdminGroupsPlatformTableCellClass,
+  tkAdminPlatformSoftBadgeClass,
+  PLATFORM_ANTHROPIC,
+  PLATFORM_ANTIGRAVITY,
+} from "@/constants/gatewayPlatforms";
 import { supportsGroupImagePricing } from "@/constants/groupImagePricing.tk";
 import {
   createDefaultMessagesDispatchFormState,
@@ -3507,7 +3490,7 @@ const fallbackGroupOptions = computed(() => {
   ];
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === "anthropic" &&
+      g.platform === PLATFORM_ANTHROPIC &&
       !g.claude_code_only &&
       g.status === "active",
   );
@@ -3525,7 +3508,7 @@ const fallbackGroupOptionsForEdit = computed(() => {
   const currentId = editingGroup.value?.id;
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === "anthropic" &&
+      g.platform === PLATFORM_ANTHROPIC &&
       !g.claude_code_only &&
       g.status === "active" &&
       g.id !== currentId,
@@ -3550,7 +3533,7 @@ const invalidRequestFallbackOptions = computed(() => {
   ];
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === "anthropic" &&
+      g.platform === PLATFORM_ANTHROPIC &&
       g.status === "active" &&
       g.subscription_type !== "subscription" &&
       g.fallback_group_id_on_invalid_request === null,
@@ -3569,7 +3552,7 @@ const invalidRequestFallbackOptionsForEdit = computed(() => {
   const currentId = editingGroup.value?.id;
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === "anthropic" &&
+      g.platform === PLATFORM_ANTHROPIC &&
       g.status === "active" &&
       g.subscription_type !== "subscription" &&
       g.fallback_group_id_on_invalid_request === null &&
@@ -3675,7 +3658,7 @@ const editModelsListSelectedCount = computed(
 const createForm = reactive({
   name: "",
   description: "",
-  platform: "anthropic" as GroupPlatform,
+  platform: PLATFORM_ANTHROPIC as GroupPlatform,
   rate_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
@@ -3799,7 +3782,7 @@ const accountSearchRunner = useKeyedDebouncedSearch<SimpleAccount[]>({
       20,
       {
         search: keyword,
-        platform: "anthropic",
+        platform: PLATFORM_ANTHROPIC,
       },
       { signal },
     );
@@ -4015,7 +3998,7 @@ const convertApiFormatToRoutingRules = async (
 const editForm = reactive({
   name: "",
   description: "",
-  platform: "anthropic" as GroupPlatform,
+  platform: PLATFORM_ANTHROPIC as GroupPlatform,
   rate_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
@@ -4295,7 +4278,7 @@ const closeCreateModal = () => {
   clearAllAccountSearchState();
   createForm.name = "";
   createForm.description = "";
-  createForm.platform = "anthropic";
+  createForm.platform = PLATFORM_ANTHROPIC;
   createForm.rate_multiplier = 1.0;
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
@@ -4715,7 +4698,7 @@ watch(
 watch(
   () => createForm.platform,
   (newVal) => {
-    if (!["anthropic", "antigravity"].includes(newVal)) {
+    if (!hasInvalidRequestFallback(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
     if (!hasMessagesDispatchConfig(newVal)) {
@@ -4727,7 +4710,7 @@ watch(
       createForm.haiku_mapped_model = mapped.haiku_mapped_model;
       createForm.exact_model_mappings = [];
     }
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!hasAccountFilters(newVal) || !hasOAuthAccounts(newVal)) {
       // require_oauth_only / require_privacy_set are OAuth-credential semantics;
       // newapi accounts are always API-key-shaped so the toggles are meaningless
       // there — falling through to the reset path keeps the values cleared.
@@ -4742,7 +4725,7 @@ watch(
 watch(
   () => editForm.platform,
   (newVal) => {
-    if (!["anthropic", "antigravity"].includes(newVal)) {
+    if (!hasInvalidRequestFallback(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
     if (!hasMessagesDispatchConfig(newVal)) {
@@ -4754,7 +4737,7 @@ watch(
       editForm.haiku_mapped_model = mapped.haiku_mapped_model;
       editForm.exact_model_mappings = [];
     }
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!hasAccountFilters(newVal) || !hasOAuthAccounts(newVal)) {
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
     }
@@ -4768,7 +4751,7 @@ watch(
 watch(
   () => editForm.platform,
   (newVal) => {
-    if (!['anthropic', 'antigravity'].includes(newVal)) {
+    if (!hasInvalidRequestFallback(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
     if (!isOpenAICompatPlatform(newVal)) {

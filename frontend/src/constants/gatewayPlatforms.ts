@@ -71,6 +71,49 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_BASE =
 export const CREATE_ACCOUNT_PLATFORM_SEGMENT_INACTIVE =
   'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
 
+// --- Platform string constants (use instead of inline literals) ---------------
+
+export const PLATFORM_ANTHROPIC = 'anthropic' as const
+export const PLATFORM_OPENAI = 'openai' as const
+export const PLATFORM_GEMINI = 'gemini' as const
+export const PLATFORM_ANTIGRAVITY = 'antigravity' as const
+export const PLATFORM_NEWAPI = 'newapi' as const
+export const PLATFORM_KIRO = 'kiro' as const
+export const PLATFORM_GROK = 'grok' as const
+
+// --- Admin group form predicates (GroupsView.vue SSOT) -----------------------
+
+/**
+ * Platforms that show the account-filter section (OAuth-only / privacy-set /
+ * sticky-routing toggles) in the admin groups create/edit forms.
+ * newapi is included but its OAuth/privacy toggles are individually hidden
+ * (newapi accounts are always API-key shaped).
+ */
+export const ACCOUNT_FILTER_PLATFORMS: readonly AccountPlatform[] = [
+  'openai', 'antigravity', 'anthropic', 'gemini', 'newapi',
+] as const
+
+export function hasAccountFilters(platform: string | null | undefined): boolean {
+  if (!platform) return false
+  return (ACCOUNT_FILTER_PLATFORMS as readonly string[]).includes(platform)
+}
+
+/** Platforms that support the invalid-request fallback group (anthropic + antigravity). */
+export const INVALID_REQUEST_FALLBACK_PLATFORMS: readonly AccountPlatform[] = [
+  'anthropic', 'antigravity',
+] as const
+
+export function hasInvalidRequestFallback(platform: string | null | undefined): boolean {
+  if (!platform) return false
+  return (INVALID_REQUEST_FALLBACK_PLATFORMS as readonly string[]).includes(platform)
+}
+
+/** True when the platform has OAuth accounts and the OAuth/privacy toggles should be visible. */
+export function hasOAuthAccounts(platform: string | null | undefined): boolean {
+  if (!platform) return false
+  return platform !== 'newapi'
+}
+
 // --- TokenKey admin UI visuals (merged from adminPlatformVisualStyles.tk) ---
 
 const SOFT_BADGE: Record<string, string> = {
