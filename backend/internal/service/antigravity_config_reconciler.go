@@ -222,15 +222,25 @@ func (r *AntigravityConfigReconciler) tryAcquireLock() (func(), bool) {
 // unpriced Antigravity models that would bill at $0. Two
 // complementary checks (mirroring the post-rollout check-antigravity-account-config.py
 // invariant so the reconciler heals exactly what the check flags):
-//   - scan the resolved mapping keys for a claude-* / gpt-oss-* prefix or
+//   - scan the persisted model_mapping keys for a claude-* / gpt-oss-* prefix or
 //     structural-dead/unpriced key — catches ANY excluded id (e.g.
 //     claude-opus-4-8), stale Antigravity aliases, and $0-risk models, not just
 //     the probe ids, and catches the empty-map case (which resolves to
-//     DefaultAntigravityModelMapping);
+//     DefaultAntigravityModelMapping), without treating synthetic safety-net
+//     Gemini aliases as persisted drift;
 //   - probe the representative ids — catches a catch-all wildcard (e.g. "*") that
 //     would match claude/gpt-oss without carrying a literal claude-* key.
 func antigravityCanServeExcluded(a *Account) bool {
-	for k := range a.GetModelMapping() {
+	if a == nil {
+		return false
+	}
+	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
+	if len(rawMapping) == 0 {
+		// Empty / malformed custom mappings fall back to DefaultAntigravityModelMapping,
+		// which still contains excluded families and compatibility aliases.
+		return true
+	}
+	for k := range rawMapping {
 		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
 			return true
 		}

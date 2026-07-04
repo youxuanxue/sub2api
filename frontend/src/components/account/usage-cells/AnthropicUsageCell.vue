@@ -57,6 +57,13 @@
         :resets-at="usageInfo.seven_day_sonnet.resets_at"
         color="purple"
       />
+      <UsageProgressBar
+        v-if="usageInfo.seven_day_fable"
+        label="7d F"
+        :utilization="usageInfo.seven_day_fable.utilization"
+        :resets-at="usageInfo.seven_day_fable.resets_at"
+        color="amber"
+      />
       <UpstreamQuotaSummary
         :quota="usageInfo.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
@@ -115,7 +122,8 @@ const rootRef = ref<HTMLElement | null>(null)
 const upstreamQuotaWindowDimensionKeys = [
   'anthropic_5h',
   'anthropic_7d',
-  'anthropic_7d_sonnet'
+  'anthropic_7d_sonnet',
+  'anthropic_7d_fable'
 ]
 
 const { loading, activeQueryLoading, error, usageInfo, loadActiveUsage } = useAccountUsageFetch(

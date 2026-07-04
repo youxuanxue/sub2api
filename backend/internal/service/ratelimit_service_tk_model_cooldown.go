@@ -160,6 +160,13 @@ func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(
 		return false
 	}
 	class := tkAnthropicModelClass(requestedModel)
+	if class == anthropicModelClassFable {
+		// Fable has a dedicated upstream 7d_oi window and family scope
+		// (anthropicFableRateLimitKey). Without that header signal, keep the
+		// legacy account-level 429 path instead of inventing a generic class
+		// cooldown from a healthy 5h/7d response.
+		return false
+	}
 	scopeKey := tkAnthropicModelClassScopeKey(class)
 	if scopeKey == "" {
 		// Unknown model class (or no model context at the call site): cannot

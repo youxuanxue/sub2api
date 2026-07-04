@@ -391,6 +391,63 @@ func TestUpdateSessionWindow_NoClearUtilizationOnCorrection(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionWindow_SamplesFable7dOiHeaders(t *testing.T) {
+	// 被动采样应收集 7d_oi（Fable 专属 7d 窗口）的 utilization 和 reset。
+	existingEnd := time.Now().Add(3 * time.Hour)
+	resetOIUnix := time.Now().Add(80 * time.Hour).Unix()
+
+	repo := &sessionWindowMockRepo{}
+	svc := newRateLimitServiceForTest(repo)
+
+	account := &Account{ID: 90, SessionWindowEnd: &existingEnd} // needInitWindow=false
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-utilization", "0.87")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", fmt.Sprintf("%d", resetOIUnix))
+
+	svc.UpdateSessionWindow(context.Background(), account, headers)
+
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra call, got %d", len(repo.updateExtraCalls))
+	}
+	updates := repo.updateExtraCalls[0].Updates
+	if val, ok := updates["passive_usage_7d_oi_utilization"].(float64); !ok || val != 0.87 {
+		t.Errorf("expected passive_usage_7d_oi_utilization=0.87, got %v", updates["passive_usage_7d_oi_utilization"])
+	}
+	if val, ok := updates["passive_usage_7d_oi_reset"].(int64); !ok || val != resetOIUnix {
+		t.Errorf("expected passive_usage_7d_oi_reset=%d, got %v", resetOIUnix, updates["passive_usage_7d_oi_reset"])
+	}
+}
+
+func TestUpdateSessionWindow_DoesNotClearFable7dOiOnWindowReset(t *testing.T) {
+	// 5h 窗口重置只清 5h utilization；7d_oi 是独立的 Fable 7d 窗口，
+	// 不能被每天多次发生的 5h roll 清掉。
+	resetUnix := time.Now().Add(3 * time.Hour).Unix()
+
+	repo := &sessionWindowMockRepo{}
+	svc := newRateLimitServiceForTest(repo)
+
+	account := &Account{ID: 91} // no existing window → needInitWindow=true
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-5h-reset", fmt.Sprintf("%d", resetUnix))
+
+	svc.UpdateSessionWindow(context.Background(), account, headers)
+
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra (clear) call, got %d", len(repo.updateExtraCalls))
+	}
+	clearUpdates := repo.updateExtraCalls[0].Updates
+	if clearUpdates["session_window_utilization"] != nil {
+		t.Errorf("expected session_window_utilization cleared to nil, got %v", clearUpdates["session_window_utilization"])
+	}
+	for _, key := range []string{"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset"} {
+		if val, present := clearUpdates[key]; present {
+			t.Errorf("5h roll must not clear %s, got val=%v", key, val)
+		}
+	}
+}
+
 func TestUpdateSessionWindow_NoStatusHeader(t *testing.T) {
 	// Should return immediately if no status header.
 	repo := &sessionWindowMockRepo{}
