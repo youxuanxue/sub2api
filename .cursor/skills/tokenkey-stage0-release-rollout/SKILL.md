@@ -13,9 +13,10 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（`bump-and-tag` 且 main 受保护时自动 `exec release-bump-via-pr.sh`；永不写共享 checkout） |
-| **VERSION bump 经 PR（main 分支保护）** | 机械 | `bash scripts/release-bump-via-pr.sh [--dry-run] [--pr N]`（worktree bump → PR → CI → squash merge → `release-bump-and-tag.sh` tag-only） |
-| main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（`gh api …/branches/main/protection`） |
+| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（默认 **direct-push**；仅 `release-main-push-route`=`bump-via-pr` 时 delegate `release-bump-via-pr.sh`；永不写共享 checkout） |
+| **发版 bypass 一次性配置（scheme 1）** | 机械 | `bash scripts/release-configure-main-bypass.sh`（个人仓库：`enforce_admins=false`；组织仓库：`bypass_pull_request_allowances.users`） |
+| **VERSION bump 经 PR（fallback）** | 机械 | `bash scripts/release-bump-via-pr.sh [--dry-run] [--pr N]`（仅当当前 gh 账号无法 direct-push 时） |
+| main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（读 protection + 当前 gh 用户 bypass 能力） |
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用） |
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
@@ -125,7 +126,17 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 - GitHub Environment：**`prod`**、各 Edge 的 `edge-<edge_id>`（若有 Required reviewers，需人工批准）。新 edge 可参考已上线 edge 的变量/密钥结构，但 `EDGE_GHCR_PAT_SSM_NAME` 必须使用该 edge 自己的 SSM 路径。
 - **禁止**：VERSION bump / 发版 commit 的正文里出现字面量 `[skip ci]` 或 `[ci skip]`（任意位置都不行）。
 
-## 决策 + bump + tag：worktree 隔离（两条 bump 路径）
+## 决策 + bump + tag：worktree 隔离（scheme 1 默认 direct-push）
+
+**一次性配置**（新机器 / 新协作者 / fork 后；已配可 `--check`）：
+
+```bash
+bash scripts/release-configure-main-bypass.sh          # 写入 GitHub 分支保护
+bash scripts/release-configure-main-bypass.sh --check  # 期望 release-main-push-route=direct-push
+```
+
+- **个人仓库**（`youxuanxue/sub2api`）：GitHub 不支持 bypass 用户列表 → 脚本设 `enforce_admins=false`，**仅 repo admin** 可 bypass PR 规则直推 VERSION bump；协作者仍须 PR。
+- **组织仓库**：合并 `TK_RELEASE_BYPASS_USERS` 到 `bypass_pull_request_allowances.users`。
 
 **发版前先决策**（只读）：
 
@@ -147,7 +158,7 @@ bash scripts/release-bump-and-tag.sh            # decide → bump（direct 或 P
 | `bump-and-tag` + `release-main-push-route` = **direct-push** | worktree bump → `push origin HEAD:main` → tag |
 | `bump-and-tag` + route = **bump-via-pr** | 自动 `exec release-bump-via-pr.sh`（PR → merge → tag-only） |
 
-**protected main 子流程**（也可单独跑/resume）：
+**protected main 子流程（fallback）**（`release-main-push-route` = `bump-via-pr` 时）：
 
 ```bash
 bash scripts/release-bump-via-pr.sh              # 全流程
@@ -663,7 +674,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | 现象 | 处理 |
 |------|------|
 | `release-bump-and-tag.sh` 无输出且 exit 1（action=tag-only） | 已修：`field()` grep 无匹配 + `set -e` 静默退出。升级后重跑；临时绕过 = worktree @ origin/main + `release-tag.sh vX.Y.Z`。 |
-| `push origin HEAD:main` / GH006 **Protected branch** | 不要手改保护规则。跑 `bash scripts/release-bump-via-pr.sh`（或让 `release-bump-and-tag.sh` 自动 delegate）。 |
+| `push origin HEAD:main` / GH006 **Protected branch** | 先 `bash scripts/release-configure-main-bypass.sh`；仍失败则 fallback `release-bump-via-pr.sh`。 |
 | bump PR CI 仅 **preflight** flaky fail | `gh run rerun <run_id> --failed`，再 `release-bump-via-pr.sh --pr <N>`；不要改 VERSION 对冲。 |
 | 发版后残留 `sub2api-release-*` / `sub2api-bump-pr-*` worktree | `git worktree list` → `git worktree remove --force <path>`；否则后续 `worktree add` / `gh pr merge --delete-branch` 会失败。 |
 | release 时主 checkout 在别的分支 / 有别人的 WIP | 正常现象（并行 agent），不要去切分支、stash 或还原别人的文件；release 脚本本来就不读写当前 checkout。 |
@@ -694,6 +705,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 - `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；protected main 时 delegate PR 子流程）。
 - `scripts/release-bump-via-pr.sh` — VERSION bump 经 PR + merge + tag。
+- `scripts/release-configure-main-bypass.sh` — scheme 1：发版账号 bypass（个人 repo / 组织 repo 双路径）。
 - `scripts/release-main-push-route.sh` — direct-push vs bump-via-pr 探测。
 - `scripts/stage0/approve-github-run-env.sh` — Environment 门禁自批（warm / prod / edge）。
 - `scripts/release-decide-version.sh` — VERSION/tag 三态决策。
