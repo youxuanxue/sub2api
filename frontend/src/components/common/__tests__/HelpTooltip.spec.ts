@@ -77,4 +77,32 @@ describe('HelpTooltip', () => {
 
     wrapper.unmount()
   })
+
+  it('opens on hover and toggles on click when trigger is both', async () => {
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: {
+        content: 'both details',
+        trigger: 'both',
+      },
+    })
+
+    const trigger = wrapper.get('.group')
+    const tooltip = getTooltipElement()
+
+    await trigger.trigger('mouseenter')
+    await nextTick()
+    expect(tooltip.style.display).not.toBe('none')
+
+    await trigger.trigger('mouseleave')
+    await nextTick()
+    expect(tooltip.style.display).toBe('none')
+
+    await trigger.trigger('click')
+    await nextTick()
+    expect(tooltip.style.display).not.toBe('none')
+    expect(tooltip.textContent).toContain('both details')
+
+    wrapper.unmount()
+  })
 })

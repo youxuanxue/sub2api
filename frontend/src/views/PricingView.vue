@@ -8,66 +8,90 @@
     "
   >
     <main
-      class="relative z-10 flex min-h-0 flex-1 flex-col px-4 pt-8 sm:px-6"
+      class="relative z-10 flex min-h-0 flex-1 flex-col px-4 pt-3 sm:px-6 sm:pt-4"
       :class="pricingCatalogScrollMode ? 'overflow-hidden pb-4' : 'pb-16'"
     >
-      <!-- Sticky chrome: nav + hero (when catalog table is shown, only tbody scrolls) -->
-      <div class="mx-auto w-full max-w-[90rem] shrink-0 pb-4">
-        <header class="relative z-20 py-4 sm:py-0">
-          <nav
-            class="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-4"
-            :aria-label="t('pricing.nav.aria')"
-          >
-            <div class="flex flex-wrap items-center gap-2">
-              <router-link to="/home" :class="NAV_LINK_CLASS">
+      <!-- Compact chrome: nav + title + actions in one band (table body scrolls below) -->
+      <div
+        class="mx-auto w-full max-w-[90rem] shrink-0 border-b border-gray-200/80 pb-2 dark:border-dark-800"
+        data-tk="pricing-page-header"
+      >
+        <div class="flex flex-wrap items-start gap-x-3 gap-y-2 py-1.5 lg:flex-nowrap lg:items-center">
+          <div class="flex min-w-0 flex-wrap items-center gap-2.5 sm:gap-3">
+            <nav class="flex shrink-0 items-center gap-1.5" :aria-label="t('pricing.nav.aria')">
+              <router-link to="/home" :class="NAV_LINK_COMPACT_CLASS">
                 <Icon name="home" size="sm" :class="NAV_ICON_CLASS" />
-                <span>{{ t('pricing.nav.home') }}</span>
+                <span class="hidden sm:inline">{{ t('pricing.nav.home') }}</span>
               </router-link>
-              <router-link :to="consolePath" :class="NAV_LINK_CLASS" :title="consoleLinkTitle">
+              <router-link
+                :to="consolePath"
+                :class="NAV_LINK_COMPACT_CLASS"
+                :title="consoleLinkTitle"
+              >
                 <Icon name="grid" size="sm" :class="NAV_ICON_CLASS" />
-                <span>{{ t('pricing.nav.console') }}</span>
+                <span class="hidden sm:inline">{{ t('pricing.nav.console') }}</span>
               </router-link>
+            </nav>
+            <span
+              class="hidden h-4 w-px shrink-0 bg-gray-200 dark:bg-dark-700 sm:block"
+              aria-hidden="true"
+            />
+            <div class="min-w-0 shrink-0">
+              <h1
+                class="truncate text-base font-semibold tracking-tight text-gray-900 dark:text-white sm:text-lg"
+              >
+                {{ heroTitle }}
+              </h1>
             </div>
-            <LocaleSwitcher />
-          </nav>
-        </header>
-
-        <div class="mt-6 text-center sm:mt-8">
-          <h1
-            class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl"
+          </div>
+          <p
+            class="min-w-0 flex-1 text-left text-[11px] leading-snug text-gray-500 dark:text-dark-400 sm:text-xs"
+            data-tk="pricing-description-inline"
           >
-            {{ heroTitle }}
-          </h1>
-          <p class="mt-3 text-base text-gray-600 dark:text-dark-300">
-            {{ heroSubtitle }}
-          </p>
-          <p class="mx-auto mt-4 max-w-3xl text-sm text-gray-500 dark:text-dark-400">
             {{ heroDescription }}
           </p>
-          <div
-            v-if="bonusCtaVisible"
-            class="mx-auto mt-8 flex max-w-lg flex-col items-center gap-3 rounded-2xl border border-primary-200/70 bg-primary-50/90 px-6 py-5 text-center shadow-sm dark:border-primary-900/40 dark:bg-primary-950/40"
-          >
+          <div class="flex shrink-0 items-center gap-2">
             <router-link
+              v-if="bonusCtaVisible"
               to="/register"
-              class="inline-flex items-center justify-center rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
+              class="hidden rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 sm:inline-flex"
             >
               {{ t('pricing.ctaBonus', { amount: signupBonusFormatted }) }}
             </router-link>
-            <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
+            <button
+              v-if="canExportPricing && !loading && !errorMessage && rowTotal > 0"
+              type="button"
+              :disabled="exporting"
+              class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:text-xs"
+              data-tk="pricing-export-csv"
+              @click="onExportPricing"
+            >
+              <Icon name="download" size="sm" :stroke-width="2" />
+              <span class="hidden sm:inline">{{ t('pricing.export.button') }}</span>
+            </button>
+            <LocaleSwitcher />
           </div>
-
         </div>
+        <p
+          v-if="!loading && !errorMessage && rowTotal > 0"
+          class="truncate text-[11px] tabular-nums text-gray-500 dark:text-dark-400"
+          data-tk="pricing-active-catalog"
+        >
+          {{ activeCatalogLabel }}
+          <span v-if="formattedUpdatedAt" class="text-gray-400 dark:text-dark-500">
+            · {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
+          </span>
+        </p>
       </div>
 
       <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
         <!-- Unified catalog filters: key, group/public scope, search. -->
         <div
           v-if="!loading && !errorMessage"
-          class="mb-4 flex flex-col gap-3"
+          class="mb-2 mt-2 flex flex-col gap-2"
         >
           <div
-            class="rounded-2xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-dark-800 dark:bg-dark-900/70"
+            class="rounded-xl border border-gray-200 bg-white/80 px-3 py-2 shadow-sm dark:border-dark-800 dark:bg-dark-900/70"
           >
             <div
               class="grid gap-3"
@@ -138,7 +162,7 @@
               </label>
             </div>
 
-            <div class="mt-3 flex flex-col gap-3 border-t border-gray-100 pt-3 dark:border-dark-800 sm:flex-row sm:items-center sm:justify-between">
+            <div class="mt-2 flex flex-col gap-2 border-t border-gray-100 pt-2 dark:border-dark-800 sm:flex-row sm:items-center sm:justify-between">
               <div role="tablist" class="flex w-fit rounded-lg border border-gray-200 bg-white p-0.5 text-xs font-medium dark:border-dark-700 dark:bg-dark-900">
                 <button
                   v-for="opt in modalityOptions"
@@ -240,22 +264,6 @@
           class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-800 dark:bg-dark-900"
           data-tk="cold-start-pricing-table"
         >
-          <div
-            class="flex shrink-0 flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <p class="text-xs text-gray-500 dark:text-dark-400" data-tk="pricing-active-catalog">{{ activeCatalogLabel }}</p>
-            <button
-              v-if="canExportPricing"
-              type="button"
-              :disabled="exporting"
-              class="inline-flex items-center gap-1.5 self-start rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:self-auto"
-              data-tk="pricing-export-csv"
-              @click="onExportPricing"
-            >
-              <Icon name="download" size="sm" :stroke-width="2" />
-              {{ t('pricing.export.button') }}
-            </button>
-          </div>
           <p
             class="shrink-0 border-b border-gray-100 bg-gray-50/50 px-4 py-2 text-xs text-gray-500 dark:border-dark-800 dark:bg-dark-800/30 dark:text-dark-400 lg:hidden"
           >
@@ -495,7 +503,7 @@
               </table>
             </div>
             <div
-              class="flex shrink-0 flex-col gap-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between dark:border-dark-800 dark:bg-dark-800/40 dark:text-dark-400"
+              class="flex shrink-0 flex-col gap-1 border-t border-gray-100 bg-gray-50/60 px-4 py-2 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between dark:border-dark-800 dark:bg-dark-800/40 dark:text-dark-400"
             >
               <p class="text-left tabular-nums">
                 <template v-if="hasClientFilterActive">
@@ -509,9 +517,6 @@
                 <template v-else>
                   {{ t('pricing.footer.total', { count: rowTotal }) }}
                 </template>
-              </p>
-              <p class="text-left sm:text-right">
-                {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
               </p>
             </div>
           </div>
@@ -620,8 +625,8 @@ const bonusCtaVisible = computed(() => {
 })
 
 /** Shared nav pill styles — single source to reduce churn vs upstream-style pages. */
-const NAV_LINK_CLASS =
-  'group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200'
+const NAV_LINK_COMPACT_CLASS =
+  'group inline-flex items-center gap-1 rounded-lg border border-gray-200/80 bg-white/90 px-2 py-1 text-xs font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200'
 const NAV_ICON_CLASS =
   'text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300'
 
@@ -740,7 +745,6 @@ const onExportPricing = async (): Promise<void> => {
 // ============================== hero copy ==============================
 
 const heroTitle = computed(() => t('pricing.title'))
-const heroSubtitle = computed(() => t('pricing.subtitle'))
 const heroDescription = computed(() => t('pricing.description'))
 
 const inputColumnTitle = computed(() =>

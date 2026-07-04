@@ -60,7 +60,8 @@ vi.mock('vue-i18n', async () => {
     'pricing.nav.consoleTitleAuthed': '',
     'pricing.title': 'Model Pricing',
     'pricing.subtitle': '',
-    'pricing.description': '',
+    'pricing.description': 'Prices are per 1,000 tokens, in USD. Cache columns apply only when billed separately.',
+    'pricing.descriptionAria': 'Billing notes',
     'pricing.columns.model': 'Model',
     'pricing.columns.vendor': 'Vendor',
     'pricing.columns.input': 'Input',
@@ -262,6 +263,18 @@ describe('PricingView', () => {
 
     expect(wrapper.text()).toContain('Max output')
     expect(wrapper.text()).toContain('16,384')
+  })
+
+  it('uses a compact header band instead of a centered hero block', async () => {
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('gpt-4o-mini')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-tk="pricing-page-header"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="pricing-description-inline"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Prices are per 1,000 tokens, in USD.')
+    expect(wrapper.find('h1').classes().join(' ')).not.toContain('text-3xl')
   })
 
   it('uses wider layout wrapper (full catalog width)', async () => {
