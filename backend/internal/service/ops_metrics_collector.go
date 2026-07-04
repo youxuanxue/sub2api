@@ -527,10 +527,11 @@ func (c *OpsMetricsCollector) queryErrorCounts(ctx context.Context, start, end t
 	upstream529 int64,
 	err error,
 ) {
+	slaFault := OpsSLAFaultOwnerPredicate("")
 	q := `
 SELECT
   COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400), 0) AS error_total,
-  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND COALESCE(error_owner, '') IN ('provider', 'platform')) AS error_sla,
+  COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND ` + slaFault + `), 0) AS error_sla,
   -- TK: same final-failure (status >= 400) gate as dashboard upstream_excl — recovered-to-200
   -- provider retries must not count as upstream errors.
   COALESCE(COUNT(*) FILTER (WHERE COALESCE(status_code, 0) >= 400 AND error_owner = 'provider' AND COALESCE(upstream_status_code, status_code, 0) NOT IN (429, 529)), 0) AS upstream_excl,
