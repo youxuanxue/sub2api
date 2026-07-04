@@ -2532,7 +2532,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc")
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, service.PlatformGemini, service.AccountTypeOAuth, "", "", 0, "", "name", "asc")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

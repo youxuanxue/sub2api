@@ -291,7 +291,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 
 		targetType := strings.TrimSpace(src.AuthType)
 		if targetType == "" {
-			targetType = "oauth"
+			targetType = AccountTypeOAuth
 		}
 		if targetType != AccountTypeOAuth && targetType != AccountTypeSetupToken {
 			item.Action = "skipped"
