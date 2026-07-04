@@ -25,8 +25,8 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 |---|---|
 | Baseline date | 2026-07-04 |
 | Target | prod (`https://api.tokenkey.dev`) |
-| Runtime code anchor | `v1.8.78` / `35e3e66a` deployed baseline; current fix branch is post-`v1.8.78` and includes #1198 / `61d422523` |
-| Paid media probes | approved and rerun post-`v1.8.78` / #1194; focused Grok paid shape canary approved on 2026-07-04 |
+| Runtime code anchor | `v1.8.79` / `3c044be2` deployed baseline; includes #1198 and release close-out changes |
+| Paid media probes | approved and rerun post-`v1.8.79` / #1198 for Imagen, Veo, and Grok media direct-vs-universal parity |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
 | SSOT model matrix command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --list --include-paid --show-excluded` |
@@ -34,7 +34,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | Focused postrelease media parity command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-media-parity-postrelease.sh --with ops/pricing/probe_reserved_resources.sh` |
 | Studio Imagen no-platform triage command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-studio-imagen-no-platform.sh` |
 | Focused parity fix anchors | `backend/internal/service/universal_routing_tk_serving.go`; `backend/internal/service/openai_gateway_service.go`; `backend/internal/service/grok_media.go`; `backend/internal/service/openai_gateway_grok.go`; `backend/internal/service/openai_gateway_grok_video_tk.go`; `backend/internal/web/embed_on.go` |
-| Display remediation state | Veo is post-#1194 route-serviceable but remains hidden until a paid SSOT gate returns `keep_displayed`; Grok paid media root causes are fixed in #1198 but remain hidden/reprobe until post-release direct/universal parity and paid SSOT gate pass; Studio Imagen standard needs the post-`v1.8.78` universal service-account routing fix in #1198. |
+| Display remediation state | Imagen standard is displayed+priced and post-#1198 paid SSOT gate returns `keep_displayed`; Veo and Grok media are post-#1198 serviceable by focused direct/universal probes, but they are not current public `/pricing` rows, so display remains a pricing/catalog decision before any `keep_displayed` claim. |
 | Cleanup command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/cleanup-probe-resources.sh` |
 
 ### Evidence Pointers
@@ -74,6 +74,11 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | `/tmp/tokenkey-grok-media-v1-20260704.log` | focused paid Grok account-65 shape canary with `/v1/videos/generations`: xAI-shaped video through edge returned `200` with `request_id`; #1198 fixes gateway URL construction to use this `/v1` path and adds frontend bypass for root `/video*` / `/videos*` API paths |
 | `/tmp/tokenkey-studio-imagen-no-platform-20260703.log` | Studio/BakeOff user-reported `imagen-4.0-generate-001` failure found one universal key id 5 local `403 No platform...` at `2026-07-03T15:24:40Z`, plus an older successful route to group 16/account 59 that reached upstream quota `429` |
 | `/tmp/tokenkey-studio-imagen-no-platform-types-20260703.log` | live entitlement/config context: user 1 is entitled to Google-Vertex group 16; group 16 is active, `allow_image_generation=true`, and five schedulable `service_account` Vertex accounts exactly map `imagen-4.0-generate-001` |
+| `/tmp/tokenkey-media-parity-post1198-imagen-20260704T031944Z.log` | post-`v1.8.79` paid direct-vs-universal parity: Imagen image, Veo video, Grok image, Grok `/v1/video/generations`, and Grok xAI-native `/v1/videos/generations` all returned `200`; direct and universal selected the matching source group/account class. |
+| `/tmp/tokenkey-studio-imagen-no-platform-post1198-20260704T032114Z.log` | post-release 2h Studio Imagen no-platform triage: `rows=0`, `no_platform_rows=0`; no new local `403 No platform...` for `imagen-4.0-generate-001`. |
+| `/tmp/tokenkey-ssot-paid-gate-post1198-focused-20260704T032154Z.log` | focused paid SSOT gate over current public `/pricing`: only `imagen-4.0-generate-001` is currently displayed+priced among the requested Imagen/Veo/Grok media set; it returned `PASS keep_displayed`. |
+| `/tmp/tokenkey-ssot-paid-list-post1198-focused-20260704T032223Z.log` | focused SSOT list confirms current public `/pricing` contains `vertex_ai / imagen-4.0-generate-001` image row only; Veo and Grok media are not current displayed+priced rows. |
+| `/tmp/tokenkey-probe-cleanup-dryrun-post1198-20260704T032318Z.log` | probe-resource cleanup dry-run after post-#1198 paid probes: active probe groups/keys remain `0/0`; no apply needed. |
 
 ## Compatibility Matrix
 
@@ -86,12 +91,12 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | openai | embeddings `text-embedding-3-small` | unknown | unknown | unknown: repeated hardcoded-matrix SKIP `429`; not present in the current displayed+priced SSOT matrix | universal logs; embedding retry log; focused embedding gate | Do not treat this as display-safe. If OpenAI embeddings should be displayed, add the SSOT pricing/catalog row and rerun the embedding gate with a non-throttled pool. |
 | gemini | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported | direct route-gate log; universal retry log | First universal run hit transient `429`; retry passed. |
 | gemini | image | unknown | unknown | supported for Gemini-native image rows in the hardcoded paid gate; Vertex Imagen rows are tracked under newapi / Google-Vertex | full paid image gate; Studio Imagen triage | Keep Gemini-native image separate from Vertex Imagen: same model family, different serving platform/protocol. |
-| newapi / Google-Vertex group 16 | image `imagen-4.0-generate-001` | open | supported/provisioned: live group 16 has five schedulable Vertex service accounts with exact mapping; older universal request reached upstream quota `429` on account 59 | pre-fix `403 No platform...` on universal key id 5 after `v1.8.78`: universal support prefilter excluded `newapi` `service_account` image accounts and failed before account selection | Studio Imagen no-platform logs; current branch fix anchors `account.go`, `universal_routing_tk_serving.go`, `universal_routing_tk_resolver.go` | After this branch is released, rerun paid universal/direct image probe for `imagen-4.0-generate-001`. Expected result: universal resolves group 16 and then either succeeds or returns the same upstream quota/provider result as direct. |
-| newapi / Google-Vertex group 16 | video `veo-3.1-generate-001` | open | supported: post-#1194 direct probe returned queued video `200` using Vertex account 74 | supported: post-#1194 universal key id 5 returned queued video `200` using group 16/account 57 | postrelease media parity logs; attribution log | Routing parity is now satisfied for the tested model/protocol/group. Display can be restored only after a paid SSOT gate returns `keep_displayed`. |
+| newapi / Google-Vertex group 16 | image `imagen-4.0-generate-001` | open | supported: post-`v1.8.79` direct probe returned image `200` using Vertex account 59 | supported: post-`v1.8.79` universal key id 5 returned image `200` using group 16/account 59; paid SSOT gate returned `keep_displayed`; post-release 2h no-platform triage found zero new rows | post-#1198 paid parity log; focused paid SSOT gate; Studio Imagen no-platform postrelease triage; #1198 anchors `account.go`, `universal_routing_tk_serving.go`, `universal_routing_tk_resolver.go` | Resolved for the displayed+priced Imagen standard row. Keep watching user Studio errors, but no follow-up routing fix is pending. |
+| newapi / Google-Vertex group 16 | video `veo-3.1-generate-001` | open | supported: post-`v1.8.79` direct probe returned queued video `200` using Vertex account 58 | supported: post-`v1.8.79` universal key id 5 returned queued video `200` using group 16/account 47 | post-#1198 paid media parity log | Routing parity is satisfied for the tested model/protocol/group. Current public `/pricing` does not expose this model row, so display requires adding/pricing the row and rerunning paid SSOT gate. |
 | antigravity | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | Keep direct-vs-universal parity watch when Gemini `/v1beta` routing changes. |
 | newapi | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | Reprobe after newapi channel mapping or compatibility-pool changes. |
 | newapi | image/video | unknown | unknown | supported for current SSOT Seedream 4.0/4.5/5.0 and Seedance 1.0/1.5/2.0 rows; Vertex Imagen/Veo and Grok media have their own focused rows above | full paid image/video gates; focused Vertex/Grok logs | Keep `--include-paid` probes explicit; default non-paid gates do not prove media servability. |
-| grok group 25 / account 65 | image/video | open | pre-#1198 live direct image reached xAI and returned upstream `422`; direct video returned internal `502 Video submit failed`. Focused paid account-65 canary proved image request shapes return upstream `200` and `/v1/videos/generations` returns `200` with `request_id`. | pre-#1198 universal matched direct for the same account/error class; #1198 fixes image `resolution` shape and video `/v1` edge path construction, but universal is not yet post-release proven. | postrelease media parity logs; attribution log; 2026-07-04 Grok paid shape canary logs; #1198 / `61d422523` | This is no longer a direct-vs-universal routing mismatch. Keep Grok media hidden/reprobe until #1198 is released, paid direct/universal parity returns `200`, and paid SSOT gate returns `keep_displayed`. |
+| grok group 25 / account 65 | image/video | open | supported: post-`v1.8.79` direct probes returned `200` for `grok-imagine-image`, `grok-imagine-image-quality`, `/v1/video/generations`, and xAI-native `/v1/videos/generations` | supported: post-`v1.8.79` universal key id 5 resolved group 25/account 65 and returned matching `200` for the same image/video rows; `/v1/videos/generations` correctly returns native `request_id` shape | post-#1198 paid media parity log; 2026-07-04 Grok paid shape canary logs; #1198 / `61d422523` | Routing and upstream servability are fixed for the tested Grok media rows. Current public `/pricing` does not expose these Grok media rows, so display requires adding/pricing them and rerunning paid SSOT gate. |
 | kiro | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | route_open_unservable: empty direct probe pool returned `429` | supported for text | direct route-gate log; universal retry log | If direct Kiro serving is claimed, run account-model probe against the target account/model. |
 | grok | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/chat/completions`, `/v1/responses` | open | supported | supported for text | direct route-gate log; universal retry log | No full-matrix rerun needed unless Grok model default or relay changes. |
 | all platforms with `/v1/responses` GET prelude | WebSocket prelude | open: `426` upgrade required | unknown | unknown | direct route-gate log | Treat `426` as expected route-open prelude, not a failure. |
@@ -118,48 +123,39 @@ This keeps `/pricing` as the single derived matrix source while turning every
 
 ## Next Probe Focus
 
-1. After #1198 is released and deployed, rerun paid direct-vs-universal checks
-   for `imagen-4.0-generate-001` on `/v1/images/generations`, Grok image on
-   `/v1/images/generations`, and Grok video on `/v1/video/generations` and
-   `/v1/videos/generations`. Expected result: universal resolves the same
-   entitled group/account class as the matching direct key and returns the same
-   `200` response shape. A direct pool/provider quota error is a
-   servability/provisioning signal, not a universal routing defect.
-2. Treat the non-paid display gate as the current product action list. The
+1. Treat the non-paid display gate as the current product action list. The
    dominant `hide_or_provision` blockers are selected newapi `/v1/responses`,
    Antigravity/Gemini OpenAI-compatible text protocols, Grok non-default
    `/v1/messages`, future OpenAI catalog rows, and a small Anthropic catalog
    prep set. Either hide/disable those model+protocol surfaces or provision
    real support; do not leave them as visible "maybe works" entries.
-3. Embeddings are not display-safe. `text-embedding-3-small` is not currently
+2. Embeddings are not display-safe. `text-embedding-3-small` is not currently
    in the displayed+priced SSOT matrix, and the displayed Vertex AI embedding
    rows are `hide_or_map_vendor`. Decide whether to map/provision universal
    embeddings or remove/hide those rows from the relevant surface.
-4. Paid media status after #1194/#1198: Veo direct/universal route parity is
-   proven by queued `200` responses but the row remains display-gated until paid
-   SSOT returns `keep_displayed`; Grok account-65 raw image/video shapes are
-   proven serviceable by the 2026-07-04 paid canary and #1198 fixes the gateway
-   shape/path issues, but Grok media still needs post-release direct/universal
-   `200` parity plus paid SSOT `keep_displayed`; Vertex Imagen standard is
-   blocked by the post-`v1.8.78` universal service-account fix in #1198 and must
-   be rerun after release. `gpt-image-1` is still only a hardcoded probe row for
-   the current key, not a displayed+priced SSOT row.
-5. Reprobe the three `reprobe_required` rows from the non-paid gate with a
+3. Paid media status after #1198: Imagen standard is displayed+priced and
+   `keep_displayed`; Veo and Grok media are live-serviceable by focused
+   direct/universal probes but are not current public `/pricing` rows. If those
+   surfaces should become visible, add/pricing-map them in the SSOT source first,
+   then rerun `--ssot-model-matrix --gate --include-paid` and require
+   `keep_displayed`. `gpt-image-1` is still only a hardcoded probe row for the
+   current key, not a displayed+priced SSOT row.
+4. Reprobe the three `reprobe_required` rows from the non-paid gate with a
    longer timeout or a cleaner pool before deciding whether they are displayable
    or should join the hide/provision list.
-6. The SSOT matrix currently excludes public-pricing rows whose vendors do not
+5. The SSOT matrix currently excludes public-pricing rows whose vendors do not
    map to a universal platform/endpoint candidate. Decide whether those rows
    should become real universal surfaces or be removed/hidden from the relevant
    catalog surface.
-7. Run the SSOT display gate before release close-out:
+6. Run the SSOT display gate before release close-out:
    `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --show-excluded`
    for non-paid rows, and add `--include-paid` when paid media is intentionally
    in scope. A clean gate means every displayed+priced row in scope is live
    supported; any non-`keep_displayed` row becomes either a hide/disable task or
    a provisioning/mapping task.
-8. Reprobe Anthropic/Gemini/Kiro direct live rows only when a real schedulable
+7. Reprobe Anthropic/Gemini/Kiro direct live rows only when a real schedulable
    direct probe pool exists; current `429` rows prove route openness, not
    servability.
-9. After every direct/account probe, run probe-resource cleanup dry-run. Apply
-   cleanup if active `__tk_probe_*` groups or keys are nonzero. The 1.8.76
+8. After every direct/account probe, run probe-resource cleanup dry-run. Apply
+   cleanup if active `__tk_probe_*` groups or keys are nonzero. The post-#1198
    dry-run showed active probe groups/keys remain `0/0`.
