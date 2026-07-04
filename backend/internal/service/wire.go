@@ -797,7 +797,6 @@ func ProvidePricingAvailabilityService(repo ModelAvailabilityRepository) *Pricin
 	return NewPricingAvailabilityService(repo, time.Now)
 }
 
-
 // ProvideBalanceNotifyService creates BalanceNotifyService
 func ProvideBalanceNotifyService(emailService *EmailService, settingRepo SettingRepository, accountRepo AccountRepository, notificationEmailService *NotificationEmailService) *BalanceNotifyService {
 	svc := NewBalanceNotifyService(emailService, settingRepo, accountRepo)
