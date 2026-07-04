@@ -138,6 +138,10 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	if !contains(chatGemini, PlatformGemini) {
 		t.Errorf("gemini chat should include gemini candidate: %v", chatGemini)
 	}
+	chatAntigravityText := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "gemini-3.5-flash")
+	if !contains(chatAntigravityText, PlatformAntigravity) {
+		t.Errorf("antigravity text chat should include antigravity candidate: %v", chatAntigravityText)
+	}
 	// gemini-native image on chat completions also includes antigravity.
 	chatImage := universalCandidatePlatforms(ShapeOpenAIChat, "", false, "gemini-3.1-flash-image")
 	if !contains(chatImage, PlatformAntigravity) {
@@ -200,6 +204,9 @@ func TestUniversalRequestPlatformHint_OpenAICompatVertexMedia(t *testing.T) {
 	if got := universalRequestPlatformHint(ShapeGemini, "imagen-4.0-generate-001"); got != PlatformGemini {
 		t.Fatalf("imagen on native Gemini shape should keep gemini hint, got %q", got)
 	}
+	if got := universalRequestPlatformHint(ShapeOpenAIChat, "gemini-3.5-flash"); got != PlatformAntigravity {
+		t.Fatalf("antigravity-only chat model should hint antigravity, got %q", got)
+	}
 }
 
 func TestResolve_PicksByPlatformAndHint(t *testing.T) {
@@ -208,6 +215,7 @@ func TestResolve_PicksByPlatformAndHint(t *testing.T) {
 		grp(20, PlatformOpenAI, 1, false),
 		grp(30, PlatformGrok, 2, false),
 		grp(40, PlatformGemini, 3, false),
+		grp(50, PlatformAntigravity, 4, false),
 	}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
 	ctx := context.Background()
@@ -227,6 +235,12 @@ func TestResolve_PicksByPlatformAndHint(t *testing.T) {
 	g, err = r.Resolve(ctx, key, ShapeOpenAIChat, "gpt-5", "")
 	if err != nil || g == nil || g.Platform != PlatformOpenAI {
 		t.Fatalf("openai resolve got %v err %v", g, err)
+	}
+	// chat shape + antigravity-only text model -> antigravity group, even though
+	// the model name still carries a gemini prefix.
+	g, err = r.Resolve(ctx, key, ShapeOpenAIChat, "gemini-3.5-flash", "")
+	if err != nil || g == nil || g.Platform != PlatformAntigravity {
+		t.Fatalf("antigravity text resolve got %v err %v", g, err)
 	}
 	// gemini shape → gemini group.
 	g, err = r.Resolve(ctx, key, ShapeGemini, "gemini-3-pro", "")

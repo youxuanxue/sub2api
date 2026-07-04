@@ -3559,7 +3559,8 @@
         "func universalCandidatePlatforms(",
         "out := OpenAICompatPlatforms()",
         "antigravity.IsImageModel(model)",
-        "universalModelPlatformHint(model) == PlatformGemini",
+        "hint == PlatformGemini",
+        "universalAntigravityTextModel(model)",
         "engine.CapabilityForEndpoint(bridgeEndpoint)",
         "func universalModelPlatformHint("
       ],
@@ -3837,6 +3838,41 @@
         "resolveAnthropic5hUtilization"
       ],
       "rationale": "Anthropic OAuth/setup-token window-util guard using passive 5h/7d upstream utilization (not usage_logs dollars). Twin of the Codex guard with never-empty-pool fallback via leastUtilizedAnthropicAccount."
+    },
+    {
+      "path": "backend/internal/service/gateway_gemini_native_openai_compat_tk.go",
+      "must_contain": [
+        "func UsesGeminiNativeOpenAICompat(",
+        "PlatformAntigravity",
+        "antigravity.IsImageModel(model)"
+      ],
+      "rationale": "Antigravity text models must ride Gemini-native OpenAI compat on /v1/chat/completions and /v1/responses while image models stay on the Anthropic chain. Dropping the image guard silently routes image SKUs through the wrong upstream wire."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": [
+        "func (s *GeminiMessagesCompatService) ForwardAsResponses(",
+        "ResponsesEventToSSE"
+      ],
+      "rationale": "Gemini/Antigravity OpenAI Responses clients must convert through the existing Anthropic compat bridge and emit Responses SSE. Without this companion, antigravity text /v1/responses stays on the Anthropic wire with wrong gemini-* upstream ids."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel)",
+        "h.geminiCompatService.ForwardAsChatCompletions"
+      ],
+      "rationale": "Gateway /v1/chat/completions must branch antigravity/gemini text into GeminiMessagesCompatService instead of the Anthropic converter chain."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel)",
+        "h.geminiCompatService.ForwardAsResponses",
+        "groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)",
+        "selectionSessionHash = \"gemini:\" + selectionSessionHash"
+      ],
+      "rationale": "Gateway /v1/responses must branch antigravity/gemini text into GeminiMessagesCompatService.ForwardAsResponses instead of the Anthropic converter chain, with the same gemini sticky session hash and platform guards as /v1/chat/completions."
     }
   ]
 }

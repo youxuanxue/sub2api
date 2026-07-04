@@ -169,12 +169,24 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	}
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	groupPlatform := ""
+	if apiKey.Group != nil {
+		groupPlatform = apiKey.Group.Platform
+	}
+	groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)
+	selectionSessionHash := sessionHash
+	if groupUsesGeminiCompat && selectionSessionHash != "" {
+		selectionSessionHash = "gemini:" + selectionSessionHash
+	}
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
+	if groupUsesGeminiCompat {
+		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
+	}
 
 	for {
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
 				// TK: an unservable model NAME (e.g. "gpt"/"opus" to an anthropic group)
@@ -229,13 +241,40 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
+		if groupPlatform == service.PlatformGemini && account.Platform != service.PlatformGemini {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		if groupPlatform == service.PlatformAntigravity && account.Platform != service.PlatformAntigravity {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
-		result, err := h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		var result *service.ForwardResult
+		if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
+			if h.geminiCompatService == nil {
+				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			result, err = h.geminiCompatService.ForwardAsResponses(requestCtx, c, account, forwardBody)
+		} else {
+			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

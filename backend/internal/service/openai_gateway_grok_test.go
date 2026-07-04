@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -896,6 +897,93 @@ func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
 	require.Equal(t, "grok-4.3", result.UpstreamModel)
 	require.Equal(t, 5, result.Usage.InputTokens)
 	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Contains(t, recorder.Body.String(), `"type":"message"`)
+	require.Contains(t, recorder.Body.String(), "ok")
+}
+
+func TestForwardAsAnthropic_GrokNativeSKU_4200309NonReasoning(t *testing.T) {
+	testForwardAsAnthropicGrokNativeSKUFallback(t, "grok-4.20-0309-non-reasoning")
+}
+
+func TestForwardAsAnthropic_GrokNativeSKU_4200309Reasoning(t *testing.T) {
+	testForwardAsAnthropicGrokNativeSKUFallback(t, "grok-4.20-0309-reasoning")
+}
+
+func TestForwardAsAnthropic_GrokNativeSKU_Build01(t *testing.T) {
+	testForwardAsAnthropicGrokNativeSKUFallback(t, "grok-build-0.1")
+}
+
+func TestForwardAsAnthropic_GrokNativeSKU_CodeFast1(t *testing.T) {
+	testForwardAsAnthropicGrokNativeSKUFallback(t, "grok-code-fast-1")
+}
+
+func testForwardAsAnthropicGrokNativeSKUFallback(t *testing.T, model string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":32,"stream":false,"messages":[{"role":"user","content":"hello"}]}`, model))
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	chatSSE := strings.Join([]string{
+		fmt.Sprintf(`data: {"id":"chatcmpl_grok_native","object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{"content":"ok"}}]}`, model),
+		"",
+		fmt.Sprintf(`data: {"id":"chatcmpl_grok_native","object":"chat.completion.chunk","model":%q,"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":3}}`, model),
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_unsupported"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"model_not_supported","message":"model not supported on /responses for this account"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_fallback"}},
+				Body:       io.NopCloser(strings.NewReader(chatSSE)),
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          91,
+		Name:        "grok",
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "access-token",
+			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"base_url":     xai.DefaultCLIBaseURL,
+		},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Len(t, upstream.bodies, 2)
+
+	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.requests[0].URL.String())
+	require.Equal(t, model, gjson.GetBytes(upstream.bodies[0], "model").String())
+
+	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.requests[1].URL.String())
+	require.Equal(t, model, gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "messages.0").Exists())
+
+	require.Equal(t, model, result.Model)
+	require.Equal(t, model, result.UpstreamModel)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"type":"message"`)
 	require.Contains(t, recorder.Body.String(), "ok")
 }

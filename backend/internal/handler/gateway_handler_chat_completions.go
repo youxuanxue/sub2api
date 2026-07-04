@@ -156,14 +156,15 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
 	}
+	groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)
 	selectionSessionHash := sessionHash
-	if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
+	if groupUsesGeminiCompat && selectionSessionHash != "" {
 		selectionSessionHash = "gemini:" + selectionSessionHash
 	}
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
-	if groupPlatform == service.PlatformGemini {
+	if groupUsesGeminiCompat {
 		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
 	}
 
@@ -230,6 +231,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			fs.FailedAccountIDs[account.ID] = struct{}{}
 			continue
 		}
+		if groupPlatform == service.PlatformAntigravity && account.Platform != service.PlatformAntigravity {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
 
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
@@ -238,7 +246,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
-		if account.Platform == service.PlatformGemini {
+		if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
 			if h.geminiCompatService == nil {
 				h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
 				if accountReleaseFunc != nil {

@@ -105,14 +105,15 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		return out
 	case ShapeOpenAIChat:
 		out := OpenAICompatPlatforms()
-		if universalModelPlatformHint(model) == PlatformAnthropic {
+		hint := universalModelPlatformHint(model)
+		if hint == PlatformAnthropic {
 			out = append(out, PlatformAnthropic)
 		}
 		// Direct Gemini groups support /v1/chat/completions through
 		// GeminiMessagesCompatService.ForwardAsChatCompletions. Universal keys
 		// must reach the same group for Gemini text models instead of returning
 		// 403 at candidate filtering time.
-		if universalModelPlatformHint(model) == PlatformGemini {
+		if hint == PlatformGemini {
 			out = append(out, PlatformGemini)
 		}
 		// Gemini-native image models (gemini-*-image, nano-banana) ride
@@ -120,7 +121,7 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		// openai-compat. Without antigravity in candidates, universal keys
 		// land on openai/Codex and upstream rejects with "not supported when
 		// using Codex with a ChatGPT account".
-		if antigravity.IsImageModel(model) {
+		if antigravity.IsImageModel(model) || universalAntigravityTextModel(model) {
 			out = append(out, PlatformAntigravity)
 		}
 		return out
@@ -157,6 +158,18 @@ func capabilityPlatforms(bridgeEndpoint string) []string {
 		return cap.SchedulingPlatforms
 	}
 	return []string{PlatformOpenAI, PlatformNewAPI}
+}
+
+func universalAntigravityTextModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" || antigravity.IsImageModel(m) {
+		return false
+	}
+	if _, ok := supportedAntigravityCatalogModels[m]; !ok {
+		return false
+	}
+	_, alsoGemini := supportedGeminiCatalogModels[m]
+	return !alsoGemini
 }
 
 // universalModelPlatformHint 由模型名给出“偏好平台”的廉价启发（仅作偏好，非硬过滤）。
@@ -198,6 +211,10 @@ func universalRequestPlatformHint(shape UniversalShape, model string) string {
 		return ""
 	}
 	switch shape {
+	case ShapeOpenAIChat:
+		if universalAntigravityTextModel(m) {
+			return PlatformAntigravity
+		}
 	case ShapeOpenAIImages, ShapeOpenAIVideo:
 		// Imagen/Veo are Google-family model names, but TokenKey serves their
 		// OpenAI-compatible image/video endpoints through the newapi Vertex bridge.

@@ -16,8 +16,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
+
+var newAPIResponsesChatFallbackErrorPatterns = []string{
+	"not supported",
+	"stream mode",
+	"enable_thinking",
+	"invalid model",
+	"convert request failed",
+}
 
 func isNewAPIResponsesConvertNotImplemented(apiErr *newapitypes.NewAPIError) bool {
 	if apiErr == nil || apiErr.GetErrorCode() != newapitypes.ErrorCodeConvertRequestFailed {
@@ -25,6 +34,97 @@ func isNewAPIResponsesConvertNotImplemented(apiErr *newapitypes.NewAPIError) boo
 	}
 	msg := strings.ToLower(strings.TrimSpace(apiErr.Error()))
 	return strings.Contains(msg, "not implemented")
+}
+
+func shouldFallbackNewAPIResponsesToChat(apiErr *newapitypes.NewAPIError) bool {
+	if isNewAPIResponsesConvertNotImplemented(apiErr) {
+		return true
+	}
+	if apiErr == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(apiErr.Error()))
+	if msg == "" {
+		return false
+	}
+	has4xxHint := strings.Contains(msg, "400") || strings.Contains(msg, "404") || strings.Contains(msg, "status code: 4")
+	for _, pat := range newAPIResponsesChatFallbackErrorPatterns {
+		if strings.Contains(msg, pat) && (has4xxHint || pat == "convert request failed") {
+			return true
+		}
+	}
+	return false
+}
+
+func applyNewAPIResponsesChatFallbackShape(model string, chatBody []byte) []byte {
+	trimmedModel := strings.TrimSpace(strings.ToLower(model))
+	if trimmedModel == "" || len(chatBody) == 0 {
+		return chatBody
+	}
+
+	requiresStream := isNewAPIResponsesChatFallbackStreamModel(trimmedModel)
+	isQwenPreview := isNewAPIResponsesQwen37PreviewVariant(trimmedModel)
+	isQwen3 := strings.HasPrefix(trimmedModel, "qwen3-") || strings.HasPrefix(trimmedModel, "qwen3.")
+	if !requiresStream && !isQwenPreview && !isQwen3 {
+		return chatBody
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(chatBody, &payload); err != nil {
+		return chatBody
+	}
+
+	if requiresStream {
+		payload["stream"] = true
+	}
+	if isQwenPreview {
+		payload["enable_thinking"] = true
+	} else if isQwen3 {
+		payload["enable_thinking"] = false
+	}
+
+	shaped, err := json.Marshal(payload)
+	if err != nil {
+		return chatBody
+	}
+	return shaped
+}
+
+func chatFallbackUpstreamRequiresStream(chatBody []byte) bool {
+	if len(chatBody) == 0 {
+		return false
+	}
+	return gjson.GetBytes(chatBody, "stream").Bool()
+}
+
+func ensureNewAPIChatFallbackStreamOptions(chatBody []byte) []byte {
+	if !chatFallbackUpstreamRequiresStream(chatBody) {
+		return chatBody
+	}
+	if gjson.GetBytes(chatBody, "stream_options.include_usage").Bool() {
+		return chatBody
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(chatBody, &payload); err != nil {
+		return chatBody
+	}
+	payload["stream_options"] = map[string]any{"include_usage": true}
+	shaped, err := json.Marshal(payload)
+	if err != nil {
+		return chatBody
+	}
+	return shaped
+}
+
+func isNewAPIResponsesChatFallbackStreamModel(model string) bool {
+	return model == "glm-4.5" ||
+		model == "glm-4.5-air" ||
+		isNewAPIResponsesQwen37PreviewVariant(model)
+}
+
+func isNewAPIResponsesQwen37PreviewVariant(model string) bool {
+	return model == "qwen3.7-max-preview" || model == "qwen3.7-max-2026-05-17"
 }
 
 func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
@@ -88,6 +188,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("marshal bridge chat fallback request: %w", err)
 	}
+	chatBody = applyNewAPIResponsesChatFallbackShape(upstreamModel, chatBody)
+	chatBody = ensureNewAPIChatFallbackStreamOptions(chatBody)
+	upstreamStream := chatFallbackUpstreamRequiresStream(chatBody)
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)
 	if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
@@ -181,10 +284,14 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 
 	var result *OpenAIForwardResult
 	var handleErr error
-	if clientStream {
+	switch {
+	case clientStream:
 		result, handleErr = s.streamChatCompletionsAsResponses(
 			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
-	} else {
+	case upstreamStream:
+		result, handleErr = s.bufferStreamChatCompletionsAsResponses(
+			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
+	default:
 		result, handleErr = s.bufferChatCompletionsAsResponses(
 			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	}
