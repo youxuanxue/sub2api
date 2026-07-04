@@ -195,10 +195,12 @@
       "must_contain": [
         "func publishKiroInternalThinkingSideChannel",
         "kiroInternalThinkingMirrorHopRequestHeader",
+        "func setKiroInternalThinkingMirrorHopHeaderForAccount",
+        "IsKiroMirrorStub()",
         "func setKiroInternalThinkingMirrorHopHeader",
         "func parseKiroInternalThinkingSSECommentLine"
       ],
-      "rationale": "Kiro plaintext-thinking side channel for prod mirror QA/traj export. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-hop gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
+      "rationale": "Kiro plaintext-thinking side channel for prod mirror QA/traj export. setKiroInternalThinkingMirrorHopHeaderForAccount must gate on IsKiroMirrorStub(): only prod Anthropic API-key stubs with mirror_platform=kiro emit the hop header; native cc-us5/cc-us6 edge relays must omit it or edge treats Fable/Opus as Kiro-sidecar traffic and rejects. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-stub gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
     },
     {
       "path": "backend/internal/service/kiro_internal_thinking_tk_test.go",
