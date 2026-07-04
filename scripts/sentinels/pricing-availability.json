@@ -214,6 +214,23 @@
         "SettingKeyTKPricingOverlayRuntime"
       ],
       "rationale": "Runtime hot-push wiring for the TK pricing overlay: reloadTKOverlayRuntime validates the SettingKeyTKPricingOverlayRuntime blob before swapping (corrupt → keep current, never $0), rebuilds the merged billing price map, and busts the public-catalog mtime cache; SubscribeOverlayRuntime gives immediate cross-replica reload on the settings_updated pub/sub; SetOverlayRuntimeDeps is the nil-safe post-construction injection wired by ProvideTKPricingOverlayRuntime. ops/pricing/manage-overlay-runtime.py sync-runtime UPSERTs that settings key on prod + PUBLISHes the channel. If an upstream merge drops these, the gateway silently falls back to the embedded floor and every hot-push becomes a no-op (a model would appear priced in git/ops but never go live without a release) — the exact regression this change exists to prevent. Pinning makes the drop fail CI."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler.go",
+      "must_contain": [
+        "tkGeminiAdminModelsForMapping(c.Request.Context(), mapping)",
+        "func tkGeminiAdminModelsForMapping(",
+        "service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)"
+      ],
+      "rationale": "Admin GET /admin/accounts/:id/models for Gemini must intersect credentials.model_mapping with the unified servable catalog (ServableClientFacingIDs), not return the raw mapping keys or re-inject the full Gemini default list for OAuth accounts. Native Gemini Google One pool retirement (2026-07-04) removed the OAuth early-return that ignored model_mapping; an upstream merge of account_handler.go could silently restore the old branch and again advertise unservable preview ids in the admin probe selector. Pins the call site and helper."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_available_models_test.go",
+      "must_contain": [
+        "TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersection",
+        "unservable mapped preview must not appear"
+      ],
+      "rationale": "Regression guard for Gemini admin available-models mapping ∩ servable behavior: mapped preview ids that are not servable must not appear, and unmapped defaults must not be injected when model_mapping is present. Upstream merges that rewrite the available-models test file could drop this case while the handler compiles."
     }
   ]
 }
