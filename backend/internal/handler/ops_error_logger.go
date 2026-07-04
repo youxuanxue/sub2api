@@ -823,9 +823,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				ErrorPhase: "upstream",
 				ErrorType:  "upstream_error",
 				// Severity should reflect the upstream failure, not the final client status (200).
-				Severity:          classifyOpsSeverity("upstream_error", effectiveUpstreamStatus),
-				StatusCode:        status,
-				IsCountTokens:     isCountTokensRequest(c),
+				Severity:      classifyOpsSeverity("upstream_error", effectiveUpstreamStatus),
+				StatusCode:    status,
+				IsCountTokens: isCountTokensRequest(c),
 
 				ErrorMessage: recoveredMsg,
 				ErrorBody:    "",
@@ -963,11 +963,11 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}(),
 			UserAgent: c.GetHeader("User-Agent"),
 
-			ErrorPhase:        phase,
-			ErrorType:         normalizedType,
-			Severity:          classifyOpsSeverity(normalizedType, status),
-			StatusCode:        status,
-			IsCountTokens:     isCountTokensRequest(c),
+			ErrorPhase:    phase,
+			ErrorType:     normalizedType,
+			Severity:      classifyOpsSeverity(normalizedType, status),
+			StatusCode:    status,
+			IsCountTokens: isCountTokensRequest(c),
 
 			ErrorMessage: parsed.Message,
 			// Keep the full captured error body (capture is already capped at 64KB) so the

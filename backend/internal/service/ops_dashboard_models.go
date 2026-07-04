@@ -45,8 +45,8 @@ type OpsDashboardOverview struct {
 	// Background jobs health (heartbeats).
 	JobHeartbeats []*OpsJobHeartbeat `json:"job_heartbeats"`
 
-	SuccessCount         int64 `json:"success_count"`
-	ErrorCountTotal      int64 `json:"error_count_total"`
+	SuccessCount    int64 `json:"success_count"`
+	ErrorCountTotal int64 `json:"error_count_total"`
 
 	ErrorCountSLA     int64 `json:"error_count_sla"`
 	RequestCountTotal int64 `json:"request_count_total"`
