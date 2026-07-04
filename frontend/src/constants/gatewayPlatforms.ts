@@ -4,6 +4,14 @@ import type { AccountPlatform } from '@/types'
 export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok'] as const satisfies readonly AccountPlatform[]
 
 /**
+ * Platforms that support per-user quota limits (daily/weekly/monthly).
+ * Mirrors `service.AllowedQuotaPlatforms` in the Go backend
+ * (`backend/internal/service/domain_constants.go`).
+ */
+export const ALLOWED_QUOTA_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok'] as const satisfies readonly AccountPlatform[]
+export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
+
+/**
  * Platforms that participate in the OpenAI-compatible HTTP request shape
  * (i.e. clients speaking the OpenAI protocol: `/v1/chat/completions`,
  * `/v1/responses`, `/v1/messages` 调度 etc.).
