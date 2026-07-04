@@ -34,11 +34,15 @@ func setKiroInternalThinkingMirrorHopHeader(hdr http.Header) {
 	hdr.Set(kiroInternalThinkingMirrorHopRequestHeader, "1")
 }
 
-// setKiroInternalThinkingMirrorHopHeaderForAccount marks prod→edge mirror hops.
-// Only accounts with an explicit credentials.base_url (TokenKey edge relay stubs)
-// emit the header; default api.anthropic.com api-key accounts must not.
+// setKiroInternalThinkingMirrorHopHeaderForAccount marks prod→edge Kiro mirror hops.
+// Only prod Anthropic API-key stubs that represent a downstream edge Kiro pool emit
+// the header; native Anthropic edge relays (cc-us5/cc-us6) must not, or edge may
+// treat Fable/Opus requests as Kiro-sidecar traffic and reject them.
 func setKiroInternalThinkingMirrorHopHeaderForAccount(hdr http.Header, account *Account) {
 	if hdr == nil || account == nil || account.Type != AccountTypeAPIKey {
+		return
+	}
+	if !account.IsKiroMirrorStub() {
 		return
 	}
 	if strings.TrimSpace(account.GetCredential("base_url")) == "" {

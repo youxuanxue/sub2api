@@ -22,6 +22,7 @@ import (
 
 var newAPIResponsesChatFallbackErrorPatterns = []string{
 	"not supported",
+	"unsupported model",
 	"stream mode",
 	"enable_thinking",
 	"invalid model",

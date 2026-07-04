@@ -19,13 +19,28 @@ import (
 func TestSetKiroInternalThinkingMirrorHopHeaderForAccount_ExplicitEdgeBaseURL(t *testing.T) {
 	hdr := http.Header{}
 	account := &Account{
-		Type: AccountTypeAPIKey,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"base_url": "https://api-us6.tokenkey.dev",
+			"base_url":        "https://api-us6.tokenkey.dev",
+			"mirror_platform": PlatformKiro,
 		},
 	}
 	setKiroInternalThinkingMirrorHopHeaderForAccount(hdr, account)
 	require.Equal(t, "1", hdr.Get(kiroInternalThinkingMirrorHopRequestHeader))
+}
+
+func TestSetKiroInternalThinkingMirrorHopHeaderForAccount_NativeEdgeRelayOmitsHop(t *testing.T) {
+	hdr := http.Header{}
+	account := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api-us5.tokenkey.dev",
+		},
+	}
+	setKiroInternalThinkingMirrorHopHeaderForAccount(hdr, account)
+	require.Empty(t, hdr.Get(kiroInternalThinkingMirrorHopRequestHeader))
 }
 
 func TestSetKiroInternalThinkingMirrorHopHeaderForAccount_DefaultAnthropicHostOmitsRelay(t *testing.T) {
@@ -58,8 +73,9 @@ func TestBuildUpstreamRequest_MirrorStubSetsRelayHeader(t *testing.T) {
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"api_key":  "edge-relay-key",
-			"base_url": "https://api-us6.tokenkey.dev",
+			"api_key":         "edge-relay-key",
+			"base_url":        "https://api-us6.tokenkey.dev",
+			"mirror_platform": PlatformKiro,
 		},
 	}
 

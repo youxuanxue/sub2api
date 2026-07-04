@@ -270,6 +270,27 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("get access token: %w", err)
 	}
 
+	// Native-catalog Grok SKUs are provisioned on /v1/chat/completions; /v1/responses
+	// often returns opaque 400s. Skip the responses hop for SSOT / universal parity.
+	if account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(upstreamModel) {
+		fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
+			ctx,
+			c,
+			account,
+			&anthropicReq,
+			clientStream,
+			originalModel,
+			billingModel,
+			upstreamModel,
+			token,
+			startTime,
+		)
+		if fallbackResult != nil {
+			fallbackResult.CompactCandidate = compactCandidate
+		}
+		return fallbackResult, fallbackErr
+	}
+
 	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	var upstreamReq *http.Request

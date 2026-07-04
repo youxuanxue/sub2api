@@ -348,6 +348,15 @@ func TestShouldFallbackNewAPIResponsesToChat(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "upstream unsupported model wording",
+			apiErr: newapitypes.NewError(
+				errors.New("upstream status code: 400, Unsupported model: 'glm-4.5'"),
+				newapitypes.ErrorCodeConvertRequestFailed,
+				newapitypes.ErrOptionWithSkipRetry(),
+			),
+			want: true,
+		},
+		{
 			name: "upstream 404 stream mode",
 			apiErr: newapitypes.NewError(
 				errors.New("upstream status code: 404, this model only support stream mode"),

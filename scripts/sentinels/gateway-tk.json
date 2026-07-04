@@ -3228,9 +3228,19 @@
       "path": "backend/internal/handler/openai_gateway_handler_tk_responses_dispatch.go",
       "must_contain": [
         "func tkApplyResponsesDispatchModelMapping(",
-        "func tkResolveResponsesSelectionModel("
+        "func tkResolveResponsesSelectionModel(",
+        "CanonicalizeOpenAICompatRoutingModel"
       ],
-      "rationale": "TK companion (PR #809) holding the /v1/responses dispatch model-mapping helpers: forward-body rewrite (tkApplyResponsesDispatchModelMapping) and account-selection model (tkResolveResponsesSelectionModel). Load-bearing: deleting the file silently regresses /v1/responses for claude model names (upstream 400) and the responses<->messages selection parity. Anchored so an upstream merge or refactor cannot remove the companion without tripping the sentinel; pairs with the openai_gateway_handler.go injection-site sentinel above."
+      "rationale": "TK companion (PR #809) holding the /v1/responses dispatch model-mapping helpers: forward-body rewrite (tkApplyResponsesDispatchModelMapping) and account-selection model (tkResolveResponsesSelectionModel). tkResolveResponsesSelectionModel must canonicalize via CanonicalizeOpenAICompatRoutingModel so gpt alias spellings hit the same restriction/negative-cache keys as /v1/chat/completions (newapi GLM/Qwen/Doubao responses SSOT parity). Load-bearing: deleting the file silently regresses /v1/responses for claude model names (upstream 400) and the responses<->messages selection parity. Anchored so an upstream merge or refactor cannot remove the companion without tripping the sentinel; pairs with the openai_gateway_handler.go injection-site sentinel above."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_kiro_mirror_hop_test.go",
+      "must_contain": [
+        "TestSetKiroInternalThinkingMirrorHopHeaderForAccount_ExplicitEdgeBaseURL",
+        "TestSetKiroInternalThinkingMirrorHopHeaderForAccount_NativeEdgeRelayOmitsHop",
+        "mirror_platform"
+      ],
+      "rationale": "Regression guard for prod mirror-hop vs native edge relay: only Anthropic API-key stubs with mirror_platform=kiro emit kiroInternalThinkingMirrorHopRequestHeader; cc-us5/cc-us6 native edge relays with base_url but no mirror_platform must omit the header so Fable/Opus 4.1 requests are not misclassified as Kiro-sidecar traffic on edge."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_image.go",

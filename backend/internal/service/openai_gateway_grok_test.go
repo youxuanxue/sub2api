@@ -719,7 +719,7 @@ func TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), "response.output_text.delta")
 }
 
-func TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeResponsesURL(t *testing.T) {
+func TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -728,8 +728,10 @@ func TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeResponsesURL(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	upstreamBody := strings.Join([]string{
-		`data: {"type":"response.completed","response":{"id":"resp_grok_msgs","object":"response","model":"grok-4.3","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}`,
+	chatSSE := strings.Join([]string{
+		`data: {"id":"chatcmpl_grok_relay","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+		"",
+		`data: {"id":"chatcmpl_grok_relay","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2}}`,
 		"",
 		"data: [DONE]",
 		"",
@@ -737,7 +739,7 @@ func TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeResponsesURL(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_grok_msgs_relay"}},
-		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+		Body:       io.NopCloser(strings.NewReader(chatSSE)),
 	}}
 
 	svc := &OpenAIGatewayService{
@@ -761,7 +763,7 @@ func TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeResponsesURL(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "https://api-us4.tokenkey.dev/v1/responses", upstream.lastReq.URL.String())
+	require.Equal(t, "https://api-us4.tokenkey.dev/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer edge-grok-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "grok-4.3", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "grok-4.3", result.Model)
@@ -853,7 +855,7 @@ func TestForwardAsChatCompletionsForGrokStreamingUsesRawXAIChatCompletions(t *te
 	require.NotNil(t, repo.updates[53][grokQuotaSnapshotExtraKey])
 }
 
-func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
+func TestForwardAsAnthropicForGrokUsesXAIChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	recorder := httptest.NewRecorder()
@@ -878,7 +880,19 @@ func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
 			accountsByID: map[int64]*Account{54: account},
 		},
 	}
-	upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("resp_grok_messages", "grok-4.3")}
+	chatSSE := strings.Join([]string{
+		`data: {"id":"chatcmpl_grok_messages","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+		"",
+		`data: {"id":"chatcmpl_grok_messages","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(chatSSE)),
+	}}
 	svc := &OpenAIGatewayService{
 		httpUpstream:      upstream,
 		grokTokenProvider: NewGrokTokenProvider(repo, nil),
@@ -887,7 +901,7 @@ func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 	require.NoError(t, err)
-	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.lastReq.URL.String())
+	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "sub2api-grok/1.0", upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "grok-4.3", gjson.GetBytes(upstream.lastBody, "model").String())
@@ -938,11 +952,6 @@ func testForwardAsAnthropicGrokNativeSKUFallback(t *testing.T, model string) {
 	upstream := &httpUpstreamRecorder{
 		responses: []*http.Response{
 			{
-				StatusCode: http.StatusBadRequest,
-				Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_unsupported"}},
-				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"model_not_supported","message":"model not supported on /responses for this account"}}`)),
-			},
-			{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_fallback"}},
 				Body:       io.NopCloser(strings.NewReader(chatSSE)),
@@ -969,15 +978,12 @@ func testForwardAsAnthropicGrokNativeSKUFallback(t *testing.T, model string) {
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 2)
-	require.Len(t, upstream.bodies, 2)
+	require.Len(t, upstream.requests, 1)
+	require.Len(t, upstream.bodies, 1)
 
-	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.requests[0].URL.String())
+	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.requests[0].URL.String())
 	require.Equal(t, model, gjson.GetBytes(upstream.bodies[0], "model").String())
-
-	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.requests[1].URL.String())
-	require.Equal(t, model, gjson.GetBytes(upstream.bodies[1], "model").String())
-	require.True(t, gjson.GetBytes(upstream.bodies[1], "messages.0").Exists())
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "messages.0").Exists())
 
 	require.Equal(t, model, result.Model)
 	require.Equal(t, model, result.UpstreamModel)

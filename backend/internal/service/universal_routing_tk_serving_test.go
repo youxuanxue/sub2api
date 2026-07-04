@@ -523,6 +523,24 @@ func TestResolve_KiroAnthropicShapePicksKiroWhenOnlyEntitled(t *testing.T) {
 	}
 }
 
+func TestResolve_KiroDoesNotClaimFableOrOpus41ForUniversal(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{grp(70, PlatformKiro, 5, false)}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(func(_ context.Context, gid *int64, platform, model string, _ UniversalShape) (bool, bool) {
+		if gid == nil || platform != PlatformKiro {
+			return false, true
+		}
+		return kiroMirrorStubSupportsModel(model), true
+	})
+	for _, model := range []string{"claude-fable-5", "claude-opus-4-1"} {
+		g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, model, "")
+		if err != ErrUniversalNoEntitledGroup || g != nil {
+			t.Fatalf("%s with only kiro entitlement must ErrUniversalNoEntitledGroup, got=%v err=%v", model, g, err)
+		}
+	}
+}
+
 func TestResolve_MessagesDispatchFiltersPerGroupPolicy(t *testing.T) {
 	ctx := context.Background()
 	span := []Group{

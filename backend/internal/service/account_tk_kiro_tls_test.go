@@ -70,6 +70,21 @@ func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
 	}
 }
 
+func TestNativeKiroAccountModelSupportUsesKiroCatalog(t *testing.T) {
+	kiro := &Account{
+		Platform: PlatformKiro,
+		Type:     AccountTypeOAuth,
+	}
+	if !kiro.IsModelSupported("claude-sonnet-4-6") {
+		t.Fatal("native Kiro account must support Kiro-served Claude ids")
+	}
+	for _, denied := range []string{"claude-fable-5", "claude-opus-4-1"} {
+		if kiro.IsModelSupported(denied) {
+			t.Fatalf("native Kiro account must not claim unsupported model %q", denied)
+		}
+	}
+}
+
 func newTLSSvcWithProfiles(profiles ...*model.TLSFingerprintProfile) *TLSFingerprintProfileService {
 	m := make(map[int64]*model.TLSFingerprintProfile, len(profiles))
 	for i, p := range profiles {

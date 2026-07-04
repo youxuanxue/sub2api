@@ -53,7 +53,7 @@ func tkApplyResponsesDispatchModelMapping(
 // the original requested model unchanged.
 func tkResolveResponsesSelectionModel(apiKey *service.APIKey, requestedModel string) string {
 	if mapped := resolveOpenAIMessagesDispatchMappedModel(apiKey, requestedModel); mapped != "" {
-		return mapped
+		return service.CanonicalizeOpenAICompatRoutingModel(mapped)
 	}
-	return requestedModel
+	return service.CanonicalizeOpenAICompatRoutingModel(requestedModel)
 }
