@@ -78,7 +78,6 @@ KNOWN_ACCOUNTS: dict[str, AccountPolicy] = {
     "7": AccountPolicy("7", "volcengine", "newapi", 45),
     "39": AccountPolicy("39", "ds-官", "newapi", 43),
     "60": AccountPolicy("60", "Qwen", "newapi", 17),
-    "67": AccountPolicy("67", "GLM", "newapi", 26),
     "72": AccountPolicy("72", "Qwen-2", "newapi", 17),
 }
 
@@ -445,7 +444,7 @@ def probe_env_name(account_id: str, model_id: str, overlay: dict[str, dict[str, 
     if policy.channel_type == 17:
         return "DASHSCOPE_CHAT_MODELS"
     if policy.channel_type == 26:
-        return "ZHIPU_CHAT_MODELS"
+        return None
     if policy.channel_type == 45:
         mode = infer_mode(model_id, overlay)
         if mode == "image":
@@ -834,6 +833,8 @@ def _selftest() -> int:
         failures.append("infer_mode failed for image")
     if probe_env_name("60", "qwen-new", overlay) != "DASHSCOPE_CHAT_MODELS":
         failures.append("probe env failed for qwen")
+    if probe_env_name("67", "glm-5-turbo", overlay) is not None:
+        failures.append("removed GLM direct account must not emit zhipu probe env")
     if probe_env_name("7", "seedream-x", overlay) != "ARK_IMAGE_MODELS":
         failures.append("probe env failed for ark image")
 

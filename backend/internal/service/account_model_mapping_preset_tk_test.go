@@ -60,22 +60,22 @@ func TestAccountModelMappingPresetIDs_NewAPIAliUsesManifest(t *testing.T) {
 	require.Contains(t, ids, "qwen3.7-max")
 }
 
-func TestAccountModelMappingPresetIDs_NewAPIZhipuV4UsesManifest(t *testing.T) {
+func TestAccountModelMappingPresetIDs_NewAPIZhipuV4EmptyAfterDirectPoolRemoval(t *testing.T) {
 	t.Parallel()
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeZhipu_v4, nil)
-	require.NotEmpty(t, ids)
-	require.Contains(t, ids, "glm-5-turbo")
+	require.Empty(t, ids, "GLM direct account/group was removed; GLM display intent now rides Qwen/China pools")
 	require.NotContains(t, ids, "qwen3.7-max")
 }
 
-func TestNewAPIModelDisplayIDsForChannelType_HidesManifestDisplayFalseRows(t *testing.T) {
+func TestNewAPIModelDisplayIDsForChannelType_UsesDisplayProjection(t *testing.T) {
 	t.Parallel()
-	adminIDs := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeZhipu_v4, nil)
-	require.Contains(t, adminIDs, "glm-5-turbo", "admin presets keep hidden rows for provisioning intent")
+	adminIDs := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeAli, nil)
+	require.Contains(t, adminIDs, "glm-5.2", "Qwen/China pools keep serving supported GLM rows")
+	require.NotContains(t, adminIDs, "glm-5-turbo", "direct-only GLM rows are no longer provisioning intent")
 
-	displayIDs := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeZhipu_v4)
-	require.Empty(t, displayIDs, "ZhipuV4 currently has no display=true rows in the SSOT gate")
-	require.NotContains(t, displayIDs, "glm-5-turbo", "display=false rows must not feed customer menus")
+	displayIDs := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeAli)
+	require.Contains(t, displayIDs, "glm-5.2", "display=true GLM rows must feed customer menus through Qwen/China pools")
+	require.NotContains(t, displayIDs, "glm-5-turbo", "unlisted direct-only GLM rows must not feed customer menus")
 }
 
 func TestAccountModelMappingPresetIDs_NewAPIVolcEngineUsesManifest(t *testing.T) {

@@ -378,7 +378,7 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.True(t, got["deepseek-chat"], "manifest display=true deepseek kept")
 	assert.False(t, got["deepseek-v3-2-251201"], "priced-but-unlisted volcengine residue pruned")
 	assert.False(t, got["glm-4-32b-0414-128k"], "withdrawn GLM SKU pruned from storefront")
-	assert.False(t, got["glm-5-turbo"], "manifest display=false GLM SKU hidden from storefront")
+	assert.False(t, got["glm-5-turbo"], "removed direct-only GLM SKU hidden from storefront")
 	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
 }
 
@@ -409,7 +409,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"volcengine", "deepseek-v3-2-251201", false},
 		{"zhipu", "glm-4-32b-0414-128k", false},
 		{"zhipu", "glm-5.2", true},
-		{"zhipu", "glm-5-turbo", false},
+		{"zhipu", "glm-5-turbo", false}, // direct-only GLM pool removed; no manifest display path
 		// antigravity (2026-06-13 empirical probe, refreshed 2026-06-23): gated to the gemini-only set.
 		{"antigravity", "gemini-2.5-flash", true},
 		{"antigravity", "gemini-2.5-flash-lite", true},

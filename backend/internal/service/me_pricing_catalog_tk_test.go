@@ -959,11 +959,11 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 		"only manifest-listed newapi whitelist models surface in Group Catalog")
 }
 
-func TestBuildForUser_AccountWhitelist_NewapiDisplayFalseHidden(t *testing.T) {
+func TestBuildForUser_AccountWhitelist_NewapiRemovedDirectGLMHidden(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "zhipu", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "zhipu-key", ptrI(50))
 	acct := mkAccountWithWhitelist(12, "zhipu", "newapi", newapiconstant.ChannelTypeZhipu_v4, []string{
-		"glm-5-turbo", // manifest-listed for provisioning, display=false after SSOT gate.
+		"glm-5-turbo", // historical direct-only GLM SKU; no current ch26 manifest intent.
 		"glm-4.7-flashx",
 	})
 	catalog := &PublicCatalogResponse{
@@ -981,7 +981,7 @@ func TestBuildForUser_AccountWhitelist_NewapiDisplayFalseHidden(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Empty(t, resp.Models,
-		"display=false manifest rows must not appear in Group Catalog even when mapped and priced")
+		"removed direct-only GLM rows must not appear in Group Catalog even when historically mapped and priced")
 }
 
 func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.T) {

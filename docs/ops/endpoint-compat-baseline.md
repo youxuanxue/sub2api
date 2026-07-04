@@ -143,8 +143,10 @@ intent but hides the row until provisioning or a later SSOT gate proves it.
 
 1. Treat the post-#1210 non-paid display gate as the current product action
    list. The cleanup path is: hide future OpenAI rows (`gpt-5.5-pro`,
-   `gpt-5.6*`) until provisioned, hide entitlement-blocked GLM rows
-   (`glm-4.5-airx`, `glm-4.5-x`, `glm-4.7-flashx`, `glm-5-turbo`), hide
+   `gpt-5.6*`) until provisioned, keep GLM display rows only where they are
+   mapped through Qwen/China pools (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-4.7`,
+   `glm-4.6`, `glm-4.5`, `glm-4.5-air`), keep removed direct-only GLM rows
+   (`glm-4.5-airx`, `glm-4.5-x`, `glm-4.7-flashx`, `glm-5-turbo`) hidden, hide
    unmapped vendors by default, and block known unsupported protocol surfaces
    such as Antigravity chat/responses, Grok non-default messages, and selected
    newapi responses. Fable/Opus 4.1 should stay visible only through native
