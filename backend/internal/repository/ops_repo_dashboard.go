@@ -127,11 +127,11 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		Platform:  strings.TrimSpace(filter.Platform),
 		GroupID:   filter.GroupID,
 
-		SuccessCount:         successCount,
-		ErrorCountTotal:      errorTotal,
-		ErrorCountSLA:        errorCountSLA,
-		RequestCountTotal:    requestCountTotal,
-		TokenConsumed:        tokenConsumed,
+		SuccessCount:      successCount,
+		ErrorCountTotal:   errorTotal,
+		ErrorCountSLA:     errorCountSLA,
+		RequestCountTotal: requestCountTotal,
+		TokenConsumed:     tokenConsumed,
 
 		SLA:                          roundTo4DP(sla),
 		ErrorRate:                    roundTo4DP(errorRate),
@@ -157,10 +157,10 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 }
 
 type opsDashboardPartial struct {
-	successCount         int64
-	ttftSampleCount      int64
-	errorCountTotal      int64
-	errorCountSLA        int64
+	successCount    int64
+	ttftSampleCount int64
+	errorCountTotal int64
+	errorCountSLA   int64
 
 	upstreamErrorCountExcl429529 int64
 	upstream429Count             int64
@@ -303,11 +303,11 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		Platform:  strings.TrimSpace(filter.Platform),
 		GroupID:   filter.GroupID,
 
-		SuccessCount:         successCount,
-		ErrorCountTotal:      errorTotal,
-		ErrorCountSLA:        errorCountSLA,
-		RequestCountTotal:    requestCountTotal,
-		TokenConsumed:        tokenConsumed,
+		SuccessCount:      successCount,
+		ErrorCountTotal:   errorTotal,
+		ErrorCountSLA:     errorCountSLA,
+		RequestCountTotal: requestCountTotal,
+		TokenConsumed:     tokenConsumed,
 
 		SLA:                          roundTo4DP(sla),
 		ErrorRate:                    roundTo4DP(errorRate),
@@ -335,10 +335,10 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 type opsHourlyMetricsRow struct {
 	bucketStart time.Time
 
-	successCount         int64
-	ttftSampleCount      int64
-	errorCountTotal      int64
-	errorCountSLA        int64
+	successCount    int64
+	ttftSampleCount int64
+	errorCountTotal int64
+	errorCountSLA   int64
 
 	upstreamErrorCountExcl429529 int64
 	upstream429Count             int64

@@ -120,11 +120,11 @@ type OpsInsertErrorLogInput struct {
 	RequestType *int16
 	UserAgent   string
 
-	ErrorPhase        string
-	ErrorType         string
-	Severity          string
-	StatusCode        int
-	IsCountTokens     bool // 是否为 count_tokens 请求
+	ErrorPhase    string
+	ErrorType     string
+	Severity      string
+	StatusCode    int
+	IsCountTokens bool // 是否为 count_tokens 请求
 
 	ErrorMessage string
 	ErrorBody    string
