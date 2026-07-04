@@ -23,9 +23,9 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 
 | Field | Value |
 |---|---|
-| Baseline date | 2026-07-04 |
+| Baseline date | 2026-07-05 |
 | Target | prod (`https://api.tokenkey.dev`) |
-| Runtime code anchor | `v1.8.82` / `9dbaaaeca` deployed baseline; includes #1217 SSOT matrix unblock (Grok `/v1/messages` gateway provision, Kiro/Grok/newapi sentinel anchors) atop #1215 protocol surfaces |
+| Runtime code anchor | `v1.8.83` pending release from `origin/main` @ `2df66bb00` (#1220–#1223: domain SSOT constants, universal/direct Anthropic parity + Kiro mirror stub penalty, newapi responses proactive chat fallback, deploy SSOT display gate sharded closeout); prior deployed baseline `v1.8.82` / `9dbaaaeca` (#1217 Grok `/v1/messages` gateway provision) |
 | Paid media probes | approved and rerun post-`v1.8.80` / #1207 for Imagen, Veo, and Grok media SSOT display gate plus direct-vs-universal parity |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
@@ -38,7 +38,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | Studio Imagen no-platform triage command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-studio-imagen-no-platform.sh` |
 | Focused parity fix anchors | `backend/internal/service/universal_routing_tk_serving.go`; `backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go`; `backend/internal/service/openai_gateway_bridge_responses_fallback.go`; `backend/internal/service/openai_gateway_bridge_dispatch.go`; `backend/internal/service/openai_gateway_service.go`; `backend/internal/service/grok_media.go`; `backend/internal/service/openai_gateway_grok.go`; `backend/internal/service/openai_gateway_grok_video_tk.go`; `backend/internal/web/embed_on.go` |
 | Display remediation state | Imagen standard, Veo 3.1, Grok Imagine image/quality, and Grok Imagine video are live displayed+priced SSOT rows. The post-#1207 focused paid SSOT gate returned `DISPLAY_KEEP=5 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`; direct and universal probes returned matching `200` shapes for the same focused media set. Native Gemini Google One pool (`Google-Gemini` group 8; accounts `gemini-eng-g2`/`gemini-am-g2`) was retired on 2026-07-04 after direct account probes returned upstream `429`; do not claim native Gemini text support until a new pool live-probes `200`. |
-| Non-paid SSOT cleanup state | Post-#1217 / `v1.8.82` live gate (2026-07-04): `DISPLAY_KEEP=315 DISPLAY_BLOCK=41 REPROBE_REQUIRED=0 FAIL=1`. Grok four `/v1/messages` SKUs are display-safe (16 rows `keep_displayed`). Remaining blockers: Anthropic Fable/Opus 4.1 universal routing vs native accounts 50/55 (A), newapi GLM/Qwen/Doubao `/v1/responses` rows where chat/messages pass but responses still 400 (B), and long-run gate pool-exhaustion false blocks reclassified to `reprobe_required` via sharded gate (C). Prior post-#1215 baseline was `329 keep / 27 block / 0 reprobe / 0 excluded`. |
+| Non-paid SSOT cleanup state | Post-#1217 / `v1.8.82` live gate (2026-07-04): `DISPLAY_KEEP=315 DISPLAY_BLOCK=41 REPROBE_REQUIRED=0 FAIL=1`. `v1.8.83` targets (A) via `gateway_service_tk_kiro_mirror_scheduling.go` universal/direct parity and (B) via proactive newapi responses chat fallback; post-deploy `--gate-sharded --deploy-closeout` is the release acceptance gate (`FAIL=0` required). Grok four `/v1/messages` SKUs are display-safe (16 rows `keep_displayed`). Prior post-#1215 baseline was `329 keep / 27 block / 0 reprobe / 0 excluded`. |
 | Cleanup command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/cleanup-probe-resources.sh` |
 | Probe prune command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/prune-probe-resources.sh` (keeps canonical `*_srcgrp_*` scopes only) |
 
