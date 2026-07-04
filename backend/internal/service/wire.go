@@ -783,7 +783,6 @@ var ProviderSet = wire.NewSet(
 	ProvideTKPricingMissingNotifier,
 )
 
-
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.
 func ProvidePaymentConfigService(entClient *dbent.Client, settingRepo SettingRepository, key payment.EncryptionKey) *PaymentConfigService {
@@ -797,8 +796,6 @@ func ProvidePaymentConfigService(entClient *dbent.Client, settingRepo SettingRep
 func ProvidePricingAvailabilityService(repo ModelAvailabilityRepository) *PricingAvailabilityService {
 	return NewPricingAvailabilityService(repo, time.Now)
 }
-
-
 
 
 // ProvideBalanceNotifyService creates BalanceNotifyService
@@ -842,7 +839,3 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 	r.Start()
 	return r
 }
-
-
-
-
