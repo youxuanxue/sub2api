@@ -441,9 +441,9 @@
         "TestForwardGrokMediaAllowsEdgeRelayBaseURLWithAllowlistEnabled",
         "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
         "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses",
-        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeResponsesURL"
+        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL"
       ],
-      "rationale": "Load-bearing QA for grok responses apikey relay and Anthropic-shaped /v1/messages prod→edge path: pins edge /v1/responses URL + Bearer api_key. Revert to OAuth-only or route 404 passes other tests but breaks prod grok-us4 Claude-Code clients."
+      "rationale": "Load-bearing QA for grok apikey relay and Anthropic-shaped /v1/messages prod→edge path: native-catalog SKUs must forward to edge /v1/chat/completions with Bearer api_key (SSOT provision path). Revert to OAuth-only or responses-first routing passes other tests but breaks prod grok-us4 Claude-Code clients on catalog SKUs."
     },
     {
       "path": "backend/internal/server/routes/gateway_test.go",
