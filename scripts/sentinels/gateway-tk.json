@@ -3868,9 +3868,11 @@
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
         "service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel)",
-        "h.geminiCompatService.ForwardAsResponses"
+        "h.geminiCompatService.ForwardAsResponses",
+        "groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)",
+        "selectionSessionHash = \"gemini:\" + selectionSessionHash"
       ],
-      "rationale": "Gateway /v1/responses must branch antigravity/gemini text into GeminiMessagesCompatService.ForwardAsResponses instead of the Anthropic converter chain."
+      "rationale": "Gateway /v1/responses must branch antigravity/gemini text into GeminiMessagesCompatService.ForwardAsResponses instead of the Anthropic converter chain, with the same gemini sticky session hash and platform guards as /v1/chat/completions."
     }
   ]
 }
