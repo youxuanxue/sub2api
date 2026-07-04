@@ -910,7 +910,8 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 	}
 
 	const originalModel = "gemini-3.1-pro-preview"
-	const mappedModel = "gemini-3.1-pro-high"
+	const legacyMappedModel = "gemini-3.1-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          7,
 		Name:        "acc-gemini-signature",
@@ -922,7 +923,7 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 			"access_token": "token",
 			"project_id":   "proj",
 			"model_mapping": map[string]any{
-				originalModel: mappedModel,
+				originalModel: legacyMappedModel,
 			},
 		},
 	}
@@ -969,7 +970,8 @@ func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailove
 	firstRespBody := []byte(`{"response":{"error":{"code":400,"message":"Corrupted thought signature.","status":"INVALID_ARGUMENT"}}}`)
 
 	const originalModel = "gemini-3.1-pro-preview"
-	const mappedModel = "gemini-3.1-pro-high"
+	const legacyMappedModel = "gemini-3.1-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          8,
 		Name:        "acc-gemini-signature-failover",
@@ -981,7 +983,7 @@ func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailove
 			"access_token": "token",
 			"project_id":   "proj",
 			"model_mapping": map[string]any{
-				originalModel: mappedModel,
+				originalModel: legacyMappedModel,
 			},
 		},
 	}

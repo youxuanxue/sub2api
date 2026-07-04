@@ -83,6 +83,9 @@ const (
 	SubscriptionStatusRevoked   = "revoked"
 )
 
+// AntigravityGemini31ProAgentModel is the upstream route for Gemini 3.1 Pro High.
+const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
+
 // DefaultAntigravityModelMapping 是 Antigravity 平台的默认模型映射
 // 当账号未配置 model_mapping 时使用此默认值
 // 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致
@@ -122,13 +125,14 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3-pro-low":  "gemini-3.1-pro-low",
 	// Gemini 3 preview 映射
 	"gemini-3-flash-preview": "gemini-3-flash",
-	"gemini-3-pro-preview":   "gemini-pro-agent",
+	"gemini-3-pro-preview":   AntigravityGemini31ProAgentModel,
 	// Gemini 3.1 白名单。gemini-3.1-pro-high 在上游 deprecatedModelIds 中，直接请求返回 400
 	// （2026-06-15 实测）→ 重指 gemini-pro-agent（非弃用、同为 3.1 Pro High）。
+	"gemini-3.1-pro":      AntigravityGemini31ProAgentModel,
 	"gemini-3.1-pro-high": "gemini-pro-agent",
 	"gemini-3.1-pro-low":  "gemini-3.1-pro-low",
 	// Gemini 3.1 preview 映射
-	"gemini-3.1-pro-preview": "gemini-pro-agent",
+	"gemini-3.1-pro-preview": AntigravityGemini31ProAgentModel,
 	// Gemini 3.1 image 白名单
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 	// Gemini 3.1 image preview 映射

@@ -301,10 +301,10 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			expected:       "gemini-2.5-flash",
 		},
 		{
-			name:           "customtools alias falls back to normalized preview mapping",
+			name:           "customtools alias falls back to normalized servable preview mapping",
 			modelMapping:   map[string]any{"gemini-3.1-pro-preview": "gemini-3.1-pro-high"},
 			requestedModel: "gemini-3.1-pro-preview-customtools",
-			expected:       "gemini-3.1-pro-high",
+			expected:       "gemini-pro-agent",
 		},
 	}
 

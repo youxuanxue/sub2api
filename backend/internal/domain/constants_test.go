@@ -101,6 +101,28 @@ func TestDefaultAntigravityModelMapping_ContainsEmpiricalGeminiWireIDs(t *testin
 	}
 }
 
+func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		AntigravityGemini31ProAgentModel: AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro":                 AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro-high":            AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro-preview":         AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro-low":             "gemini-3.1-pro-low",
+	}
+
+	for from, want := range cases {
+		got, ok := DefaultAntigravityModelMapping[from]
+		if !ok {
+			t.Fatalf("expected mapping for %q to exist", from)
+		}
+		if got != want {
+			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
+		}
+	}
+}
+
 // §5.x keep-don't-strip 守卫：gpt-oss-120b-medium 与 claude 一样仅从 antigravity
 // 服务面（pricing/allowlist/usage-guide）移除，但必须保留在默认映射里（按账号
 // credentials.model_mapping 排除，而非删默认）。与 claude keep-guard 对称，防止
