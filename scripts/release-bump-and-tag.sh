@@ -73,9 +73,15 @@ case "$ACTION" in
   *) echo "[release-bump-and-tag] ERROR: unknown action '$ACTION'" >&2; exit 1 ;;
 esac
 
-BUMP_ROUTE="direct-push"
+BUMP_ROUTE=""
 if [ "$ACTION" = "bump-and-tag" ]; then
-  BUMP_ROUTE="$(bash "$REPO_ROOT/scripts/release-main-push-route.sh" 2>/dev/null || echo direct-push)"
+  ROUTE_ERR=""
+  if ! ROUTE_ERR="$(bash "$REPO_ROOT/scripts/release-main-push-route.sh" 2>&1)"; then
+    printf '%s\n' "$ROUTE_ERR" >&2
+    echo "[release-bump-and-tag] ERROR: release-main-push-route.sh failed; refusing to guess bump path" >&2
+    exit 2
+  fi
+  BUMP_ROUTE="$ROUTE_ERR"
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -145,7 +151,7 @@ no-web-impact"
   if ! PUSH_ERR="$(git -C "$WT_DIR" push origin HEAD:main 2>&1)"; then
     echo "$PUSH_ERR" >&2
     if printf '%s\n' "$PUSH_ERR" | grep -qiE 'protected branch|pull request|GH006'; then
-      echo "[release-bump-and-tag] main is branch-protected; run: bash scripts/release-bump-via-pr.sh" >&2
+      echo "[release-bump-and-tag] main is branch-protected for this gh user; run: bash scripts/release-configure-main-bypass.sh (or fallback: scripts/release-bump-via-pr.sh)" >&2
     else
       echo "[release-bump-and-tag] ERROR: push rejected — origin/main moved since the worktree was created." >&2
       echo "                       Re-run this script; it will re-base the bump on the new origin/main." >&2

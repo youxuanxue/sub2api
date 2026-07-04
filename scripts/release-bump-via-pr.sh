@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# release-bump-via-pr.sh — VERSION bump through a PR when origin/main is protected.
+# release-bump-via-pr.sh — VERSION bump through a PR (fallback when direct-push
+# is unavailable for the current gh actor). Prefer scheme 1:
+#   bash scripts/release-configure-main-bypass.sh
+#   bash scripts/release-bump-and-tag.sh
 #
 # Worktree-isolated (never touches the operator checkout). Flow:
 #   release-decide-version (must be bump-and-tag)
