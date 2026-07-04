@@ -151,9 +151,9 @@ Steps:
    if any configured smoke model is absent from `/v1/models`, or if any step
    returns non-200 / unexpected body markers.
    Model-list vars: `TK_SMOKE_ANTHROPIC_MODELS` (default
-   `claude-sonnet-4-6`), `TK_SMOKE_GEMINI_MODELS` (default
-   `gemini-3.1-pro-preview`), `TK_SMOKE_OPENAI_OAUTH_MODELS` (default
-   `gpt-5.4`).
+   `claude-sonnet-4-6`), `TK_SMOKE_GEMINI_MODELS` (default empty; native
+   Gemini Google One pool retired 2026-07-04), `TK_SMOKE_OPENAI_OAUTH_MODELS`
+   (default `gpt-5.4`).
 11. **Job summary** — write the deployed tag, the SSM command id, and a
    one-liner re-dispatch command for rollback. No auto-rollback (would
    mask transient failures).
@@ -192,7 +192,8 @@ After this PR merges, before the first dispatch:
    Environments → `prod`:
    - `TK_SMOKE_API_KEY` — all-capability gateway smoke key (`sk-...`)
    - `TK_SMOKE_ANTHROPIC_MODELS` — Anthropic/chat+messages model list
-   - `TK_SMOKE_GEMINI_MODELS` — Gemini schema probe model list
+   - `TK_SMOKE_GEMINI_MODELS` — optional native Gemini schema probe model list;
+     leave empty unless a new native Gemini pool is provisioned and live-probed.
    - `TK_SMOKE_OPENAI_OAUTH_MODELS` — OpenAI OAuth probe model list
    The deploy workflow fails if the key is unset or a listed model is not visible to it. See `deploy/aws/README.md`
    (Smoke config).

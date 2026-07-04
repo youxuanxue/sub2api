@@ -3,7 +3,8 @@
 
 Checks TK_SMOKE_ANTHROPIC_MODELS, TK_SMOKE_GEMINI_MODELS, and
 TK_SMOKE_OPENAI_OAUTH_MODELS against the single TK_SMOKE_API_KEY /v1/models
-view. Gemini models must appear in the list. Anthropic and OpenAI OAuth may
+view. Gemini is opt-in because the native Google One pool was retired on
+2026-07-04; configured Gemini models must appear in the list. Anthropic and OpenAI OAuth may
 use empty model_mapping passthrough on prod (ids absent from /v1/models); those
 are warnings only — post_deploy_smoke defers to /v1/messages and openai oauth
 chat probes respectively.

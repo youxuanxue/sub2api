@@ -31,7 +31,7 @@ def anthropic_models() -> list[str]:
 
 def gemini_models() -> list[str]:
     raw = _env("TK_SMOKE_GEMINI_MODELS")
-    return _split_models(raw, ["gemini-3.1-pro-preview"])
+    return _split_models(raw, [])
 
 
 def openai_oauth_models() -> list[str]:

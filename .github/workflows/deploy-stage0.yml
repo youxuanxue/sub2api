@@ -189,7 +189,7 @@ jobs:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
           TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
           TK_SMOKE_ANTHROPIC_MODELS: ${{ vars.TK_SMOKE_ANTHROPIC_MODELS || 'claude-sonnet-4-6' }}
-          TK_SMOKE_GEMINI_MODELS: ${{ vars.TK_SMOKE_GEMINI_MODELS || 'gemini-3.1-pro-preview' }}
+          TK_SMOKE_GEMINI_MODELS: ${{ vars.TK_SMOKE_GEMINI_MODELS || '' }}
           TK_SMOKE_OPENAI_OAUTH_MODELS: ${{ vars.TK_SMOKE_OPENAI_OAUTH_MODELS || 'gpt-5.4' }}
         run: |
           set -euo pipefail

@@ -21,7 +21,9 @@
 #   bash ops/stage0/post_deploy_smoke.sh
 #
 # Gemini regression:
-#   TK_SMOKE_GEMINI_MODELS    comma/space separated, default: gemini-3.1-pro-preview
+#   TK_SMOKE_GEMINI_MODELS    comma/space separated, default empty. Native
+#                             Gemini Google One pool was retired on 2026-07-04;
+#                             set this explicitly only after reprovisioning.
 #
 # OpenAI OAuth regression:
 #   TK_SMOKE_OPENAI_OAUTH_MODELS    comma/space separated, default: gpt-5.4
@@ -277,7 +279,10 @@ if smoke_suite_runs gemini; then
   gemini_models=()
   while IFS= read -r smoke_model; do
     [[ -n "${smoke_model}" ]] && gemini_models+=("${smoke_model}")
-  done < <(smoke_model_list "${TK_SMOKE_GEMINI_MODELS:-}" "gemini-3.1-pro-preview")
+  done < <(smoke_model_list "${TK_SMOKE_GEMINI_MODELS:-}" "")
+  if [[ "${#gemini_models[@]}" -eq 0 ]]; then
+    echo "tk_post_deploy_smoke: skipping native gemini schema probe (TK_SMOKE_GEMINI_MODELS empty)"
+  fi
   echo "tk_post_deploy_smoke: gemini_models=${gemini_models[*]} max_tokens=${GEMINI_MAX_TOKENS}"
   for gemini_model in "${gemini_models[@]}"; do
   smoke_assert_model_listed "$tmpdir/models.json" "gemini" "${gemini_model}" || exit 1
