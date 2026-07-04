@@ -854,7 +854,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	}
 
 	// Protect admin users: cannot disable admin accounts
-	if user.Role == "admin" && input.Status == "disabled" {
+	if user.Role == RoleAdmin && input.Status == StatusDisabled {
 		return nil, errors.New("cannot disable admin user")
 	}
 
@@ -969,7 +969,7 @@ func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if user.Role == "admin" {
+	if user.Role == RoleAdmin {
 		return errors.New("cannot delete admin user")
 	}
 

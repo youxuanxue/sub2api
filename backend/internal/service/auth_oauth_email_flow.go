@@ -284,7 +284,9 @@ func (s *AuthService) FinalizeOAuthEmailAccount(
 	grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
-	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+	if err := s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan); err != nil {
+		slog.Error("quota snapshot failed", "user_id", user.ID, "err", err)
+	}
 	s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
 	return nil
 }

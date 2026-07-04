@@ -3,7 +3,7 @@
 
 The platform registry is written by hand on BOTH sides of the wire and the
 comments merely *ask* for lockstep. This check makes the ask mechanical.
-Six mirrored pairs, backend Go is the single source of truth:
+Eleven mirrored pairs, backend Go is the single source of truth:
 
   1. OpenAI-compat platforms
        backend/internal/engine/provider.go        OpenAICompatPlatforms()
@@ -50,6 +50,33 @@ Six mirrored pairs, backend Go is the single source of truth:
        - backend-only value → the admin UI cannot offer or render the type;
        - frontend-only value → typed forms emit a value the backend rejects.
 
+  7. Role Go↔TS lockstep
+       backend/internal/domain/constants.go       Role* string constants
+       frontend/src/types/index.ts                User.role inline union
+     Drift → the admin UI offers a role the backend rejects, or vice versa.
+
+  8. RedeemType Go↔TS lockstep
+       backend/internal/domain/constants.go       RedeemType* string constants
+       frontend/src/types/index.ts                RedeemCodeType union
+     Drift → redeem code creation form emits a type the backend rejects.
+
+  9. SubscriptionType Go↔TS lockstep
+       backend/internal/domain/constants.go       SubscriptionType* string constants
+       frontend/src/types/index.ts                SubscriptionType union
+     Drift → group subscription type selector offers invalid values.
+
+ 10. SubscriptionStatus Go↔TS lockstep
+       backend/internal/domain/constants.go       SubscriptionStatus* string constants
+       frontend/src/types/index.ts                UserSubscription.status inline union
+     Drift → subscription status badge/filter silently drops a state.
+
+ 11. GroupPlatform Go↔TS lockstep
+       backend/internal/domain/constants.go       Platform* string constants
+       frontend/src/types/index.ts                GroupPlatform union
+     Validates GroupPlatform stays in lockstep with the same Platform*
+     constant universe that backs AccountPlatform (CHECK 3). A stale subset
+     means the group-creation form cannot offer a newly added platform.
+
 Go constant names (`domain.PlatformX` / service aliases `PlatformX`) are
 resolved to their string values from constants.go, so the comparison is on
 wire values, not identifiers. All parsers tolerate gofmt / prettier
@@ -63,7 +90,7 @@ silently pass.
 Exit codes
 ----------
 
-  0 — all six pairs agree
+  0 — all eleven pairs agree
   1 — drift detected (details on stderr, both sides' file:line + sets)
   2 — parse / environment failure
 
@@ -131,6 +158,49 @@ def parse_go_account_types(text: str) -> tuple[list[str], int]:
     values = [v for v, _ in consts]
     first_line = min(line for _, line in consts)
     return values, first_line
+
+
+def _parse_go_const_group(
+    text: str, prefix: str, human_label: str
+) -> tuple[list[str], int]:
+    """Generic: <Prefix>* string constants -> ([values], first_line).
+
+    Matches lines like `PrefixFoo = "bar"` and collects the string values.
+    """
+    consts: list[tuple[str, int]] = []
+    pattern = re.compile(
+        rf'^\s*{re.escape(prefix)}[A-Za-z0-9_]*\s*=\s*"([^"]*)"', re.M
+    )
+    for m in pattern.finditer(text):
+        consts.append((m.group(1), line_of(text, m.start())))
+    if not consts:
+        raise ParseFailure(
+            f"{DOMAIN_CONSTANTS}: no `{prefix}* = \"...\"` constants found -- "
+            f"{human_label} block moved/renamed? Update platform-registry-drift.py."
+        )
+    values = [v for v, _ in consts]
+    first_line = min(line for _, line in consts)
+    return values, first_line
+
+
+def parse_go_role_constants(text: str) -> tuple[list[str], int]:
+    """Role* string constants -> ([values], first_line)."""
+    return _parse_go_const_group(text, "Role", "role")
+
+
+def parse_go_redeem_type_constants(text: str) -> tuple[list[str], int]:
+    """RedeemType* string constants -> ([values], first_line)."""
+    return _parse_go_const_group(text, "RedeemType", "redeem-type")
+
+
+def parse_go_subscription_type_constants(text: str) -> tuple[list[str], int]:
+    """SubscriptionType* string constants -> ([values], first_line)."""
+    return _parse_go_const_group(text, "SubscriptionType", "subscription-type")
+
+
+def parse_go_subscription_status_constants(text: str) -> tuple[list[str], int]:
+    """SubscriptionStatus* string constants -> ([values], first_line)."""
+    return _parse_go_const_group(text, "SubscriptionStatus", "subscription-status")
 
 
 def resolve_go_idents(
@@ -268,6 +338,64 @@ def parse_ts_union(text: str, name: str, rel: str) -> tuple[list[str], int]:
         pos = mm.end()
     if not values:
         raise ParseFailure(f"{rel}:{line}: {name} union parsed empty (not a string union?)")
+    return values, line
+
+
+def parse_ts_inline_union(
+    text: str, iface_name: str, prop_name: str, rel: str
+) -> tuple[list[str], int]:
+    """Parse an inline string-union property inside an interface/type.
+
+    Matches patterns like:
+        interface User {
+            ...
+            role: 'admin' | 'user'
+            ...
+        }
+
+    Also handles optional properties (prop?:), intersections (string & ...),
+    and parenthesized unions.
+    """
+    # Find the interface/type declaration
+    iface_m = re.search(
+        rf"export\s+(?:interface|type)\s+{re.escape(iface_name)}\b", text
+    )
+    if not iface_m:
+        raise ParseFailure(
+            f"{rel}: `export interface/type {iface_name}` not found -- "
+            "renamed/moved? Update platform-registry-drift.py."
+        )
+
+    # Find the property within the interface body (search from iface start)
+    prop_pattern = re.compile(
+        rf"^\s*{re.escape(prop_name)}\s*\??\s*:\s*",
+        re.M,
+    )
+    prop_m = prop_pattern.search(text, iface_m.end())
+    if not prop_m:
+        raise ParseFailure(
+            f"{rel}: property `{prop_name}` not found in {iface_name} -- "
+            "renamed/moved? Update platform-registry-drift.py."
+        )
+    line = line_of(text, prop_m.start())
+
+    # Extract the type expression (everything from after the colon to the next
+    # newline that doesn't start with |, or to a semicolon/closing brace).
+    type_start = prop_m.end()
+    member = re.compile(r"\s*\|?\s*(?:'([^']*)'|\"([^\"]*)\")")
+    values: list[str] = []
+    pos = type_start
+    while True:
+        mm = member.match(text, pos)
+        if not mm:
+            break
+        values.append(mm.group(1) or mm.group(2))
+        pos = mm.end()
+    if not values:
+        raise ParseFailure(
+            f"{rel}:{line}: {iface_name}.{prop_name} inline union parsed empty "
+            "(not a string union?)"
+        )
     return values, line
 
 
@@ -556,6 +684,114 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
         failures.append(fail)
     else:
         ok_lines.append(f"ok: AccountType constant universe in lockstep {fmt_set(go_acct_types)}")
+
+    # --- CHECK 7: Role Go↔TS lockstep ---
+    # The Go Role* constants must match the TS User.role inline union exactly.
+
+    go_roles, go_role_line = parse_go_role_constants(domain_text)
+    ts_roles, ts_role_line = parse_ts_inline_union(
+        ts_types_text, "User", "role", TS_TYPES_INDEX
+    )
+
+    fail = compare_pair(
+        "Role constant universe",
+        go_roles,
+        f"{DOMAIN_CONSTANTS}:{go_role_line} Role* constants",
+        ts_roles,
+        f"{TS_TYPES_INDEX}:{ts_role_line} User.role inline union",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(f"ok: Role constant universe in lockstep {fmt_set(go_roles)}")
+
+    # --- CHECK 8: RedeemType Go↔TS lockstep ---
+    # RedeemType* constants must match the TS RedeemCodeType standalone union.
+
+    go_redeem, go_redeem_line = parse_go_redeem_type_constants(domain_text)
+    ts_redeem, ts_redeem_line = parse_ts_union(
+        ts_types_text, "RedeemCodeType", TS_TYPES_INDEX
+    )
+
+    fail = compare_pair(
+        "RedeemType constant universe",
+        go_redeem,
+        f"{DOMAIN_CONSTANTS}:{go_redeem_line} RedeemType* constants",
+        ts_redeem,
+        f"{TS_TYPES_INDEX}:{ts_redeem_line} RedeemCodeType union",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(f"ok: RedeemType constant universe in lockstep {fmt_set(go_redeem)}")
+
+    # --- CHECK 9: SubscriptionType Go↔TS lockstep ---
+    # SubscriptionType* constants must match the TS SubscriptionType standalone union.
+
+    go_sub_type, go_sub_type_line = parse_go_subscription_type_constants(domain_text)
+    ts_sub_type, ts_sub_type_line = parse_ts_union(
+        ts_types_text, "SubscriptionType", TS_TYPES_INDEX
+    )
+
+    fail = compare_pair(
+        "SubscriptionType constant universe",
+        go_sub_type,
+        f"{DOMAIN_CONSTANTS}:{go_sub_type_line} SubscriptionType* constants",
+        ts_sub_type,
+        f"{TS_TYPES_INDEX}:{ts_sub_type_line} SubscriptionType union",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(
+            f"ok: SubscriptionType constant universe in lockstep {fmt_set(go_sub_type)}"
+        )
+
+    # --- CHECK 10: SubscriptionStatus Go↔TS lockstep ---
+    # SubscriptionStatus* constants must match the TS UserSubscription.status
+    # inline union.
+
+    go_sub_status, go_sub_status_line = parse_go_subscription_status_constants(domain_text)
+    ts_sub_status, ts_sub_status_line = parse_ts_inline_union(
+        ts_types_text, "UserSubscription", "status", TS_TYPES_INDEX
+    )
+
+    fail = compare_pair(
+        "SubscriptionStatus constant universe",
+        go_sub_status,
+        f"{DOMAIN_CONSTANTS}:{go_sub_status_line} SubscriptionStatus* constants",
+        ts_sub_status,
+        f"{TS_TYPES_INDEX}:{ts_sub_status_line} UserSubscription.status inline union",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(
+            f"ok: SubscriptionStatus constant universe in lockstep {fmt_set(go_sub_status)}"
+        )
+
+    # --- CHECK 11: GroupPlatform Go↔TS lockstep ---
+    # GroupPlatform must stay in lockstep with the same Platform* constant
+    # universe that AccountPlatform is checked against (CHECK 3). A stale
+    # subset means the group-creation form cannot offer a newly added platform.
+
+    ts_group_plat, ts_group_plat_line = parse_ts_union(
+        ts_types_text, "GroupPlatform", TS_TYPES_INDEX
+    )
+
+    fail = compare_pair(
+        "GroupPlatform constant universe",
+        domain_values,
+        f"{DOMAIN_CONSTANTS}:{domain_line} Platform* constants",
+        ts_group_plat,
+        f"{TS_TYPES_INDEX}:{ts_group_plat_line} GroupPlatform union",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(
+            f"ok: GroupPlatform constant universe in lockstep {fmt_set(domain_values)}"
+        )
 
     return failures, ok_lines
 
