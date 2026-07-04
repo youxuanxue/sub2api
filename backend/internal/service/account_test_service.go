@@ -355,7 +355,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	}
 
 	// API Key 账号测试连接时也需要应用通配符模型映射。
-	if account.Type == "apikey" {
+	if account.Type == AccountTypeAPIKey {
 		testModelID = account.GetMappedModel(testModelID)
 	}
 	if account.IsKiroMirrorStub() {
@@ -380,7 +380,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No access token available")
 		}
-	} else if account.Type == "apikey" {
+	} else if account.Type == AccountTypeAPIKey {
 		authToken = account.GetCredential("api_key")
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No API key available")
@@ -663,7 +663,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if imagePrompt == "" {
 			imagePrompt = defaultOpenAIImageTestPrompt
 		}
-		if account.Type == "apikey" {
+		if account.Type == AccountTypeAPIKey {
 			return s.testOpenAIImageAPIKey(c, ctx, account, testModelID, imagePrompt)
 		}
 		return s.testOpenAIImageOAuth(c, ctx, account, testModelID, imagePrompt)
@@ -693,7 +693,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 		// OAuth uses ChatGPT internal API
 		apiURL = chatgptCodexAPIURL
-	} else if credentialAccount.Type == "apikey" {
+	} else if credentialAccount.Type == AccountTypeAPIKey {
 		// API Key - use Platform API
 		authToken = credentialAccount.GetOpenAIApiKey()
 		if authToken == "" {

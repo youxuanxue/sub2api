@@ -280,7 +280,7 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
 		Name:        name,
 		Platform:    platform,
-		Type:        "oauth",
+		Type:        service.AccountTypeOAuth,
 		Credentials: credentials,
 		Extra:       nil,
 		ProxyID:     req.ProxyID,

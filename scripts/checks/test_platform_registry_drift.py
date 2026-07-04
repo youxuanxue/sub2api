@@ -16,6 +16,7 @@ _spec.loader.exec_module(prd)
 
 
 PLATFORMS = ["anthropic", "gemini", "openai", "antigravity", "newapi", "kiro", "grok"]
+ACCOUNT_TYPES = ["oauth", "setup-token", "apikey", "upstream", "bedrock", "service_account"]
 
 
 def _write(root: pathlib.Path, rel: str, text: str) -> None:
@@ -69,6 +70,15 @@ def _fixture(
             PlatformNewAPI = "newapi"
             PlatformKiro = "kiro"
             PlatformGrok = "grok"
+        )
+
+        const (
+            AccountTypeOAuth          = "oauth"
+            AccountTypeSetupToken     = "setup-token"
+            AccountTypeAPIKey         = "apikey"
+            AccountTypeUpstream       = "upstream"
+            AccountTypeBedrock        = "bedrock"
+            AccountTypeServiceAccount = "service_account"
         )
         """,
     )
@@ -144,6 +154,8 @@ def _fixture(
           | 'newapi'
           | 'kiro'
           | 'grok'
+
+        export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
         """,
     )
     _write(
