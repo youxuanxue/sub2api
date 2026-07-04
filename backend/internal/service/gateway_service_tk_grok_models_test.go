@@ -68,10 +68,15 @@ func TestGetAvailableModels_GrokUnionsNativeCatalogWithChatMapping(t *testing.T)
 	if !foundChat {
 		t.Fatalf("grok GetAvailableModels must include grok-4.3, got %v", models)
 	}
+	foundVideo := false
 	for _, m := range models {
 		if m == "grok-imagine-video" {
-			t.Fatalf("grok GetAvailableModels must not include unverified paid media, got %v", models)
+			foundVideo = true
+			break
 		}
+	}
+	if !foundVideo {
+		t.Fatalf("grok GetAvailableModels must include paid-gate-proven media, got %v", models)
 	}
 }
 
@@ -86,8 +91,8 @@ func TestResolve_GrokNativeCatalogWithChatOnlyMapping(t *testing.T) {
 	if err != nil || g == nil || g.Platform != PlatformGrok {
 		t.Fatalf("grok-4.3 should resolve to grok group, got=%v err=%v", g, err)
 	}
-	if g, err = r.Resolve(ctx, universalKey(1), ShapeOpenAIVideo, "grok-imagine-video", ""); err == nil || g != nil {
-		t.Fatalf("unverified grok-imagine-video should not resolve via the curated native set, got=%v err=%v", g, err)
+	if g, err = r.Resolve(ctx, universalKey(1), ShapeOpenAIVideo, "grok-imagine-video", ""); err != nil || g == nil || g.Platform != PlatformGrok {
+		t.Fatalf("paid-gate-proven grok-imagine-video should resolve via the curated native set, got=%v err=%v", g, err)
 	}
 }
 
@@ -108,8 +113,8 @@ func TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping(t *test
 	if !account.IsModelSupported("grok-4.3") {
 		t.Fatal("grok native catalog chat model must not be blocked by chat-only model_mapping")
 	}
-	if account.IsModelSupported("grok-imagine-video") {
-		t.Fatal("unverified grok native media must stay blocked by chat-only model_mapping")
+	if !account.IsModelSupported("grok-imagine-video") {
+		t.Fatal("paid-gate-proven grok native media must not be blocked by chat-only model_mapping")
 	}
 
 	scheduler := &defaultOpenAIAccountScheduler{}
@@ -121,8 +126,8 @@ func TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping(t *test
 		t.Fatal("grok-4.3 must survive the OpenAI-compat account scheduler filter")
 	}
 	req.RequestedModel = "grok-imagine-video"
-	if scheduler.isAccountRequestCompatible(context.Background(), account, req) {
-		t.Fatal("unverified grok-imagine-video must not survive the OpenAI-compat account scheduler filter")
+	if !scheduler.isAccountRequestCompatible(context.Background(), account, req) {
+		t.Fatal("paid-gate-proven grok-imagine-video must survive the OpenAI-compat account scheduler filter")
 	}
 
 	if account.IsModelSupported("veo-3.1-generate-001") {

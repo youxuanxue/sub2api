@@ -26,6 +26,7 @@ REQ_SLEEP="${REQ_SLEEP:-2}"
 
 VEO_GROUP_ID="${VEO_GROUP_ID:-16}"
 GROK_GROUP_ID="${GROK_GROUP_ID:-25}"
+IMAGEN_IMAGE_MODEL="${IMAGEN_IMAGE_MODEL:-imagen-4.0-generate-001}"
 VEO_MODEL="${VEO_MODEL:-veo-3.1-generate-001}"
 GROK_IMAGE_MODELS="${GROK_IMAGE_MODELS:-grok-imagine-image grok-imagine-image-quality}"
 GROK_VIDEO_MODEL="${GROK_VIDEO_MODEL:-grok-imagine-video}"
@@ -175,8 +176,8 @@ path_label() {
 	printf '%s' "$path"
 }
 
-shape_for() { # $1=modality $2=http_code $3=bodyfile
-	local modality="$1" code="$2" bodyfile="$3"
+shape_for() { # $1=modality $2=http_code $3=bodyfile $4=path
+	local modality="$1" code="$2" bodyfile="$3" path="${4:-}"
 	if [ "$code" != "200" ]; then
 		echo "error"
 		return
@@ -186,7 +187,13 @@ shape_for() { # $1=modality $2=http_code $3=bodyfile
 		if grep -q '"data"' "$bodyfile"; then echo "ok"; else echo "mismatch"; fi
 		;;
 	video)
-		if grep -Eq '"(id|task_id)"[[:space:]]*:' "$bodyfile"; then echo "ok"; else echo "mismatch"; fi
+		if grep -Eq '"(id|task_id)"[[:space:]]*:' "$bodyfile"; then
+			echo "ok"
+		elif [[ "$path" == *"/videos/generations" ]] && grep -Eq '"request_id"[[:space:]]*:' "$bodyfile"; then
+			echo "ok"
+		else
+			echo "mismatch"
+		fi
 		;;
 	*)
 		echo "unknown"
@@ -311,7 +318,7 @@ post_probe() { # $1=label $2=kind $3=key_id $4=key $5=modality $6=model $7=path 
 		-H 'content-type: application/json' \
 		-H "x-tokenkey-probe-run: $RUN_ID" \
 		--data-binary "$body" 2>/dev/null || printf '000')"
-	shape="$(shape_for "$modality" "$code" "$bodyfile")"
+	shape="$(shape_for "$modality" "$code" "$bodyfile" "$path")"
 	task_id="$(sed -n 's/.*"\(task_id\|id\)"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\2/p' "$bodyfile" | head -n1)"
 	printf 'RESULT\t%s\tkind=%s\tkey_id=%s\tmodality=%s\tmodel=%s\tpath=%s\thttp=%s\tshape=%s\ttask_id=%s\tsnippet=%s\n' \
 		"$label" "$kind" "$key_id" "$modality" "$model" "$path" "$code" "$shape" "${task_id:-}" "$(snippet "$bodyfile")"
@@ -334,6 +341,8 @@ main() {
 	if prepare_direct_key veo newapi "$VEO_GROUP_ID"; then
 		VEO_DIRECT_KEY="$TK_PROBE_KEY"
 		VEO_DIRECT_KEY_ID="$TK_PROBE_KEY_ID"
+		post_probe direct_imagen direct "$VEO_DIRECT_KEY_ID" "$VEO_DIRECT_KEY" image "$IMAGEN_IMAGE_MODEL" /v1/images/generations "$(body_image "$IMAGEN_IMAGE_MODEL")"
+		post_probe universal_imagen universal "$UNIVERSAL_KEY_ID" "$UNIVERSAL_KEY" image "$IMAGEN_IMAGE_MODEL" /v1/images/generations "$(body_image "$IMAGEN_IMAGE_MODEL")"
 		post_probe direct_veo direct "$VEO_DIRECT_KEY_ID" "$VEO_DIRECT_KEY" video "$VEO_MODEL" /v1/video/generations "$(body_video "$VEO_MODEL")"
 		post_probe universal_veo universal "$UNIVERSAL_KEY_ID" "$UNIVERSAL_KEY" video "$VEO_MODEL" /v1/video/generations "$(body_video "$VEO_MODEL")"
 	fi

@@ -150,10 +150,10 @@ func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) 
 
 // TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
 // merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
-// glm-4-7-251222 / glm-5.2 — the newapi fifth-platform batch + deepseek) must surface in
-// the public catalog / Your-Menu with their prices, matching the billing path that
-// already applies the overlay. The merge is fill-only: a model the file source
-// prices natively keeps the source value (overlay never overrides).
+// glm-4-7-251222 / glm-5.2, plus media rows such as Veo/Grok image/video) must
+// surface in the public catalog / Your-Menu with their prices, matching the
+// billing path that already applies the overlay. The merge is fill-only: a model
+// the file source prices natively keeps the source value (overlay never overrides).
 func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	// Healthy source: one base model + deepseek-v4-flash at a deliberately absurd
 	// price so the fill-only assertion can prove the source wins over the overlay.
@@ -188,6 +188,29 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	assert.InDelta(t, 0.0014, glm52.Pricing.InputPer1KTokens, 1e-12)
 	assert.InDelta(t, 0.0044, glm52.Pricing.OutputPer1KTokens, 1e-12)
 	assert.InDelta(t, 0.00026, glm52.Pricing.CacheReadPer1K, 1e-12)
+
+	veo, ok := byID["veo-3.1-generate-001"]
+	require.True(t, ok, "Veo overlay media row must surface in catalog")
+	assert.Equal(t, "video", veo.Pricing.BillingMode)
+	assert.InDelta(t, 0.6, veo.Pricing.OutputCostPerSecond, 1e-12)
+	grokImage, ok := byID["grok-imagine-image"]
+	require.True(t, ok, "Grok image overlay media row must surface in catalog")
+	assert.Equal(t, "image", grokImage.Pricing.BillingMode)
+	assert.InDelta(t, 0.02, grokImage.Pricing.OutputCostPerImage, 1e-12)
+	grokVideo, ok := byID["grok-imagine-video"]
+	require.True(t, ok, "Grok video overlay media row must surface in catalog")
+	assert.Equal(t, "video", grokVideo.Pricing.BillingMode)
+	assert.InDelta(t, 0.08, grokVideo.Pricing.OutputCostPerSecond, 1e-12)
+
+	filtered := FilterPublicCatalogToServable(resp)
+	require.NotNil(t, filtered)
+	filteredByID := make(map[string]PublicCatalogModel, len(filtered.Data))
+	for _, m := range filtered.Data {
+		filteredByID[m.ModelID] = m
+	}
+	require.Contains(t, filteredByID, "veo-3.1-generate-001", "paid-gate-proven Veo must remain in public pricing")
+	require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
+	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
 
 	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
 	flash, ok := byID["deepseek-v4-flash"]
@@ -397,15 +420,15 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"antigravity", "gemini-3.1-flash-image", true},
 		{"antigravity", "gemini-3.1-flash-image-preview", true},
 		{"vertex_ai-language-models", "gemini-3.1-flash-image", false}, // not served by gemini/Vertex accounts
-		{"vertex_ai", "veo-3.1-generate-001", false},                   // paid gate 2026-07-03: hide_or_provision
+		{"vertex_ai", "veo-3.1-generate-001", true},                    // 2026-07-04 post-#1198 paid gate: keep_displayed
 		// grok (xai vendor → grok platform): gated to the paid-gate-verified native set.
 		{"xai", "grok-4.3", true},
 		{"xai", "grok-4.20-0309-reasoning", true},
 		{"xai", "grok-build-0.1", true},
 		{"xai", "grok-code-fast-1", true},
-		{"xai", "grok-imagine-video", false},  // paid gate retry stayed 502/reprobe_required
-		{"x-ai", "grok-imagine-image", false}, // openrouter-style x-ai alias maps too
-		{"xai", "grok-imagine-image-quality", false},
+		{"xai", "grok-imagine-video", true},  // 2026-07-04 post-#1198 paid gate: keep_displayed
+		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
+		{"xai", "grok-imagine-image-quality", true},
 		{"xai", "grok-4", false},      // third-party-priced / unverified legacy slug
 		{"xai", "grok-latest", false}, // priced alias, not public-listed
 		{"volcengine", "doubao-seedream-4-0-250828", true},
@@ -473,6 +496,9 @@ func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 		"grok-4.20-0309-non-reasoning",
 		"grok-build-0.1",
 		"grok-code-fast-1",
+		"grok-imagine-image",
+		"grok-imagine-image-quality",
+		"grok-imagine-video",
 	} {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected grok menu to advertise %q", want)
@@ -481,9 +507,6 @@ func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 		"grok-4",
 		"grok-latest",
 		"grok-code-fast-1-0825",
-		"grok-imagine-image",
-		"grok-imagine-image-quality",
-		"grok-imagine-video",
 		"claude-opus-4-8",
 	} {
 		_, ok := set[deny]
