@@ -191,3 +191,19 @@ func universalModelPlatformHint(model string) string {
 		return ""
 	}
 }
+
+func universalRequestPlatformHint(shape UniversalShape, model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return ""
+	}
+	switch shape {
+	case ShapeOpenAIImages, ShapeOpenAIVideo:
+		// Imagen/Veo are Google-family model names, but TokenKey serves their
+		// OpenAI-compatible image/video endpoints through the newapi Vertex bridge.
+		if strings.HasPrefix(m, "imagen") || strings.HasPrefix(m, "veo") {
+			return PlatformNewAPI
+		}
+	}
+	return universalModelPlatformHint(model)
+}

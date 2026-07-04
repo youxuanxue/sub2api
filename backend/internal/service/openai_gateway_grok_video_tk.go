@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -146,7 +147,7 @@ func (s *OpenAIGatewayService) grokNativeVideoSubmit(
 	if err != nil {
 		return nil, fmt.Errorf("invalid grok base_url: %w", err)
 	}
-	url := strings.TrimRight(base, "/") + "/videos/generations"
+	url := buildGrokVideoSubmitURL(base)
 
 	respBody, status, herr := s.grokVideoHTTP(ctx, account, http.MethodPost, url, token, upstreamBody)
 	if herr != nil {
@@ -214,7 +215,7 @@ func (s *OpenAIGatewayService) grokNativeVideoFetch(
 	if token == "" {
 		return nil, errors.New("grok video fetch: no usable bearer credential")
 	}
-	url := base + "/videos/" + in.UpstreamTaskID
+	url := buildGrokVideoFetchURL(base, in.UpstreamTaskID)
 
 	respBody, status, herr := s.grokVideoHTTP(ctx, account, http.MethodGet, url, token, nil)
 	if herr != nil {
@@ -320,6 +321,14 @@ func (s *OpenAIGatewayService) grokVideoHTTP(
 		return nil, resp.StatusCode, fmt.Errorf("read grok video response: %w", rerr)
 	}
 	return respBody, resp.StatusCode, nil
+}
+
+func buildGrokVideoSubmitURL(base string) string {
+	return buildOpenAIV1SegmentURL(base, "videos/generations")
+}
+
+func buildGrokVideoFetchURL(base, upstreamTaskID string) string {
+	return buildOpenAIV1SegmentURL(base, "videos/"+url.PathEscape(upstreamTaskID))
 }
 
 // grokVideoUpstreamError maps an xAI video error response to a client error.

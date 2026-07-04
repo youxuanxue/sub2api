@@ -480,7 +480,10 @@ const props = defineProps<{
   rateMultiplier: number
   catalogLoading?: boolean
 }>()
-const emit = defineEmits<{ (e: 'spent'): void }>()
+const emit = defineEmits<{
+  (e: 'spent'): void
+  (e: 'modality-change', modality: StudioModality): void
+}>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -535,6 +538,8 @@ const isBusy = computed(
 const activeRunTs = ref<number | null>(null)
 
 const library = useMediaLibrary(props.userId)
+
+watch(modality, (m) => emit('modality-change', m), { immediate: true })
 
 function tagVideoPlayback(taskId: string, url: string): void {
   void tagStudioVideoPlayback(playbackDeps, taskId, url)

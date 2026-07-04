@@ -3496,7 +3496,7 @@
         "filterGroupsAllowImageGeneration",
         "supportProvider groupModelSupportProvider",
         "supportProvider(ctx, &gid, eligible[i].Platform, model, shape)",
-        "else if hint := universalModelPlatformHint(model); hint != \"\"",
+        "else if hint := universalRequestPlatformHint(shape, model); hint != \"\"",
         "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
       ],
       "rationale": "Universal Key (全能 Key) per-request resolver: maps a routing_mode=universal key to a concrete backing group from the owner's live entitlement span (GetAvailableGroups, short-TTL cached), filtered by endpoint-shape candidate platforms, with deterministic pick (subscription-held -> sort_order -> id). docs/approved/universal-key-routing.md §4.3. Dropping this file disables universal-key routing entirely (every universal key would fall through with a nil group). Pins the constructor, Resolve entrypoint, the no-entitled-group sentinel error, and the deterministic picker. Load-bearing P0 gate (prod 2026-07-01 user16 universal key #245): when groupServesModel filters eligible to empty AND the model has a platform hint, Resolve must return ErrUniversalNoEntitledGroup (middleware 403) — NOT fall back to a wrong openai-compat group and surface routing-phase 429 No available accounts (routing_capacity_rejection storm). Universal/direct-key parity now depends on the direct-scheduler supportProvider branch running before the GetAvailableModels fallback; losing that branch silently reverts OpenAI passthrough, wildcard, Anthropic alias, and Antigravity default-mapping parity. An upstream merge that restores the old served-empty fallback or drops supportProvider silently re-opens the amplifier; the hint branch plus supportProvider call are the mechanical anchors."
@@ -3511,7 +3511,8 @@
         "acc.IsOpenAICompatPoolMember(platform)",
         "universalOpenAICompatAccountSupportsShape",
         "accountSupportsOpenAIRequestCapabilities(account, \"\", \"\", true)",
-        "s.isModelSupportedByAccount(acc, model)",
+        "universalOpenAICompatAccountSupportsModel(ctx, s, acc, model, shape)",
+        "s.isModelSupportedByAccountWithContext(ctx, account, model)",
         "s.isModelSupportedByAccountWithContext(ctx, acc, model)",
         "modelInServedSet(model string, served []string, platform string)",
         "normalizeRequestedModelForLookup(platform, model)"

@@ -190,6 +190,18 @@ func TestUniversalModelPlatformHint(t *testing.T) {
 	}
 }
 
+func TestUniversalRequestPlatformHint_OpenAICompatVertexMedia(t *testing.T) {
+	if got := universalRequestPlatformHint(ShapeOpenAIImages, "imagen-4.0-generate-001"); got != PlatformNewAPI {
+		t.Fatalf("imagen on OpenAI images should hint newapi vertex, got %q", got)
+	}
+	if got := universalRequestPlatformHint(ShapeOpenAIVideo, "veo-3.1-generate-001"); got != PlatformNewAPI {
+		t.Fatalf("veo on OpenAI video should hint newapi vertex, got %q", got)
+	}
+	if got := universalRequestPlatformHint(ShapeGemini, "imagen-4.0-generate-001"); got != PlatformGemini {
+		t.Fatalf("imagen on native Gemini shape should keep gemini hint, got %q", got)
+	}
+}
+
 func TestResolve_PicksByPlatformAndHint(t *testing.T) {
 	span := []Group{
 		grp(10, PlatformAnthropic, 0, false),

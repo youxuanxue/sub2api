@@ -71,7 +71,18 @@ vi.mock('../VideoStudio.vue', () => ({
     </div>`,
   },
 }))
-vi.mock('../BakeOff.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../BakeOff.vue', () => ({
+  default: {
+    name: 'BakeOff',
+    props: ['apiKey', 'catalogLoading', 'priceMap', 'availableIds', 'keyId'],
+    emits: ['modality-change', 'spent'],
+    template: `<div data-testid="bakeoff-stub">
+      <span data-testid="bakeoff-stub-key">{{ apiKey }}</span>
+      <button data-testid="bakeoff-stub-image" @click="$emit('modality-change', 'image')">image</button>
+      <button data-testid="bakeoff-stub-video" @click="$emit('modality-change', 'video')">video</button>
+    </div>`,
+  },
+}))
 
 const i18n = createI18n({
   legacy: false,
@@ -231,5 +242,57 @@ describe('MediaStudioView bootstrap', () => {
     })
     await flushPromises()
     expect(videoStudio.props('catalogLoading')).toBe(false)
+  })
+
+  it('switches BakeOff to an image-serving key when the child image mode is selected', async () => {
+    listKeys.mockResolvedValue({
+      items: [
+        { id: 1, name: 'trial', key: 'sk-chat', group: { id: 10, name: 'chat' } },
+        { id: 2, name: 'imagen', key: 'sk-image', group: { id: 16, name: 'Google-Vertex' } },
+      ],
+    })
+    gatewayListModels.mockImplementation((key: string) => {
+      if (key === 'sk-image') return Promise.resolve({ data: [{ id: 'imagen-4.0-generate-001' }] })
+      return Promise.resolve({ data: [{ id: 'gpt-5.1' }] })
+    })
+    getPublicPricing.mockResolvedValue({
+      data: [
+        {
+          model_id: 'imagen-4.0-generate-001',
+          pricing: { billing_mode: 'image', output_cost_per_image: 0.04 },
+        },
+      ],
+    })
+    getMePricingCatalog.mockImplementation((opts?: { apiKeyId?: number }) => {
+      if (opts?.apiKeyId === 2) {
+        return Promise.resolve({
+          authorized_groups_by_model: {},
+          models: [
+            {
+              model_id: 'imagen-4.0-generate-001',
+              billing_mode: 'image',
+              your_price: { currency: 'USD', per_image: 0.04 },
+            },
+          ],
+        })
+      }
+      return Promise.resolve({ authorized_groups_by_model: {}, models: [] })
+    })
+
+    const wrapper = mount(MediaStudioView, {
+      global: { plugins: [i18n], stubs: { 'router-link': true } },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="studio-mode-bakeoff"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="bakeoff-stub-key"]').text()).toBe('sk-chat')
+
+    await wrapper.find('[data-testid="bakeoff-stub-image"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="bakeoff-stub-key"]').text()).toBe('sk-image')
+    expect(getMePricingCatalog).toHaveBeenCalledWith({ apiKeyId: 2 })
   })
 })

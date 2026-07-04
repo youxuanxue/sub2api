@@ -1,6 +1,9 @@
 package service
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // 全能 Key 解析的「组是否支持模型」真值过滤。
 //
@@ -68,7 +71,7 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 			if !universalOpenAICompatAccountSupportsShape(acc, shape) {
 				continue
 			}
-			if s.isModelSupportedByAccount(acc, model) || (acc.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)) {
+			if universalOpenAICompatAccountSupportsModel(ctx, s, acc, model, shape) {
 				return true, true
 			}
 			continue
@@ -80,6 +83,41 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 		}
 	}
 	return false, true
+}
+
+func universalOpenAICompatAccountSupportsModel(ctx context.Context, s *GatewayService, account *Account, model string, shape UniversalShape) bool {
+	if account == nil {
+		return false
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return true
+	}
+	mapping := account.GetModelMapping()
+	if len(mapping) > 0 {
+		if mappingSupportsRequestedModel(mapping, model) {
+			return true
+		}
+		if norm := normalizeRequestedModelForLookup(account.Platform, model); norm != model {
+			if mappingSupportsRequestedModel(mapping, norm) {
+				return true
+			}
+		}
+		return account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)
+	}
+	if account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model) {
+		return true
+	}
+	if account.Platform == PlatformNewAPI {
+		return false
+	}
+	if s != nil && s.isModelSupportedByAccountWithContext(ctx, account, model) {
+		if hint := universalRequestPlatformHint(shape, model); hint != "" {
+			return hint == account.Platform
+		}
+		return true
+	}
+	return false
 }
 
 func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {
