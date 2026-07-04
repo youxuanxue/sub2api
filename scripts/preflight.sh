@@ -73,8 +73,9 @@
 #        major as the release Dockerfile (ARG NODE_IMAGE). Driven by
 #        `scripts/checks/node-version-align.py`.
 #   platform registry drift      — Go ↔ TS platform registry lockstep
-#        (OpenAI-compat list, dispatch-config platforms, Platform universe).
-#        Driven by `scripts/checks/platform-registry-drift.py`.
+#        (OpenAI-compat list, dispatch-config platforms, Platform universe,
+#        Ent platform enum coverage, admin UI style maps). Driven by
+#        `scripts/checks/platform-registry-drift.py`.
 #   upstream deletion ledger     — every upstream-owned file deleted in TK must
 #        appear verbatim in `docs/DEPRECATIONS.md` (CLAUDE.md §5.x). Driven by
 #        `scripts/checks/upstream-deletion-ledger.py`. Skips when upstream remote
@@ -2243,12 +2244,17 @@ fi
 
 # ---- sub2api: platform registry drift ----------------------------------------
 # Go ↔ TS platform registry lockstep: OpenAI-compat list, dispatch-config
-# platforms, Platform constant universe. Drift → admin UI cannot render or
-# silently drops dispatch config. Gate: scripts/checks/platform-registry-drift.py.
+# platforms, Platform constant universe, Ent enum coverage, and admin UI style
+# maps. Drift → admin UI cannot render, cannot persist enum-constrained
+# platforms, or silently drops dispatch config. Gate: scripts/checks/platform-registry-drift.py.
 echo ""
 echo "=== sub2api: platform registry drift ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by platform-registry-drift.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/test_platform_registry_drift.py >/dev/null; then
+    echo "  FAIL: platform-registry-drift regression tests failed"
+    echo "        — run: python3 scripts/checks/test_platform_registry_drift.py"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/platform-registry-drift.py --quiet; then
     errors=$((errors + 1))
