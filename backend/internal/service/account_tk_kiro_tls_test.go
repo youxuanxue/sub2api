@@ -46,6 +46,30 @@ func TestNonKiroTLSGateUnchanged(t *testing.T) {
 	}
 }
 
+func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
+	stub := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": PlatformKiro,
+		},
+	}
+	if !stub.IsKiroMirrorStub() {
+		t.Fatal("fixture must be a Kiro mirror stub")
+	}
+	if !stub.IsModelSupported("claude-sonnet-4-5") {
+		t.Fatal("Kiro mirror stub must support Kiro-served Claude ids")
+	}
+	if !stub.IsModelSupported("claude-opus-4-8") {
+		t.Fatal("Kiro mirror stub must support Kiro-served Opus ids")
+	}
+	for _, denied := range []string{"claude-fable-5", "claude-opus-4-1"} {
+		if stub.IsModelSupported(denied) {
+			t.Fatalf("Kiro mirror stub must not claim unsupported model %q", denied)
+		}
+	}
+}
+
 func newTLSSvcWithProfiles(profiles ...*model.TLSFingerprintProfile) *TLSFingerprintProfileService {
 	m := make(map[int64]*model.TLSFingerprintProfile, len(profiles))
 	for i, p := range profiles {

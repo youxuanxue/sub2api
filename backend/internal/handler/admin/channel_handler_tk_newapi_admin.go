@@ -145,6 +145,7 @@ func (h *TKChannelAdminHandler) ListChannelTypeModels(c *gin.Context) {
 	ctx := c.Request.Context()
 	overlayPreset := func(channelType int) {
 		var ids []string
+		_, managed := service.NewAPIModelMappingPresetOverrideIDsForChannelType(channelType)
 		if h.adminService != nil {
 			var err error
 			ids, err = h.adminService.GetAccountModelMappingPresetIDs(ctx, service.PlatformNewAPI, channelType)
@@ -156,12 +157,14 @@ func (h *TKChannelAdminHandler) ListChannelTypeModels(c *gin.Context) {
 		} else {
 			ids = service.NewAPIModelMappingPresetIDsForChannelType(channelType)
 		}
-		if len(ids) > 0 {
+		if managed {
+			if ids == nil {
+				ids = []string{}
+			}
 			out[strconv.Itoa(channelType)] = ids
 		}
 	}
-	overlayPreset(newapiconstant.ChannelTypeVertexAi)
-	for _, ct := range service.NewAPIManifestPresetChannelTypes() {
+	for _, ct := range service.NewAPIModelMappingPresetOverrideChannelTypes() {
 		overlayPreset(ct)
 	}
 	response.Success(c, out)

@@ -57,7 +57,10 @@ func TestListChannelTypeModels_ManifestChannelsUseTokenKeyPresets(t *testing.T) 
 
 	require.Contains(t, resp.Data["43"], "deepseek-chat")
 	require.Contains(t, resp.Data["17"], "qwen3.7-max")
-	require.Contains(t, resp.Data["26"], "glm-5-turbo")
+	require.Contains(t, resp.Data["17"], "glm-5.2")
+	require.NotContains(t, resp.Data["17"], "glm-5-turbo")
+	require.Contains(t, resp.Data, "26")
+	require.Empty(t, resp.Data["26"], "removed direct GLM channel must override stale new-api defaults with an empty preset")
 	require.Contains(t, resp.Data["45"], "doubao-seed-2-0-pro-260215")
 }
 

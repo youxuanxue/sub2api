@@ -959,6 +959,31 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 		"only manifest-listed newapi whitelist models surface in Group Catalog")
 }
 
+func TestBuildForUser_AccountWhitelist_NewapiRemovedDirectGLMHidden(t *testing.T) {
+	gNewapi := mkGroupForMe(50, "zhipu", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 7, "zhipu-key", ptrI(50))
+	acct := mkAccountWithWhitelist(12, "zhipu", "newapi", newapiconstant.ChannelTypeZhipu_v4, []string{
+		"glm-5-turbo", // historical direct-only GLM SKU; no current ch26 manifest intent.
+		"glm-4.7-flashx",
+	})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("glm-5-turbo", "zhipu", 0.0012, 0.004, 0),
+			mkPublicCatalogModel("glm-4.7-flashx", "zhipu", 0.0012, 0.004, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Empty(t, resp.Models,
+		"removed direct-only GLM rows must not appear in Group Catalog even when historically mapped and priced")
+}
+
 func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "vertex-key", ptrI(50))

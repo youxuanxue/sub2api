@@ -40,10 +40,9 @@
 #     enable_thinking:true) and non-thinking (stream:false, enable_thinking:false)
 #     — so a default (thinking) call that 400s on shape alone never masks a
 #     genuinely servable model.
-#   ZHIPU_CHAT_MODELS        -> POST <prod>/v1/chat/completions  (newapi channel_type=26, GLM/Z.AI)
-#     Routes through the normal prod TK gateway with a TK api_key bound to the GLM
-#     group. This is the end-to-end truth probe after account 67 switches from
-#     legacy Zhipu v3 (channel_type=16) to ZhipuV4/OpenAI-compatible (26).
+#   ZHIPU_CHAT_MODELS        -> legacy alias for GLM chat probes via Qwen/DashScope
+#     (newapi channel_type=17). The old GLM/ZhipuV4 direct account/group was removed;
+#     prefer DASHSCOPE_CHAT_MODELS for new GLM probe runs.
 #   VOLCENGINE_IMAGE_MODELS  -> POST <prod>/v1/images/generations (newapi channel_type=45 via TK gateway)
 #   VOLCENGINE_VIDEO_MODELS  -> POST <prod>/v1/video/generations  (newapi channel_type=45 via TK gateway; REAL paid async video submit)
 #     Routes through the normal prod TK gateway with a TK api_key bound to the
@@ -88,7 +87,8 @@
 #   PROBE_GEMINI_SOURCE_GROUP optional legacy override by group name
 #   PROBE_DASHSCOPE_SOURCE_GROUP_ID defaults via probe_source_group_id dashscope
 #   PROBE_DASHSCOPE_SOURCE_GROUP optional legacy override by group name
-#   PROBE_ZHIPU_SOURCE_GROUP_ID defaults via probe_source_group_id zhipu
+#   PROBE_ZHIPU_SOURCE_GROUP_ID is a legacy GLM alias and defaults via
+#     probe_source_group_id glm_dashscope (same pool as qwen)
 #   PROBE_ZHIPU_SOURCE_GROUP optional legacy override by group name
 #   PROBE_VOLCENGINE_SOURCE_GROUP_ID defaults via probe_source_group_id volcengine
 #   PROBE_VOLCENGINE_SOURCE_GROUP optional legacy override by group name
@@ -149,7 +149,8 @@ probe_source_group_id() { # $1=logical source pool
 	anthropic_mirror) echo 1 ;;
 	gemini_vertex) echo 16 ;;
 	dashscope) echo 18 ;;
-	zhipu) echo 26 ;;
+	glm_dashscope) echo 18 ;;
+	zhipu) echo 18 ;; # legacy alias; direct GLM/ZhipuV4 group was removed
 	volcengine) echo 5 ;;
 	grok_edge) echo 4 ;;
 	antigravity) echo 21 ;;
@@ -184,7 +185,7 @@ PROBE_GEMINI_SOURCE_GROUP_ID="${PROBE_GEMINI_SOURCE_GROUP_ID:-$(probe_source_gro
 PROBE_GEMINI_SOURCE_GROUP="${PROBE_GEMINI_SOURCE_GROUP:-}"
 PROBE_DASHSCOPE_SOURCE_GROUP_ID="${PROBE_DASHSCOPE_SOURCE_GROUP_ID:-$(probe_source_group_id dashscope)}"
 PROBE_DASHSCOPE_SOURCE_GROUP="${PROBE_DASHSCOPE_SOURCE_GROUP:-}"
-PROBE_ZHIPU_SOURCE_GROUP_ID="${PROBE_ZHIPU_SOURCE_GROUP_ID:-$(probe_source_group_id zhipu)}"
+PROBE_ZHIPU_SOURCE_GROUP_ID="${PROBE_ZHIPU_SOURCE_GROUP_ID:-$(probe_source_group_id glm_dashscope)}"
 PROBE_ZHIPU_SOURCE_GROUP="${PROBE_ZHIPU_SOURCE_GROUP:-}"
 PROBE_VOLCENGINE_SOURCE_GROUP_ID="${PROBE_VOLCENGINE_SOURCE_GROUP_ID:-$(probe_source_group_id volcengine)}"
 PROBE_VOLCENGINE_SOURCE_GROUP="${PROBE_VOLCENGINE_SOURCE_GROUP:-}"
@@ -331,7 +332,7 @@ probe_anthropic_prod_mirror() { # $1=key $2=emit-tag  (models from $ANTHROPIC_PR
 }
 
 # probe_compat_endpoint: OpenAI-compatible Bearer-auth probe against an arbitrary
-# base. Used by openai, gemini, and zhipu/dashscope (all PROD / OpenAI-compat) families —
+# base. Used by openai, gemini, and dashscope/GLM legacy alias (all PROD / OpenAI-compat) families —
 # they share the same /v1/* OpenAI-compat surface, only base + key + emit-tag differ.
 probe_compat_endpoint() { # $1=platform-tag $2=base $3=key $4=endpoint $5=models $6=jsonbody-template-fn
 	local platform="$1" base="$2" key="$3" path="$4" models="$5" buildfn="$6" m f code
@@ -423,7 +424,7 @@ probe_dashscope() { # $1=key  (models from $DASHSCOPE_CHAT_MODELS)
 	done
 }
 
-probe_zhipu() { # $1=key  (models from $ZHIPU_CHAT_MODELS)
+probe_zhipu() { # $1=key  (legacy alias models from $ZHIPU_CHAT_MODELS)
 	probe_compat_endpoint newapi "$PROD" "$1" /v1/chat/completions "$ZHIPU_CHAT_MODELS" body_chat
 }
 
@@ -541,16 +542,16 @@ main() {
 			cfgerr newapi "failed to prepare __tk_probe_newapi_qwen_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
-	# Zhipu/GLM family: newapi channel_type=26 (account 67 "GLM") served through
-	# the PROD TK gateway /v1/chat/completions. Probe key is the reserved
-	# __tk_probe_newapi_glm_key (accounts copied from PROBE_ZHIPU_SOURCE_GROUP_ID); never printed.
+	# Legacy Zhipu/GLM env alias: direct GLM/ZhipuV4 is gone; GLM chat models
+	# are served through Qwen/China pools. Reuse the qwen reserved key/group so
+	# this path does not create a separate GLM probe resource.
 	if [ -n "${ZHIPU_CHAT_MODELS:-}" ]; then
 		probe_bind_source "$PROBE_ZHIPU_SOURCE_GROUP_ID" "$PROBE_ZHIPU_SOURCE_GROUP"
-		if tk_probe_catalog_key newapi_glm newapi "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
+		if tk_probe_catalog_key newapi_qwen newapi "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			zkey="$REPLY_KEY"
 			probe_zhipu "$zkey"
 		else
-			cfgerr newapi "failed to prepare __tk_probe_newapi_glm_* ($REPLY_BIND_LABEL)"
+			cfgerr newapi "failed to prepare __tk_probe_newapi_qwen_* for legacy GLM alias ($REPLY_BIND_LABEL)"
 		fi
 	fi
 	# VolcEngine/Ark media family: newapi channel_type=45 (account 7 "volcengine")
@@ -600,7 +601,7 @@ main() {
 	# Gemini family: newapi/Vertex models. Live Vertex capacity moved from edge us6
 	# to the PROD Vertex group_id=16 (account ids 47/57/58/59/74), so gemini now probes
 	# the PROD public gateway with external curl — identical transport to the other
-	# newapi families (zhipu/dashscope), NOT the edge-internal wget hop (that was only
+	# newapi families (dashscope/GLM legacy alias), NOT the edge-internal wget hop (that was only
 	# needed to bypass an edge Caddy /v1/* CIDR restriction; prod's gateway is public).
 	# emit tag stays `gemini` so parse_results maps results to the gemini allowlist.
 	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_CHATIMAGE_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then

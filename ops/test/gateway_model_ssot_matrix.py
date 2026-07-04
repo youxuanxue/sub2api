@@ -43,8 +43,35 @@ VENDOR_PLATFORM = {
     "x-ai": "grok",
 }
 
-GEMINI_NATIVE_PLATFORMS = {"gemini", "antigravity"}
+GEMINI_NATIVE_PLATFORMS = {"antigravity"}
 MESSAGE_POLICY_PLATFORMS = {"openai", "newapi"}
+
+ANTIGRAVITY_OPENAI_COMPAT_BLOCKED_PROTOCOLS = {"chat", "responses"}
+GROK_MESSAGES_BLOCKED_MODELS = {
+    "grok-4.20-0309-non-reasoning",
+    "grok-4.20-0309-reasoning",
+    "grok-build-0.1",
+    "grok-code-fast-1",
+}
+NEWAPI_RESPONSES_BLOCKED_MODELS = {
+    "doubao-1-5-lite-32k-250115",
+    "doubao-1-5-pro-32k-250115",
+    "doubao-1-5-pro-32k-character-250715",
+    "doubao-1-5-vision-pro-32k-250115",
+    "glm-4.5",
+    "glm-4.5-air",
+    "glm-4.6",
+    "glm-4.7",
+    "glm-5",
+    "glm-5.1",
+    "glm-5.2",
+    "qwen-max",
+    "qwen3-14b",
+    "qwen3-235b-a22b",
+    "qwen3-32b",
+    "qwen3-8b",
+    "qwen3.6-27b",
+}
 
 
 @dataclass(frozen=True)
@@ -118,7 +145,7 @@ def paid_probe_for_modality(modality: str) -> bool:
     return modality in {"image", "video"}
 
 
-def text_protocols(platform: str) -> list[tuple[str, str, str, str]]:
+def text_protocols(platform: str, model: str) -> list[tuple[str, str, str, str]]:
     rows: list[tuple[str, str, str, str]] = [
         ("messages", "POST", "/v1/messages", ""),
         ("count_tokens", "POST", "/v1/messages/count_tokens", ""),
@@ -130,7 +157,21 @@ def text_protocols(platform: str) -> list[tuple[str, str, str, str]]:
     if platform in MESSAGE_POLICY_PLATFORMS:
         rows[0] = (rows[0][0], rows[0][1], rows[0][2], "requires group allow_messages_dispatch")
         rows[1] = (rows[1][0], rows[1][1], rows[1][2], "requires group allow_messages_dispatch")
+    blocked = blocked_text_protocols(platform, model)
+    if blocked:
+        rows = [row for row in rows if row[0] not in blocked]
     return rows
+
+
+def blocked_text_protocols(platform: str, model: str) -> set[str]:
+    """Protocol-level display projection derived from live SSOT gate evidence."""
+    if platform == "antigravity":
+        return ANTIGRAVITY_OPENAI_COMPAT_BLOCKED_PROTOCOLS
+    if platform == "grok" and model in GROK_MESSAGES_BLOCKED_MODELS:
+        return {"messages"}
+    if platform == "newapi" and model in NEWAPI_RESPONSES_BLOCKED_MODELS:
+        return {"responses"}
+    return set()
 
 
 def rows_from_public_catalog(payload: dict[str, Any], source: str) -> tuple[list[MatrixRow], list[ExcludedRow]]:
@@ -152,7 +193,7 @@ def rows_from_public_catalog(payload: dict[str, Any], source: str) -> tuple[list
             continue
 
         if modality == "text":
-            for protocol, method, path, note in text_protocols(platform):
+            for protocol, method, path, note in text_protocols(platform, model):
                 rows.append(MatrixRow(platform, vendor, model, modality, protocol, method, path, False, source, note))
         elif modality == "embeddings":
             if platform in {"openai", "newapi"}:
@@ -538,6 +579,10 @@ def cmd_selftest(_args) -> int:
     payload = {
         "data": [
             {"vendor": "openai", "model_id": "gpt-5.1", "pricing": {"input_per_1k_tokens": 1}},
+            {"vendor": "vertex_ai-language-models", "model_id": "gemini-2.5-pro", "pricing": {"input_per_1k_tokens": 1}},
+            {"vendor": "antigravity", "model_id": "gemini-3.5-flash", "pricing": {"input_per_1k_tokens": 1}},
+            {"vendor": "xai", "model_id": "grok-code-fast-1", "pricing": {"input_per_1k_tokens": 1}},
+            {"vendor": "dashscope", "model_id": "qwen3-8b", "pricing": {"input_per_1k_tokens": 1}},
             {"vendor": "volcengine", "model_id": "doubao-seedream-5-0-260128", "pricing": {"billing_mode": "image", "output_cost_per_image": 0.03}},
             {"vendor": "volcengine", "model_id": "doubao-seedance-2-0-260128", "pricing": {"billing_mode": "video", "output_cost_per_second": 0.3}},
             {"vendor": "antigravity", "model_id": "gemini-3-pro-image", "pricing": {"billing_mode": "image", "output_cost_per_image": 0.1}},
@@ -549,6 +594,12 @@ def cmd_selftest(_args) -> int:
     rows, excluded = rows_from_public_catalog(payload, "fixture")
     got = {(r.platform, r.model, r.protocol, r.path, r.paid) for r in rows}
     assert ("openai", "gpt-5.1", "chat", "/v1/chat/completions", False) in got
+    assert ("gemini", "gemini-2.5-pro", "gemini_generate", "/v1beta/models/{model}:generateContent", False) not in got
+    assert ("antigravity", "gemini-3.5-flash", "gemini_generate", "/v1beta/models/{model}:generateContent", False) in got
+    assert ("antigravity", "gemini-3.5-flash", "chat", "/v1/chat/completions", False) not in got
+    assert ("antigravity", "gemini-3.5-flash", "responses", "/v1/responses", False) not in got
+    assert ("grok", "grok-code-fast-1", "messages", "/v1/messages", False) not in got
+    assert ("newapi", "qwen3-8b", "responses", "/v1/responses", False) not in got
     assert ("newapi", "doubao-seedream-5-0-260128", "image", "/v1/images/generations", True) in got
     assert ("newapi", "doubao-seedance-2-0-260128", "video", "/v1/video/generations", True) in got
     assert ("antigravity", "gemini-3-pro-image", "chat_image", "/v1/chat/completions", True) in got

@@ -694,10 +694,10 @@ func sortAuthorizedGroups(g []MePricingModelGroup) {
 // account restricts its model set:
 //
 //   - Restricted account (non-empty credentials.model_mapping) — emit one
-//     row per whitelist entry (from === to). Antigravity additionally intersects
-//     those identity entries with its 200-probed display allowlist so stale or
-//     inconclusive mapped ids (for example gemini-2.5-pro) do not appear in the
-//     user-facing menu. Mapping-mode entries
+//     row per whitelist entry (from === to). Antigravity and newapi additionally
+//     intersect those identity entries with their display allowlists so stale,
+//     unprovisioned, or display=false ids do not appear in the user-facing menu.
+//     Mapping-mode entries
 //     (from != to) are routing rewrites, not user-visible offerings, so
 //     they contribute nothing (see parseWhitelistFromCredentials).
 //   - Unrestricted account (empty/absent model_mapping = all models
@@ -761,7 +761,7 @@ func (s *MePricingCatalogService) fillAccountFallback(
 		}
 		var newapiPresetAllow map[string]struct{}
 		if targetGroup.Platform == PlatformNewAPI {
-			presets := AccountModelMappingPresetIDs(ctx, PlatformNewAPI, a.ChannelType, s.availability)
+			presets := NewAPIModelDisplayIDsForChannelType(a.ChannelType)
 			if len(presets) == 0 {
 				continue
 			}
