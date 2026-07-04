@@ -73,9 +73,15 @@ case "$ACTION" in
   *) echo "[release-bump-and-tag] ERROR: unknown action '$ACTION'" >&2; exit 1 ;;
 esac
 
-BUMP_ROUTE="direct-push"
+BUMP_ROUTE=""
 if [ "$ACTION" = "bump-and-tag" ]; then
-  BUMP_ROUTE="$(bash "$REPO_ROOT/scripts/release-main-push-route.sh" 2>/dev/null || echo direct-push)"
+  ROUTE_ERR=""
+  if ! ROUTE_ERR="$(bash "$REPO_ROOT/scripts/release-main-push-route.sh" 2>&1)"; then
+    printf '%s\n' "$ROUTE_ERR" >&2
+    echo "[release-bump-and-tag] ERROR: release-main-push-route.sh failed; refusing to guess bump path" >&2
+    exit 2
+  fi
+  BUMP_ROUTE="$ROUTE_ERR"
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then

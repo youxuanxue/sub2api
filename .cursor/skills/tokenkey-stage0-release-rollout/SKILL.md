@@ -703,7 +703,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 - `.cursor/skills/tokenkey-anthropic-oauth-config/SKILL.md` — 发版后 check violation 的 plan/apply/verify canonical 路径。
 
-- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；protected main 时 delegate PR 子流程）。
+- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；默认 direct-push，fallback 才 delegate PR）。
 - `scripts/release-bump-via-pr.sh` — VERSION bump 经 PR + merge + tag。
 - `scripts/release-configure-main-bypass.sh` — scheme 1：发版账号 bypass（个人 repo / 组织 repo 双路径）。
 - `scripts/release-main-push-route.sh` — direct-push vs bump-via-pr 探测。
