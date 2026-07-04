@@ -29,10 +29,11 @@ type tkServedModelsManifestEntry struct {
 }
 
 var (
-	tkServedModelsManifestOnce             sync.Once
-	tkServedModelsManifestIDs              map[string]struct{}
-	tkServedModelsManifestDisplayIDs       map[string]struct{}
-	tkServedModelsManifestIDsByChannelType map[int][]string
+	tkServedModelsManifestOnce                    sync.Once
+	tkServedModelsManifestIDs                     map[string]struct{}
+	tkServedModelsManifestDisplayIDs              map[string]struct{}
+	tkServedModelsManifestIDsByChannelType        map[int][]string
+	tkServedModelsManifestDisplayIDsByChannelType map[int][]string
 )
 
 func loadTkServedModelsManifestIDs() map[string]struct{} {
@@ -47,11 +48,13 @@ func loadTkServedModelsManifest() {
 			tkServedModelsManifestIDs = map[string]struct{}{}
 			tkServedModelsManifestDisplayIDs = map[string]struct{}{}
 			tkServedModelsManifestIDsByChannelType = map[int][]string{}
+			tkServedModelsManifestDisplayIDsByChannelType = map[int][]string{}
 			return
 		}
 		out := make(map[string]struct{}, len(doc.Entries))
 		display := make(map[string]struct{}, len(doc.Entries))
 		byChannel := make(map[int]map[string]struct{})
+		displayByChannel := make(map[int]map[string]struct{})
 		for _, e := range doc.Entries {
 			if e.ModelID == "" {
 				continue
@@ -67,6 +70,12 @@ func loadTkServedModelsManifest() {
 				byChannel[e.ChannelType] = make(map[string]struct{})
 			}
 			byChannel[e.ChannelType][e.ModelID] = struct{}{}
+			if e.Display {
+				if displayByChannel[e.ChannelType] == nil {
+					displayByChannel[e.ChannelType] = make(map[string]struct{})
+				}
+				displayByChannel[e.ChannelType][e.ModelID] = struct{}{}
+			}
 		}
 		tkServedModelsManifestIDs = out
 		tkServedModelsManifestDisplayIDs = display
@@ -78,6 +87,15 @@ func loadTkServedModelsManifest() {
 			}
 			sort.Strings(list)
 			tkServedModelsManifestIDsByChannelType[ct] = list
+		}
+		tkServedModelsManifestDisplayIDsByChannelType = make(map[int][]string, len(displayByChannel))
+		for ct, ids := range displayByChannel {
+			list := make([]string, 0, len(ids))
+			for id := range ids {
+				list = append(list, id)
+			}
+			sort.Strings(list)
+			tkServedModelsManifestDisplayIDsByChannelType[ct] = list
 		}
 	})
 }
@@ -91,6 +109,24 @@ func tkServedModelsManifestPresetIDsByChannelType(channelType int) []string {
 		return nil
 	}
 	ids := tkServedModelsManifestIDsByChannelType[channelType]
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out
+}
+
+// tkServedModelsManifestDisplayPresetIDsByChannelType returns the manifest
+// subset allowed on public catalog/menu display surfaces. It is narrower than
+// tkServedModelsManifestPresetIDsByChannelType, which remains the admin
+// model_mapping/provisioning intent list.
+func tkServedModelsManifestDisplayPresetIDsByChannelType(channelType int) []string {
+	loadTkServedModelsManifest()
+	if channelType <= 0 {
+		return nil
+	}
+	ids := tkServedModelsManifestDisplayIDsByChannelType[channelType]
 	if len(ids) == 0 {
 		return nil
 	}

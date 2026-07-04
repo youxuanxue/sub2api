@@ -90,6 +90,7 @@
         "//go:embed tk_served_models.json",
         "func isTkCuratedNewAPIModelListed(",
         "func isTkCuratedNewAPIModelDisplayed(",
+        "func tkServedModelsManifestDisplayPresetIDsByChannelType(",
         "func isTkCuratedNewAPICatalogRowDisplayed(",
         "func isNewAPILongTailCatalogVendor("
       ],

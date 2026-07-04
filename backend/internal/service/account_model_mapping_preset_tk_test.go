@@ -68,6 +68,16 @@ func TestAccountModelMappingPresetIDs_NewAPIZhipuV4UsesManifest(t *testing.T) {
 	require.NotContains(t, ids, "qwen3.7-max")
 }
 
+func TestNewAPIModelDisplayIDsForChannelType_HidesManifestDisplayFalseRows(t *testing.T) {
+	t.Parallel()
+	adminIDs := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeZhipu_v4, nil)
+	require.Contains(t, adminIDs, "glm-5-turbo", "admin presets keep hidden rows for provisioning intent")
+
+	displayIDs := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeZhipu_v4)
+	require.Empty(t, displayIDs, "ZhipuV4 currently has no display=true rows in the SSOT gate")
+	require.NotContains(t, displayIDs, "glm-5-turbo", "display=false rows must not feed customer menus")
+}
+
 func TestAccountModelMappingPresetIDs_NewAPIVolcEngineUsesManifest(t *testing.T) {
 	t.Parallel()
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVolcEngine, nil)

@@ -293,11 +293,11 @@
       "must_contain": [
         "MePricingAccountSource",
         "fillAccountFallback",
-        "AccountModelMappingPresetIDs(ctx, PlatformNewAPI, a.ChannelType, s.availability)",
+        "NewAPIModelDisplayIDsForChannelType(a.ChannelType)",
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],
-      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. fillAccountFallback (renamed from fillWhitelistFallback when it grew the unrestricted-account → platform-default-models branch) is the entry point. Newapi account fallback MUST use AccountModelMappingPresetIDs keyed by each account's channel_type: Vertex ch41 uses the Gemini/Vertex empirical catalog (so veo-3.1-generate-001 stays visible to universal keys), while Qwen/DeepSeek/VolcEngine use the tk_served_models manifest and unknown channels stay hidden. Reverting to a single tk_served_models manifest gate silently drops Vertex/Veo from full-key Studio; removing the fallback symbols re-opens the TK 2026-05-21 empty menu incident."
+      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. fillAccountFallback (renamed from fillWhitelistFallback when it grew the unrestricted-account → platform-default-models branch) is the entry point. Newapi account fallback MUST use NewAPIModelDisplayIDsForChannelType keyed by each account's channel_type: Vertex ch41 uses the Gemini/Vertex empirical catalog (so veo-3.1-generate-001 stays visible to universal keys), while Qwen/DeepSeek/VolcEngine use the tk_served_models manifest display=true subset and unknown channels stay hidden. Reverting to AccountModelMappingPresetIDs would leak display=false provisioning rows such as glm-5-turbo into Group Catalog; reverting to a single tk_served_models manifest gate silently drops Vertex/Veo from full-key Studio; removing the fallback symbols re-opens the TK 2026-05-21 empty menu incident."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",

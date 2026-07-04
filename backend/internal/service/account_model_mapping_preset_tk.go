@@ -43,6 +43,24 @@ func NewAPIModelMappingPresetIDsForChannelType(channelType int) []string {
 	return AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, channelType, nil)
 }
 
+// NewAPIModelDisplayIDsForChannelType returns the newapi model ids that may be
+// shown on public catalog/menu surfaces. It deliberately excludes manifest
+// display=false rows while AccountModelMappingPresetIDs keeps those rows
+// available for admin provisioning/model_mapping workflows.
+func NewAPIModelDisplayIDsForChannelType(channelType int) []string {
+	var ids []string
+	if channelType == newapiconstant.ChannelTypeVertexAi {
+		ids = supportedCatalogModelIDsForPlatform(PlatformGemini)
+	} else {
+		ids = tkServedModelsManifestDisplayPresetIDsByChannelType(channelType)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // NewAPIManifestPresetChannelTypes returns channel_type values with TK-verified
 // presets in tk_served_models.json (excludes Vertex ch41, which uses Gemini catalog).
 func NewAPIManifestPresetChannelTypes() []int {

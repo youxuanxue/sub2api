@@ -198,12 +198,12 @@ var supportedGrokCatalogModels = map[string]struct{}{
 }
 
 // isPublicCatalogModelSupported reports whether a catalog row is kept in the
-// public /pricing response. Anthropic and OpenAI rows are gated by the
-// empirical allowlists above; every other vendor passes through unchanged
-// (the operator only asked to curate the claude + gpt families). Vendor →
-// platform classification reuses inferPlatformFromVendor so azure_openai and
-// vertex_ai-style provider strings map consistently with the availability
-// decoration path.
+// public /pricing response. Native platform rows are gated by the empirical
+// allowlists above; curated newapi long-tail rows use tk_served_models.json
+// display=true; unknown vendors are hidden until a universal platform mapping
+// exists. Vendor → platform classification reuses inferPlatformFromVendor so
+// azure_openai and vertex_ai-style provider strings map consistently with the
+// availability decoration path.
 func isPublicCatalogModelSupported(vendor, modelID string) bool {
 	// Fifth-platform newapi long-tail: only manifest-listed models may appear on
 	// /pricing when their manifest display bit is true. Unlisted newapi long-tail
