@@ -65,6 +65,11 @@ func TestAccountModelMappingPresetIDs_NewAPIZhipuV4EmptyAfterDirectPoolRemoval(t
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeZhipu_v4, nil)
 	require.Empty(t, ids, "GLM direct account/group was removed; GLM display intent now rides Qwen/China pools")
 	require.NotContains(t, ids, "qwen3.7-max")
+
+	overrideIDs, managed := NewAPIModelMappingPresetOverrideIDsForChannelType(newapiconstant.ChannelTypeZhipu_v4)
+	require.True(t, managed, "removed direct GLM channel must still override stale new-api defaults")
+	require.Empty(t, overrideIDs)
+	require.Contains(t, NewAPIModelMappingPresetOverrideChannelTypes(), newapiconstant.ChannelTypeZhipu_v4)
 }
 
 func TestNewAPIModelDisplayIDsForChannelType_UsesDisplayProjection(t *testing.T) {
