@@ -1,0 +1,4 @@
+interface:
+  display_name: "TokenKey Anthropic OAuth Cookie Edge"
+  short_description: "Edge-only Anthropic OAuth from Claude cookies"
+  default_prompt: "Use $tokenkey-anthropic-oauth-cookie-edge to create a TokenKey Anthropic OAuth edge account from local Claude cookies without local Anthropic egress."
