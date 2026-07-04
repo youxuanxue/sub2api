@@ -15,7 +15,7 @@ SSOT_SUBCOMMAND="list"
 SSOT_ARGS=()
 GATE_SHARDED=0
 GATE_DEPLOY_CLOSEOUT=0
-GATE_SHARD_PLATFORMS=(anthropic openai grok newapi antigravity kiro)
+GATE_SHARD_PLATFORMS=(anthropic openai gemini grok newapi antigravity)
 GATE_SHARD_SLEEP="${TK_SSOT_GATE_SHARD_SLEEP_SEC:-8}"
 
 usage() {
