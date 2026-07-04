@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref, useTemplateRef, nextTick } from 'vue'
 
 const props = withDefaults(defineProps<{
   content?: string
-  trigger?: 'hover' | 'click' | 'both'
+  trigger?: 'hover' | 'click'
   widthClass?: string
 }>(), {
   trigger: 'hover',
@@ -25,17 +25,17 @@ function closeTooltip() {
 }
 
 function onEnter() {
-  if (props.trigger !== 'hover' && props.trigger !== 'both') return
+  if (props.trigger !== 'hover') return
   openTooltip()
 }
 
 function onLeave() {
-  if (props.trigger !== 'hover' && props.trigger !== 'both') return
+  if (props.trigger !== 'hover') return
   closeTooltip()
 }
 
 function onClick(event: MouseEvent) {
-  if (props.trigger !== 'click' && props.trigger !== 'both') return
+  if (props.trigger !== 'click') return
   event.stopPropagation()
   if (show.value) {
     closeTooltip()
@@ -45,7 +45,7 @@ function onClick(event: MouseEvent) {
 }
 
 function onDocumentClick(event: MouseEvent) {
-  if ((props.trigger !== 'click' && props.trigger !== 'both') || !show.value) return
+  if (props.trigger !== 'click' || !show.value) return
   const target = event.target as Node | null
   if (!target) return
   if (triggerRef.value?.contains(target) || tooltipRef.value?.contains(target)) return
@@ -53,7 +53,7 @@ function onDocumentClick(event: MouseEvent) {
 }
 
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (props.trigger !== 'click' && props.trigger !== 'both') return
+  if (props.trigger !== 'click') return
   if (event.key === 'Escape') {
     closeTooltip()
   }
@@ -127,7 +127,7 @@ onBeforeUnmount(() => {
         :style="{ top: `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
       >
         <button
-          v-if="props.trigger === 'click' || props.trigger === 'both'"
+          v-if="props.trigger === 'click'"
           type="button"
           class="absolute right-1.5 top-1.5 rounded p-1 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
           aria-label="Close"

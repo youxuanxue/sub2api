@@ -5,7 +5,6 @@ export default {
     subtitle: '按调用量计费 · USD / 1K tokens',
     description:
       '价格以美元 (USD) 计价，单位为每 1,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。',
-    descriptionAria: '计费说明',
     nav: {
       aria: '离开价格页',
       home: '首页',

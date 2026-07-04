@@ -5,7 +5,6 @@ export default {
     subtitle: 'Pay-as-you-go · USD per 1K tokens',
     description:
       'Prices are per 1,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).',
-    descriptionAria: 'Billing notes',
     nav: {
       aria: 'Leave pricing page',
       home: 'Home',

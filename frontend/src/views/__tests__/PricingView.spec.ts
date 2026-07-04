@@ -61,7 +61,6 @@ vi.mock('vue-i18n', async () => {
     'pricing.title': 'Model Pricing',
     'pricing.subtitle': '',
     'pricing.description': 'Prices are per 1,000 tokens, in USD. Cache columns apply only when billed separately.',
-    'pricing.descriptionAria': 'Billing notes',
     'pricing.columns.model': 'Model',
     'pricing.columns.vendor': 'Vendor',
     'pricing.columns.input': 'Input',
