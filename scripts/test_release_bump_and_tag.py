@@ -51,6 +51,7 @@ class ReleaseBumpAndTagTest(unittest.TestCase):
             "release-bump-and-tag.sh",
             "release-decide-version.sh",
             "release-main-push-route.sh",
+            "release_main_push_route.py",
             "release-tag.sh",
         ):
             src = pathlib.Path(__file__).resolve().parent / name
@@ -80,6 +81,29 @@ class ReleaseBumpAndTagTest(unittest.TestCase):
         )
         self.assertIn("dry-run: action=tag-only", proc.stdout)
         self.assertIn("target_tag=v1.0.1", proc.stdout)
+
+    def test_bump_and_tag_fails_closed_when_route_script_fails(self) -> None:
+        """bump-and-tag must not silently default to direct-push when route lookup fails."""
+        _git(self.repo, "tag", "-a", "v1.0.1", "-m", "v1.0.1")
+        _git(self.repo, "push", "-q", "origin", "v1.0.1")
+        (self.repo / "touch.txt").write_text("ahead\n")
+        _git(self.repo, "add", "touch.txt")
+        _git(self.repo, "commit", "-q", "-m", "ahead of tag")
+        _git(self.repo, "push", "-q", "origin", "main")
+
+        route = self.repo / "scripts/release-main-push-route.sh"
+        route.write_text("#!/usr/bin/env bash\nexit 2\n")
+        route.chmod(0o755)
+        proc = subprocess.run(
+            ["bash", "scripts/release-bump-and-tag.sh", "--dry-run"],
+            cwd=self.repo,
+            env=_clean_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
+        self.assertIn("refusing to guess bump path", proc.stderr)
 
 
 if __name__ == "__main__":
