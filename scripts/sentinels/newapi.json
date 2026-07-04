@@ -336,7 +336,8 @@
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
         "shouldFallbackNewAPIResponsesToChat(apiErr)",
-        "forwardResponsesViaNewAPIBridgeChatCompletions"
+        "forwardResponsesViaNewAPIBridgeChatCompletions",
+        "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)"
       ],
       "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Dropping this injection silently breaks the /v1/responses protocol for chat-capable NewAPI models."
     },

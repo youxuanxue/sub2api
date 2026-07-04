@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -119,6 +120,17 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
+	}
+	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if isNewAPIResponsesProactiveChatFallbackModel(requestedModel) {
+		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
+			zap.String("endpoint", BridgeEndpointResponses),
+			zap.Int("channel_type", account.ChannelType),
+			zap.String("bridge_path", "newapi_responses_chat_fallback_proactive"),
+			zap.String("model", requestedModel),
+			zap.Int64("account_id", account.ID),
+		)
+		return s.forwardResponsesViaNewAPIBridgeChatCompletions(ctx, c, account, body, in)
 	}
 	out, apiErr := dispatchNewAPIResponses(ctx, c, in, body)
 	if apiErr != nil {

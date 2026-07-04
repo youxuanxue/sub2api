@@ -72,12 +72,18 @@ jobs:
         # "smoke" run that actually means "secret not configured".
         env:
           TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${TK_SMOKE_API_KEY:-}" ]; then
             echo "::error::TK_SMOKE_API_KEY is not set in prod Environment."
             echo "Add one all-capability TokenKey user API key (sk-...) that can see every smoke model list."
             echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
+          if [ -z "${TK_FULLTEST_KEY:-}" ]; then
+            echo "::error::TK_FULLTEST_KEY is not set in prod Environment."
+            echo "Add the universal key used by SSOT display gate probes (ops/test/gateway_model_ssot_matrix.py gate)."
             exit 1
           fi
 
@@ -197,6 +203,14 @@ jobs:
           # (before the SSM image swap); here we just run the smoke against the
           # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
+
+      - name: Post-deploy SSOT display gate (sharded)
+        env:
+          TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+        run: |
+          set -euo pipefail
+          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate-sharded --deploy-closeout --show-excluded
 
       - name: Notify Feishu (release rollout)
         # Best-effort 发版公告。默认 step gating 保证它只在 prod 换镜像 +

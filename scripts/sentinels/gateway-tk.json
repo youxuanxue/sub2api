@@ -2889,6 +2889,7 @@
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "s.computeAnthropicSaturationPenalties(ctx, available)",
+        "computeAnthropicKiroMirrorStubPenalties(available, requestedModel)",
         "minPriority := accounts[0].effectivePriority()"
       ],
       "rationale": "Thin injection of the saturation de-prioritization into the upstream-shaped load-aware scheduler: the penalty is computed once on the Layer-2 'available' set, and filterByMinPriority ranks on effectivePriority() (Priority+saturationPenalty) instead of bare Priority. Removing the compute call leaves penalties at 0 (feature inert); reverting filterByMinPriority to bare account.Priority drops the fold-in even if penalties are set. Either silently disables the preference, so both anchors are pinned."
@@ -3232,6 +3233,16 @@
         "CanonicalizeOpenAICompatRoutingModel"
       ],
       "rationale": "TK companion (PR #809) holding the /v1/responses dispatch model-mapping helpers: forward-body rewrite (tkApplyResponsesDispatchModelMapping) and account-selection model (tkResolveResponsesSelectionModel). tkResolveResponsesSelectionModel must canonicalize via CanonicalizeOpenAICompatRoutingModel so gpt alias spellings hit the same restriction/negative-cache keys as /v1/chat/completions (newapi GLM/Qwen/Doubao responses SSOT parity). Load-bearing: deleting the file silently regresses /v1/responses for claude model names (upstream 400) and the responses<->messages selection parity. Anchored so an upstream merge or refactor cannot remove the companion without tripping the sentinel; pairs with the openai_gateway_handler.go injection-site sentinel above."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
+      "must_contain": [
+        "func tkShouldClearStickyForKiroMirrorModelMismatch(",
+        "func computeAnthropicKiroMirrorStubPenalties(",
+        "tkKiroMirrorStubNativeModelPenalty = 1000",
+        "kiroMirrorStubSupportsModel(requestedModel)"
+      ],
+      "rationale": "Anthropic universal/direct parity for native-only SKUs (Fable, Opus 4.1): prod Kiro mirror stubs in group 1 must not win scheduling or sticky binding over native cc-us* edge relays when the requested model is outside the Kiro catalog. Without this companion, universal keys can select mirror stubs and return Kiro unsupported-model errors while direct keys on accounts 50/55 return 200. Pairs with gateway_service.go wiring anchors for computeAnthropicKiroMirrorStubPenalties and shouldClearStickySession."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_kiro_mirror_hop_test.go",

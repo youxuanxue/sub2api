@@ -2,6 +2,7 @@
 # Disable reserved __tk_probe_* resources after diagnostics so Studio key/group
 # pickers are not dominated by probe-only fixtures. The rows are intentionally
 # retained: probe_reserved_resources.sh reactivates the canonical rows on demand.
+# For legacy scope clutter, see ops/observability/prune-probe-resources.sh.
 set -euo pipefail
 
 APPLY="${TK_PROBE_CLEANUP_APPLY:-0}"

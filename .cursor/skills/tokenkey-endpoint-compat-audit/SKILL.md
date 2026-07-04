@@ -111,6 +111,17 @@ Default is dry-run. To disable leftover active `__tk_probe_*` groups/keys after
 diagnostics, pass `--env TK_PROBE_CLEANUP_APPLY=1`. The script disables and
 unbinds reusable probe resources; it does not delete rows.
 
+To soft-delete legacy non-canonical `__tk_probe_*` rows (admin UI clutter), run:
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/prune-probe-resources.sh
+```
+
+Pass `--env TK_PROBE_PRUNE_APPLY=1` to keep only the canonical reusable scopes
+(`*_srcgrp_*` rows used by route-gate / catalog probes).
+
 ## Interpretation Rules
 
 - `route_verdict=open` means the local route/platform gate did not reject the request. It does not prove the selected upstream can serve the model.
