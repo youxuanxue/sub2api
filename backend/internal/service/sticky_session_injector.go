@@ -86,14 +86,16 @@ func (s StickyStrategy) AllowsInjection() bool {
 // account record before invoking.
 type StickyAccountKind string
 
+// SSOT: simple platform values sourced from domain.Platform* via domain_constants.go;
+// compound values (openai_oauth, anthropic_apikey, etc.) are sticky-session-specific.
 const (
 	StickyAccountOpenAIOAuth     StickyAccountKind = "openai_oauth"
 	StickyAccountOpenAIAPIKey    StickyAccountKind = "openai_apikey"
 	StickyAccountAnthropicOAuth  StickyAccountKind = "anthropic_oauth"
 	StickyAccountAnthropicAPIKey StickyAccountKind = "anthropic_apikey"
-	StickyAccountGemini          StickyAccountKind = "gemini"
-	StickyAccountAntigravity     StickyAccountKind = "antigravity"
-	StickyAccountNewAPI          StickyAccountKind = "newapi"
+	StickyAccountGemini          StickyAccountKind = PlatformGemini
+	StickyAccountAntigravity     StickyAccountKind = PlatformAntigravity
+	StickyAccountNewAPI          StickyAccountKind = PlatformNewAPI
 )
 
 // StickyKey is the resolved sticky identifier with provenance for logging.

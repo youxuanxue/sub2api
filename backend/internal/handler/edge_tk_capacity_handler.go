@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -78,7 +79,7 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 		return
 	}
 
-	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "anthropic")))
+	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", domain.PlatformAnthropic)))
 	ctx := c.Request.Context()
 
 	var (
@@ -86,10 +87,10 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 		err   error
 	)
 	switch platform {
-	case "anthropic":
+	case domain.PlatformAnthropic:
 		total, err = h.accounts.SumConcurrencyAnthropicByGroup(ctx, anthropicDefaultGroupName)
-	case "kiro":
-		total, err = h.accounts.SumConcurrencyByPlatform(ctx, "kiro")
+	case domain.PlatformKiro:
+		total, err = h.accounts.SumConcurrencyByPlatform(ctx, domain.PlatformKiro)
 	default:
 		response.Error(c, http.StatusBadRequest, "unsupported platform (only anthropic, kiro)")
 		return

@@ -5,7 +5,7 @@
     {
       "path": "backend/internal/handler/edge_tk_capacity_handler.go",
       "must_contain": [
-        "case \"kiro\":",
+        "case domain.PlatformKiro:",
         "SumConcurrencyByPlatform"
       ],
       "rationale": "Surface-C edge capacity endpoint must report the kiro pool's live Σ (platform-wide schedulable sum) so prod's kiro mirror stub mirrors the right number. Losing the kiro dispatch arm makes a kiro stub's ?platform=kiro request 400, and surface-C falls back to leaving the stub's concurrency stale (or, if the prod default regressed, hands the kiro stub the anthropic number again — the exact bug this surface closes)."

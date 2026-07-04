@@ -1095,7 +1095,7 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 			ID:          modelID,
 			Object:      "model",
 			Created:     1704067200,
-			OwnedBy:     "openai",
+			OwnedBy:     domain.PlatformOpenAI,
 			Type:        "model",
 			DisplayName: modelID,
 		})

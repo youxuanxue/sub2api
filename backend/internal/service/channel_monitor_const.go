@@ -55,9 +55,10 @@ const (
 	providerGeminiPathTemplate = "/v1beta/models/%s:generateContent"
 
 	// MonitorProviderOpenAI / Anthropic / Gemini provider 字符串常量（也是 ent enum 的实际值）。
-	MonitorProviderOpenAI    = "openai"
-	MonitorProviderAnthropic = "anthropic"
-	MonitorProviderGemini    = "gemini"
+	// SSOT: values sourced from domain.Platform* via domain_constants.go.
+	MonitorProviderOpenAI    = PlatformOpenAI
+	MonitorProviderAnthropic = PlatformAnthropic
+	MonitorProviderGemini    = PlatformGemini
 
 	// MonitorStatusOperational 等监控状态字符串常量（与 ent enum 一致）。
 	MonitorStatusOperational = "operational"
