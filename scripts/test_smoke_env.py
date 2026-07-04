@@ -31,6 +31,7 @@ class SmokeEnvTest(unittest.TestCase):
     def test_edge_defaults_when_unset(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(smoke_env.edge_canary_base_url(), smoke_env.DEFAULT_PROD_BASE_URL)
+            self.assertEqual(smoke_env.gemini_models(), [])
             self.assertEqual(
                 smoke_env.edge_local_chat_model(),
                 smoke_env.DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL,

@@ -2043,39 +2043,12 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle Gemini accounts
 	if account.IsGemini() {
-		// For OAuth accounts: return default Gemini models
-		if account.IsOAuth() {
-			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
-			return
-		}
-
-		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
 			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
 			return
 		}
-
-		var models []geminicli.Model
-		for requestedModel := range mapping {
-			var found bool
-			for _, dm := range geminicli.DefaultModels {
-				if dm.ID == requestedModel {
-					models = append(models, dm)
-					found = true
-					break
-				}
-			}
-			if !found {
-				models = append(models, geminicli.Model{
-					ID:          requestedModel,
-					Type:        "model",
-					DisplayName: requestedModel,
-					CreatedAt:   "",
-				})
-			}
-		}
-		response.Success(c, models)
+		response.Success(c, tkGeminiAdminModelsForMapping(c.Request.Context(), mapping))
 		return
 	}
 
@@ -2291,6 +2264,30 @@ func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
 
 func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
 	return geminicli.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil))
+}
+
+func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]string) []geminicli.Model {
+	if len(mapping) == 0 {
+		return tkGeminiAdminDefaultModels(ctx)
+	}
+
+	servable := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
+	servableSet := make(map[string]struct{}, len(servable))
+	for _, id := range servable {
+		servableSet[id] = struct{}{}
+	}
+
+	ids := make([]string, 0, len(mapping))
+	for requestedModel := range mapping {
+		if len(servableSet) > 0 {
+			if _, ok := servableSet[requestedModel]; !ok {
+				continue
+			}
+		}
+		ids = append(ids, requestedModel)
+	}
+	sort.Strings(ids)
+	return geminicli.ModelsForIDs(ids)
 }
 
 // tkAntigravityAdminDefaultModels returns admin account-test models from the unified

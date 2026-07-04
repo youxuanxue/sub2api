@@ -4,7 +4,7 @@
 >
 > **数据来源（repo-grounded，非线上探测）**：本清单由仓库内的权威源推导——5 个 Go servable-allowlist map、`tk_served_models.json` 清单、`tk_pricing_overlay.json` 价格 overlay、各平台 `DefaultModels`、newapi 渠道适配器目录、`model_mapping` 迁移。
 >
-> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist。实测探针基线：claude/gpt 2026-06-05（`codex-auto-review` 2026-06-23 responses 200）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，判不可定）、antigravity 2026-06-23、grok 2026-06-22（2026-06-23 alias 再探 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
+> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist，2026-07-04 退休 native Gemini Google One pool。实测探针基线：claude/gpt 2026-06-05（`codex-auto-review` 2026-06-23 responses 200）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，2026-07-04 `gemini-eng-g2` / `gemini-am-g2` 直接账号探针仍为上游 429，group 8 已软删除）、antigravity 2026-06-23、grok 2026-06-22（2026-06-23 alias 再探 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
 >
 > **如何重生成渠道目录**（附录 A）：在 `backend/` 写一个 `//go:build unit` 临时 test 调 `newapi.ChannelTypeModels()` / `ListChannelTypes()` 打印即可（本清单即如此抓取，用后删除）。
 
@@ -22,7 +22,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 ```
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
-- **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 7、antigravity 10、grok 8（5 个 Go map）。
+- **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 0 active native pool（历史 7-id Gemini/Vertex catalog 仍用于定价/Vertex 语义，不能当 prod native capacity）、antigravity 10、grok 8（5 个 Go map）。
 - **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单），GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
 - **总计**：约 110 个 servable id / 140 个 priced id。
 - **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
@@ -114,7 +114,9 @@ gpt-5.5  gpt-5.5-pro
 
 ### 2.3 gemini / Vertex（第三平台）
 
-servable allowlist 共 **7**（2026-06-09 探针）：
+2026-07-04 状态：prod native Gemini Google One pool 已退休。`Google-Gemini` group 8、`gemini-eng-g2`(22)、`gemini-am-g2`(24) 均已 soft-delete；`probe-caps PLATFORM=gemini` 无 active account / Redis active ids。下面 7-id 表是历史 Gemini/Vertex catalog/定价语义，不再代表 prod native Gemini 可服务容量。
+
+historical catalog allowlist 共 **7**（2026-06-09 探针；2026-07-04 起不可作为 native capacity claim）：
 
 | model_id | mode | 价 |
 |---|---|---|
@@ -123,6 +125,7 @@ servable allowlist 共 **7**（2026-06-09 探针）：
 | `veo-3.1-generate-001` | video | overlay(vertex_ai) |
 
 - **`priced_not_displayed`（媒体，~11，低危）**：overlay 里还有 `imagen-3.0-*`（4 个）、`veo-2.0/3.0/3.1` 多个变体——**有价但不在 7-id 展示闸**。2026-06-23 edge-us6 走正确 image/video 端点复测，全部返回 429 inconclusive，不能当成已支持；已进入 `servable-reprobe-ledger.json` watchlist，等下次拿到 200 再扩 allowlist。
+- **pool retired（2026-07-04）**：`gemini-eng-g2` 和 `gemini-am-g2` 的 `gemini-2.5-flash` 单账号独占探针均到达上游并返回 429；`gemini-am-g2` 的三档 2.5 模型随后因 cooldown 在调度层返回 `No available accounts`。这与 Google 2026-06-18 后停止 Gemini CLI / Code Assist individual Google AI Pro/Ultra/free 路径一致。结论：native Gemini Google One 账号池不可服务，直到新账号池实测 200 前，部署 smoke 与运营报告不得把它列为可用容量。
 - **`advertised_dead`**：`gemini-2.0-flash`（也是 admin `geminicli.DefaultTestModel`）、`gemini-3.x` chat——2026-06-09 在该 Vertex project 统一 502（**project/region 级**，非 vendor 级：同 wire id 在 antigravity 能 200）。2026-06-23 复测这些 id 与 `gemini-2.5-flash` 基线同返 429，当前只能判为池/配额不可定，不能迁成永久不支持。
 - **wrong-surface 陷阱**：`gemini-*-image`（`gemini-2.5-flash-image` 等）经 `/v1/images/generations` 探返 500，但它们其实走 **chat 端点**——是**无效探针**不是模型死了。2026-06-23 改走 `/v1/chat/completions` 后与 `gemini-2.5-flash` 基线同返 429，继续留在 watchlist。
 - media 路由经 Vertex ch41；gemini 原生生图走 `/v1/chat/completions` 返 markdown 图。
@@ -226,7 +229,8 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | `servable_unpriced_zero_cost_p0` | grok | grok-3/2/search 未核价长尾 | 中 | grok-4.3/4.20/build/code-fast 已补官方价+allowlist；剩余项继续 leave_excluded，等官方价+200 |
 | `servable_unpriced_zero_cost_p0` | antigravity | `tab_flash_lite_preview` | 已收敛 | 已从默认/mapping 自愈面移除，静态检查阻止回写 |
 | `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
-| `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 复测；用 servable-allowlist 闸 DefaultModels |
+| `retired_pool` | gemini native | `Google-Gemini` group 8；`gemini-eng-g2` / `gemini-am-g2` | 已收敛 | 2026-07-04 soft-delete group/accounts；deploy smoke 默认跳过 native Gemini；新池必须先 account-model probe 200 |
+| `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 仅在新 native 池上线后复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
 | `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low | 低 | Gemini media 2026-06-23 复测 429，留 watchlist |
 | `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 mapping + overlay 已有，但 2026-06-23 direct Ark 两次 400 inconclusive；不进 manifest，留 watchlist |
@@ -256,7 +260,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 - **anthropic**：`claude-3-*`/`3-5-*`/`3-7-*`/`4.0-*` 退役 dated 快照（friendly 400 建议新模型）；bracketed `[1m]/[Nk]` Claude-Code 上下文别名（硬 404 非模型，`tkStripContextWindowModelAlias` 预剥）；裸名 `opus`/`sonnet`/`haiku`（#617 400，`TkApplyBareModelAlias` 改写）；`claude-fable-5`（404 fable-mythos access-gated，2026-06-13，**带 caveat**：账号恢复 access 则下次 refresh 自动加回 → 严格说应进 reprobe，见 4.4）。
 - **openai**：`codex-mini-latest`（稳定 400 "not supported with ChatGPT account"）；整族非目标 surface——embeddings/moderation/audio/realtime/tts/transcribe、o1/o3/o4、dall-e、computer-use、sora、legacy gpt-4*/3.5*、ct57 `-openai-compact` 别名。
-- **gemini**：`gemini-2.0-*`/`gemini-3.x` chat（502，**project-scoped**：换 org-enabled Vertex project 会翻活 → 进 project-scoped skip-list，不进绝对 skip-list）。
+- **gemini**：native Google One pool 已于 2026-07-04 退休；`gemini-2.0-*`/`gemini-3.x` chat 的历史 502/429 仍按 project/pool-scoped 处理，不能在没有新池 200 证据时恢复展示。
 - **antigravity**：`gemini-3-pro-high/low/preview`（200-but-0/0 静默退役）、`gemini-3.1-pro-high`（上游 deprecatedModelIds 400）——均有 live remap 别名、客户无感。
 - **grok**：`grok-imagine-image-pro`（上游 2026-05-15 退役，已改 `grok-imagine-image-quality`）。
 - **newapi**：`seedance-1.0-lite`、`Doubao-pro/lite-*k` legacy、`qwen2.5-coder-32b/7b`（退役）、embeddings/rerank 整族；`seedream-4.5/5.0`、`seedance-1.0-pro-fast`（上游有价但**不在 new-api 渠道常量**，桥接不可达）。

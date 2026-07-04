@@ -297,6 +297,48 @@ func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *test
 	}
 }
 
+func TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersection(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       46,
+			Name:     "gemini-oauth-mapped",
+			Platform: service.PlatformGemini,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"gemini-2.5-flash":       "gemini-2.5-flash",
+					"gemini-2.5-pro":         "gemini-2.5-pro",
+					"gemini-3-flash-preview": "gemini-3-flash-preview",
+					"gemini-3-pro-preview":   "gemini-3-pro-preview",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/46/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := modelIDSet(resp.Data)
+	require.True(t, ids["gemini-2.5-flash"])
+	require.True(t, ids["gemini-2.5-pro"])
+	require.False(t, ids["gemini-2.5-flash-lite"], "unmapped default model must not be injected")
+	require.False(t, ids["gemini-3-flash-preview"], "unservable mapped preview must not appear")
+	require.False(t, ids["gemini-3-pro-preview"], "deprecated mapped preview must not appear")
+	require.Len(t, resp.Data, 2)
+}
+
 // TestAccountHandlerGetAvailableModels_NewAPI_DoesNotReturnClaudeCatalog is the
 // regression guard for the audit P1 finding: before fix, GetAvailableModels
 // fell through the Claude branch for fifth-platform `newapi` accounts, returning
