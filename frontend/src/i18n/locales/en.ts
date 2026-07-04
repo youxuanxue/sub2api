@@ -2,7 +2,7 @@ export default {
   // Public Pricing Page (TK cold-start, US-028)
   pricing: {
     title: 'Model Pricing',
-    subtitle: 'Pay-as-you-go pricing for every supported model',
+    subtitle: 'Pay-as-you-go · USD per 1K tokens',
     description:
       'Prices are per 1,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).',
     nav: {
