@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"strconv"
 	"strings"
@@ -239,7 +240,9 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	s.postAuthUserBootstrap(ctx, user, "email", true)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
-	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+	if err := s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan); err != nil {
+		slog.Error("quota snapshot failed", "user_id", user.ID, "err", err)
+	}
 	if s.affiliateService != nil {
 		if _, err := s.affiliateService.EnsureUserAffiliate(ctx, user.ID); err != nil {
 			logger.LegacyPrintf("service.auth", "[Auth] Failed to initialize affiliate profile for user %d: %v", user.ID, err)
@@ -562,7 +565,9 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 				s.postAuthUserBootstrap(ctx, user, signupSource, false)
 				s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 				// snapshot user × platform quota（fail-open）
-				_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+				if err := s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan); err != nil {
+					slog.Error("quota snapshot failed", "user_id", user.ID, "err", err)
+				}
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
@@ -730,7 +735,9 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					s.postAuthUserBootstrap(ctx, user, signupSource, false)
 					s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 					// snapshot user × platform quota（fail-open）
-					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+					if err := s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan); err != nil {
+						slog.Error("quota snapshot failed", "user_id", user.ID, "err", err)
+					}
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
 				}
 			} else {
@@ -751,7 +758,9 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					s.postAuthUserBootstrap(ctx, user, signupSource, false)
 					s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 					// snapshot user × platform quota（fail-open）
-					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+					if err := s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan); err != nil {
+						slog.Error("quota snapshot failed", "user_id", user.ID, "err", err)
+					}
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {

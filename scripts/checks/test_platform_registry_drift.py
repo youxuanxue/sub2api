@@ -17,6 +17,10 @@ _spec.loader.exec_module(prd)
 
 PLATFORMS = ["anthropic", "gemini", "openai", "antigravity", "newapi", "kiro", "grok"]
 ACCOUNT_TYPES = ["oauth", "setup-token", "apikey", "upstream", "bedrock", "service_account"]
+ROLES = ["admin", "user"]
+REDEEM_TYPES = ["balance", "concurrency", "subscription", "invitation"]
+SUBSCRIPTION_TYPES = ["standard", "subscription"]
+SUBSCRIPTION_STATUSES = ["active", "expired", "suspended", "revoked"]
 
 
 def _write(root: pathlib.Path, rel: str, text: str) -> None:
@@ -79,6 +83,30 @@ def _fixture(
             AccountTypeUpstream       = "upstream"
             AccountTypeBedrock        = "bedrock"
             AccountTypeServiceAccount = "service_account"
+        )
+
+        const (
+            RoleAdmin = "admin"
+            RoleUser  = "user"
+        )
+
+        const (
+            RedeemTypeBalance      = "balance"
+            RedeemTypeConcurrency  = "concurrency"
+            RedeemTypeSubscription = "subscription"
+            RedeemTypeInvitation   = "invitation"
+        )
+
+        const (
+            SubscriptionTypeStandard     = "standard"
+            SubscriptionTypeSubscription = "subscription"
+        )
+
+        const (
+            SubscriptionStatusActive    = "active"
+            SubscriptionStatusExpired   = "expired"
+            SubscriptionStatusSuspended = "suspended"
+            SubscriptionStatusRevoked   = "revoked"
         )
         """,
     )
@@ -146,6 +174,16 @@ def _fixture(
         root,
         "frontend/src/types/index.ts",
         """
+        export interface User {
+          id: number
+          role: 'admin' | 'user'
+          status: 'active' | 'disabled'
+        }
+
+        export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+
+        export type SubscriptionType = 'standard' | 'subscription'
+
         export type AccountPlatform =
           | 'anthropic'
           | 'gemini'
@@ -156,6 +194,13 @@ def _fixture(
           | 'grok'
 
         export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+
+        export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
+
+        export interface UserSubscription {
+          id: number
+          status: 'active' | 'expired' | 'revoked' | 'suspended'
+        }
         """,
     )
     _write(
@@ -213,6 +258,159 @@ class PlatformRegistryDriftTest(unittest.TestCase):
         self.assertIn("missing: grok", rendered)
         self.assertIn("frontend LABEL_TEXT style map", rendered)
         self.assertIn("missing: kiro", rendered)
+
+    def test_all_new_checks_pass(self) -> None:
+        """All 11 checks pass with a complete, aligned fixture."""
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            _fixture(root)
+
+            failures, ok_lines = prd.run(root)
+
+        self.assertEqual(failures, [])
+        # Verify new checks produced ok lines
+        ok_text = "\n".join(ok_lines)
+        self.assertIn("Role constant universe in lockstep", ok_text)
+        self.assertIn("RedeemType constant universe in lockstep", ok_text)
+        self.assertIn("SubscriptionType constant universe in lockstep", ok_text)
+        self.assertIn("SubscriptionStatus constant universe in lockstep", ok_text)
+        self.assertIn("GroupPlatform constant universe in lockstep", ok_text)
+
+    def test_role_drift_detected(self) -> None:
+        """CHECK 7: missing role on TS side is caught."""
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            _fixture(root)
+            # Overwrite TS to drop 'user' from User.role
+            _write(
+                root,
+                "frontend/src/types/index.ts",
+                """
+                export interface User {
+                  id: number
+                  role: 'admin'
+                  status: 'active' | 'disabled'
+                }
+                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type SubscriptionType = 'standard' | 'subscription'
+                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+                export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
+                export interface UserSubscription {
+                  id: number
+                  status: 'active' | 'expired' | 'revoked' | 'suspended'
+                }
+                """,
+            )
+
+            failures, _ = prd.run(root)
+
+        role_failures = [f for f in failures if "Role constant" in f[0]]
+        self.assertEqual(len(role_failures), 1)
+        self.assertIn("only in backend", "\n".join(role_failures[0]))
+        self.assertIn("user", "\n".join(role_failures[0]))
+
+    def test_redeem_type_drift_detected(self) -> None:
+        """CHECK 8: extra value on TS side is caught."""
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            _fixture(root)
+            # Overwrite TS to add an extra redeem type
+            _write(
+                root,
+                "frontend/src/types/index.ts",
+                """
+                export interface User {
+                  id: number
+                  role: 'admin' | 'user'
+                  status: 'active' | 'disabled'
+                }
+                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type SubscriptionType = 'standard' | 'subscription'
+                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+                export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation' | 'bogus'
+                export interface UserSubscription {
+                  id: number
+                  status: 'active' | 'expired' | 'revoked' | 'suspended'
+                }
+                """,
+            )
+
+            failures, _ = prd.run(root)
+
+        redeem_failures = [f for f in failures if "RedeemType constant" in f[0]]
+        self.assertEqual(len(redeem_failures), 1)
+        self.assertIn("only in frontend", "\n".join(redeem_failures[0]))
+        self.assertIn("bogus", "\n".join(redeem_failures[0]))
+
+    def test_subscription_status_drift_detected(self) -> None:
+        """CHECK 10: missing subscription status on TS side is caught."""
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            _fixture(root)
+            # Overwrite TS to drop 'suspended' from UserSubscription.status
+            _write(
+                root,
+                "frontend/src/types/index.ts",
+                """
+                export interface User {
+                  id: number
+                  role: 'admin' | 'user'
+                  status: 'active' | 'disabled'
+                }
+                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type SubscriptionType = 'standard' | 'subscription'
+                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+                export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
+                export interface UserSubscription {
+                  id: number
+                  status: 'active' | 'expired' | 'revoked'
+                }
+                """,
+            )
+
+            failures, _ = prd.run(root)
+
+        sub_failures = [f for f in failures if "SubscriptionStatus constant" in f[0]]
+        self.assertEqual(len(sub_failures), 1)
+        self.assertIn("only in backend", "\n".join(sub_failures[0]))
+        self.assertIn("suspended", "\n".join(sub_failures[0]))
+
+    def test_group_platform_drift_detected(self) -> None:
+        """CHECK 11: GroupPlatform missing a platform is caught."""
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            _fixture(root)
+            # Overwrite TS to make GroupPlatform a stale subset (missing 'grok')
+            _write(
+                root,
+                "frontend/src/types/index.ts",
+                """
+                export interface User {
+                  id: number
+                  role: 'admin' | 'user'
+                  status: 'active' | 'disabled'
+                }
+                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro'
+                export type SubscriptionType = 'standard' | 'subscription'
+                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+                export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
+                export interface UserSubscription {
+                  id: number
+                  status: 'active' | 'expired' | 'revoked' | 'suspended'
+                }
+                """,
+            )
+
+            failures, _ = prd.run(root)
+
+        gp_failures = [f for f in failures if "GroupPlatform constant" in f[0]]
+        self.assertEqual(len(gp_failures), 1)
+        self.assertIn("only in backend", "\n".join(gp_failures[0]))
+        self.assertIn("grok", "\n".join(gp_failures[0]))
 
 
 if __name__ == "__main__":
