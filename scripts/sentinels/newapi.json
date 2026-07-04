@@ -335,7 +335,7 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
-        "isNewAPIResponsesConvertNotImplemented(apiErr)",
+        "shouldFallbackNewAPIResponsesToChat(apiErr)",
         "forwardResponsesViaNewAPIBridgeChatCompletions"
       ],
       "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Dropping this injection silently breaks the /v1/responses protocol for chat-capable NewAPI models."
@@ -345,10 +345,13 @@
       "must_contain": [
         "ResponsesToChatCompletionsRequest",
         "dispatchNewAPIChatCompletions",
+        "isNewAPIResponsesConvertNotImplemented",
+        "applyNewAPIResponsesChatFallbackShape",
         "bufferChatCompletionsAsResponses",
+        "bufferStreamChatCompletionsAsResponses",
         "streamChatCompletionsAsResponses"
       ],
-      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. Without this file ch41/ch43 regress to new_api_error convert_request_failed even though the same model is servable through /v1/chat/completions."
+      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients. Without this file ch41/ch43 regress to new_api_error convert_request_failed even though the same model is servicable through /v1/chat/completions."
     },
     {
       "path": "backend/internal/service/pricing_service.go",

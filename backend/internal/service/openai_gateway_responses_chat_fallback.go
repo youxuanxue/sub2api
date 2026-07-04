@@ -257,6 +257,105 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	}, nil
 }
 
+func (s *OpenAIGatewayService) bufferStreamChatCompletionsAsResponses(
+	c *gin.Context,
+	resp *http.Response,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	serviceTier *string,
+	startTime time.Time,
+) (*OpenAIForwardResult, error) {
+	requestID := resp.Header.Get("x-request-id")
+	state := apicompat.NewChatCompletionsToResponsesStreamState(originalModel)
+	var usage OpenAIUsage
+
+	scanner := bufio.NewScanner(resp.Body)
+	maxLineSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxLineSize = s.cfg.Gateway.MaxLineSize
+	}
+	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		payload, ok := extractOpenAISSEDataLine(line)
+		if !ok {
+			continue
+		}
+		payload = strings.TrimSpace(payload)
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+
+		if u := extractCCStreamUsage(payload); u != nil {
+			usage = *u
+		}
+
+		var chunk apicompat.ChatCompletionsChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			logger.L().Warn("openai responses chat fallback: failed to parse buffered chat stream chunk",
+				zap.Error(err),
+				zap.String("request_id", requestID),
+			)
+			continue
+		}
+		_ = apicompat.ChatCompletionsChunkToResponsesEvents(&chunk, state)
+	}
+
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": gin.H{
+				"type":    "api_error",
+				"message": "Failed to read upstream stream response",
+			},
+		})
+		return nil, fmt.Errorf("read upstream stream body: %w", err)
+	}
+
+	var responsesResp *apicompat.ResponsesResponse
+	for _, event := range apicompat.FinalizeChatCompletionsResponsesStream(state) {
+		if event.Type == "response.completed" && event.Response != nil {
+			responsesResp = event.Response
+			break
+		}
+	}
+	if responsesResp == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": gin.H{
+				"type":    "api_error",
+				"message": "Failed to assemble upstream stream response",
+			},
+		})
+		return nil, fmt.Errorf("assemble responses from chat stream")
+	}
+	if responsesResp.Model == "" {
+		responsesResp.Model = originalModel
+	}
+	if parsed := copyOpenAIUsageFromResponsesUsage(responsesResp.Usage); usage.InputTokens == 0 && usage.OutputTokens == 0 && (parsed.InputTokens > 0 || parsed.OutputTokens > 0) {
+		usage = parsed
+	}
+
+	if s.responseHeaderFilter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	}
+	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	c.JSON(http.StatusOK, responsesResp)
+
+	return &OpenAIForwardResult{
+		RequestID:       requestID,
+		Usage:           usage,
+		Model:           originalModel,
+		BillingModel:    billingModel,
+		UpstreamModel:   upstreamModel,
+		ReasoningEffort: reasoningEffort,
+		ServiceTier:     serviceTier,
+		Stream:          false,
+		Duration:        time.Since(startTime),
+	}, nil
+}
+
 func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	c *gin.Context,
 	resp *http.Response,

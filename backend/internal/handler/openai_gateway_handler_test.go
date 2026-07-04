@@ -444,6 +444,18 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok"))
 	})
 
+	t.Run("grok_group_keeps_native_sku_without_dispatch_remap", func(t *testing.T) {
+		apiKey := &service.APIKey{
+			Group: &service.Group{
+				Platform: service.PlatformGrok,
+			},
+		}
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-4.20-0309-non-reasoning"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-4.20-0309-reasoning"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-build-0.1"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-code-fast-1"))
+	})
+
 	t.Run("does_not_fall_back_to_group_default_mapped_model", func(t *testing.T) {
 		apiKey := &service.APIKey{
 			Group: &service.Group{

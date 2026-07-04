@@ -130,6 +130,16 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 			defaultMappedModel: "gpt-5.4",
 			expectedModel:      "gpt-5.5-openai-compact",
 		},
+		{
+			name: "grok keeps native sku when default mapped model is set",
+			account: &Account{
+				Platform:    PlatformGrok,
+				Credentials: map[string]any{},
+			},
+			requestedModel:     "grok-4.20-0309-reasoning",
+			defaultMappedModel: "grok-code-fast-1",
+			expectedModel:      "grok-4.20-0309-reasoning",
+		},
 	}
 
 	for _, tt := range tests {
@@ -317,6 +327,24 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			account: &Account{Type: AccountTypeAPIKey},
 			model:   "gpt-4.1",
 			want:    "gpt-4.1",
+		},
+		{
+			name: "grok oauth keeps native sku unchanged",
+			account: &Account{
+				Platform: PlatformGrok,
+				Type:     AccountTypeOAuth,
+			},
+			model: "grok-build-0.1",
+			want:  "grok-build-0.1",
+		},
+		{
+			name: "grok apikey keeps native sku unchanged",
+			account: &Account{
+				Platform: PlatformGrok,
+				Type:     AccountTypeAPIKey,
+			},
+			model: "grok-code-fast-1",
+			want:  "grok-code-fast-1",
 		},
 	}
 

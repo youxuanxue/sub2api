@@ -122,7 +122,7 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	}
 	out, apiErr := dispatchNewAPIResponses(ctx, c, in, body)
 	if apiErr != nil {
-		if isNewAPIResponsesConvertNotImplemented(apiErr) {
+		if shouldFallbackNewAPIResponsesToChat(apiErr) {
 			logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 				zap.String("endpoint", BridgeEndpointResponses),
 				zap.Int("channel_type", account.ChannelType),

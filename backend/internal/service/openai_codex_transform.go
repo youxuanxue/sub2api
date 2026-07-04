@@ -953,6 +953,9 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 var chatGPTOAuthUpstreamModelNames = map[string]string{}
 
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
+	if account != nil && account.IsGrok() {
+		return strings.TrimSpace(model)
+	}
 	if account == nil || account.Type == AccountTypeOAuth {
 		normalized := normalizeCodexModel(model)
 		if upstream, ok := chatGPTOAuthUpstreamModelNames[normalized]; ok {
