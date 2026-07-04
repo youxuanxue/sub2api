@@ -112,6 +112,7 @@ DOMAIN_CONSTANTS = "backend/internal/domain/constants.go"
 ENGINE_PROVIDER = "backend/internal/engine/provider.go"
 DISPATCH_PREDICATE = "backend/internal/service/openai_messages_dispatch_tk_newapi.go"
 ENT_SCHEMA_ACCOUNT = "backend/ent/schema/account.go"
+SERVICE_DOMAIN_CONSTANTS = "backend/internal/service/domain_constants.go"
 TS_GATEWAY_PLATFORMS = "frontend/src/constants/gatewayPlatforms.ts"
 TS_TYPES_INDEX = "frontend/src/types/index.ts"
 
@@ -222,6 +223,25 @@ def resolve_go_idents(
 
 
 GO_MEMBER_RE = r'(?:domain\.)?(Platform[A-Za-z0-9_]+)|"([^"]*)"'
+
+
+def parse_go_allowed_quota_platforms(
+    text: str, consts: dict[str, tuple[str, int]]
+) -> tuple[list[str], int]:
+    """var AllowedQuotaPlatforms = []string{Platform*, ...} → values."""
+    m = re.search(r"var\s+AllowedQuotaPlatforms\s*=\s*\[\]string\s*\{([^{}]*)\}", text, re.S)
+    if not m:
+        raise ParseFailure(
+            f"{SERVICE_DOMAIN_CONSTANTS}: `var AllowedQuotaPlatforms = []string{{...}}` "
+            "not found — renamed/moved? Update platform-registry-drift.py."
+        )
+    line = line_of(text, m.start())
+    tokens = re.findall(GO_MEMBER_RE, m.group(1))
+    if not tokens:
+        raise ParseFailure(
+            f"{SERVICE_DOMAIN_CONSTANTS}:{line}: AllowedQuotaPlatforms slice literal parsed empty"
+        )
+    return resolve_go_idents(tokens, consts, f"{SERVICE_DOMAIN_CONSTANTS}:{line}"), line
 
 
 def parse_go_compat(text: str, consts: dict[str, tuple[str, int]]) -> tuple[list[str], int]:
@@ -791,6 +811,34 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
     else:
         ok_lines.append(
             f"ok: GroupPlatform constant universe in lockstep {fmt_set(domain_values)}"
+        )
+
+    # --- CHECK 12: AllowedQuotaPlatforms Go↔TS lockstep ---
+    # The quota-eligible platform subset (daily/weekly/monthly limits) must
+    # stay in lockstep between service.AllowedQuotaPlatforms and the frontend
+    # ALLOWED_QUOTA_PLATFORMS array. A stale frontend subset means admin
+    # settings UI silently hides quota controls for newly added platforms.
+
+    svc_domain_text = read(root, SERVICE_DOMAIN_CONSTANTS)
+    go_quota_plat, go_quota_plat_line = parse_go_allowed_quota_platforms(
+        svc_domain_text, consts
+    )
+    ts_quota_plat, ts_quota_plat_line = parse_ts_array(
+        ts_const_text, "ALLOWED_QUOTA_PLATFORMS", TS_GATEWAY_PLATFORMS
+    )
+
+    fail = compare_pair(
+        "AllowedQuotaPlatforms constant universe",
+        go_quota_plat,
+        f"{SERVICE_DOMAIN_CONSTANTS}:{go_quota_plat_line} AllowedQuotaPlatforms",
+        ts_quota_plat,
+        f"{TS_GATEWAY_PLATFORMS}:{ts_quota_plat_line} ALLOWED_QUOTA_PLATFORMS",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(
+            f"ok: AllowedQuotaPlatforms constant universe in lockstep {fmt_set(go_quota_plat)}"
         )
 
     return failures, ok_lines

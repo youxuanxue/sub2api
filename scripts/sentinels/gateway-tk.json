@@ -1012,7 +1012,7 @@
       "rationale": "Upstream Wei-Shaw/sub2api#2552: keepalive ping injection for Anthropic API-key passthrough streams. Uses the existing cfg.Gateway.StreamKeepaliveInterval config field (opt-in when > 0). The select case must remain so long-lived passthrough streams can emit SSE ping events to prevent proxy/load-balancer idle-timeout disconnections. The inPartialEvent guard prevents pings mid-event-boundary; lastDataAt prevents spurious pings when the upstream is already active. This is a pure upstream feature, not a TK-specific injection — documented here so future upstream re-merges cannot silently revert the keepalive path."
     },
     {
-      "path": "backend/internal/service/wire.go",
+      "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "ProvideTKGatewayAnthropicSigPreempt",
         "TKGatewayAnthropicSigPreemptReady",
@@ -2954,7 +2954,7 @@
       "rationale": "Kill-switch accessor (default ON, fail-open) for the saturation de-prioritization. Mirrors IsStickyRoutingEnabled: process-level cache + singleflight + default-true on missing/error. Removing it forces the read site to a compile error (or, if also reverted, removes the operator's ability to disable the preference) — pinned so the kill-switch survives merges."
     },
     {
-      "path": "backend/internal/service/wire.go",
+      "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "func ProvideTKAnthropicSaturation(",
         "gw.SetAnthropicSaturationCounter(cache)",
@@ -3520,7 +3520,7 @@
       "rationale": "Universal-key routing must use the same account-level model+protocol predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, endpoint-shape capability gates (including video-capable accounts), the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model/protocol while existing /v1/models output still looks plausible."
     },
     {
-      "path": "backend/internal/service/wire.go",
+      "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "ProvideTKUniversalModelsProvider(",
         "api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)",

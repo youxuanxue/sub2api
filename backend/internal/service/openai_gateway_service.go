@@ -2692,13 +2692,13 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 				if err != nil {
 					return "", "", err
 				}
-				return accessToken, "oauth", nil
+				return accessToken, AccountTypeOAuth, nil
 			}
 			accessToken := account.GetGrokAccessToken()
 			if accessToken == "" {
 				return "", "", errors.New("access_token not found in credentials")
 			}
-			return accessToken, "oauth", nil
+			return accessToken, AccountTypeOAuth, nil
 		}
 		// 使用 TokenProvider 获取缓存的 token
 		if s.openAITokenProvider != nil {
@@ -2706,27 +2706,27 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 			if err != nil {
 				return "", "", err
 			}
-			return accessToken, "oauth", nil
+			return accessToken, AccountTypeOAuth, nil
 		}
 		// 降级：TokenProvider 未配置时直接从账号读取
 		accessToken := account.GetOpenAIAccessToken()
 		if accessToken == "" {
 			return "", "", errors.New("access_token not found in credentials")
 		}
-		return accessToken, "oauth", nil
+		return accessToken, AccountTypeOAuth, nil
 	case AccountTypeAPIKey:
 		if account.Platform == PlatformGrok {
 			apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 			if apiKey == "" {
 				return "", "", errors.New("api_key not found in credentials")
 			}
-			return apiKey, "apikey", nil
+			return apiKey, AccountTypeAPIKey, nil
 		}
 		apiKey := account.GetOpenAIApiKey()
 		if apiKey == "" {
 			return "", "", errors.New("api_key not found in credentials")
 		}
-		return apiKey, "apikey", nil
+		return apiKey, AccountTypeAPIKey, nil
 	default:
 		return "", "", fmt.Errorf("unsupported account type: %s", account.Type)
 	}

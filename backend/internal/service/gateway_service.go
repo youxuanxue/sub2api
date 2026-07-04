@@ -4015,9 +4015,9 @@ func (s *GatewayService) GetAccessToken(ctx context.Context, account *Account) (
 		if apiKey == "" {
 			return "", "", errors.New("api_key not found in credentials")
 		}
-		return apiKey, "apikey", nil
+		return apiKey, AccountTypeAPIKey, nil
 	case AccountTypeBedrock:
-		return "", "bedrock", nil // Bedrock 使用 SigV4 签名或 API Key，由 forwardBedrock 处理
+		return "", AccountTypeBedrock, nil // Bedrock 使用 SigV4 签名或 API Key，由 forwardBedrock 处理
 	case AccountTypeServiceAccount:
 		if account.Platform != PlatformAnthropic {
 			return "", "", fmt.Errorf("unsupported service account platform: %s", account.Platform)
@@ -4029,7 +4029,7 @@ func (s *GatewayService) GetAccessToken(ctx context.Context, account *Account) (
 		if err != nil {
 			return "", "", err
 		}
-		return accessToken, "service_account", nil
+		return accessToken, AccountTypeServiceAccount, nil
 	default:
 		return "", "", fmt.Errorf("unsupported account type: %s", account.Type)
 	}
@@ -4042,7 +4042,7 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 		if err != nil {
 			return "", "", err
 		}
-		return accessToken, "oauth", nil
+		return accessToken, AccountTypeOAuth, nil
 	}
 
 	// 其他情况（Gemini 有自己的 TokenProvider，setup-token 类型等）直接从账号读取
@@ -4051,7 +4051,7 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 		return "", "", errors.New("access_token not found in credentials")
 	}
 	// Token刷新由后台 TokenRefreshService 处理，此处只返回当前token
-	return accessToken, "oauth", nil
+	return accessToken, AccountTypeOAuth, nil
 }
 
 // 重试相关常量
@@ -5986,7 +5986,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if err != nil {
 		return nil, err
 	}
-	if tokenType != "apikey" {
+	if tokenType != AccountTypeAPIKey {
 		return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
 
@@ -7392,7 +7392,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 
 	// 设置认证头（保持原始大小写）
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
 		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
@@ -7403,7 +7403,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// Parrot 的 build_upstream_headers 只发 9 个精确 header，不透传任何客户端 header。
 	// 透传客户端 header 会引入不一致的 x-stainless-* / anthropic-beta / user-agent /
 	// x-claude-code-session-id 等值，和我们注入的伪装 header 冲突，被 Anthropic 判 third-party。
-	if tokenType != "oauth" || !mimicClaudeCode {
+	if tokenType != AccountTypeOAuth || !mimicClaudeCode {
 		copyAnthropicPassthroughHeaders(req.Header, clientHeaders, s.anthropicPassthroughAllowTimeoutHeaders())
 	}
 
@@ -7419,7 +7419,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
@@ -7430,7 +7430,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	effectiveDropSet := mergeDropSets(policyFilterSet, betaSelfHealDropTokens(ctx)...)
 
 	// 处理 anthropic-beta header（OAuth 账号需要包含 oauth beta）
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		if mimicClaudeCode {
 			// 非 Claude Code 客户端：按 opencode 的策略处理：
 			// - 强制 Claude Code 指纹相关请求头（尤其是 user-agent/x-stainless/x-app）
@@ -7490,7 +7490,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	// Always capture a compact fingerprint line for later error diagnostics.
 	// We only print it when needed (or when the explicit debug flag is enabled).
-	if c != nil && tokenType == "oauth" {
+	if c != nil && tokenType == AccountTypeOAuth {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))
 	}
 	if s.debugClaudeMimicEnabled() {
@@ -7612,7 +7612,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),
-		"token_type": "service_account",
+		"token_type": AccountTypeServiceAccount,
 		"model":      modelID,
 		"stream":     strconv.FormatBool(reqStream),
 	})
@@ -7648,7 +7648,7 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
 	}
 
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		if mimicClaudeCode {
 			// mimic 路径：原代码跳过白名单透传，incomingBeta 总是空字符串。
 			// 这里传空 string 以严格对齐原行为。
@@ -7698,7 +7698,7 @@ func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
 	}
 
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		if mimicClaudeCode {
 			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
 			return mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), true
@@ -11000,7 +11000,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
 		return err
 	}
-	if tokenType != "apikey" {
+	if tokenType != AccountTypeAPIKey {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Invalid account token type")
 		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
 	}
@@ -11281,7 +11281,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 
 	// 设置认证头（保持原始大小写）
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
 		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
@@ -11302,7 +11302,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
@@ -11310,7 +11310,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
 
 	// OAuth 账号：处理 anthropic-beta header
-	if tokenType == "oauth" {
+	if tokenType == AccountTypeOAuth {
 		if mimicClaudeCode {
 			applyClaudeCodeMimicHeaders(req, false)
 
@@ -11346,7 +11346,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
-	if c != nil && tokenType == "oauth" {
+	if c != nil && tokenType == AccountTypeOAuth {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))
 	}
 	if s.debugClaudeMimicEnabled() {
