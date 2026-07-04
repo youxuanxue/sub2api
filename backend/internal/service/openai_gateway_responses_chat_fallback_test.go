@@ -248,6 +248,59 @@ func TestForwardAsResponsesDispatched_NewAPIConvertNotImplementedFallsBackToChat
 	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
+func TestForwardAsResponsesDispatched_ProactiveChatFallbackSkipsResponsesAdaptor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	oldResponses := dispatchNewAPIResponses
+	oldChat := dispatchNewAPIChatCompletions
+	t.Cleanup(func() {
+		dispatchNewAPIResponses = oldResponses
+		dispatchNewAPIChatCompletions = oldChat
+	})
+
+	responsesCalled := false
+	dispatchNewAPIResponses = func(context.Context, *gin.Context, bridge.ChannelContextInput, []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		responsesCalled = true
+		return nil, newapitypes.NewError(errors.New("should not call responses adaptor"), newapitypes.ErrorCodeConvertRequestFailed, newapitypes.ErrOptionWithSkipRetry())
+	}
+
+	dispatchNewAPIChatCompletions = func(_ context.Context, c *gin.Context, _ bridge.ChannelContextInput, _ []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		c.Writer.Header().Set("Content-Type", "application/json")
+		c.Writer.WriteHeader(http.StatusOK)
+		_, _ = c.Writer.Write([]byte(`{"id":"chatcmpl_proactive","object":"chat.completion","model":"glm-4.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`))
+		return &bridge.DispatchOutcome{
+			Usage:         &newapidto.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5},
+			Model:         "glm-4.5",
+			UpstreamModel: "glm-4.5",
+			Stream:        false,
+		}, nil
+	}
+
+	body := []byte(`{"model":"glm-4.5","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:          4302,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 43,
+		Credentials: map[string]any{"api_key": "sk-newapi", "base_url": "https://newapi.example"},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	result, err := svc.ForwardAsResponsesDispatched(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, responsesCalled)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+}
+
 func TestForwardAsResponsesDispatched_NewAPIStreamOnlyModelBuffersNonStreamingClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -351,6 +404,15 @@ func TestShouldFallbackNewAPIResponsesToChat(t *testing.T) {
 			name: "upstream unsupported model wording",
 			apiErr: newapitypes.NewError(
 				errors.New("upstream status code: 400, Unsupported model: 'glm-4.5'"),
+				newapitypes.ErrorCodeConvertRequestFailed,
+				newapitypes.ErrOptionWithSkipRetry(),
+			),
+			want: true,
+		},
+		{
+			name: "unsupported model without status code hint",
+			apiErr: newapitypes.NewError(
+				errors.New("unsupported model: glm-4.5"),
 				newapitypes.ErrorCodeConvertRequestFailed,
 				newapitypes.ErrOptionWithSkipRetry(),
 			),

@@ -50,9 +50,38 @@ func shouldFallbackNewAPIResponsesToChat(apiErr *newapitypes.NewAPIError) bool {
 	}
 	has4xxHint := strings.Contains(msg, "400") || strings.Contains(msg, "404") || strings.Contains(msg, "status code: 4")
 	for _, pat := range newAPIResponsesChatFallbackErrorPatterns {
-		if strings.Contains(msg, pat) && (has4xxHint || pat == "convert request failed") {
+		if !strings.Contains(msg, pat) {
+			continue
+		}
+		if has4xxHint || pat == "convert request failed" || isNewAPIResponsesChatFallbackSemanticPattern(pat) {
 			return true
 		}
+	}
+	return false
+}
+
+func isNewAPIResponsesChatFallbackSemanticPattern(pat string) bool {
+	switch pat {
+	case "unsupported model", "not supported", "stream mode", "enable_thinking", "invalid model":
+		return true
+	default:
+		return false
+	}
+}
+
+func isNewAPIResponsesProactiveChatFallbackModel(model string) bool {
+	model = strings.TrimSpace(strings.ToLower(model))
+	if model == "" {
+		return false
+	}
+	if isNewAPIResponsesChatFallbackStreamModel(model) {
+		return true
+	}
+	if strings.HasPrefix(model, "glm-") {
+		return true
+	}
+	if strings.HasPrefix(model, "qwen") || strings.HasPrefix(model, "doubao-") {
+		return true
 	}
 	return false
 }

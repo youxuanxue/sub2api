@@ -496,6 +496,9 @@ func shouldClearStickySession(account *Account, requestedModel string) bool {
 	if remaining := account.GetRateLimitRemainingTimeWithContext(context.Background(), requestedModel); remaining > 0 {
 		return true
 	}
+	if tkShouldClearStickyForKiroMirrorModelMismatch(account, requestedModel) {
+		return true
+	}
 	return false
 }
 
@@ -2364,6 +2367,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		// effectivePriority()，使其在下面的分层过滤中排到非饱和 stub 之后但不被
 		// 排除。详见 gateway_service_tk_saturation_penalty.go。
 		s.computeAnthropicSaturationPenalties(ctx, available)
+		computeAnthropicKiroMirrorStubPenalties(available, requestedModel)
 
 		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {

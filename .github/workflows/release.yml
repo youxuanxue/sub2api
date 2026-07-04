@@ -68,6 +68,9 @@ jobs:
           echo "$VERSION" > backend/cmd/server/VERSION
           echo "Updated VERSION file to: $VERSION"
 
+      - name: Verify endpoint-compat baseline tracks release VERSION
+        run: python3 scripts/check_endpoint_compat_baseline_freshness.py
+
       - name: Upload VERSION artifact
         uses: actions/upload-artifact@v7
         with:

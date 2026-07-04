@@ -13,6 +13,10 @@ WITH_EXTRAS=0
 MODE="print"
 SSOT_SUBCOMMAND="list"
 SSOT_ARGS=()
+GATE_SHARDED=0
+GATE_DEPLOY_CLOSEOUT=0
+GATE_SHARD_PLATFORMS=(anthropic openai grok newapi antigravity kiro)
+GATE_SHARD_SLEEP="${TK_SSOT_GATE_SHARD_SLEEP_SEC:-8}"
 
 usage() {
 	cat <<'EOF'
@@ -21,6 +25,8 @@ Usage:
   bash ops/observability/endpoint-compat-audit.sh --direct-route-gate
   bash ops/observability/endpoint-compat-audit.sh --universal-matrix [--skip-paid] [--with-extras]
   bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix [--list|--run|--gate] [--include-paid] [--show-excluded] [--limit N]
+  bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate-sharded [--include-paid] [--show-excluded]
+  bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate-sharded --deploy-closeout [--include-paid] [--show-excluded]
   bash ops/observability/endpoint-compat-audit.sh --all [--skip-paid] [--with-extras]
 
 Environment:
@@ -34,6 +40,7 @@ Verdict split:
   universal-matrix checks real end-to-end servability through one universal key.
   ssot-model-matrix derives model/protocol rows from live /api/v1/public/pricing.
   ssot-model-matrix --gate fails unless displayed+priced rows in scope pass live probes.
+  ssot-model-matrix --gate-sharded runs the gate once per platform to avoid empty-pool false blocks.
 EOF
 }
 
@@ -50,6 +57,8 @@ while [[ $# -gt 0 ]]; do
 		--list) SSOT_SUBCOMMAND="list" ;;
 		--run) SSOT_SUBCOMMAND="run" ;;
 		--gate) SSOT_SUBCOMMAND="gate" ;;
+		--gate-sharded) MODE="ssot"; SSOT_SUBCOMMAND="gate"; GATE_SHARDED=1 ;;
+		--deploy-closeout) GATE_DEPLOY_CLOSEOUT=1 ;;
 		--show-excluded) SSOT_ARGS+=(--show-excluded) ;;
 		--show-nonblocking-excluded) SSOT_ARGS+=(--show-nonblocking-excluded) ;;
 		--json) SSOT_ARGS+=(--format json) ;;
@@ -104,6 +113,27 @@ case "$MODE" in
 		exec "${universal_cmd[@]}"
 		;;
 	ssot)
+		if [[ "$GATE_SHARDED" == "1" ]]; then
+			if [[ -z "${TK_FULLTEST_KEY:-}" ]]; then
+				echo "ERROR: TK_FULLTEST_KEY is required for --gate-sharded" >&2
+				exit 2
+			fi
+			status=0
+			shard_args=("${SSOT_ARGS[@]}")
+			if [[ "$GATE_DEPLOY_CLOSEOUT" == "1" ]]; then
+				shard_args+=(--deploy-closeout)
+			fi
+			for platform in "${GATE_SHARD_PLATFORMS[@]}"; do
+				echo "# SSOT display gate shard platform=${platform}"
+				if ! python3 "$ROOT/ops/test/gateway_model_ssot_matrix.py" gate \
+					--only-platform "$platform" \
+					"${shard_args[@]}"; then
+					status=1
+				fi
+				sleep "$GATE_SHARD_SLEEP"
+			done
+			exit "$status"
+		fi
 		exec "${ssot_cmd[@]}"
 		;;
 	all)

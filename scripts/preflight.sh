@@ -1740,6 +1740,18 @@ else
     echo "  ok: SSOT endpoint matrix selftest"
 fi
 
+echo ""
+echo "=== sub2api: endpoint-compat baseline freshness ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by check_endpoint_compat_baseline_freshness.py)"
+    errors=$((errors + 1))
+elif ! python3 scripts/check_endpoint_compat_baseline_freshness.py >/dev/null 2>&1; then
+    echo "  FAIL: endpoint-compat baseline must mention backend/cmd/server/VERSION (re-run: python3 scripts/check_endpoint_compat_baseline_freshness.py)"
+    errors=$((errors + 1))
+else
+    echo "  ok: endpoint-compat baseline freshness"
+fi
+
 # probe-servable-models.sh unconditionally sources its companion
 # probe_reserved_resources.sh (reserved-only; no direct-key fallback). run-probe.sh
 # only ships the companion to the remote host when the caller passes --with, so any

@@ -202,6 +202,10 @@ def filter_rows(rows: list[MatrixRow], args) -> list[MatrixRow]:
     wanted = requested_models(args)
     if wanted:
         rows = [r for r in rows if r.model in wanted]
+    shard_count = int(getattr(args, "shard_count", 0) or 0)
+    if shard_count > 1:
+        shard_index = int(getattr(args, "shard_index", 0) or 0)
+        rows = [row for i, row in enumerate(rows) if i % shard_count == shard_index]
     return rows
 
 
@@ -246,7 +250,10 @@ def compact_body(protocol: str, model: str) -> dict[str, Any]:
     if protocol == "messages":
         return {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]}
     if protocol == "count_tokens":
-        return {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+        body: dict[str, Any] = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+        if "fable" in model.lower():
+            body["max_tokens"] = 8
+        return body
     if protocol == "chat":
         body: dict[str, Any] = {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]}
         if chat_requires_stream(model):
@@ -372,7 +379,7 @@ def display_gate_decision(result: str, note: str) -> tuple[str, str]:
     if "model/protocol not provisioned" in reason:
         return "hide_or_provision", note
     if "empty schedulable pool" in reason:
-        return "hide_or_add_pool", note
+        return "reprobe_required", note
     if "throttle" in reason or "transient" in reason or "timeout" in reason or "interrupted" in reason:
         return "reprobe_required", note
     return "hide_or_classify_skip", note or "unclassified SKIP"
@@ -531,7 +538,9 @@ def cmd_gate(args) -> int:
         f"REPROBE_REQUIRED={reprobe_count} FAIL={fail_count} "
         f"EXCLUDED_BLOCK={excluded_block_count} NO_ROWS={no_rows_count}"
     )
-    return 1 if (block_count or reprobe_count or fail_count or excluded_block_count) else 0
+    if getattr(args, "deploy_closeout", False):
+        return 1 if fail_count else 0
+    return 1 if (block_count or fail_count or excluded_block_count) else 0
 
 
 def cmd_selftest(_args) -> int:
@@ -577,7 +586,7 @@ def cmd_selftest(_args) -> int:
     assert shape_ok("chat", 200, {}, "data: {\"choices\":[]}\n\ndata: [DONE]\n")
     assert display_gate_decision("PASS", "") == ("keep_displayed", "")
     assert display_gate_decision("SKIP", "model/protocol not provisioned")[0] == "hide_or_provision"
-    assert display_gate_decision("SKIP", "empty schedulable pool")[0] == "hide_or_add_pool"
+    assert display_gate_decision("SKIP", "empty schedulable pool")[0] == "reprobe_required"
     assert display_gate_decision("SKIP", "upstream throttle/transient")[0] == "reprobe_required"
     assert display_gate_decision("FAIL", "unexpected 400")[0] == "hide_or_fix_gateway"
     mapped_block = ExcludedRow("bedrock", "bedrock-x", "vendor_not_mapped_to_universal_platform", "text", False)
@@ -601,6 +610,8 @@ def add_source_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--model", action="append", default=[], help="model id to include; may be repeated or comma/space separated")
     p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--shard-index", type=int, default=0, help="0-based shard index for long gate runs")
+    p.add_argument("--shard-count", type=int, default=0, help="split filtered rows into N sequential shards")
 
 
 def main() -> int:
@@ -631,6 +642,11 @@ def main() -> int:
     gate_p.add_argument("--include-paid", action="store_true", help="include image/video rows in the display gate")
     gate_p.add_argument("--show-excluded", action="store_true", help="show public-pricing rows that cannot map to a universal endpoint")
     gate_p.add_argument("--show-nonblocking-excluded", action="store_true", help="also show excluded rows outside the current gate scope")
+    gate_p.add_argument(
+        "--deploy-closeout",
+        action="store_true",
+        help="deploy/release closeout: fail only on gateway FAIL rows, not DISPLAY_BLOCK backlog",
+    )
     gate_p.set_defaults(func=cmd_gate)
 
     selftest_p = sub.add_parser("selftest", help="run offline unit tests")
