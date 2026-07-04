@@ -35,6 +35,7 @@ func TestListChannelTypeModels_VertexAIUsesTokenKeyServablePreset(t *testing.T) 
 	require.ElementsMatch(t, resp.Data["41"], service.VertexNewAPIChannelServableModelIDs())
 	require.Contains(t, resp.Data["41"], "gemini-2.5-flash")
 	require.Contains(t, resp.Data["41"], "imagen-4.0-fast-generate-001")
+	require.Contains(t, resp.Data["41"], "veo-3.1-generate-001")
 }
 
 func TestListChannelTypeModels_ManifestChannelsUseTokenKeyPresets(t *testing.T) {
@@ -91,6 +92,6 @@ func TestFetchUpstreamModels_VertexAIDoesNotRequireAPIKey(t *testing.T) {
 		ids[m.ID] = true
 	}
 	require.True(t, ids["gemini-2.5-flash"])
-	require.False(t, ids["veo-3.1-generate-001"],
-		"Vertex video stays out of the admin preset until a paid gate proves it is provisioned")
+	require.True(t, ids["veo-3.1-generate-001"],
+		"Vertex video joins the admin preset after the paid gate proves it is provisioned")
 }

@@ -193,6 +193,27 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out.every((r) => r.presentation.imageSizes === SEEDREAM_IMAGE_SIZES)).toBe(true)
   })
 
+  it('surfaces paid-gate-proven Grok image models with flat curated presentation', () => {
+    const out = resolveAvailableModels(
+      'image',
+      new Set(['grok-imagine-image', 'grok-imagine-image-quality']),
+      new Map([
+        ['grok-imagine-image', { perImage: 0.02, billingMode: 'image' }],
+        ['grok-imagine-image-quality', { perImage: 0.07, billingMode: 'image' }],
+      ])
+    )
+    expect(out.map((r) => r.presentation.modelId)).toEqual([
+      'grok-imagine-image',
+      'grok-imagine-image-quality',
+    ])
+    expect(out.map((r) => r.presentation.displayName)).toEqual([
+      'Grok Imagine · Fast',
+      'Grok Imagine · Quality',
+    ])
+    expect(out.every((r) => r.presentation.flatPricePerImage)).toBe(true)
+    expect(out.every((r) => r.presentation.imageSizes == null)).toBe(true)
+  })
+
   it('declares a valid Seedream default wire size, not an aspect-ratio token', () => {
     expect(SEEDREAM_IMAGE_SIZES[0]).toEqual({ ratio: '1:1', value: '2048x2048' })
   })
@@ -352,9 +373,9 @@ describe('video durations (per-model discrete, never a footgun)', () => {
     expect(videoDurationDefault([])).toBe(VIDEO_DURATION_DEFAULT)
   })
 
-  it('Seedance uses documented discrete seconds; unprovisioned paid media has no Studio card', () => {
-    expect(MEDIA_MODEL_PRESENTATIONS.find((m) => m.modelId === 'veo-3.1-generate-001')).toBeUndefined()
-    expect(MEDIA_MODEL_PRESENTATIONS.find((m) => m.modelId === 'grok-imagine-video')).toBeUndefined()
+  it('paid-gate-proven Veo/Grok and Seedance use documented discrete seconds', () => {
+    expect(byId('veo-3.1-generate-001').videoDurations).toEqual([4, 6, 8])
+    expect(byId('grok-imagine-video').videoDurations).toEqual([5])
     expect(byId('veo-3.1-fast-generate-001')).toBeUndefined()
     expect(byId('doubao-seedance-1-0-pro-250528').videoDurations).toEqual([5, 10])
     expect(byId('doubao-seedance-1-0-pro-fast-251015').videoDurations).toEqual([5])
@@ -371,13 +392,13 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
   // and Imagen must send the ratio code verbatim.
   const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
 
-  it('image models carry imageSizes; video carry none', () => {
+  it('image models carry imageSizes or explicit flat-image presentation; video carry none', () => {
     // Gemini-native image regained its aspect picker: a prod canary (2026-06-17) confirmed
     // cloudcode-pa honors imageConfig.aspectRatio for all 10 documented ratios, lifting the
     // #807 R-001 "no picker" deferral. So every image model now carries imageSizes; only
     // video models (passthrough hint, separate VIDEO_ASPECT_PRESETS) carry none.
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'image')) {
-      expect(m.imageSizes && m.imageSizes.length).toBeTruthy()
+      expect(Boolean(m.imageSizes?.length) || Boolean(m.flatPricePerImage)).toBe(true)
     }
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'video')) {
       expect(m.imageSizes).toBeUndefined()

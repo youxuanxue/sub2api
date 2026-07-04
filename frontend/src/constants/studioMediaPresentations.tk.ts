@@ -375,6 +375,26 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     imageSizes: IMAGEN_IMAGE_SIZES,
     flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
   },
+  {
+    modelId: 'grok-imagine-image',
+    displayName: 'Grok Imagine · Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: XAI,
+    modality: 'image',
+    supportedParams: [],
+    flatPricePerImage: true,
+  },
+  {
+    modelId: 'grok-imagine-image-quality',
+    displayName: 'Grok Imagine · Quality',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: XAI,
+    modality: 'image',
+    supportedParams: [],
+    flatPricePerImage: true,
+  },
   // ── gemini-native image (Nano Banana family) — served via /v1/chat/completions
   //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.
   {
@@ -418,6 +438,26 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   // add it here with needsApikeyAccount: true.
 
   // ── video ──
+  {
+    modelId: 'veo-3.1-generate-001',
+    displayName: 'Veo 3.1',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VERTEX,
+    modality: 'video',
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage', 'generateAudio'],
+    videoDurations: [4, 6, 8],
+  },
+  {
+    modelId: 'grok-imagine-video',
+    displayName: 'Grok Imagine Video',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: XAI,
+    modality: 'video',
+    supportedParams: [],
+    videoDurations: [5],
+  },
   {
     modelId: 'doubao-seedance-1-0-pro-250528',
     aliasIds: ['seedance-1-0-pro-250528'],

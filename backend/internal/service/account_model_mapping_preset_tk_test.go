@@ -34,6 +34,7 @@ func TestAccountModelMappingPresetIDs_NewAPIVertexMatchesGeminiServable(t *testi
 	require.NotEmpty(t, ids)
 	require.Contains(t, ids, "gemini-2.5-flash")
 	require.Contains(t, ids, "imagen-4.0-fast-generate-001")
+	require.Contains(t, ids, "veo-3.1-generate-001")
 	require.ElementsMatch(t, VertexNewAPIChannelServableModelIDs(), ids)
 }
 

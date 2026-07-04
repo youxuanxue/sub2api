@@ -327,10 +327,10 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 // stays a strictly higher tier handled upstream (me menu Stage 1 / billing
 // resolver), so the overlay only ever fills the litellm tier.
 //
-// Only token-priced entries merge. Per-image / per-second media overlay entries
-// (imagen-*/veo-*/seedream/seedance) carry no token price and are skipped, which
-// matches buildCatalogFromBytes' own nil-token-price skip — media catalog display
-// is a separate (batch 2) concern.
+// Token-priced entries and true media entries merge. Per-image / per-second
+// overlay rows (imagen-*/veo-*/grok-imagine-*/seedream/seedance) carry no token
+// price, but they are catalog rows for Studio and must surface with their media
+// billing unit.
 func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 	if resp == nil {
 		return

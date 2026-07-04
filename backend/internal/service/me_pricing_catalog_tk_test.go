@@ -196,6 +196,19 @@ func mkPublicVideoCatalogModel(modelID, vendor string, perSecond float64) Public
 	}
 }
 
+func mkPublicImageCatalogModel(modelID, vendor string, perImage float64) PublicCatalogModel {
+	return PublicCatalogModel{
+		ModelID:      modelID,
+		Vendor:       vendor,
+		Capabilities: []string{},
+		Pricing: PublicCatalogPricing{
+			Currency:           "USD",
+			BillingMode:        "image",
+			OutputCostPerImage: perImage,
+		},
+	}
+}
+
 // ----- tests -----
 
 // TestMePricingCatalog_TiersFromPublicCatalog pins the single-source-of-truth
@@ -967,11 +980,15 @@ func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.
 	)
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
-	assert.Empty(t, resp.Models,
-		"Vertex ch41 must use the Gemini/Vertex preset catalog: qwen-plus is off-channel, and veo stays hidden until paid gate returns keep_displayed")
+	require.Len(t, resp.Models, 1,
+		"Vertex ch41 must use the Gemini/Vertex preset catalog: qwen-plus is off-channel, while paid-gate-proven veo is displayed")
+	assert.Equal(t, "veo-3.1-generate-001", resp.Models[0].ModelID)
+	assert.Equal(t, "video", resp.Models[0].BillingMode)
+	require.NotNil(t, resp.Models[0].YourPrice.PerSecond)
+	assert.InDelta(t, 0.6, *resp.Models[0].YourPrice.PerSecond, 1e-9)
 }
 
-func TestBuildForUser_AuthorizedGroupsIndexExcludesUnprovisionedNewapiVertexVideo(t *testing.T) {
+func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "gpt", "openai", 1.0)
 	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
@@ -992,8 +1009,10 @@ func TestBuildForUser_AuthorizedGroupsIndexExcludesUnprovisionedNewapiVertexVide
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	groups := resp.AuthorizedGroupsByModel["veo-3.1-generate-001"]
-	assert.Empty(t, groups,
-		"Studio universal key entitlements must not advertise Vertex video until the paid gate proves it is provisioned")
+	require.Len(t, groups, 1,
+		"Studio universal key entitlements should advertise Vertex video after the paid gate proves it is provisioned")
+	assert.Equal(t, int64(50), groups[0].ID)
+	assert.Equal(t, "newapi", groups[0].Platform)
 }
 
 func TestBuildForUser_AccountWhitelist_NewapiUnknownChannelHidden(t *testing.T) {
@@ -1248,6 +1267,9 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		Data: []PublicCatalogModel{
 			mkPublicCatalogModel("grok-4.3", "xai", 0.00125, 0.0025, 0),
 			mkPublicCatalogModel("grok-code-fast-1", "xai", 0.001, 0.002, 0),
+			mkPublicImageCatalogModel("grok-imagine-image", "xai", 0.02),
+			mkPublicImageCatalogModel("grok-imagine-image-quality", "xai", 0.07),
+			mkPublicVideoCatalogModel("grok-imagine-video", "xai", 0.08),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1276,10 +1298,15 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	require.Contains(t, byID, "grok-code-fast-1")
 	require.NotNil(t, byID["grok-code-fast-1"].YourPrice.InputPer1K)
 	assert.InDelta(t, 0.001, *byID["grok-code-fast-1"].YourPrice.InputPer1K, 1e-9)
-	// The grok-imagine paid media rows remain priced for billing, but are not
-	// advertised until an explicit paid-media gate returns keep_displayed.
-	require.NotContains(t, byID, "grok-imagine-image")
-	require.NotContains(t, byID, "grok-imagine-video")
+	require.Contains(t, byID, "grok-imagine-image")
+	require.NotNil(t, byID["grok-imagine-image"].YourPrice.PerImage)
+	assert.InDelta(t, 0.02, *byID["grok-imagine-image"].YourPrice.PerImage, 1e-9)
+	require.Contains(t, byID, "grok-imagine-image-quality")
+	require.NotNil(t, byID["grok-imagine-image-quality"].YourPrice.PerImage)
+	assert.InDelta(t, 0.07, *byID["grok-imagine-image-quality"].YourPrice.PerImage, 1e-9)
+	require.Contains(t, byID, "grok-imagine-video")
+	require.NotNil(t, byID["grok-imagine-video"].YourPrice.PerSecond)
+	assert.InDelta(t, 0.08, *byID["grok-imagine-video"].YourPrice.PerSecond, 1e-9)
 }
 
 // TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the
