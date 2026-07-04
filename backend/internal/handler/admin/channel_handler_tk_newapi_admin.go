@@ -234,7 +234,7 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 			response.ErrorFrom(c, infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found"))
 			return
 		}
-		if acc.Platform != "newapi" || acc.Type != "apikey" {
+		if acc.Platform != service.PlatformNewAPI || acc.Type != service.AccountTypeAPIKey {
 			response.ErrorFrom(c, infraerrors.BadRequest("INVALID_ACCOUNT", "account is not a newapi apikey account"))
 			return
 		}

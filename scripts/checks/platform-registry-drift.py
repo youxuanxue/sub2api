@@ -3,7 +3,7 @@
 
 The platform registry is written by hand on BOTH sides of the wire and the
 comments merely *ask* for lockstep. This check makes the ask mechanical.
-Five mirrored pairs, backend Go is the single source of truth:
+Six mirrored pairs, backend Go is the single source of truth:
 
   1. OpenAI-compat platforms
        backend/internal/engine/provider.go        OpenAICompatPlatforms()
@@ -43,6 +43,13 @@ Five mirrored pairs, backend Go is the single source of truth:
      A platform missing from the style maps renders as unstyled (gray
      fallback) in the admin UI — easy to miss in review.
 
+  6. AccountType Go↔TS lockstep
+       backend/internal/domain/constants.go       AccountType* string constants
+       frontend/src/types/index.ts                AccountType union
+     BOTH directions are hard failures (same reasoning as CHECK 3):
+       - backend-only value → the admin UI cannot offer or render the type;
+       - frontend-only value → typed forms emit a value the backend rejects.
+
 Go constant names (`domain.PlatformX` / service aliases `PlatformX`) are
 resolved to their string values from constants.go, so the comparison is on
 wire values, not identifiers. All parsers tolerate gofmt / prettier
@@ -56,7 +63,7 @@ silently pass.
 Exit codes
 ----------
 
-  0 — all five pairs agree
+  0 — all six pairs agree
   1 — drift detected (details on stderr, both sides' file:line + sets)
   2 — parse / environment failure
 
@@ -109,6 +116,21 @@ def parse_domain_constants(text: str) -> dict[str, tuple[str, int]]:
             "platform block moved/renamed? Update platform-registry-drift.py."
         )
     return consts
+
+
+def parse_go_account_types(text: str) -> tuple[list[str], int]:
+    """AccountType* string constants → ([values], first_line)."""
+    consts: list[tuple[str, int]] = []
+    for m in re.finditer(r'^\s*AccountType[A-Za-z0-9_]*\s*=\s*"([^"]*)"', text, re.M):
+        consts.append((m.group(1), line_of(text, m.start())))
+    if not consts:
+        raise ParseFailure(
+            f"{DOMAIN_CONSTANTS}: no `AccountTypeX = \"...\"` constants found — "
+            "account-type block moved/renamed? Update platform-registry-drift.py."
+        )
+    values = [v for v, _ in consts]
+    first_line = min(line for _, line in consts)
+    return values, first_line
 
 
 def resolve_go_idents(
@@ -514,6 +536,26 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
                 f"ok: {map_name} style map covers all scheduling platforms "
                 f"{fmt_set(go_sched)}"
             )
+
+    # --- CHECK 6: AccountType Go↔TS lockstep ---
+    # Every account type on the Go side must exist in the TS AccountType union
+    # and vice versa — same bilateral reasoning as CHECK 3.
+
+    domain_text = read(root, DOMAIN_CONSTANTS)
+    go_acct_types, go_acct_line = parse_go_account_types(domain_text)
+    ts_acct_types, ts_acct_line = parse_ts_union(ts_types_text, "AccountType", TS_TYPES_INDEX)
+
+    fail = compare_pair(
+        "AccountType constant universe",
+        go_acct_types,
+        f"{DOMAIN_CONSTANTS}:{go_acct_line} AccountType* constants",
+        ts_acct_types,
+        f"{TS_TYPES_INDEX}:{ts_acct_line} AccountType union",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(f"ok: AccountType constant universe in lockstep {fmt_set(go_acct_types)}")
 
     return failures, ok_lines
 
