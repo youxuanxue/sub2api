@@ -108,9 +108,9 @@ func TestDiscoveryFilterApply_TrimsAndDropsEmptyIDs(t *testing.T) {
 	f := NewDiscoveryFilter(&stubPricing{priced: map[string]bool{"gpt-4o": true}}, &stubAvailability{})
 
 	out := f.Apply(context.Background(), "openai", []rawDiscoveredModel{
-		{ID: ""},          // dropped
+		{ID: ""},           // dropped
 		{ID: "  gpt-4o  "}, // trimmed → priced
-		{ID: "   "},       // dropped (trims to empty)
+		{ID: "   "},        // dropped (trims to empty)
 	})
 	require.Equal(t, []DiscoveredModel{{ID: "gpt-4o", PricingStatus: PricingStatusPriced}}, out)
 }

@@ -158,7 +158,7 @@ func defaultSystemVersion() string {
 
 // Prompt filtering: Claude Code system prompts are preserved (Anthropic OAuth parity)
 // with env/boundary noise stripped. Other filters stay off until wired to settings.
-func GetFilterClaudeCode() bool { return true }
+func GetFilterClaudeCode() bool      { return true }
 func GetFilterStripBoundaries() bool { return false }
 func GetFilterEnvNoise() bool        { return false }
 

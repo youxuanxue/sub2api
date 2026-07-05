@@ -60,11 +60,11 @@ func TestTkResolveBareModelAlias_Trigger(t *testing.T) {
 		}
 	}
 	for _, in := range []string{
-		"claude-opus-4-8",            // full id — never rewritten
-		"claude-opus-4-8[1m]",        // strips to full id, still miss
-		"claude-sonnet-4-5-20250929", // dated snapshot
-		"claude-3-5-haiku-20241022",  // retired: versioned → natural miss; deprecated interceptor owns it
-		"Claude-Opus-4.8",            // dotted variant — not a bare family word
+		"claude-opus-4-8",                            // full id — never rewritten
+		"claude-opus-4-8[1m]",                        // strips to full id, still miss
+		"claude-sonnet-4-5-20250929",                 // dated snapshot
+		"claude-3-5-haiku-20241022",                  // retired: versioned → natural miss; deprecated interceptor owns it
+		"Claude-Opus-4.8",                            // dotted variant — not a bare family word
 		"gpt", "gemini", "claude-zzz-5", "", "opusx", // no fuzzy/substring matching
 	} {
 		if got, ok := tkResolveBareModelAlias(in, aliases); ok {

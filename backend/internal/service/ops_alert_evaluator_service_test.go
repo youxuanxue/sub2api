@@ -323,7 +323,7 @@ func TestComputeRuleMetricRateSampleFloor(t *testing.T) {
 
 			svc := &OpsAlertEvaluatorService{
 				opsRepo: &stubOpsRepo{overview: &OpsDashboardOverview{
-					RequestCountTotal:   tt.requestSLA,
+					RequestCountTotal: tt.requestSLA,
 					UpstreamErrorRate: 1.0, // 100% of the (few) requests failed upstream
 				}},
 			}

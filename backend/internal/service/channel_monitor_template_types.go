@@ -53,7 +53,7 @@ type ChannelMonitorRequestTemplateUpdateParams struct {
 
 // 模板相关错误（命名与现有 ErrChannelMonitor* 风格保持一致）。
 var (
-	ErrChannelMonitorTemplateNotFound = domain.ErrChannelMonitorTemplateNotFound
+	ErrChannelMonitorTemplateNotFound        = domain.ErrChannelMonitorTemplateNotFound
 	ErrChannelMonitorTemplateInvalidProvider = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_TEMPLATE_INVALID_PROVIDER", "template provider must be one of openai/anthropic/gemini",
 	)

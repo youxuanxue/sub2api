@@ -48,6 +48,7 @@ type kiroEndpoint struct {
 //     same shape as legacy q/codewhisperer generateAssistantResponse.
 //   - control plane: POST https://management.us-east-1.kiro.dev/ListAvailableProfiles
 //     -> HTTP 200 with the SAME profileArn as legacy codewhisperer.
+//
 // So migrating looks like a host swap (q/codewhisperer.us-east-1.amazonaws.com ->
 // runtime/management.us-east-1.kiro.dev, same path / x-amz-target / body / headers),
 // deferred only because the legacy hosts still answer. Before flipping the URLs

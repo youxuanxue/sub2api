@@ -20,7 +20,7 @@ func TestComputeDashboardHealthScore_DegradesOnBadSignals(t *testing.T) {
 	t.Parallel()
 
 	ov := &OpsDashboardOverview{
-		RequestCountTotal:   100,
+		RequestCountTotal: 100,
 		SuccessCount:      90,
 		ErrorCountTotal:   10,
 		ErrorCountSLA:     10,

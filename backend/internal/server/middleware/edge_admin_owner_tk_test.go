@@ -52,8 +52,12 @@ func runEdgeAdminOwner(t *testing.T, keys edgeAdminOwnerKeyLookup, users edgeAdm
 	return w
 }
 
-func edgeAdmin() *service.User    { return &service.User{ID: 1, Role: service.RoleAdmin, Status: service.StatusActive} }
-func edgeNonAdmin() *service.User { return &service.User{ID: 2, Role: service.RoleUser, Status: service.StatusActive} }
+func edgeAdmin() *service.User {
+	return &service.User{ID: 1, Role: service.RoleAdmin, Status: service.StatusActive}
+}
+func edgeNonAdmin() *service.User {
+	return &service.User{ID: 2, Role: service.RoleUser, Status: service.StatusActive}
+}
 
 func TestEdgeAdminOwner_AdminKeyPasses(t *testing.T) {
 	w := runEdgeAdminOwner(t,

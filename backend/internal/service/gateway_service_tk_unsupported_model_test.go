@@ -103,7 +103,7 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 func TestTkIsForwardableAnthropicModelName(t *testing.T) {
 	forwardable := []string{
 		"claude-opus-4-8",
-		"claude-haiku-4-6",            // same-family stale/typo: intentionally allowed (upstream tolerates)
+		"claude-haiku-4-6",           // same-family stale/typo: intentionally allowed (upstream tolerates)
 		"claude-sonnet-4-5-20250929", // dated snapshot
 		"Claude-Opus-4-8",            // case-insensitive
 		" claude-opus-4-8 ",          // trimmed

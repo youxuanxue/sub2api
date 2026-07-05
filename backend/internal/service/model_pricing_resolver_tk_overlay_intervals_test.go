@@ -72,10 +72,10 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 		ctxTokens int
 		in, out   float64
 	}{
-		{10_000, 4 / 6.7e6, 16 / 6.7e6},   // tier1 (0,32K] ¥4/¥16
-		{32_000, 4 / 6.7e6, 16 / 6.7e6},   // 32K boundary stays tier1 (max inclusive)
-		{32_001, 6 / 6.7e6, 24 / 6.7e6},   // tier2 (32K,128K] ¥6/¥24
-		{200_000, 10 / 6.7e6, 40 / 6.7e6}, // tier3 (128K,256K] ¥10/¥40
+		{10_000, 4 / 6.7e6, 16 / 6.7e6},    // tier1 (0,32K] ¥4/¥16
+		{32_000, 4 / 6.7e6, 16 / 6.7e6},    // 32K boundary stays tier1 (max inclusive)
+		{32_001, 6 / 6.7e6, 24 / 6.7e6},    // tier2 (32K,128K] ¥6/¥24
+		{200_000, 10 / 6.7e6, 40 / 6.7e6},  // tier3 (128K,256K] ¥10/¥40
 		{500_000, 20 / 6.7e6, 200 / 6.7e6}, // tier4 (256K,inf) ¥20/¥200
 	}
 	for _, c := range cases {
@@ -103,7 +103,7 @@ func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 
 	flash := r.Resolve(context.Background(), PricingInput{Model: "qwen3.6-flash"})
 	require.Len(t, flash.Intervals, 2)
-	require.InDelta(t, 1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)  // tier1 ¥1.2
+	require.InDelta(t, 1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥1.2
 	require.InDelta(t, 28.8/6.7e6, r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
 }
 

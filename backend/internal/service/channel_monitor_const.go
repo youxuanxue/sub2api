@@ -111,7 +111,7 @@ const (
 
 // 业务错误（统一在此声明，避免散落）。
 var (
-	ErrChannelMonitorNotFound = domain.ErrChannelMonitorNotFound
+	ErrChannelMonitorNotFound        = domain.ErrChannelMonitorNotFound
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini",
 	)

@@ -303,7 +303,7 @@ func TestOpsFeishuNotifierBuildsRecoveryPayload(t *testing.T) {
 	event.FiredAt = firedAt
 	current := 0.0
 	event.Dimensions = map[string]any{
-		"top_cause":       `newapi ×128（#16 "Agent-陈乐晗-qwen" ×128）`,
+		"top_cause":        `newapi ×128（#16 "Agent-陈乐晗-qwen" ×128）`,
 		"top_cause_models": "gpt5.4-mini ×128",
 	}
 

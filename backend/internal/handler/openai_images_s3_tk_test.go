@@ -50,11 +50,11 @@ func TestImagesPresign_RejectsOutOfScopeKeys(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
 	h.SetMediaStore(newFakeMediaStore())
 	for _, body := range []string{
-		`{"key":""}`,                         // empty
-		`{"key":"media/videos/x.mp4"}`,       // wrong prefix (no cross-namespace presign)
-		`{"key":"secrets/db.sql"}`,           // arbitrary object
-		`{"key":"media/images/../secret"}`,   // traversal
-		`not json`,                           // malformed body
+		`{"key":""}`,                       // empty
+		`{"key":"media/videos/x.mp4"}`,     // wrong prefix (no cross-namespace presign)
+		`{"key":"secrets/db.sql"}`,         // arbitrary object
+		`{"key":"media/images/../secret"}`, // traversal
+		`not json`,                         // malformed body
 	} {
 		w := callImagesPresign(h, body)
 		if w.Code != http.StatusBadRequest {

@@ -262,12 +262,12 @@ func TestBuildKiroUpstreamQuota_IncludesTrialAndBonuses(t *testing.T) {
 			},
 			Bonuses: []KiroBonusInfo{
 				{
-					Code:    "WELCOME500",
-					Label:   "Welcome Bonus",
-					Current: 120,
-					Limit:   500,
-					Percent: 24,
-					Status:  "ACTIVE",
+					Code:      "WELCOME500",
+					Label:     "Welcome Bonus",
+					Current:   120,
+					Limit:     500,
+					Percent:   24,
+					Status:    "ACTIVE",
 					ExpiresAt: &expires,
 				},
 			},
