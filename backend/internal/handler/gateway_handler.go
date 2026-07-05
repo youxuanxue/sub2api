@@ -28,6 +28,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 const gatewayCompatibilityMetricsLogInterval = 1024
@@ -1217,17 +1218,21 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		return
 	}
 
-	// Best-effort: 获取用量统计（按当前 API Key 过滤），失败不影响基础响应
-	usageData := h.buildUsageData(ctx, apiKey.ID)
-	dailyUsage := h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days)
-
-	// Best-effort: 获取模型统计
+	var usageData gin.H
+	var dailyUsage any
 	var modelStats any
-	if h.usageService != nil {
-		if stats, err := h.usageService.GetAPIKeyModelStats(ctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
-			modelStats = stats
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { usageData = h.buildUsageData(gctx, apiKey.ID); return nil })
+	g.Go(func() error { dailyUsage = h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days); return nil })
+	g.Go(func() error {
+		if h.usageService != nil {
+			if stats, err := h.usageService.GetAPIKeyModelStats(gctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
+				modelStats = stats
+			}
 		}
-	}
+		return nil
+	})
+	_ = g.Wait()
 
 	// 判断模式: key 有总额度或速率限制 → quota_limited，否则 → unrestricted
 	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()

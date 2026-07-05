@@ -45,7 +45,11 @@ const ENTRY_HTML_PRELOAD_BLOCKLIST = [
   '/DashboardView-',
   '/admin-dashboard-view-',
   '/vendor-chart-',
-  '/vendor-stripe-'
+  '/vendor-stripe-',
+  '/vendor-markdown-',
+  '/admin-shell-',
+  '/AdminComplianceDialog-',
+  '/AnnouncementPopup-'
 ]
 
 export default defineConfig(({ mode }) => {
