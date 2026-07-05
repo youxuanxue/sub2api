@@ -47,12 +47,12 @@ func PrerenderMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		var html string
-		switch {
-		case path == "/" || path == "/home":
+		switch path {
+		case "/", "/home":
 			html = prerenderHome
-		case path == "/pricing":
+		case "/pricing":
 			html = prerenderPricing
-		case path == "/quickstart":
+		case "/quickstart":
 			html = prerenderQuickstart
 		default:
 			// For routes we don't have prerender content for, fall through to SPA
