@@ -88,7 +88,7 @@ edge 上挂的账号（如 `cc-en-ld-ec2-16-1-a`）是真要把流量送到 Anth
 
 > 目标是“更像普通程序员使用 Claude Code CLI”：TLS 模板负责网络握手形态；`Concurrency / Sessions / RPM / serialize` 决定请求节奏。
 
-edge 上的分组配置对称：`platform=anthropic`、`sticky_routing_mode=auto`、`claude_code_only=true`、`model_routing_enabled=false`。
+历史配置里 edge 分组曾设为 `claude_code_only=true`。2026-07-05 起，对外默认 Anthropic group=1 不再强制 Claude-Code-only；否则 universal / generic 协议会被 edge 策略挡住。
 ## ⑤ 验证
 
 用一台装了 claude code CLI 的机器，配置 base URL 指向 `https://api.tokenkey.dev` + 你的 `tk_xxx` key，跑一个简单对话：

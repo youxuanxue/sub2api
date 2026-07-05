@@ -99,7 +99,7 @@ class SqlBundleTest(unittest.TestCase):
     def test_edge_capture_bundle_aggregates_snapshot_fragments(self) -> None:
         sql = mgr.EDGE_CAPTURE_BUNDLE_SQL
         self.assertIn("oauth_accounts", sql)
-        self.assertIn("anthropic_groups", sql)
+        self.assertIn("tiers", sql)
         self.assertIn("operator_balance", sql)
 
 

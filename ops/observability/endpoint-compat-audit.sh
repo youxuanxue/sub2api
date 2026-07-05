@@ -15,7 +15,7 @@ SSOT_SUBCOMMAND="list"
 SSOT_ARGS=()
 GATE_SHARDED=0
 GATE_DEPLOY_CLOSEOUT=0
-GATE_SHARD_PLATFORMS=(anthropic openai gemini grok newapi antigravity kiro)
+GATE_SHARD_PLATFORMS=()
 GATE_SHARD_SLEEP="${TK_SSOT_GATE_SHARD_SLEEP_SEC:-8}"
 
 usage() {
@@ -97,6 +97,17 @@ print_cmd() {
 	printf '\n'
 }
 
+load_gate_shard_platforms() {
+	GATE_SHARD_PLATFORMS=()
+	while IFS= read -r platform; do
+		[[ -n "$platform" ]] && GATE_SHARD_PLATFORMS+=("$platform")
+	done < <(python3 "$ROOT/ops/test/gateway_model_ssot_matrix.py" platforms)
+	if ((${#GATE_SHARD_PLATFORMS[@]} == 0)); then
+		echo "ERROR: no SSOT gate shard platforms reported by gateway_model_ssot_matrix.py" >&2
+		exit 2
+	fi
+}
+
 case "$MODE" in
 	print)
 		echo "# Direct route-gate matrix"
@@ -118,6 +129,7 @@ case "$MODE" in
 				echo "ERROR: TK_FULLTEST_KEY is required for --gate-sharded" >&2
 				exit 2
 			fi
+			load_gate_shard_platforms
 			status=0
 			shard_args=("${SSOT_ARGS[@]}")
 			if [[ "$GATE_DEPLOY_CLOSEOUT" == "1" ]]; then

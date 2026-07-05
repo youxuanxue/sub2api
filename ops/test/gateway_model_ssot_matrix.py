@@ -43,6 +43,7 @@ VENDOR_PLATFORM = {
     "x-ai": "grok",
 }
 
+PLATFORM_CHOICES = ("anthropic", "openai", "gemini", "antigravity", "newapi", "grok", "kiro")
 GEMINI_NATIVE_PLATFORMS = {"antigravity"}
 MESSAGE_POLICY_PLATFORMS = {"openai", "newapi"}
 
@@ -595,7 +596,14 @@ def cmd_selftest(_args) -> int:
     assert excluded_display_decision(not_priced, include_paid=False)[0] is False
     assert excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "embeddings")
     assert not excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "chat")
+    assert "kiro" in PLATFORM_CHOICES, "deploy-stage0 sharded gate includes kiro; argparse must accept it"
     print("gateway_model_ssot_matrix selftest: PASS")
+    return 0
+
+
+def cmd_platforms(_args) -> int:
+    for platform in PLATFORM_CHOICES:
+        print(platform)
     return 0
 
 
@@ -603,7 +611,7 @@ def add_source_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--source", choices=["live-pricing"], default="live-pricing")
     p.add_argument("--base-url", default=DEFAULT_BASE_URL)
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
-    p.add_argument("--only-platform", choices=["anthropic", "openai", "gemini", "antigravity", "newapi", "grok"])
+    p.add_argument("--only-platform", choices=PLATFORM_CHOICES)
     p.add_argument(
         "--only-protocol",
         choices=["messages", "count_tokens", "chat", "responses", "gemini_generate", "chat_image", "image", "video", "embeddings"],
@@ -651,6 +659,9 @@ def main() -> int:
 
     selftest_p = sub.add_parser("selftest", help="run offline unit tests")
     selftest_p.set_defaults(func=cmd_selftest)
+
+    platforms_p = sub.add_parser("platforms", help="print platform shards accepted by --only-platform")
+    platforms_p.set_defaults(func=cmd_platforms)
 
     args = parser.parse_args()
     return args.func(args)
