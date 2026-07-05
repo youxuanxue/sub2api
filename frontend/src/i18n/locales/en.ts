@@ -77,15 +77,6 @@ export default {
       image: 'Image',
       video: 'Video'
     },
-    availability: {
-      rate: '24h success {rate}%',
-      verified: 'verified {ago}',
-      samples: '{count} samples',
-      justNow: 'just now',
-      minutesAgo: '{n}m ago',
-      hoursAgo: '{n}h ago',
-      daysAgo: '{n}d ago'
-    },
     // TK: authenticated "Group Catalog" view (GET /api/v1/me/pricing-catalog).
     // Prices always show official list pricing, decoupled from group/override
     // multipliers.

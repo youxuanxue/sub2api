@@ -45,12 +45,12 @@
             </div>
           </div>
           <p
-            class="min-w-0 flex-1 text-left text-[11px] leading-snug text-gray-500 dark:text-dark-400 sm:text-xs"
+            class="order-last min-w-0 basis-full text-left text-[11px] leading-snug text-gray-500 dark:text-dark-400 sm:order-none sm:flex-1 sm:basis-auto sm:text-xs"
             data-tk="pricing-description-inline"
           >
             {{ heroDescription }}
           </p>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
             <router-link
               v-if="bonusCtaVisible"
               to="/register"
@@ -363,15 +363,7 @@
                     <td
                       class="sticky left-0 z-10 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-white px-3 py-3 align-top font-mono text-sm leading-snug text-gray-900 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.12)] break-words group-hover:bg-primary-50/30 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.45)] dark:group-hover:bg-dark-800/40"
                     >
-                      <span class="inline-flex items-center gap-1.5">
-                        <span
-                          v-if="row.availability"
-                          class="inline-block h-2 w-2 shrink-0 rounded-full"
-                          :class="availabilityDotClass(row.availability.status)"
-                          :title="availabilityTooltip(row.availability)"
-                        />
-                        <span>{{ row.model_id }}</span>
-                      </span>
+                      <span>{{ row.model_id }}</span>
                       <span
                         v-if="row.billingMode && row.billingMode !== 'token'"
                         class="ml-1 inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
@@ -551,7 +543,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { getPublicPricing, type PublicCatalogResponse, type PublicCatalogAvailability } from '@/api/pricing'
+import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import {
   getMePricingCatalog,
   type MePricingCatalogResponse,
@@ -609,8 +601,6 @@ interface NormalizedRow {
   tiers?: NormalizedTier[]
   /** Accessible groups that can serve this model — "授权分组" column when logged in. */
   authorizedGroups?: MePricingModelGroup[]
-  /** Real-time availability badge data from backend monitoring. */
-  availability?: PublicCatalogAvailability
 }
 
 /** Normalized阶梯 bracket shared by public + my views (per-1k). */
@@ -790,8 +780,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
         inputPer1K: tt.input_per_1k_tokens ?? null,
         outputPer1K: tt.output_per_1k_tokens ?? null
       })),
-      authorizedGroups: authorizedGroupsByModel.value[m.model_id] ?? [],
-      availability: m.availability
+      authorizedGroups: authorizedGroupsByModel.value[m.model_id] ?? []
     }))
   }
   // 'my' view
@@ -978,54 +967,6 @@ function tierTooltip(row: NormalizedRow): string {
 
 function formatBillingMode(mode: string): string {
   return t(`pricing.my.billingMode.${mode}`, mode)
-}
-
-// ============================== availability badge ==============================
-
-/** Map availability status → Tailwind dot color class. */
-function availabilityDotClass(status: string): string {
-  switch (status) {
-    case 'ok':
-      return 'bg-green-500'
-    case 'stale':
-      return 'bg-amber-500'
-    case 'unreachable':
-      return 'bg-red-500'
-    default: // 'untested' or unknown
-      return 'bg-gray-400'
-  }
-}
-
-/** Build a native title-attribute tooltip from availability data.
- *  e.g. "24h 成功率 99.9% · 3 分钟前验证" or "24h success 99.9% · verified 3m ago". */
-function availabilityTooltip(a: PublicCatalogAvailability): string {
-  const parts: string[] = []
-  const rate = (a.success_rate_24h * 100).toFixed(1)
-  parts.push(t('pricing.availability.rate', { rate }))
-  if (a.last_verified_at) {
-    const ago = relativeTimeAgo(a.last_verified_at)
-    parts.push(t('pricing.availability.verified', { ago }))
-  }
-  if (a.sample_count_24h > 0) {
-    parts.push(t('pricing.availability.samples', { count: a.sample_count_24h }))
-  }
-  return parts.join(' · ')
-}
-
-/** Human-friendly relative time string from an ISO timestamp. */
-function relativeTimeAgo(iso: string): string {
-  try {
-    const diff = Date.now() - new Date(iso).getTime()
-    const minutes = Math.floor(diff / 60000)
-    if (minutes < 1) return t('pricing.availability.justNow')
-    if (minutes < 60) return t('pricing.availability.minutesAgo', { n: minutes })
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return t('pricing.availability.hoursAgo', { n: hours })
-    const days = Math.floor(hours / 24)
-    return t('pricing.availability.daysAgo', { n: days })
-  } catch {
-    return ''
-  }
 }
 
 // ============================== layout ==============================

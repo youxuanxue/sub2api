@@ -76,15 +76,6 @@ export default {
       image: '图片',
       video: '视频'
     },
-    availability: {
-      rate: '24h 成功率 {rate}%',
-      verified: '{ago}验证',
-      samples: '{count} 次采样',
-      justNow: '刚刚',
-      minutesAgo: '{n} 分钟前',
-      hoursAgo: '{n} 小时前',
-      daysAgo: '{n} 天前'
-    },
     // TK: 登录态「分组目录」视图（GET /api/v1/me/pricing-catalog）。价格一律
     // 展示官方定价，与分组倍率/个人覆写脱钩。
     my: {
