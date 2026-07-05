@@ -22,7 +22,6 @@ def _edge(*, balance: float | None, deployable: bool = True, exists: bool = True
         "instance_id": "i-test",
         "region": "us-west-2",
         "oauth_accounts": [],
-        "anthropic_groups": [],
         "operator_user_balance": balance,
         "operator_user_exists": exists,
         "operator_user_concurrency": 10,
