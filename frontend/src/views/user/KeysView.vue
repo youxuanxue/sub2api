@@ -1153,8 +1153,10 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, onMounted, onActivated, onDeactivated, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
+
+	defineOptions({ name: 'UserKeysView' })
 	import { useRoute, useRouter } from 'vue-router'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
@@ -2025,6 +2027,9 @@ function applyCreateKeyFromQuery(): void {
   void router.replace({ query: q })
 }
 
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
 onMounted(() => {
   loadSavedColumns()
   loadApiKeys()
@@ -2033,10 +2038,23 @@ onMounted(() => {
   loadPublicSettings()
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
+  lastFetchedAt = Date.now()
+})
+
+onActivated(() => {
+  if (!resetTimer) resetTimer = setInterval(() => { now.value = new Date() }, 60000)
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    loadApiKeys()
+    lastFetchedAt = Date.now()
+  }
+})
+
+onDeactivated(() => {
+  if (resetTimer) { clearInterval(resetTimer); resetTimer = null }
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', closeGroupSelector)
-  if (resetTimer) clearInterval(resetTimer)
+  if (resetTimer) { clearInterval(resetTimer); resetTimer = null }
 })
 </script>

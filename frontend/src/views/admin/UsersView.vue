@@ -769,8 +769,10 @@
   </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, reactive, computed, onMounted, onActivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'AdminUsersView' })
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatDateTime } from '@/utils/format'
@@ -1857,6 +1859,9 @@ const handleScroll = () => {
   closeActionMenu()
 }
 
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
 onMounted(async () => {
   await loadAttributeDefinitions()
   loadSavedFilters()
@@ -1870,6 +1875,14 @@ onMounted(async () => {
   }
   document.addEventListener('click', handleClickOutside)
   window.addEventListener('scroll', handleScroll, true)
+  lastFetchedAt = Date.now()
+})
+
+onActivated(() => {
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    loadUsers()
+    lastFetchedAt = Date.now()
+  }
 })
 
 onUnmounted(() => {

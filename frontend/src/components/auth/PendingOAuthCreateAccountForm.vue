@@ -88,11 +88,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
-import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { getPublicSettings, sendPendingOAuthVerifyCode } from '@/api/auth'
 import { useAppStore } from '@/stores'
+
+// Lazy-load TurnstileWidget: Cloudflare's challenge script sends continuous
+// heartbeat requests that prevent Playwright's networkidle from resolving.
+const TurnstileWidget = defineAsyncComponent(
+  () => import('@/components/TurnstileWidget.vue'),
+)
 
 export type PendingOAuthCreateAccountPayload = {
   email: string

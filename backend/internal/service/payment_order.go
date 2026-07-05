@@ -13,6 +13,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -326,18 +327,43 @@ func (s *PaymentService) checkDailyLimit(ctx context.Context, tx *dbent.Tx, user
 		return nil
 	}
 	ts := psStartOfDayUTC(time.Now())
-	orders, err := tx.PaymentOrder.Query().Where(paymentorder.UserIDEQ(userID), paymentorder.StatusIn(OrderStatusPaid, OrderStatusRecharging, OrderStatusCompleted), paymentorder.PaidAtGTE(ts)).All(ctx)
+
+	// Use DB-level aggregation instead of loading all daily orders into memory.
+	// Balance orders contribute pay_amount; all other order types contribute amount.
+	commonPredicates := []predicate.PaymentOrder{
+		paymentorder.UserIDEQ(userID),
+		paymentorder.StatusIn(OrderStatusPaid, OrderStatusRecharging, OrderStatusCompleted),
+		paymentorder.PaidAtGTE(ts),
+	}
+
+	// Sum pay_amount for balance-type orders.
+	var balanceResult []struct{ Sum float64 }
+	err := tx.PaymentOrder.Query().
+		Where(append(commonPredicates, paymentorder.OrderTypeEQ(payment.OrderTypeBalance))...).
+		Aggregate(dbent.As(dbent.Sum(paymentorder.FieldPayAmount), "sum")).
+		Scan(ctx, &balanceResult)
 	if err != nil {
-		return fmt.Errorf("query daily usage: %w", err)
+		return fmt.Errorf("query daily balance usage: %w", err)
 	}
+
+	// Sum amount for non-balance-type orders.
+	var otherResult []struct{ Sum float64 }
+	err = tx.PaymentOrder.Query().
+		Where(append(commonPredicates, paymentorder.OrderTypeNEQ(payment.OrderTypeBalance))...).
+		Aggregate(dbent.As(dbent.Sum(paymentorder.FieldAmount), "sum")).
+		Scan(ctx, &otherResult)
+	if err != nil {
+		return fmt.Errorf("query daily non-balance usage: %w", err)
+	}
+
 	var used float64
-	for _, o := range orders {
-		if o.OrderType == payment.OrderTypeBalance {
-			used += o.PayAmount
-			continue
-		}
-		used += o.Amount
+	if len(balanceResult) > 0 {
+		used += balanceResult[0].Sum
 	}
+	if len(otherResult) > 0 {
+		used += otherResult[0].Sum
+	}
+
 	if used+amount > limit {
 		return infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily_limit_exceeded").
 			WithMetadata(map[string]string{"remaining": fmt.Sprintf("%.2f", math.Max(0, limit-used))})

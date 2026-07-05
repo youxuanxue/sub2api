@@ -49,8 +49,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onActivated, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'UserProfileView' })
 import { Icon } from '@/components/icons'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
@@ -77,7 +79,10 @@ const wechatOAuthMPEnabled = ref<boolean | undefined>(undefined)
 const oidcOAuthEnabled = ref(false)
 const oidcOAuthProviderName = ref('OIDC')
 
-onMounted(async () => {
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
+const loadProfile = async () => {
   const profileRefresh = authStore.refreshUser().catch((error) => {
     console.error('Failed to refresh profile:', error)
   })
@@ -107,5 +112,14 @@ onMounted(async () => {
     })
 
   await Promise.all([profileRefresh, settingsLoad])
+  lastFetchedAt = Date.now()
+}
+
+onMounted(() => { loadProfile() })
+
+onActivated(() => {
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    loadProfile()
+  }
 })
 </script>

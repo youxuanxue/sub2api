@@ -148,6 +148,10 @@ type ChannelService struct {
 	cache   atomic.Value // *channelCache
 	cacheSF singleflight.Group
 
+	// availableCache caches the ListAvailable result (user-facing "available channels" page).
+	// Short TTL (30s) avoids full-table scans on every page load while staying fresh enough.
+	availableCache availableChannelsCache
+
 	// TK: flush group×model unsupported negative cache when channel config changes.
 	groupUnsupportedModelCacheFlush func()
 }
@@ -349,6 +353,10 @@ func matchingPlatforms(groupPlatform string) []string {
 func (s *ChannelService) invalidateCache() {
 	s.cache.Store((*channelCache)(nil))
 	s.cacheSF.Forget("channel_cache")
+
+	// Also invalidate the user-facing available channels cache so the next
+	// ListAvailable call picks up the CRUD change.
+	s.availableCache.invalidate()
 
 	if s.groupUnsupportedModelCacheFlush != nil {
 		s.groupUnsupportedModelCacheFlush()

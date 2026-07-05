@@ -15,7 +15,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'; import { useAuthStore } from '@/stores/auth'; import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
+import { ref, computed, onMounted, onActivated } from 'vue'; import { useAuthStore } from '@/stores/auth'; import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
+
+defineOptions({ name: 'UserDashboardView' })
 import AppLayout from '@/components/layout/AppLayout.vue'; import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserDashboardStats from '@/components/user/dashboard/UserDashboardStats.vue'; import UserDashboardCharts from '@/components/user/dashboard/UserDashboardCharts.vue'
 import UserDashboardRecentUsage from '@/components/user/dashboard/UserDashboardRecentUsage.vue'; import UserDashboardQuickActions from '@/components/user/dashboard/UserDashboardQuickActions.vue'
@@ -36,5 +38,15 @@ const loadRecent = async () => { loadingUsage.value = true; try { const res = aw
 const loadPlatformQuotas = async () => { try { const data = await getMyPlatformQuotas(); platformQuotas.value = data.platform_quotas ?? [] } catch (error) { console.warn('Failed to load platform quotas:', error); platformQuotas.value = [] } }
 const refreshAll = () => { loadStats(); loadCharts(); loadRecent(); loadPlatformQuotas() }
 
-onMounted(() => { refreshAll() })
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
+onMounted(() => { refreshAll(); lastFetchedAt = Date.now() })
+
+onActivated(() => {
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    refreshAll()
+    lastFetchedAt = Date.now()
+  }
+})
 </script>

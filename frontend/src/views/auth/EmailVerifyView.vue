@@ -146,13 +146,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
-import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
+
+// Lazy-load TurnstileWidget: Cloudflare's challenge script sends continuous
+// heartbeat requests that prevent Playwright's networkidle from resolving.
+const TurnstileWidget = defineAsyncComponent(
+  () => import('@/components/TurnstileWidget.vue'),
+)
 import {
   persistOAuthTokenContext,
   getPublicSettings,

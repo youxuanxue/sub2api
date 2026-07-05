@@ -366,25 +366,49 @@ func normalizeOrderLookupOutTradeNo(raw string) (string, error) {
 }
 
 func (s *PaymentService) ExpireTimedOutOrders(ctx context.Context) (int, error) {
+	const batchSize = 100
 	now := time.Now()
-	orders, err := s.entClient.PaymentOrder.Query().Where(paymentorder.StatusEQ(OrderStatusPending), paymentorder.ExpiresAtLTE(now)).All(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("query expired: %w", err)
-	}
-	n := 0
-	for _, o := range orders {
-		// Check upstream payment status before expiring — the user may have
-		// paid just before timeout and the webhook hasn't arrived yet.
-		outcome, _ := s.cancelCore(ctx, o, OrderStatusExpired, "system", "order expired")
-		if outcome == checkPaidResultAlreadyPaid {
-			slog.Info("order was paid during expiry", "orderID", o.ID)
-			continue
+	total := 0
+	var lastID int64
+
+	for {
+		query := s.entClient.PaymentOrder.Query().
+			Where(
+				paymentorder.StatusEQ(OrderStatusPending),
+				paymentorder.ExpiresAtLTE(now),
+			).
+			Order(dbent.Asc(paymentorder.FieldID)).
+			Limit(batchSize)
+		if lastID > 0 {
+			query = query.Where(paymentorder.IDGT(lastID))
 		}
-		if outcome != "" {
-			n++
+
+		orders, err := query.All(ctx)
+		if err != nil {
+			return total, fmt.Errorf("query expired: %w", err)
+		}
+		if len(orders) == 0 {
+			break
+		}
+
+		for _, o := range orders {
+			lastID = o.ID
+			outcome, _ := s.cancelCore(ctx, o, OrderStatusExpired, "system", "order expired")
+			if outcome == checkPaidResultAlreadyPaid {
+				slog.Info("order was paid during expiry", "orderID", o.ID)
+				continue
+			}
+			if outcome != "" {
+				total++
+			}
+		}
+
+		if len(orders) < batchSize {
+			break
 		}
 	}
-	return n, nil
+
+	return total, nil
 }
 
 // getOrderProvider creates a provider using the order's original instance config.
