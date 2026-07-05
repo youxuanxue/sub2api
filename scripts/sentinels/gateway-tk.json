@@ -3959,6 +3959,82 @@
         "func (s *GatewayService) isUpstreamModelRestrictedByChannel("
       ],
       "rationale": "TK channel pricing restriction companion: pre-scheduling model restriction checks based on channel-level pricing configuration. Extracted from gateway_service.go to reduce upstream merge surface. Forward and ForwardCountTokens call checkChannelPricingRestriction; dropping the companion breaks compilation."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "resolveOpenAICodexUserAgent(context.Background(), s, account, inboundUA)"
+      ],
+      "rationale": "WS forwarder buildOpenAIWSHeaders must call resolveOpenAICodexUserAgent to normalize the upstream Codex UA for WebSocket connections, same as the HTTP path in openai_gateway_service.go. Without this call, WS connections (Codex real-time) forward arbitrary client identity upstream, which OpenAI classifies as Uncategorized and which degrades account health. The function definition is anchored in openai_gateway_service.go; this entry pins the WS call site."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "!account.IsOpenAICompatPoolMember(groupPlatform)"
+      ],
+      "rationale": "WS forwarder SelectAccountByPreviousResponseID sticky-session path must use IsOpenAICompatPoolMember (not bare IsOpenAI) to correctly include newapi accounts in the compat scheduling pool. This is the same compat-pool predicate guarded by preflight Check B in the HTTP paths (openai_account_scheduler.go, openai_gateway_service.go); losing it in the WS path silently rejects newapi accounts for WS sticky sessions even when the group platform is newapi."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "compatReplayGuardEnabled && !account.IsOpenAIOAuth()"
+      ],
+      "rationale": "Compat replay guard in ForwardAsAnthropicMessages must gate on IsOpenAIOAuth: OAuth accounts already have native Codex session continuation and must NOT get the TodoGuard appended (it corrupts their continuation context). Losing this predicate applies the replay guard to OAuth sessions, breaking Codex continuation for OpenAI OAuth accounts."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "account.IsOpenAIOAuth() && promptCacheKey != \"\" && strings.TrimSpace(c.GetHeader(\"conversation_id\")) == \"\""
+      ],
+      "rationale": "OAuth prompt-cache header cleanup in ForwardAsAnthropicMessages: when an OAuth account has a prompt cache key but no conversation_id header, the stale conversation_id must be removed from the upstream request so it does not collide with the session continuation state. Losing this predicate either leaks stale conversation_id upstream (corrupting continuation) or strips it when it should be preserved."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "if account.IsOpenAIOAuth() && promptCacheKey != \"\" {"
+      ],
+      "rationale": "OAuth turn-state binding in ForwardAsAnthropicMessages response path: after a successful upstream response, the x-codex-turn-state header must be captured and bound to the prompt cache key for OAuth accounts so subsequent requests can restore session state. Losing this drops turn-state persistence for OpenAI OAuth sessions, breaking multi-turn Codex continuation."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "account.IsOpenAIOAuth() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)"
+      ],
+      "rationale": "Auto-inject prompt cache key for OAuth compat in ForwardAsChatCompletions: when an OAuth account has no explicit prompt cache key but the model supports it, a deterministic key is derived so the session gets continuation benefits automatically. Losing this predicate disables auto-injection, degrading first-turn latency and breaking implicit session caching for compat entry OAuth accounts."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "if account.IsOpenAIOAuth() {\n\t\tvar reqBody map[string]any"
+      ],
+      "rationale": "Codex OAuth transform in ForwardAsChatCompletions: OAuth accounts must have applyCodexOAuthTransformWithOptions applied to the request body, which normalizes instructions, system prompts, and other Codex-specific fields. Losing this gate sends raw non-Codex-shaped bodies upstream on OAuth accounts, causing classification mismatches and potential rejections."
+    },
+    {
+      "path": "backend/internal/handler/auth_handler.go",
+      "must_contain": [
+        "login_turnstile_skipped",
+        "login_without_turnstile"
+      ],
+      "rationale": "TK login policy: Turnstile verification is intentionally bypassed for the control-plane login (TokenKey does not deploy Cloudflare Turnstile). The slog.Info line serves as both the runtime audit trail and the sentinel anchor. An upstream merge that re-introduces Turnstile verification at this call site would silently break login for all TK deployments that do not have Turnstile configured."
+    },
+    {
+      "path": "backend/internal/service/account_service.go",
+      "must_contain": [
+        "AccountListPlatformKiroStubFilter",
+        "SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)",
+        "validateNewapiAccountModelMapping(account.Platform, account.Credentials)"
+      ],
+      "rationale": "Three TK-specific touches in the upstream-shaped account_service.go: (1) AccountListPlatformKiroStubFilter constant enables admin UI filtering of Kiro stub accounts from the account list; (2) SumConcurrencyByPlatform interface method supports edge capacity calculation for non-anthropic single-pool-per-platform pools (e.g. Kiro); (3) validateNewapiAccountModelMapping call enforces the newapi multi-vendor model_mapping invariant on account create/update. Losing any of these silently regresses Kiro admin visibility, edge capacity reporting, or newapi account validation."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_contain": [
+        "AccessTokenExpireMinutes int",
+        "RefreshTokenExpireDays int",
+        "RefreshWindowMinutes int",
+        "RateLimitReaperIntervalSeconds int"
+      ],
+      "rationale": "TK JWT expiry granularity and rate-limit reaper config fields in the upstream-shaped config.go. AccessTokenExpireMinutes (minute-granularity access token TTL, higher priority than the upstream ExpireHour), RefreshTokenExpireDays (refresh token TTL), and RefreshWindowMinutes (pre-expiry refresh window) together implement TK's short-lived access + long-lived refresh token pair policy. RateLimitReaperIntervalSeconds is the TK fix for upstream Wei-Shaw/sub2api#2538 (accounts stuck in scheduling limbo after 429 expiry). Losing these fields silently falls back to upstream's hour-granularity single-token auth and disables the reaper, re-opening the #2538 stuck-account bug."
     }
   ]
 }

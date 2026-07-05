@@ -1443,6 +1443,14 @@
         "PrerenderMiddleware()"
       ],
       "rationale": "Companion file holding crawler prerender integration; deleting it or inlining back into embed_on.go re-opens upstream merge conflict surface and drops SEO prerender silently if the call site is lost."
+    },
+    {
+      "path": "frontend/src/App.vue",
+      "must_contain": [
+        "cachedUserViews",
+        "<KeepAlive :include=\"cachedUserViews\">"
+      ],
+      "rationale": "TK wraps the RouterView in a KeepAlive with an explicit include list (cachedUserViews) so user-facing views (Dashboard, Usage, Keys, Profile, Studio, KeyUsage) preserve component state across navigation instead of re-mounting. Upstream App.vue has no KeepAlive; an upstream merge that replaces the template block drops the wrapper silently, causing every navigation to remount and lose in-progress form/filter state on all cached views."
     }
   ]
 }

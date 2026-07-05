@@ -264,7 +264,8 @@ fi
 # auto-paused by this path). The exemption is line-scoped and self-documenting.
 drift2_hits="$(grep -nE '!\s*account\.IsOpenAI\(\)' \
     backend/internal/service/openai_account_scheduler.go \
-    backend/internal/service/openai_gateway_service.go 2>/dev/null \
+    backend/internal/service/openai_gateway_service.go \
+    backend/internal/service/openai_ws_forwarder.go 2>/dev/null \
     | grep -v 'compat-pool-exempt' || true)"
 if [ -n "$drift2_hits" ]; then
     echo "  FAIL: scheduling filter still uses bare !account.IsOpenAI()"
