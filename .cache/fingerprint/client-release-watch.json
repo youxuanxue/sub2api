@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-05T00:09:03Z",
-  "git_sha": "000ffd756ff4c92388b426c9b1c3d693c66e9ca8",
+  "updated_at": "2026-07-05T08:20:38Z",
+  "git_sha": "",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.199",
+      "pinned": "2.1.201",
       "upstream_latest": "2.1.201",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -142,9 +142,9 @@
       }
     },
     "kiro-cli": {
-      "pinned": "2.10.0",
+      "pinned": "2.11.0",
       "upstream_latest": "2.11.0",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
