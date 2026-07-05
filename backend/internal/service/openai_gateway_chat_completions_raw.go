@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -535,5 +536,5 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 //
 // 与 buildOpenAIResponsesURL 是姐妹函数。
 func buildOpenAIChatCompletionsURL(base string) string {
-	return buildOpenAIEndpointURL(base, "/v1/chat/completions")
+	return buildOpenAIEndpointURL(base, apipath.ChatCompletions)
 }
