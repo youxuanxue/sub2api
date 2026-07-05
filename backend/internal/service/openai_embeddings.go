@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -243,5 +244,5 @@ func firstPositiveGJSONInt(values ...gjson.Result) int {
 }
 
 func buildOpenAIEmbeddingsURL(base string) string {
-	return buildOpenAIEndpointURL(base, "/v1/embeddings")
+	return buildOpenAIEndpointURL(base, apipath.Embeddings)
 }

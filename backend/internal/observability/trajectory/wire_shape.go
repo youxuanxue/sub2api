@@ -3,6 +3,8 @@ package trajectory
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
+
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
@@ -37,10 +39,10 @@ const (
 // cannot be imported without a cycle) is robust, and a qa-package endpoint-shape
 // test (TestWireShapeMatchesCaptureEndpoints) guards against drift.
 const (
-	endpointMessages        = "/v1/messages"
-	endpointChatCompletions = "/v1/chat/completions"
-	endpointResponses       = "/v1/responses"
-	endpointGeminiModels    = "/v1beta/models"
+	endpointMessages        = apipath.Messages
+	endpointChatCompletions = apipath.ChatCompletions
+	endpointResponses       = apipath.Responses
+	endpointGeminiModels    = apipath.GeminiModels
 )
 
 // WireShapeForRecord returns the wire shape of a captured record. The normalized

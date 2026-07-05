@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -28,8 +29,8 @@ import (
 )
 
 const (
-	openAIImagesGenerationsEndpoint = "/v1/images/generations"
-	openAIImagesEditsEndpoint       = "/v1/images/edits"
+	openAIImagesGenerationsEndpoint = apipath.ImagesGenerations
+	openAIImagesEditsEndpoint       = apipath.ImagesEdits
 
 	openAIImagesGenerationsURL = "https://api.openai.com/v1/images/generations"
 	openAIImagesEditsURL       = "https://api.openai.com/v1/images/edits"

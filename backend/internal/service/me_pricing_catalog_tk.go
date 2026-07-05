@@ -883,7 +883,7 @@ func accountInGroupScope(a *Account, groupPlatform string) bool {
 		return false
 	}
 	switch groupPlatform {
-	case "openai", "newapi":
+	case PlatformOpenAI, PlatformNewAPI:
 		return a.IsOpenAICompatPoolMember(groupPlatform)
 	default:
 		return a.Platform == groupPlatform

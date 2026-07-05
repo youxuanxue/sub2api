@@ -12,6 +12,7 @@ import (
 	"time"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -265,7 +266,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		}()
 		c.Writer = captureWriter
 		if c.Request != nil && c.Request.URL != nil {
-			c.Request.URL.Path = "/v1/chat/completions"
+			c.Request.URL.Path = apipath.ChatCompletions
 		}
 		out, apiErr = dispatchNewAPIChatCompletions(ctx, c, in, chatBody)
 	}()

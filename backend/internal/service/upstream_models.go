@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -377,35 +378,35 @@ func upstreamModelsProxyURL(account *Account) string {
 
 func buildV1ModelsURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/v1/models") {
+	if strings.HasSuffix(normalized, apipath.Models) {
 		return normalized
 	}
 	if strings.HasSuffix(normalized, "/v1") {
 		return normalized + "/models"
 	}
-	return normalized + "/v1/models"
+	return normalized + apipath.Models
 }
 
 func buildOpenAIModelsURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/v1/models") {
+	if strings.HasSuffix(normalized, apipath.Models) {
 		return normalized
 	}
 	if strings.HasSuffix(normalized, "/v1") {
 		return normalized + "/models"
 	}
-	return normalized + "/v1/models"
+	return normalized + apipath.Models
 }
 
 func buildGeminiModelsURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/v1beta/models") {
+	if strings.HasSuffix(normalized, apipath.GeminiModels) {
 		return normalized
 	}
 	if strings.HasSuffix(normalized, "/v1beta") {
 		return normalized + "/models"
 	}
-	return normalized + "/v1beta/models"
+	return normalized + apipath.GeminiModels
 }
 
 type upstreamModelEntry struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -25,7 +26,7 @@ func skipsBillingEnforcement(method, path string) bool {
 		return false
 	}
 	switch path {
-	case "/v1/models", "/v1/usage", "/v1beta/models", "/antigravity/models", "/antigravity/v1/models", "/antigravity/v1/usage", "/antigravity/v1beta/models":
+	case apipath.Models, "/v1/usage", apipath.GeminiModels, "/antigravity/models", "/antigravity/v1/models", "/antigravity/v1/usage", "/antigravity/v1beta/models":
 		return true
 	default:
 		return false

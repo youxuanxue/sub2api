@@ -579,7 +579,7 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 func mirrorCapacityPlatform(raw string) string {
 	p := strings.ToLower(strings.TrimSpace(raw))
 	if p == "" {
-		return "anthropic"
+		return PlatformAnthropic
 	}
 	return p
 }
