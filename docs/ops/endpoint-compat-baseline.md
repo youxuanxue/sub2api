@@ -25,7 +25,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 |---|---|
 | Baseline date | 2026-07-05 |
 | Target | prod (`https://api.tokenkey.dev`) |
-| Runtime code anchor | `v1.8.83` on latest `origin/main` @ `000ffd756` (#1220–#1223: domain SSOT constants, universal/direct Anthropic parity + Kiro mirror stub penalty, newapi responses proactive chat fallback, deploy SSOT display gate sharded closeout). Latest live probes on 2026-07-05 show the #1223 newapi responses fallback behavior active. |
+| Runtime code anchor | `v1.8.84` pending release on `origin/main` @ `4772b2b65` (#1224–#1226: gateway Kiro stub model gating + gateway companion decomposition, auth/perf optimizations, storefront SEO prerender + /quickstart). Prior anchor `v1.8.83` @ `000ffd756` (#1220–#1223). Latest live probes on 2026-07-05 still reflect `v1.8.83` until deploy completes. |
 | Paid media probes | approved and rerun post-`v1.8.80` / #1207 for Imagen, Veo, and Grok media SSOT display gate plus direct-vs-universal parity; latest full displayed+priced paid media gate on 2026-07-05 returned `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`. |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
