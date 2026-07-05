@@ -118,14 +118,26 @@
         <!-- Hero Section - Left/Right Layout -->
         <div class="mb-12 flex flex-col items-center justify-between gap-12 lg:flex-row lg:gap-16">
           <!-- Left: Text Content -->
-          <div class="flex-1 text-center lg:text-left">
+          <div class="min-w-0 flex-1 text-center lg:text-left">
             <h1
-              class="mb-4 text-4xl font-bold text-gray-900 dark:text-white md:text-5xl lg:text-6xl"
+              class="mb-5 text-[2.75rem] font-semibold leading-[1.05] tracking-normal text-gray-950 dark:text-white sm:text-5xl lg:text-[4.5rem]"
             >
-              {{ t('home.hero.title') }}
+              <span
+                v-for="line in heroTitleLines"
+                :key="line"
+                class="block whitespace-nowrap"
+              >
+                {{ line }}
+              </span>
             </h1>
-            <p class="mb-8 text-lg text-gray-600 dark:text-dark-300 md:text-xl">
-              {{ t('home.hero.subtitle') }}
+            <p class="mx-auto mb-8 max-w-2xl text-lg leading-8 text-gray-600 dark:text-dark-300 md:text-xl lg:mx-0">
+              <span
+                v-for="line in heroSubtitleLines"
+                :key="line"
+                class="block sm:whitespace-nowrap"
+              >
+                {{ line }}
+              </span>
             </p>
 
             <!-- CTA Button -->
@@ -394,6 +406,22 @@ import {
 } from '@/constants/homeProviders.tk'
 
 const { t } = useI18n()
+
+const heroTitleLines = computed(() => {
+  const title = t('home.hero.title')
+  if (title === '每一次调用，都是官方品质。') {
+    return ['每一次调用，', '都是官方品质。']
+  }
+  return [title]
+})
+
+const heroSubtitleLines = computed(() => {
+  const subtitle = t('home.hero.subtitle')
+  if (subtitle === '一个 API Key，所有主流 AI 模型。文本、图像、视频。订阅配额，费用可预测。') {
+    return ['一个 API Key，所有主流 AI 模型。', '文本、图像、视频。订阅配额，费用可预测。']
+  }
+  return [subtitle]
+})
 
 // Enlarged advantage tags — these carry the core advantages now that the
 // three feature cards are gone. Each maps to a home.tags.* i18n key.
