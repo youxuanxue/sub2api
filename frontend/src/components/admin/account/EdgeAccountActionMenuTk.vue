@@ -63,6 +63,7 @@ import { computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { EdgeAccountSummary } from '@/api/admin/edgeAccounts'
+import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const props = defineProps<{
   show: boolean
@@ -98,7 +99,7 @@ const isTempUnsched = computed(() => isFuture(props.account?.temp_unschedulable_
 // Reset-quota resets the OpenAI OAuth (codex) rolling window — the case where it is
 // clearly meaningful; anthropic oauth uses window-cost cleared via clear-rate-limit.
 const canResetQuota = computed(
-  () => props.account?.platform === 'openai' && props.account?.type === 'oauth'
+  () => props.account?.platform === PLATFORM_OPENAI && props.account?.type === 'oauth'
 )
 
 const handleKeydown = (event: KeyboardEvent) => {

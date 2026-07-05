@@ -256,6 +256,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -299,23 +300,23 @@ const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
-  return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
+  return props.account?.platform === PLATFORM_GEMINI || (props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'apikey')
 })
 
 const supportsOpenAIImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
-  return props.account?.platform === 'openai'
+  return props.account?.platform === PLATFORM_OPENAI
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
 const isKiroTestAccount = computed(() => (
-  props.account?.platform === 'kiro' ||
+  props.account?.platform === PLATFORM_KIRO ||
   (
-    props.account?.platform === 'anthropic' &&
+    props.account?.platform === PLATFORM_ANTHROPIC &&
     props.account?.type === 'apikey' &&
-    String(props.account?.credentials?.mirror_platform || '').trim().toLowerCase() === 'kiro'
+    String(props.account?.credentials?.mirror_platform || '').trim().toLowerCase() === PLATFORM_KIRO
   )
 ))
 
@@ -373,14 +374,14 @@ const loadAvailableModels = async () => {
   modelsError.value = ''
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
-    availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
+    availableModels.value = props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTIGRAVITY
       ? sortTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
-      if (props.account.platform === 'gemini') {
+      if (props.account.platform === PLATFORM_GEMINI) {
         selectedModelId.value = availableModels.value[0].id
-      } else if (props.account.platform === 'antigravity') {
+      } else if (props.account.platform === PLATFORM_ANTIGRAVITY) {
         // Backend pins AntigravityDefaultTestModelID first; gemini-only policy — no sonnet default.
         selectedModelId.value = availableModels.value[0].id
       } else if (isKiroTestAccount.value) {

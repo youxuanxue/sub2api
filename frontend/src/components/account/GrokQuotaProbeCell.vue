@@ -50,6 +50,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult, GrokQuotaWindow } from '@/api/admin/grok'
 import type { Account } from '@/types'
+import { PLATFORM_GROK } from '@/constants/gatewayPlatforms'
 
 const props = defineProps<{
   account: Account
@@ -57,7 +58,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const visible = computed(() => props.account.platform === 'grok' && props.account.type === 'oauth')
+const visible = computed(() => props.account.platform === PLATFORM_GROK && props.account.type === 'oauth')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<GrokQuotaProbeResult | null>(null)

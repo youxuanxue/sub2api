@@ -32,6 +32,14 @@ import { useI18n } from 'vue-i18n'
 import type { SubscriptionType, GroupPlatform } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
+import {
+  PLATFORM_ANTHROPIC,
+  PLATFORM_OPENAI,
+  PLATFORM_GEMINI,
+  PLATFORM_NEWAPI,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_GROK,
+} from '@/constants/gatewayPlatforms'
 import PlatformIcon from './PlatformIcon.vue'
 
 interface Props {
@@ -161,22 +169,22 @@ const labelClass = computed(() => {
   }
 
   // 正常状态或无天数：根据平台显示主题色
-  if (props.platform === 'anthropic') {
+  if (props.platform === PLATFORM_ANTHROPIC) {
     return `${base} bg-orange-200/60 text-orange-800 dark:bg-orange-800/40 dark:text-orange-300`
   }
-  if (props.platform === 'openai') {
+  if (props.platform === PLATFORM_OPENAI) {
     return `${base} bg-emerald-200/60 text-emerald-800 dark:bg-emerald-800/40 dark:text-emerald-300`
   }
-  if (props.platform === 'gemini') {
+  if (props.platform === PLATFORM_GEMINI) {
     return `${base} bg-blue-200/60 text-blue-800 dark:bg-blue-800/40 dark:text-blue-300`
   }
-  if (props.platform === 'newapi') {
+  if (props.platform === PLATFORM_NEWAPI) {
     return `${base} bg-cyan-200/60 text-cyan-800 dark:bg-cyan-800/40 dark:text-cyan-300`
   }
-  if (props.platform === 'antigravity') {
+  if (props.platform === PLATFORM_ANTIGRAVITY) {
     return `${base} bg-purple-200/60 text-purple-800 dark:bg-purple-800/40 dark:text-purple-300`
   }
-  if (props.platform === 'grok') {
+  if (props.platform === PLATFORM_GROK) {
     return `${base} bg-zinc-300/70 text-zinc-800 dark:bg-zinc-700/60 dark:text-zinc-200`
   }
   return `${base} bg-violet-200/60 text-violet-800 dark:bg-violet-800/40 dark:text-violet-300`
@@ -188,33 +196,33 @@ const peakRateClass = computed(() => {
 
 // Badge color based on platform and subscription type
 const badgeClass = computed(() => {
-  if (props.platform === 'anthropic') {
+  if (props.platform === PLATFORM_ANTHROPIC) {
     // Claude: orange theme
     return isSubscription.value
       ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
       : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
-  } else if (props.platform === 'openai') {
+  } else if (props.platform === PLATFORM_OPENAI) {
     // OpenAI: green theme
     return isSubscription.value
       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
       : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
   }
-  if (props.platform === 'gemini') {
+  if (props.platform === PLATFORM_GEMINI) {
     return isSubscription.value
       ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
       : 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-400'
   }
-  if (props.platform === 'newapi') {
+  if (props.platform === PLATFORM_NEWAPI) {
     return isSubscription.value
       ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
       : 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300'
   }
-  if (props.platform === 'antigravity') {
+  if (props.platform === PLATFORM_ANTIGRAVITY) {
     return isSubscription.value
       ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
       : 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-900/20 dark:text-fuchsia-400'
   }
-  if (props.platform === 'grok') {
+  if (props.platform === PLATFORM_GROK) {
     return isSubscription.value
       ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
       : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'

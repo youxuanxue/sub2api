@@ -2587,6 +2587,16 @@ import {
   isValidAccountEmail,
   resolveAccountEmail
 } from '@/utils/accountEmail.tk'
+import {
+  PLATFORM_ANTHROPIC,
+  PLATFORM_OPENAI,
+  PLATFORM_GEMINI,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_NEWAPI,
+  PLATFORM_KIRO,
+  PLATFORM_GROK
+} from '@/constants/gatewayPlatforms'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 interface Props {
   show: boolean
@@ -2612,9 +2622,9 @@ const isSparkShadow = computed(() => props.account?.parent_account_id != null)
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
-  if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (props.account.platform === 'grok' && props.account.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
+  if (props.account.platform === PLATFORM_OPENAI) return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === PLATFORM_GEMINI) return t('admin.accounts.gemini.baseUrlHint')
+  if (props.account.platform === PLATFORM_GROK && props.account.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -2670,12 +2680,12 @@ const {
   refreshStoredPricingStatus: newapiRefreshStoredPricingStatus,
   applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
-  isNewapi: () => props.account?.platform === 'newapi',
+  isNewapi: () => props.account?.platform === PLATFORM_NEWAPI,
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
 })
 
 watch(newapiChannelType, () => {
-  if (props.account?.platform === 'newapi') {
+  if (props.account?.platform === PLATFORM_NEWAPI) {
     void newapiApplyChannelPresetIfEmpty()
   }
 })
@@ -2971,7 +2981,7 @@ const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
 }
 
 const validateOpenAIMessagesCompactionForm = (): boolean => {
-  if (props.account?.platform !== 'openai') {
+  if (props.account?.platform !== PLATFORM_OPENAI) {
     return true
   }
   if (!openAIMessagesCompactionEnabled.value) {
@@ -3075,7 +3085,7 @@ const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
   return 'auto'
 }
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  props.account?.platform === 'openai' && openaiPassthroughEnabled.value
+  props.account?.platform === PLATFORM_OPENAI && openaiPassthroughEnabled.value
 )
 const openAIResponsesStatusKey = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
@@ -3095,7 +3105,7 @@ const openAIResponsesStatusKey = computed(() => {
 })
 const openAICompactStatusKey = computed(() => {
   const extra = props.account?.extra as Record<string, unknown> | undefined
-  if (!props.account || props.account.platform !== 'openai') return ''
+  if (!props.account || props.account.platform !== PLATFORM_OPENAI) return ''
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
   if (mode === 'force_on') return 'admin.accounts.openai.compactSupported'
   if (mode === 'force_off') return 'admin.accounts.openai.compactUnsupported'
@@ -3141,9 +3151,9 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === 'openai') return 'https://api.openai.com'
-  if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
-  if (props.account?.platform === 'grok') return ''
+  if (props.account?.platform === PLATFORM_OPENAI) return 'https://api.openai.com'
+  if (props.account?.platform === PLATFORM_GEMINI) return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === PLATFORM_GROK) return ''
   return 'https://api.anthropic.com'
 })
 
@@ -3254,7 +3264,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
-  form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
+  form.status = (newAccount.status === STATUS_ACTIVE || newAccount.status === 'inactive' || newAccount.status === 'error')
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
@@ -3266,7 +3276,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   vertexSa.reset()
   antigravityProjectId.value =
-    newAccount.platform === 'antigravity' &&
+    newAccount.platform === PLATFORM_ANTIGRAVITY &&
     newAccount.type === 'oauth' &&
     typeof credentials?.antigravity_project_id === 'string'
       ? credentials.antigravity_project_id.trim()
@@ -3300,7 +3310,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
-  if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
+  if (newAccount.platform === PLATFORM_OPENAI && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     openAIMessagesCompactionEnabled.value = extra?.messages_compaction_enabled === true
@@ -3351,7 +3361,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       openAICompactModelMappings.value = Object.entries(compactMappings).map(([from, to]) => ({ from, to }))
     }
   }
-  if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
+  if (newAccount.platform === PLATFORM_ANTHROPIC && newAccount.type === 'apikey') {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
     anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
       ? 'authorization_bearer'
@@ -3398,7 +3408,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
 
   // Load antigravity model mapping (Antigravity 只支持映射模式)
-  if (newAccount.platform === 'antigravity') {
+  if (newAccount.platform === PLATFORM_ANTIGRAVITY) {
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
 
     // Antigravity 始终使用映射模式
@@ -3434,7 +3444,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   loadTempUnschedRules(credentials)
 
-  if (newAccount.platform === 'kiro') {
+  if (newAccount.platform === PLATFORM_KIRO) {
     kiro.populateFromAccount({
       credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
       credentials_status: newAccount.credentials_status,
@@ -3443,7 +3453,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // 第七平台 grok OAuth：refresh_token 是敏感字段，编辑时留空表示保留现有值
   // （composable 不回填），base_url 回填。API-key relay stub 走下面的通用
   // apikey 编辑字段，不应进入 OAuth composable。
-  if (newAccount.platform === 'grok' && newAccount.type === 'oauth') {
+  if (newAccount.platform === PLATFORM_GROK && newAccount.type === 'oauth') {
     grokPopulateFromAccount({
       credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
     })
@@ -3453,11 +3463,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      newAccount.platform === PLATFORM_OPENAI
         ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
+        : newAccount.platform === PLATFORM_GEMINI
           ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === 'grok'
+          : newAccount.platform === PLATFORM_GROK
             ? ''
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
@@ -3466,7 +3476,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
     // 第五平台 newapi：把现有账号的 channel_type / credentials 一次性灌进
     // composable，模式（whitelist / mapping）由 composable 自行推断。
-    if (newAccount.platform === 'newapi') {
+    if (newAccount.platform === PLATFORM_NEWAPI) {
       newapiPopulateFromAccount({
         channel_type: newAccount.channel_type,
         credentials,
@@ -3528,7 +3538,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
-  } else if (newAccount.platform === 'newapi' && newAccount.type === 'service_account' && newAccount.credentials) {
+  } else if (newAccount.platform === PLATFORM_NEWAPI && newAccount.type === 'service_account' && newAccount.credentials) {
     // 第五平台 newapi + Vertex service_account (channel_type=41 …): channel_type
     // + base_url + model_mapping selector 走 newapi composable（与 apikey 路径
     // 同一套结构化 selector），Vertex SA 专属字段（service_account_json 写一次 /
@@ -3544,7 +3554,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       void newapiRefreshStoredPricingStatus()
     }
     vertexSa.populateFromCredentials(credentials)
-  } else if ((newAccount.platform === 'gemini' || newAccount.platform === 'anthropic') && newAccount.type === 'service_account' && newAccount.credentials) {
+  } else if ((newAccount.platform === PLATFORM_GEMINI || newAccount.platform === PLATFORM_ANTHROPIC) && newAccount.type === 'service_account' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     vertexSa.populateFromCredentials(credentials)
 
@@ -3552,17 +3562,17 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      newAccount.platform === PLATFORM_OPENAI
         ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
+        : newAccount.platform === PLATFORM_GEMINI
           ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === 'grok'
+          : newAccount.platform === PLATFORM_GROK
             ? ''
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts
-    if ((newAccount.platform === 'openai' || newAccount.platform === 'grok') && newAccount.credentials) {
+    if ((newAccount.platform === PLATFORM_OPENAI || newAccount.platform === PLATFORM_GROK) && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -3847,7 +3857,7 @@ function loadQuotaControlSettings(account: Account) {
   customBaseUrl.value = ''
 
   // Remaining quota control settings only apply to Anthropic accounts
-  if (account.platform !== 'anthropic') {
+  if (account.platform !== PLATFORM_ANTHROPIC) {
     return
   }
 
@@ -3927,7 +3937,7 @@ function toPositiveNumber(value: unknown) {
   return Math.trunc(num)
 }
 
-const needsMixedChannelCheck = () => props.account?.platform === 'antigravity' || props.account?.platform === 'anthropic'
+const needsMixedChannelCheck = () => props.account?.platform === PLATFORM_ANTIGRAVITY || props.account?.platform === PLATFORM_ANTHROPIC
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -4078,7 +4088,7 @@ const handleSubmit = async () => {
     // 第七平台 grok（oauth，非 apikey）：仅在重粘了 refresh_token 或改了 base_url 时
     // 才发 credentials。refresh_token 留空 = 保留现有（后端 MergePreservingSensitiveCreds
     // + 后台刷新器处理）；重粘则后端 resolveGrokTokenOnSave 活体校验 + 重新 prime。
-    if (props.account.platform === 'grok' && props.account.type === 'oauth') {
+    if (props.account.platform === PLATFORM_GROK && props.account.type === 'oauth') {
       const bundle = grokBuildSubmitBundle('edit')
       if (!bundle) return
       if (Object.keys(bundle.credentials).length > 0) {
@@ -4086,7 +4096,7 @@ const handleSubmit = async () => {
       }
     }
 
-    if (props.account.platform === 'kiro') {
+    if (props.account.platform === PLATFORM_KIRO) {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const bundle = kiro.buildSubmitBundle('edit', {
         credentialsStatus: props.account.credentials_status,
@@ -4107,8 +4117,8 @@ const handleSubmit = async () => {
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const isNewAPI = props.account.platform === 'newapi'
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+      const isNewAPI = props.account.platform === PLATFORM_NEWAPI
+      const shouldApplyModelMapping = !(props.account.platform === PLATFORM_OPENAI && openaiPassthroughEnabled.value)
 
       // 第五平台 newapi：校验 + credentials 拼装一律走 composable.buildSubmitBundle
       // （edit 模式下 api_key 留空表示保留现有密钥；非 newapi 路径下使用
@@ -4147,7 +4157,7 @@ const handleSubmit = async () => {
         updatePayload.channel_type = bundle.channelType
       } else {
         const submittedBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-        if (props.account.platform === 'grok' && !submittedBaseUrl) {
+        if (props.account.platform === PLATFORM_GROK && !submittedBaseUrl) {
           appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
           return
         }
@@ -4159,9 +4169,9 @@ const handleSubmit = async () => {
           return
         }
         // TK: edge mirror-stub pool selector (surface-C). anthropic apikey only.
-        if (props.account.platform === 'anthropic') {
+        if (props.account.platform === PLATFORM_ANTHROPIC) {
           newCredentials.mirror_platform = editMirrorPlatform.value
-        } else if (props.account.platform === 'grok') {
+        } else if (props.account.platform === PLATFORM_GROK) {
           newCredentials.mirror_platform = 'grok'
         }
         if (shouldApplyModelMapping) {
@@ -4180,7 +4190,7 @@ const handleSubmit = async () => {
           newCredentials.model_mapping = currentCredentials.model_mapping
         }
       }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === PLATFORM_OPENAI) {
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
           newCredentials.compact_model_mapping = compactModelMapping
@@ -4188,7 +4198,7 @@ const handleSubmit = async () => {
           delete newCredentials.compact_model_mapping
         }
       }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === PLATFORM_OPENAI) {
         applyOpenAIEndpointCapabilities(newCredentials)
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
@@ -4248,7 +4258,7 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = newCredentials
-    } else if (props.account.platform === 'newapi' && props.account.type === 'service_account') {
+    } else if (props.account.platform === PLATFORM_NEWAPI && props.account.type === 'service_account') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
 
       if (!newapiChannelType.value || newapiChannelType.value <= 0) {
@@ -4275,7 +4285,7 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = merged
-    } else if ((props.account.platform === 'gemini' || props.account.platform === 'anthropic') && props.account.type === 'service_account') {
+    } else if ((props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTHROPIC) && props.account.type === 'service_account') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
 
       const merged = vertexSa.mergeCredentialsForEdit(
@@ -4368,13 +4378,13 @@ const handleSubmit = async () => {
     }
 
     // OpenAI/Grok OAuth: persist model mapping to credentials
-    if ((props.account.platform === 'openai' || props.account.platform === 'grok') && props.account.type === 'oauth') {
+    if ((props.account.platform === PLATFORM_OPENAI || props.account.platform === PLATFORM_GROK) && props.account.type === 'oauth') {
       const currentCredentials = isSparkShadow.value
         ? {}
         : (updatePayload.credentials as Record<string, unknown>) ||
           ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === PLATFORM_OPENAI) {
         applyOpenAIModelMappingCredentials(newCredentials)
       } else {
         const modelMapping = buildModelRestrictionMapping()
@@ -4390,7 +4400,7 @@ const handleSubmit = async () => {
 
     // Antigravity: persist model mapping to credentials (applies to all antigravity types)
     // Antigravity 只支持映射模式
-    if (props.account.platform === 'antigravity') {
+    if (props.account.platform === PLATFORM_ANTIGRAVITY) {
       const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
         ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
@@ -4416,7 +4426,7 @@ const handleSubmit = async () => {
     }
 
     // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
-    if (props.account.platform === 'antigravity') {
+    if (props.account.platform === PLATFORM_ANTIGRAVITY) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (mixedScheduling.value) {
@@ -4433,7 +4443,7 @@ const handleSubmit = async () => {
     }
 
     // For Anthropic OAuth/SetupToken accounts, handle quota control settings in extra
-    if (props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
+    if (props.account.platform === PLATFORM_ANTHROPIC && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
 
@@ -4515,7 +4525,7 @@ const handleSubmit = async () => {
     }
 
     // For Anthropic API Key accounts, handle passthrough mode + web search emulation in extra
-    if (props.account.platform === 'anthropic' && props.account.type === 'apikey') {
+    if (props.account.platform === PLATFORM_ANTHROPIC && props.account.type === 'apikey') {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (anthropicPassthroughEnabled.value) {
@@ -4537,7 +4547,7 @@ const handleSubmit = async () => {
     }
 
     // For OpenAI OAuth/SetupToken/API Key accounts, handle passthrough mode in extra
-    if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
+    if (props.account.platform === PLATFORM_OPENAI && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true

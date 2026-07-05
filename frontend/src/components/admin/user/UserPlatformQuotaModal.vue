@@ -121,6 +121,7 @@ import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, PlatformQuotaItem, PlatformQuotaPlatform, PlatformQuotaWindow } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close', 'success'])
@@ -141,7 +142,7 @@ interface QuotaRow {
 }
 
 const hasActiveSubscription = computed(() =>
-  props.user?.subscriptions?.some((s) => s.status === 'active') ?? false
+  props.user?.subscriptions?.some((s) => s.status === STATUS_ACTIVE) ?? false
 )
 
 const loading = ref(false)

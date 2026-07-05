@@ -490,6 +490,8 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import EdgeAccountPanelTk from '@/components/admin/account/EdgeAccountPanelTk.vue'
 import { useTkAccountsEdgePanels } from '@/composables/useTkAccountsEdgePanels'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
+import { STATUS_ACTIVE } from '@/constants/channel'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 const ImportDataModal = defineAsyncComponent(() => import('@/components/admin/account/ImportDataModal.vue'))
@@ -1235,7 +1237,7 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
 
 // Antigravity 订阅等级辅助函数
 function getAntigravityTierFromRow(row: any): string | null {
-  if (row.platform !== 'antigravity') return null
+  if (row.platform !== PLATFORM_ANTIGRAVITY) return null
   const extra = row.extra as Record<string, unknown> | undefined
   if (!extra) return null
   const lca = extra.load_code_assist as Record<string, unknown> | undefined
@@ -1264,7 +1266,7 @@ function accountDisplayEmail(row: any): string {
 }
 
 function getOpenAICompactState(row: any): 'supported' | 'unsupported' | 'unknown' | null {
-  if (row.platform !== 'openai' || (row.type !== 'oauth' && row.type !== 'apikey')) return null
+  if (row.platform !== PLATFORM_OPENAI || (row.type !== 'oauth' && row.type !== 'apikey')) return null
   const extra = row.extra as Record<string, unknown> | undefined
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
   if (mode === 'force_on') return 'supported'
@@ -1666,14 +1668,14 @@ const accountMatchesCurrentFilters = (account: Account) => {
     const tempUnschedUntil = account.temp_unschedulable_until ? new Date(account.temp_unschedulable_until).getTime() : Number.NaN
     const isTempUnschedulable = Number.isFinite(tempUnschedUntil) && tempUnschedUntil > now
 
-    if (filters.status === 'active') {
-      if (account.status !== 'active' || isRateLimited || isTempUnschedulable || !account.schedulable) return false
+    if (filters.status === STATUS_ACTIVE) {
+      if (account.status !== STATUS_ACTIVE || isRateLimited || isTempUnschedulable || !account.schedulable) return false
     } else if (filters.status === 'rate_limited') {
-      if (account.status !== 'active' || !isRateLimited || isTempUnschedulable) return false
+      if (account.status !== STATUS_ACTIVE || !isRateLimited || isTempUnschedulable) return false
     } else if (filters.status === 'temp_unschedulable') {
-      if (account.status !== 'active' || !isTempUnschedulable) return false
+      if (account.status !== STATUS_ACTIVE || !isTempUnschedulable) return false
     } else if (filters.status === 'unschedulable') {
-      if (account.status !== 'active' || account.schedulable || isRateLimited || isTempUnschedulable) return false
+      if (account.status !== STATUS_ACTIVE || account.schedulable || isRateLimited || isTempUnschedulable) return false
     } else if (account.status !== filters.status) {
       return false
     }
@@ -1840,7 +1842,7 @@ const handleResetQuota = async (a: Account) => {
 
 const privacyResultMessageKey = (account: Account): { type: 'success' | 'error'; key: string } => {
   const mode = typeof account.extra?.privacy_mode === 'string' ? account.extra.privacy_mode : ''
-  if (account.platform === 'openai') {
+  if (account.platform === PLATFORM_OPENAI) {
     switch (mode) {
       case 'training_off':
         return { type: 'success', key: 'admin.accounts.privacyTrainingOff' }
@@ -1850,7 +1852,7 @@ const privacyResultMessageKey = (account: Account): { type: 'success' | 'error';
         return { type: 'error', key: 'admin.accounts.privacyFailed' }
     }
   }
-  if (account.platform === 'antigravity') {
+  if (account.platform === PLATFORM_ANTIGRAVITY) {
     if (mode === 'privacy_set') {
       return { type: 'success', key: 'admin.accounts.privacyAntigravitySet' }
     }

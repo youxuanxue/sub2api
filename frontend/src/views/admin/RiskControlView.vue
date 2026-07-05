@@ -1139,6 +1139,7 @@ import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime as formatDateTimeValue } from '@/utils/format'
 import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
+import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
 
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
 type WorkerSlotState = 'active' | 'idle' | 'disabled'
@@ -1864,7 +1865,7 @@ async function loadLogs() {
 }
 
 function canUnbanRow(row: ContentModerationLog): boolean {
-  return Boolean(row.auto_banned && row.user_id && row.user_status === 'disabled')
+  return Boolean(row.auto_banned && row.user_id && row.user_status === STATUS_DISABLED)
 }
 
 function inputSummaryText(row: ContentModerationLog): string {
@@ -2132,7 +2133,7 @@ function resultBadgeClass(row: ContentModerationLog): string {
 }
 
 function workerSlotClass(state: WorkerSlotState): string {
-  if (state === 'active') {
+  if (state === STATUS_ACTIVE) {
     return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-900/20 dark:text-sky-300'
   }
   if (state === 'idle') {
@@ -2142,7 +2143,7 @@ function workerSlotClass(state: WorkerSlotState): string {
 }
 
 function workerDotClass(state: WorkerSlotState): string {
-  if (state === 'active') return 'bg-sky-500'
+  if (state === STATUS_ACTIVE) return 'bg-sky-500'
   if (state === 'idle') return 'bg-emerald-500'
   return 'bg-gray-300 dark:bg-dark-500'
 }

@@ -7,6 +7,7 @@
 
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 import type { Account, WindowStats, AccountUsageInfo } from '@/types'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 /**
  * Count of effectively-schedulable accounts in an edge slice.
@@ -200,7 +201,7 @@ function isFuture(ts?: string | null): boolean {
  */
 export function matchesStatusFilter(s: EdgeStatusBearing, status: string): boolean {
   if (!status || status === EDGE_STATUS_ALL) return true
-  const active = s.status === 'active'
+  const active = s.status === STATUS_ACTIVE
   const rateLimited = isFuture(s.rate_limit_reset_at)
   const tempUnsched = isFuture(s.temp_unschedulable_until)
   switch (status) {
@@ -267,8 +268,8 @@ export function matchesCombinedStatusFilter(
 ): boolean {
   if (!status || status === EDGE_STATUS_ALL) return true
   const stub = edgeStubStatusBearing(edge)
-  if (status === 'active') {
-    return matchesStatusFilter(stub, 'active') && matchesStatusFilter(account, 'active')
+  if (status === STATUS_ACTIVE) {
+    return matchesStatusFilter(stub, STATUS_ACTIVE) && matchesStatusFilter(account, STATUS_ACTIVE)
   }
   return matchesStatusFilter(stub, status) || matchesStatusFilter(account, status)
 }
@@ -281,7 +282,7 @@ export function matchesCombinedStatusFilter(
  */
 export function matchesStubOnlyStatusFilter(edge: EdgeAccountsResult, status: string): boolean {
   if (!status || status === EDGE_STATUS_ALL) return true
-  if (status === 'active') return false
+  if (status === STATUS_ACTIVE) return false
   return matchesStatusFilter(edgeStubStatusBearing(edge), status)
 }
 

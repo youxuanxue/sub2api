@@ -22,6 +22,7 @@
 import { computed, onMounted } from 'vue'
 import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
 import type { AccountPlatform } from '@/types'
+import { PLATFORM_NEWAPI } from '@/constants/gatewayPlatforms'
 
 interface Props {
   platform: AccountPlatform | string
@@ -33,7 +34,7 @@ const props = defineProps<Props>()
 const { types, load } = useNewApiChannelTypes()
 
 onMounted(() => {
-  if (props.platform === 'newapi') {
+  if (props.platform === PLATFORM_NEWAPI) {
     void load().catch(() => {
       /* swallow — fallback label below covers the empty state */
     })
@@ -41,7 +42,7 @@ onMounted(() => {
 })
 
 const label = computed(() => {
-  if (props.platform !== 'newapi') return ''
+  if (props.platform !== PLATFORM_NEWAPI) return ''
   const ct = props.channelType
   if (!ct || ct <= 0) return ''
   const found = types.value.find((c) => c.channel_type === ct)

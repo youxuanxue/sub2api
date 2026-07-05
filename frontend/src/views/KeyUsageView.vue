@@ -419,6 +419,7 @@ import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildGatewayUrl } from '@/api/client'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -589,7 +590,7 @@ const statusInfo = computed(() => {
     return {
       label: t('keyUsage.quotaMode'),
       statusText: statusMap[data.status] || data.status || 'Unknown',
-      isActive: isValid && data.status === 'active',
+      isActive: isValid && data.status === STATUS_ACTIVE,
     }
   }
 

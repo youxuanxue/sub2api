@@ -400,6 +400,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -492,7 +493,7 @@ const getStatusClass = (status: string, row: PromoCode) => {
   if (row.max_uses > 0 && row.used_count >= row.max_uses) {
     return 'badge-gray'
   }
-  return status === 'active' ? 'badge-success' : 'badge-gray'
+  return status === STATUS_ACTIVE ? 'badge-success' : 'badge-gray'
 }
 
 const getStatusLabel = (status: string, row: PromoCode) => {
@@ -502,7 +503,7 @@ const getStatusLabel = (status: string, row: PromoCode) => {
   if (row.max_uses > 0 && row.used_count >= row.max_uses) {
     return t('admin.promo.statusMaxUsed')
   }
-  return status === 'active' ? t('admin.promo.statusActive') : t('admin.promo.statusDisabled')
+  return status === STATUS_ACTIVE ? t('admin.promo.statusActive') : t('admin.promo.statusDisabled')
 }
 
 // API calls

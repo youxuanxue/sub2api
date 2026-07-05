@@ -328,7 +328,7 @@
         "AccountKiroPlatformFields",
         "kiro.populateFromAccount",
         "kiro.buildSubmitBundle",
-        "props.account.platform === 'kiro'"
+        "props.account.platform === PLATFORM_KIRO"
       ],
       "rationale": "Two Kiro account-edit anchors. (1) Surface-C mirror-stub pool selector: the operator's only no-SQL way to set credentials.mirror_platform=kiro on an existing edge stub (e.g. kiro-edge-us1). Losing it strands the live fix: the kiro stub keeps mirroring the anthropic Σ. (2) Kiro OAuth credential edit wiring: AccountKiroPlatformFields + populate/submit bundle let operators rotate access_token/refresh_token, region/auth_method, IdC client_id/client_secret, Profile ARN, and ToS acknowledgement without delete+recreate. An upstream merge that rewrites EditAccountModal must preserve this branch or live Kiro accounts become unrepairable from the UI."
     },

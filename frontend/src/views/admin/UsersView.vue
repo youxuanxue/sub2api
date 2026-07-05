@@ -798,6 +798,7 @@ import UserConcurrencyCell from '@/components/user/UserConcurrencyCell.vue'
 import PlatformUsageBreakdown from '@/components/user/PlatformUsageBreakdown.vue'
 import PlatformCostCell from '@/components/user/PlatformCostCell.vue'
 import UserPlatformQuotaCell from '@/components/user/UserPlatformQuotaCell.vue'
+import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
 import UserCreateModal from '@/components/admin/user/UserCreateModal.vue'
 import InviteTrialModal from '@/components/admin/user/InviteTrialModal.vue'
 import UserEditModal from '@/components/admin/user/UserEditModal.vue'
@@ -1069,7 +1070,7 @@ const getUserGroups = (user: AdminUser) => {
   const exclusive: AdminGroup[] = []
   const publicGroups: AdminGroup[] = []
   for (const g of allGroups.value) {
-    if (g.status !== 'active' || g.subscription_type !== 'standard') continue
+    if (g.status !== STATUS_ACTIVE || g.subscription_type !== 'standard') continue
     if (g.is_exclusive) {
       if (user.allowed_groups?.includes(g.id)) {
         exclusive.push(g)
@@ -1101,7 +1102,7 @@ const groupFilterOptions = computed(() => {
     { value: '', label: t('admin.users.allAuthorizedGroups') }
   ]
   for (const g of allGroups.value) {
-    if (g.status !== 'active' || !g.is_exclusive || g.subscription_type !== 'standard') continue
+    if (g.status !== STATUS_ACTIVE || !g.is_exclusive || g.subscription_type !== 'standard') continue
     options.push({ value: g.name, label: g.name })
   }
   return options
@@ -1748,11 +1749,11 @@ const closeEditModal = () => {
 }
 
 const handleToggleStatus = async (user: AdminUser) => {
-  const newStatus = user.status === 'active' ? 'disabled' : 'active'
+  const newStatus = user.status === STATUS_ACTIVE ? STATUS_DISABLED : STATUS_ACTIVE
   try {
     await adminAPI.users.toggleStatus(user.id, newStatus)
     appStore.showSuccess(
-      newStatus === 'active' ? t('admin.users.userEnabled') : t('admin.users.userDisabled')
+      newStatus === STATUS_ACTIVE ? t('admin.users.userEnabled') : t('admin.users.userDisabled')
     )
     loadUsers()
   } catch (error: any) {

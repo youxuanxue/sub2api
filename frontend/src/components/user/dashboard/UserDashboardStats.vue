@@ -224,6 +224,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { getPlatformLabel } from '@/composables/usePlatformOptions'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import type { UserDashboardStats as UserStatsType } from '@/api/usage'
 import type { PlatformQuotaItem } from '@/types'
 
@@ -245,14 +247,7 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 
-const PLATFORM_LABELS: Record<string, string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity'
-}
-
-const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p
+const platformLabel = (p: string) => getPlatformLabel(p)
 
 const sortedPlatforms = computed(() => {
   const list = props.stats?.by_platform ?? []
@@ -276,7 +271,7 @@ const platformCards = computed<FusedPlatformCard[]>(() => {
   // 无需显式排除；__other__ 由下方差值补差逻辑单独追加。
   const platforms = new Set<string>([...byPlat.keys(), ...byQuota.keys()])
 
-  const PLATFORM_ORDER = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
+  const PLATFORM_ORDER: readonly string[] = GATEWAY_PLATFORMS
   const cards: FusedPlatformCard[] = []
 
   for (const p of platforms) {

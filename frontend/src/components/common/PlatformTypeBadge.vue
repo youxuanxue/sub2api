@@ -60,6 +60,7 @@ import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import type { AccountPlatform, AccountType } from '@/types'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI, tkAdminPlatformSoftBadgeClass } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 
@@ -116,46 +117,9 @@ const planLabel = computed(() => {
   }
 })
 
-// Color map mirrors GATEWAY_PLATFORMS color hints — keep both classes (700 / 600)
-// in sync if a new platform is added. `gemini` keeps the historic blue, and
-// truly unknown platforms fall back to a neutral gray so we never silently mislabel.
-const platformClass = computed(() => {
-  switch (props.platform) {
-    case 'anthropic':
-      return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-    case 'openai':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-    case 'gemini':
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-    case 'antigravity':
-      return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-    case 'newapi':
-      return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400'
-    case 'grok':
-      return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-    default:
-      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-  }
-})
+const platformClass = computed(() => tkAdminPlatformSoftBadgeClass(props.platform))
 
-const typeClass = computed(() => {
-  switch (props.platform) {
-    case 'anthropic':
-      return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
-    case 'openai':
-      return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-    case 'gemini':
-      return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-    case 'antigravity':
-      return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-    case 'newapi':
-      return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400'
-    case 'grok':
-      return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-    default:
-      return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
-  }
-})
+const typeClass = computed(() => tkAdminPlatformSoftBadgeClass(props.platform))
 
 const planBadgeClass = computed(() => {
   if (props.planType && props.planType.toLowerCase() === 'abnormal') {
@@ -184,7 +148,7 @@ const expiresLabel = computed(() => {
 const privacyBadge = computed(() => {
   if (props.type !== 'oauth' || !props.privacyMode) return null
   // 支持 OpenAI 和 Antigravity 平台
-  if (props.platform !== 'openai' && props.platform !== 'antigravity') return null
+  if (props.platform !== PLATFORM_OPENAI && props.platform !== PLATFORM_ANTIGRAVITY) return null
 
   const shieldCheck = 'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z'
   const shieldX = 'M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285zM12 18h.008v.008H12V18z'
