@@ -3959,6 +3959,13 @@
         "func (s *GatewayService) isUpstreamModelRestrictedByChannel("
       ],
       "rationale": "TK channel pricing restriction companion: pre-scheduling model restriction checks based on channel-level pricing configuration. Extracted from gateway_service.go to reduce upstream merge surface. Forward and ForwardCountTokens call checkChannelPricingRestriction; dropping the companion breaks compilation."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "g.Go(func() error { usageData = h.buildUsageData(gctx, apiKey.ID); return nil })"
+      ],
+      "rationale": "GatewayHandler.Usage (/key-usage) perf fix: three query groups must run concurrently via errgroup. Reverting to sequential best-effort blocks restores prod TTFB with identical response bytes. Sibling perf-query-shape sentinel pins the same shape; this entry satisfies the gateway-tk registry update gate when the upstream-shaped handler is edited with deletions."
     }
   ]
 }

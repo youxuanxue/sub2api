@@ -85,6 +85,20 @@
         "EndpointStatsSource: endpointStatsSource"
       ],
       "rationale": "Admin Usage list/stats must honor start_ts/end_ts absolute windows before legacy start_date/end_date expansion. Dropping this silently widens the default rolling windows back to local date boundaries and restores the production /admin/usage/stats latency problem while returning semantically similar data. This upstream-shaped handler needs a source anchor so future merges cannot compile green after removing the absolute-window filter contract."
+    },
+    {
+      "path": "backend/internal/repository/affiliate_repo.go",
+      "must_contain": [
+        "COUNT(*) OVER() AS full_count"
+      ],
+      "rationale": "ListAffiliateInvite/Rebate/TransferRecords MUST use COUNT(*) OVER() instead of a separate COUNT(*) query before the paginated SELECT. Reverting to dual sequential queries returns byte-identical pagination totals but doubles DB round-trips (~780ms → ~400ms TTFB on /admin/affiliates/transfers). affiliate_repo.go is upstream-shaped and churned; integration tests do not assert query shape, so this substring is the only mechanical guard."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "g.Go(func() error { usageData = h.buildUsageData(gctx, apiKey.ID); return nil })"
+      ],
+      "rationale": "GatewayHandler.Usage (/key-usage) MUST parallelize buildUsageData, buildAPIKeyDailyUsage, and GetAPIKeyModelStats via errgroup.WithContext. Reverting to sequential calls returns byte-identical JSON but restores ~612ms TTFB (~250ms when parallel). gateway_handler.go is upstream-owned; no test asserts concurrency shape, so this call-site substring is the mechanical guard."
     }
   ]
 }

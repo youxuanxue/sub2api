@@ -390,17 +390,6 @@ func (r *affiliateRepository) ListAffiliateInviteRecords(ctx context.Context, fi
 		"ua.inviter_id::text", "ua.user_id::text", "inviter_aff.aff_code",
 	})
 
-	total, err := queryAffiliateRecordCount(ctx, client, `
-SELECT COUNT(*)
-FROM user_affiliates ua
-JOIN users invitee ON invitee.id = ua.user_id
-JOIN users inviter ON inviter.id = ua.inviter_id
-JOIN user_affiliates inviter_aff ON inviter_aff.user_id = ua.inviter_id
-`+where, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	orderBy := buildAffiliateRecordOrderBy(filter, map[string]string{
 		"inviter":      "inviter.email",
 		"invitee":      "invitee.email",
@@ -418,7 +407,8 @@ SELECT ua.inviter_id,
        COALESCE(invitee.username, ''),
        COALESCE(inviter_aff.aff_code, ''),
        COALESCE(SUM(ual.amount), 0)::double precision AS total_rebate,
-       ua.created_at
+       ua.created_at,
+       COUNT(*) OVER() AS full_count
 FROM user_affiliates ua
 JOIN users invitee ON invitee.id = ua.user_id
 JOIN users inviter ON inviter.id = ua.inviter_id
@@ -436,6 +426,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	}
 	defer func() { _ = rows.Close() }()
 
+	var total int64
 	items := make([]service.AffiliateInviteRecord, 0)
 	for rows.Next() {
 		var item service.AffiliateInviteRecord
@@ -449,6 +440,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 			&item.AffCode,
 			&item.TotalRebate,
 			&item.CreatedAt,
+			&total,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -477,11 +469,6 @@ WHERE ual.action = 'accrue'
 		where = strings.Replace(where, "WHERE ", " AND ", 1)
 	}
 
-	total, err := queryAffiliateRecordCount(ctx, client, "SELECT COUNT(*) "+baseJoin+where, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	orderBy := buildAffiliateRecordOrderBy(filter, map[string]string{
 		"order":         "po.id",
 		"inviter":       "inviter.email",
@@ -508,7 +495,8 @@ SELECT po.id,
        ual.amount::double precision,
        po.payment_type,
        po.status,
-       ual.created_at
+       ual.created_at,
+       COUNT(*) OVER() AS full_count
 `+baseJoin+where+`
 `+orderBy+`
 LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
@@ -517,6 +505,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	}
 	defer func() { _ = rows.Close() }()
 
+	var total int64
 	items := make([]service.AffiliateRebateRecord, 0)
 	for rows.Next() {
 		var item service.AffiliateRebateRecord
@@ -535,6 +524,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 			&item.PaymentType,
 			&item.OrderStatus,
 			&item.CreatedAt,
+			&total,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -559,11 +549,6 @@ WHERE ual.action = 'transfer'`
 		where = strings.Replace(where, "WHERE ", " AND ", 1)
 	}
 
-	total, err := queryAffiliateRecordCount(ctx, client, "SELECT COUNT(*) "+baseJoin+where, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	orderBy := buildAffiliateRecordOrderBy(filter, map[string]string{
 		"user":                  "u.email",
 		"amount":                "ual.amount",
@@ -584,7 +569,8 @@ SELECT ual.id,
        ual.aff_quota_after::double precision,
        ual.aff_frozen_quota_after::double precision,
        ual.aff_history_quota_after::double precision,
-       ual.created_at
+       ual.created_at,
+       COUNT(*) OVER() AS full_count
 `+baseJoin+where+`
 `+orderBy+`
 LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
@@ -593,6 +579,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	}
 	defer func() { _ = rows.Close() }()
 
+	var total int64
 	items := make([]service.AffiliateTransferRecord, 0)
 	for rows.Next() {
 		var item service.AffiliateTransferRecord
@@ -611,6 +598,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 			&frozenQuotaAfter,
 			&historyQuotaAfter,
 			&item.CreatedAt,
+			&total,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -708,22 +696,6 @@ func buildAffiliateRecordOrderBy(filter service.AffiliateRecordFilter, sortColum
 		direction = "ASC"
 	}
 	return "ORDER BY " + column + " " + direction + " NULLS LAST"
-}
-
-func queryAffiliateRecordCount(ctx context.Context, client affiliateQueryExecer, query string, args ...any) (int64, error) {
-	rows, err := client.QueryContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	if !rows.Next() {
-		return 0, rows.Err()
-	}
-	var total int64
-	if err := rows.Scan(&total); err != nil {
-		return 0, err
-	}
-	return total, rows.Err()
 }
 
 func (r *affiliateRepository) withTx(ctx context.Context, fn func(txCtx context.Context, txClient *dbent.Client) error) error {
