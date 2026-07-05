@@ -5,11 +5,13 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -793,6 +795,109 @@ func TestPaymentOrderQueryReferenceUsesOutTradeNoForOfficialProviders(t *testing
 	require.Equal(t, "sub2_out_trade_no", paymentOrderQueryReference(order, paymentFulfillmentTestProvider{
 		key: payment.TypeWxpay,
 	}))
+}
+
+func TestExpireTimedOutOrders_ProcessesMultipleBatches(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentOrderLifecycleTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("expire-batch@example.com").
+		SetPasswordHash("hash").
+		SetUsername("expire-batch-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	const orderCount = 101
+	for i := 0; i < orderCount; i++ {
+		_, err := client.PaymentOrder.Create().
+			SetUserID(user.ID).
+			SetUserEmail(user.Email).
+			SetUserName(user.Username).
+			SetAmount(1).
+			SetPayAmount(1).
+			SetFeeRate(0).
+			SetRechargeCode(fmt.Sprintf("EXPIRE-BATCH-%03d", i)).
+			SetOutTradeNo(fmt.Sprintf("sub2_expire_batch_%03d", i)).
+			SetPaymentType(payment.TypeAlipay).
+			SetPaymentTradeNo("").
+			SetOrderType(payment.OrderTypeBalance).
+			SetStatus(OrderStatusPending).
+			SetExpiresAt(time.Now().Add(-time.Hour)).
+			SetClientIP("127.0.0.1").
+			SetSrcHost("api.example.com").
+			Save(ctx)
+		require.NoError(t, err)
+	}
+
+	svc := newExpireTimedOutOrdersTestService(client)
+	expired, err := svc.ExpireTimedOutOrders(ctx)
+	require.NoError(t, err)
+	require.Equal(t, orderCount, expired)
+
+	remaining, err := client.PaymentOrder.Query().
+		Where(paymentorder.StatusEQ(OrderStatusPending)).
+		Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, remaining)
+}
+
+func TestExpireTimedOutOrders_CompletesWhenContextCanceled(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentOrderLifecycleTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("expire-cancel@example.com").
+		SetPasswordHash("hash").
+		SetUsername("expire-cancel-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	for i := 0; i < 3; i++ {
+		_, err := client.PaymentOrder.Create().
+			SetUserID(user.ID).
+			SetUserEmail(user.Email).
+			SetUserName(user.Username).
+			SetAmount(1).
+			SetPayAmount(1).
+			SetFeeRate(0).
+			SetRechargeCode(fmt.Sprintf("EXPIRE-CANCEL-%d", i)).
+			SetOutTradeNo(fmt.Sprintf("sub2_expire_cancel_%d", i)).
+			SetPaymentType(payment.TypeAlipay).
+			SetPaymentTradeNo("").
+			SetOrderType(payment.OrderTypeBalance).
+			SetStatus(OrderStatusPending).
+			SetExpiresAt(time.Now().Add(-time.Hour)).
+			SetClientIP("127.0.0.1").
+			SetSrcHost("api.example.com").
+			Save(ctx)
+		require.NoError(t, err)
+	}
+
+	svc := newExpireTimedOutOrdersTestService(client)
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	start := time.Now()
+	_, err = svc.ExpireTimedOutOrders(canceledCtx)
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 2*time.Second, "must not spin on the same batch forever")
+}
+
+func newExpireTimedOutOrdersTestService(client *dbent.Client) *PaymentService {
+	registry := payment.NewRegistry()
+	registry.Register(&paymentOrderLifecycleQueryProvider{
+		key: payment.TypeAlipay,
+		resp: &payment.QueryOrderResponse{
+			Status: payment.ProviderStatusPending,
+			Amount: 1,
+		},
+	})
+	return &PaymentService{
+		entClient:       client,
+		registry:        registry,
+		providersLoaded: true,
+	}
 }
 
 func newPaymentOrderLifecycleTestClient(t *testing.T) *dbent.Client {

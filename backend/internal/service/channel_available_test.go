@@ -155,6 +155,48 @@ func TestListAvailable_ListActiveErrorPropagates(t *testing.T) {
 	require.Contains(t, err.Error(), "list active groups", "wrap 前缀缺失，可能 %w 被改为 %v")
 }
 
+func TestListAvailable_CacheHitSkipsListAll(t *testing.T) {
+	listAllCalls := 0
+	repo := &mockChannelRepository{
+		listAllFn: func(ctx context.Context) ([]Channel, error) {
+			listAllCalls++
+			return []Channel{{ID: 1, Name: "cached-channel", Status: StatusActive}}, nil
+		},
+	}
+	svc := NewChannelService(repo, &stubGroupRepoForAvailable{}, nil, nil)
+
+	out1, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out1, 1)
+	require.Equal(t, 1, listAllCalls)
+
+	out2, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out2, 1)
+	require.Equal(t, 1, listAllCalls, "second ListAvailable should hit availableCache")
+}
+
+func TestListAvailable_InvalidateCacheForcesRebuild(t *testing.T) {
+	listAllCalls := 0
+	repo := &mockChannelRepository{
+		listAllFn: func(ctx context.Context) ([]Channel, error) {
+			listAllCalls++
+			return []Channel{{ID: 1, Name: "cached-channel", Status: StatusActive}}, nil
+		},
+	}
+	svc := NewChannelService(repo, &stubGroupRepoForAvailable{}, nil, nil)
+
+	_, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, listAllCalls)
+
+	svc.invalidateCache()
+
+	_, err = svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 3, listAllCalls, "invalidateCache rebuilds channel cache then ListAvailable rebuilds available cache")
+}
+
 func TestListAvailable_DefaultsEmptyBillingModelSource(t *testing.T) {
 	// 渠道 BillingModelSource 为空时应回填为 BillingModelSourceChannelMapped，
 	// 显式值应原样保留（由 service 层统一处理，避免各 handler 重复默认逻辑）。

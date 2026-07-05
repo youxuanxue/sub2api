@@ -2,11 +2,11 @@
  * Performance audit: navigate every page, collect timing + network data.
  *
  * Usage:
- *   # Public pages only (no login):
- *   E2E_BASE_URL=https://api.tokenkey.dev pnpm exec playwright test e2e/perf-audit.e2e.ts
+ *   # Local stack (default base URL http://localhost:8080):
+ *   E2E_PERF_AUDIT=1 pnpm exec playwright test e2e/perf-audit.e2e.ts
  *
- *   # With auth (admin cookie):
- *   E2E_SESSION_TOKEN=<token> E2E_BASE_URL=https://api.tokenkey.dev pnpm exec playwright test e2e/perf-audit.e2e.ts
+ *   # Prod/staging snapshot (explicit opt-in):
+ *   E2E_PERF_AUDIT=1 E2E_BASE_URL=https://api.tokenkey.dev pnpm exec playwright test e2e/perf-audit.e2e.ts
  *
  * Output: e2e/artifacts/perf-report.json
  */
@@ -18,9 +18,14 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const BASE = process.env.E2E_BASE_URL || 'https://api.tokenkey.dev'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:8080'
 const SESSION_TOKEN = process.env.E2E_SESSION_TOKEN || ''
 const REFRESH_TOKEN = process.env.E2E_REFRESH_TOKEN || ''
+
+/** Auth pages must stay fast after Stripe/Turnstile lazy-load fixes. */
+const AUTH_PAGE_NAV_MS_BUDGET = 10_000
+
+const RUN_PERF_AUDIT = process.env.E2E_PERF_AUDIT === '1'
 
 interface RequestEntry {
   url: string
@@ -234,6 +239,8 @@ async function collectPageMetrics(
 }
 
 test.describe('Performance Audit', () => {
+  test.skip(!RUN_PERF_AUDIT, 'set E2E_PERF_AUDIT=1 to run perf audit against E2E_BASE_URL')
+
   let context: BrowserContext
   let page: Page
   const allMetrics: PageMetrics[] = []
@@ -399,6 +406,13 @@ test.describe('Performance Audit', () => {
       console.log(`  → ${p}`)
       const m = await collectPageMetrics(page, p, 'public')
       allMetrics.push(m)
+      expect(m.error, `${p} navigation failed: ${m.error}`).toBeNull()
+      if (['/login', '/register', '/forgot-password'].includes(p)) {
+        expect(
+          m.navigationMs,
+          `${p} navigation exceeded ${AUTH_PAGE_NAV_MS_BUDGET}ms budget`,
+        ).toBeLessThan(AUTH_PAGE_NAV_MS_BUDGET)
+      }
     }
   })
 
