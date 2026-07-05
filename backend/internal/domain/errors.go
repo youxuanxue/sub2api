@@ -24,14 +24,14 @@ var (
 	ErrProxyNotFound   = infraerrors.NotFound("PROXY_NOT_FOUND", "proxy not found")
 	ErrSettingNotFound = infraerrors.NotFound("SETTING_NOT_FOUND", "setting not found")
 
-	ErrRedeemCodeNotFound  = infraerrors.NotFound("REDEEM_CODE_NOT_FOUND", "redeem code not found")
-	ErrPromoCodeNotFound   = infraerrors.NotFound("PROMO_CODE_NOT_FOUND", "promo code not found")
-	ErrUsageLogNotFound    = infraerrors.NotFound("USAGE_LOG_NOT_FOUND", "usage log not found")
+	ErrRedeemCodeNotFound = infraerrors.NotFound("REDEEM_CODE_NOT_FOUND", "redeem code not found")
+	ErrPromoCodeNotFound  = infraerrors.NotFound("PROMO_CODE_NOT_FOUND", "promo code not found")
+	ErrUsageLogNotFound   = infraerrors.NotFound("USAGE_LOG_NOT_FOUND", "usage log not found")
 
-	ErrSubscriptionNotFound        = infraerrors.NotFound("SUBSCRIPTION_NOT_FOUND", "subscription not found")
-	ErrAttributeDefinitionNotFound = infraerrors.NotFound("ATTRIBUTE_DEFINITION_NOT_FOUND", "attribute definition not found")
-	ErrAffiliateProfileNotFound    = infraerrors.NotFound("AFFILIATE_PROFILE_NOT_FOUND", "affiliate profile not found")
-	ErrChannelMonitorNotFound      = infraerrors.NotFound("CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found")
+	ErrSubscriptionNotFound           = infraerrors.NotFound("SUBSCRIPTION_NOT_FOUND", "subscription not found")
+	ErrAttributeDefinitionNotFound    = infraerrors.NotFound("ATTRIBUTE_DEFINITION_NOT_FOUND", "attribute definition not found")
+	ErrAffiliateProfileNotFound       = infraerrors.NotFound("AFFILIATE_PROFILE_NOT_FOUND", "affiliate profile not found")
+	ErrChannelMonitorNotFound         = infraerrors.NotFound("CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found")
 	ErrChannelMonitorTemplateNotFound = infraerrors.NotFound(
 		"CHANNEL_MONITOR_TEMPLATE_NOT_FOUND", "channel monitor request template not found",
 	)
