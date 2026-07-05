@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h } from "vue";
+import { defineComponent, h, watchEffect } from "vue";
 import { flushPromises, mount } from "@vue/test-utils";
 
 import SettingsView from "../SettingsView.vue";
@@ -816,6 +816,10 @@ describe("admin SettingsView payment visible method controls", () => {
     getProviders.mockReset();
     getProviders.mockResolvedValue({ data: [providerWithNullTypes] });
 
+    // Track the latest providers prop reactively — setup() captures a
+    // one-shot snapshot which misses later reactive updates from
+    // PaymentPanel's loadProviders(). watchEffect re-captures whenever
+    // the prop changes.
     let receivedProviders: Array<Record<string, unknown>> = [];
     const PaymentProviderListCapture = defineComponent({
       props: {
@@ -825,7 +829,9 @@ describe("admin SettingsView payment visible method controls", () => {
         },
       },
       setup(props) {
-        receivedProviders = props.providers as Array<Record<string, unknown>>;
+        watchEffect(() => {
+          receivedProviders = props.providers as Array<Record<string, unknown>>;
+        });
         return () => h("div", { class: "provider-list-capture" });
       },
     });
