@@ -1772,7 +1772,7 @@ func setDefaults() {
 		"raw.githubusercontent.com",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
-	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
+	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
 	viper.SetDefault("security.url_allowlist.allow_insecure_http", true)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
@@ -1875,8 +1875,8 @@ func setDefaults() {
 	viper.SetDefault("database.password", "postgres")
 	viper.SetDefault("database.dbname", "sub2api")
 	viper.SetDefault("database.sslmode", "prefer")
-	viper.SetDefault("database.max_open_conns", 50)
-	viper.SetDefault("database.max_idle_conns", 10)
+	viper.SetDefault("database.max_open_conns", 256)
+	viper.SetDefault("database.max_idle_conns", 128)
 	viper.SetDefault("database.conn_max_lifetime_minutes", 30)
 	viper.SetDefault("database.conn_max_idle_time_minutes", 5)
 	viper.SetDefault("database.user_platform_quota_flusher_enabled", false)
@@ -1892,7 +1892,7 @@ func setDefaults() {
 	viper.SetDefault("redis.read_timeout_seconds", 3)
 	viper.SetDefault("redis.write_timeout_seconds", 3)
 	viper.SetDefault("redis.pool_size", 1024)
-	viper.SetDefault("redis.min_idle_conns", 10)
+	viper.SetDefault("redis.min_idle_conns", 128)
 	viper.SetDefault("redis.enable_tls", false)
 
 	// Ops (vNext)
