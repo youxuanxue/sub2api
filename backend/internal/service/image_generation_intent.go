@@ -3,11 +3,12 @@ package service
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/tidwall/gjson"
 )
 
 const (
-	openAIResponsesEndpoint          = "/v1/responses"
+	openAIResponsesEndpoint          = apipath.Responses
 	openAIResponsesCompactEndpoint   = "/v1/responses/compact"
 	imageGenerationPermissionMessage = "Image generation is not enabled for this group"
 )
@@ -65,7 +66,7 @@ func IsImageGenerationIntentMap(endpoint string, requestedModel string, reqBody 
 // IsImageGenerationEndpoint identifies dedicated generated-image endpoints.
 func IsImageGenerationEndpoint(endpoint string) bool {
 	switch normalizeImageGenerationEndpoint(endpoint) {
-	case "/v1/images/generations", "/v1/images/edits", "/images/generations", "/images/edits":
+	case apipath.ImagesGenerations, apipath.ImagesEdits, "/images/generations", "/images/edits":
 		return true
 	default:
 		return false

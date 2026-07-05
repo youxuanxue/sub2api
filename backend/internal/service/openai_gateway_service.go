@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -6204,7 +6205,7 @@ func edgeMirrorHostFromBaseURL(raw string) string {
 // - base 已是 /responses：原样返回
 // - 其他情况：追加 /v1/responses
 func buildOpenAIResponsesURL(base string) string {
-	return buildOpenAIEndpointURL(base, "/v1/responses")
+	return buildOpenAIEndpointURL(base, apipath.Responses)
 }
 
 func trimOpenAIEncryptedReasoningItems(reqBody map[string]any) bool {

@@ -1,6 +1,7 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import { PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
 
 export function useGeminiUsageMeta(
   account: Account,
@@ -9,25 +10,25 @@ export function useGeminiUsageMeta(
   const { t } = useI18n()
 
   const geminiTier = computed(() => {
-    if (account.platform !== 'gemini') return null
+    if (account.platform !== PLATFORM_GEMINI) return null
     const creds = account.credentials as GeminiCredentials | undefined
     return creds?.tier_id || null
   })
 
   const geminiOAuthType = computed(() => {
-    if (account.platform !== 'gemini') return null
+    if (account.platform !== PLATFORM_GEMINI) return null
     const creds = account.credentials as GeminiCredentials | undefined
     return (creds?.oauth_type || '').trim() || null
   })
 
   const isGeminiCodeAssist = computed(() => {
-    if (account.platform !== 'gemini') return false
+    if (account.platform !== PLATFORM_GEMINI) return false
     const creds = account.credentials as GeminiCredentials | undefined
     return creds?.oauth_type === 'code_assist' || (!creds?.oauth_type && !!creds?.project_id)
   })
 
   const geminiChannelShort = computed((): 'ai studio' | 'gcp' | 'google one' | 'client' | null => {
-    if (account.platform !== 'gemini') return null
+    if (account.platform !== PLATFORM_GEMINI) return null
 
     if (account.type === 'apikey') return 'ai studio'
 
@@ -39,7 +40,7 @@ export function useGeminiUsageMeta(
   })
 
   const geminiUserLevel = computed((): string | null => {
-    if (account.platform !== 'gemini') return null
+    if (account.platform !== PLATFORM_GEMINI) return null
 
     const tier = (geminiTier.value || '').toString().trim()
     const tierLower = tier.toLowerCase()
@@ -88,7 +89,7 @@ export function useGeminiUsageMeta(
   })
 
   const geminiAuthTypeLabel = computed(() => {
-    if (account.platform !== 'gemini') return null
+    if (account.platform !== PLATFORM_GEMINI) return null
     if (!geminiChannelShort.value) return null
     return geminiUserLevel.value
       ? `${geminiChannelShort.value} ${geminiUserLevel.value}`
@@ -167,7 +168,7 @@ export function useGeminiUsageMeta(
   })
 
   const geminiUsesSharedDaily = computed(() => {
-    if (account.platform !== 'gemini') return false
+    if (account.platform !== PLATFORM_GEMINI) return false
     return (
       !!usageInfo.value?.gemini_shared_daily ||
       !!usageInfo.value?.gemini_shared_minute ||
@@ -197,7 +198,7 @@ export function useGeminiUsageMeta(
       color: 'indigo' | 'emerald'
     }>
   > = computed(() => {
-    if (account.platform !== 'gemini') return []
+    if (account.platform !== PLATFORM_GEMINI) return []
     if (!usageInfo.value) return []
 
     const bars: Array<{
@@ -252,7 +253,7 @@ export function useGeminiUsageMeta(
   })
 
   const showGeminiTodayStats = computed(() => {
-    return account.platform === 'gemini' && account.type === 'service_account'
+    return account.platform === PLATFORM_GEMINI && account.type === 'service_account'
   })
 
   return {

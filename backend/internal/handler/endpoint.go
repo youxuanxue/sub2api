@@ -3,6 +3,7 @@ package handler
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -15,15 +16,16 @@ import (
 // ──────────────────────────────────────────────────────────
 
 const (
-	EndpointMessages          = "/v1/messages"
-	EndpointChatCompletions   = "/v1/chat/completions"
-	EndpointEmbeddings        = "/v1/embeddings"
-	EndpointResponses         = "/v1/responses"
-	EndpointImagesGenerations = "/v1/images/generations"
-	EndpointImagesEdits       = "/v1/images/edits"
-	EndpointVideosGenerations = "/v1/videos/generations"
-	EndpointVideos            = "/v1/videos"
-	EndpointGeminiModels      = "/v1beta/models"
+	EndpointMessages          = apipath.Messages
+	EndpointChatCompletions   = apipath.ChatCompletions
+	EndpointEmbeddings        = apipath.Embeddings
+	EndpointResponses         = apipath.Responses
+	EndpointImagesGenerations = apipath.ImagesGenerations
+	EndpointImagesEdits       = apipath.ImagesEdits
+	EndpointVideosGenerations = apipath.VideosGenerations
+	EndpointVideos            = apipath.Videos
+	EndpointGeminiModels      = apipath.GeminiModels
+	EndpointModels            = apipath.Models
 )
 
 // gin.Context keys used by the middleware and helpers below.

@@ -79,6 +79,7 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPlatformLabel } from '@/composables/usePlatformOptions'
+import { STATUS_ACTIVE } from '@/constants/channel'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, AdminGroup } from '@/types'
@@ -104,7 +105,7 @@ const submitting = ref(false)
 const availableGroups = computed(() => {
   if (!props.oldGroup) return []
   return props.allGroups.filter(
-    g => g.status === 'active' && g.is_exclusive && g.subscription_type === 'standard' && g.id !== props.oldGroup!.id
+    g => g.status === STATUS_ACTIVE && g.is_exclusive && g.subscription_type === 'standard' && g.id !== props.oldGroup!.id
   )
 })
 

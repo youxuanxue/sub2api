@@ -794,7 +794,7 @@ func normalizeProxyStatus(status string) string {
 		return service.StatusActive
 	case "inactive", service.StatusDisabled:
 		return "inactive"
-	case "expired":
+	case service.StatusExpired:
 		// 导入 expired 代理按 inactive 处理，避免导入即触发到期改投逻辑
 		return "inactive"
 	default:

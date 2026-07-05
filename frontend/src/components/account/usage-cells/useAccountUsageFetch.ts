@@ -19,6 +19,7 @@ import {
   usesLocalUsageWindows,
   usesPassiveUsageOnMount as accountUsesPassiveUsageOnMount
 } from '@/utils/accountUsageBatch.tk'
+import { PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 // Module-level cache shared across all usage cell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -215,7 +216,7 @@ export function useAccountUsageFetch(
   if (options?.enableOpenAIRefreshKeyWatch) {
     watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
       if (!prevKey || nextKey === prevKey) return
-      if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
+      if (props.account.platform !== PLATFORM_OPENAI || props.account.type !== 'oauth') return
 
       _usageCache.delete(props.account.id)
       requestAutoLoad()
@@ -230,7 +231,7 @@ export function useAccountUsageFetch(
 
       // Kiro: explicit 刷新 pulls live credits once (#1031). Must run before the
       // batch-passive early return (kiro is batch-capable but not batch-only on refresh).
-      if (props.account.platform === 'kiro') {
+      if (props.account.platform === PLATFORM_KIRO) {
         _usageCache.delete(props.account.id)
         loadActiveUsage().catch((e) => {
           console.error('Failed to refresh kiro usage after manual refresh:', e)
@@ -299,8 +300,8 @@ export function useAccountUsageFetch(
 
 export function showUsageWindowsForAccount(account: Account): boolean {
   if (
-    account.platform === 'gemini' ||
-    account.platform === 'kiro' ||
+    account.platform === PLATFORM_GEMINI ||
+    account.platform === PLATFORM_KIRO ||
     usesLocalUsageWindows(account)
   ) {
     return true

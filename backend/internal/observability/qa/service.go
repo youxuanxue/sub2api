@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
+
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -78,12 +80,12 @@ const (
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"
 	qaCapturePersistModeSyncFallback = "sync_fallback"
-	qaEndpointChatCompletions        = "/v1/chat/completions"
-	qaEndpointMessages               = "/v1/messages"
-	qaEndpointResponses              = "/v1/responses"
-	qaEndpointGeminiModels           = "/v1beta/models"
-	qaEndpointEmbeddings             = "/v1/embeddings"
-	qaEndpointImagesGenerations      = "/v1/images/generations"
+	qaEndpointChatCompletions        = apipath.ChatCompletions
+	qaEndpointMessages               = apipath.Messages
+	qaEndpointResponses              = apipath.Responses
+	qaEndpointGeminiModels           = apipath.GeminiModels
+	qaEndpointEmbeddings             = apipath.Embeddings
+	qaEndpointImagesGenerations      = apipath.ImagesGenerations
 	qaEndpointVideoGenerations       = "/v1/video/generations"
 	qaEndpointVideoGenerationsTask   = "/v1/video/generations/:task_id"
 )

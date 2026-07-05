@@ -1267,10 +1267,10 @@
         "export function usesPassiveUsageOnMount(account: Account): boolean",
         "export function canSelfFetchUsage(account: Account): boolean",
         "export function usesLocalUsageWindows(account: Account): boolean",
-        "account.platform === 'kiro'",
-        "account.platform === 'openai' && account.type === 'oauth'",
-        "account.platform === 'newapi' || account.platform === 'grok'",
-        "account.platform === 'antigravity' && account.type !== 'oauth'"
+        "account.platform === PLATFORM_KIRO",
+        "account.platform === PLATFORM_OPENAI && account.type === 'oauth'",
+        "account.platform === PLATFORM_NEWAPI || account.platform === PLATFORM_GROK",
+        "account.platform === PLATFORM_ANTIGRAVITY && account.type !== 'oauth'"
       ],
       "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro, and local-window adapters: NewAPI/Grok/Antigravity API-key stubs). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai/grok/newapi/antigravity rows on edge/prod account lists."
     },
@@ -1443,6 +1443,14 @@
         "PrerenderMiddleware()"
       ],
       "rationale": "Companion file holding crawler prerender integration; deleting it or inlining back into embed_on.go re-opens upstream merge conflict surface and drops SEO prerender silently if the call site is lost."
+    },
+    {
+      "path": "frontend/src/App.vue",
+      "must_contain": [
+        "cachedUserViews",
+        "<KeepAlive :include=\"cachedUserViews\">"
+      ],
+      "rationale": "TK wraps the RouterView in a KeepAlive with an explicit include list (cachedUserViews) so user-facing views (Dashboard, Usage, Keys, Profile, Studio, KeyUsage) preserve component state across navigation instead of re-mounting. Upstream App.vue has no KeepAlive; an upstream merge that replaces the template block drops the wrapper silently, causing every navigation to remount and lose in-progress form/filter state on all cached views."
     }
   ]
 }

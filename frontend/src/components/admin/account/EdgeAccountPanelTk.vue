@@ -239,6 +239,7 @@ import {
   isStubTempUnschedActive
 } from '@/utils/edgeAccounts.tk'
 import { sortEdgeAccountsAbnormalFirst } from '@/utils/accountsEdgePanels.tk'
+import { PLATFORM_KIRO } from '@/constants/gatewayPlatforms'
 
 const props = defineProps<{
   /** The prod cc-<edge> mirror-stub row this panel expands under. */
@@ -383,7 +384,7 @@ watch(
   (next, prev) => {
     if (!next || next === prev) return
     for (const a of props.edge?.accounts ?? []) {
-      if (a.platform === 'kiro') void fetchActiveUsageInto(a.id, true)
+      if (a.platform === PLATFORM_KIRO) void fetchActiveUsageInto(a.id, true)
     }
   }
 )

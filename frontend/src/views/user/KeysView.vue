@@ -1192,6 +1192,8 @@ import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
+import { STATUS_ACTIVE } from '@/constants/channel'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
@@ -1410,7 +1412,7 @@ const statusOptions = computed(() => [
 
 const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
   if (key.status === 'quota_exhausted' || key.status === 'expired') {
-    return status === 'active'
+    return status === STATUS_ACTIVE
   }
   return true
 }
@@ -1623,11 +1625,11 @@ const editKey = (key: ApiKey) => {
 }
 
 const toggleKeyStatus = async (key: ApiKey) => {
-  const newStatus = key.status === 'active' ? 'inactive' : 'active'
+  const newStatus = key.status === STATUS_ACTIVE ? 'inactive' : 'active'
   try {
     await keysAPI.toggleStatus(key.id, newStatus)
     appStore.showSuccess(
-      newStatus === 'active' ? t('keys.keyEnabledSuccess') : t('keys.keyDisabledSuccess')
+      newStatus === STATUS_ACTIVE ? t('keys.keyEnabledSuccess') : t('keys.keyDisabledSuccess')
     )
     loadApiKeys()
   } catch (error) {
@@ -1914,14 +1916,14 @@ const importToCcswitch = (row: ApiKey) => {
   const platform = row.group?.platform || 'anthropic'
 
   // For antigravity platform, show client selection dialog
-  if (platform === 'antigravity') {
+  if (platform === PLATFORM_ANTIGRAVITY) {
     pendingCcsRow.value = row
     showCcsClientSelect.value = true
     return
   }
 
   // For other platforms, execute directly
-  executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
+  executeCcsImport(row, platform === PLATFORM_GEMINI ? 'gemini' : 'claude')
 }
 
 const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {

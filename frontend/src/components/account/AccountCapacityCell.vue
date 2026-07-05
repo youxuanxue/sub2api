@@ -34,6 +34,7 @@ import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
+import { PLATFORM_ANTHROPIC } from '@/constants/gatewayPlatforms'
 
 const props = defineProps<{
   account: Account
@@ -54,7 +55,7 @@ const concurrencyClass = computed(() => {
 
 // ====== Anthropic OAuth / setup-token ======
 const isAnthropicOAuthOrSetupToken = computed(() =>
-  props.account.platform === 'anthropic' &&
+  props.account.platform === PLATFORM_ANTHROPIC &&
   (props.account.type === 'oauth' || props.account.type === 'setup-token')
 )
 

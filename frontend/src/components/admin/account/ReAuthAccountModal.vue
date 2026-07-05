@@ -201,6 +201,7 @@ import type { Account } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -242,12 +243,12 @@ const addMethod = ref<AddMethod>('oauth')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')
 
 // Computed - check platform
-const isOpenAI = computed(() => props.account?.platform === 'openai')
+const isOpenAI = computed(() => props.account?.platform === PLATFORM_OPENAI)
 const isOpenAILike = computed(() => isOpenAI.value)
-const isGemini = computed(() => props.account?.platform === 'gemini')
-const isAnthropic = computed(() => props.account?.platform === 'anthropic')
-const isAntigravity = computed(() => props.account?.platform === 'antigravity')
-const isGrok = computed(() => props.account?.platform === 'grok')
+const isGemini = computed(() => props.account?.platform === PLATFORM_GEMINI)
+const isAnthropic = computed(() => props.account?.platform === PLATFORM_ANTHROPIC)
+const isAntigravity = computed(() => props.account?.platform === PLATFORM_ANTIGRAVITY)
+const isGrok = computed(() => props.account?.platform === PLATFORM_GROK)
 
 // Computed - current OAuth state based on platform
 const currentAuthUrl = computed(() => {

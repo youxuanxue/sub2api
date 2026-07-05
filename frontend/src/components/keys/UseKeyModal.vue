@@ -234,6 +234,7 @@ import {
   type UseKeyFlavor,
 } from '@/composables/useTkUseKey'
 import type { GroupPlatform } from '@/types'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 interface Props {
   show: boolean
@@ -378,7 +379,7 @@ function formatCtx(n?: number): string {
 // 本指南不做 gemini_text/gemini_image 的逐模型细分（那只在后端 /models 生效）。
 // 空/未传 = 不限制（向后兼容旧分组）。非 antigravity 平台不受影响。
 const antigravityClaudeAllowed = computed(() => {
-  if (props.platform !== 'antigravity') return true
+  if (props.platform !== PLATFORM_ANTIGRAVITY) return true
   const scopes = props.supportedModelScopes
   if (!scopes || scopes.length === 0) return true
   return scopes.includes('claude')
@@ -574,7 +575,7 @@ const currentTabs = computed(() => {
 // instructions are identical (codex CLI + opencode), and our gateway already
 // routes both platforms through the OpenAI-compat handlers.
 const isOpenAICompatPlatform = computed(
-  () => props.platform === 'openai' || props.platform === 'newapi' || props.platform === 'grok',
+  () => props.platform === PLATFORM_OPENAI || props.platform === PLATFORM_NEWAPI || props.platform === PLATFORM_GROK,
 )
 
 const platformDescription = computed(() => {
@@ -690,7 +691,7 @@ const currentFiles = computed((): FileConfig[] => {
   // flavor. base / auth / endpoint / body shape are all correct-by-construction.
   if (activeClientTab.value === 'curl' || activeClientTab.value === 'python') {
     const flavor = activeFlavor.value ?? 'anthropic'
-    const isAntigravity = props.platform === 'antigravity'
+    const isAntigravity = props.platform === PLATFORM_ANTIGRAVITY
     return activeClientTab.value === 'curl'
       ? [generateCurl(flavor, baseRoot, apiKey, model, isAntigravity)]
       : [generatePython(flavor, baseRoot, apiKey, model, isAntigravity)]
@@ -717,7 +718,7 @@ const currentFiles = computed((): FileConfig[] => {
     case 'gemini':
       return [generateGeminiCliContent(baseUrl, apiKey, model)]
     case 'antigravity':
-      if (activeClientTab.value === 'gemini') {
+      if (activeClientTab.value === PLATFORM_GEMINI) {
         return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey, model)]
       }
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey, model)
@@ -959,7 +960,7 @@ function generateCurl(
   isAntigravity: boolean,
 ): FileConfig {
   const agPrefix = isAntigravity ? '/antigravity' : ''
-  if (flavor === 'anthropic') {
+  if (flavor === PLATFORM_ANTHROPIC) {
     const envModel = anthropicEnvModel(model)
     return {
       path: 'cURL',
@@ -974,7 +975,7 @@ function generateCurl(
   }'`,
     }
   }
-  if (flavor === 'gemini') {
+  if (flavor === PLATFORM_GEMINI) {
     return {
       path: 'cURL',
       content: `curl "${baseRoot}${agPrefix}/v1beta/models/${model}:generateContent" \\
@@ -1006,7 +1007,7 @@ function generatePython(
   isAntigravity: boolean,
 ): FileConfig {
   const agPrefix = isAntigravity ? '/antigravity' : ''
-  if (flavor === 'anthropic') {
+  if (flavor === PLATFORM_ANTHROPIC) {
     const envModel = anthropicEnvModel(model)
     return {
       path: 'Python (anthropic SDK)',
@@ -1021,7 +1022,7 @@ msg = client.messages.create(
 print(msg.content[0].text)`,
     }
   }
-  if (flavor === 'gemini') {
+  if (flavor === PLATFORM_GEMINI) {
     return {
       path: 'Python (requests)',
       content: `import requests
@@ -1461,10 +1462,10 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     }
   }
 
-  if (platform === 'gemini') {
+  if (platform === PLATFORM_GEMINI) {
     provider[platform].npm = '@ai-sdk/google'
     provider[platform].models = geminiModels
-  } else if (platform === 'anthropic') {
+  } else if (platform === PLATFORM_ANTHROPIC) {
     provider[platform].npm = '@ai-sdk/anthropic'
   } else if (platform === 'antigravity-claude') {
     provider[platform].npm = '@ai-sdk/anthropic'
@@ -1474,12 +1475,12 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].npm = '@ai-sdk/google'
     provider[platform].name = 'Antigravity (Gemini)'
     provider[platform].models = antigravityGeminiModels
-  } else if (platform === 'openai') {
+  } else if (platform === PLATFORM_OPENAI) {
     provider[platform].models = openaiModels
   }
 
   const agent =
-    platform === 'openai'
+    platform === PLATFORM_OPENAI
       ? {
           build: {
             options: {

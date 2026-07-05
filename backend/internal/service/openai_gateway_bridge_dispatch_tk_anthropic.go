@@ -13,6 +13,7 @@ import (
 	"time"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -76,7 +77,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	origWriter := c.Writer
 	origPath := c.Request.URL.Path
 	c.Writer = captureWriter
-	c.Request.URL.Path = "/v1/chat/completions"
+	c.Request.URL.Path = apipath.ChatCompletions
 
 	var dispatchPanic any
 	var out *bridge.DispatchOutcome

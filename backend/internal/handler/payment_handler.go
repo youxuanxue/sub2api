@@ -94,7 +94,7 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 // GetChannels returns enabled payment channels.
 // GET /api/v1/payment/channels
 func (h *PaymentHandler) GetChannels(c *gin.Context) {
-	channels, _, err := h.channelService.List(c.Request.Context(), pagination.PaginationParams{Page: 1, PageSize: 1000}, "active", "")
+	channels, _, err := h.channelService.List(c.Request.Context(), pagination.PaginationParams{Page: 1, PageSize: 1000}, service.StatusActive, "")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

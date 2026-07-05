@@ -1,3 +1,4 @@
+import { PLATFORM_KIRO } from '@/constants/gatewayPlatforms'
 // TokenKey-only. An anthropic + apikey "mirror stub" relays prod traffic to an
 // edge node (credentials.base_url points at an internal api-<edge>.tokenkey.dev
 // host). credentials.mirror_platform declares WHICH edge pool's live Σ schedulable
@@ -25,5 +26,5 @@ export const MIRROR_PLATFORM_OPTIONS: MirrorPlatformOption[] = [
 
 // normalizeMirrorPlatform mirrors the backend default: empty / unknown → 'anthropic'.
 export function normalizeMirrorPlatform(raw: unknown): MirrorPlatform {
-  return raw === 'kiro' ? 'kiro' : 'anthropic'
+  return raw === PLATFORM_KIRO ? 'kiro' : 'anthropic'
 }

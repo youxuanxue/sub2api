@@ -1159,6 +1159,7 @@ import {
   resolveOpenAIWSModeConcurrencyHintKey
 } from '@/utils/openaiWsMode'
 import type { OpenAIWSMode } from '@/utils/openaiWsMode'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 interface Props {
   show: boolean
   accountIds: number[]
@@ -1194,7 +1195,7 @@ const isMixedPlatform = computed(() => targetSelectedPlatforms.value.length > 1)
 const allOpenAIPassthroughCapable = computed(() => {
   return (
     targetSelectedPlatforms.value.length === 1 &&
-    targetSelectedPlatforms.value[0] === 'openai' &&
+    targetSelectedPlatforms.value[0] === PLATFORM_OPENAI &&
     targetSelectedTypes.value.length > 0 &&
     targetSelectedTypes.value.every(t => t === 'oauth' || t === 'setup-token' || t === 'apikey')
   )
@@ -1203,7 +1204,7 @@ const allOpenAIPassthroughCapable = computed(() => {
 const allOpenAIOAuth = computed(() => {
   return (
     targetSelectedPlatforms.value.length === 1 &&
-    targetSelectedPlatforms.value[0] === 'openai' &&
+    targetSelectedPlatforms.value[0] === PLATFORM_OPENAI &&
     targetSelectedTypes.value.length > 0 &&
     targetSelectedTypes.value.every(t => t === 'oauth' || t === 'setup-token')
   )
@@ -1212,7 +1213,7 @@ const allOpenAIOAuth = computed(() => {
 const allOpenAIAPIKey = computed(() => {
   return (
     targetSelectedPlatforms.value.length === 1 &&
-    targetSelectedPlatforms.value[0] === 'openai' &&
+    targetSelectedPlatforms.value[0] === PLATFORM_OPENAI &&
     targetSelectedTypes.value.length > 0 &&
     targetSelectedTypes.value.every(t => t === 'apikey')
   )
@@ -1222,7 +1223,7 @@ const allOpenAIAPIKey = computed(() => {
 const allAnthropicOAuthOrSetupToken = computed(() => {
   return (
     targetSelectedPlatforms.value.length === 1 &&
-    targetSelectedPlatforms.value[0] === 'anthropic' &&
+    targetSelectedPlatforms.value[0] === PLATFORM_ANTHROPIC &&
     targetSelectedTypes.value.every(t => t === 'oauth' || t === 'setup-token')
   )
 })
@@ -1608,7 +1609,7 @@ const canPreCheck = () =>
   enableGroups.value &&
   groupIds.value.length > 0 &&
   targetSelectedPlatforms.value.length === 1 &&
-  (targetSelectedPlatforms.value[0] === 'antigravity' || targetSelectedPlatforms.value[0] === 'anthropic')
+  (targetSelectedPlatforms.value[0] === PLATFORM_ANTIGRAVITY || targetSelectedPlatforms.value[0] === PLATFORM_ANTHROPIC)
 
 const handleClose = () => {
   showMixedChannelWarning.value = false

@@ -3,6 +3,7 @@ package service
 import (
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -46,11 +47,11 @@ const (
 	monitorChallengeMax = 50
 
 	// providerOpenAIPath OpenAI Chat Completions 路径。
-	providerOpenAIPath = "/v1/chat/completions"
+	providerOpenAIPath = apipath.ChatCompletions
 	// providerOpenAIResponsesPath OpenAI Responses API 路径。
-	providerOpenAIResponsesPath = "/v1/responses"
+	providerOpenAIResponsesPath = apipath.Responses
 	// providerAnthropicPath Anthropic Messages 路径。
-	providerAnthropicPath = "/v1/messages"
+	providerAnthropicPath = apipath.Messages
 	// providerGeminiPathTemplate Gemini generateContent 路径模板（含 model 占位）。
 	providerGeminiPathTemplate = "/v1beta/models/%s:generateContent"
 
