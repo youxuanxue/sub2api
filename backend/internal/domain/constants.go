@@ -12,20 +12,6 @@ const (
 	StatusExpired  = "expired"
 )
 
-// StatusInactiveAPI is the API-facing value returned instead of StatusDisabled
-// for Account, Group, and ApiKey resources. User resources return StatusDisabled
-// directly.
-const StatusInactiveAPI = "inactive"
-
-// NormalizeStatusForAPI maps internal DB status values to API-facing values.
-// StatusDisabled is surfaced as "inactive" for non-User resources.
-func NormalizeStatusForAPI(dbStatus string) string {
-	if dbStatus == StatusDisabled {
-		return StatusInactiveAPI
-	}
-	return dbStatus
-}
-
 // Role constants
 const (
 	RoleAdmin = "admin"
