@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -59,7 +60,7 @@ func (s *UsageLogRepoSuite) TestModelStatsRollupWaitsForBackfillMarkerAndMatches
 
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "model-rollup@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-model-rollup", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "model-rollup-acc", Platform: service.PlatformAnthropic})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "model-rollup-acc", Platform: domain.PlatformAnthropic})
 
 	s.modelRollupParityCreateLog(user, key, acc, "claude-sonnet-4-6", "upstream-sonnet", 10, 20, 1, 2, 0.50, day5)
 	s.modelRollupParityCreateLog(user, key, acc, "claude-opus-4-6", "upstream-opus", 2, 3, 0, 1, 0.20, day2)

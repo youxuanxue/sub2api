@@ -12,6 +12,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbusagecleanuptask "github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -155,10 +156,10 @@ func (r *usageCleanupRepository) ClaimNextPendingTask(ctx context.Context, stale
 		r.sql,
 		query,
 		[]any{
-			service.UsageCleanupStatusPending,
-			service.UsageCleanupStatusRunning,
+			domain.UsageCleanupStatusPending,
+			domain.UsageCleanupStatusRunning,
 			staleRunningAfterSeconds,
-			service.UsageCleanupStatusRunning,
+			domain.UsageCleanupStatusRunning,
 		},
 		&task.ID,
 		&task.Status,
@@ -234,11 +235,11 @@ func (r *usageCleanupRepository) CancelTask(ctx context.Context, taskID int64, c
 	`
 	var id int64
 	err := scanSingleRow(ctx, r.sql, query, []any{
-		service.UsageCleanupStatusCanceled,
+		domain.UsageCleanupStatusCanceled,
 		taskID,
 		canceledBy,
-		service.UsageCleanupStatusPending,
-		service.UsageCleanupStatusRunning,
+		domain.UsageCleanupStatusPending,
+		domain.UsageCleanupStatusRunning,
 	}, &id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -261,7 +262,7 @@ func (r *usageCleanupRepository) MarkTaskSucceeded(ctx context.Context, taskID i
 			updated_at = NOW()
 		WHERE id = $3
 	`
-	_, err := r.sql.ExecContext(ctx, query, service.UsageCleanupStatusSucceeded, deletedRows, taskID)
+	_, err := r.sql.ExecContext(ctx, query, domain.UsageCleanupStatusSucceeded, deletedRows, taskID)
 	return err
 }
 
@@ -278,7 +279,7 @@ func (r *usageCleanupRepository) MarkTaskFailed(ctx context.Context, taskID int6
 			updated_at = NOW()
 		WHERE id = $4
 	`
-	_, err := r.sql.ExecContext(ctx, query, service.UsageCleanupStatusFailed, deletedRows, errorMsg, taskID)
+	_, err := r.sql.ExecContext(ctx, query, domain.UsageCleanupStatusFailed, deletedRows, errorMsg, taskID)
 	return err
 }
 
@@ -481,9 +482,9 @@ func (r *usageCleanupRepository) cancelTaskWithEnt(ctx context.Context, taskID i
 	affected, err := client.UsageCleanupTask.Update().
 		Where(
 			dbusagecleanuptask.IDEQ(taskID),
-			dbusagecleanuptask.StatusIn(service.UsageCleanupStatusPending, service.UsageCleanupStatusRunning),
+			dbusagecleanuptask.StatusIn(domain.UsageCleanupStatusPending, domain.UsageCleanupStatusRunning),
 		).
-		SetStatus(service.UsageCleanupStatusCanceled).
+		SetStatus(domain.UsageCleanupStatusCanceled).
 		SetCanceledBy(canceledBy).
 		SetCanceledAt(now).
 		SetFinishedAt(now).
@@ -501,7 +502,7 @@ func (r *usageCleanupRepository) markTaskSucceededWithEnt(ctx context.Context, t
 	now := time.Now()
 	_, err := client.UsageCleanupTask.Update().
 		Where(dbusagecleanuptask.IDEQ(taskID)).
-		SetStatus(service.UsageCleanupStatusSucceeded).
+		SetStatus(domain.UsageCleanupStatusSucceeded).
 		SetDeletedRows(deletedRows).
 		SetFinishedAt(now).
 		SetUpdatedAt(now).
@@ -514,7 +515,7 @@ func (r *usageCleanupRepository) markTaskFailedWithEnt(ctx context.Context, task
 	now := time.Now()
 	_, err := client.UsageCleanupTask.Update().
 		Where(dbusagecleanuptask.IDEQ(taskID)).
-		SetStatus(service.UsageCleanupStatusFailed).
+		SetStatus(domain.UsageCleanupStatusFailed).
 		SetDeletedRows(deletedRows).
 		SetErrorMessage(errorMsg).
 		SetFinishedAt(now).

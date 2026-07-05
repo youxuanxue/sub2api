@@ -7,6 +7,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -64,11 +65,11 @@ func (s *UsageLogRepoSuite) TestRollupParity_BatchAndRanking() {
 	user2 := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-u2@test.com"})
 	key1 := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user1.ID, Key: "sk-rollup-1", Name: "k"})
 	key2 := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user2.ID, Key: "sk-rollup-2", Name: "k"})
-	accAnthropic := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-acc-anthropic", Platform: service.PlatformAnthropic})
-	accOpenAI := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-acc-openai", Platform: service.PlatformOpenAI})
+	accAnthropic := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-acc-anthropic", Platform: domain.PlatformAnthropic})
+	accOpenAI := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-acc-openai", Platform: domain.PlatformOpenAI})
 	// Anthropic account, but the group platform is openai -> COALESCE must report openai.
-	grpAnthropic := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-grp-anthropic", Platform: service.PlatformAnthropic})
-	grpOpenAI := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-grp-openai", Platform: service.PlatformOpenAI})
+	grpAnthropic := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-grp-anthropic", Platform: domain.PlatformAnthropic})
+	grpOpenAI := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-grp-openai", Platform: domain.PlatformOpenAI})
 
 	// user1, anthropic platform:
 	//   day5: 0.50 (10/20 tok), day2: 0.30 (10/20), today: 0.10 (10/20)
@@ -99,17 +100,17 @@ func (s *UsageLogRepoSuite) TestRollupParity_BatchAndRanking() {
 	s.InDelta(1.30, stats[user1.ID].TotalActualCost, 1e-9)
 	s.InDelta(0.10, stats[user1.ID].TodayActualCost, 1e-9)
 	b1 := indexByPlatform(stats[user1.ID].ByPlatform)
-	s.InDelta(0.90, b1[service.PlatformAnthropic].TotalActualCost, 1e-9) // 0.50+0.30+0.10
-	s.InDelta(0.10, b1[service.PlatformAnthropic].TodayActualCost, 1e-9)
-	s.InDelta(0.40, b1[service.PlatformOpenAI].TotalActualCost, 1e-9, "COALESCE(g.platform,a.platform) override -> openai")
-	s.InDelta(0.00, b1[service.PlatformOpenAI].TodayActualCost, 1e-9)
+	s.InDelta(0.90, b1[domain.PlatformAnthropic].TotalActualCost, 1e-9) // 0.50+0.30+0.10
+	s.InDelta(0.10, b1[domain.PlatformAnthropic].TodayActualCost, 1e-9)
+	s.InDelta(0.40, b1[domain.PlatformOpenAI].TotalActualCost, 1e-9, "COALESCE(g.platform,a.platform) override -> openai")
+	s.InDelta(0.00, b1[domain.PlatformOpenAI].TodayActualCost, 1e-9)
 
 	// user2 total: 0.70+0.20 = 0.90; today 0.20; openai only
 	s.InDelta(0.90, stats[user2.ID].TotalActualCost, 1e-9)
 	s.InDelta(0.20, stats[user2.ID].TodayActualCost, 1e-9)
 	b2 := indexByPlatform(stats[user2.ID].ByPlatform)
-	s.InDelta(0.90, b2[service.PlatformOpenAI].TotalActualCost, 1e-9)
-	s.InDelta(0.20, b2[service.PlatformOpenAI].TodayActualCost, 1e-9)
+	s.InDelta(0.90, b2[domain.PlatformOpenAI].TotalActualCost, 1e-9)
+	s.InDelta(0.20, b2[domain.PlatformOpenAI].TodayActualCost, 1e-9)
 
 	// --- GetBatchUserUsageStats: narrow today-only window ---
 	narrow, err := s.repo.GetBatchUserUsageStats(s.ctx, []int64{user1.ID, user2.ID}, today, now.Add(time.Hour))
@@ -155,8 +156,8 @@ func (s *UsageLogRepoSuite) TestRollupParity_EqualsLegacyRawScan() {
 	today := timezone.Today()
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-legacy@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-rollup-legacy", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-legacy-acc", Platform: service.PlatformAnthropic})
-	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-legacy-grp", Platform: service.PlatformAnthropic})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-legacy-acc", Platform: domain.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-legacy-grp", Platform: domain.PlatformAnthropic})
 
 	// Spread rows across 4 completed days; the rollup must equal the raw window sum.
 	for d := 1; d <= 4; d++ {
@@ -211,8 +212,8 @@ func (s *UsageLogRepoSuite) TestRollupParity_ColdStartPartialCoverage() {
 	today := timezone.Today()
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-coldstart@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-rollup-coldstart", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-coldstart-acc", Platform: service.PlatformAnthropic})
-	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-coldstart-grp", Platform: service.PlatformAnthropic})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-coldstart-acc", Platform: domain.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-coldstart-grp", Platform: domain.PlatformAnthropic})
 
 	// Raw rows across 10 completed days.
 	for d := 1; d <= 10; d++ {
@@ -270,8 +271,8 @@ func (s *UsageLogRepoSuite) TestRollupParity_EmptyEffectivePlatform() {
 	today := timezone.Today()
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-empty@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-rollup-empty", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-empty-acc", Platform: service.PlatformAnthropic})
-	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-empty-grp", Platform: service.PlatformAnthropic})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-empty-acc", Platform: domain.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-empty-grp", Platform: domain.PlatformAnthropic})
 
 	// Force both platforms empty so COALESCE(NULLIF(g.platform,''), a.platform) = ''.
 	_, err := s.repo.sql.ExecContext(s.ctx, "UPDATE accounts SET platform = '' WHERE id = $1", acc.ID)

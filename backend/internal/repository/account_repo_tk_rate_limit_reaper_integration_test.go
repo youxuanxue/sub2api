@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,7 +89,7 @@ func TestEnqueueOutboxForJustExpiredAccounts_RepoEnqueuesAccountChangedForExpire
 	require.NoError(t, integrationDB.QueryRowContext(t.Context(),
 		`SELECT COUNT(*) FROM scheduler_outbox
 		 WHERE event_type = $1 AND account_id = $2`,
-		service.SchedulerOutboxEventAccountChanged, id).Scan(&rows))
+		domain.SchedulerOutboxEventAccountChanged, id).Scan(&rows))
 	require.Equal(t, 1, rows,
 		"reaper must enqueue exactly one account_changed event per expired account")
 }
@@ -176,7 +176,7 @@ func TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Secon
 	require.NoError(t, integrationDB.QueryRowContext(t.Context(),
 		`SELECT COUNT(*) FROM scheduler_outbox
 		 WHERE event_type = $1 AND account_id = $2`,
-		service.SchedulerOutboxEventAccountChanged, id).Scan(&rows))
+		domain.SchedulerOutboxEventAccountChanged, id).Scan(&rows))
 	require.Equal(t, 1, rows,
 		"after two back-to-back reaper ticks, exactly one outbox row should exist")
 }

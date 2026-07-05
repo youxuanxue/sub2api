@@ -4,6 +4,7 @@ import (
 	"context"
 
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -25,7 +26,7 @@ import (
 func (r *userRepository) GetByIDForAuth(ctx context.Context, id int64) (*service.User, error) {
 	m, err := r.client.User.Query().Where(dbuser.IDEQ(id)).Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrUserNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrUserNotFound, nil)
 	}
 	return userEntityToService(m), nil
 }

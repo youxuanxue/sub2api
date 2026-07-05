@@ -8,6 +8,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -57,7 +58,7 @@ func (r *announcementRepository) GetByID(ctx context.Context, id int64) (*servic
 		Where(announcement.IDEQ(id)).
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrAnnouncementNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrAnnouncementNotFound, nil)
 	}
 	return announcementEntityToService(m), nil
 }
@@ -94,7 +95,7 @@ func (r *announcementRepository) Update(ctx context.Context, a *service.Announce
 
 	updated, err := builder.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrAnnouncementNotFound, nil)
+		return translatePersistenceError(err, domain.ErrAnnouncementNotFound, nil)
 	}
 
 	a.UpdatedAt = updated.UpdatedAt
@@ -200,7 +201,7 @@ func announcementListOrders(params pagination.PaginationParams) []func(*entsql.S
 func (r *announcementRepository) ListActive(ctx context.Context, now time.Time) ([]service.Announcement, error) {
 	q := r.client.Announcement.Query().
 		Where(
-			announcement.StatusEQ(service.AnnouncementStatusActive),
+			announcement.StatusEQ(domain.AnnouncementStatusActive),
 			announcement.Or(announcement.StartsAtIsNil(), announcement.StartsAtLTE(now)),
 			announcement.Or(announcement.EndsAtIsNil(), announcement.EndsAtGT(now)),
 		).

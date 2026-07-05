@@ -11,7 +11,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"
@@ -30,11 +30,11 @@ func TestAccountsToService_LargeActiveAccountSetDoesNotExceedPostgresParameterLi
 		accounts = append(accounts, &dbent.Account{
 			ID:          int64(i + 1),
 			Name:        "large-active",
-			Platform:    service.PlatformOpenAI,
-			Type:        service.AccountTypeOAuth,
+			Platform:    domain.PlatformOpenAI,
+			Type:        domain.AccountTypeOAuth,
 			Credentials: map[string]any{},
 			Extra:       map[string]any{},
-			Status:      service.StatusActive,
+			Status:      domain.StatusActive,
 			Schedulable: true,
 		})
 	}

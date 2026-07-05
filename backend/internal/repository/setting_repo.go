@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -21,7 +22,7 @@ func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setti
 	m, err := r.client.Setting.Query().Where(setting.KeyEQ(key)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			return nil, service.ErrSettingNotFound
+			return nil, domain.ErrSettingNotFound
 		}
 		return nil, err
 	}

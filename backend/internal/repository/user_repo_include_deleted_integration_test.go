@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -59,7 +60,7 @@ func TestUserRepo_GetByIDIncludeDeleted(t *testing.T) {
 
 	// 默认 GetByID：找不到（被软删过滤）。
 	_, err := repo.GetByID(ctx, u.ID)
-	require.ErrorIs(t, err, service.ErrUserNotFound)
+	require.ErrorIs(t, err, domain.ErrUserNotFound)
 
 	// GetByIDIncludeDeleted：找得到，且 DeletedAt 非空。
 	got, err := repo.GetByIDIncludeDeleted(ctx, u.ID)

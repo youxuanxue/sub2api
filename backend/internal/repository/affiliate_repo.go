@@ -11,6 +11,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -65,7 +66,7 @@ func NewAffiliateRepository(client *dbent.Client, _ *sql.DB) service.AffiliateRe
 
 func (r *affiliateRepository) EnsureUserAffiliate(ctx context.Context, userID int64) (*service.AffiliateSummary, error) {
 	if userID <= 0 {
-		return nil, service.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 	client := clientFromContext(ctx, r.client)
 	return ensureUserAffiliateWithClient(ctx, client, userID)
@@ -273,7 +274,7 @@ FROM cleared`, userID)
 			if err := rows.Err(); err != nil {
 				return err
 			}
-			return service.ErrAffiliateQuotaEmpty
+			return domain.ErrAffiliateQuotaEmpty
 		}
 		if err := rows.Scan(&transferred); err != nil {
 			_ = rows.Close()
@@ -283,7 +284,7 @@ FROM cleared`, userID)
 			return err
 		}
 		if transferred <= 0 {
-			return service.ErrAffiliateQuotaEmpty
+			return domain.ErrAffiliateQuotaEmpty
 		}
 
 		affected, err := txClient.User.Update().
@@ -295,7 +296,7 @@ FROM cleared`, userID)
 			return fmt.Errorf("credit user balance by affiliate quota: %w", err)
 		}
 		if affected == 0 {
-			return service.ErrUserNotFound
+			return domain.ErrUserNotFound
 		}
 
 		newBalance, err = queryUserBalance(txCtx, txClient, userID)
@@ -632,7 +633,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 
 func (r *affiliateRepository) GetAffiliateUserOverview(ctx context.Context, userID int64) (*service.AffiliateUserOverview, error) {
 	if userID <= 0 {
-		return nil, service.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 	client := clientFromContext(ctx, r.client)
 	rows, err := client.QueryContext(ctx, affiliateUserOverviewSQL, userID)
@@ -645,7 +646,7 @@ func (r *affiliateRepository) GetAffiliateUserOverview(ctx context.Context, user
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		return nil, service.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 
 	var overview service.AffiliateUserOverview
@@ -753,7 +754,7 @@ func ensureUserAffiliateWithClient(ctx context.Context, client affiliateQueryExe
 	if err == nil {
 		return summary, nil
 	}
-	if !errors.Is(err, service.ErrAffiliateProfileNotFound) {
+	if !errors.Is(err, domain.ErrAffiliateProfileNotFound) {
 		return nil, err
 	}
 
@@ -801,7 +802,7 @@ WHERE user_id = $1`, userID)
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		return nil, service.ErrAffiliateProfileNotFound
+		return nil, domain.ErrAffiliateProfileNotFound
 	}
 
 	var out service.AffiliateSummary
@@ -857,7 +858,7 @@ LIMIT 1`, strings.ToUpper(strings.TrimSpace(code)))
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		return nil, service.ErrAffiliateProfileNotFound
+		return nil, domain.ErrAffiliateProfileNotFound
 	}
 
 	var out service.AffiliateSummary
@@ -901,7 +902,7 @@ func queryUserBalance(ctx context.Context, client affiliateQueryExecer, userID i
 		if err := rows.Err(); err != nil {
 			return 0, err
 		}
-		return 0, service.ErrUserNotFound
+		return 0, domain.ErrUserNotFound
 	}
 	var balance float64
 	if err := rows.Scan(&balance); err != nil {
@@ -936,7 +937,7 @@ LIMIT 1`, userID)
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		return nil, service.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 
 	var snapshot affiliateTransferSnapshot
@@ -981,11 +982,11 @@ func isAffiliateUniqueViolation(err error) bool {
 // 唯一性冲突返回 ErrAffiliateCodeTaken。
 func (r *affiliateRepository) UpdateUserAffCode(ctx context.Context, userID int64, newCode string) error {
 	if userID <= 0 {
-		return service.ErrUserNotFound
+		return domain.ErrUserNotFound
 	}
 	code := strings.ToUpper(strings.TrimSpace(newCode))
 	if code == "" {
-		return service.ErrAffiliateCodeInvalid
+		return domain.ErrAffiliateCodeInvalid
 	}
 
 	return r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
@@ -1000,13 +1001,13 @@ SET aff_code = $1,
 WHERE user_id = $2`, code, userID)
 		if err != nil {
 			if isAffiliateUniqueViolation(err) {
-				return service.ErrAffiliateCodeTaken
+				return domain.ErrAffiliateCodeTaken
 			}
 			return fmt.Errorf("update aff_code: %w", err)
 		}
 		affected, _ := res.RowsAffected()
 		if affected == 0 {
-			return service.ErrUserNotFound
+			return domain.ErrUserNotFound
 		}
 		return nil
 	})
@@ -1015,7 +1016,7 @@ WHERE user_id = $2`, code, userID)
 // ResetUserAffCode 把 aff_code 还原为系统随机码，并清除 aff_code_custom 标记。
 func (r *affiliateRepository) ResetUserAffCode(ctx context.Context, userID int64) (string, error) {
 	if userID <= 0 {
-		return "", service.ErrUserNotFound
+		return "", domain.ErrUserNotFound
 	}
 	var newCode string
 	err := r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
@@ -1041,7 +1042,7 @@ WHERE user_id = $2`, candidate, userID)
 			}
 			affected, _ := res.RowsAffected()
 			if affected == 0 {
-				return service.ErrUserNotFound
+				return domain.ErrUserNotFound
 			}
 			newCode = candidate
 			return nil
@@ -1057,7 +1058,7 @@ WHERE user_id = $2`, candidate, userID)
 // SetUserRebateRate 设置或清除用户专属返利比例。ratePercent==nil 表示清除（沿用全局）。
 func (r *affiliateRepository) SetUserRebateRate(ctx context.Context, userID int64, ratePercent *float64) error {
 	if userID <= 0 {
-		return service.ErrUserNotFound
+		return domain.ErrUserNotFound
 	}
 	return r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
 		if _, err := ensureUserAffiliateWithClient(txCtx, txClient, userID); err != nil {
@@ -1075,7 +1076,7 @@ WHERE user_id = $2`, nullableArg(ratePercent), userID)
 		}
 		affected, _ := res.RowsAffected()
 		if affected == 0 {
-			return service.ErrUserNotFound
+			return domain.ErrUserNotFound
 		}
 		return nil
 	})

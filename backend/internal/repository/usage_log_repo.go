@@ -24,6 +24,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	gocache "github.com/patrickmn/go-cache"
@@ -1479,7 +1480,7 @@ func (r *usageLogRepository) GetByID(ctx context.Context, id int64) (log *servic
 		if err = rows.Err(); err != nil {
 			return nil, err
 		}
-		return nil, service.ErrUsageLogNotFound
+		return nil, domain.ErrUsageLogNotFound
 	}
 	log, err = scanUsageLog(rows)
 	if err != nil {
@@ -1623,7 +1624,7 @@ func (r *usageLogRepository) fillDashboardEntityStats(ctx context.Context, stats
 		ctx,
 		r.sql,
 		apiKeyStatsQuery,
-		[]any{service.StatusActive},
+		[]any{domain.StatusActive},
 		&stats.TotalAPIKeys,
 		&stats.ActiveAPIKeys,
 	); err != nil {
@@ -1644,7 +1645,7 @@ func (r *usageLogRepository) fillDashboardEntityStats(ctx context.Context, stats
 		ctx,
 		r.sql,
 		accountStatsQuery,
-		[]any{service.StatusActive, service.StatusError, now, now},
+		[]any{domain.StatusActive, domain.StatusError, now, now},
 		&stats.TotalAccounts,
 		&stats.NormalAccounts,
 		&stats.ErrorAccounts,
@@ -2471,7 +2472,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		ctx,
 		r.sql,
 		"SELECT COUNT(*) FROM api_keys WHERE user_id = $1 AND status = $2 AND deleted_at IS NULL",
-		[]any{userID, service.StatusActive},
+		[]any{userID, domain.StatusActive},
 		&stats.ActiveAPIKeys,
 	); err != nil {
 		return nil, err

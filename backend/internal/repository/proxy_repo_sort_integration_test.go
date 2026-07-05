@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 func (s *ProxyRepoSuite) TestListWithFiltersAndAccountCount_SortByAccountCountDesc() {
-	p1 := s.mustCreateProxy(&service.Proxy{Name: "p1", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: service.StatusActive})
-	p2 := s.mustCreateProxy(&service.Proxy{Name: "p2", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: service.StatusActive})
+	p1 := s.mustCreateProxy(&service.Proxy{Name: "p1", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: domain.StatusActive})
+	p2 := s.mustCreateProxy(&service.Proxy{Name: "p2", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: domain.StatusActive})
 	s.mustInsertAccount("a1", &p1.ID)
 	s.mustInsertAccount("a2", &p1.ID)
 	s.mustInsertAccount("a3", &p2.ID)
@@ -37,10 +38,10 @@ func (s *ProxyRepoSuite) TestListWithFiltersAndAccountCount_SortByExpiry() {
 
 	// 创建顺序(=ID 升序)刻意打乱,使其不同于任何有效期顺序:
 	// 一旦排序退回按 id(没加 case "expiry"),此测试必然失败。
-	pLater := s.mustCreateProxy(&service.Proxy{Name: "p-later", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: service.StatusActive, ExpiresAt: &later})
-	pNever := s.mustCreateProxy(&service.Proxy{Name: "p-never", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: service.StatusActive, ExpiresAt: nil})
-	pExpired := s.mustCreateProxy(&service.Proxy{Name: "p-expired", Protocol: "http", Host: "127.0.0.1", Port: 8082, Status: service.StatusActive, ExpiresAt: &past})
-	pSoon := s.mustCreateProxy(&service.Proxy{Name: "p-soon", Protocol: "http", Host: "127.0.0.1", Port: 8083, Status: service.StatusActive, ExpiresAt: &soon})
+	pLater := s.mustCreateProxy(&service.Proxy{Name: "p-later", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: domain.StatusActive, ExpiresAt: &later})
+	pNever := s.mustCreateProxy(&service.Proxy{Name: "p-never", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: domain.StatusActive, ExpiresAt: nil})
+	pExpired := s.mustCreateProxy(&service.Proxy{Name: "p-expired", Protocol: "http", Host: "127.0.0.1", Port: 8082, Status: domain.StatusActive, ExpiresAt: &past})
+	pSoon := s.mustCreateProxy(&service.Proxy{Name: "p-soon", Protocol: "http", Host: "127.0.0.1", Port: 8083, Status: domain.StatusActive, ExpiresAt: &soon})
 
 	// 升序:最快到期在前,NULL(永不过期)垫底
 	asc, _, err := s.repo.ListWithFiltersAndAccountCount(s.ctx, pagination.PaginationParams{

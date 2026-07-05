@@ -848,8 +848,8 @@
       "must_contain": [
         "func (r *accountRepository) SumConcurrencyAnthropic",
         "WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL",
-        "dbproxy.StatusEQ(service.StatusActive)",
-        "entAcc.Edges.Proxy.Status == service.StatusActive"
+        "dbproxy.StatusEQ(domain.StatusActive)",
+        "entAcc.Edges.Proxy.Status == domain.StatusActive"
       ],
       "rationale": "TK proxy-status filter (upstream #2159): account preload paths MUST filter out non-active proxies on both the manual loadProxies query and the WithProxy() edge-preload branch. Disabled proxies leaking back into account.Proxy contradicts operator intent and re-routes traffic through proxies that were explicitly turned off (compliance/IP-rotation regression). SumConcurrencyAnthropic is operator-facing: admin concurrency for user id 1 mirrors Σ concurrency of non-deleted **schedulable=true** anthropic rows (2026-05-23: filter narrowed from Σ-all to Σ-schedulable so admin-bypass api-key stubs with schedulable=false are excluded). The `AND schedulable = true` clause is the load-bearing anchor: it MUST stay byte-identical to the operator-concurrency SQL emitted by ops/anthropic/manage-anthropic-config.py (render_admin_operator_concurrency_sync_sql + OPERATOR_CONCURRENCY_SQL) so the Go control plane (admin account CRUD → SyncAnthropicOperatorConcurrency) and the SSM apply pipeline share ONE Σ rule and never clobber each other. Dropping the query, or an upstream merge that 'simplifies' away the schedulable filter, silently desyncs the control plane from edge/prod tier apply injection."
     },
@@ -864,7 +864,7 @@
     {
       "path": "backend/internal/repository/user_subscription_repo.go",
       "must_contain": [
-        "usersubscription.StatusEQ(service.SubscriptionStatusActive)",
+        "usersubscription.StatusEQ(domain.SubscriptionStatusActive)",
         "usersubscription.ExpiresAtGT(time.Now())"
       ],
       "rationale": "TK active-subscription predicate (upstream #2478): ExistsByUserIDAndGroupID and GetActiveByUserIDAndGroupID MUST gate on BOTH status=active AND expires_at>now. Without this, expired-yet-not-soft-deleted rows return exists=true and the reassignment flow blocks legitimate renewals with 409 validity_days_mismatch — a user-paid-but-no-access regression."

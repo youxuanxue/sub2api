@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -33,7 +34,7 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 	})
 	account := mustCreateAccount(t, client, &service.Account{
 		Name: "usage-billing-account-" + uuid.NewString(),
-		Type: service.AccountTypeAPIKey,
+		Type: domain.AccountTypeAPIKey,
 	})
 
 	requestID := uuid.NewString()
@@ -42,7 +43,7 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 		APIKeyID:            apiKey.ID,
 		UserID:              user.ID,
 		AccountID:           account.ID,
-		AccountType:         service.AccountTypeAPIKey,
+		AccountType:         domain.AccountTypeAPIKey,
 		BalanceCost:         1.25,
 		APIKeyQuotaCost:     1.25,
 		APIKeyRateLimitCost: 1.25,
@@ -91,8 +92,8 @@ func TestUsageBillingRepositoryApply_DeduplicatesSubscriptionBilling(t *testing.
 	})
 	group := mustCreateGroup(t, client, &service.Group{
 		Name:             "usage-billing-group-" + uuid.NewString(),
-		Platform:         service.PlatformAnthropic,
-		SubscriptionType: service.SubscriptionTypeSubscription,
+		Platform:         domain.PlatformAnthropic,
+		SubscriptionType: domain.SubscriptionTypeSubscription,
 	})
 	apiKey := mustCreateApiKey(t, client, &service.APIKey{
 		UserID:  user.ID,
@@ -159,7 +160,7 @@ func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 		UserID:      user.ID,
 		BalanceCost: 2.50,
 	})
-	require.ErrorIs(t, err, service.ErrUsageBillingRequestConflict)
+	require.ErrorIs(t, err, domain.ErrUsageBillingRequestConflict)
 }
 
 func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {
@@ -178,7 +179,7 @@ func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {
 	})
 	account := mustCreateAccount(t, client, &service.Account{
 		Name: "usage-billing-account-quota-" + uuid.NewString(),
-		Type: service.AccountTypeAPIKey,
+		Type: domain.AccountTypeAPIKey,
 		Extra: map[string]any{
 			"quota_limit": 100.0,
 		},
@@ -189,7 +190,7 @@ func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {
 		APIKeyID:         apiKey.ID,
 		UserID:           user.ID,
 		AccountID:        account.ID,
-		AccountType:      service.AccountTypeAPIKey,
+		AccountType:      domain.AccountTypeAPIKey,
 		AccountQuotaCost: 3.5,
 	})
 	require.NoError(t, err)
@@ -217,7 +218,7 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 		})
 		account := mustCreateAccount(t, client, &service.Account{
 			Name:  "usage-billing-outbox-" + uuid.NewString(),
-			Type:  service.AccountTypeAPIKey,
+			Type:  domain.AccountTypeAPIKey,
 			Extra: extra,
 		})
 		return apiKey.ID, account.ID
@@ -228,7 +229,7 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 		var count int
 		require.NoError(t, integrationDB.QueryRowContext(ctx,
 			"SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1 AND account_id = $2",
-			service.SchedulerOutboxEventAccountChanged, accountID,
+			domain.SchedulerOutboxEventAccountChanged, accountID,
 		).Scan(&count))
 		return count
 	}
@@ -242,7 +243,7 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 			RequestID:        uuid.NewString(),
 			APIKeyID:         apiKeyID,
 			AccountID:        accountID,
-			AccountType:      service.AccountTypeAPIKey,
+			AccountType:      domain.AccountTypeAPIKey,
 			AccountQuotaCost: 4,
 		})
 		require.NoError(t, err)
@@ -253,7 +254,7 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 			RequestID:        uuid.NewString(),
 			APIKeyID:         apiKeyID,
 			AccountID:        accountID,
-			AccountType:      service.AccountTypeAPIKey,
+			AccountType:      domain.AccountTypeAPIKey,
 			AccountQuotaCost: 8,
 		})
 		require.NoError(t, err)
@@ -264,7 +265,7 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 			RequestID:        uuid.NewString(),
 			APIKeyID:         apiKeyID,
 			AccountID:        accountID,
-			AccountType:      service.AccountTypeAPIKey,
+			AccountType:      domain.AccountTypeAPIKey,
 			AccountQuotaCost: 2,
 		})
 		require.NoError(t, err)
@@ -279,7 +280,7 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 			RequestID:        uuid.NewString(),
 			APIKeyID:         apiKeyID,
 			AccountID:        accountID,
-			AccountType:      service.AccountTypeAPIKey,
+			AccountType:      domain.AccountTypeAPIKey,
 			AccountQuotaCost: 15, // 单次即跨越
 		})
 		require.NoError(t, err)

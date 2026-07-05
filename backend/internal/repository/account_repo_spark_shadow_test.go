@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -16,9 +17,9 @@ func TestAccountRepoSparkShadowRoundTrip(t *testing.T) {
 
 	parent := &service.Account{
 		Name:     "parent",
-		Platform: service.PlatformOpenAI,
-		Type:     service.AccountTypeOAuth,
-		Status:   service.StatusActive,
+		Platform: domain.PlatformOpenAI,
+		Type:     domain.AccountTypeOAuth,
+		Status:   domain.StatusActive,
 	}
 	if err := repo.Create(ctx, parent); err != nil {
 		t.Fatalf("create parent: %v", err)
@@ -26,9 +27,9 @@ func TestAccountRepoSparkShadowRoundTrip(t *testing.T) {
 	pid := parent.ID
 	shadow := &service.Account{
 		Name:            "shadow",
-		Platform:        service.PlatformOpenAI,
-		Type:            service.AccountTypeOAuth,
-		Status:          service.StatusActive,
+		Platform:        domain.PlatformOpenAI,
+		Type:            domain.AccountTypeOAuth,
+		Status:          domain.StatusActive,
 		ParentAccountID: &pid,
 		QuotaDimension:  service.QuotaDimensionSpark,
 	}
@@ -59,9 +60,9 @@ func TestListShadowsByParent(t *testing.T) {
 	// Create parent1 and its spark shadow
 	parent1 := &service.Account{
 		Name:     "list-parent1",
-		Platform: service.PlatformOpenAI,
-		Type:     service.AccountTypeOAuth,
-		Status:   service.StatusActive,
+		Platform: domain.PlatformOpenAI,
+		Type:     domain.AccountTypeOAuth,
+		Status:   domain.StatusActive,
 	}
 	if err := repo.Create(ctx, parent1); err != nil {
 		t.Fatalf("create parent1: %v", err)
@@ -70,9 +71,9 @@ func TestListShadowsByParent(t *testing.T) {
 
 	shadow1 := &service.Account{
 		Name:            "shadow1",
-		Platform:        service.PlatformOpenAI,
-		Type:            service.AccountTypeOAuth,
-		Status:          service.StatusActive,
+		Platform:        domain.PlatformOpenAI,
+		Type:            domain.AccountTypeOAuth,
+		Status:          domain.StatusActive,
 		ParentAccountID: &pid1,
 		QuotaDimension:  service.QuotaDimensionSpark,
 	}
@@ -83,9 +84,9 @@ func TestListShadowsByParent(t *testing.T) {
 	// Create parent2 and its spark shadow (must NOT appear in parent1's list)
 	parent2 := &service.Account{
 		Name:     "list-parent2",
-		Platform: service.PlatformOpenAI,
-		Type:     service.AccountTypeOAuth,
-		Status:   service.StatusActive,
+		Platform: domain.PlatformOpenAI,
+		Type:     domain.AccountTypeOAuth,
+		Status:   domain.StatusActive,
 	}
 	if err := repo.Create(ctx, parent2); err != nil {
 		t.Fatalf("create parent2: %v", err)
@@ -94,9 +95,9 @@ func TestListShadowsByParent(t *testing.T) {
 
 	shadow2 := &service.Account{
 		Name:            "shadow2",
-		Platform:        service.PlatformOpenAI,
-		Type:            service.AccountTypeOAuth,
-		Status:          service.StatusActive,
+		Platform:        domain.PlatformOpenAI,
+		Type:            domain.AccountTypeOAuth,
+		Status:          domain.StatusActive,
 		ParentAccountID: &pid2,
 		QuotaDimension:  service.QuotaDimensionSpark,
 	}
@@ -107,9 +108,9 @@ func TestListShadowsByParent(t *testing.T) {
 	// Create 1 unrelated normal account (no parent, global dimension)
 	unrelated := &service.Account{
 		Name:     "unrelated",
-		Platform: service.PlatformOpenAI,
-		Type:     service.AccountTypeOAuth,
-		Status:   service.StatusActive,
+		Platform: domain.PlatformOpenAI,
+		Type:     domain.AccountTypeOAuth,
+		Status:   domain.StatusActive,
 	}
 	if err := repo.Create(ctx, unrelated); err != nil {
 		t.Fatalf("create unrelated: %v", err)

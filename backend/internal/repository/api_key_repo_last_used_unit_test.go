@@ -8,6 +8,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 
@@ -40,8 +41,8 @@ func mustCreateAPIKeyRepoUser(t *testing.T, ctx context.Context, client *dbent.C
 	u, err := client.User.Create().
 		SetEmail(email).
 		SetPasswordHash("test-password-hash").
-		SetRole(service.RoleUser).
-		SetStatus(service.StatusActive).
+		SetRole(domain.RoleUser).
+		SetStatus(domain.StatusActive).
 		Save(ctx)
 	require.NoError(t, err)
 	return userEntityToService(u)
@@ -57,7 +58,7 @@ func TestAPIKeyRepository_CreateWithLastUsedAt(t *testing.T) {
 		UserID:     user.ID,
 		Key:        "sk-create-last-used",
 		Name:       "CreateWithLastUsed",
-		Status:     service.StatusActive,
+		Status:     domain.StatusActive,
 		LastUsedAt: &lastUsed,
 	}
 
@@ -80,7 +81,7 @@ func TestAPIKeyRepository_UpdateLastUsed(t *testing.T) {
 		UserID: user.ID,
 		Key:    "sk-update-last-used",
 		Name:   "UpdateLastUsed",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, key))
 
@@ -107,13 +108,13 @@ func TestAPIKeyRepository_UpdateLastUsedDeletedKey(t *testing.T) {
 		UserID: user.ID,
 		Key:    "sk-update-last-used-deleted",
 		Name:   "UpdateLastUsedDeleted",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, key))
 	require.NoError(t, repo.Delete(ctx, key.ID))
 
 	err := repo.UpdateLastUsed(ctx, key.ID, time.Now().UTC())
-	require.ErrorIs(t, err, service.ErrAPIKeyNotFound)
+	require.ErrorIs(t, err, domain.ErrAPIKeyNotFound)
 }
 
 func TestAPIKeyRepository_UpdateLastUsedDBError(t *testing.T) {
@@ -125,7 +126,7 @@ func TestAPIKeyRepository_UpdateLastUsedDBError(t *testing.T) {
 		UserID: user.ID,
 		Key:    "sk-update-last-used-db-error",
 		Name:   "UpdateLastUsedDBError",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, key))
 
@@ -143,16 +144,16 @@ func TestAPIKeyRepository_CreateDuplicateKey(t *testing.T) {
 		UserID: user.ID,
 		Key:    "sk-duplicate",
 		Name:   "first",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	second := &service.APIKey{
 		UserID: user.ID,
 		Key:    "sk-duplicate",
 		Name:   "second",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 
 	require.NoError(t, repo.Create(ctx, first))
 	err := repo.Create(ctx, second)
-	require.ErrorIs(t, err, service.ErrAPIKeyExists)
+	require.ErrorIs(t, err, domain.ErrAPIKeyExists)
 }

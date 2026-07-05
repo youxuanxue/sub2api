@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -145,7 +146,7 @@ func TestApply_ConsumesHandedOffHoldAtomically(t *testing.T) {
 		APIKeyID:        apiKey.ID,
 		UserID:          user.ID,
 		AccountID:       1,
-		AccountType:     service.AccountTypeAPIKey,
+		AccountType:     domain.AccountTypeAPIKey,
 		Model:           "test-model",
 		BalanceCost:     3,
 		TkHoldRequestID: holdID,

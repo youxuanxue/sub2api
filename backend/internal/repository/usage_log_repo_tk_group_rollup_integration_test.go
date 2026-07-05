@@ -7,6 +7,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -66,9 +67,9 @@ func (s *UsageLogRepoSuite) TestGroupRollupParity_EqualsLegacyRawScan() {
 
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "grp-rollup@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-grp-rollup", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-rollup-acc", Platform: service.PlatformAnthropic})
-	grpA := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-rollup-A", Platform: service.PlatformAnthropic})
-	grpB := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-rollup-B", Platform: service.PlatformOpenAI})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-rollup-acc", Platform: domain.PlatformAnthropic})
+	grpA := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-rollup-A", Platform: domain.PlatformAnthropic})
+	grpB := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-rollup-B", Platform: domain.PlatformOpenAI})
 
 	// group A: day5 0.50, day2 0.30, today 0.10 -> total 0.90, today 0.10
 	s.rollupParityCreateLog(user, key, acc, grpA.ID, 10, 20, 0, 0, 0.50, day5)
@@ -127,9 +128,9 @@ func (s *UsageLogRepoSuite) TestGroupStatsRollupParity_EqualsLegacyRawScanWithUn
 
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "grp-stats-rollup@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-grp-stats-rollup", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-stats-rollup-acc", Platform: service.PlatformAnthropic})
-	grpA := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-stats-rollup-A", Platform: service.PlatformAnthropic})
-	grpB := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-stats-rollup-B", Platform: service.PlatformOpenAI})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-stats-rollup-acc", Platform: domain.PlatformAnthropic})
+	grpA := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-stats-rollup-A", Platform: domain.PlatformAnthropic})
+	grpB := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-stats-rollup-B", Platform: domain.PlatformOpenAI})
 
 	// Real groups across completed days + today's raw tail.
 	s.rollupParityCreateLog(user, key, acc, grpA.ID, 10, 20, 0, 0, 0.50, day5)
@@ -192,8 +193,8 @@ func (s *UsageLogRepoSuite) TestGroupStatsRollupWaitsForMetricsBackfill() {
 
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "grp-stats-metrics-backfill@test.com"})
 	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-grp-stats-metrics-backfill", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-stats-metrics-backfill-acc", Platform: service.PlatformAnthropic})
-	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-stats-metrics-backfill", Platform: service.PlatformAnthropic})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-stats-metrics-backfill-acc", Platform: domain.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-stats-metrics-backfill", Platform: domain.PlatformAnthropic})
 	s.rollupParityCreateLog(user, key, acc, grp.ID, 11, 13, 2, 3, 0.42, day5)
 
 	// Simulate an old deployment: tk_038's historical cost backfill marker exists

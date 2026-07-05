@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
 	dbusagecleanuptask "github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 
@@ -43,7 +44,7 @@ func TestUsageCleanupRepositoryEntCreateAndList(t *testing.T) {
 	start := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)
 	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
+		Status:    domain.UsageCleanupStatusPending,
 		Filters:   service.UsageCleanupFilters{StartTime: start, EndTime: end},
 		CreatedBy: 9,
 	}
@@ -51,7 +52,7 @@ func TestUsageCleanupRepositoryEntCreateAndList(t *testing.T) {
 	require.NotZero(t, task.ID)
 
 	task2 := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusRunning,
+		Status:    domain.UsageCleanupStatusRunning,
 		Filters:   service.UsageCleanupFilters{StartTime: start.Add(-24 * time.Hour), EndTime: end.Add(-24 * time.Hour)},
 		CreatedBy: 10,
 	}
@@ -79,7 +80,7 @@ func TestUsageCleanupRepositoryEntGetStatusAndProgress(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
 	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
+		Status:    domain.UsageCleanupStatusPending,
 		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 3,
 	}
@@ -87,7 +88,7 @@ func TestUsageCleanupRepositoryEntGetStatusAndProgress(t *testing.T) {
 
 	status, err := repo.GetTaskStatus(context.Background(), task.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusPending, status)
+	require.Equal(t, domain.UsageCleanupStatusPending, status)
 
 	_, err = repo.GetTaskStatus(context.Background(), task.ID+99)
 	require.ErrorIs(t, err, sql.ErrNoRows)
@@ -102,7 +103,7 @@ func TestUsageCleanupRepositoryEntCancelAndFinish(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
 	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
+		Status:    domain.UsageCleanupStatusPending,
 		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 5,
 	}
@@ -114,12 +115,12 @@ func TestUsageCleanupRepositoryEntCancelAndFinish(t *testing.T) {
 
 	loaded, err := client.UsageCleanupTask.Get(context.Background(), task.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusCanceled, loaded.Status)
+	require.Equal(t, domain.UsageCleanupStatusCanceled, loaded.Status)
 	require.NotNil(t, loaded.CanceledBy)
 	require.NotNil(t, loaded.CanceledAt)
 	require.NotNil(t, loaded.FinishedAt)
 
-	loaded.Status = service.UsageCleanupStatusSucceeded
+	loaded.Status = domain.UsageCleanupStatusSucceeded
 	_, err = client.UsageCleanupTask.Update().Where(dbusagecleanuptask.IDEQ(task.ID)).SetStatus(loaded.Status).Save(context.Background())
 	require.NoError(t, err)
 
@@ -132,7 +133,7 @@ func TestUsageCleanupRepositoryEntCancelError(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
 	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
+		Status:    domain.UsageCleanupStatusPending,
 		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 5,
 	}
@@ -147,7 +148,7 @@ func TestUsageCleanupRepositoryEntMarkResults(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
 	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusRunning,
+		Status:    domain.UsageCleanupStatusRunning,
 		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 12,
 	}
@@ -156,12 +157,12 @@ func TestUsageCleanupRepositoryEntMarkResults(t *testing.T) {
 	require.NoError(t, repo.MarkTaskSucceeded(context.Background(), task.ID, 6))
 	loaded, err := client.UsageCleanupTask.Get(context.Background(), task.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusSucceeded, loaded.Status)
+	require.Equal(t, domain.UsageCleanupStatusSucceeded, loaded.Status)
 	require.Equal(t, int64(6), loaded.DeletedRows)
 	require.NotNil(t, loaded.FinishedAt)
 
 	task2 := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusRunning,
+		Status:    domain.UsageCleanupStatusRunning,
 		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 12,
 	}
@@ -170,7 +171,7 @@ func TestUsageCleanupRepositoryEntMarkResults(t *testing.T) {
 	require.NoError(t, repo.MarkTaskFailed(context.Background(), task2.ID, 4, "boom"))
 	loaded2, err := client.UsageCleanupTask.Get(context.Background(), task2.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusFailed, loaded2.Status)
+	require.Equal(t, domain.UsageCleanupStatusFailed, loaded2.Status)
 	require.Equal(t, "boom", *loaded2.ErrorMessage)
 }
 
@@ -195,7 +196,7 @@ func TestUsageCleanupRepositoryEntListInvalidFilters(t *testing.T) {
 		context.Background(),
 		`INSERT INTO usage_cleanup_tasks (status, filters, created_by, deleted_rows, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
-		service.UsageCleanupStatusPending,
+		domain.UsageCleanupStatusPending,
 		[]byte("invalid-json"),
 		int64(1),
 		int64(0),
@@ -222,7 +223,7 @@ func TestUsageCleanupTaskFromEntFull(t *testing.T) {
 
 	task, err := usageCleanupTaskFromEnt(&dbent.UsageCleanupTask{
 		ID:           10,
-		Status:       service.UsageCleanupStatusFailed,
+		Status:       domain.UsageCleanupStatusFailed,
 		Filters:      filtersJSON,
 		CreatedBy:    11,
 		DeletedRows:  7,
@@ -236,7 +237,7 @@ func TestUsageCleanupTaskFromEntFull(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(10), task.ID)
-	require.Equal(t, service.UsageCleanupStatusFailed, task.Status)
+	require.Equal(t, domain.UsageCleanupStatusFailed, task.Status)
 	require.NotNil(t, task.ErrorMsg)
 	require.NotNil(t, task.CanceledBy)
 	require.NotNil(t, task.CanceledAt)

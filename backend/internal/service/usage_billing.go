@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
-var ErrUsageBillingRequestIDRequired = errors.New("usage billing request_id is required")
-var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerprint conflict")
+var ErrUsageBillingRequestIDRequired = domain.ErrUsageBillingRequestIDRequired
+var ErrUsageBillingRequestConflict = domain.ErrUsageBillingRequestConflict
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {

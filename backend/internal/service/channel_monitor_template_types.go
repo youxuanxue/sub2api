@@ -1,8 +1,10 @@
 package service
 
 import (
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 // ChannelMonitorRequestTemplate 请求模板（service 层模型）。
@@ -51,9 +53,7 @@ type ChannelMonitorRequestTemplateUpdateParams struct {
 
 // 模板相关错误（命名与现有 ErrChannelMonitor* 风格保持一致）。
 var (
-	ErrChannelMonitorTemplateNotFound = infraerrors.NotFound(
-		"CHANNEL_MONITOR_TEMPLATE_NOT_FOUND", "channel monitor request template not found",
-	)
+	ErrChannelMonitorTemplateNotFound = domain.ErrChannelMonitorTemplateNotFound
 	ErrChannelMonitorTemplateInvalidProvider = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_TEMPLATE_INVALID_PROVIDER", "template provider must be one of openai/anthropic/gemini",
 	)

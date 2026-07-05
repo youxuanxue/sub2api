@@ -4,15 +4,17 @@ import (
 	"context"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+// Usage cleanup status constants — canonical definitions are in domain/.
 const (
-	UsageCleanupStatusPending   = "pending"
-	UsageCleanupStatusRunning   = "running"
-	UsageCleanupStatusSucceeded = "succeeded"
-	UsageCleanupStatusFailed    = "failed"
-	UsageCleanupStatusCanceled  = "canceled"
+	UsageCleanupStatusPending   = domain.UsageCleanupStatusPending
+	UsageCleanupStatusRunning   = domain.UsageCleanupStatusRunning
+	UsageCleanupStatusSucceeded = domain.UsageCleanupStatusSucceeded
+	UsageCleanupStatusFailed    = domain.UsageCleanupStatusFailed
+	UsageCleanupStatusCanceled  = domain.UsageCleanupStatusCanceled
 )
 
 // UsageCleanupFilters 定义清理任务过滤条件

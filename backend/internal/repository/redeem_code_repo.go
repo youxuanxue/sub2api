@@ -9,6 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -73,7 +74,7 @@ func (r *redeemCodeRepository) GetByID(ctx context.Context, id int64) (*service.
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrRedeemCodeNotFound
+			return nil, domain.ErrRedeemCodeNotFound
 		}
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func (r *redeemCodeRepository) GetByCode(ctx context.Context, code string) (*ser
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrRedeemCodeNotFound
+			return nil, domain.ErrRedeemCodeNotFound
 		}
 		return nil, err
 	}
@@ -111,18 +112,18 @@ func (r *redeemCodeRepository) ListWithFilters(ctx context.Context, params pagin
 	if status != "" {
 		now := time.Now()
 		switch status {
-		case service.StatusExpired:
+		case domain.StatusExpired:
 			q = q.Where(redeemcode.Or(
-				redeemcode.StatusEQ(service.StatusExpired),
+				redeemcode.StatusEQ(domain.StatusExpired),
 				redeemcode.And(
-					redeemcode.StatusEQ(service.StatusUnused),
+					redeemcode.StatusEQ(domain.StatusUnused),
 					redeemcode.ExpiresAtNotNil(),
 					redeemcode.ExpiresAtLTE(now),
 				),
 			))
-		case service.StatusUnused:
+		case domain.StatusUnused:
 			q = q.Where(
-				redeemcode.StatusEQ(service.StatusUnused),
+				redeemcode.StatusEQ(domain.StatusUnused),
 				redeemcode.Or(
 					redeemcode.ExpiresAtIsNil(),
 					redeemcode.ExpiresAtGT(now),
@@ -228,7 +229,7 @@ func (r *redeemCodeRepository) Update(ctx context.Context, code *service.RedeemC
 	updated, err := up.Save(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return service.ErrRedeemCodeNotFound
+			return domain.ErrRedeemCodeNotFound
 		}
 		return err
 	}
@@ -279,12 +280,12 @@ func (r *redeemCodeRepository) batchUpdate(ctx context.Context, client *dbent.Cl
 		return 0, err
 	}
 	if len(existing) != len(ids) {
-		return 0, service.ErrRedeemCodeNotFound
+		return 0, domain.ErrRedeemCodeNotFound
 	}
 	if fields.TouchesUsedSensitiveFields() {
 		for _, code := range existing {
-			if code.Status == service.StatusUsed {
-				return 0, service.ErrRedeemCodeUsed
+			if code.Status == domain.StatusUsed {
+				return 0, domain.ErrRedeemCodeUsed
 			}
 		}
 	}
@@ -316,7 +317,7 @@ func (r *redeemCodeRepository) batchUpdate(ctx context.Context, client *dbent.Cl
 		return 0, err
 	}
 	if affected != len(ids) {
-		return 0, service.ErrRedeemCodeNotFound
+		return 0, domain.ErrRedeemCodeNotFound
 	}
 	return int64(affected), nil
 }
@@ -325,8 +326,8 @@ func (r *redeemCodeRepository) Use(ctx context.Context, id, userID int64) error 
 	now := time.Now()
 	client := clientFromContext(ctx, r.client)
 	affected, err := client.RedeemCode.Update().
-		Where(redeemcode.IDEQ(id), redeemcode.StatusEQ(service.StatusUnused)).
-		SetStatus(service.StatusUsed).
+		Where(redeemcode.IDEQ(id), redeemcode.StatusEQ(domain.StatusUnused)).
+		SetStatus(domain.StatusUsed).
 		SetUsedBy(userID).
 		SetUsedAt(now).
 		Save(ctx)
@@ -334,7 +335,7 @@ func (r *redeemCodeRepository) Use(ctx context.Context, id, userID int64) error 
 		return err
 	}
 	if affected == 0 {
-		return service.ErrRedeemCodeUsed
+		return domain.ErrRedeemCodeUsed
 	}
 	return nil
 }

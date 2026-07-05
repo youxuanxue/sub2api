@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -30,7 +31,7 @@ func (r *usageBillingRepository) ApplyVideoRefund(ctx context.Context, cmd *serv
 		return false, errors.New("usage billing repository db is nil")
 	}
 	if cmd.RequestID == "" {
-		return false, service.ErrUsageBillingRequestIDRequired
+		return false, domain.ErrUsageBillingRequestIDRequired
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)

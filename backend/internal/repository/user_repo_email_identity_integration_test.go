@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -13,8 +14,8 @@ func (s *UserRepoSuite) TestCreate_CreatesEmailAuthIdentityForNormalEmail() {
 	user := &service.User{
 		Email:        "repo-create@example.com",
 		PasswordHash: "test-password-hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 		Concurrency:  2,
 	}
 
@@ -36,8 +37,8 @@ func (s *UserRepoSuite) TestCreate_SkipsEmailAuthIdentityForSyntheticLinuxDoEmai
 	user := &service.User{
 		Email:        "linuxdo-legacy-user@linuxdo-connect.invalid",
 		PasswordHash: "test-password-hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 		Concurrency:  2,
 	}
 

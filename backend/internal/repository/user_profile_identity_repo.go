@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -363,7 +364,7 @@ func (r *userRepository) ListUserAuthIdentities(ctx context.Context, userID int6
 func (r *userRepository) UnbindUserAuthProvider(ctx context.Context, userID int64, provider string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" || provider == "email" {
-		return service.ErrIdentityProviderInvalid
+		return domain.ErrIdentityProviderInvalid
 	}
 
 	return r.WithUserProfileIdentityTx(ctx, func(txCtx context.Context) error {

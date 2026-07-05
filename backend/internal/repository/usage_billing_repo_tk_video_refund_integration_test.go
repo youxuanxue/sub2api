@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -53,7 +54,7 @@ func TestUsageBillingRepositoryApplyVideoRefund_BalanceRoundTrip(t *testing.T) {
 	})
 	account := mustCreateAccount(t, client, &service.Account{
 		Name: "video-refund-account-" + uuid.NewString(),
-		Type: service.AccountTypeAPIKey,
+		Type: domain.AccountTypeAPIKey,
 	})
 
 	// Forward charge (what video submit billing applies).
@@ -62,7 +63,7 @@ func TestUsageBillingRepositoryApplyVideoRefund_BalanceRoundTrip(t *testing.T) {
 		APIKeyID:        apiKey.ID,
 		UserID:          user.ID,
 		AccountID:       account.ID,
-		AccountType:     service.AccountTypeAPIKey,
+		AccountType:     domain.AccountTypeAPIKey,
 		BalanceCost:     0.87,
 		APIKeyQuotaCost: 0.87,
 	}
@@ -117,7 +118,7 @@ func TestUsageBillingRepositoryApplyVideoRefund_ReactivatesExhaustedKey(t *testi
 	})
 	account := mustCreateAccount(t, client, &service.Account{
 		Name: "video-refund-exhaust-account-" + uuid.NewString(),
-		Type: service.AccountTypeAPIKey,
+		Type: domain.AccountTypeAPIKey,
 	})
 
 	forward := &service.UsageBillingCommand{
@@ -125,7 +126,7 @@ func TestUsageBillingRepositoryApplyVideoRefund_ReactivatesExhaustedKey(t *testi
 		APIKeyID:        apiKey.ID,
 		UserID:          user.ID,
 		AccountID:       account.ID,
-		AccountType:     service.AccountTypeAPIKey,
+		AccountType:     domain.AccountTypeAPIKey,
 		BalanceCost:     1.25,
 		APIKeyQuotaCost: 1.25, // > quota 1 → exhausts the key
 	}

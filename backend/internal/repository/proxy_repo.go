@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -64,7 +65,7 @@ func (r *proxyRepository) GetByID(ctx context.Context, id int64) (*service.Proxy
 	m, err := r.client.Proxy.Get(ctx, id)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrProxyNotFound
+			return nil, domain.ErrProxyNotFound
 		}
 		return nil, err
 	}
@@ -126,7 +127,7 @@ func (r *proxyRepository) Update(ctx context.Context, proxyIn *service.Proxy) er
 		return nil
 	}
 	if dbent.IsNotFound(err) {
-		return service.ErrProxyNotFound
+		return domain.ErrProxyNotFound
 	}
 	return err
 }
@@ -295,7 +296,7 @@ func proxyListOrder(params pagination.PaginationParams) []func(*entsql.Selector)
 
 func (r *proxyRepository) ListActive(ctx context.Context) ([]service.Proxy, error) {
 	proxies, err := r.client.Proxy.Query().
-		Where(proxy.StatusEQ(service.StatusActive)).
+		Where(proxy.StatusEQ(domain.StatusActive)).
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -408,7 +409,7 @@ func (r *proxyRepository) GetAccountCountsForProxies(ctx context.Context) (count
 // ListActiveWithAccountCount returns all active proxies with account count, sorted by creation time descending
 func (r *proxyRepository) ListActiveWithAccountCount(ctx context.Context) ([]service.ProxyWithAccountCount, error) {
 	proxies, err := r.client.Proxy.Query().
-		Where(proxy.StatusEQ(service.StatusActive)).
+		Where(proxy.StatusEQ(domain.StatusActive)).
 		Order(dbent.Desc(proxy.FieldCreatedAt)).
 		All(ctx)
 	if err != nil {
@@ -506,7 +507,7 @@ func (r *proxyRepository) SweepExpiredProxies(ctx context.Context, now time.Time
 	accountsTouched := false
 
 	for _, p := range all {
-		if p.Status != service.StatusActive || !p.IsExpired(now) {
+		if p.Status != domain.StatusActive || !p.IsExpired(now) {
 			continue
 		}
 
@@ -527,7 +528,7 @@ func (r *proxyRepository) SweepExpiredProxies(ctx context.Context, now time.Time
 	}
 
 	if accountsTouched {
-		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventFullRebuild, nil, nil, nil); err != nil {
+		if err := enqueueSchedulerOutbox(ctx, r.sql, domain.SchedulerOutboxEventFullRebuild, nil, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.proxy", "[SchedulerOutbox] enqueue proxy expiry rebuild failed: err=%v", err)
 		}
 	}
@@ -565,7 +566,7 @@ func (r *proxyRepository) sweepOneExpiredProxy(ctx context.Context, proxyID int6
 func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec sqlExecutor, proxyID int64, target *int64, change bool) (int64, error) {
 	if _, err := exec.ExecContext(ctx,
 		`UPDATE proxies SET status=$1, updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`,
-		service.StatusExpired, proxyID); err != nil {
+		domain.StatusExpired, proxyID); err != nil {
 		return 0, err
 	}
 	if !change {
@@ -594,7 +595,7 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 // CountExpired 返回已过期（status=expired）的代理数量。
 func (r *proxyRepository) CountExpired(ctx context.Context) (int64, error) {
 	var c int64
-	err := scanSingleRow(ctx, r.sql, `SELECT COUNT(*) FROM proxies WHERE status=$1 AND deleted_at IS NULL`, []any{service.StatusExpired}, &c)
+	err := scanSingleRow(ctx, r.sql, `SELECT COUNT(*) FROM proxies WHERE status=$1 AND deleted_at IS NULL`, []any{domain.StatusExpired}, &c)
 	return c, err
 }
 
@@ -605,6 +606,6 @@ func (r *proxyRepository) CountExpiringSoon(ctx context.Context, now time.Time) 
 		SELECT COUNT(*) FROM proxies
 		WHERE deleted_at IS NULL AND status=$1 AND expires_at IS NOT NULL
 		  AND expires_at > $2 AND expires_at <= $2 + (expiry_warn_days || ' days')::interval`,
-		[]any{service.StatusActive, now}, &c)
+		[]any{domain.StatusActive, now}, &c)
 	return c, err
 }
