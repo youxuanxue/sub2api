@@ -168,6 +168,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/models',
+    name: 'ModelMarketplace',
+    component: () => import('@/views/ModelMarketplaceView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Model Marketplace',
+      titleKey: 'models.title'
+    }
+  },
+  {
     path: '/pricing',
     name: 'Pricing',
     component: () => import('@/views/PricingView.vue'),

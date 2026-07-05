@@ -720,6 +720,23 @@ export default {
     }
   },
 
+  // Model Marketplace (TK storefront)
+  models: {
+    title: '模型市场',
+    subtitle: '按能力、供应商和价格浏览对比 AI 模型',
+    filterAll: '全部',
+    filterText: '文本',
+    filterImage: '图片',
+    filterVideo: '视频',
+    searchPlaceholder: '搜索模型...',
+    pricePerK: '/ 1K tokens',
+    viewPricing: '查看定价详情',
+    noModels: '没有匹配的模型。',
+    browseAll: '浏览全部模型',
+    inputPrice: '输入',
+    outputPrice: '输出',
+  },
+
   // Navigation
   nav: {
     dashboard: '仪表盘',
@@ -763,6 +780,7 @@ export default {
     channelMonitor: '渠道监控',
     channelStatus: '渠道状态',
     riskControl: '风控中心',
+    modelMarketplace: '模型市场',
   },
 
   // Auth

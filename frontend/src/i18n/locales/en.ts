@@ -722,6 +722,23 @@ export default {
     }
   },
 
+  // Model Marketplace (TK storefront)
+  models: {
+    title: 'Model Marketplace',
+    subtitle: 'Browse and compare AI models by capability, provider, and price',
+    filterAll: 'All',
+    filterText: 'Text',
+    filterImage: 'Image',
+    filterVideo: 'Video',
+    searchPlaceholder: 'Search models...',
+    pricePerK: '/ 1K tokens',
+    viewPricing: 'View Pricing Details',
+    noModels: 'No models match your filters.',
+    browseAll: 'Browse All Models',
+    inputPrice: 'Input',
+    outputPrice: 'Output',
+  },
+
   // Navigation
   nav: {
     dashboard: 'Dashboard',
@@ -765,6 +782,7 @@ export default {
     channelMonitor: 'Channel Monitor',
     channelStatus: 'Channel Status',
     riskControl: 'Risk Control',
+    modelMarketplace: 'Model Marketplace',
   },
 
   // Auth
