@@ -542,7 +542,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import {
   getMePricingCatalog,
@@ -562,6 +562,7 @@ import {
 import { exportPricingCsv } from '@/composables/useTkPricingExport'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 
 // 「授权分组」badge 点击：跳到 Keys 页并自动打开「创建密钥」面板、预置该分组。
@@ -1096,8 +1097,24 @@ function reload(): void {
   void load()
 }
 
-onMounted(() => {
-  void load()
+/** Deep link from /models marketplace cards: ?model=<id> pre-fills exact search. */
+function applyModelDeepLinkFromRoute(): void {
+  const raw = route.query.model
+  const modelId =
+    typeof raw === 'string'
+      ? raw.trim()
+      : Array.isArray(raw)
+        ? (raw[0]?.trim() ?? '')
+        : ''
+  if (!modelId) return
+  viewMode.value = 'public'
+  modelSearchQuery.value = modelId
+  modelSearchMode.value = 'exact'
+}
+
+onMounted(async () => {
+  await load()
+  applyModelDeepLinkFromRoute()
   void appStore.fetchPublicSettings()
 })
 </script>

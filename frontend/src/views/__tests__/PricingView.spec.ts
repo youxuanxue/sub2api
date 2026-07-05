@@ -5,7 +5,7 @@ import PricingView from '../PricingView.vue'
 import type { PublicCatalogResponse } from '@/api/pricing'
 import type { MePricingCatalogResponse } from '@/api/me-pricing'
 
-const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, showSuccess, showError } =
+const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, showSuccess, showError, routeState } =
   vi.hoisted(() => ({
     getPublicPricing: vi.fn(),
     getMePricingCatalog: vi.fn(),
@@ -13,6 +13,7 @@ const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, show
     exportPricingCsv: vi.fn(),
     showSuccess: vi.fn(),
     showError: vi.fn(),
+    routeState: { query: {} as Record<string, string | string[] | undefined> },
   }))
 
 vi.mock('@/api/pricing', () => ({
@@ -44,6 +45,11 @@ vi.mock('@/stores/app', () => ({
     showSuccess,
     showError,
   }),
+}))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState,
+  useRouter: () => ({ push: vi.fn() }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -234,6 +240,22 @@ describe('PricingView', () => {
     localStorage.clear()
     authState.isAuthenticated = false
     authState.isAdmin = false
+    routeState.query = {}
+  })
+
+  it('prefills exact model search from ?model= deep link', async () => {
+    routeState.query = { model: 'gpt-4o-mini' }
+    getPublicPricing.mockResolvedValue(
+      publicCatalog([publicModel('gpt-4o-mini'), publicModel('gpt-5.4')])
+    )
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    const search = wrapper.get('#pricing-model-search')
+    expect((search.element as HTMLInputElement).value).toBe('gpt-4o-mini')
+    expect(wrapper.text()).toContain('gpt-4o-mini')
+    expect(wrapper.text()).not.toContain('gpt-5.4')
   })
 
   it('shows max output column when catalog includes max_output_tokens', async () => {

@@ -52,6 +52,8 @@ func PrerenderMiddleware() gin.HandlerFunc {
 			html = prerenderPricingHTML()
 		case "/quickstart":
 			html = prerenderQuickstartHTML()
+		case "/models":
+			html = prerenderModelsHTML()
 		default:
 			c.Next()
 			return
@@ -95,34 +97,34 @@ func prerenderHomeHTML() string {
 <p>%s</p>
 
 <section>
-<h2>Official Quality</h2>
+<h2>Direct to Official APIs</h2>
 <p>官方品质 API 调用。直连官方接口，无中间商，延迟低、稳定性高。每一次请求都等同于直接调用官方 API。</p>
 </section>
 
 <section>
-<h2>One Key for Everything</h2>
+<h2>Every Modality, One Key</h2>
 <p>一个 Key 全搞定。文本生成、图像创作、视频制作，所有主流 AI 模型统一接入，无需管理多个 API Key。</p>
 </section>
 
 <section>
-<h2>Predictable Pricing</h2>
+<h2>Predictable, Quota-based Pricing</h2>
 <p>订阅配额，费用可预测。按日/周/月订阅配额，团队共享，超限自动停。费用透明、可预期。</p>
 </section>
 
 <section>
-<h2>Built-in Studio</h2>
+<h2>Built-in Studio Workspace</h2>
 <p>内置 Studio 创作工作台——Chat、Image、Video、BakeOff 多模型对比，一站式体验所有 AI 能力。</p>
 </section>
 
 <section>
-<h2>Supported Providers</h2>
+<h2>Supported Models</h2>
 <ul>
 <li>OpenAI (GPT-4o, GPT-4, o1, o3)</li>
 <li>Anthropic (Claude Opus, Sonnet, Haiku)</li>
 <li>Google (Gemini 2.5 Pro, Flash)</li>
 <li>Amazon (Kiro)</li>
 <li>xAI (Grok)</li>
-<li>DeepSeek</li>
+<li>Alibaba Cloud Qwen (通义千问)</li>
 <li>Midjourney</li>
 <li>Runway (Video)</li>
 <li>Suno (Music)</li>
@@ -130,7 +132,7 @@ func prerenderHomeHTML() string {
 </section>
 
 <section>
-<h2>Free Trial</h2>
+<h2>Get Started Free</h2>
 <p>%s</p>
 <p>%s</p>
 </section>
@@ -140,7 +142,7 @@ func prerenderHomeHTML() string {
 </nav>
 
 <noscript>
-<p>TokenKey requires JavaScript for the full interactive experience. Please enable JavaScript to access the dashboard, model catalog, and API management features.</p>
+<p>Enable JavaScript to access the dashboard, model catalog, and API management features.</p>
 </noscript>
 </body>
 </html>`, head, storefrontSiteTitle, storefrontZHHeroSubtitle, storefrontZHFreeTrial, storefrontENFreeTrial)
@@ -161,19 +163,19 @@ func prerenderPricingHTML() string {
 <p>%s</p>
 
 <section>
-<h2>Pricing Model</h2>
-<p>TokenKey offers transparent, official API pricing with real-time model availability monitoring. Subscription quota plans available for predictable costs.</p>
+<h2>Pricing</h2>
+<p>Transparent, per-model pricing with no markup on vendor rates. Quota-based plans let you cap spend before it happens.</p>
 <ul>
-<li>Official API pricing, per-model transparent rates</li>
-<li>All mainstream AI models: text, image, and video</li>
-<li>Real-time model availability monitoring</li>
-<li>Subscription quota plans for predictable budgeting</li>
+<li>Vendor-rate pricing with per-model transparency</li>
+<li>Text, image, and video models in one catalog</li>
+<li>Live model availability dashboard</li>
+<li>Quota plans for predictable monthly budgets</li>
 </ul>
 </section>
 
 <section>
 <h2>Full Model Catalog</h2>
-<p>JavaScript is required to view the full interactive pricing catalog with real-time model availability and detailed per-model quota information.</p>
+<p>Enable JavaScript to browse the interactive pricing catalog with live availability and per-model quota details.</p>
 </section>
 
 <nav>
@@ -181,7 +183,7 @@ func prerenderPricingHTML() string {
 </nav>
 
 <noscript>
-<p>TokenKey requires JavaScript to display the full interactive pricing catalog. Please enable JavaScript to see detailed model pricing, quota information, and subscription management.</p>
+<p>Enable JavaScript to view the full interactive pricing catalog, quota details, and subscription management.</p>
 </noscript>
 </body>
 </html>`, head, title, desc)
@@ -190,7 +192,7 @@ func prerenderPricingHTML() string {
 func prerenderQuickstartHTML() string {
 	title := "Quick Start - TokenKey AI API Gateway"
 	desc := "2 分钟开始使用 TokenKey AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
-	ogDesc := "Get started with TokenKey in 2 minutes. One API Key for Claude, GPT, Gemini, DeepSeek and more."
+	ogDesc := "Get started in 2 minutes. One API key for Claude, GPT, Gemini, Qwen, and more."
 	head := prerenderHead(title, desc, ogDesc, "/quickstart")
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
@@ -202,7 +204,7 @@ func prerenderQuickstartHTML() string {
 <p>%s</p>
 
 <section>
-<h2>Supported Tools</h2>
+<h2>Works With</h2>
 <ul>
 <li>Claude Code</li>
 <li>Cursor</li>
@@ -214,7 +216,7 @@ func prerenderQuickstartHTML() string {
 </section>
 
 <section>
-<h2>Free Trial</h2>
+<h2>Get Started Free</h2>
 <p>%s</p>
 </section>
 
@@ -224,8 +226,44 @@ func prerenderQuickstartHTML() string {
 </nav>
 
 <noscript>
-<p>TokenKey requires JavaScript for the interactive quick start guide. Please enable JavaScript to get your API key and configuration snippets.</p>
+<p>Enable JavaScript for the interactive quick-start guide, API key generation, and configuration snippets.</p>
 </noscript>
 </body>
 </html>`, head, title, desc, storefrontENFreeTrial)
+}
+
+func prerenderModelsHTML() string {
+	title := "Model Marketplace - TokenKey AI API Gateway"
+	desc := "Browse and compare AI models by capability, provider, and price. Text, image, and video models in one catalog with transparent per-model pricing."
+	ogDesc := "Browse Claude, GPT, Gemini, Qwen, and more. Filter by modality and provider, then jump to live pricing."
+	head := prerenderHead(title, desc, ogDesc, "/models")
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+%s
+</head>
+<body>
+<h1>%s</h1>
+<p>%s</p>
+
+<section>
+<h2>Model Marketplace</h2>
+<p>Browse the full public catalog by text, image, or video capability. Filter by provider and search by model id.</p>
+<ul>
+<li>Card-based browsing with vendor facets</li>
+<li>Per-model input/output pricing at a glance</li>
+<li>Links to the interactive pricing catalog for details</li>
+</ul>
+</section>
+
+<nav>
+<a href="/">Back to Home / 返回首页</a>
+<a href="/pricing">View Pricing / 查看定价</a>
+</nav>
+
+<noscript>
+<p>Enable JavaScript to browse the interactive model marketplace and pricing catalog.</p>
+</noscript>
+</body>
+</html>`, head, title, desc)
 }

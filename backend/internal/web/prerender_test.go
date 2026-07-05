@@ -75,6 +75,14 @@ func TestPrerenderMiddleware(t *testing.T) {
 			wantBody:   "Quick Start",
 		},
 		{
+			name:       "googlebot models prerender",
+			path:       "/models",
+			ua:         "Googlebot",
+			wantStatus: http.StatusOK,
+			wantHeader: "1",
+			wantBody:   "Model Marketplace",
+		},
+		{
 			name:       "crawler unknown route falls through",
 			path:       "/dashboard",
 			ua:         "Googlebot",

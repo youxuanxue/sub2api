@@ -140,6 +140,15 @@
               </span>
             </p>
 
+            <!-- Free Trial Badge -->
+            <div class="mb-6">
+              <span
+                class="inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50/80 px-4 py-1.5 text-sm font-medium text-primary-700 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300"
+              >
+                {{ t('home.freeTrial.badge') }}
+              </span>
+            </div>
+
             <!-- CTA Button -->
             <div>
               <router-link
@@ -276,6 +285,49 @@
           </div>
         </div>
 
+        <!-- Browse All Models CTA -->
+        <div class="mb-16 text-center">
+          <router-link
+            to="/models"
+            class="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-5 py-2.5 text-sm font-medium text-primary-700 transition-all hover:bg-primary-100 hover:shadow-md dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+          >
+            {{ t('models.browseAll') }}
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+            </svg>
+          </router-link>
+        </div>
+
+        <!-- Use Cases -->
+        <div class="mb-8 text-center">
+          <h2 class="mb-3 text-2xl font-bold text-gray-900 dark:text-white">
+            {{ t('home.useCases.title') }}
+          </h2>
+          <p class="text-sm text-gray-600 dark:text-dark-400">
+            {{ t('home.useCases.subtitle') }}
+          </p>
+        </div>
+        <div class="mb-16 grid gap-6 md:grid-cols-3">
+          <div
+            v-for="uc in useCaseCards"
+            :key="uc.key"
+            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+          >
+            <div
+              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br shadow-lg transition-transform group-hover:scale-110"
+              :class="uc.gradient"
+            >
+              <Icon :name="uc.icon" size="lg" class="text-white" />
+            </div>
+            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t(uc.title) }}
+            </h3>
+            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+              {{ t(uc.desc) }}
+            </p>
+          </div>
+        </div>
+
         <!-- Problems → Why us (integrated section): pain points lead into the comparison -->
         <div class="mb-8 text-center">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -346,6 +398,43 @@
           </table>
         </div>
 
+        <!-- FAQ Accordion -->
+        <div class="mb-8 text-center">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+            {{ t('home.faq.title') }}
+          </h2>
+        </div>
+        <div class="mb-16 space-y-3">
+          <div
+            v-for="key in faqKeys"
+            :key="key"
+            class="overflow-hidden rounded-xl border border-gray-200/50 bg-white/60 backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/60"
+          >
+            <button
+              class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-gray-50/80 dark:hover:bg-dark-700/40"
+              @click="toggleFaq(key)"
+            >
+              <span class="text-sm font-medium text-gray-900 dark:text-white">
+                {{ t(`home.faq.items.${key}.q`) }}
+              </span>
+              <Icon
+                name="chevronDown"
+                size="sm"
+                class="flex-shrink-0 text-gray-400 transition-transform duration-200 dark:text-dark-500"
+                :class="{ 'rotate-180': openFaqItems[key] }"
+              />
+            </button>
+            <div
+              v-show="openFaqItems[key]"
+              class="border-t border-gray-200/50 px-6 py-4 dark:border-dark-700/50"
+            >
+              <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+                {{ t(`home.faq.items.${key}.a`) }}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- CTA band -->
         <div
           class="rounded-2xl border border-primary-200/60 bg-gradient-to-br from-primary-50 to-white p-10 text-center backdrop-blur-sm dark:border-primary-800/60 dark:from-dark-800/80 dark:to-dark-900/60"
@@ -391,7 +480,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore, useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
@@ -462,6 +551,38 @@ const heroCards = [
 // Static iteration keys for the pain-point / comparison i18n blocks.
 const painPointKeys = ['expensive', 'complex', 'unstable', 'noControl'] as const
 const comparisonRows = ['unified', 'quota', 'quality', 'multimodal', 'monitoring'] as const
+
+// Use-case cards
+const useCaseCards = [
+  {
+    key: 'aiCoding',
+    icon: 'terminal',
+    gradient: 'from-primary-500 to-primary-600 shadow-primary-500/30',
+    title: 'home.useCases.aiCoding.title',
+    desc: 'home.useCases.aiCoding.desc',
+  },
+  {
+    key: 'creativeStudio',
+    icon: 'sparkles',
+    gradient: 'from-pink-500 to-rose-600 shadow-pink-500/30',
+    title: 'home.useCases.creativeStudio.title',
+    desc: 'home.useCases.creativeStudio.desc',
+  },
+  {
+    key: 'teamSharing',
+    icon: 'users',
+    gradient: 'from-blue-500 to-indigo-600 shadow-blue-500/30',
+    title: 'home.useCases.teamSharing.title',
+    desc: 'home.useCases.teamSharing.desc',
+  },
+] as const
+
+// FAQ accordion
+const faqKeys = ['differ', 'models', 'billing', 'tools', 'trial', 'quotaUp'] as const
+const openFaqItems = reactive<Record<string, boolean>>({})
+function toggleFaq(key: string) {
+  openFaqItems[key] = !openFaqItems[key]
+}
 
 const authStore = useAuthStore()
 const appStore = useAppStore()

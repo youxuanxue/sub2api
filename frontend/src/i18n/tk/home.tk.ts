@@ -26,62 +26,62 @@ const en: HomeLocaleOverlay = {
       subtitle: STOREFRONT_SEO.en.heroSubtitle,
     },
     tags: {
-      subscriptionToApi: 'Native Access',
-      nativeFidelity: 'Full Features',
-      failover: 'Instant Failover',
+      subscriptionToApi: 'Direct Access',
+      nativeFidelity: 'Full Fidelity',
+      failover: 'Auto Failover',
       multiPlatform: 'Any Model',
       stickySession: 'Sticky Sessions',
-      quotaControl: 'Quota Control',
+      quotaControl: 'Quota Controls',
     },
     cards: {
       native: {
-        title: 'Official Quality, Native Pass-through',
-        desc: 'Every request goes directly to official APIs. No downgrades, no dilution, no third-party routing.',
+        title: 'Direct to Official APIs',
+        desc: 'Every request hits the vendor endpoint directly. No downgrades, no third-party proxies, no quality loss.',
       },
       stability: {
-        title: 'Full Multimodal Coverage',
-        desc: 'Text, image, video. Claude / GPT / Gemini / DeepSeek. One Key for everything. Built-in Studio workspace.',
+        title: 'Every Modality, One Key',
+        desc: 'Text, image, video, and code. Claude, GPT, Gemini, Qwen — all through a single API key. Built-in Studio for multimodal workflows.',
       },
       billing: {
-        title: 'Subscription Quota, Predictable Costs',
-        desc: 'Stop guessing your token bill. Daily/weekly/monthly subscription quota, team sharing, auto-stop on limit.',
+        title: 'Predictable, Quota-based Pricing',
+        desc: 'No more surprise token bills. Set daily, weekly, or monthly quotas per team. Hard caps stop spend automatically.',
       },
     },
     comparison: {
-      title: 'Why Choose Us?',
+      title: 'How We Compare',
       headers: {
-        feature: 'Comparison',
-        official: 'Official Direct',
+        feature: 'Feature',
+        official: 'Vendor API',
         thirdParty: 'Third-party Relay',
         us: 'TokenKey',
       },
       items: {
         unified: {
-          feature: 'Unified Access',
+          feature: 'Single API Key',
           official: '✗',
           thirdParty: '✗',
           us: '✓',
         },
         quota: {
-          feature: 'Quota Management',
+          feature: 'Built-in Quotas',
           official: '✗',
           thirdParty: '✗',
           us: '✓',
         },
         quality: {
-          feature: 'Quality Guarantee',
+          feature: 'Vendor-grade Quality',
           official: '✓',
           thirdParty: '✗',
           us: '✓',
         },
         multimodal: {
-          feature: 'Multimodal Unified',
+          feature: 'Multimodal Support',
           official: '✗',
           thirdParty: 'Partial',
           us: '✓',
         },
         monitoring: {
-          feature: 'Real-time Monitoring',
+          feature: 'Usage Monitoring',
           official: '✗',
           thirdParty: '✗',
           us: '✓',
@@ -89,20 +89,68 @@ const en: HomeLocaleOverlay = {
       },
     },
     providers: {
-      title: 'Supported AI Models',
-      description: 'One key, switch between models freely',
+      title: 'Supported Models',
+      description: 'One key to access any model, swap anytime',
       supported: 'Supported',
       compatible: 'Compatible',
       claude: 'Claude',
       gpt: 'GPT',
       gemini: 'Gemini',
       kiro: 'Kiro',
-      deepseek: 'DeepSeek',
-      volcengine: 'Doubao · VolcEngine',
+      qwen: 'Alibaba Cloud Qwen',
       compatTitle: '200+ OpenAI-Compatible Models',
     },
+    freeTrial: {
+      badge: '🎁 Free Trial: 1M Tokens',
+      startFree: 'Start free — no card required',
+    },
+    useCases: {
+      title: 'Built for Every AI Workflow',
+      subtitle: 'Start free. Scale to production.',
+      aiCoding: {
+        title: 'AI Coding Agent',
+        desc: 'Power Claude Code, Cursor, Codex, and Cline with one key. No per-seat license, pay by actual usage.',
+      },
+      creativeStudio: {
+        title: 'Creative Studio',
+        desc: 'Generate images with GPT, videos with Gemini and Runway, all from a unified workspace.',
+      },
+      teamSharing: {
+        title: 'Team API Sharing',
+        desc: 'One subscription, multiple team members. Quota-controlled, usage-tracked, no overspend surprises.',
+      },
+    },
+    faq: {
+      title: 'Frequently Asked Questions',
+      items: {
+        differ: {
+          q: 'How does TokenKey differ from third-party relay services?',
+          a: 'Every request goes directly to official APIs with full feature fidelity — no third-party routing, no quality downgrades.',
+        },
+        models: {
+          q: 'Which AI models are supported?',
+          a: 'Claude, GPT, Gemini, Alibaba Cloud Qwen, plus 200+ OpenAI-compatible models. Text, image, and video generation.',
+        },
+        billing: {
+          q: 'How does billing work?',
+          a: 'Subscription-based quota (daily/weekly/monthly). Predictable costs, auto-stop on limit — no surprise bills.',
+        },
+        tools: {
+          q: 'Can I use TokenKey with Claude Code / Cursor / Codex?',
+          a: 'Yes — set ANTHROPIC_BASE_URL and you are ready. Native support for sticky sessions, extended thinking, and streaming.',
+        },
+        trial: {
+          q: 'Is there a free trial?',
+          a: '1M tokens free, email registration only, no credit card required. Start building immediately.',
+        },
+        quotaUp: {
+          q: 'What happens when my quota is used up?',
+          a: 'Requests pause until the next billing cycle or you top up. No hidden overage charges.',
+        },
+      },
+    },
     cta: {
-      title: 'Start Free · 1M Tokens Included',
+      title: 'Try Free — 1M Tokens on Us',
       description: STOREFRONT_SEO.en.ctaDescriptionEn,
     },
   },
@@ -129,7 +177,7 @@ const zh: HomeLocaleOverlay = {
       },
       stability: {
         title: '全模态覆盖',
-        desc: '文本、图像、视频。Claude / GPT / Gemini / DeepSeek。一个 Key 全搞定。内置 Studio 创作工作台。',
+        desc: '文本、图像、视频。Claude / GPT / Gemini / 通义千问。一个 Key 全搞定。内置 Studio 创作工作台。',
       },
       billing: {
         title: '订阅配额，费用可预测',
@@ -186,9 +234,57 @@ const zh: HomeLocaleOverlay = {
       gpt: 'GPT',
       gemini: 'Gemini',
       kiro: 'Kiro',
-      deepseek: 'DeepSeek',
-      volcengine: '豆包·VolcEngine',
+      qwen: '通义千问',
       compatTitle: '200+ OpenAI 兼容模型',
+    },
+    freeTrial: {
+      badge: '🎁 免费试用：100 万 Tokens',
+      startFree: '免费开始，无需信用卡',
+    },
+    useCases: {
+      title: '为每种 AI 工作流而生',
+      subtitle: '免费开始，按需扩展。',
+      aiCoding: {
+        title: 'AI 编程助手',
+        desc: '一个 Key 驱动 Claude Code、Cursor、Codex、Cline。无需按席位付费，按实际用量计费。',
+      },
+      creativeStudio: {
+        title: '创意工作室',
+        desc: '用 GPT 生成图像，用 Gemini 和 Runway 生成视频，统一工作台一站搞定。',
+      },
+      teamSharing: {
+        title: '团队 API 共享',
+        desc: '一份订阅，多人共用。配额可控，用量可追踪，杜绝超支意外。',
+      },
+    },
+    faq: {
+      title: '常见问题',
+      items: {
+        differ: {
+          q: 'TokenKey 和第三方中转服务有什么区别？',
+          a: '每次请求都直达官方 API，特性完整透传——不路由第三方，不降级质量。',
+        },
+        models: {
+          q: '支持哪些 AI 模型？',
+          a: 'Claude、GPT、Gemini、通义千问（阿里云百炼），以及 200+ OpenAI 兼容模型。支持文本、图像、视频生成。',
+        },
+        billing: {
+          q: '计费方式是怎样的？',
+          a: '订阅配额制（按日/周/月），费用可预测，超限自动暂停——不会有意外账单。',
+        },
+        tools: {
+          q: '可以用 TokenKey 接入 Claude Code / Cursor / Codex 吗？',
+          a: '可以——设置 ANTHROPIC_BASE_URL 即可。原生支持会话保持、扩展思考和流式输出。',
+        },
+        trial: {
+          q: '有免费试用吗？',
+          a: '100 万 tokens 免费，仅需邮箱注册，无需绑定信用卡。立即开始使用。',
+        },
+        quotaUp: {
+          q: '配额用完了怎么办？',
+          a: '请求会暂停，直到下一个计费周期或充值。不会有隐性超额费用。',
+        },
+      },
     },
     cta: {
       title: '免费试用 · 送 100 万 tokens',
