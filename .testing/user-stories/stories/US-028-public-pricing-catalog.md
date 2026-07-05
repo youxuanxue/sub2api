@@ -2,7 +2,7 @@
 
 - ID: US-028
 - Title: Public model + pricing catalog reachable without auth so visitors can decide before registering
-- Version: V1.6 (SSOT display-safe catalog)
+- Version: V1.5 (cold-start P0-A)
 - Priority: P0
 - As a / I want / So that:
   作为 **未登录的潜在 TokenKey 用户**，我希望 **进站点首页就能看到「这个站支持哪些模型 + 单价 + 上下文窗口 + 走哪条协议」的目录页**，**以便** 我在不消耗试用额度（甚至不留邮箱）的前提下，自己判断 TokenKey 是否覆盖我的工作流；不再像 L 站 `t/topic/1413702` 反映的那样，「点进去只见登录页就走了」。
@@ -14,7 +14,6 @@
 
 - Risk Focus:
   - 逻辑错误：响应 `data[]` 必须基于已加载的 `pricingData` 字典生成；空字典或 PricingService 未初始化时返回空集合而非 500。每条 entry 必须有可识别的 `model_id` + 价格字段，缺价格的条目不应出现。
-  - 展示错误：公开目录、Your Menu、`/v1/models` 只能展示已定价且当前 public SSOT gate 证明 display-safe 的模型；账号级探测 200 但 universal 全协议 gate 未 `keep_displayed` 的模型必须隐藏，避免 Studio/目录给出“能选但不能无脑通”的选项。
   - 行为回归：与现有 `GET /v1/models`（鉴权后端点）行为正交，本端点不得改 `/v1/models` 任何行为；现有 `model-pricing` JSON 加载逻辑不得被改坏。
   - 安全问题：响应 JSON 中**不得**出现 `account_id`、`channel_type`、`api_key`、`access_token`、`organization`、`base_url`、内部 `cost_per_token` 浮点原值（必须按 1k token 单价输出）。
   - 不适用：状态机——本端点是只读元数据查询，无状态迁移。
@@ -30,7 +29,6 @@
 5. **AC-005 (负向 / PricingService 未加载 → 空集合不 500)**：Given `PricingService.pricingData` 为空（启动期 / 加载失败 fallback），When GET `/api/v1/public/pricing`，Then 返回 200，`data == []`，不抛 500。
 6. **AC-006 (回归 / 鉴权 `/v1/models` 行为不变)**：Given 本 PR 落地，When 持有效 API Key GET `/v1/models`，Then 响应结构、字段、模型集合与 baseline 完全一致（沿用现有 `TestGetAvailableModels_*`）。
 7. **AC-007 (回归 / 单元测试全绿)**：Given 本 PR 落地，When 执行 `go test -tags=unit -count=1 ./internal/...`，Then 全部包通过。
-8. **AC-008 (负向 / 未 display-safe 的已定价模型不展示)**：Given `claude-fable-5` 与 `claude-opus-4-1` 仍有 pricing 且 native cc-us* account probe 曾返回 200，但 live public SSOT gate 对 chat/count_tokens/messages/responses 未返回 `keep_displayed`，When 构建 public catalog / Your Menu / `/v1/models` fallback，Then 这两个 model id 不出现；后续只有同一 SSOT gate 返回 `keep_displayed` 后才能重新进入展示 allowlist。
 
 ## Assertions
 
@@ -39,8 +37,6 @@
 - 在 setting `pricing_catalog_public=false` 时，`httpGet("/api/v1/public/pricing")` → status=404，body 不含 `"object":"list"`。
 - 序列化后的响应字符串对 7 个敏感子串（`account_id`、`channel_type`、`api_key`、`access_token`、`organization`、`base_url`、`cost_per_token`）逐一 `strings.Contains == false`。
 - 用空 `pricingData` 构造 PricingService 并请求 → status=200，`json.data == []`（不抛 500）。
-- `isPublicCatalogModelSupported("anthropic", "claude-fable-5") == false` 且 `isPublicCatalogModelSupported("anthropic", "claude-opus-4-1") == false`，同时普通可展示 Claude（如 `claude-opus-4-8`）仍为 true。
-- `tkServableCandidateIDs(PlatformAnthropic)` 与 unrestricted Anthropic Your Menu fallback 均不包含 `claude-fable-5` / `claude-opus-4-1`。
 
 ## Linked Tests
 
@@ -53,9 +49,6 @@
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_EmptyOrUnparseableSourceReturnsEmptyList`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_CachesByMTime`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_NilReceiverIsSafe`
-- `backend/internal/service/pricing_catalog_tk_test.go`::`TestIsPublicCatalogModelSupported`
-- `backend/internal/service/pricing_catalog_candidates_tk_test.go`::`TestTkServableCandidateIDs`
-- `backend/internal/service/me_pricing_catalog_tk_test.go`::`TestBuildForUser_AnthropicUnrestricted_ListsServableModels`
 
 运行命令：
 
