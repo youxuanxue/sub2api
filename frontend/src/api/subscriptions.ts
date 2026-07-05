@@ -8,19 +8,26 @@ import type { UserSubscription, SubscriptionProgress } from '@/types'
 
 /**
  * Subscription summary for user dashboard
+ * Matches Go SubscriptionSummaryItem + summary envelope
  */
+export interface SubscriptionSummaryItem {
+  id: number
+  group_id: number
+  group_name: string
+  status: string
+  daily_used_usd?: number
+  daily_limit_usd?: number
+  weekly_used_usd?: number
+  weekly_limit_usd?: number
+  monthly_used_usd?: number
+  monthly_limit_usd?: number
+  expires_at?: string
+}
+
 export interface SubscriptionSummary {
   active_count: number
-  subscriptions: Array<{
-    id: number
-    group_name: string
-    status: string
-    daily_progress: number | null
-    weekly_progress: number | null
-    monthly_progress: number | null
-    expires_at: string | null
-    days_remaining: number | null
-  }>
+  total_used_usd: number
+  subscriptions: SubscriptionSummaryItem[]
 }
 
 /**
@@ -40,10 +47,18 @@ export async function getActiveSubscriptions(): Promise<UserSubscription[]> {
 }
 
 /**
+ * Progress info for a single subscription (matches Go SubscriptionProgressInfo)
+ */
+export interface SubscriptionProgressInfo {
+  subscription: UserSubscription
+  progress: SubscriptionProgress | null
+}
+
+/**
  * Get progress for all user's active subscriptions
  */
-export async function getSubscriptionsProgress(): Promise<SubscriptionProgress[]> {
-  const response = await apiClient.get<SubscriptionProgress[]>('/subscriptions/progress')
+export async function getSubscriptionsProgress(): Promise<SubscriptionProgressInfo[]> {
+  const response = await apiClient.get<SubscriptionProgressInfo[]>('/subscriptions/progress')
   return response.data
 }
 
@@ -55,22 +70,9 @@ export async function getSubscriptionSummary(): Promise<SubscriptionSummary> {
   return response.data
 }
 
-/**
- * Get progress for a specific subscription
- */
-export async function getSubscriptionProgress(
-  subscriptionId: number
-): Promise<SubscriptionProgress> {
-  const response = await apiClient.get<SubscriptionProgress>(
-    `/subscriptions/${subscriptionId}/progress`
-  )
-  return response.data
-}
-
 export default {
   getMySubscriptions,
   getActiveSubscriptions,
   getSubscriptionsProgress,
-  getSubscriptionSummary,
-  getSubscriptionProgress
+  getSubscriptionSummary
 }
