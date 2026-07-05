@@ -381,6 +381,16 @@
   ],
   "skiplist": [
     {
+      "platform": "anthropic",
+      "model": "claude-fable-5",
+      "reason": "2026-07-05 live SSOT gate on v1.8.84 returned no keep_displayed rows: chat empty-pool 429, count_tokens 503 transient, messages/responses 400 model/protocol not provisioned. Native cc-us* account probes prove account-level capability, but public catalog/menu display stays hidden until the same universal gate returns keep_displayed across the text protocols."
+    },
+    {
+      "platform": "anthropic",
+      "model": "claude-opus-4-1",
+      "reason": "2026-07-05 live SSOT gate on v1.8.84 returned no keep_displayed rows: chat empty-pool 429, count_tokens 503 transient, messages/responses 400 model/protocol not provisioned. Native cc-us* account probes prove account-level capability, but public catalog/menu display stays hidden until the same universal gate returns keep_displayed across the text protocols."
+    },
+    {
       "platform": "openai",
       "model": "codex-mini-latest",
       "reason": "Stable 400: not supported with a ChatGPT account; codex normalization maps legacy requests away from this id."

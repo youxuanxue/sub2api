@@ -88,12 +88,18 @@ import (
 // rewrites the antigravity anchors. Adding an antigravity probe family to that
 // tool is a follow-up.
 
-// supportedAnthropicCatalogModels — claude IDs confirmed servable.
+// supportedAnthropicCatalogModels — claude IDs confirmed public-display safe.
+//
+// claude-fable-5 and claude-opus-4-1 are intentionally absent even though
+// native cc-us* account probes have shown account-level servability. The
+// 2026-07-05 live SSOT gate still returned no keep_displayed row for those two
+// ids (chat/count_tokens need a non-throttled native pool; messages/responses
+// need public universal provisioning), so listing them would violate the
+// visible => reachable rule. Keep the matching reprobe-ledger skiplist entries
+// in sync so an allowlist refresh cannot re-add them without new gate evidence.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
-	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},
-	"claude-opus-4-1":   {},
 	"claude-opus-4-5":   {},
 	"claude-opus-4-6":   {},
 	"claude-opus-4-7":   {},

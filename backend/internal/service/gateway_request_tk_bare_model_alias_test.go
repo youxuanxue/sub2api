@@ -39,11 +39,14 @@ func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T) {
 	aliases := tkDeriveBareModelAliases(supportedAnthropicCatalogModels)
 	for family, want := range map[string]string{
 		"opus": "claude-opus-4-8", "sonnet": "claude-sonnet-5",
-		"haiku": "claude-haiku-4-5", "fable": "claude-fable-5",
+		"haiku": "claude-haiku-4-5",
 	} {
 		if got := aliases[family]; got != want {
 			t.Errorf("real-table pin: bare %q → %q, pinned %q — servable allowlist changed; update pin consciously", family, got, want)
 		}
+	}
+	if got, ok := aliases["fable"]; ok {
+		t.Errorf("real-table pin: bare %q → %q, want hidden until public SSOT gate returns keep_displayed", "fable", got)
 	}
 }
 

@@ -388,8 +388,8 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		want          bool
 	}{
 		{"anthropic", "claude-opus-4-8", true},
-		{"anthropic", "claude-fable-5", true},
-		{"anthropic", "claude-opus-4-1", true},
+		{"anthropic", "claude-fable-5", false},  // account-capable, but not public SSOT-display-safe yet
+		{"anthropic", "claude-opus-4-1", false}, // account-capable, but not public SSOT-display-safe yet
 		{"anthropic", "claude-3-haiku-20240307", false},
 		{"anthropic", "claude-opus-4-6-20260205", false},
 		{"openai", "gpt-5.4", true},
