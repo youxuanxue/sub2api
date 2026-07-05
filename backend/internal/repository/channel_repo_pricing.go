@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -226,7 +227,7 @@ func createModelPricingExec(ctx context.Context, exec dbExec, pricing *service.C
 	}
 	platform := pricing.Platform
 	if platform == "" {
-		platform = "anthropic"
+		platform = domain.PlatformAnthropic
 	}
 	err = exec.QueryRowContext(ctx,
 		`INSERT INTO channel_model_pricing (channel_id, platform, models, billing_mode, input_price, output_price, cache_write_price, cache_read_price, image_output_price, per_request_price)

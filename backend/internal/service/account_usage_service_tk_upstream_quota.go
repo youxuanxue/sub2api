@@ -21,13 +21,13 @@ func buildUpstreamQuotaForAccount(account *Account, usage *UsageInfo) *UpstreamQ
 	}
 	switch accountUsageWindowAdapterFor(account) {
 	case accountUsageWindowAdapterAnthropic:
-		return buildWindowUpstreamQuota("anthropic", usage, []quotaProgressSpec{
+		return buildWindowUpstreamQuota(PlatformAnthropic, usage, []quotaProgressSpec{
 			{key: "anthropic_5h", label: "5h", window: "5h", progress: usage.FiveHour},
 			{key: "anthropic_7d", label: "7d", window: "7d", progress: usage.SevenDay},
 			{key: "anthropic_7d_sonnet", label: "7d Sonnet", window: "7d", progress: usage.SevenDaySonnet},
 		})
 	case accountUsageWindowAdapterOpenAI:
-		return buildWindowUpstreamQuota("openai", usage, []quotaProgressSpec{
+		return buildWindowUpstreamQuota(PlatformOpenAI, usage, []quotaProgressSpec{
 			{key: "openai_codex_5h", label: "5h", window: "5h", progress: usage.FiveHour},
 			{key: "openai_codex_7d", label: "7d", window: "7d", progress: usage.SevenDay},
 		})
@@ -68,7 +68,7 @@ func buildWindowUpstreamQuota(provider string, usage *UsageInfo, specs []quotaPr
 }
 
 func buildGeminiUpstreamQuota(usage *UsageInfo) *UpstreamQuotaInfo {
-	info := baseUpstreamQuota("gemini", usage, "simulated")
+	info := baseUpstreamQuota(PlatformGemini, usage, "simulated")
 	info.State = "simulated"
 	for _, spec := range []quotaProgressSpec{
 		{key: "gemini_shared_daily", label: "Shared 1d", window: "1d", progress: usage.GeminiSharedDaily},
@@ -92,7 +92,7 @@ func buildGeminiUpstreamQuota(usage *UsageInfo) *UpstreamQuotaInfo {
 }
 
 func buildAntigravityUpstreamQuota(usage *UsageInfo) *UpstreamQuotaInfo {
-	info := baseUpstreamQuota("antigravity", usage, defaultUsageSource(usage))
+	info := baseUpstreamQuota(PlatformAntigravity, usage, defaultUsageSource(usage))
 	info.State = "unknown"
 	info.SubscriptionTier = usage.SubscriptionTier
 	info.SubscriptionTierRaw = usage.SubscriptionTierRaw
@@ -141,7 +141,7 @@ func buildAntigravityUpstreamQuota(usage *UsageInfo) *UpstreamQuotaInfo {
 }
 
 func buildKiroUpstreamQuota(usage *UsageInfo) *UpstreamQuotaInfo {
-	info := baseUpstreamQuota("kiro", usage, defaultUsageSource(usage))
+	info := baseUpstreamQuota(PlatformKiro, usage, defaultUsageSource(usage))
 	info.State = "unknown"
 	if usage.KiroUsage == nil {
 		return info
@@ -212,16 +212,16 @@ func buildLocalAdapterUpstreamQuota(account *Account, usage *UsageInfo) *Upstrea
 		return buildGrokUpstreamQuota(account, usage)
 	}
 	if account.Platform == PlatformNewAPI {
-		return unsupportedUpstreamQuota("newapi", usage, "unsupported", "upstream quota is not configured for NewAPI accounts; TokenKey local usage windows are shown instead")
+		return unsupportedUpstreamQuota(PlatformNewAPI, usage, "unsupported", "upstream quota is not configured for NewAPI accounts; TokenKey local usage windows are shown instead")
 	}
 	if account.Platform == PlatformAntigravity {
-		return unsupportedUpstreamQuota("antigravity", usage, "relay_stub", "upstream quota is available on the edge OAuth account, not this relay stub")
+		return unsupportedUpstreamQuota(PlatformAntigravity, usage, "relay_stub", "upstream quota is available on the edge OAuth account, not this relay stub")
 	}
 	return nil
 }
 
 func buildGrokUpstreamQuota(account *Account, usage *UsageInfo) *UpstreamQuotaInfo {
-	info := baseUpstreamQuota("grok", usage, "headers")
+	info := baseUpstreamQuota(PlatformGrok, usage, "headers")
 	info.State = "unknown"
 	snapshot, err := grokQuotaSnapshotFromExtra(account.Extra)
 	if err != nil || snapshot == nil {

@@ -26,7 +26,22 @@ func (a *Account) IsKiroMirrorStub() bool {
 	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(a.GetCredential("mirror_platform")), PlatformKiro)
+	if strings.EqualFold(strings.TrimSpace(a.GetCredential("mirror_platform")), PlatformKiro) {
+		return true
+	}
+	name := strings.ToLower(strings.TrimSpace(a.Name))
+	if !strings.HasPrefix(name, "kiro-") {
+		return false
+	}
+	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(a.GetCredential("base_url"))), "/")
+	if baseURL != "" {
+		return strings.HasPrefix(baseURL, "https://api-") && strings.HasSuffix(baseURL, ".tokenkey.dev")
+	}
+	// Scheduler snapshots intentionally carry only slim metadata. Older snapshots
+	// may not include mirror_platform/base_url, but prod Kiro mirror stubs are
+	// consistently named kiro-<edge>. Keep this as a narrow compatibility fallback
+	// so model gating does not depend on cache hydration.
+	return true
 }
 
 const KiroDefaultTestModel = "claude-sonnet-4-5"

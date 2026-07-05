@@ -81,6 +81,11 @@ export const PLATFORM_NEWAPI = 'newapi' as const
 export const PLATFORM_KIRO = 'kiro' as const
 export const PLATFORM_GROK = 'grok' as const
 
+// --- Subscription type constants (use instead of inline literals) ------------
+
+export const SUBSCRIPTION_TYPE_STANDARD = 'standard' as const
+export const SUBSCRIPTION_TYPE_SUBSCRIPTION = 'subscription' as const
+
 // --- Admin group form predicates (GroupsView.vue SSOT) -----------------------
 
 /**

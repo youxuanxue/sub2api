@@ -455,6 +455,15 @@ func TestShouldFallbackNewAPIResponsesToChat(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "unsupported model without status code hint",
+			apiErr: newapitypes.NewError(
+				errors.New("unsupported model for responses endpoint"),
+				newapitypes.ErrorCodeConvertRequestFailed,
+				newapitypes.ErrOptionWithSkipRetry(),
+			),
+			want: true,
+		},
+		{
 			name: "non matching error",
 			apiErr: newapitypes.NewError(
 				errors.New("status code: 400 bad request"),

@@ -33,7 +33,7 @@
       "must_contain": [
         "func attachUpstreamQuotaForAccount",
         "account.Platform == PlatformNewAPI",
-        "unsupportedUpstreamQuota(\"newapi\""
+        "unsupportedUpstreamQuota(PlatformNewAPI"
       ],
       "rationale": "Unified upstream_quota projection must explicitly mark NewAPI/Vertex as unsupported rather than leaving the field absent. NewAPI channel providers have heterogeneous balance/quota APIs; Vertex service_account channel_type=41 currently has no GCP Billing/Monitoring/Service Usage integration, so the UI must show a clear unsupported upstream-quota state while local usage windows remain available."
     },

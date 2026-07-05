@@ -1486,13 +1486,13 @@
       "rationale": "TK short-stream buffer on the OpenAI Responses passthrough (upstream Wei-Shaw/sub2api#2245). When gateway.responses_short_stream_buffer_bytes>0, handleStreamingResponsePassthrough holds the first body content in a byte window before the first flush, so an upstream that EOFs before a terminal event fails over cleanly instead of shipping a half-finished HTTP 200 SSE that strict Responses clients reject with 'stream closed before response.completed'. An upstream merge that rewrites the passthrough streaming loop could silently drop this guard; the sentinel forces the merge to keep (or deliberately remove) the buffer wiring."
     },
     {
-      "path": "backend/internal/service/openai_gateway_service.go",
+      "path": "backend/internal/service/openai_gateway_service_tk_codex_usage_snapshot.go",
       "must_contain": [
         "func shouldAutoPauseOpenAIAccountByQuota",
         "compat-pool-exempt",
         "openAIQuotaWindowReset"
       ],
-      "rationale": "TK reconciliation of upstream 5h/7d quota auto-pause (commit ead471d64) onto the fifth-platform scheduler. shouldAutoPauseOpenAIAccountByQuota keys off codex usage windows and is scoped to native openai accounts (the `compat-pool-exempt` line guards the scripts/preflight.sh compat-pool drift check from flagging the legitimate !account.IsOpenAI() usage-window predicate); a future merge that broadens it to the compat pool would wrongly auto-pause newapi accounts. openAIQuotaWindowReset is the stale-window guard that prevents a paused account from staying paused forever after its window resets (paused accounts stop receiving requests, so their snapshot never refreshes). These must survive future upstream merges."
+      "rationale": "TK reconciliation of upstream 5h/7d quota auto-pause (commit ead471d64) onto the fifth-platform scheduler. Extracted to codex_usage_snapshot companion. shouldAutoPauseOpenAIAccountByQuota keys off codex usage windows and is scoped to native openai accounts (the `compat-pool-exempt` line guards the scripts/preflight.sh compat-pool drift check from flagging the legitimate !account.IsOpenAI() usage-window predicate); a future merge that broadens it to the compat pool would wrongly auto-pause newapi accounts. openAIQuotaWindowReset is the stale-window guard that prevents a paused account from staying paused forever after its window resets."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
@@ -1528,10 +1528,16 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()",
+        "topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()"
+      ],
+      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5')."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_billing_cost.go",
+      "must_contain": [
         "logTokenCostPricingMissing(billingModel, apiKey, result, err)"
       ],
-      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5'). TK#1833/#1544: calculateTokenCost must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak. The Feishu P0 alert was consolidated into the result-side served-but-zero-cost probe (tkNotifyServedZeroCost); this call now keeps only the grep-able structured log."
+      "rationale": "TK#1833/#1544: calculateTokenCost (extracted to billing_cost companion) must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
@@ -2218,13 +2224,13 @@
       "rationale": "Pure, fork-only Claude Code context-window model-alias stripper (claude-code #60913 / #50803 / #53031 / #55504 / #34143), kept in a *_tk_*.go companion out of upstream-owned gateway_service.go (rule §5). tkStripContextWindowModelAlias removes a trailing bracketed alias such as '[1m]' that cc serializes verbatim into the API model field on resume/continue/compact — Anthropic answers 404 not_found_error and the client silently falls back to the bare 200K model (paid 1M context lost, no error surfaced). The trailing-anchored regexp keeps a legitimate id (never contains brackets) a byte-for-byte no-op; the context-1m beta header flows through separately so the bare id still activates the 1M window. Anchor the pure function + the regexp guard so an upstream refactor that consolidates model normalization cannot delete this surface and silently re-expose the 404 + 200K downgrade. Exhaustively covered by gateway_anthropic_context_window_alias_tk_test.go."
     },
     {
-      "path": "backend/internal/service/openai_gateway_service.go",
+      "path": "backend/internal/service/openai_gateway_service_tk_codex_usage_snapshot.go",
       "must_contain": [
         "result.Used5hPercent = s.PrimaryUsedPercent",
         "result.Used5hPercent = s.SecondaryUsedPercent",
         "Do NOT reintroduce a 100-raw inversion"
       ],
-      "rationale": "Codex 5h/7d usage-window used-percent must stay a straight passthrough of the upstream x-codex-*-used-percent headers (consumed%), NOT inverted. Commit b65dde63 (2026-05-31) wrapped 5h in normalizeCodexFiveHourUsedPercent (used=100-raw) on the wrong assumption the header was remaining%; that rendered idle accounts as 99%/100% on the admin account card AND tripped is5hExhausted (ratelimit_service.go) for raw=0 accounts, applying a bogus multi-hour 429 cooldown. Disproved by prod capture 2026-06-04 (i-0e4a90677f0450277): GPT-pro1 5h window=300min raw used=1, GPT-pro2 used=0, both barely used; plus the physical constraint that the 5h window is a sub-interval of 7d. Anchor the two passthrough assignments plus the do-not-reintroduce warning so a future upstream merge or refactor cannot silently re-add the inversion. Regression test: TestNormalize_ProdLayoutUsedPercentPassthrough."
+      "rationale": "Codex 5h/7d usage-window used-percent must stay a straight passthrough (consumed%, NOT inverted). Extracted to codex_usage_snapshot companion. Regression test: TestNormalize_ProdLayoutUsedPercentPassthrough."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
@@ -3692,11 +3698,11 @@
       "rationale": "PR #902: retires the upstream codex usage-window auto-pause in favour of the window-sched tri-state guard (the single window mechanism). This gate disables (does NOT delete — §5.x) shouldAutoPauseOpenAIAccountByQuota by short-circuiting it; the upstream code + the shared codex signal capture the #899 guard reads stay intact. Anchors the gate so an upstream merge cannot silently flip auto-pause back on."
     },
     {
-      "path": "backend/internal/service/openai_gateway_service.go",
+      "path": "backend/internal/service/openai_gateway_service_tk_codex_usage_snapshot.go",
       "must_contain": [
         "if tkOpenAIAutoPauseRetired() {"
       ],
-      "rationale": "PR #902 injection: the retirement short-circuit at the top of shouldAutoPauseOpenAIAccountByQuota. Pure-insertion guard returning a permanent no-op. If an upstream merge drops this one line, auto-pause silently revives and re-overlaps the window-sched guard — a silent regression. Anchor pins the injection."
+      "rationale": "PR #902 injection: the retirement short-circuit at the top of shouldAutoPauseOpenAIAccountByQuota (extracted to codex_usage_snapshot companion). Anchor pins the injection so auto-pause cannot silently revive."
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder.go",
@@ -3894,6 +3900,65 @@
         "selectionSessionHash = \"gemini:\" + selectionSessionHash"
       ],
       "rationale": "Gateway /v1/responses must branch antigravity/gemini text into GeminiMessagesCompatService.ForwardAsResponses instead of the Anthropic converter chain, with the same gemini sticky session hash and platform guards as /v1/chat/completions."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_fast_policy.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) evaluateOpenAIFastPolicy(ctx context.Context, account *Account, model, serviceTier string)",
+        "func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, account *Account, model string, body []byte)",
+        "func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(",
+        "func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlockedError)",
+        "func buildOpenAIFastPolicyBlockedWSEvent(err *OpenAIFastBlockedError) []byte"
+      ],
+      "rationale": "TK OpenAI fast policy companion: service_tier-based request policy (block/filter/pass) for the OpenAI Responses gateway. Extracted from openai_gateway_service.go to reduce upstream merge surface. The HTTP and WebSocket gateways call evaluateOpenAIFastPolicy / applyOpenAIFastPolicyToBody / applyOpenAIFastPolicyToWSResponseCreate at inline call-sites that remain in the main file; dropping the companion silently breaks compilation."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_codex_usage_snapshot.go",
+      "must_contain": [
+        "type OpenAICodexUsageSnapshot struct",
+        "func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits",
+        "func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot",
+        "func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header)",
+        "func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision)"
+      ],
+      "rationale": "TK Codex usage snapshot companion: Codex rate-limit header parsing, 5h/7d window normalization, quota auto-pause logic, and snapshot persistence with write throttle. Extracted from openai_gateway_service.go to reduce upstream merge surface. ParseCodexRateLimitHeaders is called from ratelimit_service; UpdateCodexUsageSnapshotFromHeaders from the /responses handler; shouldAutoPauseOpenAIAccountByQuota from the account scheduler; dropping the companion breaks compilation across multiple packages."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_image_input_sanitize.go",
+      "must_contain": [
+        "func openAIRequestBodyMayContainImageInput(body []byte) bool",
+        "func sanitizeEmptyBase64InputImagesInOpenAIBody(body []byte) ([]byte, bool, error)",
+        "func isEmptyBase64DataURI(raw string) bool"
+      ],
+      "rationale": "TK image input sanitization companion: detection of image_url/input_image content parts in OpenAI request bodies and cleanup of empty base64 data URIs that upstream rejects. Extracted from openai_gateway_service.go to reduce upstream merge surface. Called from the /responses and /chat/completions request preparation paths; dropping the companion breaks compilation."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_billing_cost.go",
+      "must_contain": [
+        "func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64",
+        "func (s *GatewayService) calculateRecordUsageCost(",
+        "func (s *GatewayService) buildRecordUsageLog(",
+        "func (s *GatewayService) resolveChannelPricing(ctx context.Context, billingModel string, apiKey *APIKey) *ResolvedPricing"
+      ],
+      "rationale": "TK billing cost calculation companion: channel pricing resolution, token/image cost calculation, and usage-log construction for GatewayService.RecordUsage. Extracted from gateway_service.go to reduce upstream merge surface. recordUsageCore calls calculateRecordUsageCost + buildRecordUsageLog; dropping the companion breaks compilation."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_scheduling_gates.go",
+      "must_contain": [
+        "func (s *GatewayService) isAccountSchedulableForRPM(ctx context.Context, account *Account, isSticky bool) bool",
+        "func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *Account, sessionID string) bool",
+        "func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int64) error",
+        "func (s *GatewayService) IsSingleAntigravityAccountGroup(ctx context.Context, groupID *int64) bool"
+      ],
+      "rationale": "TK scheduling gates companion: RPM, quota, session-limit, and single-account-group checks for Anthropic account selection. Extracted from gateway_service.go to reduce upstream merge surface. SelectAccountWithLoadAwareness calls isAccountSchedulableForRPM + checkAndRegisterSession; handler calls IsSingleAntigravityAccountGroup + IncrementAccountRPM; dropping the companion breaks compilation."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_channel_pricing_restriction.go",
+      "must_contain": [
+        "func (s *GatewayService) checkChannelPricingRestriction(",
+        "func (s *GatewayService) isUpstreamModelRestrictedByChannel("
+      ],
+      "rationale": "TK channel pricing restriction companion: pre-scheduling model restriction checks based on channel-level pricing configuration. Extracted from gateway_service.go to reduce upstream merge surface. Forward and ForwardCountTokens call checkChannelPricingRestriction; dropping the companion breaks compilation."
     }
   ]
 }
