@@ -24,6 +24,7 @@
 import { computed, ref, type Ref } from 'vue'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
 import type { GroupPlatform } from '@/types'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
 
 /**
  * A snippet "flavor" is the single-model protocol a given client tab speaks.
@@ -164,7 +165,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   }
 
   const isClaudeCodeOnly = computed(
-    () => args.platform.value === 'anthropic' && args.claudeCodeOnly.value === true,
+    () => args.platform.value === PLATFORM_ANTHROPIC && args.claudeCodeOnly.value === true,
   )
 
   function cancelTest(): void {
@@ -197,8 +198,8 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     if (keyOnly) {
       url = `${root}/v1/models`
       init = { method: 'GET', headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: ctrl.signal }
-    } else if (flavor === 'anthropic') {
-      const isAntigravity = args.platform.value === 'antigravity'
+    } else if (flavor === PLATFORM_ANTHROPIC) {
+      const isAntigravity = args.platform.value === PLATFORM_ANTIGRAVITY
       url = `${root}${isAntigravity ? '/antigravity' : ''}/v1/messages`
       init = {
         method: 'POST',
@@ -212,8 +213,8 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
         body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
         signal: ctrl.signal,
       }
-    } else if (flavor === 'gemini') {
-      const isAntigravity = args.platform.value === 'antigravity'
+    } else if (flavor === PLATFORM_GEMINI) {
+      const isAntigravity = args.platform.value === PLATFORM_ANTIGRAVITY
       const gBase = `${root}${isAntigravity ? '/antigravity' : ''}/v1beta`
       url = `${gBase}/models/${encodeURIComponent(model)}:generateContent`
       init = {

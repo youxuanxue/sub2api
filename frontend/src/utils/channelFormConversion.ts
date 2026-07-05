@@ -28,7 +28,7 @@ import {
   mTokToPerToken,
   perTokenToMTok,
 } from '@/components/admin/channel/types'
-import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { GATEWAY_PLATFORMS, PLATFORM_ANTHROPIC, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import type { AdminGroup, GroupPlatform } from '@/types'
 
 /** Form-level pricing rule (per-platform sub-rule rendered inside a section). */
@@ -214,7 +214,7 @@ export function formSectionsToApi(
   const wsEmulation: Record<string, boolean> = {}
   for (const section of sections) {
     if (!section.enabled) continue
-    if (section.platform === 'anthropic') {
+    if (section.platform === PLATFORM_ANTHROPIC) {
       wsEmulation[section.platform] = !!section.web_search_emulation
     }
   }
@@ -227,7 +227,7 @@ export function formSectionsToApi(
   const codexImageGenerationBridge: Record<string, boolean> = {}
   for (const section of sections) {
     if (!section.enabled) continue
-    if (section.platform === 'openai') {
+    if (section.platform === PLATFORM_OPENAI) {
       codexImageGenerationBridge[section.platform] =
         !!section.codex_image_generation_bridge
     }
@@ -244,7 +244,7 @@ export function formSectionsToApi(
   let bedrockCCCompatEnabled: boolean | undefined
   for (const section of sections) {
     if (!section.enabled) continue
-    if (section.platform === 'anthropic') {
+    if (section.platform === PLATFORM_ANTHROPIC) {
       bedrockCCCompatEnabled = !!section.bedrock_cc_compat
     }
   }

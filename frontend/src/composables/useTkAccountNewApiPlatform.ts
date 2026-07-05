@@ -20,8 +20,8 @@ import { unknownToErrorMessage } from '@/utils/authError'
 export interface UseTkAccountNewApiPlatformOptions {
   /**
    * 当前 modal 是否真的处在 newapi 平台上下文：
-   *   - CreateAccountModal: () => form.platform === 'newapi'
-   *   - EditAccountModal:   () => account.platform === 'newapi'
+   *   - CreateAccountModal: () => form.platform === PLATFORM_NEWAPI
+   *   - EditAccountModal:   () => account.platform === PLATFORM_NEWAPI
    * 只读 getter 而非 boolean，方便随父组件状态变化。
    */
   isNewapi: () => boolean

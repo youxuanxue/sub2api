@@ -3448,6 +3448,7 @@ import { useTkAccountKiroPlatform } from '@/composables/useTkAccountKiroPlatform
 import AccountGrokPlatformFields from './AccountGrokPlatformFields.vue'
 import { useTkAccountGrokPlatform } from '@/composables/useTkAccountGrokPlatform'
 import { PLATFORM_LABELS } from '@/composables/usePlatformOptions'
+import { PLATFORM_ANTHROPIC, PLATFORM_OPENAI, PLATFORM_GEMINI, PLATFORM_ANTIGRAVITY, PLATFORM_NEWAPI, PLATFORM_KIRO, PLATFORM_GROK } from '@/constants/gatewayPlatforms'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3468,25 +3469,25 @@ const { t } = useI18n()
 const authStore = useAuthStore()
 
 const oauthStepTitle = computed(() => {
-  if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
-  if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
-  if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
-  if (form.platform === 'grok') return t('admin.accounts.oauth.grok.title')
+  if (form.platform === PLATFORM_OPENAI) return t('admin.accounts.oauth.openai.title')
+  if (form.platform === PLATFORM_GEMINI) return t('admin.accounts.oauth.gemini.title')
+  if (form.platform === PLATFORM_ANTIGRAVITY) return t('admin.accounts.oauth.antigravity.title')
+  if (form.platform === PLATFORM_GROK) return t('admin.accounts.oauth.grok.title')
   return t('admin.accounts.oauth.title')
 })
 
 // Platform-specific hints for API Key type
 const baseUrlHint = computed(() => {
-  if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok' && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
+  if (form.platform === PLATFORM_OPENAI) return t('admin.accounts.openai.baseUrlHint')
+  if (form.platform === PLATFORM_GEMINI) return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === PLATFORM_GROK && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
-  if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok' && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayApiKeyHint')
+  if (form.platform === PLATFORM_OPENAI) return t('admin.accounts.openai.apiKeyHint')
+  if (form.platform === PLATFORM_GEMINI) return t('admin.accounts.gemini.apiKeyHint')
+  if (form.platform === PLATFORM_GROK && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayApiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -3513,34 +3514,34 @@ const grokOAuth = useGrokOAuth() // For Grok OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.authUrl.value
-  if (form.platform === 'gemini') return geminiOAuth.authUrl.value
-  if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
-  if (form.platform === 'grok') return grokOAuth.authUrl.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.authUrl.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.authUrl.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.authUrl.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.authUrl.value
   return oauth.authUrl.value
 })
 
 const currentSessionId = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.sessionId.value
-  if (form.platform === 'gemini') return geminiOAuth.sessionId.value
-  if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
-  if (form.platform === 'grok') return grokOAuth.sessionId.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.sessionId.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.sessionId.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.sessionId.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.sessionId.value
   return oauth.sessionId.value
 })
 
 const currentOAuthLoading = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.loading.value
-  if (form.platform === 'gemini') return geminiOAuth.loading.value
-  if (form.platform === 'antigravity') return antigravityOAuth.loading.value
-  if (form.platform === 'grok') return grokOAuth.loading.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.loading.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.loading.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.loading.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.loading.value
   return oauth.loading.value
 })
 
 const currentOAuthError = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.error.value
-  if (form.platform === 'gemini') return geminiOAuth.error.value
-  if (form.platform === 'antigravity') return antigravityOAuth.error.value
-  if (form.platform === 'grok') return grokOAuth.error.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.error.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.error.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.error.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.error.value
   return oauth.error.value
 })
 
@@ -3708,7 +3709,7 @@ const {
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
   applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
-  isNewapi: () => form.platform === 'newapi',
+  isNewapi: () => form.platform === PLATFORM_NEWAPI,
 })
 
 const newapiIsVertexServiceAccount = computed(() =>
@@ -3818,7 +3819,7 @@ const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
 }
 
 const validateOpenAIMessagesCompactionForm = (): boolean => {
-  if (form.platform !== 'openai') {
+  if (form.platform !== PLATFORM_OPENAI) {
     return true
   }
   if (!openAIMessagesCompactionEnabled.value) {
@@ -3870,7 +3871,7 @@ const geminiTierGcp = ref<'gcp_standard' | 'gcp_enterprise'>('gcp_standard')
 const geminiTierAIStudio = ref<'aistudio_free' | 'aistudio_paid'>('aistudio_free')
 
 const geminiSelectedTier = computed(() => {
-  if (form.platform !== 'gemini') return ''
+  if (form.platform !== PLATFORM_GEMINI) return ''
   if (accountCategory.value === 'apikey') return geminiTierAIStudio.value
   switch (geminiOAuthType.value) {
     case 'google_one':
@@ -3891,13 +3892,13 @@ const openAIWSModeOptions = computed(() => [
 
 const openaiResponsesWebSocketV2Mode = computed({
   get: () => {
-    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+    if (form.platform === PLATFORM_OPENAI && accountCategory.value === 'apikey') {
       return openaiAPIKeyResponsesWebSocketV2Mode.value
     }
     return openaiOAuthResponsesWebSocketV2Mode.value
   },
   set: (mode: OpenAIWSMode) => {
-    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+    if (form.platform === PLATFORM_OPENAI && accountCategory.value === 'apikey') {
       openaiAPIKeyResponsesWebSocketV2Mode.value = mode
       return
     }
@@ -3910,7 +3911,7 @@ const openAIWSModeConcurrencyHintKey = computed(() =>
 )
 
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  form.platform === 'openai' && openaiPassthroughEnabled.value
+  form.platform === PLATFORM_OPENAI && openaiPassthroughEnabled.value
 )
 
 const mixedChannelWarningMessageText = computed(() => {
@@ -3985,7 +3986,7 @@ const form = reactive({
 watch(
   () => form.platform,
   (platform) => {
-    if (platform === 'newapi') {
+    if (platform === PLATFORM_NEWAPI) {
       newapiBootstrap()
       void newapiApplyChannelPresetIfEmpty()
     }
@@ -3993,7 +3994,7 @@ watch(
 )
 
 watch(newapiChannelType, () => {
-  if (form.platform === 'newapi') {
+  if (form.platform === PLATFORM_NEWAPI) {
     void newapiApplyChannelPresetIfEmpty()
   }
 })
@@ -4015,24 +4016,24 @@ const prefillAccountEmailFromToken = (tokenInfo: Record<string, unknown> | null 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
   // Antigravity upstream 类型不需要 OAuth 流程
-  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+  if (form.platform === PLATFORM_ANTIGRAVITY && antigravityAccountType.value === 'upstream') {
     return false
   }
   // Bedrock 类型不需要 OAuth 流程
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (form.platform === PLATFORM_ANTHROPIC && accountCategory.value === 'bedrock') {
     return false
   }
   // newapi (5th platform) is API-key only — no OAuth flow.
-  if (form.platform === 'newapi') {
+  if (form.platform === PLATFORM_NEWAPI) {
     return false
   }
   // kiro (6th platform) creates by pasting OAuth tokens directly — no interactive OAuth step.
-  if (form.platform === 'kiro') {
+  if (form.platform === PLATFORM_KIRO) {
     return false
   }
   // grok (7th platform) creates by pasting a refresh_token — no interactive OAuth step
   // (xAI's public client is loopback-only; the token is minted out-of-band).
-  if (form.platform === 'grok') {
+  if (form.platform === PLATFORM_GROK) {
     return false
   }
   return accountCategory.value === 'oauth-based'
@@ -4051,16 +4052,16 @@ const expiresAtInput = computed({
 
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     return authCode.trim() && openaiOAuth.sessionId.value && !openaiOAuth.loading.value
   }
-  if (form.platform === 'gemini') {
+  if (form.platform === PLATFORM_GEMINI) {
     return authCode.trim() && geminiOAuth.sessionId.value && !geminiOAuth.loading.value
   }
-  if (form.platform === 'antigravity') {
+  if (form.platform === PLATFORM_ANTIGRAVITY) {
     return authCode.trim() && antigravityOAuth.sessionId.value && !antigravityOAuth.loading.value
   }
-  if (form.platform === 'grok') {
+  if (form.platform === PLATFORM_GROK) {
     return authCode.trim() && grokOAuth.sessionId.value && !grokOAuth.loading.value
   }
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
@@ -4081,7 +4082,7 @@ const onShown = () => {
   // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
   newapiBootstrap()
   // Antigravity: 默认使用映射模式并填充默认映射
-  if (form.platform === 'antigravity') {
+  if (form.platform === PLATFORM_ANTIGRAVITY) {
     antigravityModelRestrictionMode.value = 'mapping'
     fetchAntigravityDefaultMappings().then(mappings => {
       antigravityModelMappings.value = [...mappings]
@@ -4121,29 +4122,29 @@ watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
     // Antigravity upstream 类型（实际创建为 apikey）
-    if (form.platform === 'antigravity' && agType === 'upstream') {
+    if (form.platform === PLATFORM_ANTIGRAVITY && agType === 'upstream') {
       form.type = 'apikey'
       return
     }
     // Bedrock 类型
-    if (form.platform === 'anthropic' && category === 'bedrock') {
+    if (form.platform === PLATFORM_ANTHROPIC && category === 'bedrock') {
       form.type = 'bedrock' as AccountType
       return
     }
     // kiro (6th platform): always oauth type (token paste), regardless of addMethod.
-    if (form.platform === 'kiro') {
+    if (form.platform === PLATFORM_KIRO) {
       form.type = 'oauth'
       return
     }
     // grok (7th platform): OAuth refresh_token or first-class API-key relay stub.
-    if (form.platform === 'grok') {
+    if (form.platform === PLATFORM_GROK) {
       form.type = category === 'apikey' ? 'apikey' : 'oauth'
       return
     }
-    if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
+    if ((form.platform === PLATFORM_GEMINI || form.platform === PLATFORM_ANTHROPIC) && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
-      form.type = form.platform === 'anthropic' ? method as AccountType : 'oauth'
+      form.type = form.platform === PLATFORM_ANTHROPIC ? method as AccountType : 'oauth'
     } else {
       form.type = 'apikey'
     }
@@ -4157,18 +4158,18 @@ watch(
   (newPlatform) => {
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
-      (newPlatform === 'openai')
+      (newPlatform === PLATFORM_OPENAI)
         ? 'https://api.openai.com'
-        : newPlatform === 'gemini'
+        : newPlatform === PLATFORM_GEMINI
           ? 'https://generativelanguage.googleapis.com'
-          : newPlatform === 'grok'
+          : newPlatform === PLATFORM_GROK
             ? ''
             : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
-    if (newPlatform === 'antigravity') {
+    if (newPlatform === PLATFORM_ANTIGRAVITY) {
       antigravityModelRestrictionMode.value = 'mapping'
       fetchAntigravityDefaultMappings().then(mappings => {
         antigravityModelMappings.value = [...mappings]
@@ -4176,7 +4177,7 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
-    } else if (newPlatform === 'newapi') {
+    } else if (newPlatform === PLATFORM_NEWAPI) {
       // D1: newapi 是 apikey-only，把 accountCategory 翻到 apikey 让 watcher A
       // 把 form.type 同步成 'apikey'，与 submit 路径硬编码的 type:'apikey'
       // 对齐；否则路径 1 (fresh open + 直接点 NewAPI) 会因 form.type='oauth'
@@ -4188,7 +4189,7 @@ watch(
       antigravityModelRestrictionMode.value = 'mapping'
       // newapi 自身的字段重置由 composable.reset() 在 resetForm 中负责，
       // 平台切换不清除已填字段（避免误触切换造成数据丢失）。
-    } else if (newPlatform === 'kiro') {
+    } else if (newPlatform === PLATFORM_KIRO) {
       // 第六平台 kiro：oauth-token 直填，accountCategory 设为 oauth-based 让
       // watcher A 把 form.type 同步成 'oauth'（与后端 type=oauth 契约对齐），
       // 同时避免渲染通用 apikey / 配额块。kiro 字段重置由 composable.reset()
@@ -4198,7 +4199,7 @@ watch(
       antigravityWhitelistModels.value = []
       antigravityModelMappings.value = []
       antigravityModelRestrictionMode.value = 'mapping'
-    } else if (newPlatform === 'grok') {
+    } else if (newPlatform === PLATFORM_GROK) {
       // 第七平台 grok 默认创建 OAuth 账号；需要 prod→edge relay stub 时可切到
       // API Key，提交 platform=grok,type=apikey。
       accountCategory.value = 'oauth-based'
@@ -4213,17 +4214,17 @@ watch(
       antigravityModelMappings.value = []
       antigravityModelRestrictionMode.value = 'mapping'
     }
-    if (newPlatform === 'grok') {
+    if (newPlatform === PLATFORM_GROK) {
       accountCategory.value = 'oauth-based'
       addMethod.value = 'oauth'
       modelRestrictionMode.value = 'mapping'
       form.concurrency = 1
       form.load_factor = null
     }
-    if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
+    if (newPlatform !== PLATFORM_GEMINI && newPlatform !== PLATFORM_ANTHROPIC && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
     }
-    if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+    if (newPlatform !== PLATFORM_ANTHROPIC && accountCategory.value === 'bedrock') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -4236,10 +4237,10 @@ watch(
     bedrockApiKeyValue.value = ''
     vertexSa.reset()
     // Reset Anthropic/Antigravity-specific settings when switching to other platforms
-    if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
+    if (newPlatform !== PLATFORM_ANTHROPIC && newPlatform !== PLATFORM_ANTIGRAVITY) {
       interceptWarmupRequests.value = false
     }
-    if (newPlatform !== 'openai') {
+    if (newPlatform !== PLATFORM_OPENAI) {
       openaiPassthroughEnabled.value = false
       openAIMessagesCompactionEnabled.value = false
       openAIMessagesCompactionInputTokensThreshold.value = null
@@ -4249,7 +4250,7 @@ watch(
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
     }
-    if (newPlatform !== 'anthropic') {
+    if (newPlatform !== PLATFORM_ANTHROPIC) {
       anthropicPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
@@ -4268,11 +4269,11 @@ watch(
 watch(
   [accountCategory, () => form.platform],
   ([category, platform]) => {
-    if (platform === 'openai' && category !== 'oauth-based') {
+    if (platform === PLATFORM_OPENAI && category !== 'oauth-based') {
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
     }
-    if (platform !== 'anthropic' || category !== 'apikey') {
+    if (platform !== PLATFORM_ANTHROPIC || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
@@ -4283,7 +4284,7 @@ watch(
 watch(
   [() => props.show, () => form.platform, accountCategory],
   async ([show, platform, category]) => {
-    if (!show || platform !== 'gemini' || category !== 'oauth-based') {
+    if (!show || platform !== PLATFORM_GEMINI || category !== 'oauth-based') {
       geminiAIStudioOAuthEnabled.value = false
       return
     }
@@ -4317,7 +4318,7 @@ watch(
 watch(
   [antigravityModelRestrictionMode, () => form.platform],
   ([, platform]) => {
-    if (platform !== 'antigravity') return
+    if (platform !== PLATFORM_ANTIGRAVITY) return
     // Antigravity 默认不做限制：白名单留空表示允许所有（包含未来新增模型）。
     // 如果需要快速填充常用模型，可在组件内点“填充相关模型”。
   }
@@ -4500,7 +4501,7 @@ const splitTempUnschedKeywords = (value: string) => {
     .filter((item) => item.length > 0)
 }
 
-const needsMixedChannelCheck = (platform: AccountPlatform) => platform === 'antigravity' || platform === 'anthropic'
+const needsMixedChannelCheck = (platform: AccountPlatform) => platform === PLATFORM_ANTIGRAVITY || platform === PLATFORM_ANTHROPIC
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -4716,7 +4717,7 @@ const handleClose = () => {
 }
 
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'openai') {
+  if (form.platform !== PLATFORM_OPENAI) {
     return base
   }
 
@@ -4783,7 +4784,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 }
 
 const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'anthropic' || accountCategory.value !== 'apikey') {
+  if (form.platform !== PLATFORM_ANTHROPIC || accountCategory.value !== 'apikey') {
     return base
   }
 
@@ -4904,7 +4905,7 @@ const handleSubmit = async () => {
   }
 
   // For Bedrock type, create directly
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (form.platform === PLATFORM_ANTHROPIC && accountCategory.value === 'bedrock') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -4966,7 +4967,7 @@ const handleSubmit = async () => {
   }
 
   // 第五平台 newapi：apikey 或 Vertex service_account (channel_type 41)。
-  if (form.platform === 'newapi') {
+  if (form.platform === PLATFORM_NEWAPI) {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5023,7 +5024,7 @@ const handleSubmit = async () => {
 
   // 第六平台 kiro：oauth-token 直填，type=oauth；表单校验 + credentials 拼装
   // （含 tos_acknowledged 强制勾选）都委托给 composable。
-  if (form.platform === 'kiro') {
+  if (form.platform === PLATFORM_KIRO) {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5051,7 +5052,7 @@ const handleSubmit = async () => {
 
   // 第七平台 grok：OAuth 账号粘 refresh_token；prod→edge relay stub 走
   // first-class platform=grok,type=apikey。
-  if (form.platform === 'grok') {
+  if (form.platform === PLATFORM_GROK) {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5097,7 +5098,7 @@ const handleSubmit = async () => {
   }
 
   // For Antigravity upstream type, create directly
-  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+  if (form.platform === PLATFORM_ANTIGRAVITY && antigravityAccountType.value === 'upstream') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5134,7 +5135,7 @@ const handleSubmit = async () => {
     return
   }
 
-  if ((form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory.value === 'service_account') {
+  if ((form.platform === PLATFORM_GEMINI || form.platform === PLATFORM_ANTHROPIC) && accountCategory.value === 'service_account') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5153,9 +5154,9 @@ const handleSubmit = async () => {
 
   // Determine default base URL based on platform
   const defaultBaseUrl =
-    form.platform === 'openai'
+    form.platform === PLATFORM_OPENAI
       ? 'https://api.openai.com'
-      : form.platform === 'gemini'
+      : form.platform === PLATFORM_GEMINI
         ? 'https://generativelanguage.googleapis.com'
         : 'https://api.anthropic.com'
 
@@ -5164,12 +5165,12 @@ const handleSubmit = async () => {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
   }
-  if (form.platform === 'gemini') {
+  if (form.platform === PLATFORM_GEMINI) {
     credentials.tier_id = geminiTierAIStudio.value
   }
   // TK: edge mirror-stub pool selector (surface-C). Only anthropic apikey stubs
   // participate; default 'anthropic' keeps non-stub accounts unaffected.
-  if (form.platform === 'anthropic') {
+  if (form.platform === PLATFORM_ANTHROPIC) {
     credentials.mirror_platform = mirrorPlatform.value
   }
 
@@ -5180,7 +5181,7 @@ const handleSubmit = async () => {
       credentials.model_mapping = modelMapping
     }
   }
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     applyOpenAIEndpointCapabilities(credentials)
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
@@ -5231,18 +5232,18 @@ const goBackToBasicInfo = () => {
 }
 
 const handleGenerateUrl = async () => {
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     await openaiOAuth.generateAuthUrl(form.proxy_id)
-  } else if (form.platform === 'gemini') {
+  } else if (form.platform === PLATFORM_GEMINI) {
     await geminiOAuth.generateAuthUrl(
       form.proxy_id,
       oauthFlowRef.value?.projectId,
       geminiOAuthType.value,
       geminiSelectedTier.value
     )
-  } else if (form.platform === 'antigravity') {
+  } else if (form.platform === PLATFORM_ANTIGRAVITY) {
     await antigravityOAuth.generateAuthUrl(form.proxy_id)
-  } else if (form.platform === 'grok') {
+  } else if (form.platform === PLATFORM_GROK) {
     await grokOAuth.generateAuthUrl(form.proxy_id)
   } else {
     await oauth.generateAuthUrl(addMethod.value, form.proxy_id)
@@ -5250,11 +5251,11 @@ const handleGenerateUrl = async () => {
 }
 
 const handleValidateRefreshToken = (rt: string) => {
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     handleOpenAIValidateRT(rt)
-  } else if (form.platform === 'antigravity') {
+  } else if (form.platform === PLATFORM_ANTIGRAVITY) {
     handleAntigravityValidateRT(rt)
-  } else if (form.platform === 'grok') {
+  } else if (form.platform === PLATFORM_GROK) {
     handleGrokValidateRT(rt)
   }
 }
@@ -5280,7 +5281,7 @@ const createAccountAndFinish = async (
   const finalExtra = (type === 'apikey' || type === 'bedrock')
     ? buildAPIKeyOrBedrockExtra(extra)
     : extra
-  if (platform === 'openai') {
+  if (platform === PLATFORM_OPENAI) {
     if (type === 'apikey') {
       applyOpenAIEndpointCapabilities(credentials)
     }
@@ -5291,7 +5292,7 @@ const createAccountAndFinish = async (
       delete credentials.compact_model_mapping
     }
   }
-  if (platform === 'grok') {
+  if (platform === PLATFORM_GROK) {
     if (!credentials.base_url) {
       credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
     }
@@ -5436,7 +5437,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     const credentials = oauthClient.buildCredentials(tokenInfo)
     const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
     const extra = buildOpenAIExtra(oauthExtra)
-    const shouldCreateOpenAI = form.platform === 'openai'
+    const shouldCreateOpenAI = form.platform === PLATFORM_OPENAI
 
     // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
     if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
@@ -5668,7 +5669,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
   let successCount = 0
   let failedCount = 0
   const errors: string[] = []
-  const shouldCreateOpenAI = form.platform === 'openai'
+  const shouldCreateOpenAI = form.platform === PLATFORM_OPENAI
 
   try {
     for (let i = 0; i < refreshTokens.length; i++) {

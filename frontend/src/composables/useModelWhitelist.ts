@@ -349,6 +349,7 @@ const bedrockPresetMappings = [
 // 使用 fetchAntigravityDefaultMappings() 异步获取
 import { getAntigravityDefaultModelMapping } from '@/api/admin/accounts'
 import { isApiBackedPlatform, servableModelsFor } from '@/composables/useServableModels'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 let _antigravityDefaultMappingsCache: { from: string; to: string }[] | null = null
 
@@ -417,11 +418,11 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
-  if (platform === 'openai') return openaiPresetMappings
-  if (platform === 'newapi') return newapiPresetMappings
-  if (platform === 'gemini') return geminiPresetMappings
-  if (platform === 'grok' || platform === 'xai') return grokPresetMappings
-  if (platform === 'antigravity') return antigravityPresetMappings
+  if (platform === PLATFORM_OPENAI) return openaiPresetMappings
+  if (platform === PLATFORM_NEWAPI) return newapiPresetMappings
+  if (platform === PLATFORM_GEMINI) return geminiPresetMappings
+  if (platform === PLATFORM_GROK || platform === 'xai') return grokPresetMappings
+  if (platform === PLATFORM_ANTIGRAVITY) return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

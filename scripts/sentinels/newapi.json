@@ -177,8 +177,8 @@
       "path": "frontend/src/utils/accountUsageBatch.tk.ts",
       "must_contain": [
         "export function usesLocalUsageWindows(account: Account): boolean",
-        "account.platform === 'newapi' || account.platform === 'grok'",
-        "account.platform === 'antigravity' && account.type !== 'oauth'",
+        "account.platform === PLATFORM_NEWAPI || account.platform === PLATFORM_GROK",
+        "account.platform === PLATFORM_ANTIGRAVITY && account.type !== 'oauth'",
         "if (usesLocalUsageWindows(account)) return true"
       ],
       "rationale": "Frontend SSOT for local-window usage rows. NewAPI Vertex, Grok, and Antigravity relay stubs are served by the passive batch endpoint and render generic 5h/7d bars; losing this helper or narrowing it blanks those rows or reintroduces per-row /usage fan-out."

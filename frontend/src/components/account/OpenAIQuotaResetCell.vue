@@ -187,6 +187,7 @@ import {
 import UsageProgressBar from './UsageProgressBar.vue'
 import { normalizeCodexAdditionalLimits } from '@/constants/codexRateLimitWindows.tk'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const props = defineProps<{
   account: Account
@@ -195,7 +196,7 @@ const props = defineProps<{
 const { t } = useI18n()
 
 // Visible only for OpenAI OAuth accounts.
-const visible = computed(() => props.account.platform === 'openai' && props.account.type === 'oauth')
+const visible = computed(() => props.account.platform === PLATFORM_OPENAI && props.account.type === 'oauth')
 
 const loading = ref(false)
 const resetting = ref(false)

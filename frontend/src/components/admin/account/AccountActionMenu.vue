@@ -66,6 +66,7 @@ import { computed, watch, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
@@ -109,8 +110,8 @@ const isTempUnschedulable = computed(() => props.account?.temp_unschedulable_unt
 const hasRecoverableState = computed(() => {
   return props.account?.status === 'error' || Boolean(isRateLimited.value) || Boolean(isOverloaded.value) || Boolean(isTempUnschedulable.value)
 })
-const isAntigravityOAuth = computed(() => props.account?.platform === 'antigravity' && props.account?.type === 'oauth')
-const isOpenAIOAuth = computed(() => props.account?.platform === 'openai' && props.account?.type === 'oauth')
+const isAntigravityOAuth = computed(() => props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'oauth')
+const isOpenAIOAuth = computed(() => props.account?.platform === PLATFORM_OPENAI && props.account?.type === 'oauth')
 // 影子账号(链接型,持 parent_account_id)不持凭据、type 不可变,凭据/隐私类操作对其无效。
 const isShadow = computed(() => props.account?.parent_account_id != null)
 // A "parent" OpenAI OAuth account is one that is NOT itself a shadow (parent_account_id == null)
@@ -123,7 +124,7 @@ const supportsPrivacy = computed(() => (isAntigravityOAuth.value || isOpenAIOAut
 // offered "设置 Tier" on stubs where the apply call always errors out.
 const canSetTier = computed(
   () =>
-    props.account?.platform === 'anthropic' &&
+    props.account?.platform === PLATFORM_ANTHROPIC &&
     (props.account?.type === 'oauth' || props.account?.type === 'setup-token')
 )
 const hasQuotaLimit = computed(() => {

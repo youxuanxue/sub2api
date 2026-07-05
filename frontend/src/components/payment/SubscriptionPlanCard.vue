@@ -105,6 +105,8 @@ import type { SubscriptionPlan } from '@/types/payment'
 import type { UserSubscription } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
+import { PLATFORM_ANTIGRAVITY } from '@/constants/gatewayPlatforms'
+import { STATUS_ACTIVE } from '@/constants/channel'
 import {
   platformAccentBarClass,
   platformBadgeLightClass,
@@ -122,7 +124,7 @@ const { t } = useI18n()
 
 const platform = computed(() => props.plan.group_platform || '')
 const isRenewal = computed(() =>
-  props.activeSubscriptions?.some(s => s.group_id === props.plan.group_id && s.status === 'active') ?? false
+  props.activeSubscriptions?.some(s => s.group_id === props.plan.group_id && s.status === STATUS_ACTIVE) ?? false
 )
 
 // Derived color classes from central config
@@ -161,7 +163,7 @@ const MODEL_SCOPE_LABELS: Record<string, string> = {
 }
 
 const modelScopeLabels = computed(() => {
-  if (platform.value !== 'antigravity') return []
+  if (platform.value !== PLATFORM_ANTIGRAVITY) return []
   const scopes = props.plan.supported_model_scopes
   if (!scopes || scopes.length === 0) return []
   return scopes.map(s => MODEL_SCOPE_LABELS[s] || s)

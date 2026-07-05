@@ -18,6 +18,7 @@ import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
@@ -29,7 +30,7 @@ const activeCell = computed(() => {
   }
 
   if (
-    account.platform === 'anthropic' &&
+    account.platform === PLATFORM_ANTHROPIC &&
     (account.type === 'oauth' || account.type === 'setup-token')
   ) {
     return AnthropicUsageCell
@@ -39,25 +40,25 @@ const activeCell = computed(() => {
   // have a common upstream percentage-quota protocol, but the backend returns
   // TokenKey account billing windows through the same passive endpoint.
   if (
-    (account.platform === 'openai' && account.type === 'oauth') ||
+    (account.platform === PLATFORM_OPENAI && account.type === 'oauth') ||
     usesLocalUsageWindows(account)
   ) {
     return OpenAIUsageCell
   }
 
-  if (account.platform === 'grok') {
+  if (account.platform === PLATFORM_GROK) {
     return account.type === 'oauth' ? GrokUsageCell : OpenAIUsageCell
   }
 
-  if (account.platform === 'antigravity' && account.type === 'oauth') {
+  if (account.platform === PLATFORM_ANTIGRAVITY && account.type === 'oauth') {
     return AntigravityUsageCell
   }
 
-  if (account.platform === 'gemini') {
+  if (account.platform === PLATFORM_GEMINI) {
     return GeminiUsageCell
   }
 
-  if (account.platform === 'kiro') {
+  if (account.platform === PLATFORM_KIRO) {
     return KiroUsageCell
   }
 

@@ -637,6 +637,7 @@ import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
 import {
   apiToFormSections,
   formSectionsToApi,
@@ -1442,7 +1443,7 @@ async function handleSubmit() {
 
 // ── Toggle status ──
 async function toggleChannelStatus(channel: Channel) {
-  const newStatus = channel.status === 'active' ? 'disabled' : 'active'
+  const newStatus = channel.status === STATUS_ACTIVE ? STATUS_DISABLED : STATUS_ACTIVE
   try {
     await adminAPI.channels.update(channel.id, { status: newStatus })
     if (filters.status && filters.status !== newStatus) {

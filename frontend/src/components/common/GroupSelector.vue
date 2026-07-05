@@ -62,6 +62,7 @@ import { useI18n } from 'vue-i18n'
 import GroupBadge from './GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { AdminGroup, GroupPlatform } from '@/types'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 
@@ -92,9 +93,9 @@ const filteredGroups = computed(() => {
   let result: AdminGroup[] = props.groups
   if (props.platform) {
     // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
-    if (props.platform === 'antigravity' && props.mixedScheduling) {
+    if (props.platform === PLATFORM_ANTIGRAVITY && props.mixedScheduling) {
       result = result.filter(
-        (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+        (g) => g.platform === PLATFORM_ANTIGRAVITY || g.platform === PLATFORM_ANTHROPIC || g.platform === PLATFORM_GEMINI
       )
     } else {
       // 默认：只能选择同 platform 的分组
