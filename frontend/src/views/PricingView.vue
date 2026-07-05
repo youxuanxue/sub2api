@@ -1002,7 +1002,7 @@ async function loadMyCatalog(): Promise<void> {
 }
 
 async function loadInitialCatalog(): Promise<void> {
-  if (!hasSavedAuthToken()) {
+  if (!hasSavedAuthToken() && !authStore.isAuthenticated) {
     viewMode.value = 'public'
     await loadPublicCatalog()
     return

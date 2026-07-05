@@ -623,8 +623,10 @@
   </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'AdminChannelsView' })
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
@@ -1476,11 +1478,22 @@ async function confirmDelete() {
 }
 
 // ── Lifecycle ──
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
 onMounted(() => {
   loadChannels()
   loadGroups()
   loadWebSearchGlobalState()
   document.addEventListener('click', handleRuleAccountClickOutside)
+  lastFetchedAt = Date.now()
+})
+
+onActivated(() => {
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    loadChannels()
+    lastFetchedAt = Date.now()
+  }
 })
 
 onUnmounted(() => {

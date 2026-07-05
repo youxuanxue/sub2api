@@ -411,8 +411,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'KeyUsageView' })
 import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -917,8 +919,16 @@ onMounted(() => {
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
 
+onActivated(() => {
+  if (!resetTimer) resetTimer = setInterval(() => { now.value = new Date() }, 60000)
+})
+
+onDeactivated(() => {
+  if (resetTimer) { clearInterval(resetTimer); resetTimer = null }
+})
+
 onUnmounted(() => {
-  if (resetTimer) clearInterval(resetTimer)
+  if (resetTimer) { clearInterval(resetTimer); resetTimer = null }
 })
 </script>
 

@@ -44,7 +44,8 @@ const ENTRY_HTML_PRELOAD_BLOCKLIST = [
   '/OAuthAuthorizationFlow',
   '/DashboardView-',
   '/admin-dashboard-view-',
-  '/vendor-chart-'
+  '/vendor-chart-',
+  '/vendor-stripe-'
 ]
 
 export default defineConfig(({ mode }) => {
@@ -103,6 +104,14 @@ export default defineConfig(({ mode }) => {
               id.includes('/@vue/')
             ) {
               return 'vendor-vue'
+            }
+
+            // @stripe/stripe-js wrapper (~10KB) has a module-level side effect
+            // that injects a <script> tag loading the external Stripe SDK (~1MB).
+            // Isolate it so the side effect only fires when a payment route chunk
+            // is actually evaluated — never on /home, /login, /dashboard, etc.
+            if (id.includes('/@stripe/stripe-js/') || id.includes('/stripe-js/')) {
+              return 'vendor-stripe'
             }
 
             // xlsx 仅 UsageView 导出时动态引入，单独成块，避免被绝大多数后台页面急切下载/解析（~430KB）

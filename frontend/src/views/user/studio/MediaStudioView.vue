@@ -156,9 +156,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onActivated, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'UserStudioView' })
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ChatStudio from '@/views/user/studio/ChatStudio.vue'
 import ImageStudio from '@/views/user/studio/ImageStudio.vue'
@@ -552,7 +554,18 @@ async function bootstrap(): Promise<void> {
   }
 }
 
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
 onMounted(() => {
   void bootstrap()
+  lastFetchedAt = Date.now()
+})
+
+onActivated(() => {
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    void bootstrap()
+    lastFetchedAt = Date.now()
+  }
 })
 </script>

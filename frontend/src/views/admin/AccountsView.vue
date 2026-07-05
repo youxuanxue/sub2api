@@ -461,9 +461,11 @@
   </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onDeactivated, onUnmounted, toRaw, watch, defineAsyncComponent } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'AdminAccountsView' })
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
@@ -1968,6 +1970,9 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
 onMounted(async () => {
   load()
   try {
@@ -1992,9 +1997,23 @@ onMounted(async () => {
   } else {
     pauseAutoRefresh()
   }
+  lastFetchedAt = Date.now()
+})
+
+onActivated(() => {
+  if (autoRefreshEnabled.value) resumeAutoRefresh()
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    load()
+    lastFetchedAt = Date.now()
+  }
+})
+
+onDeactivated(() => {
+  pauseAutoRefresh()
 })
 
 onUnmounted(() => {
+  pauseAutoRefresh()
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
 })

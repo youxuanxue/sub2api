@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 )
 
 type userUsageFilters struct {
@@ -535,28 +536,49 @@ func (h *UsageHandler) DashboardSnapshotV2(c *gin.Context) {
 		"granularity":  granularity,
 	}
 
+	// Run independent DB queries concurrently. Each goroutine writes its own
+	// local variable (no shared mutable state), and errgroup propagates the
+	// first error + cancels the rest.
+	g, gctx := errgroup.WithContext(c.Request.Context())
+
+	var trend []usagestats.TrendDataPoint
+	var models []usagestats.ModelStat
+	var groups []usagestats.GroupStat
+
 	if includeTrend {
-		trend, err := h.usageService.GetUsageTrendWithFilters(c.Request.Context(), parsed.StartTime, parsed.EndTime, granularity, parsed.Filters)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
+		g.Go(func() error {
+			var err error
+			trend, err = h.usageService.GetUsageTrendWithFilters(gctx, parsed.StartTime, parsed.EndTime, granularity, parsed.Filters)
+			return err
+		})
+	}
+	if includeModels {
+		g.Go(func() error {
+			var err error
+			models, err = h.usageService.GetModelStatsWithFiltersBySource(gctx, parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourceRequested)
+			return err
+		})
+	}
+	if includeGroups {
+		g.Go(func() error {
+			var err error
+			groups, err = h.usageService.GetGroupStatsWithFilters(gctx, parsed.StartTime, parsed.EndTime, parsed.Filters)
+			return err
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	if includeTrend {
 		resp["trend"] = trend
 	}
 	if includeModels {
-		models, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourceRequested)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
 		resp["models"] = userModelStatsFromUsageStats(models)
 	}
 	if includeGroups {
-		groups, err := h.usageService.GetGroupStatsWithFilters(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
 		resp["groups"] = userGroupStatsFromUsageStats(groups)
 	}
 
@@ -651,7 +673,14 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, time.Time{}, time.Time{})
+	// Default to last 30 days at the handler level to avoid scanning all-time
+	// data. The repo also applies this default, but being explicit here prevents
+	// unbounded queries if the repo default is ever removed.
+	now := time.Now()
+	startTime := now.AddDate(0, 0, -30)
+	endTime := now
+
+	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, startTime, endTime)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
