@@ -462,6 +462,25 @@ func TestLoadDefaultDatabaseSSLMode(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultDatabaseAndRedisPoolDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Database.MaxOpenConns != 50 {
+		t.Fatalf("Database.MaxOpenConns = %d, want 50", cfg.Database.MaxOpenConns)
+	}
+	if cfg.Database.MaxIdleConns != 10 {
+		t.Fatalf("Database.MaxIdleConns = %d, want 10", cfg.Database.MaxIdleConns)
+	}
+	if cfg.Redis.MinIdleConns != 10 {
+		t.Fatalf("Redis.MinIdleConns = %d, want 10", cfg.Redis.MinIdleConns)
+	}
+}
+
 func TestValidateLinuxDoFrontendRedirectURL(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
