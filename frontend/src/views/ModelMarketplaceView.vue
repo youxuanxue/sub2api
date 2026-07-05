@@ -74,7 +74,7 @@
           <aside class="hidden w-56 shrink-0 lg:block">
             <div class="sticky top-6 rounded-xl border border-gray-200/60 bg-white/80 p-4 backdrop-blur-sm dark:border-dark-700/60 dark:bg-dark-800/80">
               <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">
-                Providers
+                {{ t('models.providers') }}
               </h3>
               <ul class="space-y-1">
                 <li>
@@ -178,7 +178,7 @@
                     class="rounded-md px-2 py-0.5 text-[10px] font-medium"
                     :class="capabilityClass(cap)"
                   >
-                    {{ cap }}
+                    {{ formatCapabilityLabel(cap) }}
                   </span>
                 </div>
 
@@ -226,7 +226,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const authStore = useAuthStore()
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
@@ -294,6 +294,12 @@ function formatPrice(price: number): string {
   if (price < 0.001) return `$${price.toFixed(6)}`
   if (price < 0.01) return `$${price.toFixed(4)}`
   return `$${price.toFixed(3)}`
+}
+
+function formatCapabilityLabel(cap: string): string {
+  const key = `models.capabilities.${cap}`
+  if (te(key)) return t(key)
+  return cap.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function capabilityClass(cap: string): string {

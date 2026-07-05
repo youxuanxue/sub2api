@@ -52,6 +52,8 @@ func PrerenderMiddleware() gin.HandlerFunc {
 			html = prerenderPricingHTML()
 		case "/quickstart":
 			html = prerenderQuickstartHTML()
+		case "/models":
+			html = prerenderModelsHTML()
 		default:
 			c.Next()
 			return
@@ -228,4 +230,40 @@ func prerenderQuickstartHTML() string {
 </noscript>
 </body>
 </html>`, head, title, desc, storefrontENFreeTrial)
+}
+
+func prerenderModelsHTML() string {
+	title := "Model Marketplace - TokenKey AI API Gateway"
+	desc := "Browse and compare AI models by capability, provider, and price. Text, image, and video models in one catalog with transparent per-model pricing."
+	ogDesc := "Browse Claude, GPT, Gemini, DeepSeek, and more. Filter by modality and provider, then jump to live pricing."
+	head := prerenderHead(title, desc, ogDesc, "/models")
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+%s
+</head>
+<body>
+<h1>%s</h1>
+<p>%s</p>
+
+<section>
+<h2>Model Marketplace</h2>
+<p>Browse the full public catalog by text, image, or video capability. Filter by provider and search by model id.</p>
+<ul>
+<li>Card-based browsing with vendor facets</li>
+<li>Per-model input/output pricing at a glance</li>
+<li>Links to the interactive pricing catalog for details</li>
+</ul>
+</section>
+
+<nav>
+<a href="/">Back to Home / 返回首页</a>
+<a href="/pricing">View Pricing / 查看定价</a>
+</nav>
+
+<noscript>
+<p>Enable JavaScript to browse the interactive model marketplace and pricing catalog.</p>
+</noscript>
+</body>
+</html>`, head, title, desc)
 }

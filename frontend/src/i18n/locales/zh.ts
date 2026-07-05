@@ -735,6 +735,19 @@ export default {
     browseAll: '浏览全部模型',
     inputPrice: '输入',
     outputPrice: '输出',
+    providers: '供应商',
+    capabilities: {
+      vision: '图像输入',
+      tools: '工具调用',
+      function_calling: '工具调用',
+      thinking: '深度思考',
+      reasoning: '深度思考',
+      image_generation: '图像生成',
+      video_generation: '视频生成',
+      audio: '音频',
+      json: 'JSON 模式',
+      prompt_caching: '提示缓存',
+    },
   },
 
   // Navigation

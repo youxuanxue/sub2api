@@ -737,6 +737,19 @@ export default {
     browseAll: 'Browse All Models',
     inputPrice: 'Input',
     outputPrice: 'Output',
+    providers: 'Providers',
+    capabilities: {
+      vision: 'Vision',
+      tools: 'Tools',
+      function_calling: 'Function calling',
+      thinking: 'Extended thinking',
+      reasoning: 'Reasoning',
+      image_generation: 'Image generation',
+      video_generation: 'Video generation',
+      audio: 'Audio',
+      json: 'JSON mode',
+      prompt_caching: 'Prompt caching',
+    },
   },
 
   // Navigation
