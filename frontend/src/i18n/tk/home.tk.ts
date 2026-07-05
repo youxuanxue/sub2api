@@ -40,7 +40,7 @@ const en: HomeLocaleOverlay = {
       },
       stability: {
         title: 'Every Modality, One Key',
-        desc: 'Text, image, video, and code. Claude, GPT, Gemini, DeepSeek — all through a single API key. Built-in Studio for multimodal workflows.',
+        desc: 'Text, image, video, and code. Claude, GPT, Gemini, Qwen — all through a single API key. Built-in Studio for multimodal workflows.',
       },
       billing: {
         title: 'Predictable, Quota-based Pricing',
@@ -97,8 +97,7 @@ const en: HomeLocaleOverlay = {
       gpt: 'GPT',
       gemini: 'Gemini',
       kiro: 'Kiro',
-      deepseek: 'DeepSeek',
-      volcengine: 'Doubao · VolcEngine',
+      qwen: 'Alibaba Cloud Qwen',
       compatTitle: '200+ OpenAI-Compatible Models',
     },
     freeTrial: {
@@ -130,7 +129,7 @@ const en: HomeLocaleOverlay = {
         },
         models: {
           q: 'Which AI models are supported?',
-          a: 'Claude, GPT, Gemini, DeepSeek, Doubao, plus 200+ OpenAI-compatible models. Text, image, and video generation.',
+          a: 'Claude, GPT, Gemini, Alibaba Cloud Qwen, plus 200+ OpenAI-compatible models. Text, image, and video generation.',
         },
         billing: {
           q: 'How does billing work?',
@@ -178,7 +177,7 @@ const zh: HomeLocaleOverlay = {
       },
       stability: {
         title: '全模态覆盖',
-        desc: '文本、图像、视频。Claude / GPT / Gemini / DeepSeek。一个 Key 全搞定。内置 Studio 创作工作台。',
+        desc: '文本、图像、视频。Claude / GPT / Gemini / 通义千问。一个 Key 全搞定。内置 Studio 创作工作台。',
       },
       billing: {
         title: '订阅配额，费用可预测',
@@ -235,8 +234,7 @@ const zh: HomeLocaleOverlay = {
       gpt: 'GPT',
       gemini: 'Gemini',
       kiro: 'Kiro',
-      deepseek: 'DeepSeek',
-      volcengine: '豆包·VolcEngine',
+      qwen: '通义千问',
       compatTitle: '200+ OpenAI 兼容模型',
     },
     freeTrial: {
@@ -268,7 +266,7 @@ const zh: HomeLocaleOverlay = {
         },
         models: {
           q: '支持哪些 AI 模型？',
-          a: 'Claude、GPT、Gemini、DeepSeek、豆包，以及 200+ OpenAI 兼容模型。支持文本、图像、视频生成。',
+          a: 'Claude、GPT、Gemini、通义千问（阿里云百炼），以及 200+ OpenAI 兼容模型。支持文本、图像、视频生成。',
         },
         billing: {
           q: '计费方式是怎样的？',

@@ -34,8 +34,7 @@ export const HOME_PROVIDER_CARDS: HomeProviderCard[] = [
   { id: 'gpt', labelKey: 'home.providers.gpt', glyph: 'G', gradient: 'from-green-500 to-green-600', badge: 'supported', modalities: ['image'] },
   { id: 'gemini', labelKey: 'home.providers.gemini', glyph: 'G', gradient: 'from-blue-500 to-blue-600', badge: 'supported', modalities: ['image', 'video'] },
   { id: 'kiro', labelKey: 'home.providers.kiro', glyph: 'K', gradient: 'from-indigo-500 to-indigo-600', badge: 'supported' },
-  { id: 'deepseek', labelKey: 'home.providers.deepseek', glyph: 'D', gradient: 'from-sky-500 to-blue-700', badge: 'supported' },
-  { id: 'volcengine', labelKey: 'home.providers.volcengine', glyph: '豆', gradient: 'from-red-500 to-rose-600', badge: 'supported', modalities: ['image'] },
+  { id: 'qwen', labelKey: 'home.providers.qwen', glyph: 'Q', gradient: 'from-violet-500 to-purple-600', badge: 'supported', modalities: ['image'] },
   // 泛化卡: 不点名具体上游, 只表达「可接入」, 样式弱于实测卡。
   { id: 'compat', labelKey: 'home.providers.compatTitle', glyph: '+', gradient: 'from-gray-500 to-gray-600', badge: 'compatible' },
 ]

@@ -23,7 +23,7 @@ export const STOREFRONT_SEO = {
     twitterDescription: 'One API key for Claude, GPT, Gemini, and more. Direct-to-vendor quality, predictable pricing.',
     heroTitle: 'One key. Every model. Zero compromises.',
     heroSubtitle:
-      'Access Claude, GPT, Gemini, and DeepSeek through a single API key — routed directly to official endpoints with built-in quota controls.',
+      'Access Claude, GPT, Gemini, and Alibaba Cloud Qwen through a single API key — routed directly to official endpoints with built-in quota controls.',
     freeTrialEn:
       'Try free with 1M tokens on us. Enough to run your real workload end-to-end. Just an email — no credit card required.',
     ctaDescriptionEn: 'Run your real workload end-to-end. Just an email — no credit card required.',

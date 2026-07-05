@@ -124,7 +124,7 @@ func prerenderHomeHTML() string {
 <li>Google (Gemini 2.5 Pro, Flash)</li>
 <li>Amazon (Kiro)</li>
 <li>xAI (Grok)</li>
-<li>DeepSeek</li>
+<li>Alibaba Cloud Qwen (通义千问)</li>
 <li>Midjourney</li>
 <li>Runway (Video)</li>
 <li>Suno (Music)</li>
@@ -192,7 +192,7 @@ func prerenderPricingHTML() string {
 func prerenderQuickstartHTML() string {
 	title := "Quick Start - TokenKey AI API Gateway"
 	desc := "2 分钟开始使用 TokenKey AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
-	ogDesc := "Get started in 2 minutes. One API key for Claude, GPT, Gemini, DeepSeek, and more."
+	ogDesc := "Get started in 2 minutes. One API key for Claude, GPT, Gemini, Qwen, and more."
 	head := prerenderHead(title, desc, ogDesc, "/quickstart")
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
@@ -235,7 +235,7 @@ func prerenderQuickstartHTML() string {
 func prerenderModelsHTML() string {
 	title := "Model Marketplace - TokenKey AI API Gateway"
 	desc := "Browse and compare AI models by capability, provider, and price. Text, image, and video models in one catalog with transparent per-model pricing."
-	ogDesc := "Browse Claude, GPT, Gemini, DeepSeek, and more. Filter by modality and provider, then jump to live pricing."
+	ogDesc := "Browse Claude, GPT, Gemini, Qwen, and more. Filter by modality and provider, then jump to live pricing."
 	head := prerenderHead(title, desc, ogDesc, "/models")
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
