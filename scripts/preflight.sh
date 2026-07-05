@@ -1162,6 +1162,21 @@ else
     echo "  ok: embedded frontend source manifest is fresh; release workflow rebuilds full dist assets"
 fi
 
+# ---- sub2api: storefront SEO copy alignment ---------------------------------
+echo ""
+echo "=== sub2api: storefront SEO alignment ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to run storefront-seo-alignment check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/storefront-seo-alignment.py --selftest >/dev/null; then
+    echo "  FAIL: storefront-seo-alignment selftest failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/storefront-seo-alignment.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: storefront SEO copy aligned across TS, Go prerender, and index.html"
+fi
+
 # ---- sub2api: admin persistent-shell layout invariant -----------------------
 echo ""
 echo "=== sub2api: admin persistent-shell layout ==="

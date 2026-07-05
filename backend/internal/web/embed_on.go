@@ -83,8 +83,6 @@ func (s *FrontendServer) InvalidateCache() {
 
 // Middleware returns the Gin middleware handler
 func (s *FrontendServer) Middleware() gin.HandlerFunc {
-	prerender := PrerenderMiddleware()
-
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
@@ -94,14 +92,8 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// Serve pre-rendered HTML to known crawlers for SEO / social link previews.
-		// Must run before SPA fallback so bots get content-rich HTML instead of
-		// an empty <div id="app">.
-		if isCrawler(c.GetHeader("User-Agent")) {
-			prerender(c)
-			if c.IsAborted() {
-				return
-			}
+		if tryServeCrawlerPrerender(c) {
+			return
 		}
 
 		cleanPath := strings.TrimPrefix(path, "/")

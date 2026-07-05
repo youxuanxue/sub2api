@@ -13,6 +13,8 @@
 // (TLS fingerprint alignment, node counts, capture→diff pipeline, upstream
 // auto-merge). See docs/sales for the internal, mechanism-level pitch.
 
+import { STOREFRONT_SEO } from '@/constants/storefrontSeo.tk'
+
 type HomeLocaleOverlay = {
   home: Record<string, unknown>
 }
@@ -20,9 +22,8 @@ type HomeLocaleOverlay = {
 const en: HomeLocaleOverlay = {
   home: {
     hero: {
-      title: 'Every call, official quality.',
-      subtitle:
-        'One API Key, all major AI models. Text, image, video. Subscription quota, predictable costs.',
+      title: STOREFRONT_SEO.en.heroTitle,
+      subtitle: STOREFRONT_SEO.en.heroSubtitle,
     },
     tags: {
       subscriptionToApi: 'Native Access',
@@ -102,8 +103,7 @@ const en: HomeLocaleOverlay = {
     },
     cta: {
       title: 'Start Free · 1M Tokens Included',
-      description:
-        'Enough to test your real workflow. Email only, no card required.',
+      description: STOREFRONT_SEO.en.ctaDescriptionEn,
     },
   },
 }
@@ -111,9 +111,8 @@ const en: HomeLocaleOverlay = {
 const zh: HomeLocaleOverlay = {
   home: {
     hero: {
-      title: '每一次调用，都是官方品质。',
-      subtitle:
-        '一个 API Key，所有主流 AI 模型。文本、图像、视频。订阅配额，费用可预测。',
+      title: STOREFRONT_SEO.zh.heroTitle,
+      subtitle: STOREFRONT_SEO.zh.heroSubtitle,
     },
     tags: {
       subscriptionToApi: '原生接入',
@@ -193,7 +192,7 @@ const zh: HomeLocaleOverlay = {
     },
     cta: {
       title: '免费试用 · 送 100 万 tokens',
-      description: '足够测试你的真实工作流。只需邮箱，无需信用卡。',
+      description: STOREFRONT_SEO.zh.ctaDescriptionZh,
     },
   },
 }

@@ -1411,6 +1411,38 @@
         ":start-ts=\"getTimeWindowParams()?.start_ts\""
       ],
       "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dropping any of this wiring silently restores widened local-date queries for default rolling windows, which is a production latency regression rather than an obvious functional break."
+    },
+    {
+      "path": "frontend/src/constants/storefrontSeo.tk.ts",
+      "must_contain": [
+        "export const STOREFRONT_SEO",
+        "ogImageUrl: 'https://api.tokenkey.dev/og-cover.png'"
+      ],
+      "rationale": "Canonical public SEO copy for index.html meta tags, Go crawler prerender (prerender_seo_tk.go), and home.tk.ts hero overlay. Without this SSOT, SPA/prerender/social-preview copy drifts silently; scripts/checks/storefront-seo-alignment.py mechanically gates TS ↔ Go ↔ HTML surfaces."
+    },
+    {
+      "path": "frontend/src/i18n/tk/home.tk.ts",
+      "must_contain": [
+        "storefrontSeo.tk",
+        "STOREFRONT_SEO.zh.heroTitle",
+        "STOREFRONT_SEO.en.heroTitle"
+      ],
+      "rationale": "Home landing hero/CTA must consume storefrontSeo.tk.ts instead of duplicating strings; losing the import re-opens SEO/copy drift between SPA and crawler prerender."
+    },
+    {
+      "path": "backend/internal/web/embed_on.go",
+      "must_contain": [
+        "tryServeCrawlerPrerender(c)"
+      ],
+      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion)."
+    },
+    {
+      "path": "backend/internal/web/embed_on_tk_prerender.go",
+      "must_contain": [
+        "func tryServeCrawlerPrerender",
+        "PrerenderMiddleware()"
+      ],
+      "rationale": "Companion file holding crawler prerender integration; deleting it or inlining back into embed_on.go re-opens upstream merge conflict surface and drops SEO prerender silently if the call site is lost."
     }
   ]
 }

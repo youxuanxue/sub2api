@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -34,8 +35,6 @@ func isCrawler(ua string) bool {
 // PrerenderMiddleware returns a Gin middleware that serves pre-rendered HTML
 // to known search engine and social media crawlers. Normal users fall through
 // to the SPA (existing behavior).
-//
-// This enables SEO and rich link previews for the Vue SPA without SSR/Nuxt.
 func PrerenderMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ua := c.GetHeader("User-Agent")
@@ -45,17 +44,15 @@ func PrerenderMiddleware() gin.HandlerFunc {
 		}
 
 		path := c.Request.URL.Path
-
 		var html string
 		switch path {
 		case "/", "/home":
-			html = prerenderHome
+			html = prerenderHomeHTML()
 		case "/pricing":
-			html = prerenderPricing
+			html = prerenderPricingHTML()
 		case "/quickstart":
-			html = prerenderQuickstart
+			html = prerenderQuickstartHTML()
 		default:
-			// For routes we don't have prerender content for, fall through to SPA
 			c.Next()
 			return
 		}
@@ -66,27 +63,36 @@ func PrerenderMiddleware() gin.HandlerFunc {
 	}
 }
 
-const prerenderHome = `<!DOCTYPE html>
+func prerenderHead(title, description, ogDescription, canonicalPath string) string {
+	canonicalURL := storefrontCanonicalOrigin + canonicalPath
+	return fmt.Sprintf(`<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>%s</title>
+<meta name="description" content="%s">
+<meta property="og:type" content="website">
+<meta property="og:title" content="%s">
+<meta property="og:description" content="%s">
+<meta property="og:image" content="%s">
+<meta property="og:url" content="%s">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="%s">
+<meta name="twitter:description" content="%s">
+<meta name="twitter:image" content="%s">
+<link rel="canonical" href="%s">`,
+		title, description, title, ogDescription, storefrontOGImageURL,
+		canonicalURL, title, storefrontENTwitterDescription, storefrontOGImageURL, canonicalURL)
+}
+
+func prerenderHomeHTML() string {
+	head := prerenderHead(storefrontSiteTitle, storefrontZHMetaDescription, storefrontZHOGDescription, "/")
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TokenKey - AI API Gateway</title>
-<meta name="description" content="TokenKey - AI API Gateway. 每一次调用，都是官方品质。文本、图像、视频，一个 Key 全搞定。Official quality AI API access.">
-<meta property="og:type" content="website">
-<meta property="og:title" content="TokenKey - AI API Gateway">
-<meta property="og:description" content="每一次调用，都是官方品质。一个 API Key，所有主流 AI 模型。文本、图像、视频。订阅配额，费用可预测。">
-<meta property="og:image" content="https://api.tokenkey.dev/og-cover.png">
-<meta property="og:url" content="https://api.tokenkey.dev">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="TokenKey - AI API Gateway">
-<meta name="twitter:description" content="Official quality AI API access. Text, image, video. One Key for everything.">
-<meta name="twitter:image" content="https://api.tokenkey.dev/og-cover.png">
-<link rel="canonical" href="https://api.tokenkey.dev/">
+%s
 </head>
 <body>
-<h1>TokenKey - AI API Gateway</h1>
-<p>每一次调用，都是官方品质。一个 API Key，所有主流 AI 模型。</p>
+<h1>%s</h1>
+<p>%s</p>
 
 <section>
 <h2>Official Quality</h2>
@@ -125,8 +131,8 @@ const prerenderHome = `<!DOCTYPE html>
 
 <section>
 <h2>Free Trial</h2>
-<p>免费试用，送 100 万 tokens。足够测试你的真实工作流。只需邮箱，无需信用卡。</p>
-<p>Start free with 1M tokens included. Enough to test your real workflow. Email only, no card required.</p>
+<p>%s</p>
+<p>%s</p>
 </section>
 
 <nav>
@@ -137,29 +143,22 @@ const prerenderHome = `<!DOCTYPE html>
 <p>TokenKey requires JavaScript for the full interactive experience. Please enable JavaScript to access the dashboard, model catalog, and API management features.</p>
 </noscript>
 </body>
-</html>`
+</html>`, head, storefrontSiteTitle, storefrontZHHeroSubtitle, storefrontZHFreeTrial, storefrontENFreeTrial)
+}
 
-const prerenderPricing = `<!DOCTYPE html>
+func prerenderPricingHTML() string {
+	title := "TokenKey 定价 - AI API Pricing"
+	desc := "TokenKey AI API 定价方案。官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时模型可用性监控。"
+	ogDesc := "官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时可用性监控。订阅配额制费用可预测。"
+	head := prerenderHead(title, desc, ogDesc, "/pricing")
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TokenKey 定价 - AI API Pricing</title>
-<meta name="description" content="TokenKey AI API 定价方案。官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时模型可用性监控。">
-<meta property="og:type" content="website">
-<meta property="og:title" content="TokenKey 定价 - AI API Pricing">
-<meta property="og:description" content="官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时可用性监控。订阅配额制费用可预测。">
-<meta property="og:image" content="https://api.tokenkey.dev/og-cover.png">
-<meta property="og:url" content="https://api.tokenkey.dev/pricing">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="TokenKey 定价 - AI API Pricing">
-<meta name="twitter:description" content="Subscription-based AI API pricing. Predictable costs for text, image, and video models.">
-<meta name="twitter:image" content="https://api.tokenkey.dev/og-cover.png">
-<link rel="canonical" href="https://api.tokenkey.dev/pricing">
+%s
 </head>
 <body>
-<h1>TokenKey 定价 - AI API Pricing</h1>
-<p>官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时模型可用性监控。</p>
+<h1>%s</h1>
+<p>%s</p>
 
 <section>
 <h2>Pricing Model</h2>
@@ -185,29 +184,22 @@ const prerenderPricing = `<!DOCTYPE html>
 <p>TokenKey requires JavaScript to display the full interactive pricing catalog. Please enable JavaScript to see detailed model pricing, quota information, and subscription management.</p>
 </noscript>
 </body>
-</html>`
+</html>`, head, title, desc)
+}
 
-const prerenderQuickstart = `<!DOCTYPE html>
+func prerenderQuickstartHTML() string {
+	title := "Quick Start - TokenKey AI API Gateway"
+	desc := "2 分钟开始使用 TokenKey AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
+	ogDesc := "Get started with TokenKey in 2 minutes. One API Key for Claude, GPT, Gemini, DeepSeek and more."
+	head := prerenderHead(title, desc, ogDesc, "/quickstart")
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quick Start - TokenKey AI API Gateway</title>
-<meta name="description" content="2 分钟开始使用 TokenKey AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Quick Start - TokenKey AI API Gateway">
-<meta property="og:description" content="Get started with TokenKey in 2 minutes. One API Key for Claude, GPT, Gemini, DeepSeek and more.">
-<meta property="og:image" content="https://api.tokenkey.dev/og-cover.png">
-<meta property="og:url" content="https://api.tokenkey.dev/quickstart">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Quick Start - TokenKey AI API Gateway">
-<meta name="twitter:description" content="2 minutes to AI API access. One Key for Claude, GPT, Gemini, DeepSeek.">
-<meta name="twitter:image" content="https://api.tokenkey.dev/og-cover.png">
-<link rel="canonical" href="https://api.tokenkey.dev/quickstart">
+%s
 </head>
 <body>
-<h1>Quick Start - TokenKey AI API Gateway</h1>
-<p>2 分钟开始使用 TokenKey。获取 API Key，配置你的开发工具，立即调用所有主流 AI 模型。</p>
+<h1>%s</h1>
+<p>%s</p>
 
 <section>
 <h2>Supported Tools</h2>
@@ -223,7 +215,7 @@ const prerenderQuickstart = `<!DOCTYPE html>
 
 <section>
 <h2>Free Trial</h2>
-<p>Start free with 1M tokens included. Enough to test your real workflow. Email only, no card required.</p>
+<p>%s</p>
 </section>
 
 <nav>
@@ -235,4 +227,5 @@ const prerenderQuickstart = `<!DOCTYPE html>
 <p>TokenKey requires JavaScript for the interactive quick start guide. Please enable JavaScript to get your API key and configuration snippets.</p>
 </noscript>
 </body>
-</html>`
+</html>`, head, title, desc, storefrontENFreeTrial)
+}

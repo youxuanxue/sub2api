@@ -155,7 +155,7 @@ const appStore = useAppStore()
 const apiKey = ref<ApiKey | null>(null)
 const keyLoading = ref(true)
 const keyError = ref('')
-const showKey = ref(true)
+const showKey = ref(false)
 const copied = ref<string | null>(null)
 const activeTool = ref('claude-code')
 
