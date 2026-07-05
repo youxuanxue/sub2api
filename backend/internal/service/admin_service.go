@@ -543,7 +543,7 @@ type proxyQualityTarget struct {
 
 var proxyQualityTargets = []proxyQualityTarget{
 	{
-		Target: "openai",
+		Target: PlatformOpenAI,
 		URL:    "https://api.openai.com/v1/models",
 		Method: http.MethodGet,
 		AllowedStatuses: map[int]struct{}{
@@ -551,7 +551,7 @@ var proxyQualityTargets = []proxyQualityTarget{
 		},
 	},
 	{
-		Target: "anthropic",
+		Target: PlatformAnthropic,
 		URL:    "https://api.anthropic.com/v1/messages",
 		Method: http.MethodGet,
 		AllowedStatuses: map[int]struct{}{
@@ -562,7 +562,7 @@ var proxyQualityTargets = []proxyQualityTarget{
 		},
 	},
 	{
-		Target: "gemini",
+		Target: PlatformGemini,
 		URL:    "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
 		Method: http.MethodGet,
 		AllowedStatuses: map[int]struct{}{

@@ -184,11 +184,18 @@
         "account.IsKiro()",
         "kiroGateway",
         "KiroEndpointQuotaExhaustedError",
-        "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)",
         "setKiroInternalThinkingMirrorHopHeader",
         "parseKiroInternalThinkingSSECommentLine"
       ],
-      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field, plus the ForwardResult.BillingTier -> UsageLog.BillingTier passthrough in buildRecordUsageLog that persists the kiro \"kiro-estimated\" provenance label. The setKiroInternalThinkingMirrorHopHeader + parseKiroInternalThinkingSSECommentLine anchors wire the prod mirror passthrough that strips Kiro plaintext-thinking side channels before the end client while stashing blocks for QA/traj export. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail); an upstream merge that rewrites buildRecordUsageLog must preserve the BillingTier line (or kiro usage logs lose the estimated-billing label even though estimation still runs)."
+      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. The setKiroInternalThinkingMirrorHopHeader + parseKiroInternalThinkingSSECommentLine anchors wire the prod mirror passthrough that strips Kiro plaintext-thinking side channels before the end client while stashing blocks for QA/traj export. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_billing_cost.go",
+      "must_contain": [
+        "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)",
+        "buildRecordUsageLog"
+      ],
+      "rationale": "ForwardResult.BillingTier -> UsageLog.BillingTier passthrough in buildRecordUsageLog persists the kiro 'kiro-estimated' provenance label. An upstream merge that rewrites buildRecordUsageLog must preserve the BillingTier line (or kiro usage logs lose the estimated-billing label even though estimation still runs)."
     },
     {
       "path": "backend/internal/service/kiro_internal_thinking_tk.go",

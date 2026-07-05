@@ -1,4 +1,5 @@
 import type { OpenAIMessagesDispatchModelConfig } from "@/types";
+import { PLATFORM_GROK } from '@/constants/gatewayPlatforms'
 
 export interface MessagesDispatchMappingRow {
   claude_model: string;
@@ -33,7 +34,7 @@ export function messagesDispatchDefaultsForPlatform(
   MessagesDispatchFormState,
   "opus_mapped_model" | "sonnet_mapped_model" | "haiku_mapped_model"
 > {
-  if (platform === "grok") {
+  if (platform === PLATFORM_GROK) {
     return { ...GROK_MESSAGES_DISPATCH_DEFAULTS };
   }
   return { ...OPENAI_MESSAGES_DISPATCH_DEFAULTS };

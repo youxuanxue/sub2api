@@ -142,20 +142,20 @@
               <span
                 :class="[
                   'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
-                  row.subscription_type === 'subscription'
+                  row.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION
                     ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
                     : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
                 ]"
               >
                 {{
-                  row.subscription_type === "subscription"
+                  row.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION
                     ? t("admin.groups.subscription.subscription")
                     : t("admin.groups.subscription.standard")
                 }}
               </span>
               <!-- Subscription Limits - compact single line -->
               <div
-                v-if="row.subscription_type === 'subscription'"
+                v-if="row.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION"
                 class="text-xs text-gray-500 dark:text-gray-400"
               >
                 <template
@@ -532,7 +532,7 @@
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <div
-          v-if="createForm.subscription_type !== 'subscription'"
+          v-if="createForm.subscription_type !== SUBSCRIPTION_TYPE_SUBSCRIPTION"
           data-tour="group-form-exclusive"
         >
           <div class="mb-1.5 flex items-center gap-1">
@@ -623,7 +623,7 @@
 
           <!-- Subscription limits (only show when subscription type is selected) -->
           <div
-            v-if="createForm.subscription_type === 'subscription'"
+            v-if="createForm.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION"
             class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800"
           >
             <div>
@@ -876,7 +876,7 @@
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
-        <div v-if="createForm.subscription_type === 'subscription'" class="border-t pt-4">
+        <div v-if="createForm.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -1516,7 +1516,7 @@
         <div
           v-if="
             hasInvalidRequestFallback(createForm.platform) &&
-            createForm.subscription_type !== 'subscription'
+            createForm.subscription_type !== SUBSCRIPTION_TYPE_SUBSCRIPTION
           "
           class="border-t pt-4"
         >
@@ -1932,7 +1932,7 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
-        <div v-if="editForm.subscription_type !== 'subscription'">
+        <div v-if="editForm.subscription_type !== SUBSCRIPTION_TYPE_SUBSCRIPTION">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.form.exclusive") }}
@@ -2026,7 +2026,7 @@
 
           <!-- Subscription limits (only show when subscription type is selected) -->
           <div
-            v-if="editForm.subscription_type === 'subscription'"
+            v-if="editForm.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION"
             class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800"
           >
             <div>
@@ -2279,7 +2279,7 @@
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
-        <div v-if="editForm.subscription_type === 'subscription'" class="border-t pt-4">
+        <div v-if="editForm.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -2915,7 +2915,7 @@
         <div
           v-if="
             hasInvalidRequestFallback(editForm.platform) &&
-            editForm.subscription_type !== 'subscription'
+            editForm.subscription_type !== SUBSCRIPTION_TYPE_SUBSCRIPTION
           "
           class="border-t pt-4"
         >
@@ -3316,6 +3316,8 @@ import {
   tkAdminPlatformSoftBadgeClass,
   PLATFORM_ANTHROPIC,
   PLATFORM_ANTIGRAVITY,
+  SUBSCRIPTION_TYPE_STANDARD,
+  SUBSCRIPTION_TYPE_SUBSCRIPTION,
 } from "@/constants/gatewayPlatforms";
 import { supportsGroupImagePricing } from "@/constants/groupImagePricing.tk";
 import {
@@ -3479,8 +3481,8 @@ const editStatusOptions = computed(() => [
 ]);
 
 const subscriptionTypeOptions = computed(() => [
-  { value: "standard", label: t("admin.groups.subscription.standard") },
-  { value: "subscription", label: t("admin.groups.subscription.subscription") },
+  { value: SUBSCRIPTION_TYPE_STANDARD, label: t("admin.groups.subscription.standard") },
+  { value: SUBSCRIPTION_TYPE_SUBSCRIPTION, label: t("admin.groups.subscription.subscription") },
 ]);
 
 // 降级分组选项（创建时）- 仅包含 anthropic 平台且未启用 claude_code_only 的分组
@@ -3535,7 +3537,7 @@ const invalidRequestFallbackOptions = computed(() => {
     (g) =>
       g.platform === PLATFORM_ANTHROPIC &&
       g.status === "active" &&
-      g.subscription_type !== "subscription" &&
+      g.subscription_type !== SUBSCRIPTION_TYPE_SUBSCRIPTION &&
       g.fallback_group_id_on_invalid_request === null,
   );
   eligibleGroups.forEach((g) => {
@@ -3554,7 +3556,7 @@ const invalidRequestFallbackOptionsForEdit = computed(() => {
     (g) =>
       g.platform === PLATFORM_ANTHROPIC &&
       g.status === "active" &&
-      g.subscription_type !== "subscription" &&
+      g.subscription_type !== SUBSCRIPTION_TYPE_SUBSCRIPTION &&
       g.fallback_group_id_on_invalid_request === null &&
       g.id !== currentId,
   );
@@ -3661,7 +3663,7 @@ const createForm = reactive({
   platform: PLATFORM_ANTHROPIC as GroupPlatform,
   rate_multiplier: 1.0,
   is_exclusive: false,
-  subscription_type: "standard" as SubscriptionType,
+  subscription_type: SUBSCRIPTION_TYPE_STANDARD as SubscriptionType,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
@@ -4002,7 +4004,7 @@ const editForm = reactive({
   rate_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
-  subscription_type: "standard" as SubscriptionType,
+  subscription_type: SUBSCRIPTION_TYPE_STANDARD as SubscriptionType,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
@@ -4114,7 +4116,7 @@ const deleteConfirmMessage = computed(() => {
   if (!deletingGroup.value) {
     return "";
   }
-  if (deletingGroup.value.subscription_type === "subscription") {
+  if (deletingGroup.value.subscription_type === SUBSCRIPTION_TYPE_SUBSCRIPTION) {
     return t("admin.groups.deleteConfirmSubscription", {
       name: deletingGroup.value.name,
     });
@@ -4281,7 +4283,7 @@ const closeCreateModal = () => {
   createForm.platform = PLATFORM_ANTHROPIC;
   createForm.rate_multiplier = 1.0;
   createForm.is_exclusive = false;
-  createForm.subscription_type = "standard";
+  createForm.subscription_type = SUBSCRIPTION_TYPE_STANDARD;
   createForm.daily_limit_usd = null;
   createForm.weekly_limit_usd = null;
   createForm.monthly_limit_usd = null;
@@ -4447,7 +4449,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.rate_multiplier = group.rate_multiplier;
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
-  editForm.subscription_type = group.subscription_type || "standard";
+  editForm.subscription_type = group.subscription_type || SUBSCRIPTION_TYPE_STANDARD;
   editForm.daily_limit_usd = group.daily_limit_usd;
   editForm.weekly_limit_usd = group.weekly_limit_usd;
   editForm.monthly_limit_usd = group.monthly_limit_usd;
@@ -4670,7 +4672,7 @@ const confirmDelete = async () => {
 watch(
   () => createForm.subscription_type,
   (newVal) => {
-    if (newVal === "subscription") {
+    if (newVal === SUBSCRIPTION_TYPE_SUBSCRIPTION) {
       createForm.is_exclusive = true;
       createForm.fallback_group_id_on_invalid_request = null;
     } else {
@@ -4686,7 +4688,7 @@ watch(
 watch(
   () => editForm.subscription_type,
   (newVal) => {
-    if (newVal !== "subscription") {
+    if (newVal !== SUBSCRIPTION_TYPE_SUBSCRIPTION) {
       editForm.peak_rate_enabled = false;
       editForm.peak_start = "";
       editForm.peak_end = "";
