@@ -10,6 +10,7 @@ import (
 
 func TestTkShouldClearStickyForKiroMirrorModelMismatch(t *testing.T) {
 	stub := &Account{
+		Name:     "kiro-us6",
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
@@ -31,8 +32,29 @@ func TestTkShouldClearStickyForKiroMirrorModelMismatch(t *testing.T) {
 	require.True(t, shouldClearStickySession(stub, "claude-opus-4-1"))
 }
 
+func TestTkKiroMirrorStubModelGateUsesSchedulerMetadata(t *testing.T) {
+	svc := &GatewayService{}
+	stub := &Account{
+		Name:     "kiro-us6",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+	}
+	native := &Account{
+		Name:     "cc-us6",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+	}
+
+	require.False(t, svc.isModelSupportedByAccount(stub, "claude-fable-5"))
+	require.False(t, svc.isModelSupportedByAccount(stub, "claude-opus-4-1"))
+	require.True(t, svc.isModelSupportedByAccount(stub, "claude-sonnet-4-6"))
+	require.True(t, tkShouldClearStickyForKiroMirrorModelMismatch(stub, "claude-fable-5"))
+	require.True(t, svc.isModelSupportedByAccount(native, "claude-fable-5"))
+}
+
 func TestComputeAnthropicKiroMirrorStubPenaltiesPrefersNativeRelay(t *testing.T) {
 	stub := &Account{
+		Name:     "kiro-us6",
 		ID:       10,
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeAPIKey,
@@ -65,6 +87,7 @@ func TestComputeAnthropicKiroMirrorStubPenaltiesPrefersNativeRelay(t *testing.T)
 
 func TestTkKiroMirrorStubSelectionPenaltyIgnoresNonAnthropicModels(t *testing.T) {
 	stub := &Account{
+		Name:     "kiro-us6",
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{

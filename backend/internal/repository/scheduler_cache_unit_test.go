@@ -216,3 +216,27 @@ func TestBuildSchedulerMetadataAccount_KeepsSparkShadowRoutingIdentity(t *testin
 	require.Equal(t, map[string]any{"gpt-5.4": "gpt-5.4-openai-compact"}, got.Credentials["compact_model_mapping"])
 	require.Nil(t, got.Credentials["access_token"])
 }
+
+func TestBuildSchedulerMetadataAccount_KeepsMirrorStubRoutingMetadata(t *testing.T) {
+	account := service.Account{
+		ID:       300,
+		Name:     "kiro-us6",
+		Platform: service.PlatformAnthropic,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":         "tk-edge",
+			"base_url":        "https://api-us6.tokenkey.dev",
+			"mirror_platform": "kiro",
+			"pool_mode":       true,
+			"access_token":    "drop-me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, "https://api-us6.tokenkey.dev", got.Credentials["base_url"])
+	require.Equal(t, "kiro", got.Credentials["mirror_platform"])
+	require.Equal(t, true, got.Credentials["pool_mode"])
+	require.Equal(t, "tk-edge", got.Credentials["api_key"])
+	require.Nil(t, got.Credentials["access_token"])
+}

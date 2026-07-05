@@ -48,6 +48,7 @@ func TestNonKiroTLSGateUnchanged(t *testing.T) {
 
 func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
 	stub := &Account{
+		Name:     "kiro-us6",
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
@@ -67,6 +68,42 @@ func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
 		if stub.IsModelSupported(denied) {
 			t.Fatalf("Kiro mirror stub must not claim unsupported model %q", denied)
 		}
+	}
+}
+
+func TestKiroMirrorStubModelSupportWorksWithSchedulerMetadata(t *testing.T) {
+	stub := &Account{
+		Name:     "kiro-us5",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+	}
+	if !stub.IsKiroMirrorStub() {
+		t.Fatal("kiro-* anthropic api-key scheduler metadata must still identify a Kiro mirror stub")
+	}
+	if !stub.IsModelSupported("claude-sonnet-4-6") {
+		t.Fatal("Kiro scheduler metadata stub must support Kiro-served Claude ids")
+	}
+	for _, denied := range []string{"claude-fable-5", "claude-opus-4-1"} {
+		if stub.IsModelSupported(denied) {
+			t.Fatalf("Kiro scheduler metadata stub must not claim unsupported model %q", denied)
+		}
+	}
+}
+
+func TestKiroMirrorStubNameFallbackDoesNotCatchNonEdgeAPIKey(t *testing.T) {
+	account := &Account{
+		Name:     "kiro-lab",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.anthropic.com",
+		},
+	}
+	if account.IsKiroMirrorStub() {
+		t.Fatal("kiro-* name alone must not mark a non-edge Anthropic API key as Kiro mirror")
+	}
+	if !account.IsModelSupported("claude-fable-5") {
+		t.Fatal("non-edge Anthropic API key should keep normal passthrough model support")
 	}
 }
 

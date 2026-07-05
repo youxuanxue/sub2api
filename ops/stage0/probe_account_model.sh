@@ -116,8 +116,8 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|chat|responses) ;;
-  *) fail_json "ENDPOINT must be messages, chat, or responses" ;;
+  messages|count_tokens|chat|responses) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, or responses" ;;
 esac
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -415,6 +415,11 @@ if endpoint == "chat":
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
+elif endpoint == "count_tokens":
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
 else:
     payload = {
         "model": model,
@@ -430,6 +435,7 @@ fi
 
 case "$ENDPOINT" in
   messages) PATH_SUFFIX="/v1/messages"; AUTH_HEADER_NAME="x-api-key";;
+  count_tokens) PATH_SUFFIX="/v1/messages/count_tokens"; AUTH_HEADER_NAME="x-api-key";;
   chat) PATH_SUFFIX="/v1/chat/completions"; AUTH_HEADER_NAME="Authorization";;
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
 esac
@@ -553,6 +559,8 @@ def classify(code: str, body_text: str, usage_row, curl_err: str):
     n = int(code)
     low = body_text.lower()
     if 200 <= n < 300:
+        if endpoint == "count_tokens":
+            return "servable"
         if usage_row and int(usage_row.get("account_id") or 0) == int(target["id"]):
             return "servable"
         if usage_row:
