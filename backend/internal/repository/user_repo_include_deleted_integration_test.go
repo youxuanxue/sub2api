@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ func TestUserRepo_ListWithFilters_IncludeDeleted(t *testing.T) {
 
 	// 默认（不含已删）：只返回活跃用户。
 	usersDefault, resDefault, err := repo.ListWithFilters(ctx, params,
-		service.UserListFilters{Search: "shared-keyword-"})
+		domain.UserListFilters{Search: "shared-keyword-"})
 	require.NoError(t, err)
 	require.Len(t, usersDefault, 1)
 	require.Equal(t, active.ID, usersDefault[0].ID)
@@ -33,7 +34,7 @@ func TestUserRepo_ListWithFilters_IncludeDeleted(t *testing.T) {
 
 	// IncludeDeleted=true：两个都返回，且 Total 与结果集一致。
 	usersAll, resAll, err := repo.ListWithFilters(ctx, params,
-		service.UserListFilters{Search: "shared-keyword-", IncludeDeleted: true})
+		domain.UserListFilters{Search: "shared-keyword-", IncludeDeleted: true})
 	require.NoError(t, err)
 	require.Len(t, usersAll, 2)
 	require.EqualValues(t, 2, resAll.Total, "Count 必须与结果集行数一致")
@@ -59,7 +60,7 @@ func TestUserRepo_GetByIDIncludeDeleted(t *testing.T) {
 
 	// 默认 GetByID：找不到（被软删过滤）。
 	_, err := repo.GetByID(ctx, u.ID)
-	require.ErrorIs(t, err, service.ErrUserNotFound)
+	require.ErrorIs(t, err, domain.ErrUserNotFound)
 
 	// GetByIDIncludeDeleted：找得到，且 DeletedAt 非空。
 	got, err := repo.GetByIDIncludeDeleted(ctx, u.ID)

@@ -8,6 +8,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -40,7 +41,7 @@ func (r *channelMonitorRequestTemplateRepository) Create(ctx context.Context, t 
 
 	created, err := builder.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorTemplateNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorTemplateNotFound, nil)
 	}
 	t.ID = created.ID
 	t.CreatedAt = created.CreatedAt
@@ -53,7 +54,7 @@ func (r *channelMonitorRequestTemplateRepository) GetByID(ctx context.Context, i
 		Where(channelmonitorrequesttemplate.IDEQ(id)).
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrChannelMonitorTemplateNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrChannelMonitorTemplateNotFound, nil)
 	}
 	return entToServiceTemplate(row), nil
 }
@@ -73,7 +74,7 @@ func (r *channelMonitorRequestTemplateRepository) Update(ctx context.Context, t 
 	}
 	updated, err := updater.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorTemplateNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorTemplateNotFound, nil)
 	}
 	t.UpdatedAt = updated.UpdatedAt
 	return nil
@@ -82,7 +83,7 @@ func (r *channelMonitorRequestTemplateRepository) Update(ctx context.Context, t 
 func (r *channelMonitorRequestTemplateRepository) Delete(ctx context.Context, id int64) error {
 	client := clientFromContext(ctx, r.client)
 	if err := client.ChannelMonitorRequestTemplate.DeleteOneID(id).Exec(ctx); err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorTemplateNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorTemplateNotFound, nil)
 	}
 	return nil
 }
@@ -120,7 +121,7 @@ func (r *channelMonitorRequestTemplateRepository) ApplyToMonitors(ctx context.Co
 		Where(channelmonitorrequesttemplate.IDEQ(id)).
 		Only(ctx)
 	if err != nil {
-		return 0, translatePersistenceError(err, service.ErrChannelMonitorTemplateNotFound, nil)
+		return 0, translatePersistenceError(err, domain.ErrChannelMonitorTemplateNotFound, nil)
 	}
 
 	updater := client.ChannelMonitor.Update().

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -36,9 +37,9 @@ func TestSchedulerSnapshotOutboxReplay(t *testing.T) {
 
 	account := &service.Account{
 		Name:        "outbox-replay-" + time.Now().Format("150405.000000"),
-		Platform:    service.PlatformOpenAI,
-		Type:        service.AccountTypeAPIKey,
-		Status:      service.StatusActive,
+		Platform:    domain.PlatformOpenAI,
+		Type:        domain.AccountTypeAPIKey,
+		Status:      domain.StatusActive,
 		Schedulable: true,
 		Concurrency: 3,
 		Priority:    1,
@@ -60,7 +61,7 @@ func TestSchedulerSnapshotOutboxReplay(t *testing.T) {
 	// 自 #1723 起 outbox 的 account_last_used 路径只刷 sched:meta，完整键由快照
 	// 重建/账号变更刷新。若仍断言完整键，本测试会改为被 startup rebuild 的副作用
 	// 兜过（名实不符、对 outbox 回归零覆盖）。
-	bucket := service.SchedulerBucket{GroupID: 0, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+	bucket := service.SchedulerBucket{GroupID: 0, Platform: domain.PlatformOpenAI, Mode: service.SchedulerModeSingle}
 	snapshotHasAccount := func() (*service.Account, bool) {
 		snap, hit, err := cache.GetSnapshot(ctx, bucket)
 		if err != nil || !hit {

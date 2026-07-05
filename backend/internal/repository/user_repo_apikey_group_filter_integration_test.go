@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/suite"
@@ -40,8 +41,8 @@ func (s *UserRepoAPIKeyGroupFilterSuite) mustCreateUser(email string) *service.U
 	u := &service.User{
 		Email:        email,
 		PasswordHash: "test-password-hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 		Concurrency:  5,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, u), "create user")
@@ -52,7 +53,7 @@ func (s *UserRepoAPIKeyGroupFilterSuite) mustCreateGroup(name string) *dbent.Gro
 	s.T().Helper()
 	g, err := s.client.Group.Create().
 		SetName(name).
-		SetStatus(service.StatusActive).
+		SetStatus(domain.StatusActive).
 		Save(s.ctx)
 	s.Require().NoError(err, "create group")
 	return g
@@ -85,7 +86,7 @@ func (s *UserRepoAPIKeyGroupFilterSuite) listByAPIKeyGroup(groupID int64) []serv
 	users, _, err := s.repo.ListWithFilters(
 		s.ctx,
 		pagination.PaginationParams{Page: 1, PageSize: 50},
-		service.UserListFilters{APIKeyGroupID: groupID},
+		domain.UserListFilters{APIKeyGroupID: groupID},
 	)
 	s.Require().NoError(err, "ListWithFilters")
 	return users
@@ -137,7 +138,7 @@ func (s *UserRepoAPIKeyGroupFilterSuite) TestAPIKeyGroupAndStatusFilter() {
 	// disabled 用户，key 也绑 target 分组 → 只用 group 过滤会命中，但 status=active 后排除
 	disabled := s.mustCreateUser("disabled-hit@test.com")
 	s.mustCreateAPIKey(disabled.ID, "sk-disabled", "K2", &g.ID)
-	_, err := s.client.User.UpdateOneID(disabled.ID).SetStatus(service.StatusDisabled).Save(s.ctx)
+	_, err := s.client.User.UpdateOneID(disabled.ID).SetStatus(domain.StatusDisabled).Save(s.ctx)
 	s.Require().NoError(err, "disable user")
 
 	// active 用户，key 绑其它分组 → group 过滤排除
@@ -148,9 +149,9 @@ func (s *UserRepoAPIKeyGroupFilterSuite) TestAPIKeyGroupAndStatusFilter() {
 	users, _, err := s.repo.ListWithFilters(
 		s.ctx,
 		pagination.PaginationParams{Page: 1, PageSize: 50},
-		service.UserListFilters{
+		domain.UserListFilters{
 			APIKeyGroupID: g.ID,
-			Status:        service.StatusActive,
+			Status:        domain.StatusActive,
 		},
 	)
 	s.Require().NoError(err)
@@ -167,7 +168,7 @@ func (s *UserRepoAPIKeyGroupFilterSuite) TestZeroGroupIDNoFilter() {
 	users, _, err := s.repo.ListWithFilters(
 		s.ctx,
 		pagination.PaginationParams{Page: 1, PageSize: 50},
-		service.UserListFilters{APIKeyGroupID: 0},
+		domain.UserListFilters{APIKeyGroupID: 0},
 	)
 	s.Require().NoError(err)
 	s.Require().ElementsMatch([]int64{u1.ID, u2.ID}, s.ids(users))

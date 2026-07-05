@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ func TestSchedulerCacheSnapshotUsesSlimMetadataButKeepsFullAccount(t *testing.T)
 	rdb := testRedis(t)
 	cache := NewSchedulerCache(rdb)
 
-	bucket := service.SchedulerBucket{GroupID: 2, Platform: service.PlatformGemini, Mode: service.SchedulerModeSingle}
+	bucket := service.SchedulerBucket{GroupID: 2, Platform: domain.PlatformGemini, Mode: service.SchedulerModeSingle}
 	now := time.Now().UTC().Truncate(time.Second)
 	limitReset := now.Add(10 * time.Minute)
 	overloadUntil := now.Add(2 * time.Minute)
@@ -28,9 +29,9 @@ func TestSchedulerCacheSnapshotUsesSlimMetadataButKeepsFullAccount(t *testing.T)
 	account := service.Account{
 		ID:          101,
 		Name:        "gemini-heavy",
-		Platform:    service.PlatformGemini,
-		Type:        service.AccountTypeOAuth,
-		Status:      service.StatusActive,
+		Platform:    domain.PlatformGemini,
+		Type:        domain.AccountTypeOAuth,
+		Status:      domain.StatusActive,
 		Schedulable: true,
 		Concurrency: 3,
 		Priority:    7,
@@ -120,16 +121,16 @@ func TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey(t *testing.T) {
 	rdb := testRedis(t)
 	cache := NewSchedulerCache(rdb)
 
-	bucket := service.SchedulerBucket{GroupID: 3, Platform: service.PlatformAnthropic, Mode: service.SchedulerModeSingle}
+	bucket := service.SchedulerBucket{GroupID: 3, Platform: domain.PlatformAnthropic, Mode: service.SchedulerModeSingle}
 	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
 	t1 := t0.Add(time.Hour)
 
 	account := service.Account{
 		ID:          202,
 		Name:        "claude-lru",
-		Platform:    service.PlatformAnthropic,
-		Type:        service.AccountTypeOAuth,
-		Status:      service.StatusActive,
+		Platform:    domain.PlatformAnthropic,
+		Type:        domain.AccountTypeOAuth,
+		Status:      domain.StatusActive,
 		Schedulable: true,
 		Concurrency: 2,
 		Priority:    1,

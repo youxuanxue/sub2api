@@ -6,6 +6,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -35,7 +36,7 @@ func (r *userAttributeDefinitionRepository) Create(ctx context.Context, def *ser
 		Save(ctx)
 
 	if err != nil {
-		return translatePersistenceError(err, nil, service.ErrAttributeKeyExists)
+		return translatePersistenceError(err, nil, domain.ErrAttributeKeyExists)
 	}
 
 	def.ID = created.ID
@@ -52,7 +53,7 @@ func (r *userAttributeDefinitionRepository) GetByID(ctx context.Context, id int6
 		Where(userattributedefinition.IDEQ(id)).
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrAttributeDefinitionNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrAttributeDefinitionNotFound, nil)
 	}
 	return defEntityToService(e), nil
 }
@@ -64,7 +65,7 @@ func (r *userAttributeDefinitionRepository) GetByKey(ctx context.Context, key st
 		Where(userattributedefinition.KeyEQ(key)).
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrAttributeDefinitionNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrAttributeDefinitionNotFound, nil)
 	}
 	return defEntityToService(e), nil
 }
@@ -85,7 +86,7 @@ func (r *userAttributeDefinitionRepository) Update(ctx context.Context, def *ser
 		Save(ctx)
 
 	if err != nil {
-		return translatePersistenceError(err, service.ErrAttributeDefinitionNotFound, service.ErrAttributeKeyExists)
+		return translatePersistenceError(err, domain.ErrAttributeDefinitionNotFound, domain.ErrAttributeKeyExists)
 	}
 
 	def.UpdatedAt = updated.UpdatedAt
@@ -98,7 +99,7 @@ func (r *userAttributeDefinitionRepository) Delete(ctx context.Context, id int64
 	_, err := client.UserAttributeDefinition.Delete().
 		Where(userattributedefinition.IDEQ(id)).
 		Exec(ctx)
-	return translatePersistenceError(err, service.ErrAttributeDefinitionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrAttributeDefinitionNotFound, nil)
 }
 
 func (r *userAttributeDefinitionRepository) List(ctx context.Context, enabledOnly bool) ([]service.UserAttributeDefinition, error) {
@@ -132,7 +133,7 @@ func (r *userAttributeDefinitionRepository) UpdateDisplayOrders(ctx context.Cont
 		if _, err := tx.UserAttributeDefinition.UpdateOneID(id).
 			SetDisplayOrder(order).
 			Save(ctx); err != nil {
-			return translatePersistenceError(err, service.ErrAttributeDefinitionNotFound, nil)
+			return translatePersistenceError(err, domain.ErrAttributeDefinitionNotFound, nil)
 		}
 	}
 

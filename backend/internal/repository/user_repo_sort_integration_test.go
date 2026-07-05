@@ -37,7 +37,7 @@ func (s *UserRepoSuite) TestListWithFilters_SortByEmailAsc() {
 		PageSize:  10,
 		SortBy:    "email",
 		SortOrder: "asc",
-	}, service.UserListFilters{})
+	}, domain.UserListFilters{})
 	s.Require().NoError(err)
 	s.Require().Len(users, 2)
 	s.Require().Equal("a-first@example.com", users[0].Email)
@@ -108,7 +108,7 @@ func (s *UserRepoSuite) TestListWithFilters_SortByLastActiveAtAsc() {
 		PageSize:  10,
 		SortBy:    "last_active_at",
 		SortOrder: "asc",
-	}, service.UserListFilters{})
+	}, domain.UserListFilters{})
 	s.Require().NoError(err)
 	s.Require().Len(users, 3)
 	s.Require().Equal("earlier-active@example.com", users[0].Email)
@@ -153,7 +153,7 @@ func (s *UserRepoSuite) TestListWithFilters_SortByLastUsedAtDesc_UsesUsageLogsNo
 		PageSize:  10,
 		SortBy:    "last_used_at",
 		SortOrder: "desc",
-	}, service.UserListFilters{})
+	}, domain.UserListFilters{})
 	s.Require().NoError(err)
 	s.Require().Len(users, 3)
 	s.Require().Equal(rightSource.ID, users[0].ID)

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -210,9 +211,9 @@ func schedulerOutboxDedupKey(eventType string, accountID *int64, groupID *int64,
 
 func schedulerOutboxEventSupportsDedup(eventType string) bool {
 	switch eventType {
-	case service.SchedulerOutboxEventAccountChanged,
-		service.SchedulerOutboxEventGroupChanged,
-		service.SchedulerOutboxEventFullRebuild:
+	case domain.SchedulerOutboxEventAccountChanged,
+		domain.SchedulerOutboxEventGroupChanged,
+		domain.SchedulerOutboxEventFullRebuild:
 		return true
 	default:
 		return false

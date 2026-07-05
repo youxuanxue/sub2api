@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -13,9 +14,9 @@ func TestGroupEntityToService_PreservesMessagesDispatchModelConfig(t *testing.T)
 	group := &dbent.Group{
 		ID:                    1,
 		Name:                  "openai-dispatch",
-		Platform:              service.PlatformOpenAI,
-		Status:                service.StatusActive,
-		SubscriptionType:      service.SubscriptionTypeStandard,
+		Platform:              domain.PlatformOpenAI,
+		Status:                domain.StatusActive,
+		SubscriptionType:      domain.SubscriptionTypeStandard,
 		RateMultiplier:        1,
 		AllowMessagesDispatch: true,
 		DefaultMappedModel:    "gpt-5.4",
@@ -41,9 +42,9 @@ func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_S
 
 	group, err := client.Group.Create().
 		SetName("g-auth-dispatch-unit").
-		SetPlatform(service.PlatformOpenAI).
-		SetStatus(service.StatusActive).
-		SetSubscriptionType(service.SubscriptionTypeStandard).
+		SetPlatform(domain.PlatformOpenAI).
+		SetStatus(domain.StatusActive).
+		SetSubscriptionType(domain.SubscriptionTypeStandard).
 		SetRateMultiplier(1).
 		SetAllowMessagesDispatch(true).
 		SetDefaultMappedModel("gpt-5.4").
@@ -63,7 +64,7 @@ func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_S
 		Key:     "sk-getbykey-auth-dispatch-unit",
 		Name:    "Dispatch Key Unit",
 		GroupID: &group.ID,
-		Status:  service.StatusActive,
+		Status:  domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, key))
 

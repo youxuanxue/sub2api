@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -110,9 +111,7 @@ const (
 
 // 业务错误（统一在此声明，避免散落）。
 var (
-	ErrChannelMonitorNotFound = infraerrors.NotFound(
-		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
-	)
+	ErrChannelMonitorNotFound        = domain.ErrChannelMonitorNotFound
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini",
 	)

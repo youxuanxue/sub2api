@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -44,7 +44,7 @@ func (s *SettingRepoSuite) TestSet_Upsert() {
 func (s *SettingRepoSuite) TestGetValue_Missing() {
 	_, err := s.repo.GetValue(s.ctx, "nonexistent")
 	s.Require().Error(err, "expected error for missing key")
-	s.Require().ErrorIs(err, service.ErrSettingNotFound)
+	s.Require().ErrorIs(err, domain.ErrSettingNotFound)
 }
 
 func (s *SettingRepoSuite) TestSetMultiple_AndGetMultiple() {
@@ -85,7 +85,7 @@ func (s *SettingRepoSuite) TestDelete() {
 	s.Require().NoError(s.repo.Delete(s.ctx, "todelete"), "Delete")
 	_, err := s.repo.GetValue(s.ctx, "todelete")
 	s.Require().Error(err, "expected missing key error after Delete")
-	s.Require().ErrorIs(err, service.ErrSettingNotFound)
+	s.Require().ErrorIs(err, domain.ErrSettingNotFound)
 }
 
 func (s *SettingRepoSuite) TestDelete_Idempotent() {

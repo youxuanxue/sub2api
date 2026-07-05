@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -140,12 +141,12 @@ func TestApply_ConsumesHandedOffHoldAtomically(t *testing.T) {
 	require.True(t, reserved)
 	require.InDelta(t, 5, holdBalance(t, user.ID), 1e-9)
 
-	cmd := &service.UsageBillingCommand{
+	cmd := &domain.UsageBillingCommand{
 		RequestID:       uuid.NewString(), // billing id may differ from the hold id (WS turns)
 		APIKeyID:        apiKey.ID,
 		UserID:          user.ID,
 		AccountID:       1,
-		AccountType:     service.AccountTypeAPIKey,
+		AccountType:     domain.AccountTypeAPIKey,
 		Model:           "test-model",
 		BalanceCost:     3,
 		TkHoldRequestID: holdID,

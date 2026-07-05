@@ -5,7 +5,7 @@ import (
 	"time"
 
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // MarkOnboardingTourSeen writes users.onboarding_tour_seen_at = NOW() exactly
@@ -24,7 +24,7 @@ func (r *userRepository) MarkOnboardingTourSeen(ctx context.Context, userID int6
 		SetOnboardingTourSeenAt(time.Now()).
 		Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+		return translatePersistenceError(err, domain.ErrUserNotFound, nil)
 	}
 	return nil
 }

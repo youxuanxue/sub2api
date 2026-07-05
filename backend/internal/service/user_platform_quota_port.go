@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // ErrUserPlatformQuotaNotFound service 层 sentinel：quota 记录不存在。
@@ -28,21 +30,7 @@ type UserPlatformQuotaSnapshot struct {
 	MonthlyWindowStart time.Time
 }
 
-// UserPlatformQuotaRecord service 层传输结构体（与 repository 层解耦）。
-type UserPlatformQuotaRecord struct {
-	UserID          int64
-	Platform        string
-	DailyLimitUSD   *float64
-	WeeklyLimitUSD  *float64
-	MonthlyLimitUSD *float64
-	DailyUsageUSD   float64
-	WeeklyUsageUSD  float64
-	MonthlyUsageUSD float64
-	// 窗口起始时间（可选，用于未来 reset 校验）
-	DailyWindowStart   *time.Time
-	WeeklyWindowStart  *time.Time
-	MonthlyWindowStart *time.Time
-}
+type UserPlatformQuotaRecord = domain.UserPlatformQuotaRecord
 
 // UserPlatformQuotaRepository 定义 service 层所需的 user × platform quota 数据访问端口。
 // repository 包的 userPlatformQuotaRepository 实现此接口。

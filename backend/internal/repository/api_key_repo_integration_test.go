@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func (s *APIKeyRepoSuite) TestCreate() {
 		UserID: user.ID,
 		Key:    "sk-create-test",
 		Name:   "Test Key",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 
 	err := s.repo.Create(s.ctx, key)
@@ -68,7 +69,7 @@ func (s *APIKeyRepoSuite) TestGetByKey() {
 		Key:     "sk-getbykey",
 		Name:    "My Key",
 		GroupID: &group.ID,
-		Status:  service.StatusActive,
+		Status:  domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
@@ -90,9 +91,9 @@ func (s *APIKeyRepoSuite) TestGetByKeyForAuth_PreservesMessagesDispatchModelConf
 	user := s.mustCreateUser("getbykey-auth-dispatch@test.com")
 	group, err := s.client.Group.Create().
 		SetName("g-auth-dispatch").
-		SetPlatform(service.PlatformOpenAI).
-		SetStatus(service.StatusActive).
-		SetSubscriptionType(service.SubscriptionTypeStandard).
+		SetPlatform(domain.PlatformOpenAI).
+		SetStatus(domain.StatusActive).
+		SetSubscriptionType(domain.SubscriptionTypeStandard).
 		SetRateMultiplier(1).
 		SetAllowMessagesDispatch(true).
 		SetDefaultMappedModel("gpt-5.4").
@@ -112,7 +113,7 @@ func (s *APIKeyRepoSuite) TestGetByKeyForAuth_PreservesMessagesDispatchModelConf
 		Key:     "sk-getbykey-auth-dispatch",
 		Name:    "Dispatch Key",
 		GroupID: &group.ID,
-		Status:  service.StatusActive,
+		Status:  domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
@@ -133,12 +134,12 @@ func (s *APIKeyRepoSuite) TestUpdate() {
 		UserID: user.ID,
 		Key:    "sk-update",
 		Name:   "Original",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
 	key.Name = "Renamed"
-	key.Status = service.StatusDisabled
+	key.Status = domain.StatusDisabled
 	err := s.repo.Update(s.ctx, key)
 	s.Require().NoError(err, "Update")
 
@@ -147,7 +148,7 @@ func (s *APIKeyRepoSuite) TestUpdate() {
 	s.Require().Equal("sk-update", got.Key, "Update should not change key")
 	s.Require().Equal(user.ID, got.UserID, "Update should not change user_id")
 	s.Require().Equal("Renamed", got.Name)
-	s.Require().Equal(service.StatusDisabled, got.Status)
+	s.Require().Equal(domain.StatusDisabled, got.Status)
 }
 
 func (s *APIKeyRepoSuite) TestUpdate_ClearGroupID() {
@@ -158,7 +159,7 @@ func (s *APIKeyRepoSuite) TestUpdate_ClearGroupID() {
 		Key:     "sk-clear-group",
 		Name:    "Group Key",
 		GroupID: &group.ID,
-		Status:  service.StatusActive,
+		Status:  domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
@@ -179,7 +180,7 @@ func (s *APIKeyRepoSuite) TestDelete() {
 		UserID: user.ID,
 		Key:    "sk-delete",
 		Name:   "Delete Me",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
@@ -198,7 +199,7 @@ func (s *APIKeyRepoSuite) TestCreate_AfterSoftDelete_AllowsSameKey() {
 		UserID: user.ID,
 		Key:    reusedKey,
 		Name:   "First Key",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, first), "create first key")
 
@@ -208,7 +209,7 @@ func (s *APIKeyRepoSuite) TestCreate_AfterSoftDelete_AllowsSameKey() {
 		UserID: user.ID,
 		Key:    reusedKey,
 		Name:   "Second Key",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, second), "create second key with same key")
 	s.Require().NotZero(second.ID)
@@ -366,7 +367,7 @@ func (s *APIKeyRepoSuite) TestCRUD_Search_ClearGroupID() {
 	s.Require().Equal(group.ID, got.Group.ID)
 
 	key.Name = "Renamed"
-	key.Status = service.StatusDisabled
+	key.Status = domain.StatusDisabled
 	key.GroupID = nil
 	s.Require().NoError(s.repo.Update(s.ctx, key), "Update")
 
@@ -375,7 +376,7 @@ func (s *APIKeyRepoSuite) TestCRUD_Search_ClearGroupID() {
 	s.Require().Equal("sk-test-1", got2.Key, "Update should not change key")
 	s.Require().Equal(user.ID, got2.UserID, "Update should not change user_id")
 	s.Require().Equal("Renamed", got2.Name)
-	s.Require().Equal(service.StatusDisabled, got2.Status)
+	s.Require().Equal(domain.StatusDisabled, got2.Status)
 	s.Require().Nil(got2.GroupID)
 
 	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{})
@@ -419,8 +420,8 @@ func (s *APIKeyRepoSuite) mustCreateUser(email string) *service.User {
 	u, err := s.client.User.Create().
 		SetEmail(email).
 		SetPasswordHash("test-password-hash").
-		SetStatus(service.StatusActive).
-		SetRole(service.RoleUser).
+		SetStatus(domain.StatusActive).
+		SetRole(domain.RoleUser).
 		Save(s.ctx)
 	s.Require().NoError(err, "create user")
 	return userEntityToService(u)
@@ -431,7 +432,7 @@ func (s *APIKeyRepoSuite) mustCreateGroup(name string) *service.Group {
 
 	g, err := s.client.Group.Create().
 		SetName(name).
-		SetStatus(service.StatusActive).
+		SetStatus(domain.StatusActive).
 		Save(s.ctx)
 	s.Require().NoError(err, "create group")
 	return groupEntityToService(g)
@@ -445,7 +446,7 @@ func (s *APIKeyRepoSuite) mustCreateApiKey(userID int64, key, name string, group
 		Key:     key,
 		Name:    name,
 		GroupID: groupID,
-		Status:  service.StatusActive,
+		Status:  domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, k), "create api key")
 	return k
@@ -468,7 +469,7 @@ func (s *APIKeyRepoSuite) TestIncrementQuotaUsed_Basic() {
 
 func (s *APIKeyRepoSuite) TestIncrementQuotaUsed_NotFound() {
 	_, err := s.repo.IncrementQuotaUsed(s.ctx, 999999, 1.0)
-	s.Require().ErrorIs(err, service.ErrAPIKeyNotFound, "不存在的 key 应返回 ErrAPIKeyNotFound")
+	s.Require().ErrorIs(err, domain.ErrAPIKeyNotFound, "不存在的 key 应返回 ErrAPIKeyNotFound")
 }
 
 func (s *APIKeyRepoSuite) TestIncrementQuotaUsed_DeletedKey() {
@@ -478,7 +479,7 @@ func (s *APIKeyRepoSuite) TestIncrementQuotaUsed_DeletedKey() {
 	s.Require().NoError(s.repo.Delete(s.ctx, key.ID), "Delete")
 
 	_, err := s.repo.IncrementQuotaUsed(s.ctx, key.ID, 1.0)
-	s.Require().ErrorIs(err, service.ErrAPIKeyNotFound, "已删除的 key 应返回 ErrAPIKeyNotFound")
+	s.Require().ErrorIs(err, domain.ErrAPIKeyNotFound, "已删除的 key 应返回 ErrAPIKeyNotFound")
 }
 
 func (s *APIKeyRepoSuite) TestIncrementQuotaUsedAndGetState() {
@@ -513,8 +514,8 @@ func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 	u, err := client.User.Create().
 		SetEmail("concurrent-incr-" + time.Now().Format(time.RFC3339Nano) + "@test.com").
 		SetPasswordHash("hash").
-		SetStatus(service.StatusActive).
-		SetRole(service.RoleUser).
+		SetStatus(domain.StatusActive).
+		SetRole(domain.RoleUser).
 		Save(ctx)
 	require.NoError(t, err, "create user")
 
@@ -522,7 +523,7 @@ func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 		UserID: u.ID,
 		Key:    "sk-concurrent-" + time.Now().Format(time.RFC3339Nano),
 		Name:   "Concurrent",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, k), "create api key")
 	t.Cleanup(func() {
@@ -562,7 +563,7 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_WritesAuditAndSoftDeletes() {
 		UserID: user.ID,
 		Key:    "sk-del-audit-1",
 		Name:   "Audit Me",
-		Status: service.StatusActive,
+		Status: domain.StatusActive,
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
@@ -587,7 +588,7 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_WritesAuditAndSoftDeletes() {
 
 func (s *APIKeyRepoSuite) TestDeleteWithAudit_RepeatIsIdempotent() {
 	user := s.mustCreateUser("delwithaudit-idem@test.com")
-	key := &service.APIKey{UserID: user.ID, Key: "sk-del-audit-2", Name: "K", Status: service.StatusActive}
+	key := &service.APIKey{UserID: user.ID, Key: "sk-del-audit-2", Name: "K", Status: domain.StatusActive}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
 
 	s.Require().NoError(s.repo.DeleteWithAudit(s.ctx, key.ID))
@@ -596,5 +597,5 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_RepeatIsIdempotent() {
 
 func (s *APIKeyRepoSuite) TestDeleteWithAudit_NotFound() {
 	err := s.repo.DeleteWithAudit(s.ctx, 999999)
-	s.Require().ErrorIs(err, service.ErrAPIKeyNotFound)
+	s.Require().ErrorIs(err, domain.ErrAPIKeyNotFound)
 }

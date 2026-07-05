@@ -10,6 +10,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -58,7 +59,7 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 
 	created, err := builder.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorNotFound, nil)
 	}
 	m.ID = created.ID
 	m.CreatedAt = created.CreatedAt
@@ -71,7 +72,7 @@ func (r *channelMonitorRepository) GetByID(ctx context.Context, id int64) (*serv
 		Where(channelmonitor.IDEQ(id)).
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrChannelMonitorNotFound, nil)
 	}
 	return entToServiceMonitor(row), nil
 }
@@ -105,7 +106,7 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 
 	updated, err := updater.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorNotFound, nil)
 	}
 	m.UpdatedAt = updated.UpdatedAt
 	return nil
@@ -114,7 +115,7 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 func (r *channelMonitorRepository) Delete(ctx context.Context, id int64) error {
 	client := clientFromContext(ctx, r.client)
 	if err := client.ChannelMonitor.DeleteOneID(id).Exec(ctx); err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorNotFound, nil)
 	}
 	return nil
 }
@@ -186,7 +187,7 @@ func (r *channelMonitorRepository) MarkChecked(ctx context.Context, id int64, ch
 	if err := client.ChannelMonitor.UpdateOneID(id).
 		SetLastCheckedAt(checkedAt).
 		Exec(ctx); err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return translatePersistenceError(err, domain.ErrChannelMonitorNotFound, nil)
 	}
 	return nil
 }

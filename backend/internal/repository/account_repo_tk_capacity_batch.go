@@ -7,6 +7,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	dbaccountgroup "github.com/Wei-Shaw/sub2api/ent/accountgroup"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -42,7 +43,7 @@ func (r *accountRepository) ListSchedulableByGroupIDs(ctx context.Context, group
 			// Mirror queryAccountsByGroup's schedulable predicate set exactly.
 			dbaccountgroup.HasAccountWith(
 				dbaccount.DeletedAtIsNil(),
-				dbaccount.StatusEQ(service.StatusActive),
+				dbaccount.StatusEQ(domain.StatusActive),
 				dbaccount.SchedulableEQ(true),
 				tempUnschedulablePredicate(),
 				notExpiredPredicate(now),

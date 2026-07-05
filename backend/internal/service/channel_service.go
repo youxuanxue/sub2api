@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/tidwall/gjson"
@@ -16,8 +17,8 @@ import (
 )
 
 var (
-	ErrChannelNotFound       = infraerrors.NotFound("CHANNEL_NOT_FOUND", "channel not found")
-	ErrChannelExists         = infraerrors.Conflict("CHANNEL_EXISTS", "channel name already exists")
+	ErrChannelNotFound       = domain.ErrChannelNotFound
+	ErrChannelExists         = domain.ErrChannelExists
 	ErrGroupAlreadyInChannel = infraerrors.Conflict(
 		"GROUP_ALREADY_IN_CHANNEL",
 		"one or more groups already belong to another channel",

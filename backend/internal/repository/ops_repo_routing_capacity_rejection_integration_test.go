@@ -49,9 +49,9 @@ func TestRoutingCapacityRejectionCountIsolatesRoutingPhase(t *testing.T) {
 	insert("routing", "platform", "openai", "", "gpt-5.1", 429)                      // a second platform's empty-pool rejection
 
 	// NOT routing — must NOT be counted, even though some are 429:
-	insert("auth", "client", "anthropic", "claude-sonnet-4-5", "", 429)      // user-level rate limit (their own quota)
+	insert("auth", "client", "anthropic", "claude-sonnet-4-5", "", 429)     // user-level rate limit (their own quota)
 	insert("upstream", "provider", "anthropic", "claude-opus-4-8", "", 429) // real provider rate_limit_error
-	insert("request", "client", "openai", "gpt-5.1", "", 429)                // concurrency/queue client limit
+	insert("request", "client", "openai", "gpt-5.1", "", 429)               // concurrency/queue client limit
 	insert("internal", "platform", "gemini", "gemini-2.5-pro", "", 500)     // non-capacity platform error
 	insert("upstream", "provider", "openai", "gpt-5.1", "", 502)            // ordinary provider failure
 

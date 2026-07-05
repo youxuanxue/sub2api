@@ -7,6 +7,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -52,7 +53,7 @@ func (r *promoCodeRepository) GetByID(ctx context.Context, id int64) (*service.P
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrPromoCodeNotFound
+			return nil, domain.ErrPromoCodeNotFound
 		}
 		return nil, err
 	}
@@ -65,7 +66,7 @@ func (r *promoCodeRepository) GetByCode(ctx context.Context, code string) (*serv
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrPromoCodeNotFound
+			return nil, domain.ErrPromoCodeNotFound
 		}
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func (r *promoCodeRepository) GetByCodeForUpdate(ctx context.Context, code strin
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrPromoCodeNotFound
+			return nil, domain.ErrPromoCodeNotFound
 		}
 		return nil, err
 	}
@@ -106,7 +107,7 @@ func (r *promoCodeRepository) Update(ctx context.Context, code *service.PromoCod
 	updated, err := builder.Save(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return service.ErrPromoCodeNotFound
+			return domain.ErrPromoCodeNotFound
 		}
 		return err
 	}

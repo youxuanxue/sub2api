@@ -1,6 +1,10 @@
 package service
 
-import "time"
+import (
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+)
 
 type OpsDashboardFilter struct {
 	StartTime time.Time
@@ -20,14 +24,7 @@ type OpsRateSummary struct {
 	Avg     float64 `json:"avg"`
 }
 
-type OpsPercentiles struct {
-	P50 *int `json:"p50_ms"`
-	P90 *int `json:"p90_ms"`
-	P95 *int `json:"p95_ms"`
-	P99 *int `json:"p99_ms"`
-	Avg *int `json:"avg_ms"`
-	Max *int `json:"max_ms"`
-}
+type OpsPercentiles = domain.OpsPercentiles
 
 type OpsDashboardOverview struct {
 	StartTime time.Time `json:"start_time"`
