@@ -43,6 +43,18 @@ export interface PublicPricingTier {
   cache_read_per_1k?: number
 }
 
+/** Per-model real-time availability metadata injected by the backend when the
+ *  PricingAvailabilityService is wired (may be absent on older deployments). */
+export interface PublicCatalogAvailability {
+  /** ok | stale | unreachable | untested */
+  status: string
+  last_verified_at?: string
+  last_checked_at?: string
+  sample_count_24h: number
+  success_rate_24h: number
+  last_failure_kind?: string
+}
+
 export interface PublicCatalogModel {
   model_id: string
   vendor?: string
@@ -50,6 +62,9 @@ export interface PublicCatalogModel {
   context_window?: number
   max_output_tokens?: number
   capabilities: string[]
+  /** Real-time availability metadata from model_availability monitoring. Absent when
+   *  the availability service is not yet wired (Phase 1 / feature flag off). */
+  availability?: PublicCatalogAvailability
 }
 
 export interface PublicCatalogResponse {

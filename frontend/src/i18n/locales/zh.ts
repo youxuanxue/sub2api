@@ -723,6 +723,7 @@ export default {
   // Navigation
   nav: {
     dashboard: '仪表盘',
+    quickstart: '快速开始',
     announcements: '公告',
     apiKeys: 'API 密钥',
     usage: '使用记录',
@@ -8366,6 +8367,26 @@ export default {
         revoked: '已撤销',
       },
     },
+  },
+
+  quickstart: {
+    title: '快速开始',
+    subtitle: '获取 API Key，2 分钟内开始调用 AI 模型。',
+    step1Title: '你的 API Key',
+    step2Title: '连接你的工具',
+    step3Title: '测试一下',
+    step3Note: '粘贴到终端运行，几秒内即可收到响应。',
+    copied: '已复制!',
+    copyConfig: '复制',
+    manageKeys: '管理 Key',
+    viewPricing: '查看定价',
+    tryStudio: '试用 Studio',
+    claudeCodeNote: '添加到 Shell 配置文件后，重启终端或执行 "source ~/.zshrc"。',
+    cursorNote: '打开 Cursor 设置 → Models，选择 OpenAI API Key，粘贴 Key 和 Base URL。',
+    codexNote: '添加到 Shell 配置文件后，重启终端。',
+    clineNote: '在 Cline 设置中，选择 "OpenAI Compatible" 作为 Provider，填入对应字段。',
+    pythonNote: 'pip install openai — 然后运行此脚本。',
+    nodejsNote: 'npm install openai — 然后运行此脚本。',
   },
 
 }

@@ -45,12 +45,12 @@
             </div>
           </div>
           <p
-            class="min-w-0 flex-1 text-left text-[11px] leading-snug text-gray-500 dark:text-dark-400 sm:text-xs"
+            class="order-last min-w-0 basis-full text-left text-[11px] leading-snug text-gray-500 dark:text-dark-400 sm:order-none sm:flex-1 sm:basis-auto sm:text-xs"
             data-tk="pricing-description-inline"
           >
             {{ heroDescription }}
           </p>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
             <router-link
               v-if="bonusCtaVisible"
               to="/register"
@@ -363,7 +363,7 @@
                     <td
                       class="sticky left-0 z-10 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-white px-3 py-3 align-top font-mono text-sm leading-snug text-gray-900 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.12)] break-words group-hover:bg-primary-50/30 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.45)] dark:group-hover:bg-dark-800/40"
                     >
-                      {{ row.model_id }}
+                      <span>{{ row.model_id }}</span>
                       <span
                         v-if="row.billingMode && row.billingMode !== 'token'"
                         class="ml-1 inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"

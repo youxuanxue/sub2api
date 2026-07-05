@@ -13,12 +13,18 @@
 // (TLS fingerprint alignment, node counts, capture→diff pipeline, upstream
 // auto-merge). See docs/sales for the internal, mechanism-level pitch.
 
+import { STOREFRONT_SEO } from '@/constants/storefrontSeo.tk'
+
 type HomeLocaleOverlay = {
   home: Record<string, unknown>
 }
 
 const en: HomeLocaleOverlay = {
   home: {
+    hero: {
+      title: STOREFRONT_SEO.en.heroTitle,
+      subtitle: STOREFRONT_SEO.en.heroSubtitle,
+    },
     tags: {
       subscriptionToApi: 'Native Access',
       nativeFidelity: 'Full Features',
@@ -29,55 +35,56 @@ const en: HomeLocaleOverlay = {
     },
     cards: {
       native: {
-        title: 'Native, Uncompromised',
-        desc: 'Swap your base URL and go — 1M context, extended thinking, prompt caching and count_tokens all pass through, untouched.',
+        title: 'Official Quality, Native Pass-through',
+        desc: 'Every request goes directly to official APIs. No downgrades, no dilution, no third-party routing.',
       },
       stability: {
-        title: 'Always Online',
-        desc: 'Pooled across accounts and nodes. If one is rate-limited, traffic fails over in seconds — long tasks never break.',
+        title: 'Full Multimodal Coverage',
+        desc: 'Text, image, video. Claude / GPT / Gemini / DeepSeek. One Key for everything. Built-in Studio workspace.',
       },
       billing: {
-        title: 'Pay As You Go',
-        desc: 'Usage-based billing with quota limits. Full visibility into team consumption.',
+        title: 'Subscription Quota, Predictable Costs',
+        desc: 'Stop guessing your token bill. Daily/weekly/monthly subscription quota, team sharing, auto-stop on limit.',
       },
     },
     comparison: {
       title: 'Why Choose Us?',
       headers: {
         feature: 'Comparison',
-        official: 'Official Subscriptions',
+        official: 'Official Direct',
+        thirdParty: 'Third-party Relay',
         us: 'TokenKey',
       },
       items: {
-        pricing: {
-          feature: 'Pricing',
-          official: 'Fixed monthly fee, pay even if unused',
-          us: 'Pay only for what you use',
+        unified: {
+          feature: 'Unified Access',
+          official: '✗',
+          thirdParty: '✗',
+          us: '✓',
         },
-        models: {
-          feature: 'Model Selection',
-          official: 'Single provider only',
-          us: 'One key across platforms, 200+ compatible upstreams',
+        quota: {
+          feature: 'Quota Management',
+          official: '✗',
+          thirdParty: '✗',
+          us: '✓',
         },
-        management: {
-          feature: 'Account Management',
-          official: 'Manage each service separately',
-          us: 'Unified key, one dashboard',
+        quality: {
+          feature: 'Quality Guarantee',
+          official: '✓',
+          thirdParty: '✗',
+          us: '✓',
         },
-        stability: {
-          feature: 'Stability',
-          official: 'Single account rate limits',
-          us: 'Pooled across nodes, auto-failover in seconds',
+        multimodal: {
+          feature: 'Multimodal Unified',
+          official: '✗',
+          thirdParty: 'Partial',
+          us: '✓',
         },
-        native: {
-          feature: 'Native Capabilities',
-          official: 'Capped by subscription tier',
-          us: '1M context / extended thinking / prompt caching, just swap base URL',
-        },
-        catalog: {
-          feature: 'Servable Models',
-          official: 'Listed as claimed',
-          us: 'Empirically probed — only models that actually return 200',
+        monitoring: {
+          feature: 'Real-time Monitoring',
+          official: '✗',
+          thirdParty: '✗',
+          us: '✓',
         },
       },
     },
@@ -95,15 +102,18 @@ const en: HomeLocaleOverlay = {
       compatTitle: '200+ OpenAI-Compatible Models',
     },
     cta: {
-      title: "We don't sell accounts. We sell infrastructure.",
-      description:
-        "The tool you depend on shouldn't vanish mid-task. We treat AI-gateway reliability as an engineering problem.",
+      title: 'Start Free · 1M Tokens Included',
+      description: STOREFRONT_SEO.en.ctaDescriptionEn,
     },
   },
 }
 
 const zh: HomeLocaleOverlay = {
   home: {
+    hero: {
+      title: STOREFRONT_SEO.zh.heroTitle,
+      subtitle: STOREFRONT_SEO.zh.heroSubtitle,
+    },
     tags: {
       subscriptionToApi: '原生接入',
       nativeFidelity: '特性全开',
@@ -114,55 +124,56 @@ const zh: HomeLocaleOverlay = {
     },
     cards: {
       native: {
-        title: '原生保真',
-        desc: '换 base_url 即用，1M 上下文、深度思考、缓存、count_tokens 全程透传，原汁原味。',
+        title: '官方品质，原生透传',
+        desc: '每一次请求都直达官方 API，不降级、不掺水、不路由到第三方。',
       },
       stability: {
-        title: '稳定不掉线',
-        desc: '多账号、多节点池化调度，任一被限流秒级切到下一个，长任务不中断。',
+        title: '全模态覆盖',
+        desc: '文本、图像、视频。Claude / GPT / Gemini / DeepSeek。一个 Key 全搞定。内置 Studio 创作工作台。',
       },
       billing: {
-        title: '用多少付多少',
-        desc: '按实际使用量计费，支持设置配额上限，团队用量一目了然。',
+        title: '订阅配额，费用可预测',
+        desc: '告别按 token 猜账单。按日/周/月订阅配额，团队共享，超限自动停。',
       },
     },
     comparison: {
       title: '为什么选择我们？',
       headers: {
         feature: '对比项',
-        official: '官方订阅',
+        official: '直接调官方',
+        thirdParty: '第三方中转',
         us: 'TokenKey',
       },
       items: {
-        pricing: {
-          feature: '付费方式',
-          official: '固定月费，用不完也付',
-          us: '按量付费，用多少付多少',
+        unified: {
+          feature: '统一接入',
+          official: '✗',
+          thirdParty: '✗',
+          us: '✓',
         },
-        models: {
-          feature: '模型选择',
-          official: '单一服务商',
-          us: '多平台一个密钥，200+ 兼容上游随心切换',
+        quota: {
+          feature: '配额管理',
+          official: '✗',
+          thirdParty: '✗',
+          us: '✓',
         },
-        management: {
-          feature: '账号管理',
-          official: '每个服务单独管理',
-          us: '统一密钥，一站管理',
+        quality: {
+          feature: '质量保障',
+          official: '✓',
+          thirdParty: '✗',
+          us: '✓',
         },
-        stability: {
-          feature: '服务稳定性',
-          official: '单账号易触发限制',
-          us: '多节点池化，秒级自动切换不掉线',
+        multimodal: {
+          feature: '多模态统一',
+          official: '✗',
+          thirdParty: '部分',
+          us: '✓',
         },
-        native: {
-          feature: '原生能力',
-          official: '受订阅档位限制',
-          us: '1M 长上下文 / 深度思考 / 缓存全透传，换 base_url 即用',
-        },
-        catalog: {
-          feature: '可服务模型',
-          official: '列表靠标称',
-          us: '实测目录，逐模型真实跑通才上架',
+        monitoring: {
+          feature: '实时监控',
+          official: '✗',
+          thirdParty: '✗',
+          us: '✓',
         },
       },
     },
@@ -180,8 +191,8 @@ const zh: HomeLocaleOverlay = {
       compatTitle: '200+ OpenAI 兼容模型',
     },
     cta: {
-      title: '我们卖的不是号，是基础设施。',
-      description: '你依赖的工具，不该在你干到一半时消失。我们把 AI 接口的稳定，当成一个工程问题来解。',
+      title: '免费试用 · 送 100 万 tokens',
+      description: STOREFRONT_SEO.zh.ctaDescriptionZh,
     },
   },
 }

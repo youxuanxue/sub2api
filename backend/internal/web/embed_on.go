@@ -92,6 +92,10 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
+		if tryServeCrawlerPrerender(c) {
+			return
+		}
+
 		cleanPath := strings.TrimPrefix(path, "/")
 		if cleanPath == "" {
 			cleanPath = "index.html"

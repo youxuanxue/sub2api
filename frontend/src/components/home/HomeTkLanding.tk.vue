@@ -118,23 +118,35 @@
         <!-- Hero Section - Left/Right Layout -->
         <div class="mb-12 flex flex-col items-center justify-between gap-12 lg:flex-row lg:gap-16">
           <!-- Left: Text Content -->
-          <div class="flex-1 text-center lg:text-left">
+          <div class="min-w-0 flex-1 text-center lg:text-left">
             <h1
-              class="mb-4 text-4xl font-bold text-gray-900 dark:text-white md:text-5xl lg:text-6xl"
+              class="mb-5 text-[2.75rem] font-semibold leading-[1.05] tracking-normal text-gray-950 dark:text-white sm:text-5xl lg:text-[4.5rem]"
             >
-              {{ siteName }}
+              <span
+                v-for="line in heroTitleLines"
+                :key="line"
+                class="block whitespace-nowrap"
+              >
+                {{ line }}
+              </span>
             </h1>
-            <p class="mb-8 text-lg text-gray-600 dark:text-dark-300 md:text-xl">
-              {{ siteSubtitle }}
+            <p class="mx-auto mb-8 max-w-2xl text-lg leading-8 text-gray-600 dark:text-dark-300 md:text-xl lg:mx-0">
+              <span
+                v-for="line in heroSubtitleLines"
+                :key="line"
+                class="block sm:whitespace-nowrap"
+              >
+                {{ line }}
+              </span>
             </p>
 
             <!-- CTA Button -->
             <div>
               <router-link
-                :to="isAuthenticated ? dashboardPath : '/login'"
+                :to="isAuthenticated ? '/quickstart' : '/register?redirect=/quickstart'"
                 class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
               >
-                {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
+                {{ isAuthenticated ? t('quickstart.title') : t('home.getStarted') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
               </router-link>
             </div>
@@ -254,6 +266,13 @@
               :class="homeProviderBadgeClass(card.badge)"
               >{{ t(homeProviderBadgeKey(card.badge)) }}</span
             >
+            <span
+              v-for="mod in card.modalities || []"
+              :key="mod"
+              class="rounded px-1.5 py-0.5 text-[10px] font-medium"
+              :class="homeProviderModalityClass(mod)"
+              >{{ homeProviderModalityLabel(mod) }}</span
+            >
           </div>
         </div>
 
@@ -287,7 +306,7 @@
         <div
           class="mb-16 overflow-x-auto rounded-2xl border border-gray-200/50 bg-white/60 backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/60"
         >
-          <table class="w-full min-w-[520px] text-left text-sm">
+          <table class="w-full min-w-[600px] text-left text-sm">
             <thead>
               <tr class="border-b border-gray-200/50 dark:border-dark-700/50">
                 <th class="px-5 py-4 font-medium text-gray-500 dark:text-dark-400">
@@ -295,6 +314,9 @@
                 </th>
                 <th class="px-5 py-4 font-medium text-gray-500 dark:text-dark-400">
                   {{ t('home.comparison.headers.official') }}
+                </th>
+                <th class="px-5 py-4 font-medium text-gray-500 dark:text-dark-400">
+                  {{ t('home.comparison.headers.thirdParty') }}
                 </th>
                 <th class="px-5 py-4 font-semibold text-primary-600 dark:text-primary-400">
                   {{ t('home.comparison.headers.us') }}
@@ -310,10 +332,13 @@
                 <td class="px-5 py-4 font-medium text-gray-900 dark:text-white">
                   {{ t(`home.comparison.items.${key}.feature`) }}
                 </td>
-                <td class="px-5 py-4 text-gray-500 dark:text-dark-400">
+                <td class="px-5 py-4 text-center text-gray-500 dark:text-dark-400">
                   {{ t(`home.comparison.items.${key}.official`) }}
                 </td>
-                <td class="px-5 py-4 font-medium text-gray-700 dark:text-dark-200">
+                <td class="px-5 py-4 text-center text-gray-500 dark:text-dark-400">
+                  {{ t(`home.comparison.items.${key}.thirdParty`) }}
+                </td>
+                <td class="px-5 py-4 text-center font-medium text-primary-600 dark:text-primary-400">
                   {{ t(`home.comparison.items.${key}.us`) }}
                 </td>
               </tr>
@@ -321,13 +346,19 @@
           </table>
         </div>
 
-        <!-- Closing band (registration not open — positioning only, no signup) -->
+        <!-- CTA band -->
         <div
           class="rounded-2xl border border-primary-200/60 bg-gradient-to-br from-primary-50 to-white p-10 text-center backdrop-blur-sm dark:border-primary-800/60 dark:from-dark-800/80 dark:to-dark-900/60"
         >
-          <h2 class="mb-3 text-2xl font-bold text-gray-900 dark:text-white md:text-3xl">
-            {{ t('home.cta.title') }}
-          </h2>
+          <div class="mb-4">
+            <router-link
+              :to="isAuthenticated ? '/quickstart' : '/register?redirect=/quickstart'"
+              class="btn btn-primary px-8 py-3 text-lg font-semibold shadow-lg shadow-primary-500/30"
+            >
+              {{ t('home.cta.title') }}
+              <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+            </router-link>
+          </div>
           <p class="text-base text-gray-600 dark:text-dark-300">
             {{ t('home.cta.description') }}
           </p>
@@ -370,9 +401,27 @@ import {
   homeProviderCardClass,
   homeProviderBadgeClass,
   homeProviderBadgeKey,
+  homeProviderModalityLabel,
+  homeProviderModalityClass,
 } from '@/constants/homeProviders.tk'
 
 const { t } = useI18n()
+
+const heroTitleLines = computed(() => {
+  const title = t('home.hero.title')
+  if (title === '每一次调用，都是官方品质。') {
+    return ['每一次调用，', '都是官方品质。']
+  }
+  return [title]
+})
+
+const heroSubtitleLines = computed(() => {
+  const subtitle = t('home.hero.subtitle')
+  if (subtitle === '一个 API Key，所有主流 AI 模型。文本、图像、视频。订阅配额，费用可预测。') {
+    return ['一个 API Key，所有主流 AI 模型。', '文本、图像、视频。订阅配额，费用可预测。']
+  }
+  return [subtitle]
+})
 
 // Enlarged advantage tags — these carry the core advantages now that the
 // three feature cards are gone. Each maps to a home.tags.* i18n key.
@@ -412,7 +461,7 @@ const heroCards = [
 
 // Static iteration keys for the pain-point / comparison i18n blocks.
 const painPointKeys = ['expensive', 'complex', 'unstable', 'noControl'] as const
-const comparisonRows = ['pricing', 'models', 'management', 'stability', 'native', 'catalog'] as const
+const comparisonRows = ['unified', 'quota', 'quality', 'multimodal', 'monitoring'] as const
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
@@ -420,7 +469,6 @@ const appStore = useAppStore()
 // Site settings - directly from appStore (already initialized from injected config)
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey')
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
-const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
 // TK cold-start (US-028): public pricing entry visibility. Defaults to true so a
 // brand-new install without the row in DB still surfaces the link; flips off

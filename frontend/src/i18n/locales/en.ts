@@ -725,6 +725,7 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
+    quickstart: 'Quick Start',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     usage: 'Usage',
@@ -8201,6 +8202,26 @@ export default {
         revoked: 'Revoked',
       },
     },
+  },
+
+  quickstart: {
+    title: 'Quick Start',
+    subtitle: 'Get your API key and start calling AI models in under 2 minutes.',
+    step1Title: 'Your API Key',
+    step2Title: 'Connect Your Tool',
+    step3Title: 'Test It',
+    step3Note: 'Paste this into your terminal. You should get a response within seconds.',
+    copied: 'Copied!',
+    copyConfig: 'Copy',
+    manageKeys: 'Manage Keys',
+    viewPricing: 'View Pricing',
+    tryStudio: 'Try Studio',
+    claudeCodeNote: 'Add these to your shell profile, then restart the terminal or run "source ~/.zshrc".',
+    cursorNote: 'Open Cursor Settings → Models, select OpenAI API Key, paste the key and base URL.',
+    codexNote: 'Add these to your shell profile, then restart the terminal.',
+    clineNote: 'In Cline settings, select "OpenAI Compatible" as the provider and fill in the fields.',
+    pythonNote: 'pip install openai — then run this script.',
+    nodejsNote: 'npm install openai — then run this script.',
   },
 
 }
