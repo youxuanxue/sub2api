@@ -55,6 +55,7 @@
             <button
               v-for="filter in categoryFilters"
               :key="filter.key"
+              :data-tk="`models-marketplace-tab-${filter.key}`"
               @click="activeCategory = filter.key"
               class="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
               :class="
@@ -145,15 +146,16 @@
             </div>
 
             <!-- Empty -->
-            <div v-else-if="filteredModels.length === 0" class="py-20 text-center">
+            <div v-else-if="filteredModels.length === 0" data-tk="models-marketplace-empty" class="py-20 text-center">
               <p class="text-gray-500 dark:text-dark-400">{{ t('models.noModels') }}</p>
             </div>
 
             <!-- Grid -->
-            <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" data-tk="models-marketplace-grid">
               <router-link
                 v-for="model in filteredModels"
                 :key="model.model_id"
+                :data-tk="`models-marketplace-card-${model.model_id}`"
                 :to="{ path: '/pricing', query: { model: model.model_id } }"
                 class="group rounded-xl border border-gray-200/60 bg-white p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-lg hover:shadow-primary-500/10 dark:border-dark-700/60 dark:bg-dark-800 dark:hover:border-primary-700"
               >
@@ -244,19 +246,26 @@ const categoryFilters = computed(() => [
   { key: 'video', label: t('models.filterVideo') },
 ])
 
-// Filter by category (capability-based)
+type MarketplaceCategory = 'text' | 'image' | 'video'
+
+/** Align with PricingView + public catalog: media rows use pricing.billing_mode, not capabilities. */
+function modelListingCategory(m: PublicCatalogModel): MarketplaceCategory {
+  const mode = m.pricing?.billing_mode
+  if (mode === 'image') return 'image'
+  if (mode === 'video') return 'video'
+  return 'text'
+}
+
+// Filter by category (billing_mode-driven — same truth as /pricing modality tabs)
 const filteredByCategory = computed(() => {
   if (activeCategory.value === 'all') return models.value
   if (activeCategory.value === 'image') {
-    return models.value.filter(m => m.capabilities.includes('image_generation'))
+    return models.value.filter((m) => modelListingCategory(m) === 'image')
   }
   if (activeCategory.value === 'video') {
-    return models.value.filter(m => m.capabilities.includes('video_generation'))
+    return models.value.filter((m) => modelListingCategory(m) === 'video')
   }
-  // text: exclude image/video-only models
-  return models.value.filter(m =>
-    !m.capabilities.includes('image_generation') && !m.capabilities.includes('video_generation')
-  )
+  return models.value.filter((m) => modelListingCategory(m) === 'text')
 })
 
 // Vendor list derived from category-filtered models

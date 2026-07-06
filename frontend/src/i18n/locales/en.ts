@@ -97,8 +97,9 @@ export default {
         authorizedGroups: 'Authorized Groups'
       },
       authorizedGroups: {
-        createKeyHint: 'Create an API key in {group}',
-        exclusive: 'exclusive'
+        groupHint: '{group} can serve this model',
+        exclusive: 'exclusive',
+        quickstart: 'Quick start',
       },
       empty: {
         noAccess: {

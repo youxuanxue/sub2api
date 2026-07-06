@@ -36,6 +36,7 @@
           <div v-if="activeFlavor" class="flex items-center gap-3 flex-wrap">
             <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.modelLabel') }}</label>
             <select
+              data-tk="use-key-model-select"
               :value="selectedModel"
               @change="onPickModel"
               :disabled="tkModelsLoading || !pickerModels.length"
@@ -54,7 +55,11 @@
             </div>
           </div>
           <p v-if="activeFlavor && tkModelsLoading" class="text-xs text-gray-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsLoading') }}</p>
-          <p v-else-if="activeFlavor && !pickerModels.length" class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsEmpty') }}</p>
+          <p
+            v-else-if="activeFlavor && showModelsCatalogEmpty"
+            data-tk="use-key-models-empty"
+            class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]"
+          >{{ t('keys.useKeyModal.modelsEmpty') }}</p>
 
           <!-- Base URL (locked, read-only) -->
           <div class="flex items-center gap-3">
@@ -225,6 +230,8 @@ interface Props {
   routingMode?: KeyRoutingMode
   /** The api key's numeric id — used to load its live servable model menu. */
   apiKeyId?: number | null
+  /** Deep-link model id (e.g. from /pricing authorized-groups quick start). */
+  initialModel?: string | null
   /** anthropic group gated to claude-cli / /v1/messages only (group.claude_code_only). */
   claudeCodeOnly?: boolean
   allowMessagesDispatch?: boolean
@@ -312,18 +319,23 @@ const tk = useTkUseKey({
   apiKeyId: toRef(props, 'apiKeyId'),
   apiKey: toRef(props, 'apiKey'),
   platform: toRef(props, 'platform'),
+  routingMode: toRef(props, 'routingMode'),
   claudeCodeOnly: toRef(props, 'claudeCodeOnly'),
   baseRoot,
 })
 
 // (Re)load the live servable model menu whenever the key changes.
 watch(
-  () => props.apiKeyId,
-  (id) => {
+  () => [props.apiKeyId, props.initialModel] as const,
+  async ([id, initialModel]) => {
     if (id == null) return
     keyRevealed.value = false
     tk.testState.value = { status: 'idle' }
-    void tk.loadModels()
+    await tk.loadModels()
+    const flavor = tk.applyInitialModel(initialModel)
+    if (flavor === 'anthropic') activeClientTab.value = 'claude'
+    else if (flavor === 'gemini') activeClientTab.value = 'gemini'
+    else if (flavor === 'openai') activeClientTab.value = 'codex'
   },
   { immediate: true },
 )
@@ -331,6 +343,9 @@ watch(
 // Models offered in the picker for the current flavor.
 const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
 const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
+const showModelsCatalogEmpty = computed(() =>
+  activeFlavor.value ? tk.shouldWarnModelsEmpty(activeFlavor.value) : false,
+)
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
 )

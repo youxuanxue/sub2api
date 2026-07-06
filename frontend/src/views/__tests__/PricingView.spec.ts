@@ -5,7 +5,7 @@ import PricingView from '../PricingView.vue'
 import type { PublicCatalogResponse } from '@/api/pricing'
 import type { MePricingCatalogResponse } from '@/api/me-pricing'
 
-const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, showSuccess, showError, routeState } =
+const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, showSuccess, showError, routeState, routerPush } =
   vi.hoisted(() => ({
     getPublicPricing: vi.fn(),
     getMePricingCatalog: vi.fn(),
@@ -14,6 +14,7 @@ const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, show
     showSuccess: vi.fn(),
     showError: vi.fn(),
     routeState: { query: {} as Record<string, string | string[] | undefined> },
+    routerPush: vi.fn(),
   }))
 
 vi.mock('@/api/pricing', () => ({
@@ -49,7 +50,7 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('vue-router', () => ({
   useRoute: () => routeState,
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -118,8 +119,9 @@ vi.mock('vue-i18n', async () => {
     'pricing.export.success': 'Pricing exported',
     'pricing.export.empty': 'Public catalog is empty — nothing to export',
     'pricing.my.columns.authorizedGroups': 'Authorized Groups',
-    'pricing.my.authorizedGroups.createKeyHint': 'Create a key in {group}',
+    'pricing.my.authorizedGroups.groupHint': '{group} can serve this model',
     'pricing.my.authorizedGroups.exclusive': 'exclusive',
+    'pricing.my.authorizedGroups.quickstart': 'Quick start',
   }
   return {
     ...actual,
@@ -237,6 +239,7 @@ describe('PricingView', () => {
     exportPricingCsv.mockReset()
     showSuccess.mockReset()
     showError.mockReset()
+    routerPush.mockReset()
     localStorage.clear()
     authState.isAuthenticated = false
     authState.isAdmin = false
@@ -485,6 +488,40 @@ describe('PricingView', () => {
     expect(wrapper.text()).toContain('Batch')
     expect(wrapper.text()).toContain('exclusive')
     expect(wrapper.find('[data-tk="pricing-col-authorized-groups"]').exists()).toBe(true)
+  })
+
+  it('navigates to quickstart with model when authorized-groups quick start is clicked', async () => {
+    authState.isAuthenticated = true
+    localStorage.setItem('auth_token', 'token')
+    getMePricingCatalog.mockResolvedValue(
+      meCatalog({
+        authorized_groups_by_model: {
+          'claude-haiku-4-5': [
+            {
+              id: 10,
+              name: 'claude',
+              platform: 'anthropic',
+              is_exclusive: true,
+              is_current_for_key: true,
+              rate_multiplier: 1,
+            },
+          ],
+        },
+      })
+    )
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('claude-haiku-4-5')]))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-group"]').setValue('public')
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-quickstart-for-model"]').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith({
+      path: '/quickstart',
+      query: { model: 'claude-haiku-4-5' },
+    })
   })
 
   it('labels exclusive groups in the group filter while viewing the public catalog', async () => {

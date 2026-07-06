@@ -3,6 +3,7 @@ import {
   entitledModelIds,
   isUniversalKey,
   priceMapFromPublicCatalog,
+  servableModelsFromUniversalEntitlement,
 } from '../studioUniversalKey.tk'
 import type { ApiKey } from '@/types'
 
@@ -41,5 +42,30 @@ describe('studioUniversalKey', () => {
     expect(map.get('veo-3.1-generate-001')?.perSecond).toBe(0.6)
     expect(map.get('veo-3.1-generate-001')?.billingMode).toBe('video')
     expect(map.has('gpt-4o')).toBe(false)
+  })
+
+  it('builds servable models from entitlement index and public catalog metadata', () => {
+    const models = servableModelsFromUniversalEntitlement(
+      {
+        authorized_groups_by_model: {
+          'claude-opus-4-8': [{ id: 1, name: 'anthropic' }],
+          'gpt-5.5': [{ id: 2, name: 'openai' }],
+          'orphan-model': [{ id: 3, name: 'newapi' }],
+        },
+      } as never,
+      [
+        {
+          model_id: 'claude-opus-4-8',
+          capabilities: ['thinking'],
+          context_window: 200000,
+          max_output_tokens: 32000,
+        },
+        { model_id: 'gpt-5.5', capabilities: ['tools'], context_window: 128000 },
+      ] as never
+    )
+    expect(models.map((m) => m.id)).toEqual(['claude-opus-4-8', 'gpt-5.5', 'orphan-model'])
+    expect(models[0]?.capabilities).toEqual(['thinking'])
+    expect(models[0]?.contextWindow).toBe(200000)
+    expect(models[2]?.capabilities).toEqual([])
   })
 })

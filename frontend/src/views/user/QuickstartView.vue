@@ -27,6 +27,7 @@
               </label>
               <select
                 v-model="selectedKeyId"
+                data-tk="quickstart-key-select"
                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100"
               >
                 <option v-for="k in keys" :key="k.id" :value="k.id">
@@ -63,6 +64,7 @@
             :base-url="baseUrl"
             :platform="selectedKey.group?.platform ?? null"
             :routing-mode="selectedKey.routing_mode"
+            :initial-model="initialModelFromQuery"
             :claude-code-only="selectedKey.group?.claude_code_only || false"
             :allow-messages-dispatch="selectedKey.group?.allow_messages_dispatch || false"
             :supported-model-scopes="selectedKey.group?.supported_model_scopes"
@@ -86,6 +88,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import * as keysAPI from '@/api/keys'
 import type { ApiKey } from '@/types'
+import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
@@ -123,6 +126,28 @@ function parseKeyIdFromQuery(): number | null {
   return Number.isFinite(id) ? id : null
 }
 
+function parseModelFromQuery(): string | null {
+  const raw = route.query.model
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (!value) return null
+  const model = String(value).trim()
+  return model || null
+}
+
+const initialModelFromQuery = computed(() => parseModelFromQuery())
+
+function pickDefaultKeyId(items: ApiKey[]): number | null {
+  if (!items.length) return null
+  const fromQuery = parseKeyIdFromQuery()
+  if (fromQuery != null && items.some((k) => k.id === fromQuery)) return fromQuery
+  if (parseModelFromQuery()) {
+    const universal = items.find(isUniversalKey)
+    if (universal) return universal.id
+  }
+  const trial = items.find((k) => k.name?.toLowerCase() === 'trial')
+  return (trial || items[0])?.id ?? null
+}
+
 watch(selectedKeyId, (id) => {
   if (id == null) return
   const current = parseKeyIdFromQuery()
@@ -152,7 +177,7 @@ async function loadKeys() {
     }
     const fromQuery = parseKeyIdFromQuery()
     const match = fromQuery != null ? keys.value.find((k) => k.id === fromQuery) : undefined
-    selectedKeyId.value = match?.id ?? keys.value[0]?.id ?? null
+    selectedKeyId.value = match?.id ?? pickDefaultKeyId(keys.value)
   } catch (e: unknown) {
     keysError.value = e instanceof Error ? e.message : String(e)
   } finally {

@@ -1990,9 +1990,7 @@ function formatResetTime(resetAt: string | null): string {
   return `${mins}m`
 }
 
-// Deep-link from the /pricing「授权分组」column: ?create=1&group_id=N opens the
-// create-key dialog with that group preselected. Runs after groups load so the
-// group_id is validated against the user's accessible set before binding.
+// Deep-link: ?create=1&group_id=N opens the create-key dialog with that group preselected.
 function applyCreateKeyFromQuery(): void {
   if (route.query.create !== '1') return
   const gid = Number(route.query.group_id)

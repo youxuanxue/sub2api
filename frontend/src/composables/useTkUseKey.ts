@@ -23,8 +23,10 @@
 
 import { computed, ref, type Ref } from 'vue'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
-import type { GroupPlatform } from '@/types'
+import { getPublicPricing } from '@/api/pricing'
+import type { GroupPlatform, KeyRoutingMode } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
+import { servableModelsFromUniversalEntitlement } from '@/utils/studioUniversalKey.tk'
 
 /**
  * A snippet "flavor" is the single-model protocol a given client tab speaks.
@@ -104,10 +106,20 @@ interface UseTkUseKeyArgs {
   apiKeyId: Ref<number | null | undefined>
   apiKey: Ref<string>
   platform: Ref<GroupPlatform | null>
+  routingMode?: Ref<KeyRoutingMode | undefined>
   /** anthropic groups gated to claude-cli / /v1/messages only */
   claudeCodeOnly: Ref<boolean | undefined>
   /** stripped gateway root, e.g. https://api.tokenkey.dev (no /v1) */
   baseRoot: Ref<string>
+}
+
+function mapMePricingModels(models: MePricingModel[]): UseKeyServableModel[] {
+  return models.map((m) => ({
+    id: m.model_id,
+    capabilities: m.capabilities ?? [],
+    contextWindow: m.context_window,
+    maxOutput: m.max_output_tokens,
+  }))
 }
 
 export function useTkUseKey(args: UseTkUseKeyArgs) {
@@ -129,13 +141,13 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     if (id == null) return
     modelsLoading.value = true
     try {
-      const res = await getMePricingCatalog({ apiKeyId: id })
-      servableModels.value = (res.models ?? []).map((m: MePricingModel) => ({
-        id: m.model_id,
-        capabilities: m.capabilities ?? [],
-        contextWindow: m.context_window,
-        maxOutput: m.max_output_tokens,
-      }))
+      if (args.routingMode?.value === 'universal') {
+        const [meCatalog, publicCatalog] = await Promise.all([getMePricingCatalog(), getPublicPricing()])
+        servableModels.value = servableModelsFromUniversalEntitlement(meCatalog, publicCatalog.data ?? [])
+      } else {
+        const res = await getMePricingCatalog({ apiKeyId: id })
+        servableModels.value = mapMePricingModels(res.models ?? [])
+      }
     } catch {
       // Load failure leaves servableModels empty; the modal then shows its
       // "couldn't load — type manually" hint and snippets use the fallback id.
@@ -162,6 +174,20 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     selectedByFlavor.value = { ...selectedByFlavor.value, [flavor]: id }
     // a fresh model choice invalidates a prior test verdict
     if (testState.value.status !== 'idle') testState.value = { status: 'idle' }
+  }
+
+  /** Pre-select a model from a deep link (e.g. /pricing → /quickstart?model=). */
+  function applyInitialModel(modelId: string | null | undefined): UseKeyFlavor | null {
+    const id = modelId?.trim()
+    if (!id) return null
+    const flavor = flavorOfModel(id)
+    setModel(flavor, id)
+    return flavor
+  }
+
+  function shouldWarnModelsEmpty(flavor: UseKeyFlavor): boolean {
+    if (selectedByFlavor.value[flavor]) return false
+    return modelsForFlavor(flavor).length === 0
   }
 
   const isClaudeCodeOnly = computed(
@@ -263,6 +289,8 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     modelsForFlavor,
     effectiveModel,
     setModel,
+    applyInitialModel,
+    shouldWarnModelsEmpty,
     runTest,
   }
 }
