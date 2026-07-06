@@ -27,6 +27,7 @@
               </label>
               <select
                 v-model="selectedKeyId"
+                data-tk="quickstart-key-select"
                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100"
               >
                 <option v-for="k in keys" :key="k.id" :value="k.id">

@@ -11,6 +11,7 @@
       :base-url="baseUrl"
       :platform="platform"
       :routing-mode="routingMode"
+      :initial-model="initialModel"
       :claude-code-only="claudeCodeOnly"
       :allow-messages-dispatch="allowMessagesDispatch"
       :supported-model-scopes="supportedModelScopes"
@@ -41,6 +42,7 @@ interface Props {
   baseUrl: string
   platform: GroupPlatform | null
   apiKeyId?: number | null
+  initialModel?: string | null
   routingMode?: KeyRoutingMode
   claudeCodeOnly?: boolean
   allowMessagesDispatch?: boolean

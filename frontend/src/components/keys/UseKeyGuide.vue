@@ -36,6 +36,7 @@
           <div v-if="activeFlavor" class="flex items-center gap-3 flex-wrap">
             <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.modelLabel') }}</label>
             <select
+              data-tk="use-key-model-select"
               :value="selectedModel"
               @change="onPickModel"
               :disabled="tkModelsLoading || !pickerModels.length"
@@ -54,7 +55,11 @@
             </div>
           </div>
           <p v-if="activeFlavor && tkModelsLoading" class="text-xs text-gray-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsLoading') }}</p>
-          <p v-else-if="activeFlavor && !pickerModels.length" class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsEmpty') }}</p>
+          <p
+            v-else-if="activeFlavor && showModelsCatalogEmpty"
+            data-tk="use-key-models-empty"
+            class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]"
+          >{{ t('keys.useKeyModal.modelsEmpty') }}</p>
 
           <!-- Base URL (locked, read-only) -->
           <div class="flex items-center gap-3">
@@ -338,6 +343,9 @@ watch(
 // Models offered in the picker for the current flavor.
 const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
 const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
+const showModelsCatalogEmpty = computed(() =>
+  activeFlavor.value ? tk.shouldWarnModelsEmpty(activeFlavor.value) : false,
+)
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
 )

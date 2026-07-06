@@ -55,17 +55,18 @@ function catalog(models: PublicCatalogModel[]): PublicCatalogResponse {
 function model(
   model_id: string,
   vendor: string,
-  capabilities: string[] = []
+  overrides: Partial<PublicCatalogModel> = {}
 ): PublicCatalogModel {
   return {
     model_id,
     vendor,
-    capabilities,
+    capabilities: [],
     pricing: {
       currency: 'USD',
       input_per_1k_tokens: 0.001,
       output_per_1k_tokens: 0.002,
     },
+    ...overrides,
   }
 }
 
@@ -85,29 +86,58 @@ describe('ModelMarketplaceView', () => {
     authState.isAuthenticated = false
   })
 
-  it('renders image models when image filter is selected', async () => {
+  it('filters image models by pricing.billing_mode, not capabilities tags', async () => {
     getPublicPricing.mockResolvedValue(
       catalog([
         model('gpt-4o-mini', 'OpenAI'),
-        model('imagen-4.0-generate-001', 'Google', ['image_generation']),
+        model('imagen-4.0-generate-001', 'Google', {
+          pricing: {
+            currency: 'USD',
+            billing_mode: 'image',
+            input_per_1k_tokens: 0,
+            output_per_1k_tokens: 0,
+            output_cost_per_image: 0.04,
+          },
+        }),
       ])
     )
 
     const wrapper = mountMarketplace()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('gpt-4o-mini')
-    expect(wrapper.text()).toContain('imagen-4.0-generate-001')
-
-    const imageBtn = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('Image'))
+    const imageBtn = wrapper.findAll('button').find((b) => b.text().includes('Image'))
     expect(imageBtn).toBeTruthy()
     await imageBtn!.trigger('click')
 
     expect(wrapper.text()).toContain('imagen-4.0-generate-001')
     expect(wrapper.text()).not.toContain('gpt-4o-mini')
-    expect(wrapper.text()).toContain('Image generation')
+  })
+
+  it('filters video models by pricing.billing_mode', async () => {
+    getPublicPricing.mockResolvedValue(
+      catalog([
+        model('gpt-4o-mini', 'OpenAI'),
+        model('veo-3.1-generate-preview', 'Google', {
+          pricing: {
+            currency: 'USD',
+            billing_mode: 'video',
+            input_per_1k_tokens: 0,
+            output_per_1k_tokens: 0,
+            output_cost_per_second: 0.5,
+          },
+        }),
+      ])
+    )
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    const videoBtn = wrapper.findAll('button').find((b) => b.text().includes('Video'))
+    expect(videoBtn).toBeTruthy()
+    await videoBtn!.trigger('click')
+
+    expect(wrapper.text()).toContain('veo-3.1-generate-preview')
+    expect(wrapper.text()).not.toContain('gpt-4o-mini')
   })
 
   it('shows empty state when search matches no models', async () => {

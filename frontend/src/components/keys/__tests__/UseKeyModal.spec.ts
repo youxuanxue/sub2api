@@ -272,4 +272,20 @@ describe('UseKeyModal — universal keys', () => {
     expect(wrapper.text()).not.toContain('keys.useKeyModal.modelsEmpty')
     expect(wrapper.find('select').findAll('option').some((o) => o.text().includes('claude-opus-4-8'))).toBe(true)
   })
+
+  it('hides modelsEmpty warning when initialModel is deep-linked', async () => {
+    getMePricingCatalog.mockResolvedValue({ authorized_groups_by_model: {}, models: [] })
+    getPublicPricing.mockResolvedValue({ data: [] })
+
+    const wrapper = mountModal({
+      platform: null,
+      routingMode: 'universal',
+      apiKeyId: 42,
+      initialModel: 'claude-haiku-4-5',
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.modelsEmpty')
+    expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(true)
+  })
 })

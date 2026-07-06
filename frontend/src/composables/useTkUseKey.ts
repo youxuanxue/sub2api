@@ -185,6 +185,11 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     return flavor
   }
 
+  function shouldWarnModelsEmpty(flavor: UseKeyFlavor): boolean {
+    if (selectedByFlavor.value[flavor]) return false
+    return modelsForFlavor(flavor).length === 0
+  }
+
   const isClaudeCodeOnly = computed(
     () => args.platform.value === PLATFORM_ANTHROPIC && args.claudeCodeOnly.value === true,
   )
@@ -285,6 +290,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     effectiveModel,
     setModel,
     applyInitialModel,
+    shouldWarnModelsEmpty,
     runTest,
   }
 }
