@@ -86,8 +86,19 @@ jobs:
           set -euo pipefail
           changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "origin/${GITHUB_BASE_REF:-main}")
           echo "changed=${changed}" >> "$GITHUB_OUTPUT"
-      - name: Validate TK_FULLTEST_KEY (repository secret)
+      - name: Needs live SSOT probe (delta models only)
+        id: needs_live
         if: steps.touch.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          needs=$(python3 scripts/checks/ssot-delta-gate.py needs-live --base "origin/${GITHUB_BASE_REF:-main}")
+          echo "needs=${needs}" >> "$GITHUB_OUTPUT"
+      - name: SSOT gate skip (catalog metadata / config only)
+        if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs != 'true'
+        run: |
+          echo "ssot-delta-gate: ok (catalog paths changed; no delta models require live probe)"
+      - name: Validate TK_FULLTEST_KEY (repository secret)
+        if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs == 'true'
         env:
           TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
         run: |
@@ -99,7 +110,7 @@ jobs:
             exit 1
           fi
       - name: Focused SSOT gate (delta models only)
-        if: steps.touch.outputs.changed == 'true'
+        if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs == 'true'
         env:
           TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
           TK_FULLTEST_BASE_URL: https://api.tokenkey.dev

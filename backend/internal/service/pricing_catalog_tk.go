@@ -241,6 +241,7 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 	if len(resp.Data) > 0 {
 		applyCatalogOverlayPricing(resp)
 		attachCatalogOverlayTiers(resp)
+		applyCatalogOfficialListBaseTax(resp)
 	}
 
 	s.mu.Lock()
@@ -453,6 +454,15 @@ func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
 			tiers = append(tiers, tier)
 		}
 		resp.Data[i].Pricing.Tiers = tiers
+	}
+}
+
+func applyCatalogOfficialListBaseTax(resp *PublicCatalogResponse) {
+	if resp == nil {
+		return
+	}
+	for i := range resp.Data {
+		tkApplyBaseTaxToPublicCatalogPricing(resp.Data[i].Vendor, &resp.Data[i].Pricing)
 	}
 }
 

@@ -15,6 +15,7 @@ Catalog touch paths (any diff base..HEAD):
 
 Subcommands:
   paths-changed  — prints true/false (for GHA step outputs)
+  needs-live     — prints true/false: catalog paths changed AND delta models need HTTP probe
   discover       — list model ids that would be live-probed
   check          — run focused gate (or --skip-live for preflight / offline)
   selftest       — fixture selftest
@@ -227,6 +228,14 @@ def cmd_paths_changed(args) -> int:
     return 0
 
 
+def cmd_needs_live(args) -> int:
+    if not _base_resolves(args.base) or not catalog_paths_changed(args.base):
+        print("false")
+        return 0
+    print("true" if discover_models(args.base) else "false")
+    return 0
+
+
 def cmd_discover(args) -> int:
     if not _base_resolves(args.base):
         print(f"ssot-delta-gate: skip (base {args.base!r} not resolvable)", file=sys.stderr)
@@ -335,7 +344,7 @@ def cmd_selftest(_args) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="focused live SSOT gate for catalog diffs")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("paths-changed", "discover", "check"):
+    for name in ("paths-changed", "needs-live", "discover", "check"):
         p = sub.add_parser(name)
         p.add_argument("--base", default="origin/main")
         if name == "check":

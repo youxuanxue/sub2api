@@ -231,7 +231,7 @@
       "platform": "newapi",
       "model": "kimi-k2.x",
       "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
-      "expires": "2026-07-06",
+      "expires": "2026-08-06",
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
     },
@@ -248,7 +248,7 @@
       "platform": "newapi",
       "model": "MiniMax-M2.x",
       "reason": "Backlog candidate, never probed; not a native refresh-servable-allowlist platform.",
-      "expires": "2026-07-06",
+      "expires": "2026-08-06",
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
     },

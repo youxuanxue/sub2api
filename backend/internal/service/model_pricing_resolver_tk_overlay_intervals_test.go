@@ -68,15 +68,16 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 	require.Len(t, resolved.Intervals, 4, "overlay intervals must populate ResolvedPricing.Intervals when no channel")
 	require.Equal(t, PricingSourceLiteLLM, resolved.Source)
 
+	tax := tkOfficialListBaseTaxMultiplier
 	cases := []struct {
 		ctxTokens int
 		in, out   float64
 	}{
-		{10_000, 4 / 6.7e6, 16 / 6.7e6},   // tier1 (0,32K] ¥4/¥16
-		{32_000, 4 / 6.7e6, 16 / 6.7e6},   // 32K boundary stays tier1 (max inclusive)
-		{32_001, 6 / 6.7e6, 24 / 6.7e6},   // tier2 (32K,128K] ¥6/¥24
-		{200_000, 10 / 6.7e6, 40 / 6.7e6}, // tier3 (128K,256K] ¥10/¥40
-		{500_000, 20 / 6.7e6, 200 / 6.7e6}, // tier4 (256K,inf) ¥20/¥200
+		{10_000, tax * 4 / 6.7e6, tax * 16 / 6.7e6},   // tier1 (0,32K] ¥4/¥16
+		{32_000, tax * 4 / 6.7e6, tax * 16 / 6.7e6},   // 32K boundary stays tier1 (max inclusive)
+		{32_001, tax * 6 / 6.7e6, tax * 24 / 6.7e6},   // tier2 (32K,128K] ¥6/¥24
+		{200_000, tax * 10 / 6.7e6, tax * 40 / 6.7e6}, // tier3 (128K,256K] ¥10/¥40
+		{500_000, tax * 20 / 6.7e6, tax * 200 / 6.7e6}, // tier4 (256K,inf) ¥20/¥200
 	}
 	for _, c := range cases {
 		p := r.GetIntervalPricing(resolved, c.ctxTokens)
@@ -97,14 +98,15 @@ func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 
 	plus := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-plus"})
 	require.Len(t, plus.Intervals, 2)
-	require.InDelta(t, 2/6.7e6, r.GetIntervalPricing(plus, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥2
-	require.InDelta(t, 6/6.7e6, r.GetIntervalPricing(plus, 300_000).InputPricePerToken, 1e-15)   // tier2 ¥6
-	require.InDelta(t, 24/6.7e6, r.GetIntervalPricing(plus, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥24
+	tax := tkOfficialListBaseTaxMultiplier
+	require.InDelta(t, tax*2/6.7e6, r.GetIntervalPricing(plus, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥2
+	require.InDelta(t, tax*6/6.7e6, r.GetIntervalPricing(plus, 300_000).InputPricePerToken, 1e-15)   // tier2 ¥6
+	require.InDelta(t, tax*24/6.7e6, r.GetIntervalPricing(plus, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥24
 
 	flash := r.Resolve(context.Background(), PricingInput{Model: "qwen3.6-flash"})
 	require.Len(t, flash.Intervals, 2)
-	require.InDelta(t, 1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)  // tier1 ¥1.2
-	require.InDelta(t, 28.8/6.7e6, r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
+	require.InDelta(t, tax*1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)  // tier1 ¥1.2
+	require.InDelta(t, tax*28.8/6.7e6, r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
 }
 
 // TestOverlayIntervals_FlatModelUnaffected guards the orthogonality: a flat overlay
@@ -114,7 +116,8 @@ func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
 	resolved := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-max"})
 	require.Empty(t, resolved.Intervals, "flat overlay model must not gain intervals")
 	require.NotNil(t, resolved.BasePricing)
-	require.InDelta(t, 12/6.7e6, resolved.BasePricing.InputPricePerToken, 1e-15)
+	tax := tkOfficialListBaseTaxMultiplier
+	require.InDelta(t, tax*12/6.7e6, resolved.BasePricing.InputPricePerToken, 1e-15)
 	// cache-read billed at full input rate ("用原价"), not $0.
-	require.InDelta(t, 12/6.7e6, resolved.BasePricing.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, tax*12/6.7e6, resolved.BasePricing.CacheReadPricePerToken, 1e-15)
 }

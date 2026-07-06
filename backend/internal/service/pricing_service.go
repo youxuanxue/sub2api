@@ -592,7 +592,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 			continue
 		}
 		if pricing, ok := s.pricingData[candidate]; ok {
-			return pricing
+			return tkPresentLiteLLMModelPricing(pricing)
 		}
 	}
 
@@ -601,7 +601,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	for _, candidate := range lookupCandidates {
 		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
 		if pricing, ok := s.pricingData[normalized]; ok {
-			return pricing
+			return tkPresentLiteLLMModelPricing(pricing)
 		}
 	}
 
@@ -611,18 +611,18 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	for key, pricing := range s.pricingData {
 		keyBase := s.extractBaseName(strings.ToLower(key))
 		if keyBase == baseName {
-			return pricing
+			return tkPresentLiteLLMModelPricing(pricing)
 		}
 	}
 
 	// 4. 基于模型系列匹配（Claude）
 	if pricing := s.matchByModelFamily(lookupCandidates[0]); pricing != nil {
-		return pricing
+		return tkPresentLiteLLMModelPricing(pricing)
 	}
 
 	// 5. OpenAI 模型回退策略
 	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return s.matchOpenAIModel(lookupCandidates[0])
+		return tkPresentLiteLLMModelPricing(s.matchOpenAIModel(lookupCandidates[0]))
 	}
 
 	// 6. Provider-prefixed 最后兜底：仅当运行时源恰好带前缀 key（"gemini/imagen-4.0-*"、
@@ -630,7 +630,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	// 把这些前缀 key 全裁掉了，真正让 imagen-*/veo-* 解析出价的是 always-merged 的 TK overlay
 	// （见 pricing_service_tk_overlay.go），overlay 注入的裸名已在上面第 1 步 exact-match 命中。
 	if pricing := s.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
-		return pricing
+		return tkPresentLiteLLMModelPricing(pricing)
 	}
 
 	return nil
