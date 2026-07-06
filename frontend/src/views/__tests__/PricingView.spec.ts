@@ -258,6 +258,22 @@ describe('PricingView', () => {
     expect(wrapper.text()).not.toContain('gpt-5.4')
   })
 
+  it('loads public catalog for ?model= deep link when authenticated', async () => {
+    authState.isAuthenticated = true
+    routeState.query = { model: 'claude-opus-4-8' }
+    getMePricingCatalog.mockResolvedValue(meCatalog())
+    getPublicPricing.mockResolvedValue(
+      publicCatalog([publicModel('claude-opus-4-8'), publicModel('gpt-5.4')])
+    )
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    expect(getPublicPricing).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('claude-opus-4-8')
+    expect(wrapper.text()).not.toContain('gpt-5.4')
+  })
+
   it('shows max output column when catalog includes max_output_tokens', async () => {
     const catalog: PublicCatalogResponse = {
       object: 'list',
