@@ -296,6 +296,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog) {
+						return
+					}
 					if h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog) {
 						return
 					}
@@ -577,6 +580,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog) {
+						return
+					}
 					if h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog) {
 						return
 					}

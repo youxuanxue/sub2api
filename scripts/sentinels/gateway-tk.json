@@ -1287,21 +1287,23 @@
       "path": "backend/internal/service/gateway_anthropic_deprecated_model_tk.go",
       "must_contain": [
         "func tkIsDeprecatedAnthropicModel",
-        "func tkWriteAnthropicDeprecatedModelError",
-        "func tkBuildDeprecatedAnthropicMessage",
+        "func TkWriteAnthropicDeprecatedModelError",
+        "func TkBuildDeprecatedAnthropicMessage",
+        "ErrDeprecatedAnthropicModel",
+        "tkDeprecatedAnthropicSelectionFailure",
         "tkDeprecatedAnthropicModels",
         "claude-3-5-sonnet-20241022",
         "claude-3-7-sonnet-20250219",
         "claude-sonnet-4-20250514",
         "claude-opus-4-20250514"
       ],
-      "rationale": "Anchors the customer-facing deprecation gate for retired / soon-to-sunset Anthropic model IDs. PR #329 / #327 removed the IDs from admin dropdowns + default chain but did NOT short-circuit requests; this module is what turns a hardcoded-client request into a friendly 400 + migration suggestion instead of an opaque upstream not_found_error. The table literal IDs (3-5-sonnet-20241022, 3-7-sonnet, 4.0 sonnet/opus snapshots) are pinned because dropping any of them silently re-opens the cliff for a specific client population — the snapshot ID is the contract the customer's migration message refers to. The replacement-message builder is anchored separately because the Anthropic 4.0 family is still upstream-accepted until 2026-06-15: the friendly message is the only signal customers get before that date. See /xj-review R-001 (decision path c)."
+      "rationale": "Anchors the customer-facing deprecation gate for retired / soon-to-sunset Anthropic model IDs. PR #329 / #327 removed the IDs from admin dropdowns + default chain but did NOT short-circuit requests; this module turns hardcoded-client requests into a friendly 400 + migration suggestion instead of an opaque upstream not_found_error or routing 429 when selection fails before Forward. ErrDeprecatedAnthropicModel + tkDeprecatedAnthropicSelectionFailure pin the account-selection failure path (mixed model_unsupported + unschedulable stats previously fell through to empty-pool 429). The table literal IDs are pinned because dropping any silently re-opens the cliff for a specific client population. See /xj-review R-001 (decision path c)."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)",
-        "tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)"
+        "TkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)",
+        "TkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)"
       ],
       "rationale": "Pins the TWO deprecation-gate call sites in gateway_service.go: the Forward path (~4585) checks `mappedModel` AFTER account.GetMappedModel + claude.NormalizeModelID so admin-configured mappings take precedence, and the ForwardCountTokens path (~9175) checks `reqModel` AFTER its own mapping block. Two distinct argument shapes are anchored separately because the literal `tkWriteAnthropicDeprecatedModelError(c, ` alone would be satisfied by either call site, leaving the other silently unguarded — same pattern the normalize anchors already use. Without both, an upstream merge that touches the surrounding mapping/normalize code can silently drop one path and re-open the 2026-06-15 customer cliff on count_tokens (or vice versa)."
     },
@@ -2544,9 +2546,34 @@
     {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
+        "h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog)",
         "h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog)"
       ],
-      "rationale": "Handler half of the unsupported-model fix: the /v1/messages select-account-failure branches (Anthropic + Gemini) call tkWriteUnsupportedModelIfApplicable BEFORE markOpsRoutingCapacityLimitedIfNoAvailable, mapping service.ErrUnsupportedModel to HTTP 400 invalid_request_error (ops phase=request, client-owned) instead of the 429 'No available accounts' path. An upstream merge that overwrites this hotspot drops the early-return and the fix dies silently (the TK companion file still compiles, just unused). This sentinel pins the call sites."
+      "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages: select-account failures call tkWriteDeprecatedAnthropicModelIfApplicable BEFORE tkWriteUnsupportedModelIfApplicable, mapping ErrDeprecatedAnthropicModel to the Anthropic-shape migration 400 (client-owned) instead of routing 429 when the Forward-path gate never ran. Unsupported-model mapping stays on the next branch. Upstream merge that drops either early-return silently re-opens retry-storm 429s."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_deprecated_model.go",
+      "must_contain": [
+        "func (h *GatewayHandler) tkWriteDeprecatedAnthropicModelIfApplicable",
+        "service.ErrDeprecatedAnthropicModel",
+        "service.TkWriteAnthropicDeprecatedModelError"
+      ],
+      "rationale": "Companion wiring for deprecated-model account-selection failures on native Anthropic ingress. Without this handler hook, tkWrapSelectionFailure can return ErrDeprecatedAnthropicModel but /v1/messages would still fall through to empty-pool 429 handling."
+    },
+    {
+      "path": "backend/internal/handler/no_available_accounts_tk.go",
+      "must_contain": [
+        "service.ErrDeprecatedAnthropicModel",
+        "service.TkBuildDeprecatedAnthropicMessage"
+      ],
+      "rationale": "OpenAI-compat + count_tokens select-failure mapper: tkSelectFailureStatusMessage must classify ErrDeprecatedAnthropicModel as HTTP 400 invalid_request_error (no Retry-After) before the empty-pool 429 branch."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
+      "must_contain": [
+        "tkDeprecatedAnthropicSelectionFailure(requestedModel)"
+      ],
+      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel before unsupported-model vs empty-pool classification; otherwise mixed model_unsupported + unschedulable stats surface routing 429 for sunset ids."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
