@@ -4,7 +4,7 @@
 
 Prod ingress on shared Claude Code OAuth accounts is dominated by interactive REPL traffic: `claude-cli/<version> (external, cli)` with system banner `You are Claude Code, Anthropic's official CLI for Claude.` The prior canonical egress pin used `(external, sdk-cli)`, which matches non-interactive `-p` / Agent SDK subrequests — not the prod ingress cohort.
 
-Local capture evidence (CC 2.1.201, `.tls_list/interactive-cc-repl3-20260706T134545Z/http.log`):
+Local capture evidence (CC 2.1.202, `.tls_list/20260706T234304Z-cc-interactive/`):
 
 | Mode | User-Agent | system[0] |
 | --- | --- | --- |
@@ -40,5 +40,5 @@ cd backend && go test -tags=unit ./internal/service/... -run 'Canonical|BuildCan
 python3 ops/anthropic/test_capture_cc_interactive.py
 python3 scripts/sentinels/check-cc-version-sync.py
 bash ops/anthropic/capture-cc-interactive.sh capture
-python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/*-cc-interactive.bundle.json
+python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/20260706T234304Z-cc-interactive.bundle.json
 ```

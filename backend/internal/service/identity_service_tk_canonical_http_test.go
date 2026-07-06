@@ -194,7 +194,7 @@ func TestGetOrCreateFingerprint_CanonicalProfile_NormalizesObservedIncidentUAs(t
 	observedUAs := []string{
 		"claude-cli/2.1.187 (external, cli)",
 		"claude-cli/2.1.197 (external, cli)",
-		"claude-cli/2.1.201 (external, sdk-cli)",
+		"claude-cli/2.1.202 (external, sdk-cli)",
 		"claude-cli/2.1.195 (external, claude-vscode, agent-sdk/0.3.195)",
 		"claude-cli/2.1.196 (external, claude-vscode, agent-sdk/0.3.196)",
 		"claude-cli/2.1.198 (external, claude-vscode, agent-sdk/0.3.198)",

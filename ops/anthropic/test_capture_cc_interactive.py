@@ -33,7 +33,7 @@ class ValidateInteractiveHTTPLogTest(unittest.TestCase):
                 log,
                 [
                     {
-                        "user_agent": "claude-cli/2.1.201 (external, cli)",
+                        "user_agent": "claude-cli/2.1.202 (external, cli)",
                         "system_anchors": [
                             {
                                 "text_head": (
@@ -55,7 +55,7 @@ class ValidateInteractiveHTTPLogTest(unittest.TestCase):
                 log,
                 [
                     {
-                        "user_agent": "claude-cli/2.1.201 (external, sdk-cli)",
+                        "user_agent": "claude-cli/2.1.202 (external, sdk-cli)",
                         "system_anchors": [
                             {
                                 "text_head": (
@@ -76,7 +76,7 @@ class ValidateInteractiveHTTPLogTest(unittest.TestCase):
                 log,
                 [
                     {
-                        "user_agent": "claude-cli/2.1.201 (external, cli)",
+                        "user_agent": "claude-cli/2.1.202 (external, cli)",
                         "system_anchors": [
                             {
                                 "text_head": (
