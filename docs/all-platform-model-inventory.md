@@ -182,17 +182,19 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 
 **(b) VolcEngine / Doubao + 媒体（账号 7，ct=45）**
 
-overlay `litellm_provider="volcengine"` 共 28 条；`tk_served_models.json` 当前正面清单是账号 7 的 24 条（19 chat + 1 image + 4 video），都必须同时满足 mapping + overlay + 实测/既有 served 证据。
+overlay `litellm_provider="volcengine"` 共 27 条；`tk_served_models.json` 当前正面清单是账号 7 的 23 条（18 chat + 1 image + 4 video），都必须同时满足 mapping + overlay + 实测/既有 served 证据。
 
 | mode | servable id（manifest/account_mapping）|
 |---|---|
 | chat | `doubao-seed-2-0-pro-260215`、`doubao-seed-2-0-code-preview-260215`、`doubao-seed-2-0-lite-260215`、`doubao-seed-2-0-lite-260428`、`doubao-seed-2-0-mini-260215`、`doubao-seed-2-0-mini-260428` |
 | chat | `doubao-seed-1-8-251228`、`doubao-seed-1-6-250615`、`doubao-seed-1-6-251015`、`doubao-seed-1-6-flash-250615`、`doubao-seed-1-6-flash-250828`、`doubao-seed-1-6-vision-250815` |
-| chat | `doubao-seed-character-251128`、`doubao-seed-code-preview-251028`、`doubao-1-5-pro-32k-250115`、`doubao-1-5-pro-32k-character-250715`、`doubao-1-5-lite-32k-250115`、`doubao-1-5-vision-pro-32k-250115`、`glm-4-7-251222` |
+| chat | `doubao-seed-character-251128`、`doubao-seed-code-preview-251028`、`doubao-1-5-pro-32k-250115`、`doubao-1-5-pro-32k-character-250715`、`doubao-1-5-lite-32k-250115`、`doubao-1-5-vision-pro-32k-250115` |
 | image | `doubao-seedream-4-0-250828`（no-prefix `seedream-4-0-250828` 只是 parity 计费键，不进 manifest）|
 | video | `doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`（no-prefix `seedance-1-0-pro-*` 只是 parity 计费键）；`failure_billing=success_only` |
 
 > `deepseek-v3-2-251201` 曾出现在 litellm mirror / overlay，但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价），也 **不在 manifest**；2026-07-01 已从 overlay 移除以对齐 SSOT（定价=服务=展示均以 manifest 为准）。其 servable 家应在 DeepSeek 直连（账号 39），待正式 onboarding 后再进 manifest。
+>
+> `glm-4-7-251222` 曾是 VolcEngine Ark 上的 GLM 4.7 dated SKU；2026-07-06 从 manifest / overlay / 账号 7 mapping 移除。GLM chat 优先走 Qwen/DashScope 账号 60/72 的 `glm-4.7`（tk_054），不再经 VolcEngine 重复暴露；遗留客户端仍发 dated id 时，网关会把 `glm-4-7-251222` 归一化到 `glm-4.7` 后路由/计费。
 
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。

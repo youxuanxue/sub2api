@@ -471,18 +471,6 @@
       "display": true,
       "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
     },
-    "newapi/glm-4-7-251222": {
-      "platform": "newapi",
-      "model_id": "glm-4-7-251222",
-      "served_on": [
-        "7"
-      ],
-      "channel_type": 45,
-      "price_source": "overlay",
-      "price_key": "glm-4-7-251222",
-      "display": true,
-      "notes": "volcengine account 7 (VolcEngine Ark, channel_type=45). Chat model mapped by tk_020. Priced in overlay from VolcEngine Ark official model-pricing page. Reprobed 2026-06-23 via direct Ark /api/v3/chat/completions and returned 200 servable."
-    },
     "newapi/doubao-seedance-1-0-pro-250528": {
       "platform": "newapi",
       "model_id": "doubao-seedance-1-0-pro-250528",

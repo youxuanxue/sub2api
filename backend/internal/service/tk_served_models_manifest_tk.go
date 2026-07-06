@@ -12,7 +12,8 @@ import (
 // asserts this file agrees with overlay price + account model_mapping; the
 // public /pricing presentation filter and the per-user newapi Group Catalog
 // whitelist fallback consume the same embedded source so priced-but-unwired
-// models (deepseek-v3-2-251201) and withdrawn SKUs (glm-4-32b upstream 400)
+// models (deepseek-v3-2-251201) and withdrawn SKUs (glm-4-32b upstream 400,
+// glm-4-7-251222 VolcEngine duplicate — GLM served via DashScope as glm-4.7)
 // cannot mislead the storefront.
 
 //go:embed tk_served_models.json

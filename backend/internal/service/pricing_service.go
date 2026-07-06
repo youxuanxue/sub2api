@@ -732,6 +732,9 @@ func normalizeModelNameForPricing(model string) string {
 	if canonical := canonicalizeOpenAIModelAliasSpelling(model); canonical != "" {
 		return canonical
 	}
+	if canonical := normalizeGLMVolcengineDatedModelID(model); canonical != "" {
+		return canonical
+	}
 	return model
 }
 

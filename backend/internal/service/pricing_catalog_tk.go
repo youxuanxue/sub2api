@@ -309,7 +309,7 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 
 // applyCatalogOverlayPricing fill-only-merges TK-overlay-priced models the file
 // source lacks into the public catalog, so overlay-only models (deepseek-v4-pro,
-// doubao-*, glm-4-7-251222, …) surface with their prices in the public catalog
+// doubao-*, …) surface with their prices in the public catalog
 // AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID).
 //
 // The runtime price file is a TRIMMED litellm mirror; models litellm lacks are

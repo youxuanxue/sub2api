@@ -94,7 +94,7 @@
         "func isTkCuratedNewAPICatalogRowDisplayed(",
         "func isNewAPILongTailCatalogVendor("
       ],
-      "rationale": "Runtime embed of tk_served_models.json — gates runtime newapi intent to manifest-listed models and public /pricing + Group Catalog display rows to manifest display=true only. Without it, priced overlay residue (deepseek-v3-2-251201), withdrawn SKUs, or entitlement-blocked GLM rows reappear on storefront/menu surfaces and mislead users into 400/429 requests while still looking priced."
+      "rationale": "Runtime embed of tk_served_models.json — gates runtime newapi intent to manifest-listed models and public /pricing + Group Catalog display rows to manifest display=true only. Without it, priced overlay residue (deepseek-v3-2-251201), withdrawn SKUs (e.g. glm-4-7-251222 VolcEngine duplicate — GLM served via DashScope as glm-4.7), or entitlement-blocked GLM rows reappear on storefront/menu surfaces and mislead users into 400/429 requests while still looking priced."
     },
     {
       "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
@@ -118,6 +118,7 @@
       "must_contain": [
         "TestPublicCatalog_FiltersUnservableClaudeAndGpt",
         "TestIsPublicCatalogModelSupported",
+        "withdrawn VolcEngine GLM SKU pruned from storefront",
         "TestSupportedCatalogModelIDsForPlatform_Antigravity",
         "TestSupportedCatalogModelIDsForPlatform_Grok"
       ],
@@ -130,7 +131,7 @@
         "applyCatalogOverlayPricing(resp)",
         "func (s *PricingCatalogService) InvalidateCache"
       ],
-      "rationale": "Display-side TK pricing-overlay merge. BuildPublicCatalog reads the trimmed litellm price file (model_pricing.json) and, unlike the billing path (GetModelPricing → applyTKPricingOverlay), did NOT apply the overlay — so every model priced ONLY in tk_pricing_overlay.json (the entire VolcEngine fifth-platform batch: doubao-*/glm-4-7-251222, plus deepseek-v4-pro) showed empty/missing prices in the public /pricing catalog AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID), even though billing was correct. applyCatalogOverlayPricing fill-merges the overlay's token-priced models into the catalog so display matches billing, with absent-or-zero semantics: a real non-zero file price wins, an all-zero placeholder row gets its displayed price replaced (same predicate family as billing's tkIsEffectivelyUnpriced). Channel pricing stays a strictly higher tier upstream; the merge is gated behind a non-degraded catalog (len(resp.Data)>0) to preserve the AC-005 degraded→empty contract. An upstream merge refactoring BuildPublicCatalog could silently drop the applyCatalogOverlayPricing(resp) call, regressing every overlay-only model back to an empty price row."
+      "rationale": "Display-side TK pricing-overlay merge. BuildPublicCatalog reads the trimmed litellm price file (model_pricing.json) and, unlike the billing path (GetModelPricing → applyTKPricingOverlay), did NOT apply the overlay — so every model priced ONLY in tk_pricing_overlay.json (the VolcEngine fifth-platform doubao-* batch, plus deepseek-v4-pro; GLM chat is DashScope-first as glm-4.7, not VolcEngine glm-4-7-251222) showed empty/missing prices in the public /pricing catalog AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID), even though billing was correct. applyCatalogOverlayPricing fill-merges the overlay's token-priced models into the catalog so display matches billing, with absent-or-zero semantics: a real non-zero file price wins, an all-zero placeholder row gets its displayed price replaced (same predicate family as billing's tkIsEffectivelyUnpriced). Channel pricing stays a strictly higher tier upstream; the merge is gated behind a non-degraded catalog (len(resp.Data)>0) to preserve the AC-005 degraded→empty contract. An upstream merge refactoring BuildPublicCatalog could silently drop the applyCatalogOverlayPricing(resp) call, regressing every overlay-only model back to an empty price row."
     },
     {
       "path": "backend/internal/service/billing_service.go",
@@ -197,7 +198,7 @@
         "\"served_on\"",
         "\"display\""
       ],
-      "rationale": "The served-models MANIFEST itself — the single declarative source of intent consumed by scripts/checks/catalog-serving-drift.py (now), the tokenkey-onboard-model skill (now), and a future newapi reconciler (//go:embed of this file, co-located with tk_pricing_overlay.json so the same Go package can embed both). Pinning the schema keys (entries / price_source / served_on / display) stops an upstream merge or refactor from silently truncating the manifest to an empty/legacy shape that would make the drift guard vacuously pass while the intent->migration->price agreement it encodes is lost. Co-located with the overlay so the same preflight parses both and the same package will embed both."
+      "rationale": "The served-models MANIFEST itself — the single declarative source of intent consumed by scripts/checks/catalog-serving-drift.py (now), the tokenkey-onboard-model skill (now), and a future newapi reconciler (//go:embed of this file, co-located with tk_pricing_overlay.json so the same Go package can embed both). Pinning the schema keys (entries / price_source / served_on / display) stops an upstream merge or refactor from silently truncating the manifest to an empty/legacy shape that would make the drift guard vacuously pass while the intent->migration->price agreement it encodes is lost. GLM chat models follow DashScope-first policy (glm-4.7 on Qwen accounts 60/72); VolcEngine glm-4-7-251222 was withdrawn 2026-07-06. Co-located with the overlay so the same preflight parses both and the same package will embed both."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",

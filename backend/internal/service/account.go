@@ -727,6 +727,9 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 			return canonical
 		}
 	}
+	if canonical := normalizeGLMVolcengineDatedModelID(trimmed); canonical != "" {
+		return canonical
+	}
 	if platform != PlatformGemini && platform != PlatformAntigravity {
 		return trimmed
 	}

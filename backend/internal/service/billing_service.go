@@ -659,6 +659,11 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 	// 智谱 GLM（z.ai 公开 SKU：glm-5.2 / glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
 	// 匹配顺序：先判别最高 tier，再依次降级。
+	if canonical := normalizeGLMVolcengineDatedModelID(modelLower); canonical != "" {
+		if pricing := s.fallbackPrices[canonical]; pricing != nil {
+			return pricing
+		}
+	}
 	if strings.Contains(modelLower, "glm-5.2") {
 		return s.fallbackPrices["glm-5.2"]
 	}

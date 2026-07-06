@@ -18,6 +18,9 @@ func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
 	if isTkCuratedNewAPIModelListed("glm-4-32b-0414-128k") {
 		t.Fatal("glm-4-32b-0414-128k must not be manifest-listed after upstream 400 withdrawal")
 	}
+	if isTkCuratedNewAPIModelListed("glm-4-7-251222") {
+		t.Fatal("glm-4-7-251222 must not be manifest-listed after VolcEngine GLM withdrawal (serve glm-4.7 via DashScope)")
+	}
 }
 
 func TestIsTkCuratedNewAPIModelDisplayed(t *testing.T) {

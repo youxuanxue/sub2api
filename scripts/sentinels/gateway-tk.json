@@ -2428,6 +2428,22 @@
       "rationale": "Regression: hyphenless gpt5.4-mini wire spelling must canonicalize to gpt-5.4-mini for routing/restriction/cache parity."
     },
     {
+      "path": "backend/internal/service/model_alias_tk_glm_volcengine.go",
+      "must_contain": [
+        "func normalizeGLMVolcengineDatedModelID(",
+        "tkGLMVolcengineDatedModelPattern"
+      ],
+      "rationale": "VolcEngine Ark GLM dated ids (glm-4-7-251222) normalize to DashScope canonical glm-4.7 for account mapping lookup, universal routing, and pricing after the VolcEngine duplicate SKU was withdrawn from account 7. Without this alias, legacy clients keep requesting the dated id and miss Qwen/DashScope pools even though glm-4.7 remains served."
+    },
+    {
+      "path": "backend/internal/service/model_alias_tk_glm_volcengine_test.go",
+      "must_contain": [
+        "TestNormalizeGLMVolcengineDatedModelID",
+        "TestAccount_GLMDatedVolcengineAliasRoutesViaDashScopeMapping"
+      ],
+      "rationale": "Regression: dated VolcEngine GLM ids must map to glm-4.7 for newapi account model_mapping support and upstream forwarding."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",
       "must_contain": [
         "func tkAnthropicModelClass(model string) string",
