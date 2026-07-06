@@ -150,7 +150,7 @@ func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) 
 
 // TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
 // merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
-// glm-4-7-251222 / glm-5.2, plus media rows such as Veo/Grok image/video) must
+// glm-5.2, plus media rows such as Veo/Grok image/video) must
 // surface in the public catalog / Your-Menu with their prices, matching the
 // billing path that already applies the overlay. The merge is fill-only: a model
 // the file source prices natively keeps the source value (overlay never overrides).
@@ -180,8 +180,6 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	assert.InDelta(t, 0.00087, pro.Pricing.OutputPer1KTokens, 1e-9, "deepseek-v4-pro output = overlay $0.87/M")
 	_, ok = byID["doubao-seed-2-0-pro-260215"]
 	assert.True(t, ok, "doubao overlay model must surface")
-	_, ok = byID["glm-4-7-251222"]
-	assert.True(t, ok, "glm-4-7 overlay model must surface")
 	glm52, ok := byID["glm-5.2"]
 	require.True(t, ok, "direct Z.AI GLM overlay model must surface")
 	assert.Equal(t, PlatformNewAPI, inferPlatformFromVendor(glm52.Vendor), "zhipu provider must classify as newapi")
@@ -346,6 +344,7 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	  "gemini-2.5-pro":            {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
 	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"},
 	  "deepseek-v3-2-251201":      {"input_cost_per_token":0.0000002,"output_cost_per_token":0.0000004,"litellm_provider":"volcengine"},
+	  "glm-4-7-251222":            {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"volcengine"},
 	  "glm-4-32b-0414-128k":       {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"},
 	  "glm-5-turbo":               {"input_cost_per_token":0.0000012,"output_cost_per_token":0.000004,"litellm_provider":"zhipu"},
 	  "minimax-m2.7":              {"input_cost_per_token":0.000001,"output_cost_per_token":0.000008,"litellm_provider":"minimax"}
@@ -377,6 +376,7 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.True(t, got["gemini-2.5-pro"], "gemini vendor passes through")
 	assert.True(t, got["deepseek-chat"], "manifest display=true deepseek kept")
 	assert.False(t, got["deepseek-v3-2-251201"], "priced-but-unlisted volcengine residue pruned")
+	assert.False(t, got["glm-4-7-251222"], "withdrawn VolcEngine GLM SKU pruned from storefront (serve glm-4.7 via DashScope)")
 	assert.False(t, got["glm-4-32b-0414-128k"], "withdrawn GLM SKU pruned from storefront")
 	assert.False(t, got["glm-5-turbo"], "removed direct-only GLM SKU hidden from storefront")
 	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
@@ -407,6 +407,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
 		{"deepseek", "deepseek-chat", true},
 		{"volcengine", "deepseek-v3-2-251201", false},
+		{"volcengine", "glm-4-7-251222", false},
 		{"zhipu", "glm-4-32b-0414-128k", false},
 		{"zhipu", "glm-5.2", true},
 		{"zhipu", "glm-5-turbo", false}, // direct-only GLM pool removed; no manifest display path
