@@ -655,7 +655,7 @@ func user16Span() []Group {
 func user16ServingProvider() availableModelsProvider {
 	return servedProvider(map[int64][]string{
 		11: {"deepseek-chat", "deepseek-v4-pro", "deepseek-reasoner", "deepseek-v4-flash"},
-		18: {"qwen-max", "qwen3-235b-a22b", "qwen3-coder-plus"},
+		18: {"qwen-max", "qwen3-235b-a22b", "qwen3-coder-plus", "glm-4.7"},
 		5:  {"doubao-seed-1-6-250615", "doubao-seedream-4-0-250828"},
 		// gid=1(anthropic)、gid=2(openai)缺席 → nil(native)
 	})
@@ -691,6 +691,13 @@ func TestResolve_MessagesDispatch_NewapiDeepseekDisambiguation_User16(t *testing
 	g, err := r.Resolve(ctx, key, ShapeAnthropicMessages, "deepseek-v4-flash", "")
 	if err != nil || g == nil || g.ID != 11 {
 		t.Fatalf("deepseek-v4-flash @/v1/messages 应落 deepseek 组 gid=11, got=%v err=%v", g, err)
+	}
+
+	// VolcEngine dated GLM id should alias to DashScope glm-4.7 and land Qwen group(18),
+	// not the volcengine tiebreak trap group(5) after glm-4-7-251222 was withdrawn there.
+	g, err = r.Resolve(ctx, key, ShapeOpenAIChat, "glm-4-7-251222", "")
+	if err != nil || g == nil || g.ID != 18 {
+		t.Fatalf("glm-4-7-251222 should route to Qwen gid=18 via glm-4.7 alias, got=%v err=%v", g, err)
 	}
 
 	// 同跨度同端点,claude-opus-4-8 仍正确落 anthropic 组(1)—— 不被 dispatch 并入的

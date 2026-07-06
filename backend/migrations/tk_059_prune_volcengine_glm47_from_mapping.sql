@@ -2,10 +2,12 @@
 --
 -- glm-4-7-251222 was removed from the served-models manifest: GLM chat models are
 -- served preferentially via Qwen/DashScope accounts 60/72 (glm-4.7, …), not
--- VolcEngine Ark account 7. Keeping the VolcEngine-specific SKU id in
--- credentials.model_mapping advertised a duplicate path the gateway could route
--- but should not prefer — the same class of drift catalog-serving-drift.py
--- guards against (#812).
+-- VolcEngine Ark account 7. Legacy clients may still send the VolcEngine dated
+-- id; runtime alias normalizeGLMVolcengineDatedModelID maps it to glm-4.7 for
+-- routing/billing while this migration prunes the duplicate VolcEngine mapping.
+-- Keeping the VolcEngine-specific SKU id in credentials.model_mapping would
+-- advertise a duplicate path the gateway could route but should not prefer —
+-- the same class of drift catalog-serving-drift.py guards against (#812).
 --
 -- Idempotent: re-running is a no-op when the key is already absent.
 

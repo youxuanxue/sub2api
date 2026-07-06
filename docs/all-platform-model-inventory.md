@@ -194,7 +194,7 @@ overlay `litellm_provider="volcengine"` 共 27 条；`tk_served_models.json` 当
 
 > `deepseek-v3-2-251201` 曾出现在 litellm mirror / overlay，但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价），也 **不在 manifest**；2026-07-01 已从 overlay 移除以对齐 SSOT（定价=服务=展示均以 manifest 为准）。其 servable 家应在 DeepSeek 直连（账号 39），待正式 onboarding 后再进 manifest。
 >
-> `glm-4-7-251222` 曾是 VolcEngine Ark 上的 GLM 4.7 dated SKU；2026-07-06 从 manifest / overlay / 账号 7 mapping 移除。GLM chat 优先走 Qwen/DashScope 账号 60/72 的 `glm-4.7`（tk_054），不再经 VolcEngine 重复暴露。
+> `glm-4-7-251222` 曾是 VolcEngine Ark 上的 GLM 4.7 dated SKU；2026-07-06 从 manifest / overlay / 账号 7 mapping 移除。GLM chat 优先走 Qwen/DashScope 账号 60/72 的 `glm-4.7`（tk_054），不再经 VolcEngine 重复暴露；遗留客户端仍发 dated id 时，网关会把 `glm-4-7-251222` 归一化到 `glm-4.7` 后路由/计费。
 
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。
