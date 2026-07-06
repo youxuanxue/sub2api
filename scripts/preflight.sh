@@ -114,6 +114,12 @@ _preflight_bg_dir="$(mktemp -d "${TMPDIR:-/tmp}/preflight-bg.XXXXXX")"
 # then drop the scratch dir.
 trap 'git config --local --unset core.bare >/dev/null 2>&1 || true; { cat "$_preflight_bg_dir"/*.pid 2>/dev/null | xargs kill; wait; } 2>/dev/null; rm -rf "$_preflight_bg_dir"' EXIT
 
+_preflight_fast=0
+case "${PREFLIGHT_FAST:-}" in 1|true|yes|TRUE|YES) _preflight_fast=1 ;; esac
+if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ "${PREFLIGHT_FAST:-}" != "0" ]; then
+    _preflight_fast=1
+fi
+
 # ---- TK: background-job helpers ----------------------------------------------
 # The most expensive sub2api gates (QA go test, the unittest-discover suites,
 # the dockerized Caddyfile adapt) are independent of every other section, so
@@ -869,6 +875,8 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ./ops/anthropic/probe_prompt_surfaces.py --check-registry >/dev/null; then
     errors=$((errors + 1))
+elif [ "$_preflight_fast" = "1" ]; then
+    echo "  ok: prompt surface registry (fixture gateway runs in CI test-unit)"
 elif ! python3 ./ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway >/dev/null; then
     errors=$((errors + 1))
 else
@@ -1206,6 +1214,7 @@ for _smoke_script in \
   ./ops/stage0/edge_native_anthropic_smoke.sh \
   ./ops/stage0/post_deploy_smoke.sh \
   ./ops/stage0/edge_post_deploy_smoke.sh \
+  ./ops/observability/probe-ssot-recent-success.sh \
   ./scripts/stage0/dispatch-edge-deploy.sh; do
   if ! bash -n "${_smoke_script}"; then
     echo "  FAIL: ${_smoke_script} has bash syntax errors"
@@ -1770,6 +1779,9 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ops/test/gateway_model_ssot_matrix.py selftest >/dev/null 2>&1; then
     echo "  FAIL: gateway_model_ssot_matrix.py selftest (re-run: python3 ops/test/gateway_model_ssot_matrix.py selftest)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest discover -s ops/test -p 'test_ssot_recent_success.py' -t ops/test -q >/dev/null 2>&1; then
+    echo "  FAIL: test_ssot_recent_success.py (re-run: python3 -m unittest discover -s ops/test -p test_ssot_recent_success.py -t ops/test)"
     errors=$((errors + 1))
 else
     echo "  ok: SSOT endpoint matrix selftest"
@@ -2354,8 +2366,15 @@ fi
 # and diffs to catch drift. Non-destructive: restores the directory after.
 echo ""
 echo "=== sub2api: Ent generation staleness ==="
+_ent_schema_changed=0
+if git rev-parse --verify origin/main >/dev/null 2>&1 && \
+   git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^backend/ent/schema/'; then
+    _ent_schema_changed=1
+fi
 if ! command -v go >/dev/null 2>&1; then
     echo "  skip: go not on PATH"
+elif [ "$_preflight_fast" = "1" ] && [ "$_ent_schema_changed" = "0" ]; then
+    echo "  skip: Ent generation staleness (preflight-fast; no backend/ent/schema changes)"
 else
     _ent_rc=0
     ( cd backend && go generate ./ent ) >/dev/null 2>&1 || _ent_rc=$?

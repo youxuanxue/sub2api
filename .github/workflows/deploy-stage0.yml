@@ -204,13 +204,14 @@ jobs:
           # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
 
-      - name: Post-deploy SSOT display gate (sharded)
+      - name: Post-deploy SSOT display gate (deploy canary)
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
           TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+          TK_FULLTEST_TIMEOUT: "30"
         run: |
           set -euo pipefail
-          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate-sharded --deploy-closeout --show-excluded
+          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
 
       - name: Notify Feishu (release rollout)
         # Best-effort 发版公告。默认 step gating 保证它只在 prod 换镜像 +

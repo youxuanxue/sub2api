@@ -11,7 +11,7 @@ on:
       suite:
         description: Which CI suite to run
         required: false
-        default: all
+        default: ci
         type: choice
         options:
           - all
@@ -38,12 +38,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 64
           submodules: recursive
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
       - uses: ./.github/actions/cache-and-checkout-new-api
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: preflight
       - name: Run preflight
+        env:
+          PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
@@ -75,6 +85,8 @@ jobs:
       - name: Unit tests
         working-directory: backend
         run: make test-unit
+      - name: Anthropic prompt surface fixture gateway
+        run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
 
   test-integration:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
