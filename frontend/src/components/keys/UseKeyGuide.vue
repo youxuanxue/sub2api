@@ -225,6 +225,8 @@ interface Props {
   routingMode?: KeyRoutingMode
   /** The api key's numeric id — used to load its live servable model menu. */
   apiKeyId?: number | null
+  /** Deep-link model id (e.g. from /pricing authorized-groups quick start). */
+  initialModel?: string | null
   /** anthropic group gated to claude-cli / /v1/messages only (group.claude_code_only). */
   claudeCodeOnly?: boolean
   allowMessagesDispatch?: boolean
@@ -312,18 +314,23 @@ const tk = useTkUseKey({
   apiKeyId: toRef(props, 'apiKeyId'),
   apiKey: toRef(props, 'apiKey'),
   platform: toRef(props, 'platform'),
+  routingMode: toRef(props, 'routingMode'),
   claudeCodeOnly: toRef(props, 'claudeCodeOnly'),
   baseRoot,
 })
 
 // (Re)load the live servable model menu whenever the key changes.
 watch(
-  () => props.apiKeyId,
-  (id) => {
+  () => [props.apiKeyId, props.initialModel] as const,
+  async ([id, initialModel]) => {
     if (id == null) return
     keyRevealed.value = false
     tk.testState.value = { status: 'idle' }
-    void tk.loadModels()
+    await tk.loadModels()
+    const flavor = tk.applyInitialModel(initialModel)
+    if (flavor === 'anthropic') activeClientTab.value = 'claude'
+    else if (flavor === 'gemini') activeClientTab.value = 'gemini'
+    else if (flavor === 'openai') activeClientTab.value = 'codex'
   },
   { immediate: true },
 )

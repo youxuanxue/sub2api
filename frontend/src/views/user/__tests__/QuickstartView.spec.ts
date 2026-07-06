@@ -48,11 +48,13 @@ vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
       'apiKeyId',
       'platform',
       'routingMode',
+      'initialModel',
       'claudeCodeOnly',
       'allowMessagesDispatch',
       'supportedModelScopes',
     ],
-    template: '<div data-test="use-key-guide">{{ routingMode }}|{{ platform ?? "" }}</div>',
+    template:
+      '<div data-test="use-key-guide">{{ routingMode }}|{{ platform ?? "" }}|{{ initialModel ?? "" }}</div>',
   },
 }))
 
@@ -121,8 +123,25 @@ describe('QuickstartView', () => {
   it('embeds UseKeyGuide for universal keys without a fixed group platform', async () => {
     const wrapper = await mountView()
     const guide = wrapper.get('[data-test="use-key-guide"]')
-    expect(guide.text()).toBe('universal|')
+    expect(guide.text()).toBe('universal||')
     expect(wrapper.text()).not.toContain('keys.useKeyModal.noGroupTitle')
+  })
+
+  it('prefers universal key and passes model query to UseKeyGuide', async () => {
+    routeQuery.value = { model: 'claude-haiku-4-5' }
+    listKeys.mockResolvedValue({
+      items: [
+        { ...universalKey(), id: 5, name: 'Direct', routing_mode: 'direct', group_id: 1, group: { id: 1, name: 'claude' } },
+        universalKey(),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('42')
+    expect(wrapper.get('[data-test="use-key-guide"]').text()).toContain('claude-haiku-4-5')
   })
 
   it('selects key from ?keyId= query on load', async () => {

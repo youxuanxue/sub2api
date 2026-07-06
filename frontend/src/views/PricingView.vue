@@ -471,25 +471,35 @@
                       data-tk="pricing-col-authorized-groups"
                       class="px-3 py-3 align-top"
                     >
-                      <div class="flex flex-wrap gap-1.5">
+                      <div class="flex flex-col gap-1.5">
+                        <div v-if="row.authorizedGroups?.length" class="flex flex-wrap gap-1.5">
+                          <span
+                            v-for="g in row.authorizedGroups"
+                            :key="g.id"
+                            :title="t('pricing.my.authorizedGroups.groupHint', { group: g.name })"
+                            class="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium"
+                            :class="[
+                              g.is_exclusive
+                                ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-700/50 dark:bg-primary-900/30 dark:text-primary-200'
+                                : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-dark-700 dark:bg-dark-800/60 dark:text-dark-300',
+                              g.is_current_for_key ? 'ring-1 ring-primary-400/60' : ''
+                            ]"
+                          >
+                            <span>{{ g.name }}</span>
+                            <span v-if="g.is_exclusive" class="text-[10px] opacity-70">{{
+                              t('pricing.my.authorizedGroups.exclusive')
+                            }}</span>
+                          </span>
+                        </div>
                         <button
-                          v-for="g in row.authorizedGroups || []"
-                          :key="g.id"
+                          v-if="row.authorizedGroups?.length"
                           type="button"
-                          :title="t('pricing.my.authorizedGroups.createKeyHint', { group: g.name })"
-                          class="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium transition-colors"
-                          :class="[
-                            g.is_exclusive
-                              ? 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 dark:border-primary-700/50 dark:bg-primary-900/30 dark:text-primary-200 dark:hover:bg-primary-900/50'
-                              : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-dark-700 dark:bg-dark-800/60 dark:text-dark-300 dark:hover:bg-dark-700',
-                            g.is_current_for_key ? 'ring-1 ring-primary-400/60' : ''
-                          ]"
-                          @click="onCreateKeyForGroup(g)"
+                          data-tk="pricing-quickstart-for-model"
+                          class="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline dark:text-primary-400 dark:hover:text-primary-300"
+                          @click="onQuickstartForModel(row.model_id)"
                         >
-                          <span>{{ g.name }}</span>
-                          <span v-if="g.is_exclusive" class="text-[10px] opacity-70">{{
-                            t('pricing.my.authorizedGroups.exclusive')
-                          }}</span>
+                          {{ t('pricing.my.authorizedGroups.quickstart') }}
+                          <Icon name="arrowRight" size="xs" class="opacity-70" />
                         </button>
                         <span
                           v-if="!row.authorizedGroups || row.authorizedGroups.length === 0"
@@ -565,10 +575,9 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
-// 「授权分组」badge 点击：跳到 Keys 页并自动打开「创建密钥」面板、预置该分组。
-// 用路由 name（'Keys'）而非硬编码路径，避免 path 漂移。
-function onCreateKeyForGroup(g: MePricingModelGroup): void {
-  void router.push({ name: 'Keys', query: { create: '1', group_id: String(g.id) } })
+// 「授权分组」列：分组 badge 仅作信息展示；单一「快速开始」入口跳到 /quickstart 并预填模型。
+function onQuickstartForModel(modelId: string): void {
+  void router.push({ path: '/quickstart', query: { model: modelId } })
 }
 const authStore = useAuthStore()
 const appStore = useAppStore()

@@ -95,8 +95,9 @@ export default {
         authorizedGroups: '授权分组'
       },
       authorizedGroups: {
-        createKeyHint: '在 {group} 创建 API Key',
-        exclusive: '专属'
+        groupHint: '{group} 可服务此模型',
+        exclusive: '专属',
+        quickstart: '快速开始',
       },
       empty: {
         noAccess: {

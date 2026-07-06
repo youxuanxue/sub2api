@@ -17,8 +17,12 @@ vi.mock('@/composables/useClipboard', () => ({
 // Mocking the catalog API also severs the real api/client → i18n import chain,
 // keeping the partial vue-i18n mock above sufficient.
 const getMePricingCatalog = vi.fn()
+const getPublicPricing = vi.fn()
 vi.mock('@/api/me-pricing', () => ({
   getMePricingCatalog: (...args: unknown[]) => getMePricingCatalog(...args)
+}))
+vi.mock('@/api/pricing', () => ({
+  getPublicPricing: (...args: unknown[]) => getPublicPricing(...args)
 }))
 
 import UseKeyModal from '../UseKeyModal.vue'
@@ -37,7 +41,9 @@ function mountModal(props: Record<string, unknown>) {
 
 beforeEach(() => {
   getMePricingCatalog.mockReset()
+  getPublicPricing.mockReset()
   getMePricingCatalog.mockResolvedValue({ models: [] })
+  getPublicPricing.mockResolvedValue({ data: [] })
 })
 
 describe('UseKeyModal — preserved snippet correctness', () => {
@@ -234,5 +240,36 @@ describe('UseKeyModal — universal keys', () => {
     expect(wrapper.text()).not.toContain('keys.useKeyModal.noGroupTitle')
     expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.claudeCode')
     expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.codexCli')
+  })
+
+  it('loads cross-group model menu via entitlement index instead of per-key catalog', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      authorized_groups_by_model: {
+        'claude-opus-4-8': [{ id: 1, name: 'anthropic' }],
+      },
+      models: [],
+    })
+    getPublicPricing.mockResolvedValue({
+      data: [
+        {
+          model_id: 'claude-opus-4-8',
+          capabilities: ['thinking'],
+          context_window: 200000,
+        },
+      ],
+    })
+
+    const wrapper = mountModal({
+      platform: null,
+      routingMode: 'universal',
+      apiKeyId: 42,
+    })
+    await flushPromises()
+
+    expect(getMePricingCatalog).toHaveBeenCalledWith()
+    expect(getMePricingCatalog).not.toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 42 }))
+    expect(getPublicPricing).toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.modelsEmpty')
+    expect(wrapper.find('select').findAll('option').some((o) => o.text().includes('claude-opus-4-8'))).toBe(true)
   })
 })
