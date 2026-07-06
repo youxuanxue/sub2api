@@ -279,6 +279,8 @@ type OpenAIGatewayService struct {
 	tkPricingCatalog *PricingCatalogService
 	// TK: shared with GatewayService via ProvideTKGroupUnsupportedModelCache.
 	tkGroupUnsupportedCache *tkGroupUnsupportedModelNegativeCache
+	// TK: OpenAI edge-mirror stub downstream-capacity saturation counter (optional).
+	tkOpenAISaturationCounter OpenAISaturationCounterCache
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

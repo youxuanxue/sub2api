@@ -551,6 +551,9 @@ const (
 	// Redis 短窗计数 TTL 自行消散。为 false 时退回纯优先级/负载选择（无 saturation 项）。
 	// 详见 backend/internal/service/gateway_service_tk_saturation_penalty.go。
 	SettingKeyAnthropicSaturatedStubDeprioritizeEnabled = "gateway.anthropic_saturated_stub_deprioritize.enabled"
+	// SettingKeyOpenAISaturatedStubDeprioritizeEnabled (TK) mirrors the anthropic
+	// switch for OpenAI edge-mirror stubs (openai-us* → api-us*.tokenkey.dev).
+	SettingKeyOpenAISaturatedStubDeprioritizeEnabled = "gateway.openai_saturated_stub_deprioritize.enabled"
 	// SettingKeyEnableClaudeOAuthSystemPromptInjection 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
 	SettingKeyEnableClaudeOAuthSystemPromptInjection = "enable_claude_oauth_system_prompt_injection"
 	// SettingKeyClaudeOAuthSystemPrompt Claude OAuth mimic 路径注入的通用扩展 system prompt（空值使用内置默认）

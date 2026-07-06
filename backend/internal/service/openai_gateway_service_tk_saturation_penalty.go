@@ -1,0 +1,68 @@
+package service
+
+import (
+	"context"
+	"log/slog"
+)
+
+// openAISaturationScorePenalty subtracts from the OpenAI scheduler's weighted
+// score when a stub is SUSTAINEDLY saturated. Scores are ~0..5; this constant
+// pushes saturated candidates to the bottom without excluding them.
+const openAISaturationScorePenalty = 10.0
+
+func (s *OpenAIGatewayService) SetOpenAISaturationCounter(cache OpenAISaturationCounterCache) {
+	if s != nil {
+		s.tkOpenAISaturationCounter = cache
+	}
+}
+
+func (s *OpenAIGatewayService) HasOpenAISaturationCounter() bool {
+	return s != nil && s.tkOpenAISaturationCounter != nil
+}
+
+func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(ctx context.Context, candidates []openAIAccountCandidateScore) {
+	if s == nil || s.tkOpenAISaturationCounter == nil || len(candidates) == 0 {
+		return
+	}
+	if s.settingService != nil && !s.settingService.IsOpenAISaturatedStubDeprioritizeEnabled(ctx) {
+		return
+	}
+
+	ids := make([]int64, 0, len(candidates))
+	for i := range candidates {
+		acc := candidates[i].account
+		if tkIsOpenAIEdgeMirrorStub(acc) {
+			ids = append(ids, acc.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	counts, err := s.tkOpenAISaturationCounter.GetSaturationBatch(ctx, ids)
+	if err != nil {
+		slog.Warn("openai_saturation_penalty_read_failed", "error", err)
+		return
+	}
+	if len(counts) == 0 {
+		return
+	}
+
+	var penalized []int64
+	for i := range candidates {
+		acc := candidates[i].account
+		if !tkIsOpenAIEdgeMirrorStub(acc) {
+			continue
+		}
+		if counts[acc.ID] >= anthropicSaturationThreshold {
+			candidates[i].saturationScorePenalty = openAISaturationScorePenalty
+			penalized = append(penalized, acc.ID)
+		}
+	}
+	if len(penalized) > 0 {
+		slog.Debug("openai_saturation_penalty_applied",
+			"account_ids", penalized,
+			"penalty", openAISaturationScorePenalty,
+			"candidate_count", len(candidates))
+	}
+}

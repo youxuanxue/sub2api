@@ -171,6 +171,28 @@ func ProvideTKAnthropicSaturation(
 	return TKAnthropicSaturationReady{}
 }
 
+// TKOpenAISaturationReady is a wire sentinel consumed by provideCleanup so wire
+// forces SetOpenAISaturationCounter on OpenAIGatewayService + RateLimitService.
+type TKOpenAISaturationReady struct{}
+
+// ProvideTKOpenAISaturation wires the Redis-backed OpenAI edge-mirror saturation
+// counter into the OpenAI scheduler (read) and rate-limit skip-penalty path
+// (write). See openai_gateway_service_tk_saturation_penalty.go /
+// ratelimit_service_tk_openai_saturation.go.
+func ProvideTKOpenAISaturation(
+	openai *OpenAIGatewayService,
+	rl *RateLimitService,
+	cache OpenAISaturationCounterCache,
+) TKOpenAISaturationReady {
+	if openai != nil {
+		openai.SetOpenAISaturationCounter(cache)
+	}
+	if rl != nil {
+		rl.SetOpenAISaturationCounter(cache)
+	}
+	return TKOpenAISaturationReady{}
+}
+
 // ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,
 // starts its background digest ticker, and wires it onto RateLimitService
 // post-construction. It returns the concrete instance (not a sentinel) so
