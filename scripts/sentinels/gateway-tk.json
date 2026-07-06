@@ -3004,6 +3004,94 @@
       "rationale": "Wire glue that attaches the saturation counter onto BOTH GatewayService (read) and RateLimitService (write) post-construction, keeping the upstream NewGatewayService/NewRateLimitService signatures stable. One provider, two setters — if either setter call is dropped, one half of the feature goes inert (scheduler can't read, or skip path can't write). The TKAnthropicSaturationReady sentinel forces wire to evaluate it; these anchors pin the dual-setter wiring."
     },
     {
+      "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(",
+        "openAISaturationScorePenalty = 10.0",
+        "IsOpenAISaturatedStubDeprioritizeEnabled"
+      ],
+      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization (prod 2026-07 recovered-200 incident): prod openai-us* apikey stubs forward to api-us*.tokenkey.dev; when the edge OAuth pool is empty the stub receives TokenKey's own downstream-capacity 429 and load_balance keeps selecting it first, wasting a failover hop every request. Mirrors gateway_service_tk_saturation_penalty.go for the GPT scheduler: a bounded score penalty (-10) folded into buildOpenAIAccountLoadPlan, never excluding the stub from the candidate set. Dropping this file silently reverts prod to hammering saturated stubs."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(",
+        "count < anthropicSaturationThreshold",
+        "openai_sticky_cleared_saturated_stub"
+      ],
+      "rationale": "Sticky-side completion of OpenAI saturated mirror-stub de-prioritization: selectBySessionHash honors sticky bindings that bypass load_balance penalties unless cleared here when the bound openai-us* stub is SUSTAINEDLY saturated. Without this helper sticky sessions keep selecting the dead stub first every request (same failure mode as anthropic cc-us5 2026-06-19). PREFERENCE not cooldown — shares the kill-switch and 90s counter TTL."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash)",
+        "s.service.computeOpenAISaturationPenalties(ctx, candidates)",
+        "item.saturationScorePenalty"
+      ],
+      "rationale": "Scheduler wiring for OpenAI saturated-stub preference: sticky clear hook in selectBySessionHash and saturation penalty fold-in inside buildOpenAIAccountLoadPlan. Either hook dropped silently disables half the feature (sticky keeps dead stub, or load_balance ignores saturation)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
+      "must_contain": [
+        "func (s *RateLimitService) recordOpenAIStubSaturation(",
+        "openai_stub_saturated_deprioritized"
+      ],
+      "rationale": "Write side of OpenAI saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path. Never advances handle429 / ladder — preference feed only. Dropping this file stops feeding the counter and scheduler preference becomes inert."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
+        "openai_downstream_capacity_skip_penalty"
+      ],
+      "rationale": "Thin injection of OpenAI saturation counter increments at the HandleUpstreamError downstream-capacity skip branch (429 no-available / failover-exhausted on openai-us* edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched — only feeds de-prioritization preference. Upstream merge rewriting the skip branch would silently drop the feed."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
+      "must_contain": [
+        "func tkIsOpenAIEdgeMirrorStub(",
+        "func tkSkipOpenAIDownstreamCapacityPenalty(",
+        "isEdgeMirrorStub(account, edgeIDPattern)"
+      ],
+      "rationale": "OpenAI edge-mirror stub classifier + downstream pool-exhaustion skip predicate. Without tkSkipOpenAIDownstreamCapacityPenalty, prod openai-us* stubs receive handle429 cooldown on edge empty-pool 429s and collapse the prod mirror pool (prod 2026-07 recovered-200 incident). Mirrors ratelimit_service_tk_downstream_no_available.go semantics for the GPT line."
+    },
+    {
+      "path": "backend/internal/repository/openai_saturation_counter_cache.go",
+      "must_contain": [
+        "func NewOpenAISaturationCounterCache(",
+        "openai_saturation_count:account:",
+        "openaiSaturationIncrScript",
+        "func (c *openaiSaturationCounterCache) GetSaturationBatch("
+      ],
+      "rationale": "Redis-backed fixed-window counter for OpenAI saturation de-prioritization. Mirrors anthropic_saturation_counter_cache.go; deleting this repo file breaks the wire provider and disables the feature."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_openai_saturation.go",
+      "must_contain": [
+        "func (s *SettingService) IsOpenAISaturatedStubDeprioritizeEnabled(",
+        "SettingKeyOpenAISaturatedStubDeprioritizeEnabled"
+      ],
+      "rationale": "Kill-switch accessor (default ON, fail-open) for OpenAI saturated-stub de-prioritization. Mirrors setting_service_tk_saturation.go for the GPT line."
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "func ProvideTKOpenAISaturation(",
+        "openai.SetOpenAISaturationCounter(cache)",
+        "rl.SetOpenAISaturationCounter(cache)"
+      ],
+      "rationale": "Wire glue attaching the OpenAI saturation counter onto OpenAIGatewayService (read) and RateLimitService (write). Dual-setter wiring — if either setter call is dropped, one half of the feature goes inert."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "openaiSaturationCounterCache := repository.NewOpenAISaturationCounterCache(redisClient)",
+        "tkOpenAISaturationReady := service.ProvideTKOpenAISaturation(",
+        "tkOpenAISaturationReady,"
+      ],
+      "rationale": "Generated wire output for OpenAI edge-mirror saturation counter DI. Upstream wire regen can drop the provider evaluation silently; these literals anchor the post-construction wiring survives merge/regen until intentionally updated."
+    },
+    {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
         "hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)",
