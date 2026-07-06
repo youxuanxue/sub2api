@@ -1098,7 +1098,7 @@ function reload(): void {
 }
 
 /** Deep link from /models marketplace cards: ?model=<id> pre-fills exact search. */
-function applyModelDeepLinkFromRoute(): void {
+async function applyModelDeepLinkFromRoute(): Promise<void> {
   const raw = route.query.model
   const modelId =
     typeof raw === 'string'
@@ -1108,13 +1108,20 @@ function applyModelDeepLinkFromRoute(): void {
         : ''
   if (!modelId) return
   viewMode.value = 'public'
+  selectedKeyId.value = 0
+  selectedGroupId.value = 0
   modelSearchQuery.value = modelId
   modelSearchMode.value = 'exact'
+  // Authenticated users default to the "my" catalog on load(); public rows stay
+  // empty until we fetch the public catalog for this deep link.
+  if (!publicCatalog.value?.data?.length) {
+    await loadPublicCatalog()
+  }
 }
 
 onMounted(async () => {
   await load()
-  applyModelDeepLinkFromRoute()
+  await applyModelDeepLinkFromRoute()
   void appStore.fetchPublicSettings()
 })
 </script>
