@@ -280,10 +280,6 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
   if (tab === 'gemini') return 'gemini'
   if (tab === 'codex' || tab === 'codex-ws') return 'openai'
   if (tab === 'curl' || tab === 'python') {
-    if (props.routingMode === 'universal') {
-      if (tab === 'gemini') return 'gemini'
-      return 'openai'
-    }
     switch (props.platform) {
       case 'openai':
       case 'newapi':

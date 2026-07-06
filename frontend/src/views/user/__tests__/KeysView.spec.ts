@@ -16,6 +16,7 @@ const {
   copyToClipboard,
   isCurrentStep,
   nextStep,
+  pushMock,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   getPublicSettings: vi.fn(),
@@ -27,6 +28,7 @@ const {
   copyToClipboard: vi.fn(),
   isCurrentStep: vi.fn(),
   nextStep: vi.fn(),
+  pushMock: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -50,6 +52,7 @@ const messages: Record<string, string> = {
   'keys.status.inactive': 'Inactive',
   'keys.status.quota_exhausted': 'Quota exhausted',
   'keys.usage': 'Usage',
+  'keys.useKey': 'Use Key',
 }
 
 vi.mock('@/api', () => ({
@@ -89,6 +92,17 @@ vi.mock('@/stores/onboarding', () => ({
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
     copyToClipboard,
+  }),
+}))
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: pushMock }),
+  useRoute: () => ({ query: {}, params: {}, path: '/keys', name: 'keys' }),
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({
+    user: { id: 1 },
   }),
 }))
 
@@ -154,6 +168,7 @@ const DataTableStub = {
       <div data-test="columns">{{ columns.map((col) => col.key).join(',') }}</div>
       <div v-for="row in data" :key="row.id">
         <slot name="cell-name" :value="row.name" :row="row" />
+        <slot name="cell-actions" :row="row" />
       </div>
       <slot name="empty" />
     </div>
@@ -191,7 +206,6 @@ const mountView = async () => {
         Select: SelectStub,
         SearchInput: SearchInputStub,
         Icon: IconStub,
-        UseKeyModal: true,
         EndpointPopover: true,
         GroupBadge: true,
         GroupOptionItem: true,
@@ -302,5 +316,38 @@ describe('user KeysView column settings', () => {
     expect(columnMenuText).toContain('Rate Limit')
     expect(columnMenuText).not.toContain('Name')
     expect(columnMenuText).not.toContain('Actions')
+  })
+})
+
+describe('user KeysView use key navigation', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    pushMock.mockReset()
+    listKeys.mockReset()
+    getPublicSettings.mockReset()
+    getDashboardApiKeysUsage.mockReset()
+    getAvailableGroups.mockReset()
+    getUserGroupRates.mockReset()
+    listKeys.mockResolvedValue({
+      items: [createApiKey()],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    getPublicSettings.mockResolvedValue({})
+    getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
+    getAvailableGroups.mockResolvedValue([])
+    getUserGroupRates.mockResolvedValue({})
+    isCurrentStep.mockReturnValue(false)
+  })
+
+  it('navigates to quickstart with keyId when Use Key is clicked', async () => {
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Use Key').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith({
+      path: '/quickstart',
+      query: { keyId: '1' },
+    })
   })
 })
