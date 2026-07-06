@@ -1,7 +1,6 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-3xl space-y-8 py-4">
-      <!-- Header -->
+    <div class="mx-auto max-w-4xl space-y-6 py-4">
       <div class="text-center">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white sm:text-3xl">
           {{ t('quickstart.title') }}
@@ -11,125 +10,66 @@
         </p>
       </div>
 
-      <!-- Step 1: API Key -->
       <section class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-        <div class="mb-4 flex items-center gap-3">
-          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-500 text-sm font-bold text-white">1</span>
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('quickstart.step1Title') }}</h2>
-        </div>
-
-        <div v-if="keyLoading" class="flex items-center justify-center py-6">
+        <div v-if="keysLoading" class="flex items-center justify-center py-6">
           <LoadingSpinner />
         </div>
-        <div v-else-if="apiKey" class="space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">API Key</span>
-            <span class="rounded bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">{{ apiKey.name }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
-              {{ showKey ? apiKey.key : maskKey(apiKey.key) }}
-            </code>
-            <button @click="showKey = !showKey" class="btn-icon" :title="showKey ? 'Hide' : 'Show'">
-              <Icon :name="showKey ? 'eyeOff' : 'eye'" size="sm" />
-            </button>
-            <button @click="copyToClipboard(apiKey.key, 'key')" class="btn-icon" :title="t('common.copy')">
-              <Icon :name="copied === 'key' ? 'check' : 'copy'" size="sm" :class="copied === 'key' ? 'text-teal-500' : ''" />
-            </button>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Base URL</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
-              {{ baseUrl }}
-            </code>
-            <button @click="copyToClipboard(baseUrl, 'url')" class="btn-icon" :title="t('common.copy')">
-              <Icon :name="copied === 'url' ? 'check' : 'copy'" size="sm" :class="copied === 'url' ? 'text-teal-500' : ''" />
-            </button>
-          </div>
+        <div v-else-if="keysError" class="text-sm text-red-500">{{ keysError }}</div>
+        <div v-else-if="!keys.length" class="space-y-4 text-center">
+          <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('quickstart.noKeys') }}</p>
+          <router-link to="/keys" class="btn btn-primary text-sm">{{ t('quickstart.createKey') }}</router-link>
         </div>
-        <div v-else-if="keyError" class="text-sm text-red-500">{{ keyError }}</div>
-      </section>
-
-      <!-- Step 2: Tool config -->
-      <section class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-        <div class="mb-4 flex items-center gap-3">
-          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-500 text-sm font-bold text-white">2</span>
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('quickstart.step2Title') }}</h2>
-        </div>
-
-        <!-- Tool tabs -->
-        <div class="mb-4 flex flex-wrap gap-2 border-b border-gray-200 pb-3 dark:border-gray-700">
-          <button
-            v-for="tool in tools"
-            :key="tool.id"
-            @click="activeTool = tool.id"
-            :class="[
-              'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-              activeTool === tool.id
-                ? 'bg-teal-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
-            ]"
-          >
-            {{ tool.label }}
-          </button>
-        </div>
-
-        <!-- Config snippet -->
-        <div class="relative">
-          <div class="rounded-lg border border-gray-200 bg-gray-900 dark:border-gray-600">
-            <div class="flex items-center justify-between border-b border-gray-700 px-4 py-2">
-              <span class="text-xs text-gray-400">{{ activeToolConfig.file }}</span>
-              <button
-                @click="copyToClipboard(activeToolConfig.snippet, 'snippet')"
-                :class="[
-                  'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
-                  copied === 'snippet'
-                    ? 'text-teal-400'
-                    : 'text-gray-400 hover:text-white'
-                ]"
+        <div v-else class="space-y-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div class="flex-1">
+              <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('quickstart.selectKey') }}
+              </label>
+              <select
+                v-model="selectedKeyId"
+                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100"
               >
-                <Icon :name="copied === 'snippet' ? 'check' : 'copy'" size="xs" />
-                {{ copied === 'snippet' ? t('quickstart.copied') : t('quickstart.copyConfig') }}
-              </button>
+                <option v-for="k in keys" :key="k.id" :value="k.id">
+                  {{ k.name }} ({{ maskKey(k.key) }})
+                </option>
+              </select>
             </div>
-            <pre class="overflow-x-auto p-4 font-mono text-sm leading-relaxed text-gray-100"><code>{{ activeToolConfig.snippet }}</code></pre>
+            <div v-if="selectedKey" class="sm:pb-0.5">
+              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('keys.group') }}</span>
+              <div class="mt-1">
+                <span
+                  v-if="selectedKey.routing_mode === 'universal'"
+                  class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                >
+                  {{ t('keys.universalBadge') }}
+                </span>
+                <GroupBadge
+                  v-else-if="selectedKey.group"
+                  :name="selectedKey.group.name"
+                  :platform="selectedKey.group.platform"
+                  :subscription-type="selectedKey.group.subscription_type"
+                  :rate-multiplier="selectedKey.group.rate_multiplier"
+                  hide-rate-value
+                />
+                <span v-else class="text-sm text-amber-600 dark:text-amber-400">{{ t('keys.noGroup') }}</span>
+              </div>
+            </div>
           </div>
-          <p v-if="activeToolConfig.note" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            {{ activeToolConfig.note }}
-          </p>
+
+          <UseKeyGuide
+            v-if="selectedKey"
+            :api-key="selectedKey.key"
+            :api-key-id="selectedKey.id"
+            :base-url="baseUrl"
+            :platform="selectedKey.group?.platform ?? null"
+            :routing-mode="selectedKey.routing_mode"
+            :claude-code-only="selectedKey.group?.claude_code_only || false"
+            :allow-messages-dispatch="selectedKey.group?.allow_messages_dispatch || false"
+            :supported-model-scopes="selectedKey.group?.supported_model_scopes"
+          />
         </div>
       </section>
 
-      <!-- Step 3: Test -->
-      <section class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-        <div class="mb-4 flex items-center gap-3">
-          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-500 text-sm font-bold text-white">3</span>
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('quickstart.step3Title') }}</h2>
-        </div>
-        <div class="relative">
-          <div class="rounded-lg border border-gray-200 bg-gray-900 dark:border-gray-600">
-            <div class="flex items-center justify-between border-b border-gray-700 px-4 py-2">
-              <span class="text-xs text-gray-400">Terminal</span>
-              <button
-                @click="copyToClipboard(curlSnippet, 'curl')"
-                :class="[
-                  'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
-                  copied === 'curl' ? 'text-teal-400' : 'text-gray-400 hover:text-white'
-                ]"
-              >
-                <Icon :name="copied === 'curl' ? 'check' : 'copy'" size="xs" />
-                {{ copied === 'curl' ? t('quickstart.copied') : t('quickstart.copyConfig') }}
-              </button>
-            </div>
-            <pre class="overflow-x-auto p-4 font-mono text-sm leading-relaxed text-gray-100"><code>{{ curlSnippet }}</code></pre>
-          </div>
-          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('quickstart.step3Note') }}</p>
-        </div>
-      </section>
-
-      <!-- Next steps -->
       <div class="flex flex-wrap items-center justify-center gap-4 pb-6">
         <router-link to="/keys" class="btn btn-secondary text-sm">{{ t('quickstart.manageKeys') }}</router-link>
         <router-link to="/pricing" class="btn btn-secondary text-sm">{{ t('quickstart.viewPricing') }}</router-link>
@@ -140,175 +80,87 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import * as keysAPI from '@/api/keys'
 import type { ApiKey } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import Icon from '@/components/icons/Icon.vue'
+import GroupBadge from '@/components/common/GroupBadge.vue'
+import UseKeyGuide from '@/components/keys/UseKeyGuide.vue'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const appStore = useAppStore()
 
-const apiKey = ref<ApiKey | null>(null)
-const keyLoading = ref(true)
-const keyError = ref('')
-const showKey = ref(false)
-const copied = ref<string | null>(null)
-const activeTool = ref('claude-code')
+const keys = ref<ApiKey[]>([])
+const keysLoading = ref(true)
+const keysError = ref('')
+const selectedKeyId = ref<number | null>(null)
 
 const baseUrl = computed(() => {
   const raw = appStore.cachedPublicSettings?.api_base_url || window.location.origin
   return raw.replace(/\/+$/, '')
 })
 
-const keyValue = computed(() => apiKey.value?.key || 'YOUR_API_KEY')
-
-const tools = [
-  { id: 'claude-code', label: 'Claude Code' },
-  { id: 'cursor', label: 'Cursor' },
-  { id: 'codex', label: 'Codex CLI' },
-  { id: 'cline', label: 'Cline' },
-  { id: 'python', label: 'Python' },
-  { id: 'nodejs', label: 'Node.js' },
-  { id: 'curl', label: 'cURL' },
-]
-
-function toolConfig(toolId: string) {
-  const key = keyValue.value
-  const url = baseUrl.value
-
-  switch (toolId) {
-    case 'claude-code':
-      return {
-        file: '~/.bashrc / ~/.zshrc',
-        snippet: `export ANTHROPIC_BASE_URL=${url}
-export ANTHROPIC_API_KEY=${key}`,
-        note: t('quickstart.claudeCodeNote'),
-      }
-    case 'cursor':
-      return {
-        file: 'Cursor Settings → Models → OpenAI API Key',
-        snippet: `API Key:  ${key}
-Base URL: ${url}/v1`,
-        note: t('quickstart.cursorNote'),
-      }
-    case 'codex':
-      return {
-        file: '~/.bashrc / ~/.zshrc',
-        snippet: `export OPENAI_API_KEY=${key}
-export OPENAI_BASE_URL=${url}/v1`,
-        note: t('quickstart.codexNote'),
-      }
-    case 'cline':
-      return {
-        file: 'Cline Settings → API Provider → OpenAI Compatible',
-        snippet: `API Key:  ${key}
-Base URL: ${url}/v1`,
-        note: t('quickstart.clineNote'),
-      }
-    case 'python':
-      return {
-        file: 'main.py',
-        snippet: `from openai import OpenAI
-
-client = OpenAI(
-    api_key="${key}",
-    base_url="${url}/v1"
+const selectedKey = computed(() =>
+  keys.value.find((k) => k.id === selectedKeyId.value) ?? null,
 )
-
-response = client.chat.completions.create(
-    model="claude-sonnet-4-20250514",
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-print(response.choices[0].message.content)`,
-        note: t('quickstart.pythonNote'),
-      }
-    case 'nodejs':
-      return {
-        file: 'index.js',
-        snippet: `import OpenAI from 'openai';
-
-const client = new OpenAI({
-  apiKey: '${key}',
-  baseURL: '${url}/v1'
-});
-
-const response = await client.chat.completions.create({
-  model: 'claude-sonnet-4-20250514',
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-console.log(response.choices[0].message.content);`,
-        note: t('quickstart.nodejsNote'),
-      }
-    case 'curl':
-      return {
-        file: 'Terminal',
-        snippet: `curl ${url}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${key}" \\
-  -d '{
-    "model": "claude-sonnet-4-20250514",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'`,
-        note: '',
-      }
-    default:
-      return { file: '', snippet: '', note: '' }
-  }
-}
-
-const activeToolConfig = computed(() => toolConfig(activeTool.value))
-
-const curlSnippet = computed(() => {
-  const key = keyValue.value
-  const url = baseUrl.value
-  return `curl ${url}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${key}" \\
-  -d '{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Hello!"}]}'`
-})
 
 function maskKey(key: string) {
-  if (key.length <= 8) return '••••••••'
-  return key.slice(0, 4) + '•'.repeat(key.length - 8) + key.slice(-4)
+  if (key.length <= 14) return key
+  return `${key.slice(0, 6)}${'•'.repeat(8)}${key.slice(-4)}`
 }
 
-async function copyToClipboard(text: string, label: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    copied.value = label
-    setTimeout(() => { copied.value = null }, 2000)
-  } catch { /* clipboard access denied in some contexts */ }
+function parseKeyIdFromQuery(): number | null {
+  const raw = route.query.keyId
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (!value) return null
+  const id = Number.parseInt(String(value), 10)
+  return Number.isFinite(id) ? id : null
 }
 
-async function initKey() {
-  keyLoading.value = true
-  keyError.value = ''
+watch(selectedKeyId, (id) => {
+  if (id == null) return
+  const current = parseKeyIdFromQuery()
+  if (current === id) return
+  router.replace({ query: { ...route.query, keyId: String(id) } })
+})
+
+async function loadKeys() {
+  keysLoading.value = true
+  keysError.value = ''
   try {
-    const result = await keysAPI.list(1, 1)
-    if (result.items && result.items.length > 0) {
-      apiKey.value = result.items[0]
-    } else {
-      const newKey = await keysAPI.create('Quick Start', undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'universal')
-      apiKey.value = newKey
+    const result = await keysAPI.list(1, 100)
+    keys.value = result.items ?? []
+    if (!keys.value.length) {
+      const created = await keysAPI.create(
+        'Quick Start',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'universal',
+      )
+      keys.value = [created]
     }
+    const fromQuery = parseKeyIdFromQuery()
+    const match = fromQuery != null ? keys.value.find((k) => k.id === fromQuery) : undefined
+    selectedKeyId.value = match?.id ?? keys.value[0]?.id ?? null
   } catch (e: unknown) {
-    keyError.value = e instanceof Error ? e.message : String(e)
+    keysError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    keyLoading.value = false
+    keysLoading.value = false
   }
 }
 
 onMounted(() => {
-  initKey()
+  loadKeys()
 })
 </script>
-
-<style scoped>
-.btn-icon {
-  @apply rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700;
-}
-</style>
