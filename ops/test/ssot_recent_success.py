@@ -1,15 +1,7 @@
 """Parse recent successful usage rows for SSOT gate skip keys."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-
-
-@dataclass(frozen=True)
-class RecentSuccessKey:
-    model: str
-    modality: str
-    count: int
 
 
 def billing_mode_to_modality(billing_mode: str, model: str) -> str:
