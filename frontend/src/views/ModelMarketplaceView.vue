@@ -244,19 +244,26 @@ const categoryFilters = computed(() => [
   { key: 'video', label: t('models.filterVideo') },
 ])
 
-// Filter by category (capability-based)
+type MarketplaceCategory = 'text' | 'image' | 'video'
+
+/** Align with PricingView + public catalog: media rows use pricing.billing_mode, not capabilities. */
+function modelListingCategory(m: PublicCatalogModel): MarketplaceCategory {
+  const mode = m.pricing?.billing_mode
+  if (mode === 'image') return 'image'
+  if (mode === 'video') return 'video'
+  return 'text'
+}
+
+// Filter by category (billing_mode-driven — same truth as /pricing modality tabs)
 const filteredByCategory = computed(() => {
   if (activeCategory.value === 'all') return models.value
   if (activeCategory.value === 'image') {
-    return models.value.filter(m => m.capabilities.includes('image_generation'))
+    return models.value.filter((m) => modelListingCategory(m) === 'image')
   }
   if (activeCategory.value === 'video') {
-    return models.value.filter(m => m.capabilities.includes('video_generation'))
+    return models.value.filter((m) => modelListingCategory(m) === 'video')
   }
-  // text: exclude image/video-only models
-  return models.value.filter(m =>
-    !m.capabilities.includes('image_generation') && !m.capabilities.includes('video_generation')
-  )
+  return models.value.filter((m) => modelListingCategory(m) === 'text')
 })
 
 // Vendor list derived from category-filtered models
