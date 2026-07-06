@@ -575,7 +575,7 @@ const (
 	SettingKeyAntigravityUserAgentVersion = "antigravity_user_agent_version"
 	// SettingKeyClaudeCodeUserAgentVersion Claude Code CLI canonical OAuth 路径上游 User-Agent
 	// 版本号（空值使用环境变量 CLAUDE_CODE_USER_AGENT_VERSION 或编译期默认）。
-	// 仅 version 字段可配，prefix/suffix（`claude-cli/...(external, sdk-cli)`）固定。
+	// 仅 version 字段可配，prefix/suffix（`claude-cli/...(external, cli)`）固定。
 	SettingKeyClaudeCodeUserAgentVersion = "claude_code_user_agent_version"
 	// SettingKeyClaudeCodeHTTPMimicryManifest JSON manifest for OAuth mimicry
 	// anthropic-beta lists (sonnet_opus + haiku). Empty → compile-time defaults.

@@ -73,14 +73,14 @@ func TestNormalizeClaudeCodeUserAgentVersion(t *testing.T) {
 
 func TestBuildCanonicalUserAgent_ValidVersion(t *testing.T) {
 	ua := BuildCanonicalUserAgent("2.1.150")
-	require.Equal(t, "claude-cli/2.1.150 (external, sdk-cli)", ua)
+	require.Equal(t, "claude-cli/2.1.150 (external, cli)", ua)
 }
 
 func TestBuildCanonicalUserAgent_InvalidFallsBackToDefault(t *testing.T) {
 	for _, in := range []string{"", "garbage", "1.2", "v1.2.3"} {
 		got := BuildCanonicalUserAgent(in)
 		require.True(t, strings.HasPrefix(got, "claude-cli/"))
-		require.True(t, strings.HasSuffix(got, " (external, sdk-cli)"))
+		require.True(t, strings.HasSuffix(got, " (external, cli)"))
 		// 中间 version 段必须 = 当前 compile/env default
 		require.Contains(t, got, GetDefaultClaudeCodeUserAgentVersion())
 	}
@@ -90,7 +90,7 @@ func TestSetClaudeCodeUserAgentResolver_OverridesDefault(t *testing.T) {
 	resetResolver(t)
 	SetClaudeCodeUserAgentResolver(func(context.Context) string { return "9.9.9" })
 	require.Equal(t, "9.9.9", GetClaudeCodeUserAgentVersionForContext(context.Background()))
-	require.Equal(t, "claude-cli/9.9.9 (external, sdk-cli)",
+	require.Equal(t, "claude-cli/9.9.9 (external, cli)",
 		GetCanonicalUserAgentForContext(context.Background()))
 }
 
@@ -104,7 +104,7 @@ func TestSetClaudeCodeUserAgentResolver_InvalidReturnFallsBackToDefault(t *testi
 func TestGetCanonicalUserAgentForContext_WithoutResolver_UsesDefault(t *testing.T) {
 	resetResolver(t)
 	ua := GetCanonicalUserAgentForContext(context.Background())
-	expectedDefault := "claude-cli/" + GetDefaultClaudeCodeUserAgentVersion() + " (external, sdk-cli)"
+	expectedDefault := "claude-cli/" + GetDefaultClaudeCodeUserAgentVersion() + " (external, cli)"
 	require.Equal(t, expectedDefault, ua)
 }
 
@@ -113,8 +113,8 @@ func TestApplyCanonicalHTTPObserved_AdoptsExplicitUA(t *testing.T) {
 		UserAgent:               "claude-cli/2.0.1 (external, cli)",
 		StainlessPackageVersion: "0.70.0",
 	}
-	require.True(t, applyCanonicalHTTPObserved(fp, "claude-cli/2.1.180 (external, sdk-cli)"))
-	require.Equal(t, "claude-cli/2.1.180 (external, sdk-cli)", fp.UserAgent)
+	require.True(t, applyCanonicalHTTPObserved(fp, "claude-cli/2.1.180 (external, cli)"))
+	require.Equal(t, "claude-cli/2.1.180 (external, cli)", fp.UserAgent)
 	require.Equal(t, canonicalHTTPObservedStatic.StainlessPackageVersion, fp.StainlessPackageVersion)
 }
 
@@ -176,7 +176,7 @@ func TestGetOrCreateFingerprint_CanonicalProfile_DoesNotAdoptIngressUAUpgrade(t 
 	require.NoError(t, cache.SetFingerprint(context.Background(), 2, seed))
 
 	hdr := http.Header{}
-	hdr.Set("User-Agent", "claude-cli/9.9.9 (external, cli)")
+	hdr.Set("User-Agent", "claude-cli/9.9.9 (external, sdk-cli)")
 	hdr.Set("X-Stainless-Package-Version", "9.9.9")
 
 	fp, err := svc.GetOrCreateFingerprint(context.Background(), 2, hdr, canonicalTLSFingerprintProfileName)
@@ -194,6 +194,7 @@ func TestGetOrCreateFingerprint_CanonicalProfile_NormalizesObservedIncidentUAs(t
 	observedUAs := []string{
 		"claude-cli/2.1.187 (external, cli)",
 		"claude-cli/2.1.197 (external, cli)",
+		"claude-cli/2.1.202 (external, sdk-cli)",
 		"claude-cli/2.1.195 (external, claude-vscode, agent-sdk/0.3.195)",
 		"claude-cli/2.1.196 (external, claude-vscode, agent-sdk/0.3.196)",
 		"claude-cli/2.1.198 (external, claude-vscode, agent-sdk/0.3.198)",
@@ -250,7 +251,7 @@ func TestGetOrCreateFingerprint_CanonicalProfile_AdoptsResolverUpdate(t *testing
 	hdr.Set("User-Agent", "claude-cli/2.1.150 (external, cli)") // ingress still on old
 	fp, err := svc.GetOrCreateFingerprint(context.Background(), 4, hdr, canonicalTLSFingerprintProfileName)
 	require.NoError(t, err)
-	require.Equal(t, "claude-cli/2.1.180 (external, sdk-cli)", fp.UserAgent,
+	require.Equal(t, "claude-cli/2.1.180 (external, cli)", fp.UserAgent,
 		"canonical path must adopt the new resolver-driven UA on next request (self-heal, no Redis clear required)")
 }
 

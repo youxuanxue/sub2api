@@ -179,7 +179,7 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
         },
         "canonical_http": {
             "default_version": _extract_const(canonical_src, "DefaultClaudeCodeUserAgentVersion"),
-            "user_agent_shape": "claude-cli/<version> (external, sdk-cli)",
+            "user_agent_shape": "claude-cli/<version> (external, cli)",
             "stainless_package_version": _extract_go_string_var(
                 canonical_src, "StainlessPackageVersion"
             ),
@@ -319,6 +319,29 @@ def load_http_records(path: Path) -> list[dict[str, Any]]:
         if rec:
             records.append(rec)
     return records
+
+
+INTERACTIVE_UA_SUFFIX = " (external, cli)"
+REPL_IDENTITY_BANNER = "You are Claude Code, Anthropic's official CLI for Claude"
+
+
+def validate_interactive_http_log(path: Path) -> dict[str, Any]:
+    """Validate mitm log from interactive REPL capture (prod-dominant cli cohort)."""
+    records = load_http_records(path)
+    if not records:
+        raise ValueError("empty interactive HTTP log")
+    uas = {rec.get("user_agent", "") for rec in records}
+    bad_uas = sorted(u for u in uas if INTERACTIVE_UA_SUFFIX not in u)
+    if bad_uas:
+        raise ValueError(f"expected UA suffix {INTERACTIVE_UA_SUFFIX!r}, got: {bad_uas}")
+    has_banner = any(
+        REPL_IDENTITY_BANNER in (anchor.get("text_head") or "")
+        for rec in records
+        for anchor in (rec.get("system_anchors") or [])
+    )
+    if not has_banner:
+        raise ValueError("missing Claude Code REPL identity banner in system_anchors")
+    return {"request_count": len(records), "user_agent": next(iter(uas))}
 
 
 def load_http_log(path: Path) -> dict[str, dict[str, Any]]:

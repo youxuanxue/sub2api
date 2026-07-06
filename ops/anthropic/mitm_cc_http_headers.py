@@ -1,4 +1,4 @@
-"""mitmproxy addon: log Claude Code HTTP headers on api.anthropic.com /v1/messages.
+"""mitmproxy addon: log Claude Code HTTP headers on Anthropic / TokenKey /v1/messages.
 
 Used by ops/anthropic/capture-cc-fingerprint.sh. Writes one JSON object per line
 to the path in env CC_CAPTURE_HTTP_LOG (append mode).
@@ -43,7 +43,8 @@ def _extract_system_anchors(system) -> list[dict]:
 
 
 def request(flow: http.HTTPFlow) -> None:
-    if "anthropic.com" not in (flow.request.host or ""):
+    host = flow.request.host or ""
+    if "anthropic.com" not in host and "tokenkey.dev" not in host:
         return
     path = flow.request.path.split("?", 1)[0]
     if path != "/v1/messages" and not path.startswith("/v1/messages"):
@@ -69,6 +70,7 @@ def request(flow: http.HTTPFlow) -> None:
         system_anchors = []
 
     record = {
+        "host": host,
         "path": path,
         "model": model,
         "user_agent": hdrs.get("user-agent", ""),
