@@ -28,6 +28,9 @@ vendor/
 # Go 编译缓存
 backend/.gocache/
 
+# Local preflight Python venv (scripts/bootstrap-local-python.sh)
+.venv/
+
 # ===================
 # Node.js / Vue 前端
 # ===================
