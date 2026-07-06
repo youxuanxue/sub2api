@@ -25,9 +25,9 @@ for the dead snapshots, which needs no embed. check mode still runs in preflight
    --write (anchored regex subn; values are reviewed in the commit diff):
      - backend/internal/pkg/claude/constants.go
          CLICurrentVersion             = "X.Y.Z"
-         DefaultHeaders["User-Agent"]  = "claude-cli/X.Y.Z (external, sdk-cli)"
+         DefaultHeaders["User-Agent"]  = "claude-cli/X.Y.Z (external, cli)"
      - backend/internal/service/identity_service.go
-         defaultFingerprint.UserAgent  = "claude-cli/X.Y.Z (external, sdk-cli)"
+         defaultFingerprint.UserAgent  = "claude-cli/X.Y.Z (external, cli)"
      - backend/internal/service/identity_service_tk_canonical_http.go
          DefaultClaudeCodeUserAgentVersion = "X.Y.Z"
 
@@ -96,11 +96,11 @@ _PARSE_TARGETS = {
     ),
     'constants.go DefaultHeaders["User-Agent"]': (
         CONSTANTS_GO,
-        re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
+        re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
     ),
     "identity_service.go defaultFingerprint.UserAgent": (
         IDENTITY_GO,
-        re.compile(r'UserAgent:\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
+        re.compile(r'UserAgent:\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
     ),
     "identity_service_tk_canonical_http.go DefaultClaudeCodeUserAgentVersion": (
         CANONICAL_HTTP_GO,
@@ -112,10 +112,10 @@ _PARSE_TARGETS = {
 # takes the new version and returns the full replacement line text. The parse
 # regex captures the current semver for comparison.
 _SMOKE_RE = re.compile(
-    r'(printf \'%s\' "\$\{TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/)(\d+\.\d+\.\d+)( \(external, sdk-cli\)\}")'
+    r'(printf \'%s\' "\$\{TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/)(\d+\.\d+\.\d+)( \(external, cli\)\}")'
 )
 _OBSERVED_UA_RE = re.compile(
-    r'("user_agent":\s*"claude-cli/)(\d+\.\d+\.\d+)( \(external, sdk-cli\)")'
+    r'("user_agent":\s*"claude-cli/)(\d+\.\d+\.\d+)( \(external, cli\)")'
 )
 
 
@@ -373,18 +373,18 @@ def run_selftest() -> int:
             json.dumps({"schema_version": 1, "cc_version": "1.0.0"}), encoding="utf-8"
         )
         smoke.write_text(
-            'printf \'%s\' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/1.0.0 (external, sdk-cli)}"\n',
+            'printf \'%s\' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/1.0.0 (external, cli)}"\n',
             encoding="utf-8",
         )
         tls.write_text(
-            json.dumps({"observed": {"user_agent": "claude-cli/1.0.0 (external, sdk-cli)"}}, indent=2),
+            json.dumps({"observed": {"user_agent": "claude-cli/1.0.0 (external, cli)"}}, indent=2),
             encoding="utf-8",
         )
         # Two Go targets in ONE file, to exercise the read-once/rewrite-all path.
         go_const.write_text(
             'const CLICurrentVersion = "1.0.0"\n'
             'var DefaultHeaders = map[string]string{\n'
-            '\t"User-Agent": "claude-cli/1.0.0 (external, sdk-cli)",\n'
+            '\t"User-Agent": "claude-cli/1.0.0 (external, cli)",\n'
             '}\n',
             encoding="utf-8",
         )
@@ -399,7 +399,7 @@ def run_selftest() -> int:
             ),
             'constants.go DefaultHeaders["User-Agent"]': (
                 go_const,
-                re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
+                re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
             ),
         }
 

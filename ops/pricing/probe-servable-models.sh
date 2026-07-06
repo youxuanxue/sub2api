@@ -204,7 +204,7 @@ GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
 PROBE_ANTIGRAVITY_SOURCE_GROUP_ID="${PROBE_ANTIGRAVITY_SOURCE_GROUP_ID:-$(probe_source_group_id antigravity)}"
 PROBE_ANTIGRAVITY_SOURCE_GROUP="${PROBE_ANTIGRAVITY_SOURCE_GROUP:-}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
-UA='claude-cli/2.1.165 (external, sdk-cli)'
+UA='claude-cli/2.1.165 (external, cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
 
 emit() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; }

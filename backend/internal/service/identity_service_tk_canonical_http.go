@@ -59,10 +59,9 @@ const (
 	DefaultClaudeCodeUserAgentVersion = "2.1.201"
 
 	// canonicalUAPrefix / canonicalUASuffix wrap the version-only field.
-	// Matches the wire shape Anthropic observes from a real Claude Code CLI
-	// (`claude-cli/<version> (external, sdk-cli)`).
+	// Matches interactive Claude Code REPL ingress (`claude-cli/<version> (external, cli)`).
 	canonicalUAPrefix = "claude-cli/"
-	canonicalUASuffix = " (external, sdk-cli)"
+	canonicalUASuffix = " (external, cli)"
 )
 
 // claudeCodeUserAgentVersionPattern validates the semver shape we accept

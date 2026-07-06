@@ -137,7 +137,7 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 // 包依赖方向为 service → claude，claude 无法反向 import service，故这里以同步字面量
 // 承载，由守卫测试强制对齐。
 var DefaultHeaders = map[string]string{
-	"User-Agent":                                "claude-cli/2.1.201 (external, sdk-cli)",
+	"User-Agent":                                "claude-cli/2.1.201 (external, cli)",
 	"X-Stainless-Lang":                          "js",
 	"X-Stainless-Package-Version":               "0.94.0",
 	"X-Stainless-OS":                            "MacOS",
