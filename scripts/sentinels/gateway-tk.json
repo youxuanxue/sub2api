@@ -1111,11 +1111,12 @@
     {
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": [
-        "shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)",
+        "shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, requestedModel...)",
+        "tkShouldOpenAICodex429BeModelScoped(account, headers, responseBody, reqModel)",
         "s.BlockAccountScheduling(account, time.Time{}, \"upstream_disable\")",
         "openAIOAuth429StormThreshold"
       ],
-      "rationale": "OPC companion for upstream OpenAI cooldown scheduling (#2698 / 1e406fed): centralizes HandleUpstreamError + BlockAccountScheduling + OAuth 429 storm guard so openai_gateway_service.go and openai_account_scheduler.go stay thin. Pinning HandleUpstreamError's shouldDisable capture and upstream_disable block path prevents silent reversion to `_ =` side-effect-only handling. OAuth 429 storm threshold anchors the TK failover guard that limits account switches during burst 429s."
+      "rationale": "OPC companion for upstream OpenAI cooldown scheduling (#2698 / 1e406fed): centralizes HandleUpstreamError + BlockAccountScheduling + OAuth 429 storm guard so openai_gateway_service.go and openai_account_scheduler.go stay thin. HandleUpstreamError MUST receive requestedModel so spark usage_limit_reached 429s hit model_rate_limits (path 2) instead of whole-account SetRateLimited while the account-wide codex window is healthy (prod GPT-pro1 2026-07-06). tkShouldOpenAICodex429BeModelScoped gates markOpenAIOAuth429RateLimited so model-scoped spark cooldowns do not whole-account BlockAccountScheduling. Pinning shouldDisable capture and upstream_disable block path prevents silent reversion to `_ =` side-effect-only handling. OAuth 429 storm threshold anchors the TK failover guard that limits account switches during burst 429s."
     },
     {
       "path": "backend/internal/service/openai_oauth_passthrough_test.go",

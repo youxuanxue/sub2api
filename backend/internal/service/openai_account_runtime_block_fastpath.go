@@ -50,29 +50,43 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 
-	if statusCode == http.StatusTooManyRequests {
-		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
-	}
 	if s == nil || account == nil || s.rateLimitService == nil {
+		if statusCode == http.StatusTooManyRequests {
+			s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, requestedModel...)
+		}
 		return false
 	}
 	if len(requestedModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, requestedModel[0], statusCode, responseBody) {
 		return true
 	}
-	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
+	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, requestedModel...)
+	if statusCode == http.StatusTooManyRequests {
+		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, requestedModel...)
+		return false
+	}
 	if shouldDisable {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
 	return shouldDisable
 }
 
-func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {
 	if s == nil || !isOpenAIOAuthAccount(account) {
 		return
 	}
 	// Spark 影子：不按 /responses 429 的 global x-codex-* 信号做内存运行时熔断(同 handle429,外审第8轮 P1)。
 	// 同时避免把 spark 的 429 计入全局 429 storm 计数(recordOpenAIOAuth429),否则会误伤母账号 failover 决策。
 	if account.IsShadow() {
+		return
+	}
+	reqModel := ""
+	if len(requestedModel) > 0 {
+		reqModel = requestedModel[0]
+	}
+	// Spark sub-window 429 while the account-wide codex window is healthy: durable
+	// cooldown lives in model_rate_limits (HandleUpstreamError path 2). Do not
+	// whole-account runtime-block or the account idles gpt-5.4/5.5 capacity.
+	if tkShouldOpenAICodex429BeModelScoped(account, headers, responseBody, reqModel) {
 		return
 	}
 	s.recordOpenAIOAuth429()

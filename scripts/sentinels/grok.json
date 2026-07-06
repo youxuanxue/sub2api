@@ -111,9 +111,10 @@
       "must_contain": [
         "account.IsGrokOAuth()",
         "validateUpstreamBaseURLForAccount(account, raw)",
-        "validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))"
+        "validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))",
+        "s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)"
       ],
-      "rationale": "The image/embeddings seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok OAuth arm redirects it to api.x.ai/v1. First-class grok API-key relay stubs use the API-key branch plus their edge base_url. Losing this arm points grok OAuth image requests at OpenAI; broadening it back to IsGrok() breaks grok API-key relay stubs."
+      "rationale": "The image/embeddings seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok OAuth arm redirects it to api.x.ai/v1. First-class grok API-key relay stubs use the API-key branch plus their edge base_url. Losing this arm points grok OAuth image requests at OpenAI; broadening it back to IsGrok() breaks grok API-key relay stubs. Failover path MUST route upstream errors through handleOpenAIAccountUpstreamError with upstreamModel (not bare HandleUpstreamError) so spark/model-scoped 429 cooldown semantics stay consistent with chat/responses paths."
     },
     {
       "path": "backend/internal/service/tk_pricing_overlay.json",

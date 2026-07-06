@@ -566,3 +566,19 @@ func TestTkIsOpenAICodexMeteredModel(t *testing.T) {
 		require.Falsef(t, tkIsOpenAICodexMeteredModel(m), "model=%q should NOT be metered", m)
 	}
 }
+
+func TestTkShouldOpenAICodex429BeModelScoped(t *testing.T) {
+	account := newOpenAICodexAccount(1, AccountTypeOAuth)
+	body := codexUsageLimitBody
+	healthy := codexGeneralWindowHeaders(4, 1)
+
+	require.True(t, tkShouldOpenAICodex429BeModelScoped(account, healthy, body, codexSparkModel))
+	require.False(t, tkShouldOpenAICodex429BeModelScoped(account, healthy, body, "gpt-5.4"))
+	require.False(t, tkShouldOpenAICodex429BeModelScoped(account, healthy, body, ""))
+	require.False(t, tkShouldOpenAICodex429BeModelScoped(
+		newOpenAICodexAccount(2, AccountTypeAPIKey), healthy, body, codexSparkModel))
+
+	exhausted := codexGeneralWindowHeaders(100, 1)
+	exhausted.Set("x-codex-primary-reset-after-seconds", "7620")
+	require.False(t, tkShouldOpenAICodex429BeModelScoped(account, exhausted, body, codexSparkModel))
+}

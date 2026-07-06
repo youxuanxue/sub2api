@@ -158,3 +158,55 @@ func TestShouldStopOpenAIOAuth429Failover_StopsGrokAfterFirst429Switch(t *testin
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 1))
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 1))
 }
+
+// Prod incident 2026-07-06 (GPT-pro1): spark usage_limit_reached 429 with a healthy
+// account-wide codex window must model-scope — not whole-account runtime-block or
+// SetRateLimited — so gpt-5.4/5.5 keep scheduling on the same OAuth account.
+func TestHandleOpenAIAccountUpstreamError_Spark429HealthyWindow_ModelScopedOnly(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: newG4RateLimitService(repo),
+	}
+	account := newOpenAICodexAccount(9, AccountTypeOAuth)
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783336071,"resets_in_seconds":14903}}`)
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(4, 1),
+		body,
+		codexSparkModel,
+	)
+
+	require.False(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "spark sub-limit must not whole-account runtime-block")
+	require.Len(t, repo.modelRateLimitCalls, 1, "spark cooldown must be model-scoped")
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls, "healthy general window must not SetRateLimited whole account")
+}
+
+func TestHandleOpenAIAccountUpstreamError_Spark429GeneralWindowExhausted_WholeAccount(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: newG4RateLimitService(repo),
+	}
+	account := newOpenAICodexAccount(9, AccountTypeOAuth)
+	body := codexUsageLimitBody
+	headers := codexGeneralWindowHeaders(100, 1)
+	headers.Set("x-codex-primary-reset-after-seconds", "7620")
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		body,
+		codexSparkModel,
+	)
+
+	require.False(t, shouldDisable)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account), "account-wide window exhaustion must runtime-block")
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}

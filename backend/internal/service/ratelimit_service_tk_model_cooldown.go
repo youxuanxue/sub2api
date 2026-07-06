@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -330,6 +331,30 @@ const (
 func tkIsOpenAICodexMeteredModel(model string) bool {
 	name := strings.ToLower(strings.TrimSpace(model))
 	return strings.Contains(name, "codex") && strings.Contains(name, "spark")
+}
+
+// tkShouldOpenAICodex429BeModelScoped reports whether an OpenAI OAuth 429 should
+// narrow to (account × model) cooldown instead of whole-account penalties.
+// Preconditions mirror handle429 body path (path 2) before account-level
+// SetRateLimited: path 1 declined (no >=100% account-wide window in headers),
+// body carries a parseable usage_limit_reached reset, and the mapped model is a
+// codex metered sub-limit (spark). Used by the OpenAI gateway runtime-block
+// fast-path so spark sub-window 429s do not whole-account BlockAccountScheduling.
+func tkShouldOpenAICodex429BeModelScoped(account *Account, headers http.Header, responseBody []byte, requestedModel string) bool {
+	if account == nil || account.Platform != PlatformOpenAI || !account.IsOAuth() {
+		return false
+	}
+	if calculateOpenAI429ResetTime(headers) != nil {
+		return false
+	}
+	if parseOpenAIRateLimitResetTime(responseBody) == nil {
+		return false
+	}
+	scopeKey := strings.TrimSpace(account.GetMappedModel(requestedModel))
+	if scopeKey == "" || !tkIsOpenAICodexMeteredModel(scopeKey) {
+		return false
+	}
+	return true
 }
 
 // tkTryOpenAICodexModelScopedCooldown narrows a codex per-model metered (spark)
