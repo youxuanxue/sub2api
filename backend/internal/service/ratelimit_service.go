@@ -40,6 +40,9 @@ type RateLimitService struct {
 	// 路径上递增；由调度器读取施加 bounded 去优先级偏好。逻辑在
 	// ratelimit_service_tk_saturation.go。
 	anthropicSaturationCounter AnthropicSaturationCounterCache
+	// TK: OpenAI edge-mirror stub downstream-capacity counter (optional). See
+	// ratelimit_service_tk_openai_saturation.go.
+	openaiSaturationCounter OpenAISaturationCounterCache
 	usageCacheMu               sync.RWMutex
 	usageCache                 map[int64]*geminiUsageCacheEntry
 }
@@ -608,6 +611,21 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// stale sticky binding — opus/haiku stay schedulable. See
 			// ratelimit_service_tk_mirror_class_429.go.
 			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
+			return true
+		}
+		// TK (prod 2026-07): OpenAI edge-mirror stubs (openai-us* → api-us*.tokenkey.dev)
+		// receive the same downstream empty-pool 429 envelope. Skip handle429 /
+		// runtime block and feed the bounded scheduler de-prioritization preference.
+		if tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
+			reason := "no_available_accounts"
+			if tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) {
+				reason = "all_available_accounts_exhausted"
+			}
+			slog.Info("openai_downstream_capacity_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode,
+				"reason", reason)
+			s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded

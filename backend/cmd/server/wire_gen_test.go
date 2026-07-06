@@ -97,6 +97,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.TKPricingOverlayRuntimeReady{},      // TK: forces runtime overlay (settings hot-push) wiring
 		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
 		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
+		service.TKOpenAISaturationReady{},           // TK: forces SetOpenAISaturationCounter wiring
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
 		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
 		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring

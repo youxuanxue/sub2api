@@ -2332,13 +2332,12 @@ else
     _wire_gen_changed=0
     _wire_changed_file=""
     for _wf in $(git diff --name-only "$_wire_base"...HEAD -- 'backend/**/wire.go' 2>/dev/null); do
-        if [ "$_wf" = "$_wire_gen" ]; then
-            _wire_gen_changed=1
-        else
-            _wire_inputs_changed=1
-            _wire_changed_file="$_wf"
-        fi
+        _wire_inputs_changed=1
+        _wire_changed_file="$_wf"
     done
+    if git diff --name-only "$_wire_base"...HEAD -- "$_wire_gen" 2>/dev/null | grep -q .; then
+        _wire_gen_changed=1
+    fi
     if [ "$_wire_inputs_changed" -eq 1 ] && [ "$_wire_gen_changed" -eq 0 ]; then
         echo "  FAIL: wire.go input changed ($_wire_changed_file) but wire_gen.go was not regenerated. Run 'go generate ./cmd/server' in backend/"
         errors=$((errors + 1))
