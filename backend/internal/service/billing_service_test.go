@@ -774,8 +774,8 @@ func TestGetModelPricing_DoubaoEmbeddingVisionImageInputRate(t *testing.T) {
 		pricing, err := svc.GetModelPricing(model)
 		require.NoError(t, err, "model %s should resolve fallback pricing", model)
 		require.NotNil(t, pricing)
-		require.InDelta(t, 0.10448e-6, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
-		require.InDelta(t, 0.26866e-6, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
+		require.InDelta(t, 0.10448e-6*tkOfficialListBaseTaxMultiplier, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
+		require.InDelta(t, 0.26866e-6*tkOfficialListBaseTaxMultiplier, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
 		require.Zero(t, pricing.OutputPricePerToken, "embedding has no output cost for %s", model)
 	}
 }
@@ -789,7 +789,9 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	mixed := UsageTokens{InputTokens: 1340, ImageInputTokens: 28}
 	cost, err := svc.CalculateCost("doubao-embedding-vision", mixed, 1.0)
 	require.NoError(t, err)
-	wantMixed := float64(1312)*0.10448e-6 + float64(28)*0.26866e-6
+	textRate := 0.10448e-6 * tkOfficialListBaseTaxMultiplier
+	imageRate := 0.26866e-6 * tkOfficialListBaseTaxMultiplier
+	wantMixed := float64(1312)*textRate + float64(28)*imageRate
 	require.InDelta(t, wantMixed, cost.InputCost, 1e-15)
 	require.InDelta(t, wantMixed, cost.TotalCost, 1e-15)
 	require.Zero(t, cost.OutputCost)
@@ -798,13 +800,13 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	textOnly := UsageTokens{InputTokens: 1340}
 	costText, err := svc.CalculateCost("doubao-embedding-vision", textOnly, 1.0)
 	require.NoError(t, err)
-	require.InDelta(t, float64(1340)*0.10448e-6, costText.InputCost, 1e-15)
+	require.InDelta(t, float64(1340)*textRate, costText.InputCost, 1e-15)
 
 	// 健壮性：ImageInputTokens 超过 InputTokens 时，文本置 0、计费 token 不超过 InputTokens。
 	weird := UsageTokens{InputTokens: 10, ImageInputTokens: 50}
 	costWeird, err := svc.CalculateCost("doubao-embedding-vision", weird, 1.0)
 	require.NoError(t, err)
-	require.InDelta(t, float64(10)*0.26866e-6, costWeird.InputCost, 1e-15)
+	require.InDelta(t, float64(10)*imageRate, costWeird.InputCost, 1e-15)
 }
 func TestCalculateCostWithLongContext_BelowThreshold(t *testing.T) {
 	svc := newTestBillingService()
