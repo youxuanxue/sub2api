@@ -1789,6 +1789,24 @@ else
     echo "  ok: SSOT endpoint matrix selftest"
 fi
 
+# ---- sub2api: SSOT delta gate (structural; live in CI ssot-delta-gate job) ---
+# Replaces the retired daily full SSOT matrix scan (account-ban risk). Structural
+# SSOT stays in catalog-serving-drift + display-coverage-gate; live HTTP probes
+# only the model ids touched in this diff (scripts/checks/ssot-delta-gate.py).
+echo ""
+echo "=== sub2api: SSOT delta gate (structural) ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by ssot-delta-gate.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ssot-delta-gate.py selftest >/dev/null 2>&1; then
+    echo "  FAIL: ssot-delta-gate.py selftest (re-run: python3 scripts/checks/ssot-delta-gate.py selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ssot-delta-gate.py check --base "${PREFLIGHT_BASE:-origin/main}" --skip-live; then
+    errors=$((errors + 1))
+else
+    echo "  ok: SSOT delta gate structural check (live gate runs in CI when catalog paths change)"
+fi
+
 echo ""
 echo "=== sub2api: endpoint-compat baseline freshness ==="
 if ! command -v python3 >/dev/null 2>&1; then

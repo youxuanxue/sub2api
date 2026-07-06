@@ -8,7 +8,6 @@ name: Ops Daily Diagnostics
 on:
   schedule:
     - cron: "0 2 * * *"
-    - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
       operation:
@@ -20,7 +19,6 @@ on:
           - diagnostics
           - error_clustering
           - log_dump
-          - ssot_gate
       target_selector:
         description: "Diagnostics target selector: all, prod, edge:*, or edge:<id>. log_dump supports prod only."
         required: false
@@ -69,7 +67,7 @@ permissions:
 
 jobs:
   discover-targets:
-    if: (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump' && inputs.operation != 'ssot_gate')
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1064,91 +1062,3 @@ jobs:
         with:
           name: prod-logs-${{ github.run_id }}
           path: logs.txt
-
-  ssot-display-gate:
-    # Full catalog SSOT at off-peak (18:00 UTC = 02:00 Asia/Shanghai). Skips rows
-    # with successful usage_logs in the last 24h to avoid re-proving steady traffic.
-    if: (github.event_name == 'schedule' && github.event.schedule == '0 18 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'ssot_gate')
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      id-token: write
-    environment: prod
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
-      TK_SSOT_GATE_SHARD_SLEEP_SEC: "2"
-      TK_FULLTEST_TIMEOUT: "30"
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Validate prod SSOT secrets
-        env:
-          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${TK_FULLTEST_KEY:-}" ]; then
-            echo "::error::TK_FULLTEST_KEY is not set in prod Environment."
-            exit 1
-          fi
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set."
-            exit 1
-          fi
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Resolve prod API URL
-        id: prod
-        run: |
-          set -euo pipefail
-          API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
-          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
-            echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
-            exit 1
-          fi
-          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch recent successful usage rows (24h skip set)
-        id: recent
-        run: |
-          set -euo pipefail
-          mkdir -p .ssot-gate
-          if ! bash ops/observability/run-probe.sh --target prod \
-            --script ops/observability/probe-ssot-recent-success.sh \
-            --env WINDOW_HOURS=24 \
-            --env MIN_COUNT=1 \
-            --comment "ops-daily ssot recent-success skip set" \
-            --timeout-seconds 120 > .ssot-gate/recent-success.tsv 2> .ssot-gate/recent-success.stderr; then
-            echo "::warning::recent-success probe failed; running full SSOT without log skip"
-            : > .ssot-gate/recent-success.tsv
-          fi
-          SKIP_LINES=$(grep -cv '^#' .ssot-gate/recent-success.tsv || true) # preflight-allow: swallow
-          echo "skip_lines=${SKIP_LINES}" >> "$GITHUB_OUTPUT"
-
-      - name: Full SSOT display gate (sharded, log-skip)
-        env:
-          TOKENKEY_BASE_URL: ${{ steps.prod.outputs.api_url }}
-          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
-          TK_SSOT_SKIP_RECENT_FILE: ${{ github.workspace }}/.ssot-gate/recent-success.tsv
-        run: |
-          set -euo pipefail
-          bash ops/observability/endpoint-compat-audit.sh \
-            --ssot-model-matrix --gate-sharded --show-excluded \
-            --skip-recent-file "$TK_SSOT_SKIP_RECENT_FILE" \
-            2>&1 | tee .ssot-gate/gate.log
-          tail -5 .ssot-gate/gate.log >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ssot-gate-${{ github.run_id }}
-          path: .ssot-gate/
-          retention-days: 14

@@ -65,6 +65,36 @@ jobs:
             ./dev-rules/templates/preflight.sh
           fi
 
+  ssot-delta-gate:
+    # Live SSOT proof for catalog diffs only (replaces retired daily full-matrix gate).
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    environment: prod
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 64
+      - name: Fetch base ref for catalog diff
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+      - name: Skip when catalog surface unchanged
+        id: touch
+        run: |
+          set -euo pipefail
+          changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "origin/${GITHUB_BASE_REF:-main}")
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+      - name: Focused SSOT gate (delta models only)
+        if: steps.touch.outputs.changed == 'true'
+        env:
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+          TK_FULLTEST_BASE_URL: https://api.tokenkey.dev
+          TK_FULLTEST_TIMEOUT: "30"
+        run: |
+          set -euo pipefail
+          python3 scripts/checks/ssot-delta-gate.py check --base "origin/${GITHUB_BASE_REF:-main}"
+
   test-unit:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
     runs-on: ubuntu-latest

@@ -44,9 +44,10 @@ Verdict split:
   universal-matrix checks real end-to-end servability through one universal key.
   ssot-model-matrix derives model/protocol rows from live /api/v1/public/pricing.
   ssot-model-matrix --gate fails unless displayed+priced rows in scope pass live probes.
-  ssot-model-matrix --gate-sharded runs the gate once per platform to avoid empty-pool false blocks.
+  ssot-model-matrix --gate-sharded runs the gate once per platform (manual/ad hoc only; not scheduled — account-ban risk).
   ssot-model-matrix --gate --deploy-canary probes one golden path per platform for deploy closeout.
-  --skip-recent-file skips (model, modality) rows with recent successful usage_logs evidence.
+  Catalog PRs: python3 scripts/checks/ssot-delta-gate.py check --base origin/main (CI job; delta models only).
+  --skip-recent-file skips (model, modality) rows with recent successful usage_logs evidence (ad hoc sharded runs).
 EOF
 }
 
