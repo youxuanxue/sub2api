@@ -1130,7 +1130,7 @@ jobs:
             echo "::warning::recent-success probe failed; running full SSOT without log skip"
             : > .ssot-gate/recent-success.tsv
           fi
-          SKIP_LINES=$(grep -cv '^#' .ssot-gate/recent-success.tsv || true)
+          SKIP_LINES=$(grep -cv '^#' .ssot-gate/recent-success.tsv || true) # preflight-allow: swallow
           echo "skip_lines=${SKIP_LINES}" >> "$GITHUB_OUTPUT"
 
       - name: Full SSOT display gate (sharded, log-skip)
