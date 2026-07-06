@@ -45,12 +45,8 @@ jobs:
       - uses: ./.github/actions/cache-and-checkout-new-api
       - name: Fetch base ref for diff gates
         # fetch-depth alone does not guarantee origin/main on PR checkouts; preflight
-        # deleted-file / merge-base gates need origin/main...HEAD. Shallow history
-        # also omits .main-ancestry-anchor (see scripts/checks/main-ancestry-anchor.py).
-        run: |
-          git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
-          ANCHOR=$(tr -d '[:space:]' < .main-ancestry-anchor)
-          git fetch --no-tags origin "${ANCHOR}"
+        # deleted-file / merge-base gates need origin/main...HEAD.
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod

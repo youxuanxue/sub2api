@@ -1502,6 +1502,8 @@ echo "=== sub2api: main ancestry anchor ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read .main-ancestry-anchor)"
     errors=$((errors + 1))
+elif [ "$_preflight_fast" = "1" ]; then
+    echo "  skip: main-ancestry anchor (preflight-fast; main-ancestry-guard covers PRs with full history)"
 elif ! python3 ./scripts/checks/main-ancestry-anchor.py; then
     errors=$((errors + 1))
 fi
