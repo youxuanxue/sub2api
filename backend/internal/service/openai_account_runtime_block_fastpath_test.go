@@ -210,3 +210,28 @@ func TestHandleOpenAIAccountUpstreamError_Spark429GeneralWindowExhausted_WholeAc
 	require.Empty(t, repo.modelRateLimitCalls)
 	require.Equal(t, 1, repo.setRateLimitedCalls)
 }
+
+func TestPersistOpenAIWSRateLimitSignal_Spark429HealthyWindow_ModelScopedOnly(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: newG4RateLimitService(repo),
+	}
+	account := newOpenAICodexAccount(9, AccountTypeOAuth)
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783336071,"resets_in_seconds":14903}}`)
+
+	svc.persistOpenAIWSRateLimitSignal(
+		context.Background(),
+		account,
+		codexGeneralWindowHeaders(4, 1),
+		body,
+		"rate_limit_exceeded",
+		"usage_limit_reached",
+		"The usage limit has been reached",
+		codexSparkModel,
+	)
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "WS spark sub-limit must not whole-account runtime-block")
+	require.Len(t, repo.modelRateLimitCalls, 1, "WS spark cooldown must be model-scoped")
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls, "healthy general window must not SetRateLimited whole account")
+}

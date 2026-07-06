@@ -4059,6 +4059,22 @@
         "RateLimitReaperIntervalSeconds int"
       ],
       "rationale": "TK JWT expiry granularity and rate-limit reaper config fields in the upstream-shaped config.go. AccessTokenExpireMinutes (minute-granularity access token TTL, higher priority than the upstream ExpireHour), RefreshTokenExpireDays (refresh token TTL), and RefreshWindowMinutes (pre-expiry refresh window) together implement TK's short-lived access + long-lived refresh token pair policy. RateLimitReaperIntervalSeconds is the TK fix for upstream Wei-Shaw/sub2api#2538 (accounts stuck in scheduling limbo after 429 expiry). Losing these fields silently falls back to upstream's hour-granularity single-token auth and disables the reaper, re-opening the #2538 stuck-account bug."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder.go",
+      "must_contain": [
+        "func openAIWSUpstreamModelForRateLimit(account *Account, originalModel string) string",
+        "s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody, requestedModel...)"
+      ],
+      "rationale": "WS rate-limit persistence must forward session/turn upstream model into handleOpenAIAccountUpstreamError so spark usage_limit_reached 429s model-scope (model_rate_limits) instead of whole-account BlockAccountScheduling/SetRateLimited — parity with HTTP chat/responses paths after prod GPT-pro1 (2026-07-06)."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": [
+        "openAIWSUpstreamModelForRateLimit(account, requestModel)",
+        "openAIWSPassthroughPolicyModelForFrame(account, payload)"
+      ],
+      "rationale": "WS v2 passthrough dial/error rate-limit signals must carry the session model (first-frame model or per-frame policy resolver fallback) into persistOpenAIWSRateLimitSignal; losing these args reverts spark sub-window 429s to whole-account cooldown on passthrough ingress."
     }
   ]
 }
