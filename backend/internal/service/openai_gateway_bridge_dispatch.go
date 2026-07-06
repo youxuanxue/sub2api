@@ -42,6 +42,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	// inject prompt_cache_key into body AND set X-Session-Id header on the gin
 	// request so GLM-style adaptors can pick it up. See docs/approved/sticky-routing.md.
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
+	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
@@ -90,6 +91,7 @@ func dispatchNewAPIAccountTestChatCompletions(
 	body []byte,
 ) error {
 	recordBridgeDispatch()
+	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	in := newAPIBridgeChannelInput(account, 0, "")
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
@@ -115,6 +117,7 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
+	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
@@ -187,6 +190,7 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
+	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
@@ -238,6 +242,7 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
+	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
