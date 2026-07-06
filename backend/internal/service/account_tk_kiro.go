@@ -116,10 +116,19 @@ func kiroMirrorStubSupportsModel(requestedModel string) bool {
 	if requestedModel == "" {
 		return true
 	}
-	normalized := claude.NormalizeModelID(requestedModel)
-	for _, m := range KiroAdminTestModels() {
-		if requestedModel == m.ID || normalized == m.ID {
-			return true
+	// CC clients often send dated snapshot IDs (claude-haiku-4-5-20251001) while the
+	// Kiro catalog lists short IDs (claude-haiku-4-5). NormalizeModelID only expands
+	// short→dated; DenormalizeModelID collapses dated→short — both must be checked.
+	candidates := []string{
+		requestedModel,
+		claude.NormalizeModelID(requestedModel),
+		claude.DenormalizeModelID(requestedModel),
+	}
+	for _, candidate := range candidates {
+		for _, m := range KiroAdminTestModels() {
+			if candidate == m.ID {
+				return true
+			}
 		}
 	}
 	return false

@@ -131,12 +131,14 @@
       "path": "backend/internal/service/account_tk_kiro.go",
       "must_contain": [
         "func (a *Account) IsKiro()",
+        "func kiroMirrorStubSupportsModel",
+        "claude.DenormalizeModelID",
         "PersistKiroProfileArnIfChanged",
         "toKiroProtoAccount",
         "func (a *Account) isKiroTLSFingerprintEnabled()",
         "CanonicalKiroTLSProfileName"
       ],
-      "rationale": "Account-domain predicate + the mapper that converts a TK account's credentials into the vendored kiroproto.Account, plus the default-on TLS-fingerprint gate (isKiroTLSFingerprintEnabled) and the canonical Kiro IDE profile name. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call; losing the TLS gate / CanonicalKiroTLSProfileName silently drops kiro back to a Go-default JA3 (ban risk)."
+      "rationale": "Account-domain predicate + kiroMirrorStubSupportsModel (dated CC snapshot IDs must DenormalizeModelID before matching KiroAdminTestModels short IDs; prod 2026-07-06 P0 empty-pool if only NormalizeModelID) + the mapper that converts a TK account's credentials into the vendored kiroproto.Account, plus the default-on TLS-fingerprint gate (isKiroTLSFingerprintEnabled) and the canonical Kiro IDE profile name. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call; losing the TLS gate / CanonicalKiroTLSProfileName silently drops kiro back to a Go-default JA3 (ban risk)."
     },
     {
       "path": "backend/internal/service/account.go",
@@ -290,6 +292,14 @@
         "tkValidateKiroAccountCreate"
       ],
       "rationale": "Load-bearing QA evidence for the account-creation ToS gate (matches the *_tk_*.go hotspot rule). Losing it removes the regression guard around the first ToS acknowledgement check."
+    },
+    {
+      "path": "backend/internal/service/account_tk_kiro_model_test.go",
+      "must_contain": [
+        "TestKiroMirrorStubSupportsModel_DatedHaikuSnapshotID",
+        "TestGatewayService_KiroMirrorStubSupportsDatedHaiku"
+      ],
+      "rationale": "Regression guard for prod 2026-07-06 P0: claude-haiku-4-5-20251001 must pass kiroMirrorStubSupportsModel on prod Kiro mirror stubs; losing it reintroduces group1 empty-pool routing 429 while Kiro edge still has quota."
     },
     {
       "path": "backend/internal/service/account_tk_kiro_tls_test.go",
