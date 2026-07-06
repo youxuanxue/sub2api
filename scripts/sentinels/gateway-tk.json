@@ -704,6 +704,23 @@
       "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling."
     },
     {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping.go",
+      "must_contain": [
+        "resolveOpenAIForwardModel",
+        "ReplaceModelInBody",
+        "rewriteNewAPIBridgeBodyModel"
+      ],
+      "rationale": "NewAPI bridge dispatch must rewrite body.model via account model_mapping (including dated GLM alias glm-4-7-251222 -> glm-4.7) before the adaptor forwards upstream. Without this companion, legacy clients keep the VolcEngine dated id and DashScope upstream returns model_not_found even though ResolveMappedModel already normalizes for routing/billing."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
+        "rewriteNewAPIBridgeBodyModel(account, body, \"\")"
+      ],
+      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path."
+    },
+    {
       "path": "backend/internal/service/openai_codex_transform.go",
       "must_contain": [
         "Wei-Shaw/sub2api#2500",

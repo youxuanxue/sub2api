@@ -417,12 +417,13 @@
     {
       "path": "backend/internal/service/gateway_bridge_dispatch.go",
       "must_contain": [
-        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
+        "rewriteNewAPIBridgeBodyModel(account, body, \"\")"
       ],
       "must_not_contain": [
         "tkWrapBridgeRelayError(c, apiErr)"
       ],
-      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic."
+      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic. Both bridge dispatch sites must also rewrite body.model via rewriteNewAPIBridgeBodyModel so dated GLM ids reach DashScope as glm-4.7."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
