@@ -2064,6 +2064,25 @@ else
     echo "  ok: ops/ + deploy/ soft-delete-table queries all filter deleted_at (or marked intentional)"
 fi
 
+# ---- sub2api: local aws/pyexpat helper selftest -----------------------------
+# Guards the local macOS/Homebrew aws bootstrap helper that diagnoses the
+# pyexpat/libexpat mismatch before ops probes ever hit prod. Only the helper's
+# pure selftest belongs in preflight; the real workstation-health check remains
+# operator-invoked so repo validation does not depend on each machine's current
+# Homebrew state. Source: scripts/checks/check-local-aws-pyexpat.py (+ --selftest).
+echo ""
+echo "=== sub2api: local aws/pyexpat helper selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for local aws/pyexpat helper selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/check-local-aws-pyexpat.py --selftest >/dev/null; then
+    echo "  FAIL: local aws/pyexpat helper selftest failed"
+    echo "        — run: python3 scripts/checks/check-local-aws-pyexpat.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: local aws/pyexpat helper selftest"
+fi
+
 # ---- sub2api: ops tool orphan check -----------------------------------------
 # Every tool under ops/ must be wired — referenced from a skill / workflow /
 # preflight / sibling script / deploy asset / doc. An orphan (referenced

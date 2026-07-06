@@ -106,6 +106,18 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
+# before the first real AWS call. Diagnose only; repair stays explicit in the
+# helper's --apply mode so this wrapper remains read-only.
+if [ "$(uname -s)" = "Darwin" ]; then
+  AWS_PYEXPAT_HELPER="$REPO_ROOT/scripts/checks/check-local-aws-pyexpat.py"
+  if [ -f "$AWS_PYEXPAT_HELPER" ] && ! python3 "$AWS_PYEXPAT_HELPER" --quiet; then
+    echo "[run-probe] ERROR: local aws bootstrap check failed" >&2
+    echo "[run-probe] Fix: python3 scripts/checks/check-local-aws-pyexpat.py --apply" >&2
+    exit 2
+  fi
+fi
+
 # Resolve REGION + INSTANCE_ID per target shape
 REGION=""
 INSTANCE_ID=""
