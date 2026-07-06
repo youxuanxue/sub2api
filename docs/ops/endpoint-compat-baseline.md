@@ -31,7 +31,9 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
 | SSOT model matrix command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --list --include-paid --show-excluded` |
 | SSOT display gate command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --show-excluded` |
-| SSOT display gate (sharded, release/deploy) | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate-sharded --deploy-closeout --show-excluded` |
+| SSOT delta gate (catalog PR/push) | `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` (CI job `ssot-delta-gate`; probes only diff-scoped model ids) |
+| SSOT deploy canary (prod post-deploy) | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout` |
+| SSOT recent-success skip probe (ad hoc) | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-ssot-recent-success.sh --env WINDOW_HOURS=24` |
 | Baseline freshness gate | `python3 scripts/check_endpoint_compat_baseline_freshness.py` (preflight + release.yml; baseline must mention `backend/cmd/server/VERSION`) |
 | Focused paid SSOT gate command | `python3 ops/test/gateway_model_ssot_matrix.py gate --include-paid --show-excluded --model imagen-4.0-generate-001 --model veo-3.1-generate-001 --model grok-imagine-image --model grok-imagine-image-quality --model grok-imagine-video` |
 | Focused postrelease media parity command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-media-parity-postrelease.sh --with ops/pricing/probe_reserved_resources.sh` |
@@ -176,13 +178,13 @@ intent but hides the row until provisioning or a later SSOT gate proves it.
    public-pricing rows whose vendors do not map to a universal platform/endpoint
    candidate should remain hidden by default. Re-display only after a real
    platform mapping/provisioning path exists and the gate returns `keep_displayed`.
-6. Run the SSOT display gate before release close-out:
-   `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate-sharded --deploy-closeout --show-excluded`
-   for non-paid rows (deploy-stage0 hard gate uses `--deploy-closeout`: fails only on
-   gateway `FAIL`, not on `DISPLAY_BLOCK` provisioning backlog), and add `--include-paid` when paid
-   media is intentionally in scope. Gate fails on `DISPLAY_BLOCK` or `FAIL`, not
-   on `REPROBE_REQUIRED`. Update this baseline to mention `v{VERSION}` on every
-   deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`).
+6. Run SSOT gates before release close-out:
+   **Structural** (every commit via preflight): `catalog-serving-drift.py`,
+   `display-coverage-gate.py check --base origin/main`.
+   **Live delta** (CI when catalog paths change): `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` — probes only models added/changed in the PR (not the full catalog).
+   **Deploy canary** (prod post-deploy): `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout`.
+   Add `--include-paid` when paid media is intentionally in scope. Do **not** schedule daily full `--gate-sharded` scans (account-ban risk); use focused `--model` reprobes from this baseline when a row regresses.
+   Update this baseline to mention `v{VERSION}` on every deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`).
 7. Reprobe Anthropic/Gemini/Kiro direct live rows only when a real schedulable
    direct probe pool exists; current `429` rows prove route openness, not
    servability.

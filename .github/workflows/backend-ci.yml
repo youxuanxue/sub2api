@@ -11,7 +11,7 @@ on:
       suite:
         description: Which CI suite to run
         required: false
-        default: all
+        default: ci
         type: choice
         options:
           - all
@@ -38,18 +38,75 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 64
           submodules: recursive
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
       - uses: ./.github/actions/cache-and-checkout-new-api
+      - name: Fetch base ref for diff gates
+        # fetch-depth alone does not guarantee origin/main on PR checkouts; preflight
+        # deleted-file / merge-base gates need origin/main...HEAD.
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: preflight
       - name: Run preflight
+        env:
+          PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
           else
             ./dev-rules/templates/preflight.sh
           fi
+
+  ssot-delta-gate:
+    # Live SSOT proof for catalog diffs only (replaces retired daily full-matrix gate).
+    # No `environment: prod` — that env has deploy/OIDC approval gates; this job only
+    # probes public prod API and needs TK_FULLTEST_KEY as a repository Actions secret.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 64
+      - name: Fetch base ref for catalog diff
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+      - name: Skip when catalog surface unchanged
+        id: touch
+        run: |
+          set -euo pipefail
+          changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "origin/${GITHUB_BASE_REF:-main}")
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+      - name: Validate TK_FULLTEST_KEY (repository secret)
+        if: steps.touch.outputs.changed == 'true'
+        env:
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TK_FULLTEST_KEY:-}" ]; then
+            echo "::error::TK_FULLTEST_KEY is not set as a repository Actions secret."
+            echo "::error::ssot-delta-gate cannot use the prod Environment secret without deployment approval."
+            echo "::error::Add the same key under Settings → Secrets and variables → Actions → Repository secrets."
+            exit 1
+          fi
+      - name: Focused SSOT gate (delta models only)
+        if: steps.touch.outputs.changed == 'true'
+        env:
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+          TK_FULLTEST_BASE_URL: https://api.tokenkey.dev
+          TK_FULLTEST_TIMEOUT: "30"
+        run: |
+          set -euo pipefail
+          python3 scripts/checks/ssot-delta-gate.py check --base "origin/${GITHUB_BASE_REF:-main}"
 
   test-unit:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
@@ -75,6 +132,8 @@ jobs:
       - name: Unit tests
         working-directory: backend
         run: make test-unit
+      - name: Anthropic prompt surface fixture gateway
+        run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
 
   test-integration:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))

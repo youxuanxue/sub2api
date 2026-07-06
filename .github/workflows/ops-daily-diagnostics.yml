@@ -67,7 +67,7 @@ permissions:
 
 jobs:
   discover-targets:
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump')
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump')
     runs-on: ubuntu-latest
     permissions:
       contents: read

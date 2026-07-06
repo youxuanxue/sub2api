@@ -19,6 +19,11 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any
 
+_OPS_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+if _OPS_TEST_DIR not in sys.path:
+    sys.path.insert(0, _OPS_TEST_DIR)
+from ssot_recent_success import load_skip_keys, parse_recent_success_tsv
+
 DEFAULT_BASE_URL = os.environ.get("TK_FULLTEST_BASE_URL", "https://api.tokenkey.dev")
 DEFAULT_TIMEOUT = float(os.environ.get("TK_FULLTEST_TIMEOUT", "90"))
 
@@ -45,6 +50,25 @@ VENDOR_PLATFORM = {
 
 PLATFORM_CHOICES = ("anthropic", "openai", "gemini", "antigravity", "newapi", "grok", "kiro")
 GEMINI_NATIVE_PLATFORMS = {"antigravity"}
+
+# Deploy-canary: one golden path per platform (+ Anthropic count_tokens).
+DEPLOY_CANARY_PROTOCOLS: dict[str, list[str]] = {
+    "anthropic": ["chat", "count_tokens"],
+    "openai": ["chat"],
+    "gemini": ["chat"],
+    "antigravity": ["chat"],
+    "newapi": ["chat"],
+    "grok": ["chat"],
+    "kiro": ["chat"],
+}
+DEFAULT_DEPLOY_CANARY_MODEL: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-5.4",
+    "gemini": "gemini-2.5-flash",
+    "antigravity": "gemini-3.5-flash",
+    "newapi": "qwen3-8b",
+    "grok": "grok-code-fast-1",
+}
 MESSAGE_POLICY_PLATFORMS = {"openai", "newapi"}
 
 
@@ -193,6 +217,33 @@ def load_matrix(args) -> tuple[list[MatrixRow], list[ExcludedRow]]:
     base = args.base_url.rstrip("/")
     payload = fetch_json(f"{base}/api/v1/public/pricing", args.timeout)
     return rows_from_public_catalog(payload, f"live-pricing:{base}/api/v1/public/pricing")
+
+
+def preferred_deploy_canary_model(platform: str) -> str:
+    env_key = f"TK_SSOT_CANARY_{platform.upper()}_MODEL"
+    return os.environ.get(env_key, DEFAULT_DEPLOY_CANARY_MODEL.get(platform, "")).strip()
+
+
+def select_deploy_canary_rows(rows: list[MatrixRow]) -> list[MatrixRow]:
+    by_platform: dict[str, list[MatrixRow]] = {}
+    for row in rows:
+        by_platform.setdefault(row.platform, []).append(row)
+    selected: list[MatrixRow] = []
+    for platform, protocols in DEPLOY_CANARY_PROTOCOLS.items():
+        platform_rows = by_platform.get(platform) or []
+        if not platform_rows:
+            continue
+        preferred = preferred_deploy_canary_model(platform)
+        for protocol in protocols:
+            candidates = [r for r in platform_rows if r.protocol == protocol]
+            if preferred:
+                preferred_rows = [r for r in candidates if r.model == preferred]
+                if preferred_rows:
+                    candidates = preferred_rows
+            if candidates:
+                selected.append(candidates[0])
+    selected.sort(key=lambda r: (r.platform, r.protocol, r.model))
+    return selected
 
 
 def filter_rows(rows: list[MatrixRow], args) -> list[MatrixRow]:
@@ -497,16 +548,34 @@ def cmd_gate(args) -> int:
     rows = filter_rows(rows, args)
     if not args.include_paid:
         rows = [r for r in rows if not r.paid]
+    if getattr(args, "deploy_canary", False):
+        rows = select_deploy_canary_rows(rows)
     if args.limit:
         rows = rows[: args.limit]
 
+    skip_keys: set[tuple[str, str]] = set()
+    skip_file = getattr(args, "skip_recent_file", "") or os.environ.get("TK_SSOT_SKIP_RECENT_FILE", "")
+    if skip_file:
+        skip_keys = load_skip_keys(
+            skip_file,
+            min_count=int(os.environ.get("TK_SSOT_SKIP_MIN_COUNT", "1")),
+        )
+
     scoped_excluded = filter_excluded(excluded, args)
     no_rows_count = 1 if not rows and not scoped_excluded else 0
-    keep_count = block_count = reprobe_count = fail_count = excluded_block_count = 0
+    keep_count = block_count = reprobe_count = fail_count = excluded_block_count = log_skip_count = 0
     print("platform\tmodality\tprotocol\tmodel\thttp\tresult\tdisplay_gate\taction")
     if no_rows_count:
         print("n/a\tn/a\tn/a\tn/a\t0\tSKIP\tnot_in_public_pricing_scope\tno displayed+priced matrix rows matched")
     for row in rows:
+        if skip_keys and (row.model, row.modality) in skip_keys:
+            log_skip_count += 1
+            keep_count += 1
+            print(
+                f"{row.platform}\t{row.modality}\t{row.protocol}\t{row.model}\t0\t"
+                "LOG_SKIP\tkeep_displayed\trecent_success_24h"
+            )
+            continue
         code, result, note, _body_text = probe_matrix_row(args, row)
         gate, action = display_gate_decision(result, note)
         if gate == "keep_displayed":
@@ -537,7 +606,8 @@ def cmd_gate(args) -> int:
         "DISPLAY_KEEP="
         f"{keep_count} DISPLAY_BLOCK={block_count + excluded_block_count} "
         f"REPROBE_REQUIRED={reprobe_count} FAIL={fail_count} "
-        f"EXCLUDED_BLOCK={excluded_block_count} NO_ROWS={no_rows_count}"
+        f"EXCLUDED_BLOCK={excluded_block_count} NO_ROWS={no_rows_count} "
+        f"LOG_SKIP={log_skip_count}"
     )
     if getattr(args, "deploy_closeout", False):
         return 1 if fail_count else 0
@@ -597,6 +667,11 @@ def cmd_selftest(_args) -> int:
     assert excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "embeddings")
     assert not excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "chat")
     assert "kiro" in PLATFORM_CHOICES, "deploy-stage0 sharded gate includes kiro; argparse must accept it"
+    canary = select_deploy_canary_rows(rows)
+    assert canary, "deploy-canary must select at least one row from fixture catalog"
+    assert all(r.protocol in DEPLOY_CANARY_PROTOCOLS.get(r.platform, []) for r in canary)
+    skip_keys = parse_recent_success_tsv("gpt-5.1\ttext\t10\n", min_count=1)
+    assert ("gpt-5.1", "text") in skip_keys
     print("gateway_model_ssot_matrix selftest: PASS")
     return 0
 
@@ -654,6 +729,16 @@ def main() -> int:
         "--deploy-closeout",
         action="store_true",
         help="deploy/release closeout: fail only on gateway FAIL rows, not DISPLAY_BLOCK backlog",
+    )
+    gate_p.add_argument(
+        "--deploy-canary",
+        action="store_true",
+        help="deploy closeout canary: probe one golden path per platform instead of the full matrix",
+    )
+    gate_p.add_argument(
+        "--skip-recent-file",
+        default="",
+        help="TSV of model/modality/count rows to skip (normally serving in recent usage_logs)",
     )
     gate_p.set_defaults(func=cmd_gate)
 
