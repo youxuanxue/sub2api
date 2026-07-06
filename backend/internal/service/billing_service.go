@@ -862,7 +862,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
 			log.Printf("[Billing] Using fallback pricing for model: %s", model)
 		}
-		return s.applyModelSpecificPricingPolicy(model, fallback), nil
+		return s.applyModelSpecificPricingPolicy(model, tkApplyOfficialListBaseTaxForModel(model, fallback)), nil
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)

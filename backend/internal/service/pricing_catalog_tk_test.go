@@ -176,8 +176,8 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	// overlay-only models surface with their overlay price (per-token ×1000 = per-1K).
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")
-	assert.InDelta(t, 0.000435, pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay $0.435/M")
-	assert.InDelta(t, 0.00087, pro.Pricing.OutputPer1KTokens, 1e-9, "deepseek-v4-pro output = overlay $0.87/M")
+	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier, pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay official × base tax")
+	assert.InDelta(t, 0.00087*tkOfficialListBaseTaxMultiplier, pro.Pricing.OutputPer1KTokens, 1e-9, "deepseek-v4-pro output = overlay official × base tax")
 	_, ok = byID["doubao-seed-2-0-pro-260215"]
 	assert.True(t, ok, "doubao overlay model must surface")
 	glm52, ok := byID["glm-5.2"]
@@ -213,8 +213,8 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
 	flash, ok := byID["deepseek-v4-flash"]
 	require.True(t, ok)
-	assert.InDelta(t, 999.0, flash.Pricing.InputPer1KTokens, 1e-6,
-		"source price wins over overlay (fill-only); overlay must NOT override")
+	assert.InDelta(t, 999.0*tkOfficialListBaseTaxMultiplier, flash.Pricing.InputPer1KTokens, 1e-6,
+		"source price wins over overlay (fill-only); base tax applies on top of source")
 }
 
 // TestPricingCatalogService_AttachesOverlayTiers pins that input-token interval
@@ -246,8 +246,8 @@ func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
 	assert.Equal(t, 0, pro.Pricing.Tiers[0].MinTokens)
 	require.NotNil(t, pro.Pricing.Tiers[0].MaxTokens)
 	assert.Equal(t, 32000, *pro.Pricing.Tiers[0].MaxTokens)
-	assert.InDelta(t, 0.000477612, pro.Pricing.Tiers[0].InputPer1KTokens, 1e-9)
-	assert.InDelta(t, 0.002388060, pro.Pricing.Tiers[0].OutputPer1KTokens, 1e-9)
+	assert.InDelta(t, 0.000477612*tkOfficialListBaseTaxMultiplier, pro.Pricing.Tiers[0].InputPer1KTokens, 1e-9)
+	assert.InDelta(t, 0.002388060*tkOfficialListBaseTaxMultiplier, pro.Pricing.Tiers[0].OutputPer1KTokens, 1e-9)
 
 	// top tier is open-ended (MaxTokens nil) and costs more than tier 1.
 	assert.Nil(t, pro.Pricing.Tiers[2].MaxTokens, "top tier must be unbounded")
@@ -311,10 +311,10 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok)
-	assert.InDelta(t, 0.000435, pro.Pricing.InputPer1KTokens, 1e-9,
-		"zero placeholder row must display the overlay deepseek-v4-pro price")
-	assert.InDelta(t, 0.00087, pro.Pricing.OutputPer1KTokens, 1e-9)
-	assert.InDelta(t, 0.000003625, pro.Pricing.CacheReadPer1K, 1e-12)
+	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier, pro.Pricing.InputPer1KTokens, 1e-9,
+		"zero placeholder row must display the overlay deepseek-v4-pro price with base tax")
+	assert.InDelta(t, 0.00087*tkOfficialListBaseTaxMultiplier, pro.Pricing.OutputPer1KTokens, 1e-9)
+	assert.InDelta(t, 0.000003625*tkOfficialListBaseTaxMultiplier, pro.Pricing.CacheReadPer1K, 1e-12)
 	assert.Equal(t, 65536, pro.ContextWindow, "file-source row metadata must be preserved")
 	assert.Equal(t, 8192, pro.MaxOutputTokens)
 
