@@ -31,6 +31,7 @@ bash ops/observability/run-probe.sh \
 ```
 
 - `USER_IDS` / `WINDOW_MINUTES` 可改（脚本默认 `1,16` / `30`）。user 1 = `admin@tokenkey.dev`，user 16 = `compute@tk.com`（计算所）。
+- 若 `run-probe.sh` 在本机 `aws/pyexpat` 启动阶段就失败（macOS/Homebrew 常见），先运行：`python3 scripts/checks/check-local-aws-pyexpat.py --apply`，再重试本命令。
 - **失败如实报告，绝不编数**：`status!=Success` / 非零退出 / SSM 传输错误时，直接报失败与原因，不臆造任何数字。
 
 ## §2 报告格式（固定）
