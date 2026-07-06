@@ -1012,19 +1012,6 @@
       @cancel="showResetRateLimitDialog = false"
     />
 
-    <!-- Use Key Modal -->
-    <UseKeyModal
-      :show="showUseKeyModal"
-      :api-key="selectedKey?.key || ''"
-      :api-key-id="selectedKey?.id ?? null"
-      :base-url="publicSettings?.api_base_url || ''"
-      :platform="selectedKey?.group?.platform || null"
-      :claude-code-only="selectedKey?.group?.claude_code_only || false"
-      :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
-      :supported-model-scopes="selectedKey?.group?.supported_model_scopes"
-      @close="closeUseKeyModal"
-    />
-
     <!-- Export Conversations Panel (per-key recent exports + export-now) -->
     <ExportPanel
       :show="showExportPanel"
@@ -1178,7 +1165,6 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import Select from '@/components/common/Select.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
-	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 	import ExportPanel from '@/components/keys/ExportPanel.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
@@ -1335,7 +1321,6 @@ const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
-const showUseKeyModal = ref(false)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
@@ -1570,13 +1555,7 @@ const loadPublicSettings = async () => {
 }
 
 const openUseKeyModal = (key: ApiKey) => {
-  selectedKey.value = key
-  showUseKeyModal.value = true
-}
-
-const closeUseKeyModal = () => {
-  showUseKeyModal.value = false
-  selectedKey.value = null
+  router.push({ path: '/quickstart', query: { keyId: String(key.id) } })
 }
 
 const handlePageChange = (page: number) => {

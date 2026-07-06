@@ -221,3 +221,18 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     vi.unstubAllGlobals()
   })
 })
+
+describe('UseKeyModal — universal keys', () => {
+  it('shows client guide without requiring a fixed group platform', async () => {
+    const wrapper = mountModal({
+      platform: null,
+      routingMode: 'universal',
+      apiKeyId: 42,
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.noGroupTitle')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.claudeCode')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.codexCli')
+  })
+})
