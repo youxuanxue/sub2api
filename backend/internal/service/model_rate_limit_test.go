@@ -21,30 +21,30 @@ func TestIsModelRateLimited(t *testing.T) {
 		expected       bool
 	}{
 		{
-			name: "official model ID hit - claude-sonnet-4-5",
+			name: "official model ID hit - claude-sonnet-4-6",
 			account: &Account{
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			expected:       true,
 		},
 		{
-			name: "official model ID hit via mapping - request claude-3-5-sonnet, mapped to claude-sonnet-4-5",
+			name: "official model ID hit via mapping - request claude-3-5-sonnet, mapped to claude-sonnet-4-6",
 			account: &Account{
 				Credentials: map[string]any{
 					"model_mapping": map[string]any{
-						"claude-3-5-sonnet": "claude-sonnet-4-5",
+						"claude-3-5-sonnet": "claude-sonnet-4-6",
 					},
 				},
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
@@ -58,13 +58,13 @@ func TestIsModelRateLimited(t *testing.T) {
 			account: &Account{
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": past,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			expected:       false,
 		},
 		{
@@ -78,7 +78,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			expected:       false,
 		},
 		{
@@ -151,7 +151,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			expected:       false,
 		},
 		{
@@ -170,7 +170,7 @@ func TestIsModelRateLimited(t *testing.T) {
 			expected:       false, // gemini 平台不走 antigravity 映射
 		},
 		{
-			name: "antigravity platform - claude-opus-4-5-thinking mapped to opus-4-6-thinking",
+			name: "antigravity platform - claude-opus-4-6 mapped to opus-4-6-thinking",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
@@ -181,7 +181,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "claude-opus-4-5-thinking",
+			requestedModel: "claude-opus-4-6",
 			expected:       true,
 		},
 		{
@@ -290,7 +290,7 @@ func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(
 	require.True(t, account.isModelRateLimitedWithContext(WithOpenAIImageGenerationIntent(context.Background()), "gpt-5.4"))
 }
 
-func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
+func TestIsModelRateLimited_Antigravity_OpusAliasUsesThinkingModelKey(t *testing.T) {
 	now := time.Now()
 	future := now.Add(10 * time.Minute).Format(time.RFC3339)
 
@@ -298,15 +298,14 @@ func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
 		Platform: PlatformAntigravity,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-sonnet-4-5-thinking": map[string]any{
+				"claude-opus-4-6-thinking": map[string]any{
 					"rate_limit_reset_at": future,
 				},
 			},
 		},
 	}
 
-	ctx := context.WithValue(context.Background(), ctxkey.ThinkingEnabled, true)
-	if !account.isModelRateLimitedWithContext(ctx, "claude-sonnet-4-5") {
+	if !account.isModelRateLimitedWithContext(context.Background(), "claude-opus-4-6") {
 		t.Errorf("expected model to be rate limited")
 	}
 }
@@ -327,7 +326,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 		{
 			name:           "nil account",
 			account:        nil,
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    0,
 			maxExpected:    0,
 		},
@@ -336,13 +335,13 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			account: &Account{
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": future10m,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    9 * time.Minute,
 			maxExpected:    11 * time.Minute,
 		},
@@ -351,12 +350,12 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			account: &Account{
 				Credentials: map[string]any{
 					"model_mapping": map[string]any{
-						"claude-3-5-sonnet": "claude-sonnet-4-5",
+						"claude-3-5-sonnet": "claude-sonnet-4-6",
 					},
 				},
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": future5m,
 						},
 					},
@@ -371,20 +370,20 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			account: &Account{
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": past,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    0,
 			maxExpected:    0,
 		},
 		{
 			name:           "no rate limit data",
 			account:        &Account{},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    0,
 			maxExpected:    0,
 		},
@@ -404,7 +403,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			maxExpected:    0,
 		},
 		{
-			name: "antigravity platform - claude-opus-4-5-thinking mapped to opus-4-6-thinking",
+			name: "antigravity platform - claude-opus-4-6 mapped to opus-4-6-thinking",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
@@ -415,7 +414,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "claude-opus-4-5-thinking",
+			requestedModel: "claude-opus-4-6",
 			minExpected:    4 * time.Minute,
 			maxExpected:    6 * time.Minute,
 		},
@@ -447,7 +446,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    0,
 			maxExpected:    0,
 		},
@@ -478,7 +477,7 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 		{
 			name:           "nil account",
 			account:        nil,
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    0,
 			maxExpected:    0,
 		},
@@ -488,13 +487,13 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": future15m,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    14 * time.Minute,
 			maxExpected:    16 * time.Minute,
 		},
@@ -504,13 +503,13 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-5": map[string]any{
+						"claude-sonnet-4-6": map[string]any{
 							"rate_limit_reset_at": future5m,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    4 * time.Minute,
 			maxExpected:    6 * time.Minute,
 		},
@@ -519,7 +518,7 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 			account: &Account{
 				Platform: PlatformAntigravity,
 			},
-			requestedModel: "claude-sonnet-4-5",
+			requestedModel: "claude-sonnet-4-6",
 			minExpected:    0,
 			maxExpected:    0,
 		},

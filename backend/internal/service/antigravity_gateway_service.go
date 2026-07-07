@@ -3749,6 +3749,10 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 		statusCode = http.StatusBadRequest
 		errType = "invalid_request_error"
 		errMsg = getPassthroughOrDefault(upstreamMsg, "Invalid request")
+	case 404:
+		statusCode = http.StatusBadRequest
+		errType = "invalid_request_error"
+		errMsg = getPassthroughOrDefault(upstreamMsg, "Upstream model not found")
 	case 401:
 		statusCode = http.StatusBadGateway
 		errType = "authentication_error"
