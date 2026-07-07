@@ -113,25 +113,7 @@ const (
 	// expires when the window closes so a healed deploy reads zero.
 	anthropicCooldownTierEscalationsWindowMinutes = 60
 
-	// 403 keyword scan used by handle403 to surface suspected TLS / bot-
-	// detection regressions. When the upstream body contains any of these
-	// tokens we skip the long account_disabled_auth_error cooldown and
-	// keep the account on a short cooldown so an operator can react.
-	tlsFingerprintFailureCooldown = 30 * time.Second
 )
-
-// tlsFingerprintFailureKeywords matches Cloudflare / WAF responses that
-// reveal the request was rejected on TLS shape rather than on the OAuth
-// identity itself (e.g. "ja3" / "ja4" / "bot detection" / "tls fingerprint").
-// Order is insignificant; matching is case-insensitive.
-var tlsFingerprintFailureKeywords = []string{
-	"ja3",
-	"ja4",
-	"bot detection",
-	"bot management",
-	"tls fingerprint",
-	"client fingerprint",
-}
 
 // openAICloudflareChallengeKeywords matches Cloudflare / Arkose challenge
 // pages where an OpenAI 403 was returned by infrastructure (CF JS challenge,
@@ -1161,43 +1143,10 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
-		// TLS / bot-detection 失效专项：上游用 403 拒绝是因为 Cloudflare / WAF
-		// 识别到 JA3/JA4 不像真实 Claude Code CLI（指纹库失效或 CLI 版本升级）。
-		// 这种情况下账号本身没问题，是基础设施层面的问题，需要 ops 立即介入
-		// 重新抓 TLS 指纹。用一个短 cooldown 避免持续重试加重风控，并打一个
-		// 高可见性 slog 让告警钩子能拉起来（运维侧用 log-based alert 接入即可）。
-		if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), tlsFingerprintFailureKeywords); matched != "" {
-			until := time.Now().Add(tlsFingerprintFailureCooldown)
-			reasonMessage := fmt.Sprintf("Anthropic 403 with TLS/bot-detection signal (%s): %s",
-				matched, upstreamMsg)
-			state := &TempUnschedState{
-				UntilUnix:       until.Unix(),
-				TriggeredAtUnix: time.Now().Unix(),
-				StatusCode:      http.StatusForbidden,
-				MatchedKeyword:  "tls_fingerprint_failure",
-				RuleIndex:       -1,
-				ErrorMessage:    truncateTempUnschedMessage([]byte(reasonMessage), tempUnschedMessageMaxBytes),
-			}
-			reasonJSON := reasonMessage
-			if raw, marshalErr := json.Marshal(state); marshalErr == nil {
-				reasonJSON = string(raw)
-			}
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonJSON); err != nil {
-				slog.Warn("anthropic_tls_fingerprint_set_temp_unschedulable_failed",
-					"account_id", account.ID, "error", err)
-			}
-			if s.tempUnschedCache != nil {
-				if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
-					slog.Warn("anthropic_tls_fingerprint_temp_unsched_cache_set_failed",
-						"account_id", account.ID, "error", err)
-				}
-			}
-			slog.Error("anthropic_tls_fingerprint_failure_suspected",
-				"account_id", account.ID,
-				"matched_keyword", matched,
-				"cooldown_seconds", int(tlsFingerprintFailureCooldown.Seconds()),
-				"action", "ops_should_re-capture_claude_cli_tls_profile",
-				"upstream_msg", upstreamMsg)
+		// TLS / bot-detection 403：共享 canonical profile 失效时逐账号 30s 重试会
+		// 反复暴露 OAuth；永久 SetError + 可 grep 前缀，便于全平台重采集后 bulk recover。
+		// 见 ratelimit_service_tk_anthropic_tls_fingerprint_403.go。
+		if s.tkTryDisableAnthropicTLSFingerprint403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
 		// TK (handle403 gap, 空 body org-ban): #810 的结构化短语 breaker 抓不到以**空 body**

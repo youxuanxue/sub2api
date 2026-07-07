@@ -230,8 +230,7 @@
         "anthropicCooldownTierLadder",
         "anthropicCooldownTierTTLMinutes",
         "anthropicCooldownTierEscalationsWindowMinutes",
-        "tlsFingerprintFailureKeywords",
-        "tlsFingerprintFailureCooldown",
+        "tkTryDisableAnthropicTLSFingerprint403",
         "openAICloudflareChallengeKeywords",
         "openai_403_cf_challenge_skip_cooldown",
         "openAIIsHTMLBody",
@@ -246,7 +245,7 @@
         "IncrementAnthropicCooldownTierEscalations",
         "anthropic_cooldown_tier_escalation",
         "anthropic_upstream_error_cooldown_write_skipped",
-        "anthropic_tls_fingerprint_failure_suspected",
+        "anthropic_tls_fingerprint_403_permanent_disable",
         "403_escalated_to_error",
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         ") ResetAnthropicUpstreamErrorCounter(",
@@ -3388,12 +3387,32 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {",
+        "if s.tkTryDisableAnthropicTLSFingerprint403(ctx, account, upstreamMsg, responseBody) {",
         "if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {",
         "if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {",
         "s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, \"permission_failover\")",
         "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)"
       ],
-      "rationale": "Injection points for Anthropic handle403 after specialist skips. (1) tkTryDisableAnthropicOrgBan403 — structured org-ban (#810). (2) tkTryEscalatePersistentBodyless403 — bodyless episode terminal disable. (3) tkIsAnthropicAccountAuthFatal403 — structured invalid-bearer / lacks-scopes only; model-level and mirror wrappers must not SetError. (4) permission_failover saturation — default for remaining 403s (403 is outside stub-health 3/3 fuse). (5) ResetAnthropicBodyless403Count on recovery hotpaths."
+      "rationale": "Injection points for Anthropic handle403 after specialist skips. (1) tkTryDisableAnthropicOrgBan403 — structured org-ban (#810). (2) tkTryDisableAnthropicTLSFingerprint403 — TLS/WAF 403 SetError with greppable prefix (bulk recover after profile re-capture). (3) tkTryEscalatePersistentBodyless403 — bodyless episode terminal disable. (4) tkIsAnthropicAccountAuthFatal403 — structured invalid-bearer / lacks-scopes only. (5) permission_failover saturation — default for remaining 403s. (6) ResetAnthropicBodyless403Count on recovery hotpaths."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_tls_fingerprint_403.go",
+      "must_contain": [
+        "tkAnthropicTLSFingerprintDisablePrefix",
+        "func tkMatchAnthropicTLSFingerprint403Body(",
+        "func (s *RateLimitService) tkTryDisableAnthropicTLSFingerprint403(",
+        "anthropic_tls_fingerprint_403_permanent_disable",
+        "ja3"
+      ],
+      "rationale": "TLS/WAF Anthropic 403 permanent disable with greppable prefix for bulk recover after canonical profile re-capture. Replaces the old 30s temp path that re-exposed OAuth accounts on shared profile drift."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_tls_fingerprint_403_test.go",
+      "must_contain": [
+        "TestTkMatchAnthropicTLSFingerprint403Body",
+        "TestTkAnthropicTLSFingerprintDisablePrefixDistinctFromOrgBan"
+      ],
+      "rationale": "Predicate + prefix regressions for TLS fingerprint 403 SetError."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_account_auth_fatal_403.go",
@@ -3428,6 +3447,7 @@
       "must_contain": [
         "func (s *GatewayService) tkIsAccountFatal403(",
         "tkMatchAnthropicOrgBan403Body(\"\", body)",
+        "tkMatchAnthropicTLSFingerprint403Body(\"\", body)",
         "tkIsUnstructuredAnthropicErrorBody(body)"
       ],
       "rationale": "account-fatal 403 in-place-retry skip (Gap B, handle403 gap follow-up). shouldRetryUpstreamError retries OAuth accounts specifically on 403, so a single client request hammers a banned account up to 5x/10s before failover — pure upstream aggravation for a deterministic org ban. tkIsAccountFatal403 reuses the SHARED org-ban predicate (tkMatchAnthropicOrgBan403Body) + the bodyless predicate (tkIsUnstructuredAnthropicErrorBody) so the retry-skip decides 'account-fatal' from the same source of truth as the breaker. Scoped to Anthropic OAuth so other platforms' 403 retry semantics are unchanged. Dropping this skip silently restores the 5x in-place retry on a known-dead account."

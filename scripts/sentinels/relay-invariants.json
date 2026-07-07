@@ -60,10 +60,10 @@
     {
       "path": "backend/internal/service/ratelimit_service_anthropic_consolidation_test.go",
       "must_contain": [
-        "func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCooldown(",
+        "func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintPermanentlyDisables(",
         "func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEatenBy403Rule("
       ],
-      "rationale": "Anthropic TLS-fingerprint 403 → SHORT cooldown, not the long 403 ladder. A 403 caused by a TLS-fingerprint mismatch is transient (resolves on the next fingerprint sync) and must get a short cooldown, and must NOT be swallowed by the generic 403 permanent-disable rule. The second test guards exactly that precedence — a merge reordering the 403 rules would silently turn a recoverable fingerprint blip into a permanent disable."
+      "rationale": "Anthropic TLS-fingerprint 403 → permanent SetError with greppable TLS prefix (bulk recover after profile re-capture), not 30s temp or generic 403 ladder. Second test guards precedence over account_disabled_auth_error temp rules."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_request_owned_429_test.go",

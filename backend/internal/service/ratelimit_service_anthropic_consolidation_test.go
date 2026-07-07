@@ -29,10 +29,9 @@ import (
 // P4: A second 403 hit whose prior reason was also a 403 temp-unschedulable
 //     must escalate (tryTempUnschedulable returns false) so handle403's
 //     downstream Anthropic path runs without writing yet another 6h cooldown.
-// P4: A 403 body matching tlsFingerprintFailureKeywords must apply a 30s
-//     cooldown (not 6h) so an operator can re-capture the CLI TLS profile
-//     before the next attempt — the long cooldown would mask a basic-
-//     infrastructure failure as an account-level one.
+// P4: A 403 body matching TLS-fingerprint keywords must permanently disable with
+//     the greppable TLS prefix (not 30s temp) so shared canonical profile drift
+//     does not re-expose OAuth accounts every cooldown cycle.
 // P5: cfg.RateLimit.AnthropicErrorThreshold lifts the 3/3 short-window
 //     threshold without requiring a recompile (motivation: single-account /
 //     small-pool deployments where Sonnet↔Opus burst jitter trips 3/3 too
@@ -213,7 +212,7 @@ func TestRateLimitService_TryTempUnschedulable_403SecondHitEscalates(t *testing.
 
 // --- P4: TLS fingerprint failure path -----------------------------------------
 
-func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCooldown(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintPermanentlyDisables(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -235,19 +234,11 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCoo
 	)
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.tempCalls,
-		"TLS fingerprint failure should write a SetTempUnschedulable cooldown immediately")
-
-	var state TempUnschedState
-	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
-	require.Equal(t, http.StatusForbidden, state.StatusCode)
-	require.Equal(t, "tls_fingerprint_failure", state.MatchedKeyword)
-
-	cooldown := time.Until(time.Unix(state.UntilUnix, 0))
-	require.InDelta(t, tlsFingerprintFailureCooldown, cooldown, float64(2*time.Second),
-		"TLS fingerprint failure must use the short 30s cooldown, NOT the 6h account-disabled cooldown")
+	require.Equal(t, 1, repo.setErrorCalls, "TLS fingerprint failure must SetError immediately")
+	require.Equal(t, 0, repo.tempCalls, "TLS fingerprint must not write temp_unschedulable")
+	require.Contains(t, repo.lastErrorMsg, tkAnthropicTLSFingerprintDisablePrefix)
 	require.Zero(t, len(counter.incrementIDs),
-		"TLS fingerprint path must NOT feed the 3/3 short-window counter (the account is fine; infra is not)")
+		"TLS fingerprint path must NOT feed the 3/3 short-window counter")
 }
 
 // Production OAuth accounts ship with the baseline credentials wired —
@@ -255,9 +246,8 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCoo
 // (anthropic-oauth-stability-baselines-tiered.json shared_baseline.credentials).
 // A 403 body that contains a TLS-fingerprint keyword but NOT
 // account_disabled_auth_error MUST still reach the handle403 TLS branch and
-// land the short 30s cooldown — the JSON 403 rule MUST NOT eat the request
-// just because the rule's error_code matches. Regression coverage for the
-// "production credentials path" vs the simpler bare-account test above.
+// land permanent SetError with the TLS prefix — the JSON 403 rule MUST NOT eat
+// the request just because the rule's error_code matches.
 func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEatenBy403Rule(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{}
@@ -289,17 +279,10 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEaten
 		body,
 	)
 	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.tempCalls,
-		"TLS fingerprint failure must still write SetTempUnschedulable even with the 403 rule armed")
-
-	var state TempUnschedState
-	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
-	require.Equal(t, "tls_fingerprint_failure", state.MatchedKeyword,
-		"reason must record the TLS path, NOT the 6h account_disabled_auth_error rule")
-
-	cooldown := time.Until(time.Unix(state.UntilUnix, 0))
-	require.InDelta(t, tlsFingerprintFailureCooldown, cooldown, float64(2*time.Second),
-		"production credentials path must still apply 30s cooldown, not 6h")
+	require.Equal(t, 1, repo.setErrorCalls,
+		"TLS fingerprint failure must SetError even with the 403 temp rule armed")
+	require.Equal(t, 0, repo.tempCalls, "must not apply the 6h account_disabled_auth_error temp rule")
+	require.Contains(t, repo.lastErrorMsg, tkAnthropicTLSFingerprintDisablePrefix)
 }
 
 // --- P5: cfg.AnthropicErrorThreshold lifts the 3/3 bar -----------------------
