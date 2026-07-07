@@ -1813,7 +1813,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		return nil, err
 	}
 	if len(accounts) == 0 {
-		return nil, ErrNoAvailableAccounts
+		return nil, TkSelectionNoAvailableAccountsError(requestedModel)
 	}
 	ctx = s.withRPMPrefetch(ctx, accounts)
 
@@ -2330,7 +2330,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			)
 			return nil, ErrThinPoolAllExcluded
 		}
-		return nil, ErrNoAvailableAccounts
+		return nil, TkSelectionNoAvailableAccountsError(requestedModel)
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
@@ -2424,7 +2424,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			MaxWaiting:     cfg.FallbackMaxWaiting,
 		})
 	}
-	return nil, ErrNoAvailableAccounts
+	return nil, TkSelectionNoAvailableAccountsError(requestedModel)
 }
 
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {

@@ -132,6 +132,17 @@ func tkDeprecatedAnthropicSelectionFailure(requestedModel string) error {
 	return nil
 }
 
+// TkSelectionNoAvailableAccountsError returns ErrDeprecatedAnthropicModel when
+// requestedModel is on the retired list; otherwise ErrNoAvailableAccounts.
+// Load-batch scheduling uses this instead of bare ErrNoAvailableAccounts so sunset
+// ids classify as client 400, not routing 429 (see PR #1255 + load-batch gap).
+func TkSelectionNoAvailableAccountsError(requestedModel string) error {
+	if err := tkDeprecatedAnthropicSelectionFailure(requestedModel); err != nil {
+		return err
+	}
+	return ErrNoAvailableAccounts
+}
+
 // TkWriteAnthropicDeprecatedModelError emits the Anthropic-shape 400 error
 // for a retired model request and aborts further gin handling. Safe to call
 // with c == nil (no-op).

@@ -33,9 +33,41 @@ func TestTkWriteDeprecatedAnthropicModelIfApplicable(t *testing.T) {
 	assert.Equal(t, service.TkDeprecatedAnthropicErrorType, errObj["type"])
 }
 
-func TestTkWriteDeprecatedAnthropicModelIfApplicable_IgnoresOtherErrors(t *testing.T) {
+func TestTkWriteDeprecatedAnthropicModelIfApplicable_NoAvailableAccountsUpgradesDeprecated(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	require.True(t, h.tkWriteDeprecatedAnthropicModelIfApplicable(c, service.ErrNoAvailableAccounts, "claude-3-5-haiku-20241022", nil))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Empty(t, w.Header().Get("Retry-After"))
+}
+
+func TestTkWriteDeprecatedAnthropicModelIfApplicable_IgnoresCapacityForCurrentModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	require.False(t, h.tkWriteDeprecatedAnthropicModelIfApplicable(c, service.ErrNoAvailableAccounts, "claude-3-5-sonnet-20241022", nil))
+	require.False(t, h.tkWriteDeprecatedAnthropicModelIfApplicable(c, service.ErrNoAvailableAccounts, "claude-sonnet-4-6", nil))
+}
+
+func TestTkWriteDeprecatedAnthropicModelAtIngress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	require.True(t, h.tkWriteDeprecatedAnthropicModelAtIngress(c, "claude-3-5-haiku-20241022", nil))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Empty(t, w.Header().Get("Retry-After"))
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	errObj, ok := payload["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, service.TkDeprecatedAnthropicErrorType, errObj["type"])
 }
