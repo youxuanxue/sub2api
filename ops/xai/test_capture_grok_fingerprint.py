@@ -24,7 +24,10 @@ class CaptureGrokFingerprintTest(unittest.TestCase):
         pinned = mod.load_pinned_version()
         if not pinned:
             self.skipTest("no pinned version")
-        rows = mod.diff_rows(pinned, pinned)
+        installed = mod.installed_grok_version()
+        if not installed:
+            self.skipTest("grok CLI not installed")
+        rows = mod.diff_rows(pinned, installed)
         self.assertFalse(mod.has_drift(rows))
 
 
