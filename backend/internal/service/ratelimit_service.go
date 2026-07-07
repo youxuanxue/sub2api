@@ -625,7 +625,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"account_id", account.ID,
 				"status_code", statusCode,
 				"reason", reason)
-			s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
+			satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
+			s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded

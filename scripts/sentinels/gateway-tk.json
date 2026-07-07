@@ -2986,12 +2986,11 @@
       "path": "backend/internal/service/edge_mirror_stub_saturation_tk.go",
       "must_contain": [
         "edgeMirrorStubSaturationWindowSeconds = 90",
-        "anthropicEdgeMirrorStubSaturationThreshold int64 = 4",
-        "openAIEdgeMirrorStubSaturationThreshold int64 = 3",
+        "edgeMirrorStubSaturationThreshold int64 = 3",
         "anthropicSaturationPriorityPenalty = 1000",
         "openAISaturationScorePenalty = 50.0"
       ],
-      "rationale": "SSOT for prod edge-mirror stub downstream-empty de-prioritization: shared 90s window, platform thresholds (Anthropic 4 / OpenAI 3), and scheduler penalty magnitudes. Anthropic-only class cooldown write stays in ratelimit_service_tk_mirror_class_429.go; OpenAI intentionally has preference-only (sticky clear + score penalty), no temp_unschedulable or per-failover runtime block."
+      "rationale": "SSOT for prod edge-mirror stub downstream-empty de-prioritization: shared 90s window + threshold 3, scheduler penalties, mirror model/class write at threshold. Never temp_unschedulable or whole-account block on this path."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_saturation.go",
@@ -3000,7 +2999,7 @@
         "edgeMirrorStubSaturationWindowSeconds",
         "anthropic_stub_saturated_deprioritized"
       ],
-      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; the small threshold (4) preserves current behaviour for transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a cooldown. The threshold-crossing slog line (anthropic_stub_saturated_deprioritized) is the ops visibility for a stub entering the de-prioritized state. Dropping this file stops feeding the counter and the scheduler preference becomes inert."
+      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; threshold 3 (see edge_mirror_stub_saturation_tk.go) preserves transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a whole-account cooldown."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -3015,7 +3014,7 @@
       "path": "backend/internal/service/ratelimit_service_tk_mirror_class_429.go",
       "must_contain": [
         "func (s *RateLimitService) tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(",
-        "if saturationCount < anthropicSaturationThreshold {",
+        "if saturationCount < edgeMirrorStubSaturationThreshold {",
         "scopeKey := tkAnthropicModelClassScopeKeyForModel(requestedModel)",
         "s.accountRepo.SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
         "anthropic_mirror_class_rate_limited",
@@ -3069,7 +3068,7 @@
         "openAISaturationScorePenalty",
         "IsOpenAISaturatedStubDeprioritizeEnabled"
       ],
-      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at openAIEdgeMirrorStubSaturationThreshold (3 hits / 90s) fold score penalty into buildOpenAIAccountLoadPlan and rely on sticky clear — single preference layer per edge_mirror_stub_saturation_tk.go SSOT. No temp_unschedulable or per-failover runtime block."
+      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at threshold 3 fold score penalty + sticky clear + mirror per-model cooldown (ratelimit_service_tk_openai_mirror_model.go). No temp_unschedulable or per-failover runtime block on downstream-empty path."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
@@ -3102,10 +3101,20 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
+        "satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
+        "s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))",
         "openai_downstream_capacity_skip_penalty"
       ],
       "rationale": "Thin injection of OpenAI saturation counter increments at the HandleUpstreamError downstream-capacity skip branch (429 no-available / failover-exhausted on openai-us* edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched — only feeds de-prioritization preference. Upstream merge rewriting the skip branch would silently drop the feed."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_mirror_model.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(",
+        "429_openai_mirror_downstream_empty",
+        "SetModelRateLimit"
+      ],
+      "rationale": "OpenAI edge-mirror stub per-model downstream-empty write (spark / gpt-5.4 sibling safety): sustained empty-pool on openai-us* infers model scope from in-flight requested model and writes model_rate_limits only — mirrors Anthropic tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty. Never temp_unschedulable or whole-account SetRateLimited on this path."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
