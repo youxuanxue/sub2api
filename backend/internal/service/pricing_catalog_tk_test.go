@@ -411,15 +411,18 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"zhipu", "glm-4-32b-0414-128k", false},
 		{"zhipu", "glm-5.2", true},
 		{"zhipu", "glm-5-turbo", false}, // direct-only GLM pool removed; no manifest display path
-		// antigravity (2026-06-13 empirical probe, refreshed 2026-06-23): gated to the gemini-only set.
+		// antigravity: Gemini empirical set + PR #1265 live Claude subset.
 		{"antigravity", "gemini-2.5-flash", true},
 		{"antigravity", "gemini-2.5-flash-lite", true},
 		{"antigravity", "gemini-2.5-flash-thinking", true},
 		{"antigravity", "gemini-3-flash", true},
 		{"antigravity", "gemini-3.5-flash", true}, // 2026-06-27 prod 200 → added to antigravity
 		{"antigravity", "gemini-3.5-flash-low", true},
-		{"antigravity", "gpt-oss-120b-medium", false}, // gpt-oss off antigravity (operator policy)
-		{"antigravity", "claude-sonnet-4-6", false},   // claude routed to anthropic
+		{"antigravity", "claude-sonnet-4-6", true}, // PR #1265 live Antigravity Claude subset
+		{"antigravity", "claude-opus-4-6", true},   // client alias → thinking wire id in account mapping
+		{"antigravity", "claude-opus-4-6-thinking", true},
+		{"antigravity", "gpt-oss-120b-medium", false}, // gpt-oss off antigravity
+		{"antigravity", "claude-opus-4-8", false},     // upstream 404 on PR #1265 probe
 		{"antigravity", "gemini-2.5-pro", false},      // 000 timeout at 2026-06-23/06-27 reprobe, not in antigravity set
 		// gemini-*-image probed servable through the ANTIGRAVITY pool (2026-06-27) →
 		// listed under antigravity (group-serving rule), NOT the gemini/Vertex set
@@ -453,9 +456,9 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 	}
 }
 
-// 直接固化 supportedCatalogModelIDsForPlatform 的 antigravity 契约：实测 gemini-only
-// 集合（claude 走 anthropic、gpt-oss 已从 antigravity 移除）。gateway
-// /antigravity/models 和 admin selector 都经 tkServableCandidateIDs 消费这份集合。
+// 直接固化 supportedCatalogModelIDsForPlatform 的 antigravity 契约：实测 Gemini
+// 集合 + PR #1265 live Claude 子集（gpt-oss 已从 antigravity 移除）。gateway
+// /antigravity/models、显式账号 mapping 和 admin selector 都消费这份集合。
 func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 	ids := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
 	require.NotEmpty(t, ids)
@@ -478,13 +481,16 @@ func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 		"gemini-3.5-flash-extra-low",
 		"gemini-3.5-flash-low",
 		"gemini-pro-agent",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6",
+		"claude-opus-4-6-thinking",
 	} {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected antigravity menu to advertise %q", want)
 	}
 	// gemini-2.5-pro stays off antigravity (no real 200 — probe timeout 06-23 & 06-27);
 	// it is served via the gemini/Vertex pool instead.
-	for _, deny := range []string{"claude-sonnet-4-6", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
+	for _, deny := range []string{"claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
 		_, ok := set[deny]
 		assert.Falsef(t, ok, "antigravity menu must not advertise %q (routed off antigravity)", deny)
 	}

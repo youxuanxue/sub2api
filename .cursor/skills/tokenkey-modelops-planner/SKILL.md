@@ -2,8 +2,8 @@
 name: tokenkey-modelops-planner
 description: >-
   TokenKey model operations hub — single ops entry for catalog/menu refresh, newapi
-  mapping drift, mirror diff, and onboard prep. Routes read-only plan (modelops.py) or
-  catalog write (refresh-servable-allowlist.py) or onboard write (onboard-model skill).
+  mapping drift, mirror diff, account model_mapping runtime hotfix, and onboard prep.
+  Routes read-only plan, catalog write, runtime setting sync, or onboard write.
 ---
 
 # TokenKey：modelops 运营 hub（唯一入口）
@@ -14,11 +14,11 @@ description: >-
 ```text
                     tokenkey-modelops-planner（本 skill）
                               │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-   分支 A 对账            分支 B catalog/menu     分支 C 上架
-   modelops.py plan      refresh-servable-*      tokenkey-onboard-model
-   （只读）               （写 Go allowlist）      （写 manifest/migration/价）
+         ┌────────────────────┼────────────────────┬────────────────────┐
+         ▼                    ▼                    ▼                    ▼
+   分支 A 对账            分支 B catalog/menu     分支 C 上架           分支 D runtime
+   modelops.py plan      refresh-servable-*      tokenkey-onboard-model manage-account-model-mapping-runtime.py
+   （只读）               （写 Go allowlist）      （写 manifest/migration/价） （写 prod settings）
 ```
 
 | 运营说法 / 症状 | 走哪条分支 |
@@ -26,10 +26,11 @@ description: >-
 | 目录/Menu 过时、模型可能不再 200、要刷新 allowlist | **分支 B**（本 skill 路由后读写入子 skill） |
 | Antigravity `gemini-2.5-pro` generateContent 超时 / inconclusive，要窄探 chat vs v1beta | **分支 B** → `tokenkey-servable-model-refresh` §「Antigravity gemini-2.5-pro 专项」 |
 | Qwen/DeepSeek mapping 漂、429 空池、60↔72 mirror | **分支 A** |
+| 已有 servable+priced+displayable SSOT，需要快速热更新所有账号 `model_mapping` | **分支 D**（runtime settings 热更新） |
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe`（诊断，非 hub 子分支） |
 
-硬边界：**分支 A 只读**；分支 B/C 会改仓库或 prod，**合并/apply 等人授权**。
+硬边界：**分支 A 只读**；分支 B/C/D 会改仓库或 prod，**合并/apply/sync-runtime/clear-runtime 等人授权**。
 
 设计基线：`docs/approved/served-model-reconcile-planner.md` · 脚本表：`ops/pricing/README.md`
 
@@ -37,10 +38,11 @@ description: >-
 
 ## 0) 路由（先做，再跑命令）
 
-1. 问清是 **catalog/menu**、**newapi mapping/镜像**、还是 **上新模型**。
+1. 问清是 **catalog/menu**、**newapi mapping/镜像**、**账号 model_mapping runtime 热更新**、还是 **上新模型**。
 2. catalog/menu → **§分支 B**，加载 `tokenkey-servable-model-refresh` 执行写入。
 3. mapping/mirror/空池 → **§分支 A**（`modelops.py plan`）。
-4. plan 出 `ready_for_onboard` → **§分支 C**，加载 `tokenkey-onboard-model`。
+4. runtime 热更新 → **§分支 D**，先 `validate/check --file`，确认后再 `sync-runtime`。
+5. plan 出 `ready_for_onboard` → **§分支 C**，加载 `tokenkey-onboard-model`。
 
 同一工单可 A→C 或「B 与 A 并行认知、分开 PR」；**禁止**在分支 A 里跑 refresh `run/apply`。
 
@@ -111,11 +113,42 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 ---
 
+## 分支 D：账号 `model_mapping` runtime 热更新（写 prod settings）
+
+脚本：`ops/pricing/manage-account-model-mapping-runtime.py`。
+
+用途：把已确认 **可服务、已定价、可展示** 的账号 `model_mapping` SSOT 作为 runtime
+replacement 写入 `settings.tk_account_model_mapping_runtime`，触发
+`AccountModelMappingReconciler` 通过 `settings_updated` fan-out 或周期 tick 更新所有 active
+账号。该文件是 **scope replacement**，不是增量 patch：写了某个平台或 newapi channel_type，
+就必须给出该 scope 的完整期望 mapping；未出现的 scope 继续用编译期 floor。
+
+```bash
+python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest
+python3 ops/pricing/manage-account-model-mapping-runtime.py example > /tmp/account-model-mapping-runtime.json
+python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json
+python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/account-model-mapping-runtime.json
+
+# 人审 JSON + check 输出后再写 prod：
+python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
+
+# 发版后 / 热更新后只读收敛检查（prod + deployable edges）：
+python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
+
+# 回到编译期 floor（也需人审）：
+python3 ops/pricing/manage-account-model-mapping-runtime.py clear-runtime
+```
+
+新增模型的安全顺序：先确认 live probe / pricing / display gate，再更新 runtime JSON；如果这是长期产品面，
+随后把同样的 mapping 折回 Go floor 或 `tk_served_models.json`，避免 runtime 长期 shadow 编译期事实。
+
+---
+
 ## 四事实（hub 只对齐，不拥有）
 
 | 事实 | Owner | 典型分支 |
 | --- | --- | --- |
 | Public catalog + Menu | `pricing_catalog_supported_models_tk.go` | B |
-| Runtime serving | `accounts.credentials.model_mapping` | A / C |
+| Runtime serving | `accounts.credentials.model_mapping` + `tk_account_model_mapping_runtime` | A / C / D |
 | Price | overlay + channel pricing | A / C / hotfix |
 | Curated newapi intent | `tk_served_models.json` | A / C |

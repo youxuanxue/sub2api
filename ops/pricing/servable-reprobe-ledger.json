@@ -14,7 +14,7 @@
     {
       "platform": "antigravity",
       "model": "claude-sonnet-4-5",
-      "reason": "2026-06-23 prod /antigravity/v1/messages returned 429 not_allowlisted; current operator policy routes claude to anthropic and keeps antigravity gemini-only. Reprobe only if that policy changes.",
+      "reason": "2026-06-23 prod /antigravity/v1/messages returned 429 not_allowlisted for this specific legacy model. Antigravity Claude support was later reopened only for the live #1265 subset; keep this model out until reprobed.",
       "last_probe": "2026-06-23",
       "freshness_days": 30,
       "auto_probe": false,

@@ -1,35 +1,39 @@
 #!/usr/bin/env python3
 """TokenKey post-rollout antigravity config check (read-only).
 
-Verifies the gemini-only operator policy (antigravity serves gemini only; claude
-routed to anthropic, gpt-oss off antigravity) across all deployable edges + prod,
-on BOTH surfaces the backend ``AntigravityConfigReconciler`` self-heals:
+Verifies the Antigravity explicit model_mapping policy across all deployable
+edges + prod, on BOTH surfaces the backend ``AccountModelMappingReconciler``
+self-heals:
 
-  1. **accounts** — every ``platform=antigravity`` account carries a gemini-only
-     ``credentials.model_mapping`` (no ``claude-*`` / ``gpt-oss-*`` keys, no
-     PR #921 structural-dead Antigravity aliases, no unpriced $0-risk models),
+  1. **accounts** — every ``platform=antigravity`` account carries an explicit
+     ``credentials.model_mapping`` for the live Antigravity Gemini set plus the
+     PR #1265 Claude subset (``claude-sonnet-4-6`` and
+     ``claude-opus-4-6[-thinking]``), with no non-live ``claude-*``,
+     ``gpt-oss-*``, PR #921 structural-dead aliases, or unpriced $0-risk models,
      AND any active+schedulable account is bound to an antigravity group
      (account_groups).
-  2. **groups** — every active ``platform=antigravity`` group carries gemini-only
-     ``supported_model_scopes`` (exactly ``[gemini_text, gemini_image]``), so
-     ``/antigravity/v1/models`` + the API key usage guide hide claude.
+  2. **groups** — every active ``platform=antigravity`` group carries explicit
+     ``supported_model_scopes`` (exactly ``[claude, gemini_text, gemini_image]``),
+     so ``/antigravity/v1/models`` exposes only the scope families this platform
+     can actually serve.
 
-The reconciler self-heals the gemini-only config on every node (boot + tick); the
-group binding is a one-time provisioning step the reconciler does NOT heal, so this
-tool is the only safety net for it. This tool is the post-rollout *verification*.
+The reconciler self-heals account mappings and group scopes on every node (boot
++ tick); the group binding is a one-time provisioning step the reconciler does
+NOT heal, so this tool is the only safety net for it. This tool is the
+post-rollout *verification*.
 
 A **violation** is any antigravity account whose ``model_mapping`` is null/empty
-(an empty map falls back to ``DefaultAntigravityModelMapping``, which still
-includes claude + gpt-oss) or contains any ``claude-`` / ``gpt-oss-`` key or
-PR #921 structural-dead alias or unpriced $0-risk key, OR an
-active+schedulable account with no antigravity-group binding (account_groups
-missing → scheduler "No available accounts" 429: looks ready but silently never
-serves); OR any active antigravity group whose ``supported_model_scopes`` is
-empty (unrestricted → advertises claude) or not exactly the gemini-only set.
+(all platforms now use explicit mappings) or omits the live Claude subset, or
+contains a non-live ``claude-*`` key, any ``gpt-oss-*`` key, a PR #921
+structural-dead alias, or an unpriced $0-risk key; OR an active+schedulable
+account with no antigravity-group binding (account_groups missing → scheduler
+"No available accounts" 429: looks ready but silently never serves); OR any
+active antigravity group whose ``supported_model_scopes`` is empty/unrestricted
+or not exactly the live Antigravity scope set.
 
-Exit codes (mirrors the anthropic post-release check): ``0`` = all gemini-only
+Exit codes (mirrors the anthropic post-release check): ``0`` = all configured
 (green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
-not run (yellow). Read-only — never mutates. stdlib-only; reuses the shared
+not run (yellow). Read-only - never mutates. stdlib-only; reuses the shared
 ``ops/stage0`` routing + SSM identity helpers (single source for the edge matrix).
 """
 from __future__ import annotations
@@ -69,9 +73,14 @@ ANTIGRAVITY_GROUPS_SQL = (
     "FROM groups WHERE platform = 'antigravity' AND status = 'active' AND deleted_at IS NULL;"
 )
 
-# Canonical gemini-only group scopes — mirrors domain.GeminiOnlyAntigravityModelScopes
-# and the reconciler's antigravityGroupScopesNeedGeminiOnly predicate.
-GEMINI_ONLY_SCOPES = {"gemini_text", "gemini_image"}
+# Canonical Antigravity group scopes — mirrors AccountModelMappingReconciler.
+ANTIGRAVITY_CANONICAL_SCOPES = {"claude", "gemini_text", "gemini_image"}
+
+ANTIGRAVITY_LIVE_CLAUDE_MAPPING = {
+    "claude-sonnet-4-6": "claude-sonnet-4-6",
+    "claude-opus-4-6": "claude-opus-4-6-thinking",
+    "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+}
 
 ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS = {
     "gemini-2.5-flash-image-preview",
@@ -167,8 +176,8 @@ def _account_violation(row: dict) -> str | None:
     """Return a human reason if the account is misconfigured, else None.
 
     Two independent checks (both reported if both fail):
-      1. gemini-only model_mapping (no claude-* / gpt-oss-* keys, no unpriced
-         $0-risk keys, non-empty).
+      1. explicit live model_mapping (only PR #1265 Claude keys, no gpt-oss or
+         unpriced $0-risk keys, non-empty).
       2. group binding — an active+schedulable account MUST be bound to an
          antigravity group via account_groups, else the scheduler finds no
          account for that group and fast-fails every request with
@@ -180,11 +189,26 @@ def _account_violation(row: dict) -> str | None:
 
     mm = row.get("model_mapping")
     if not mm or not isinstance(mm, dict):
-        reasons.append("empty/missing model_mapping (falls back to default → serves claude/gpt-oss)")
+        reasons.append("empty/missing model_mapping (all platforms must be explicit)")
     else:
-        leaked = sorted(k for k in mm if k.startswith("claude-") or k.startswith("gpt-oss-"))
+        missing_live_claude = sorted(k for k in ANTIGRAVITY_LIVE_CLAUDE_MAPPING if k not in mm)
+        if missing_live_claude:
+            reasons.append("missing live Claude keys: " + ", ".join(missing_live_claude))
+        bad_live_targets = sorted(
+            k for k, v in ANTIGRAVITY_LIVE_CLAUDE_MAPPING.items()
+            if k in mm and mm.get(k) != v
+        )
+        if bad_live_targets:
+            reasons.append("bad live Claude remaps: " + ", ".join(
+                f"{k}->{mm.get(k)!r} want {ANTIGRAVITY_LIVE_CLAUDE_MAPPING[k]!r}" for k in bad_live_targets
+            ))
+        leaked = sorted(
+            k for k in mm
+            if (k.startswith("claude-") and k not in ANTIGRAVITY_LIVE_CLAUDE_MAPPING)
+            or k.startswith("gpt-oss-")
+        )
         if leaked:
-            reasons.append("serves excluded models: " + ", ".join(leaked))
+            reasons.append("serves unsupported models: " + ", ".join(leaked))
         stale = sorted(k for k in mm if k in ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS)
         if stale:
             reasons.append("contains structural-dead aliases: " + ", ".join(stale))
@@ -200,21 +224,21 @@ def _account_violation(row: dict) -> str | None:
 
 
 def _group_violation(row: dict) -> str | None:
-    """Return a human reason if the group scopes are NOT gemini-only, else None."""
+    """Return a human reason if the group scopes are not canonical, else None."""
     scopes = row.get("scopes")
     if not scopes or not isinstance(scopes, list):
-        return "empty/missing supported_model_scopes (unrestricted → advertises claude on /models + usage guide)"
+        return "empty/missing supported_model_scopes (unrestricted on /models + usage guide)"
     got = {str(s).strip() for s in scopes}
-    if got == GEMINI_ONLY_SCOPES:
+    if got == ANTIGRAVITY_CANONICAL_SCOPES:
         return None
     parts = []
-    extra = sorted(got - GEMINI_ONLY_SCOPES)
-    missing = sorted(GEMINI_ONLY_SCOPES - got)
+    extra = sorted(got - ANTIGRAVITY_CANONICAL_SCOPES)
+    missing = sorted(ANTIGRAVITY_CANONICAL_SCOPES - got)
     if extra:
         parts.append("unexpected: " + ", ".join(extra))
     if missing:
         parts.append("missing: " + ", ".join(missing))
-    return "scopes not gemini-only (" + "; ".join(parts) + ")"
+    return "scopes not canonical (" + "; ".join(parts) + ")"
 
 
 def _parse_rows(label: str, out: str) -> list:
@@ -255,7 +279,7 @@ def _resolve_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Post-rollout antigravity account gemini-only config check (read-only).")
+    ap = argparse.ArgumentParser(description="Post-rollout antigravity explicit model_mapping config check (read-only).")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--skip-prod", action="store_true", help="check edges only")
     ap.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
@@ -278,11 +302,11 @@ def main() -> int:
             "violations": sorted(violations, key=_sort_key),
         }, indent=2, ensure_ascii=False))
     elif violations:
-        print(f"FAIL: {len(violations)} antigravity config violation(s) not gemini-only across {len(targets)} target(s):")
+        print(f"FAIL: {len(violations)} antigravity config violation(s) across {len(targets)} target(s):")
         for v in sorted(violations, key=_sort_key):
             print(f"  [{v['target']}] {v.get('kind', 'account')} {v['id']} ({v['name']}): {v['reason']}")
     else:
-        print(f"OK: all antigravity accounts + groups gemini-only across {len(targets)} target(s)")
+        print(f"OK: all antigravity accounts + groups explicit across {len(targets)} target(s)")
 
     return 1 if violations else 0
 

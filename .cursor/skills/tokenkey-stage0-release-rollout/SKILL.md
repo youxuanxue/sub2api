@@ -34,6 +34,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
 | 发版后 tick 探针（hook 计数 + 流量/5xx/panic） | 机械 | `ops/observability/probe-post-release-tick.sh`（经 `run-probe.sh` 投递；默认 `CONTAINER=auto` 自动识别 prod blue/green active container；`HOOK_PATTERNS` 里的 hook 关键词由模型按 Step A 命名——命名是判断，计数是机械） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
+| **发版后 Account model_mapping 收敛检查** | 机械 | `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`（prod + deployable edges，只读；见 §「发版后 Account model_mapping 配置检查」） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
@@ -45,17 +46,18 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z] [anthropic_config_check=false] [main_via_edge=false]
+/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z] [anthropic_config_check=false] [account_model_mapping_check=false] [main_via_edge=false]
 ```
 
 | 参数 | 语义 |
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
-| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check。 |
+| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（edges 均为 Lightsail，路由到 `deploy-edge-lightsail-stage0.yml`）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_instance。 |
-| `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check。`main_via_edge=true` 才跑可选段。 |
+| `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
 | `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
+| `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`，只读验证 prod + deployable edges 的显式 `model_mapping` 收敛和关键别名/禁用模型不变量。`account_model_mapping_check=false` 跳过。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
@@ -109,7 +111,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 
 ## 一次性跑完（原则）
 
-- **顺序做完**：`release-bump-and-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **watch 到 deploy/smoke 成功** → **Anthropic OAuth snapshot/check（默认）** → **再做本地/日志验收 / followup**。不要在 workflow 绿灯后就结束会话。
+- **顺序做完**：`release-bump-and-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **watch 到 deploy/smoke 成功** → **Anthropic OAuth snapshot/check + Account model_mapping check（默认）** → **再做本地/日志验收 / followup**。不要在 workflow 绿灯后就结束会话。
 - **永远不在共享 checkout 里 bump/tag**：`release-bump-and-tag.sh` 自带 worktree 隔离与 fetch，不需要也不应该先 `git checkout main && git pull`（并行 agent 可能正占用 checkout——见 §「决策 + bump + tag」）。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
 - **Environment approval 不是失败**：`prod` / `edge-<edge_id>` run 卡在 `waiting` 时，按 §「部署目标矩阵 → prod」的 approval 命令在 canary 绿后自批（执行账号非 reviewer 时回落人工）；批准后继续 watch。
@@ -302,7 +304,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 8. **发版后跟进（按 diff 档位，至多一次 tick）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
    - `skip` → 不跟进，直接 rollout summary。
    - `single` → 仅 **+5min** 一次轻量诊断（含 gateway/schema/config 类变更；多轮 extended 档已下线，更长窗口仅人工显式发起）。
-9. **Anthropic OAuth 配置检查（默认，在 followup 之前）**：见 §「发版后 Anthropic OAuth 配置检查」。smoke 全绿后立即跑；violations 不触发 rollback，写入 rollout 摘要为 **yellow** 并指向 `/tokenkey-anthropic-oauth-config` 修复路径。
+9. **只读配置收敛检查（默认，在 followup 之前）**：先跑 §「发版后 Anthropic OAuth 配置检查」，再跑 §「发版后 Account model_mapping 配置检查」。violations 不触发 rollback，写入 rollout 摘要为 **yellow**；Anthropic violation 指向 `/tokenkey-anthropic-oauth-config`，model_mapping violation 先等一个 `AccountModelMappingReconciler` 周期后重跑，持续异常再查节点配置/日志。
 
 ## prod 真实测试
 
@@ -355,7 +357,7 @@ bash ops/stage0/post_deploy_smoke.sh
 
 通过标准同 `ops/stage0/post_deploy_smoke.sh` 文档；缺 key 不得声称 prod 完整验收通过。
 
-**prod release 默认下一步**：prod smoke 在 CI log 确认 `tk_post_deploy_smoke: OK` 后，立即跑 §「发版后 Anthropic OAuth 配置检查」（除非 `anthropic_config_check=false`）。
+**prod release 默认下一步**：prod smoke 在 CI log 确认 `tk_post_deploy_smoke: OK` 后，立即跑 §「发版后 Anthropic OAuth 配置检查」（除非 `anthropic_config_check=false`）和 §「发版后 Account model_mapping 配置检查」（除非 `account_model_mapping_check=false`）。
 
 ## Smoke 架构（单一 runner + suite）
 
@@ -597,15 +599,15 @@ guard_failures: <count guards with exit_code != 0>
 next: none | /tokenkey-anthropic-oauth-config <plan kind>
 ```
 
-## 发版后 Antigravity 账号配置检查（默认）
+## 发版后 Account model_mapping 配置检查（默认）
 
 **触发**（同时满足）：
 
 - `operation=release`（非 check / smoke-only / rollback）
 - 本次请求的 deploy + smoke 已验收通过（与上一段同条件）
-- 未显式 `antigravity_config_check=false`
+- 未显式 `account_model_mapping_check=false`
 
-**做什么 / 不做什么**：本段**只读**——逐 deployable edge + prod 经 SSM 读 `platform=antigravity` 账号的 `credentials.model_mapping`，断言每个账号都是 **gemini-only**（不含 `claude-*` / `gpt-oss-*` 键，且 model_mapping 非空——空映射会回退到含 claude 的默认）。不写任何库。后端 `AntigravityConfigReconciler` 已在每个节点启动时 + 周期自愈这条策略（gateway.scheduling.antigravity_config_reconciler_interval_seconds，默认 300s），本检查是发版后的**收敛验证**。
+**做什么 / 不做什么**：本段**只读**——逐 deployable edge + prod 经 SSM 读 active 账号和 Antigravity active groups，验证所有由 `AccountModelMappingReconciler` 管理的平台都已显式配置非空 `credentials.model_mapping`，并守住关键不变量：Grok 兼容别名保留、Antigravity 只包含 #1265 实测可服务 Claude 子集且无 `gpt-oss` / structural-dead / unpriced 键、Kiro 关键 Claude 模型存在、Antigravity group scopes 为 `claude/gemini_text/gemini_image`。不写任何库；runtime setting 只做合法性校验。后端 `AccountModelMappingReconciler` 已在每个节点启动时、`settings_updated` fan-out 和周期 tick 自愈，周期配置是 `gateway.scheduling.account_model_mapping_reconciler_interval_seconds`（默认 300s）。
 
 **机械化命令**：
 
@@ -614,26 +616,27 @@ NEW_TAG="${NEW_TAG:-$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1
 JOBDIR="${JOBDIR:-/tmp/tk-post-release-${NEW_TAG}-$$}"
 mkdir -p "$JOBDIR"
 
-python3 ops/antigravity/check-antigravity-account-config.py --json \
-  | tee "$JOBDIR/post-release-antigravity-check.json" >/dev/null
-AGY_RC=${PIPESTATUS[0]}
+python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json \
+  | tee "$JOBDIR/post-release-account-model-mapping-check.json" >/dev/null
+MODEL_MAPPING_RC=${PIPESTATUS[0]}
 ```
 
 **exit 语义**（写入 rollout 摘要）：
 
 | rc | 摘要 verdict | 动作 |
 |---|---|---|
-| 0 | **green** — 所有 antigravity 账号 gemini-only | 无需动作（reconciler 已收敛） |
-| 1 | **yellow** — 有账号仍可服务 claude/gpt-oss | 不 rollback 镜像；多为 reconciler 尚未跑到（或被 `antigravity_config_reconciler_interval_seconds<=0` 关闭）。等一个 reconciler 周期后重跑；持续 violation 则查该节点 reconciler 日志 / 配置 |
+| 0 | **green** — 所有受管平台账号 `model_mapping` 已显式收敛 | 无需动作 |
+| 1 | **yellow** — 有账号/Antigravity group/runtime setting 不满足不变量 | 不 rollback 镜像；多为 reconciler 尚未跑到、runtime JSON 不合法或节点配置关闭。等一个 reconciler 周期后重跑；持续 violation 则查该节点 `AccountModelMappingReconciler` 日志 / 配置，runtime scope 变更走 `/tokenkey-modelops-planner` 分支 D |
 | 2 | **yellow** — SSM/OIDC 只读失败 | 不 rollback；记 `JOBDIR` 路径，人工补跑 |
 
 **报告形状**（固定块，贴进 rollout 摘要）：
 
 ```text
-=== Post-release Antigravity account config check (${NEW_TAG}) ===
-result: OK | VIOLATION rc=1 | SKIP rc=2 → $JOBDIR/post-release-antigravity-check.json
+=== Post-release Account model_mapping check (${NEW_TAG}) ===
+result: OK | VIOLATION rc=1 | SKIP rc=2 → $JOBDIR/post-release-account-model-mapping-check.json
 violation_count: <from JSON .violation_count>
-next: none | 等 reconciler 周期后重跑 / 查节点 reconciler 日志
+error_count: <from JSON .error_count>
+next: none | 等 reconciler 周期后重跑 / 查节点 reconciler 日志 / tokenkey-modelops-planner 分支 D
 ```
 
 ## 完成后：rollout 摘要（机械化）
@@ -656,13 +659,14 @@ bash scripts/release-rollout-summary.sh --mode release
 | edge-<edge_id>（其余） | dispatch 脚本 → deploy-edge-lightsail-stage0 | ... | X.Y.Z | success/fail/skipped | infra |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
 | anthropic-oauth-config | manage-anthropic-config.py | — | — | check OK / violation / skip | snapshot+check（只读） |
-| antigravity-account-config | check-antigravity-account-config.py | — | — | gemini-only OK / violation / skip | 逐 edge+prod model_mapping（只读） |
+| account-model-mapping | manage-account-model-mapping-runtime.py check-accounts | — | — | check OK / violation / skip | 逐 edge+prod 显式 model_mapping（只读） |
 
 并补充：
 
 - **有效提交**：feat/fix/chore 分类。
 - **影响面与验证重点**：Gemini、OpenAI OAuth、pricing/model-list、frontend、sentinel、upstream 删除等按实际变更列出。
 - **Anthropic OAuth 配置检查**：§「发版后 Anthropic OAuth 配置检查」固定块；violation 时列 `post-release-check.json` 里的 edge / guard / balance 摘要。
+- **Account model_mapping 配置检查**：§「发版后 Account model_mapping 配置检查」固定块；violation 时列 `post-release-account-model-mapping-check.json` 里的 target / kind / account 摘要。
 - **未部署或未覆盖目标**：例如某些 edge 仍 `deployable=false`、用户只要求 prod、**main-via-edge: skipped (default)**、缺少 main-gateway-via-edge smoke secret、等待人工审批等。
 
 ## release 之后 main 是否还有提交
@@ -698,6 +702,8 @@ bash scripts/release-rollout-summary.sh --mode release
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
 | 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |
 | 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
+| 发版后 Account model_mapping `check-accounts` 报 violation | **不要** rollback 镜像；先等一个 `account_model_mapping_reconciler_interval_seconds` 周期后重跑。若持续 violation，查对应节点 `AccountModelMappingReconciler` 日志/配置；runtime JSON 不合法或需热补时走 `/tokenkey-modelops-planner` 分支 D 的 `validate/check/sync-runtime`。 |
+| 发版后 Account model_mapping `check-accounts` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`，必要时先 `--skip-prod` 只查 edge。 |
 
 ## 扩展阅读（按需打开）
 

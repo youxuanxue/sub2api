@@ -382,7 +382,7 @@ const loadAvailableModels = async () => {
       if (props.account.platform === PLATFORM_GEMINI) {
         selectedModelId.value = availableModels.value[0].id
       } else if (props.account.platform === PLATFORM_ANTIGRAVITY) {
-        // Backend pins AntigravityDefaultTestModelID first; gemini-only policy — no sonnet default.
+        // Backend pins AntigravityDefaultTestModelID first; keep the test default deterministic.
         selectedModelId.value = availableModels.value[0].id
       } else if (isKiroTestAccount.value) {
         selectedModelId.value =

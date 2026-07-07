@@ -55,14 +55,14 @@ import (
 //   - antigravity (2026-06-13 empirical probe: /v1internal:fetchAvailableModels
 //     catalog + per-model generateContent replay of edge-us3 account 3; refreshed
 //     2026-06-23 via prod /antigravity/v1beta/...:generateContent): kept the
-//     gemini wire ids that returned a real 200. claude AND gpt-oss-120b-medium
-//     are deliberately NOT listed under antigravity: per operator policy
-//     antigravity serves gemini only — claude is routed to anthropic accounts and
-//     gpt-oss off antigravity (both excluded per-account in
-//     credentials.model_mapping). gemini-2.5-pro remained inconclusive on
-//     2026-06-23 generateContent + streamGenerateContent retry (000 timeout), so
-//     it stays out until a real 200 — re-confirmed inconclusive on the 2026-06-27
-//     prod ANTIGRAVITY_CHAT_MODELS probe (000 timeout again), so it stays out.
+//     gemini wire ids that returned a real 200. PR #1265 / 2026-07-07 then
+//     confirmed the live Antigravity Claude subset is exactly
+//     claude-sonnet-4-6 and claude-opus-4-6-thinking (with bare
+//     claude-opus-4-6 mapped to the thinking wire id). gpt-oss remains off
+//     antigravity. gemini-2.5-pro remained inconclusive on 2026-06-23
+//     generateContent + streamGenerateContent retry (000 timeout), so it stays
+//     out until a real 200 — re-confirmed inconclusive on the 2026-06-27 prod
+//     ANTIGRAVITY_CHAT_MODELS probe (000 timeout again), so it stays out.
 //   - antigravity 2026-06-27 (prod ANTIGRAVITY_CHAT_MODELS probe via
 //     ops/pricing/probe-servable-models.sh): gemini-3.5-flash returned a real prod
 //     200 (was previously not servable) → added. It prices via the bundled litellm
@@ -140,13 +140,15 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:end gemini
 }
 
-// supportedAntigravityCatalogModels — antigravity wire ids confirmed servable
-// (2026-06-13 empirical probe, refreshed 2026-06-23; gemini only per operator
-// policy — claude routed to anthropic, gpt-oss off antigravity). Hand-maintained
-// (see header). While EMPTY the catalog/menu gates fall through to
-// passthrough/canonical (no regression).
+// supportedAntigravityCatalogModels — antigravity wire/client ids confirmed
+// servable (Gemini 2026-06 probes + PR #1265 Antigravity Claude live subset).
+// Hand-maintained (see header). While EMPTY the catalog/menu gates fall through
+// to passthrough/canonical (no regression).
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
+	"claude-opus-4-6":                {},
+	"claude-opus-4-6-thinking":       {},
+	"claude-sonnet-4-6":              {},
 	"gemini-2.5-flash":               {},
 	"gemini-2.5-flash-image":         {},
 	"gemini-2.5-flash-lite":          {},
@@ -230,8 +232,8 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 		return ok
 	case PlatformAntigravity:
 		// Empty set => not yet probed => passthrough (no regression). Populated
-		// here from the 2026-06-13 empirical probe (gemini only; claude routed
-		// to anthropic, gpt-oss off antigravity per operator policy).
+		// here from empirical probes (Gemini + PR #1265 live Claude subset;
+		// gpt-oss remains off antigravity).
 		if len(supportedAntigravityCatalogModels) == 0 {
 			return true
 		}

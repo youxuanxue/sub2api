@@ -29,6 +29,7 @@ hand-maintained empirical sets in the same file.
 | `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
 | `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
 | `reconcile-served-models.py` | Compatibility wrapper for `modelops.py`. New runbooks should call `modelops.py`. |
+| `manage-account-model-mapping-runtime.py` | Hot-pushes optional runtime replacement scopes to `settings.tk_account_model_mapping_runtime`, validates/diffs the prod runtime blob, and runs the post-release read-only `check-accounts` convergence scan across prod + deployable edges. |
 | `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
@@ -125,6 +126,25 @@ exact key/value differences. It also names the shared catalog/menu surface so
 operators do not hand-maintain a second menu list. Apply still goes through
 migrations, the guarded live model-mapping tool, `refresh-servable-allowlist.py`,
 or pricing-hotfix after review.
+
+## Account model_mapping runtime hot update
+
+Operator entry: skill `tokenkey-modelops-planner`, branch D. The runtime JSON is
+a scope replacement layer: each listed platform or newapi `channel_type`
+replaces the compiled account mapping floor for that scope; omitted scopes keep
+the compiled floor.
+
+```bash
+python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest
+python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json
+python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/account-model-mapping-runtime.json
+
+# after review:
+python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
+
+# post-release / post-hotfix convergence check:
+python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
+```
 
 ## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
 

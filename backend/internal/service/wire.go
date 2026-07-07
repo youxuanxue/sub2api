@@ -308,18 +308,21 @@ func ProvideAnthropicConfigReconciler(
 	return rec
 }
 
-// ProvideAntigravityConfigReconciler creates and starts the TK per-node
-// antigravity config self-healer (enforces gemini-only model_mapping on every
-// antigravity account in the local DB). Adapts the wire-provided concrete
-// account repo (which satisfies the reconciler's narrow store interface) and
-// Start()s the ticker. See antigravity_config_reconciler.go for the doctrine.
-func ProvideAntigravityConfigReconciler(
+// ProvideAccountModelMappingReconciler creates and starts the TK per-node
+// account model_mapping self-healer. It writes explicit model_mapping for every
+// active account from the compiled/runtime SSOT and keeps Antigravity group
+// scopes aligned with the live model families.
+func ProvideAccountModelMappingReconciler(
 	accountRepo AccountRepository,
 	groupRepo GroupRepository,
+	settingSvc *SettingService,
+	pricing *PricingCatalogService,
+	availability *PricingAvailabilityService,
 	cfg *config.Config,
 	redisClient *redis.Client,
-) *AntigravityConfigReconciler {
-	rec := NewAntigravityConfigReconciler(accountRepo, groupRepo, cfg, redisClient)
+	pubsub SettingPubSub,
+) *AccountModelMappingReconciler {
+	rec := NewAccountModelMappingReconciler(accountRepo, groupRepo, settingSvc, pricing, availability, cfg, redisClient, pubsub)
 	rec.Start()
 	return rec
 }
@@ -692,7 +695,7 @@ var ProviderSet = wire.NewSet(
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
-	ProvideAntigravityConfigReconciler,
+	ProvideAccountModelMappingReconciler,
 	ProvideUpstreamBalanceSentinel,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
 	ProvideEdgeAccountsAggregator,

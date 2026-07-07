@@ -29,45 +29,67 @@ CHK = _load_module()
 
 
 class AccountViolationTest(unittest.TestCase):
-    def test_gemini_only_account_clean(self):
-        self.assertIsNone(CHK._account_violation({"model_mapping": {"gemini-3-flash": "gemini-3-flash"}}))
+    def _live_mm(self):
+        return {
+            "gemini-3-flash": "gemini-3-flash",
+            "claude-sonnet-4-6": "claude-sonnet-4-6",
+            "claude-opus-4-6": "claude-opus-4-6-thinking",
+            "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+        }
+
+    def test_live_antigravity_account_clean(self):
+        self.assertIsNone(CHK._account_violation({"model_mapping": self._live_mm()}))
 
     def test_empty_mapping_is_violation(self):
         self.assertIsNotNone(CHK._account_violation({"model_mapping": None}))
         self.assertIsNotNone(CHK._account_violation({"model_mapping": {}}))
         self.assertIsNotNone(CHK._account_violation({}))
 
-    def test_claude_or_gptoss_key_is_violation(self):
-        r = CHK._account_violation({"model_mapping": {"claude-opus-4-8": "x", "gemini-3-flash": "y"}})
+    def test_non_live_claude_or_gptoss_key_is_violation(self):
+        mm = self._live_mm()
+        mm["claude-opus-4-8"] = "x"
+        r = CHK._account_violation({"model_mapping": mm})
         self.assertIsNotNone(r)
         self.assertIn("claude-opus-4-8", r)
-        self.assertIsNotNone(CHK._account_violation({"model_mapping": {"gpt-oss-120b-medium": "x"}}))
+        mm = self._live_mm()
+        mm["gpt-oss-120b-medium"] = "x"
+        self.assertIsNotNone(CHK._account_violation({"model_mapping": mm}))
+
+    def test_missing_live_claude_key_is_violation(self):
+        mm = self._live_mm()
+        del mm["claude-opus-4-6"]
+        r = CHK._account_violation({"model_mapping": mm})
+        self.assertIsNotNone(r)
+        self.assertIn("missing live Claude", r)
+
+    def test_bad_live_claude_remap_is_violation(self):
+        mm = self._live_mm()
+        mm["claude-opus-4-6"] = "claude-opus-4-6"
+        r = CHK._account_violation({"model_mapping": mm})
+        self.assertIsNotNone(r)
+        self.assertIn("bad live Claude", r)
 
     def test_structural_dead_alias_is_violation(self):
         for key in CHK.ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS:
             with self.subTest(key=key):
-                r = CHK._account_violation({"model_mapping": {key: "x", "gemini-pro-agent": "gemini-pro-agent"}})
+                mm = self._live_mm()
+                mm[key] = "x"
+                r = CHK._account_violation({"model_mapping": mm})
                 self.assertIsNotNone(r)
                 self.assertIn(key, r)
 
     def test_unpriced_model_key_is_violation(self):
         r = CHK._account_violation({
-            "model_mapping": {
-                "tab_flash_lite_preview": "tab_flash_lite_preview",
-                "gemini-pro-agent": "gemini-pro-agent",
-            },
+            "model_mapping": {**self._live_mm(), "tab_flash_lite_preview": "tab_flash_lite_preview"},
         })
         self.assertIsNotNone(r)
         self.assertIn("unpriced", r)
         self.assertIn("tab_flash_lite_preview", r)
 
-    def _gemini_only_mm(self):
-        return {"gemini-3-flash": "gemini-3-flash"}
-
     def test_active_schedulable_unbound_is_violation(self):
-        # the us4 gap: healthy gemini-only account but no account_groups binding.
+        # the us4 gap: healthy account but no account_groups binding.
         r = CHK._account_violation({
-            "model_mapping": self._gemini_only_mm(),
+            "model_mapping": self._live_mm(),
             "status": "active", "schedulable": True, "bound": False,
         })
         self.assertIsNotNone(r)
@@ -75,26 +97,26 @@ class AccountViolationTest(unittest.TestCase):
 
     def test_active_schedulable_bound_is_clean(self):
         self.assertIsNone(CHK._account_violation({
-            "model_mapping": self._gemini_only_mm(),
+            "model_mapping": self._live_mm(),
             "status": "active", "schedulable": True, "bound": True,
         }))
 
     def test_parked_account_unbound_is_not_flagged(self):
         # schedulable=false (intentionally parked) → binding not required, no false flag.
         self.assertIsNone(CHK._account_violation({
-            "model_mapping": self._gemini_only_mm(),
+            "model_mapping": self._live_mm(),
             "status": "active", "schedulable": False, "bound": False,
         }))
 
     def test_inactive_unbound_is_not_flagged(self):
         self.assertIsNone(CHK._account_violation({
-            "model_mapping": self._gemini_only_mm(),
+            "model_mapping": self._live_mm(),
             "status": "inactive", "schedulable": True, "bound": False,
         }))
 
     def test_bad_mapping_and_unbound_reports_both(self):
         r = CHK._account_violation({
-            "model_mapping": {"claude-opus-4-8": "x"},
+            "model_mapping": {**self._live_mm(), "claude-opus-4-8": "x"},
             "status": "active", "schedulable": True, "bound": False,
         })
         self.assertIsNotNone(r)
@@ -103,31 +125,31 @@ class AccountViolationTest(unittest.TestCase):
 
 
 class GroupViolationTest(unittest.TestCase):
-    def test_canonical_gemini_only_clean(self):
-        self.assertIsNone(CHK._group_violation({"scopes": ["gemini_text", "gemini_image"]}))
+    def test_canonical_scopes_clean(self):
+        self.assertIsNone(CHK._group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}))
 
     def test_order_independent(self):
-        self.assertIsNone(CHK._group_violation({"scopes": ["gemini_image", "gemini_text"]}))
+        self.assertIsNone(CHK._group_violation({"scopes": ["gemini_image", "claude", "gemini_text"]}))
 
     def test_empty_or_missing_is_violation(self):
         self.assertIsNotNone(CHK._group_violation({"scopes": None}))
         self.assertIsNotNone(CHK._group_violation({"scopes": []}))
         self.assertIsNotNone(CHK._group_violation({}))
 
-    def test_claude_present_is_violation(self):
-        r = CHK._group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]})
+    def test_missing_claude_is_violation(self):
+        r = CHK._group_violation({"scopes": ["gemini_text", "gemini_image"]})
         self.assertIsNotNone(r)
-        self.assertIn("unexpected: claude", r)
+        self.assertIn("missing: claude", r)
 
     def test_missing_image_is_violation(self):
         r = CHK._group_violation({"scopes": ["gemini_text"]})
         self.assertIsNotNone(r)
-        self.assertIn("missing: gemini_image", r)
+        self.assertIn("missing: claude", r)
+        self.assertIn("gemini_image", r)
 
     def test_canonical_set_matches_constant(self):
-        # The check's gemini-only set must equal the canonical scopes (mirrors the
-        # Go domain.GeminiOnlyAntigravityModelScopes + reconciler predicate).
-        self.assertEqual(CHK.GEMINI_ONLY_SCOPES, {"gemini_text", "gemini_image"})
+        # The check's set must equal the canonical scopes (mirrors the Go reconciler).
+        self.assertEqual(CHK.ANTIGRAVITY_CANONICAL_SCOPES, {"claude", "gemini_text", "gemini_image"})
 
 
 class SelfCheckSqlEnumerationTest(unittest.TestCase):

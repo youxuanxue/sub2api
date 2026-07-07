@@ -135,7 +135,7 @@ type Group struct {
 	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 
 	// 支持的模型系列（仅 antigravity 平台使用）。用户侧 keys 接口也需返回，供
-	// UseKeyModal 使用指南据此隐藏 gemini-only 分组的 Claude flavor（与后端
+	// UseKeyModal 使用指南据此隐藏不含 claude scope 分组的 Claude flavor（与后端
 	// /antigravity/v1/models 的 scope 过滤同源）。空 = 不限制。
 	SupportedModelScopes []string `json:"supported_model_scopes,omitempty"`
 

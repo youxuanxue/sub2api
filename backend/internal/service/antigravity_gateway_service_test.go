@@ -701,7 +701,7 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-preview:generateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash:generateContent", bytes.NewReader(body))
 	c.Request = req
 
 	respBody := []byte(`{
@@ -749,7 +749,7 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 		context.Background(),
 		c,
 		account,
-		"gemini-3-flash-preview",
+		"gemini-3-flash",
 		"generateContent",
 		false,
 		body,
@@ -894,7 +894,7 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/antigravity/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/antigravity/v1beta/models/gemini-3.1-pro:streamGenerateContent", bytes.NewReader(body))
 	c.Request = req
 
 	firstRespBody := []byte(`{"response":{"error":{"code":400,"message":"Corrupted thought signature.","status":"INVALID_ARGUMENT"}}}`)
@@ -927,8 +927,7 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 		httpUpstream:   upstream,
 	}
 
-	const originalModel = "gemini-3.1-pro-preview"
-	const legacyMappedModel = "gemini-3.1-pro-high"
+	const originalModel = "gemini-3.1-pro"
 	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          7,
@@ -941,7 +940,7 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 			"access_token": "token",
 			"project_id":   "proj",
 			"model_mapping": map[string]any{
-				originalModel: legacyMappedModel,
+				originalModel: mappedModel,
 			},
 		},
 	}
@@ -982,13 +981,12 @@ func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailove
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/antigravity/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/antigravity/v1beta/models/gemini-3.1-pro:streamGenerateContent", bytes.NewReader(body))
 	c.Request = req
 
 	firstRespBody := []byte(`{"response":{"error":{"code":400,"message":"Corrupted thought signature.","status":"INVALID_ARGUMENT"}}}`)
 
-	const originalModel = "gemini-3.1-pro-preview"
-	const legacyMappedModel = "gemini-3.1-pro-high"
+	const originalModel = "gemini-3.1-pro"
 	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          8,
@@ -1001,7 +999,7 @@ func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailove
 			"access_token": "token",
 			"project_id":   "proj",
 			"model_mapping": map[string]any{
-				originalModel: legacyMappedModel,
+				originalModel: mappedModel,
 			},
 		},
 	}

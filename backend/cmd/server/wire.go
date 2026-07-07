@@ -87,9 +87,9 @@ func provideCleanup(
 	// TK: per-node anthropic config self-healer — see
 	// internal/service/anthropic_config_reconciler.go.
 	anthropicConfigReconciler *service.AnthropicConfigReconciler,
-	// TK: per-node antigravity config self-healer (gemini-only model_mapping) —
-	// see internal/service/antigravity_config_reconciler.go.
-	antigravityConfigReconciler *service.AntigravityConfigReconciler,
+	// TK: per-node all-platform model_mapping self-healer — see
+	// internal/service/account_model_mapping_reconciler.go.
+	accountModelMappingReconciler *service.AccountModelMappingReconciler,
 	upstreamBalanceSentinel *service.UpstreamBalanceSentinel,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
@@ -234,9 +234,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"AntigravityConfigReconciler", func() error {
-				if antigravityConfigReconciler != nil {
-					antigravityConfigReconciler.Stop()
+			{"AccountModelMappingReconciler", func() error {
+				if accountModelMappingReconciler != nil {
+					accountModelMappingReconciler.Stop()
 				}
 				return nil
 			}},

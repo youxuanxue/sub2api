@@ -324,11 +324,11 @@ func TestTkAntigravityFilterModelsByGroupScopes(t *testing.T) {
 		return out
 	}
 
-	// gemini-only group (operator policy): claude + gpt-oss dropped.
+	// Group without claude/gpt_oss scopes: claude + gpt-oss dropped.
 	got := tkAntigravityFilterModelsByGroupScopes([]string{"gemini_text", "gemini_image"}, models)
 	want := []string{"gemini-3-flash", "gemini-pro-agent", "gemini-3.1-flash-image"}
 	if strings.Join(ids(got), ",") != strings.Join(want, ",") {
-		t.Fatalf("gemini-only scope filter = %v, want %v", ids(got), want)
+		t.Fatalf("scope filter without claude/gpt_oss = %v, want %v", ids(got), want)
 	}
 
 	// gemini_text only: image dropped too.

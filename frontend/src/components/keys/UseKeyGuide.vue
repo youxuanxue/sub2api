@@ -238,7 +238,7 @@ interface Props {
   // 分组的「支持的模型系列」(claude / gemini_text / gemini_image)。仅 antigravity 用：
   // 不含 'claude' 时隐藏 Claude flavor（Claude Code tab + OpenCode antigravity-claude
   // provider）。本指南只按 claude flavor 做粗粒度 gate；gemini_text 与 gemini_image 的
-  // 细分仅后端 /antigravity/v1/models 生效（运营策略下两者总是成对 = gemini-only）。
+  // 细分仅后端 /antigravity/v1/models 生效。
   // 空/未传 = 不限制。
   supportedModelScopes?: string[]
 }
@@ -539,7 +539,7 @@ const clientTabs = computed((): TabConfig[] => {
       ]
     case 'antigravity': {
       const tabs: TabConfig[] = []
-      // gemini-only 分组（supported_model_scopes 不含 claude）隐藏 Claude Code tab。
+      // supported_model_scopes 不含 claude 时隐藏 Claude Code tab。
       if (antigravityClaudeAllowed.value) {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
       }
@@ -709,7 +709,7 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateOpenCodeConfig('gemini', geminiBase, apiKey)]
       case 'antigravity': {
         const configs: FileConfig[] = []
-        // gemini-only 分组隐藏 antigravity-claude provider，只给 gemini 配置。
+        // supported_model_scopes 不含 claude 时隐藏 antigravity-claude provider。
         if (antigravityClaudeAllowed.value) {
           configs.push(generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'))
         }

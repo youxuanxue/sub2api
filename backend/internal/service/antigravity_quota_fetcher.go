@@ -176,7 +176,7 @@ func (f *AntigravityQuotaFetcher) buildUsageInfo(modelsResp *antigravity.FetchAv
 	// 优先用当下 active 的 sonnet 别名；claude-sonnet-4 alias 仍保留作为旧账号兜底；
 	// claude-sonnet-4-20250514 在 Anthropic 主站 2026-06-15 退役，
 	// antigravity 上由 ModelForwardingRules 自动转发，不再放进 priority 列表。
-	priorityModels := []string{"claude-sonnet-4-6", "claude-sonnet-4", "gemini-2.5-pro"}
+	priorityModels := []string{"claude-sonnet-4-6", "claude-sonnet-4", "gemini-3-flash"}
 	for _, modelName := range priorityModels {
 		if modelInfo, ok := modelsResp.Models[modelName]; ok && modelInfo.QuotaInfo != nil {
 			utilization := (1.0 - modelInfo.QuotaInfo.RemainingFraction) * 100

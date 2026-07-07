@@ -203,11 +203,11 @@ func TestBuildUsageInfo_ModelWithNilQuotaInfo(t *testing.T) {
 func TestBuildUsageInfo_FiveHourPriorityOrder(t *testing.T) {
 	fetcher := &AntigravityQuotaFetcher{}
 
-	// priorityModels = ["claude-sonnet-4-6", "claude-sonnet-4", "gemini-2.5-pro"]
+	// priorityModels = ["claude-sonnet-4-6", "claude-sonnet-4", "gemini-3-flash"]
 	// When the first priority model exists, it should be used for FiveHour
 	modelsResp := &antigravity.FetchAvailableModelsResponse{
 		Models: map[string]antigravity.ModelInfo{
-			"gemini-2.5-pro": {
+			"gemini-3-flash": {
 				QuotaInfo: &antigravity.ModelQuotaInfo{
 					RemainingFraction: 0.40,
 					ResetTime:         "2026-03-08T18:00:00Z",
@@ -243,7 +243,7 @@ func TestBuildUsageInfo_FiveHourFallbackToClaude4(t *testing.T) {
 					ResetTime:         "2026-03-08T14:00:00Z",
 				},
 			},
-			"gemini-2.5-pro": {
+			"gemini-3-flash": {
 				QuotaInfo: &antigravity.ModelQuotaInfo{
 					RemainingFraction: 0.30,
 				},
@@ -261,10 +261,10 @@ func TestBuildUsageInfo_FiveHourFallbackToClaude4(t *testing.T) {
 func TestBuildUsageInfo_FiveHourFallbackToGemini(t *testing.T) {
 	fetcher := &AntigravityQuotaFetcher{}
 
-	// Only gemini-2.5-pro exists (third in priority list)
+	// Only gemini-3-flash exists (third in priority list)
 	modelsResp := &antigravity.FetchAvailableModelsResponse{
 		Models: map[string]antigravity.ModelInfo{
-			"gemini-2.5-pro": {
+			"gemini-3-flash": {
 				QuotaInfo: &antigravity.ModelQuotaInfo{
 					RemainingFraction: 0.30,
 				},

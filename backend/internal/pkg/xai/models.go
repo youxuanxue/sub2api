@@ -39,14 +39,18 @@ func DefaultModelIDs() []string {
 }
 
 func DefaultModelMapping() map[string]string {
-	mapping := make(map[string]string, len(defaultModels)+3)
+	mapping := make(map[string]string, len(defaultModels)+9)
 	for _, model := range defaultModels {
 		mapping[model.ID] = model.ID
 	}
 	mapping["grok"] = "grok-4.3"
 	mapping["grok-latest"] = "grok-4.3"
 	mapping["grok-build"] = "grok-build-0.1"
+	mapping["grok-4.3-latest"] = "grok-4.3"
+	mapping["grok-4-fast-reasoning"] = "grok-4.3"
 	mapping["grok-4.20-reasoning"] = "grok-4.20-0309-reasoning"
 	mapping["grok-4.20-non-reasoning"] = "grok-4.20-0309-non-reasoning"
+	mapping["grok-code-fast"] = "grok-build-0.1"
+	mapping["grok-code-fast-1-0825"] = "grok-build-0.1"
 	return mapping
 }

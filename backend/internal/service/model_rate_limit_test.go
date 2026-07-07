@@ -108,24 +108,24 @@ func TestIsModelRateLimited(t *testing.T) {
 			expected:       true,
 		},
 		{
-			name: "antigravity platform - gemini-3-pro-preview mapped to gemini-pro-agent",
+			name: "antigravity platform - gemini-3.1-pro mapped to gemini-pro-agent",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						// 2026-06-15 起 gemini-3-pro-preview → gemini-pro-agent
-						// （gemini-3-pro-high 上游目录已无）。
+						// 2026-06-15 起 gemini-3.1-pro → gemini-pro-agent
+						// （gemini-3.1-pro-high 上游目录已无）。
 						"gemini-pro-agent": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
 				},
 			},
-			requestedModel: "gemini-3-pro-preview",
+			requestedModel: "gemini-3.1-pro",
 			expected:       true,
 		},
 		{
-			name: "antigravity platform - gemini family rate limit blocks mapped preview",
+			name: "antigravity platform - gemini family rate limit blocks mapped alias",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
@@ -136,7 +136,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3-pro-preview",
+			requestedModel: "gemini-3.1-pro",
 			expected:       true,
 		},
 		{
@@ -166,7 +166,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3-pro-preview",
+			requestedModel: "gemini-3.1-pro",
 			expected:       false, // gemini 平台不走 antigravity 映射
 		},
 		{
@@ -430,7 +430,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3-pro-preview",
+			requestedModel: "gemini-3.1-pro",
 			minExpected:    9 * time.Minute,
 			maxExpected:    11 * time.Minute,
 		},

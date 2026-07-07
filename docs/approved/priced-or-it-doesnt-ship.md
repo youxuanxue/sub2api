@@ -55,9 +55,9 @@ supersedes: none
 | unpriced never blocks | `gateway_service_tk_served_zero_cost.go`：*「计价不确定时系统选择免费放行（unpriced never blocks）…… 不拒绝服务、不改金额，纯可观测性」* | 未定价的已服务 id 被按 `$0` 记账；唯一反馈是事后的 P0 飞书告警。 |
 | 价格解析会 fail-open | `billing_service.go:757`：`GetModelPricing`（litellm/overlay 真价 + Go fallback）都 miss 时返 `ErrModelPricingUnavailable`，funnel 记 `$0` 并服务。注：`channel_model_pricing` 是 billing 计费路径的**另一个**价源（`resolveChannelPricing`，`gateway_service.go:10295`），**不在** `GetModelPricing` 内——故闸必须**两个源都查**（见 §2，复审 B1）。 | 漏血窗口 = 上游发模型 → 运维注意到 P0 → 热补价，这段时间。 |
 | A1 只在 CI | `pricing-serving-single-source-of-truth.md` §3：A1 断言每个 catalog/manifest id 可解析出价——**在 CI**。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
-| newapi 已堵 | `account_service_tk_newapi_mapping.go`（`validateNewapiAccountModelMapping`）+ `universal_routing_tk_serving.go`（`groupServesModel`）：多 vendor 的 `newapi` 平台空映射是配置错误，写时 + 路由处都拦。 | 缺口**只在 native 单 vendor 平台**（anthropic / openai / gemini / antigravity），那里空映射是有意透传。 |
+| newapi 已堵，native 正在收敛 | `account_service_tk_newapi_mapping.go`（`validateNewapiAccountModelMapping`）+ `AccountModelMappingReconciler`：newapi 写时强制非空；native 平台由 reconciler 写入显式 `model_mapping`，不再把空 mapping 当目标运营状态。 | 剩余风险只在 reconciler 尚未跑完、被禁用或账号刚创建的短窗口；空 mapping 是降级 fallback，不是配置目标。 |
 
-**漏洞窄而具体**：native 平台 catch-all 账号按 `$0` 服务上游新、未定价的 id。其余（newapi、已上架 manifest id）都已覆盖。
+**漏洞窄而具体**：历史 native 平台 catch-all 账号会按 `$0` 服务上游新、未定价的 id。当前修复路径是用显式 `model_mapping` 收敛账号配置；其余（newapi、已上架 manifest id）都已覆盖。
 
 **修法 = 家族 floor，而非拒**：漏洞的根是「无价 → `$0`」，但修法**不是**把无价一律拒（那会误杀刚发布的
 主流家族新模型 = 可用性回退），而是把无价的**主流家族**落到**家族中位 floor**（既非 `$0`、也不误拒），

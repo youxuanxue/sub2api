@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -525,10 +524,13 @@ func TestAccountHandlerGetAvailableModels_GrokUsesGrokCatalog(t *testing.T) {
 	require.False(t, ids["claude-sonnet-4-6"], "grok must not fall through to Claude catalog")
 }
 
-func TestAccountHandlerGetAvailableModels_AntigravityUsesGeminiOnlyCatalog(t *testing.T) {
-	geminiOnly := make(map[string]any, len(domain.GeminiOnlyAntigravityModelMapping))
-	for k, v := range domain.GeminiOnlyAntigravityModelMapping {
-		geminiOnly[k] = v
+func TestAccountHandlerGetAvailableModels_AntigravityUsesLiveCatalog(t *testing.T) {
+	mapping := map[string]any{
+		service.AntigravityDefaultTestModelID: "gemini-3-flash",
+		"gemini-pro-agent":                    "gemini-pro-agent",
+		"claude-sonnet-4-6":                   "claude-sonnet-4-6",
+		"claude-opus-4-6":                     "claude-opus-4-6-thinking",
+		"claude-opus-4-6-thinking":            "claude-opus-4-6-thinking",
 	}
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
@@ -539,7 +541,7 @@ func TestAccountHandlerGetAvailableModels_AntigravityUsesGeminiOnlyCatalog(t *te
 			Type:     service.AccountTypeOAuth,
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
-				"model_mapping": geminiOnly,
+				"model_mapping": mapping,
 			},
 		},
 	}
@@ -563,7 +565,9 @@ func TestAccountHandlerGetAvailableModels_AntigravityUsesGeminiOnlyCatalog(t *te
 	ids := modelIDSet(resp.Data)
 	require.True(t, ids["gemini-3-flash"])
 	require.True(t, ids["gemini-pro-agent"])
-	require.False(t, ids["claude-sonnet-4-5"], "antigravity admin test must not offer claude models")
+	require.True(t, ids["claude-sonnet-4-6"], "antigravity admin test must expose the #1265 live Claude subset")
+	require.False(t, ids["claude-sonnet-4-5"], "antigravity admin test must not offer non-live Claude models")
+	require.False(t, ids["gpt-oss-120b-medium"], "antigravity admin test must not offer gpt-oss")
 }
 
 func TestAccountHandlerGetAvailableModels_KiroMirrorStubUsesKiroCatalog(t *testing.T) {

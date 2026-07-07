@@ -48,7 +48,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 | 1 | `anthropic` | Anthropic OAuth | 原生；prod→edge 镜像中继（`cc-<edge>` apikey）；账号级 sticky/load-aware | Go `supportedAnthropicCatalogModels`（硬闸）|
 | 2 | `openai` | OpenAI / Codex OAuth | 原生；GPT 专线 key | Go `supportedOpenAICatalogModels`（硬闸）|
 | 3 | `gemini` | Google Vertex AI | 原生；media 经 Vertex ch41 | Go `supportedGeminiCatalogModels`（空则透传）|
-| 4 | `antigravity` | Google cloudcode-pa OAuth | 原生中继；**仅服务 gemini**（claude 路由到 anthropic，gpt-oss 排除）| Go `supportedAntigravityCatalogModels`（空则透传）|
+| 4 | `antigravity` | Google cloudcode-pa OAuth | 原生中继；服务 Gemini + PR #1265 live Claude 子集（`claude-sonnet-4-6`、`claude-opus-4-6-thinking`；`gpt-oss` 排除）| Go `supportedAntigravityCatalogModels` + 显式账号 `model_mapping` |
 | 5 | `newapi` | 各 channel 上游（Ali/DeepSeek/VolcEngine/…）| OpenAI 兼容网关 + new-api 适配器（`channel_type>0`）| 账号 `credentials.model_mapping` 白名单 + `tk_served_models.json` 清单（**展示/IsModelPriced 均 manifest 硬闸**）|
 | 6 | `kiro` | AWS CodeWhisperer | prod→edge anthropic apikey 中继；镜像进 claude 组 | 中继 claude id（无自有目录）|
 | 7 | `grok` | xAI（SuperGrok Heavy OAuth）| 原生 OAuth 中继；chat/image/video 全臂 | Go `supportedGrokCatalogModels`（空则透传）|
@@ -143,8 +143,8 @@ gemini-3.5-flash-low       gemini-pro-agent
 
 - 价/展示闭环（2026-06-23）：`gemini-2.5-flash-thinking` 已补 `tk_pricing_overlay.json`（按 bundled `gemini-2.5-flash` 官方价镜像：in $0.30/M、out $2.50/M、cache-read $0.03/M）；`gemini-3-flash-agent`、`gemini-3.5-flash-{low,extra-low}`、`gemini-pro-agent` 继续走 Antigravity overlay；`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-3-flash`、`gemini-3.1-flash-image`、`gemini-3.1-pro-low` 走 bundled/litellm Gemini/Vertex 非零价。`/antigravity/models` 和 admin selector 已接 `supportedAntigravityCatalogModels`，因此这些 10 个 id 会作为 Antigravity 默认可见候选；`gemini-2.5-pro` 虽有原生 Gemini 价，但因 Antigravity 复测未拿到 200，不进该面。
 - `/api/v1/public/pricing` 仍是 flat `model_id` 目录：同名模型（如 `gemini-3-flash`）已有 Gemini/Vertex vendor 行时，fill-only overlay 不改 vendor 归属；只有 overlay-only wire id（如 `gemini-2.5-flash-thinking`、`gemini-3-flash-agent`、`gemini-pro-agent`）会显示为 `vendor=antigravity`。这是当前 DTO 的平台维度限制，不影响 Antigravity 请求按 `requested_model` 计费。
-- **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / gemini-only mapping / reconciler 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或自愈回写。
-- **policy（不可服务因策略）**：整个 claude-* 家族 + `gpt-oss-120b-medium` 按操作员策略不在 antigravity 服务（claude 路由到 anthropic）；由 `AntigravityConfigReconciler` 自愈维持 gemini-only。2026-06-23 `claude-sonnet-4-5` 经 `/antigravity/v1/messages` 返回 429 not_allowlisted，符合当前策略。
+- **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / reconciler 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或自愈回写。
+- **policy（不可服务因策略）**：`gpt-oss-120b-medium` 与非 live Antigravity Claude id 不在 antigravity 服务；`AccountModelMappingReconciler` 写入显式 `model_mapping`，仅保留 PR #1265 live Claude 子集（`claude-sonnet-4-6`、`claude-opus-4-6-thinking`，含 `claude-opus-4-6` 兼容别名）+ Gemini 可服务清单。
 
 ### 2.5 grok（第七平台，xAI）
 
@@ -269,7 +269,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 ### 4.3 policy（能服务但故意不上）—— 代表
 
-- **antigravity** claude-* 全族 + `gpt-oss-120b-medium`（操作员路由策略，`AntigravityConfigReconciler` 自愈）。
+- **antigravity** 非 PR #1265 live Claude id + `gpt-oss-120b-medium`（`AccountModelMappingReconciler` 显式 mapping 自愈）。
 - **grok** `grok-4.x`/`grok-3`/`-search` 变体（unpriced-by-discipline，$0-P0；上价后才上）。
 - **openai** `gpt-image-{1,1.5,2}`（真产品，缺 `api.model.images.request` scope；加 `type=apikey` 账号后可复测）。
 - **newapi 聚合器/未接渠道**：~30 个无 TK 账号的 channel（Bedrock/OpenRouter/SiliconFlow/Mistral/Cohere/Perplexity/Midjourney/Kling/Jimeng/Vidu/Sora/Suno…）——见 §5。

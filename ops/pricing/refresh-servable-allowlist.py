@@ -597,7 +597,7 @@ def write_allowlists(servable: dict[str, set[str]], ledger: dict | None = None) 
     for plat in platforms:
         if not final[plat]:
             # Empty => this platform was not probed in this run (a partial refresh,
-            # e.g. gemini-only). Skip so we never WIPE an existing allowlist with a
+            # e.g. a single-platform subset). Skip so we never WIPE an existing allowlist with a
             # subset probe. A genuine "all dropped" is rare; clear it by hand if so.
             print(f"[refresh] {plat}: 0 servable in results — leaving existing block untouched", file=sys.stderr)
             continue

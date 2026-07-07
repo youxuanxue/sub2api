@@ -1235,13 +1235,12 @@ type GatewaySchedulingConfig struct {
 	// 提供 300 秒默认。仅写本部署自己的库。
 	AnthropicConfigReconcilerIntervalSeconds int `mapstructure:"anthropic_config_reconciler_interval_seconds"`
 
-	// AntigravityConfigReconcilerIntervalSeconds 本机 Antigravity 配置自愈 reconciler 周期（秒）。
-	// 把「antigravity 只服务 gemini」运营策略下沉为每节点 in-process 自愈：任何还能服务
-	// claude/gpt-oss 的 antigravity 账号（空 model_mapping 会回退到含 live Claude 子集的默认映射）会被
-	// 自动改写为 gemini-only model_mapping（Claude 按账号策略显式开，gpt-oss 移出）。启动时立即
-	// 跑一次 + 周期自愈，覆盖当前账号/未来新建账号/漂移。<=0 禁用 reconciler goroutine；
-	// viper.SetDefault 提供 300 秒默认。仅写本部署自己的库（不改全局默认映射常量）。
-	AntigravityConfigReconcilerIntervalSeconds int `mapstructure:"antigravity_config_reconciler_interval_seconds"`
+	// AccountModelMappingReconcilerIntervalSeconds 本机全平台账号 model_mapping 自愈
+	// reconciler 周期（秒）。它把 TokenKey 的可服务+已定价+可展示模型 SSOT 写入每个 active
+	// account 的 credentials.model_mapping，使 native 平台也不再依赖“空 mapping = allow-all”
+	// 作为运营状态。启动时立即跑一次 + 周期自愈，覆盖当前账号/未来新建账号/漂移；
+	// <=0 禁用 reconciler goroutine；viper.SetDefault 提供 300 秒默认。仅写本部署自己的库。
+	AccountModelMappingReconcilerIntervalSeconds int `mapstructure:"account_model_mapping_reconciler_interval_seconds"`
 
 	// AnthropicConfigReconcilerConcurrencyMirrorEnabled 开启 surface-C 并发镜像消费端
 	// （prod：经 HTTP 实时拉每个镜像 stub 指向的 edge capacity，把 stub.concurrency 收敛为
@@ -2160,7 +2159,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_interval_seconds", 300)
-	viper.SetDefault("gateway.scheduling.antigravity_config_reconciler_interval_seconds", 300)
+	viper.SetDefault("gateway.scheduling.account_model_mapping_reconciler_interval_seconds", 300)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", true)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_balance_floor_enabled", false)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)

@@ -322,7 +322,7 @@ func TestAccountGetMappedModel(t *testing.T) {
 	}
 }
 
-func TestAccountGetModelMapping_AntigravityNormalizesGemini31ProAliases(t *testing.T) {
+func TestAccountGetModelMapping_AntigravityExplicitMappingIsAuthoritative(t *testing.T) {
 	t.Parallel()
 
 	account := &Account{
@@ -338,14 +338,14 @@ func TestAccountGetModelMapping_AntigravityNormalizesGemini31ProAliases(t *testi
 
 	mapping := account.GetModelMapping()
 
-	if got := mapping["gemini-3.1-pro"]; got != domain.AntigravityGemini31ProAgentModel {
-		t.Fatalf("expected gemini-3.1-pro to map to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	if got := mapping["gemini-3.1-pro"]; got != "" {
+		t.Fatalf("expected absent gemini-3.1-pro to stay unset, got %q", got)
 	}
-	if got := mapping["gemini-3.1-pro-high"]; got != domain.AntigravityGemini31ProAgentModel {
-		t.Fatalf("expected gemini-3.1-pro-high to map to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	if got := mapping["gemini-3.1-pro-high"]; got != "gemini-3.1-pro-high" {
+		t.Fatalf("expected explicit gemini-3.1-pro-high mapping to be preserved, got %q", got)
 	}
-	if got := mapping["gemini-3.1-pro-preview"]; got != domain.AntigravityGemini31ProAgentModel {
-		t.Fatalf("expected gemini-3.1-pro-preview to map to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	if got := mapping["gemini-3.1-pro-preview"]; got != "gemini-3.1-pro-high" {
+		t.Fatalf("expected explicit gemini-3.1-pro-preview mapping to be preserved, got %q", got)
 	}
 }
 
@@ -371,8 +371,8 @@ func TestAccountGetModelMapping_AntigravityPreservesGemini31ProOverrides(t *test
 	if got := mapping["gemini-3.1-pro-preview"]; got != "custom-preview" {
 		t.Fatalf("expected gemini-3.1-pro-preview override to be preserved, got %q", got)
 	}
-	if got := mapping["gemini-3.1-pro"]; got != domain.AntigravityGemini31ProAgentModel {
-		t.Fatalf("expected gemini-3.1-pro alias to default to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	if got := mapping["gemini-3.1-pro"]; got != "" {
+		t.Fatalf("expected absent gemini-3.1-pro alias to stay unset, got %q", got)
 	}
 }
 
@@ -492,7 +492,7 @@ func TestAccountResolveMappedModel(t *testing.T) {
 	}
 }
 
-func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *testing.T) {
+func TestAccountGetModelMapping_AntigravityDoesNotAutofillExplicitMapping(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
 		Credentials: map[string]any{
@@ -503,28 +503,20 @@ func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *t
 	}
 
 	mapping := account.GetModelMapping()
-	if mapping["gemini-3-flash"] != "gemini-3-flash" {
-		t.Fatalf("expected gemini-3-flash passthrough to be auto-filled, got: %q", mapping["gemini-3-flash"])
+	if mapping["gemini-3-pro-high"] != "gemini-3.1-pro-high" {
+		t.Fatalf("expected explicit mapping to be preserved, got: %q", mapping["gemini-3-pro-high"])
 	}
-	// gemini-3.1-pro-high 上游已 deprecated（identity 透传会 400），自定义映射缺省时
-	// 通过 gemini-pro-agent safety-net 归一到可服务 wire id，而不是补 identity。
-	if mapping["gemini-3.1-pro-high"] != domain.AntigravityGemini31ProAgentModel {
-		t.Fatalf("expected deprecated gemini-3.1-pro-high to remap to %q, got: %q", domain.AntigravityGemini31ProAgentModel, mapping["gemini-3.1-pro-high"])
-	}
-	if mapping["gemini-3.1-pro-low"] != "gemini-3.1-pro-low" {
-		t.Fatalf("expected gemini-3.1-pro-low passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-low"])
-	}
-	// 2026-06 实测可服务 wire id：自定义 model_mapping 账号也须经 safety-net 透传，
-	// 否则公共目录 / UseKeyModal 宣告可服务但自定义账号拒绝（三档 thinking budget
-	// 须对称，extra-low 不得遗漏）。
 	for _, id := range []string{
+		"gemini-3-flash",
+		"gemini-3.1-pro-high",
+		"gemini-3.1-pro-low",
 		"gemini-3.5-flash-low",
 		"gemini-3.5-flash-extra-low",
 		"gemini-3-flash-agent",
 		"gemini-pro-agent",
 	} {
-		if mapping[id] != id {
-			t.Fatalf("expected %q identity passthrough to be auto-filled for custom-mapped antigravity account, got: %q", id, mapping[id])
+		if _, exists := mapping[id]; exists {
+			t.Fatalf("did not expect %q to be auto-filled into explicit antigravity mapping", id)
 		}
 	}
 }

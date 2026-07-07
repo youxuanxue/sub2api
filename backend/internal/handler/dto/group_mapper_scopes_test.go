@@ -11,13 +11,13 @@ import (
 // TestGroupFromService_UserPathCarriesSupportedModelScopes locks the fix for the
 // antigravity usage-guide gap: the user-facing keys DTO (GroupFromService /
 // APIKeyFromService.Group) MUST surface supported_model_scopes so UseKeyModal can
-// hide the Claude flavor for gemini-only antigravity groups. The field used to live
+// hide the Claude flavor for antigravity groups without claude scope. The field used to live
 // only on AdminGroup, so the user path returned it as undefined and the guide always
 // showed Claude.
 func TestGroupFromService_UserPathCarriesSupportedModelScopes(t *testing.T) {
 	src := &service.Group{
 		ID:                   7,
-		Name:                 "antigravity-gemini-only",
+		Name:                 "antigravity-no-claude-scope",
 		Platform:             "antigravity",
 		SupportedModelScopes: []string{"gemini_text", "gemini_image"},
 	}
