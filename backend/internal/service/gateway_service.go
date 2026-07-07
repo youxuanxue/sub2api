@@ -5089,7 +5089,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// See gateway_anthropic_deprecated_model_tk.go.
 	if account.Platform == PlatformAnthropic {
 		if replacement, deprecated := tkIsDeprecatedAnthropicModel(mappedModel); deprecated {
-			tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
+			TkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
 			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
 		}
 	}
@@ -10369,7 +10369,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// rewrites take precedence. See gateway_anthropic_deprecated_model_tk.go.
 	if account.Platform == PlatformAnthropic && reqModel != "" {
 		if replacement, deprecated := tkIsDeprecatedAnthropicModel(reqModel); deprecated {
-			tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
+			TkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
 			return fmt.Errorf("anthropic model %q is retired (suggest %q)", reqModel, replacement)
 		}
 	}

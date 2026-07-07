@@ -83,6 +83,9 @@ func tkWrapSelectionFailure(requestedModel string, stats selectionFailureStats) 
 	if requestedModel == "" {
 		return ErrNoAvailableAccounts
 	}
+	if err := tkDeprecatedAnthropicSelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if tkSelectionFailedDueToUnsupportedModel(stats) {
 		return fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))
 	}
