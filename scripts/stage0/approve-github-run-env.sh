@@ -44,8 +44,8 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 2
 fi
 
-REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || {
-  echo "approve-github-run-env: gh repo view failed" >&2
+REPO="$(bash "$REPO_ROOT/scripts/lib/resolve-gh-repo.sh" "$REPO_ROOT" 2>/dev/null)" || {
+  echo "approve-github-run-env: failed to resolve GitHub repo" >&2
   exit 2
 }
 

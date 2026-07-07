@@ -32,8 +32,8 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 2
 fi
 
-REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || {
-  echo "[release-configure-main-bypass] ERROR: gh repo view failed" >&2
+REPO="$(bash "$(dirname "$0")/lib/resolve-gh-repo.sh" "$(pwd)" 2>/dev/null)" || {
+  echo "[release-configure-main-bypass] ERROR: failed to resolve GitHub repo" >&2
   exit 2
 }
 
