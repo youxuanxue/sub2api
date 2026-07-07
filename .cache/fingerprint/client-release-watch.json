@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-07T00:16:11Z",
+  "updated_at": "2026-07-07T11:45:00Z",
   "git_sha": "198496f6195155530b384d42349a989d637f7a42",
   "platforms": {
     "claude-code": {
@@ -97,17 +97,17 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.2.82",
-      "upstream_latest": "0.2.87",
-      "status": "drift",
+      "pinned": "0.2.89",
+      "upstream_latest": "0.2.89",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "npm @xai-official/grok": {
-          "version": "0.2.87",
+          "version": "0.2.89",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@xai-official/grok",
-          "raw_tag": "0.2.87"
+          "raw_tag": "0.2.89"
         }
       }
     },
