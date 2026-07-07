@@ -32,9 +32,9 @@ const (
 
 // Legacy aliases keep anthropic/openai call sites and sentinels stable.
 const (
-	anthropicSaturationWindowSeconds              = edgeMirrorStubSaturationWindowSeconds
-	anthropicSaturationThreshold                  = edgeMirrorStubSaturationThreshold
-	anthropicEdgeMirrorStubSaturationThreshold    = edgeMirrorStubSaturationThreshold
-	openAIEdgeMirrorStubSaturationThreshold       = edgeMirrorStubSaturationThreshold
-	tkAnthropicMirrorClassCooldownSeconds         = edgeMirrorStubSaturationWindowSeconds
+	anthropicSaturationWindowSeconds           = edgeMirrorStubSaturationWindowSeconds
+	anthropicSaturationThreshold               = edgeMirrorStubSaturationThreshold
+	anthropicEdgeMirrorStubSaturationThreshold = edgeMirrorStubSaturationThreshold
+	openAIEdgeMirrorStubSaturationThreshold    = edgeMirrorStubSaturationThreshold
+	tkAnthropicMirrorClassCooldownSeconds      = edgeMirrorStubSaturationWindowSeconds
 )

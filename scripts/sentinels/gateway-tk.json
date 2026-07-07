@@ -348,7 +348,7 @@
     {
       "path": "backend/internal/service/ratelimit_service_403_test.go",
       "must_contain": [
-        "TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable",
+        "TestRateLimitService_HandleUpstreamError_Anthropic403Generic_PermanentlyDisables",
         "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCountsWithShortCooldown",
         "TestRateLimitService_HandleUpstreamError_AnthropicCooldownTierEscalates",
         "TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts",
@@ -425,11 +425,11 @@
         "TestTkSkipDownstreamKiroOAuthAuthRejectPenalty",
         "TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth401_DoesNotSetError",
         "TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError",
-        "TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_StillCounts",
+        "TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_FailoverOnly",
         "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError",
-        "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_StillCounts"
+        "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_PermanentlyDisables"
       ],
-      "rationale": "Focused regressions proving the G5 boundary: Kiro mirror-stub 401/403 invalid-bearer wrappers are skipped without SetError or ladder cooldown, but a generic Kiro mirror 403 wrapper still enters the upstream-error ladder, a plain Anthropic API-key 401 still permanently disables, and a plain Anthropic API-key 403 still enters the ladder. Dropping these tests lets an upstream merge silently widen or remove the auth-reject carve-out."
+      "rationale": "Focused regressions proving the G5 boundary: Kiro mirror-stub 401/403 invalid-bearer wrappers are skipped without SetError or ladder cooldown, a generic Kiro mirror upstream_error 403 failovers with bounded saturation only, a plain Anthropic API-key 401 still permanently disables, and a plain Anthropic API-key invalid-bearer 403 still permanently disables via the auth-fatal classifier."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_request_too_large_test.go",
@@ -3389,9 +3389,28 @@
       "must_contain": [
         "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {",
         "if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {",
+        "if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {",
+        "s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, \"permission_failover\")",
         "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)"
       ],
-      "rationale": "Injection points that wire the Anthropic 403 terminal disables into handle403, BEFORE the TLS-fingerprint cooldown and the handleAnthropicUpstreamError 3/3 ladder. (1) tkTryDisableAnthropicOrgBan403 — structured-body org-ban phrase (#810). (2) tkTryEscalatePersistentBodyless403 — empty/unstructured 403 org ban that escapes the phrase breaker (2026-06-16 edge us6 id=1 emitted empty-body 403s); without it the bodyless ban falls into the auto-recovering 3/3 ladder and flaps forever. (3) The ResetAnthropicBodyless403Count call inside ResetAnthropicUpstreamErrorCounter clears bodyless strikes on every recovery hotpath so a healed account does not carry stale strikes toward a future permanent disable. handle403 / the reset helper are upstream-shaped seams; a merge that rewrites the anthropic 403 branch or the reset fan-out could drop a one-line call and silently regress (the companion files still compile). Pairs with the ratelimit_service_tk_anthropic_org_ban_403.go and ratelimit_service_tk_anthropic_bodyless_403.go file sentinels."
+      "rationale": "Injection points for Anthropic handle403 after specialist skips. (1) tkTryDisableAnthropicOrgBan403 — structured org-ban (#810). (2) tkTryEscalatePersistentBodyless403 — bodyless episode terminal disable. (3) tkIsAnthropicAccountAuthFatal403 — structured invalid-bearer / lacks-scopes only; model-level and mirror wrappers must not SetError. (4) permission_failover saturation — default for remaining 403s (403 is outside stub-health 3/3 fuse). (5) ResetAnthropicBodyless403Count on recovery hotpaths."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_account_auth_fatal_403.go",
+      "must_contain": [
+        "func tkIsAnthropicAccountAuthFatal403(upstreamMsg string, responseBody []byte) bool",
+        "invalid bearer token",
+        "oauth token lacks required scopes",
+        "do not have access to this model"
+      ],
+      "rationale": "Structured Anthropic 403 account-auth classifier: only invalid bearer / invalid x-api-key / lacks-scopes permanently disable. Model-level denials and mirror upstream_error wrappers must fail over only (403 outside stub-health fuse)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_account_auth_fatal_403_test.go",
+      "must_contain": [
+        "TestTkIsAnthropicAccountAuthFatal403"
+      ],
+      "rationale": "Predicate regressions for the Anthropic account-auth-fatal 403 gate."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_bodyless_403.go",

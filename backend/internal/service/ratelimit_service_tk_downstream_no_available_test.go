@@ -217,7 +217,7 @@ func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError
 	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
 }
 
-func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_PermanentlyDisables(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_FailoverOnly(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}, tierCounts: []int64{1}}
 	sat := &fakeSaturationCounterRL{}
@@ -238,10 +238,10 @@ func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_PermanentlyDi
 	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.setErrorCalls, "generic Kiro mirror 403 must permanently disable, not 3/3 fuse")
-	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 0, repo.setErrorCalls, "generic Kiro mirror 403 must not permanently disable the relay stub")
+	require.Equal(t, 0, repo.tempCalls, "403 must not enter the stub-health 3/3 fuse")
 	require.Empty(t, counter.incrementIDs)
-	require.Empty(t, sat.incrementIDs)
+	require.Equal(t, []int64{66}, sat.incrementIDs, "transient relay blip feeds bounded de-prioritization")
 }
 
 func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError(t *testing.T) {

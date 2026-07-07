@@ -1201,22 +1201,25 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 			return true
 		}
 		// TK (handle403 gap, 空 body org-ban): #810 的结构化短语 breaker 抓不到以**空 body**
-		// 返回的 org 封禁（id=1 历史即如此），它会落回下面自动恢复的 3/3 阶梯永久 flap。
-		// 持续空 body 403 累计到阈值即永久禁用 + 告警。见
-		// ratelimit_service_tk_anthropic_bodyless_403.go。
+		// 返回的 org 封禁（id=1 历史即如此）。持续空 body 403 累计到阈值即永久禁用；
+		// 未达阈值则 failover + saturation（403 不在 stub-health 3/3 fuse 内）。
+		// 见 ratelimit_service_tk_anthropic_bodyless_403.go。
 		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
-		// Unclassified Anthropic 403: permanent auth/permission disable (upstream
-		// shape). Do NOT enter the stub-health 3/3 fuse — permission errors are not
-		// infra blips and the auto-recovering ladder caused recoverable flap.
-		msg := buildForbiddenErrorMessage(
-			"Access forbidden (403):",
-			upstreamMsg,
-			responseBody,
-			"account may be suspended or lack permissions",
-		)
-		s.handleAuthError(ctx, account, msg)
+		// Structured account-auth 403 (invalid bearer / lacks scopes): permanent
+		// disable. Model-level and mirror relay wrappers fail over only.
+		if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {
+			msg := buildForbiddenErrorMessage(
+				"Access forbidden (403):",
+				upstreamMsg,
+				responseBody,
+				"account may be suspended or lack permissions",
+			)
+			s.handleAuthError(ctx, account, msg)
+			return true
+		}
+		s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "permission_failover")
 		return true
 	}
 	msg := buildForbiddenErrorMessage(
