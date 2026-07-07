@@ -4207,6 +4207,43 @@
         "openAIWSPassthroughPolicyModelForFrame(account, payload)"
       ],
       "rationale": "WS v2 passthrough dial/error rate-limit signals must carry the session model (first-frame model or per-frame policy resolver fallback) into persistOpenAIWSRateLimitSignal; losing these args reverts spark sub-window 429s to whole-account cooldown on passthrough ingress."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "func (a *Account) IsAnthropicOAuthPassthroughEnabled() bool {",
+        "anthropic_oauth_passthrough"
+      ],
+      "rationale": "Account-level opt-in for Anthropic OAuth/setup-token auth-only passthrough (skip fingerprint/mimic/canonical on the wire). Without this extra gate, operators cannot enable the dedicated branch and the gateway falls back to the full OAuth rewrite path."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_oauth_passthrough.go",
+      "must_contain": [
+        "func (s *GatewayService) buildUpstreamRequestAnthropicOAuthPassthrough(",
+        "func (s *GatewayService) buildCountTokensRequestAnthropicOAuthPassthrough(",
+        "func setAnthropicOAuthPassthroughAuthHeader(headers http.Header, token string)",
+        "anthropicPassthroughAuthOAuth"
+      ],
+      "rationale": "TK companion for Anthropic OAuth auth-only passthrough upstream builders. Keeps Bearer auth replacement + header whitelist copy out of upstream-shaped gateway_service.go so merges cannot silently drop the bypass while leaving the Forward early-return intact."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "account.IsAnthropicOAuthPassthroughEnabled()",
+        "forwardAnthropicOAuthPassthroughWithInput",
+        "forwardAnthropicPassthroughWithInput",
+        "anthropicPassthroughAuthOAuth"
+      ],
+      "rationale": "Load-bearing wiring: OAuth passthrough must early-return in Forward and ForwardCountTokens BEFORE canonical/mimic/fingerprint rewrite, reusing the shared passthrough forward loop with anthropicPassthroughAuthOAuth. An upstream merge that drops either early-return re-enables fingerprint/mimic/canonical for accounts explicitly configured for raw egress."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_oauth_passthrough_test.go",
+      "must_contain": [
+        "TestBuildUpstreamRequestAnthropicOAuthPassthrough_PreservesClientHeadersAndBearerAuth",
+        "TestGatewayService_AnthropicOAuthPassthrough_ForwardSkipsFingerprintRewrite",
+        "x-stainless-lang"
+      ],
+      "rationale": "Focused regressions: OAuth passthrough must preserve client UA/anthropic-beta and must NOT inject OAuth fingerprint headers on the forward path."
     }
   ]
 }
