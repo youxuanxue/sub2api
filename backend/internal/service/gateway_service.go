@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	mathrand "math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -5164,6 +5163,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return nil, err
 	}
+	// Pre-filter: strip web-search history blocks the upstream cannot accept
+	// (emulation-synthesized server_tool_use / web_search_tool_result always;
+	// genuine ones additionally for passback-required upstreams). See
+	// FilterWebSearchHistoryBlocks. reqModel 此时已是映射后的模型 ID。
+	if err := replaceBody(FilterWebSearchHistoryBlocks(body, reqModel)); err != nil {
+		return nil, err
+	}
 	// Pre-filter: remove thinking blocks with missing/invalid signatures before forwarding.
 	// Clients (e.g. Claude Code) sometimes send multi-turn conversations where a historical
 	// assistant message contains a thinking block that is missing the required "signature" field,
@@ -7293,16 +7299,30 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// context-management 时 strip body.context_management。必须在 NewRequest 之前，
 	// 确保最终转发 body 与 header 能力声明一致。
 	//
-	// 注意 haiku 的 header/body 非对称：computeFinalAnthropicBeta 的 haiku 分支刻意
-	// 不含 context-management —— 这正是 body 侧需要的（Anthropic 对 haiku 的
-	// body.context_management 返回 400），而下方 inline 块仍按 mimicry 给 header
-	// 带上 haiku 的 context-management beta（指纹对齐）。
-	{
-		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID), betaSelfHealDropTokens(ctx)...)
-		finalBetaForBody, _ := s.computeFinalAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
-		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
-			body = sanitized
-		}
+	// 顺序约束：
+	//   1) 算 finalBeta（纯函数，不依赖 req.Header；mimicry 路径会忽略客户端 beta，
+	//      与原”OAuth + mimicClaudeCode 跳过白名单透传”行为对齐）
+	//   2) 按 finalBeta 做能力维度 body sanitize（如 context-management beta 缺失 →
+	//      strip body.context_management，与 Bedrock 路径对称）
+	//   3) CCH 签名（必须使用 strip 后的 body，否则 hash 与最终 body 不一致 →
+	//      被 Anthropic 判 third-party）
+	//   4) NewRequest（body 至此最终敲定）
+	//   5) 透传白名单 / fingerprint / mimic header / 写入 finalBeta
+	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
+	effectiveDropSet := mergeDropSets(policyFilterSet)
+	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
+	)
+
+	// 账号覆写了 anthropic-beta 时，覆写值即最终上游值（由下方 ApplyHeaderOverrides 写入）：
+	// body 能力净化必须以覆写值为准，否则 header/body 不对称会被上游 400。
+	if beta, ok := account.HeaderOverrideValue(“anthropic-beta”); ok {
+		finalBetaHeader, finalBetaShouldSet = beta, true
+	}
+
+	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
+		body = sanitized
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -7395,6 +7415,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
+	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）。
+	// 放在所有 header 逻辑之后，确保配置值对同名头拥有最终决定权。
+	account.ApplyHeaderOverrides(req.Header)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
@@ -10783,6 +10806,10 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	if c != nil && c.Request != nil {
 		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
 	}
+	// 账号覆写了 anthropic-beta 时，覆写值即最终上游值：净化以覆写值为准
+	if beta, ok := account.HeaderOverrideValue("anthropic-beta"); ok {
+		clientBeta = beta
+	}
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
 		body = sanitized
 	}
@@ -10809,6 +10836,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
+
+	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
+	account.ApplyHeaderOverrides(req.Header)
 
 	return req, nil
 }
@@ -10869,16 +10899,22 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if ctFingerprint != nil && ctEnableFP {
 		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
 	}
-	// 能力维度 body sanitize（与 count_tokens 最终 anthropic-beta header 对称）。注：
-	// count_tokens 路径 ForwardCountTokens 已用 StripCountTokensUnsupportedFields
-	// 无条件剥离 context_management（Anthropic count_tokens 拒收该字段），此处对直接调用方
-	// 与未走 Forward 的入口做能力维度兜底。
-	{
-		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
-		finalBetaForBody, _ := s.computeFinalCountTokensAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
-		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
-			body = sanitized
-		}
+
+	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
+	// 顺序约束同 buildUpstreamRequest。
+	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+	finalBetaHeader, finalBetaShouldSet := s.computeFinalCountTokensAnthropicBeta(
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet,
+	)
+
+	// 账号覆写了 anthropic-beta 时，覆写值即最终上游值：净化以覆写值为准
+	if beta, ok := account.HeaderOverrideValue("anthropic-beta"); ok {
+		finalBetaHeader, finalBetaShouldSet = beta, true
+	}
+
+	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
+		body = sanitized
 	}
 	body = sanitizeCountTokensRequestBody(body)
 
@@ -10952,6 +10988,8 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
+	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）
+	account.ApplyHeaderOverrides(req.Header)
 
 	if c != nil && tokenType == AccountTypeOAuth {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))

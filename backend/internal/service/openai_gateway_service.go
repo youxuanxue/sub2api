@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2450,10 +2449,18 @@ func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, re
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
-	// codex_cli_only 在所有 OpenAI 网关入口共用 enforceCodexClientRestriction 执行
-	// （/responses、/v1/chat/completions、图片 OAuth），避免兼容入口绕过限制。
-	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
-		return nil, err
+	restrictionResult := s.detectCodexClientRestriction(c, account, body)
+	apiKeyID := getAPIKeyIDFromContext(c)
+	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
+	if restrictionResult.Enabled && !restrictionResult.Matched {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"type":    "forbidden_error",
+				"message": CodexClientRestrictionMessage(restrictionResult),
+			},
+		})
+		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
 	originalBody := body
@@ -2855,6 +2862,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				return nil, blocked
 			case BetaPolicyActionFilter:
 				markPatchDelete("service_tier")
+			case OpenAIFastPolicyActionForcePriority:
+				if rawTier != OpenAIFastTierPriority {
+					markPatchSet("service_tier", OpenAIFastTierPriority)
+				}
 			default:
 				if normTier != rawTier {
 					markPatchSet("service_tier", normTier)
@@ -4638,6 +4649,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		req.Header.Set("content-type", "application/json")
 	}
 
+	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
+	account.ApplyHeaderOverrides(req.Header)
+
 	return req, nil
 }
 
@@ -5812,7 +5826,13 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if isEventStreamResponse(resp.Header) {
 		return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
 	}
-	bodyLooksLikeSSE := bytes.Contains(body, []byte("data:")) || bytes.Contains(body, []byte("event:"))
+	// bodyLooksLikeSSE is a line-level heuristic: real SSE framing requires
+	// "data:"/"event:" field names at the very start of a physical line. A
+	// plain bytes.Contains scan would also match ordinary JSON responses
+	// whose string content merely echoes the literal text "data:" or
+	// "event:" (e.g. compact tool output), causing those JSON bodies to be
+	// misrouted into handleSSEToJSON and lose their usage accounting.
+	bodyLooksLikeSSE := bodyHasSSEFraming(body)
 
 	// For OAuth accounts, also fall back to a body-content heuristic because
 	// the upstream may omit the Content-Type header while still sending SSE.
@@ -5860,6 +5880,22 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 func isEventStreamResponse(header http.Header) bool {
 	contentType := strings.ToLower(header.Get("Content-Type"))
 	return strings.Contains(contentType, "text/event-stream")
+}
+
+// bodyHasSSEFraming reports whether body contains genuine SSE framing by
+// scanning for physical lines that begin with the "data:" or "event:"
+// field names, per the SSE spec. Unlike a raw substring scan, this does not
+// match when those strings only appear embedded inside JSON string values
+// (e.g. "data: foo" quoted as part of an assistant text field), since such
+// occurrences never start a physical line in a valid JSON encoding.
+func bodyHasSSEFraming(body []byte) bool {
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		line = bytes.TrimRight(line, "\r")
+		if bytes.HasPrefix(line, []byte("data:")) || bytes.HasPrefix(line, []byte("event:")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {

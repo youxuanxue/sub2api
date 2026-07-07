@@ -65,6 +65,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	if !gjson.ValidBytes(body) {
+		logRequestBodyParseFailure(reqLog, body, nil)
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
@@ -163,6 +164,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			service.OpenAIUpstreamTransportAny,
 			service.OpenAIEndpointCapabilityChatCompletions,
 			false,
+			false,
+			requestPlatform,
 		)
 		if err != nil {
 			reqLog.Warn("openai_chat_completions.account_select_failed",

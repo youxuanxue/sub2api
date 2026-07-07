@@ -69,7 +69,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	serviceUserPlatformQuotaRepository := repository.NewUserPlatformQuotaServiceAdapter(userPlatformQuotaRepository)
 	billingCacheService := service.ProvideBillingCacheService(billingCache, userRepository, userSubscriptionRepository, apiKeyRepository, userRPMCache, userGroupRateRepository, configConfig, serviceUserPlatformQuotaRepository)
 	apiKeyCache := repository.NewAPIKeyCache(redisClient)
-	apiKeyService := service.ProvideAPIKeyService(apiKeyRepository, userRepository, groupRepository, userSubscriptionRepository, userGroupRateRepository, apiKeyCache, configConfig, billingCacheService)
+	concurrencyCache := repository.ProvideConcurrencyCache(redisClient, configConfig)
+	schedulerCache := repository.ProvideSchedulerCache(redisClient, configConfig)
+	accountRepository := repository.NewAccountRepository(client, db, schedulerCache)
+	concurrencyService := service.ProvideConcurrencyService(concurrencyCache, accountRepository, configConfig)
+	apiKeyService := service.ProvideAPIKeyService(apiKeyRepository, userRepository, groupRepository, userSubscriptionRepository, userGroupRateRepository, apiKeyCache, configConfig, billingCacheService, concurrencyService)
 	apiKeyAuthCacheInvalidator := service.ProvideAPIKeyAuthCacheInvalidator(apiKeyService)
 	promoService := service.NewPromoService(promoCodeRepository, userRepository, billingCacheService, client, apiKeyAuthCacheInvalidator)
 	subscriptionService := service.NewSubscriptionService(groupRepository, userSubscriptionRepository, billingCacheService, client, configConfig)
@@ -94,6 +98,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	usageLogRepository := repository.NewUsageLogRepository(client, db)
 	usageService := service.NewUsageService(usageLogRepository, userRepository, client, apiKeyAuthCacheInvalidator)
 	opsRepository := repository.NewOpsRepository(db)
+	batchImageRepository := repository.NewBatchImageRepository(db)
+	batchImageQueue := repository.NewBatchImageQueue(redisClient, configConfig)
+	batchImageDownloadLimiter := repository.NewBatchImageDownloadLimiter(redisClient, configConfig)
 	schedulerCache := repository.ProvideSchedulerCache(redisClient, configConfig)
 	tierRepository := repository.NewTierRepository(client)
 	tierCache := repository.NewTierCache(redisClient)
@@ -140,6 +147,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelRepository := repository.NewChannelRepository(db)
 	channelService := service.NewChannelService(channelRepository, groupRepository, apiKeyAuthCacheInvalidator, pricingService)
 	modelPricingResolver := service.NewModelPricingResolver(channelService, billingService)
+	batchImageModelPricingResolver := service.ProvideBatchImageModelPricingResolver(modelPricingResolver)
+	batchImagePublicService := service.NewBatchImagePublicService(batchImageRepository, accountRepository, groupRepository, userGroupRateRepository, batchImageQueue, batchImageModelPricingResolver, usageBillingRepository, apiKeyAuthCacheInvalidator, configConfig)
+	batchImageDownloadService := service.NewBatchImageDownloadService(batchImageRepository, accountRepository, batchImageDownloadLimiter, configConfig)
+	batchImageCleanupService := service.ProvideBatchImageCleanupService(batchImageRepository, accountRepository, configConfig)
+	batchImageWorkerRuntime := service.ProvideBatchImageWorkerRuntime(batchImageRepository, accountRepository, batchImageQueue, usageBillingRepository, usageLogRepository, batchImageModelPricingResolver, apiKeyAuthCacheInvalidator, configConfig)
 	notificationEmailService := service.NewNotificationEmailService(settingRepository, emailService)
 	balanceNotifyService := service.ProvideBalanceNotifyService(emailService, settingRepository, accountRepository, notificationEmailService)
 	kiroGatewayService := service.NewKiroGatewayService(httpUpstream, tlsFingerprintProfileService, accountRepository)
@@ -291,9 +303,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	handlerEdgeAccountsHandler := handler.ProvideEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
 	edgeAdminSessionHandler := handler.ProvideEdgeAdminSessionHandler(apiKeyService, userService, authService)
 	handlerEdgeAccountOpsHandler := handler.ProvideEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
+	batchImageHandler := handler.NewBatchImageHandler(batchImagePublicService, batchImageDownloadService, batchImageCleanupService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
-	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, qaService, pricingCatalogHandler, mePricingCatalogHandler, qaHandler, edgeCapacityHandler, handlerEdgeAccountsHandler, edgeAdminSessionHandler, handlerEdgeAccountOpsHandler, idempotencyCoordinator, idempotencyCleanupService)
+	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, qaService, pricingCatalogHandler, mePricingCatalogHandler, qaHandler, edgeCapacityHandler, handlerEdgeAccountsHandler, edgeAdminSessionHandler, handlerEdgeAccountOpsHandler, batchImageHandler, idempotencyCoordinator, idempotencyCleanupService)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService)
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
@@ -333,7 +346,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, modelListFilter)
 	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService)
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, antigravityConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady)
+	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, antigravityConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -384,6 +398,8 @@ func provideCleanup(
 	idempotencyCleanup *service.IdempotencyCleanupService,
 
 	holdReconciler *service.HoldReconcilerService,
+	batchImageCleanup *service.BatchImageCleanupService,
+	batchImageWorker *service.BatchImageWorkerRuntime,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
@@ -515,6 +531,18 @@ func provideCleanup(
 			{"HoldReconcilerService", func() error {
 				if holdReconciler != nil {
 					holdReconciler.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageCleanupService", func() error {
+				if batchImageCleanup != nil {
+					batchImageCleanup.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageWorkerRuntime", func() error {
+				if batchImageWorker != nil {
+					batchImageWorker.Stop()
 				}
 				return nil
 			}},

@@ -22,6 +22,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
+	"github.com/Wei-Shaw/sub2api/ent/batchimageevent"
+	"github.com/Wei-Shaw/sub2api/ent/batchimageitem"
+	"github.com/Wei-Shaw/sub2api/ent/batchimagejob"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
@@ -30,7 +33,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
-	"github.com/Wei-Shaw/sub2api/ent/modelavailability"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -38,13 +40,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
-	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
-	"github.com/Wei-Shaw/sub2api/ent/tier"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -77,6 +76,12 @@ type Client struct {
 	AuthIdentity *AuthIdentityClient
 	// AuthIdentityChannel is the client for interacting with the AuthIdentityChannel builders.
 	AuthIdentityChannel *AuthIdentityChannelClient
+	// BatchImageEvent is the client for interacting with the BatchImageEvent builders.
+	BatchImageEvent *BatchImageEventClient
+	// BatchImageItem is the client for interacting with the BatchImageItem builders.
+	BatchImageItem *BatchImageItemClient
+	// BatchImageJob is the client for interacting with the BatchImageJob builders.
+	BatchImageJob *BatchImageJobClient
 	// ChannelMonitor is the client for interacting with the ChannelMonitor builders.
 	ChannelMonitor *ChannelMonitorClient
 	// ChannelMonitorDailyRollup is the client for interacting with the ChannelMonitorDailyRollup builders.
@@ -93,8 +98,6 @@ type Client struct {
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
 	IdentityAdoptionDecision *IdentityAdoptionDecisionClient
-	// ModelAvailability is the client for interacting with the ModelAvailability builders.
-	ModelAvailability *ModelAvailabilityClient
 	// PaymentAuditLog is the client for interacting with the PaymentAuditLog builders.
 	PaymentAuditLog *PaymentAuditLogClient
 	// PaymentOrder is the client for interacting with the PaymentOrder builders.
@@ -109,10 +112,6 @@ type Client struct {
 	PromoCodeUsage *PromoCodeUsageClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
-	// QAExportJob is the client for interacting with the QAExportJob builders.
-	QAExportJob *QAExportJobClient
-	// QARecord is the client for interacting with the QARecord builders.
-	QARecord *QARecordClient
 	// RedeemCode is the client for interacting with the RedeemCode builders.
 	RedeemCode *RedeemCodeClient
 	// SecuritySecret is the client for interacting with the SecuritySecret builders.
@@ -123,8 +122,6 @@ type Client struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
-	// Tier is the client for interacting with the Tier builders.
-	Tier *TierClient
 	// UsageCleanupTask is the client for interacting with the UsageCleanupTask builders.
 	UsageCleanupTask *UsageCleanupTaskClient
 	// UsageLog is the client for interacting with the UsageLog builders.
@@ -159,6 +156,9 @@ func (c *Client) init() {
 	c.AnnouncementRead = NewAnnouncementReadClient(c.config)
 	c.AuthIdentity = NewAuthIdentityClient(c.config)
 	c.AuthIdentityChannel = NewAuthIdentityChannelClient(c.config)
+	c.BatchImageEvent = NewBatchImageEventClient(c.config)
+	c.BatchImageItem = NewBatchImageItemClient(c.config)
+	c.BatchImageJob = NewBatchImageJobClient(c.config)
 	c.ChannelMonitor = NewChannelMonitorClient(c.config)
 	c.ChannelMonitorDailyRollup = NewChannelMonitorDailyRollupClient(c.config)
 	c.ChannelMonitorHistory = NewChannelMonitorHistoryClient(c.config)
@@ -167,7 +167,6 @@ func (c *Client) init() {
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
 	c.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(c.config)
-	c.ModelAvailability = NewModelAvailabilityClient(c.config)
 	c.PaymentAuditLog = NewPaymentAuditLogClient(c.config)
 	c.PaymentOrder = NewPaymentOrderClient(c.config)
 	c.PaymentProviderInstance = NewPaymentProviderInstanceClient(c.config)
@@ -175,14 +174,11 @@ func (c *Client) init() {
 	c.PromoCode = NewPromoCodeClient(c.config)
 	c.PromoCodeUsage = NewPromoCodeUsageClient(c.config)
 	c.Proxy = NewProxyClient(c.config)
-	c.QAExportJob = NewQAExportJobClient(c.config)
-	c.QARecord = NewQARecordClient(c.config)
 	c.RedeemCode = NewRedeemCodeClient(c.config)
 	c.SecuritySecret = NewSecuritySecretClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.SubscriptionPlan = NewSubscriptionPlanClient(c.config)
 	c.TLSFingerprintProfile = NewTLSFingerprintProfileClient(c.config)
-	c.Tier = NewTierClient(c.config)
 	c.UsageCleanupTask = NewUsageCleanupTaskClient(c.config)
 	c.UsageLog = NewUsageLogClient(c.config)
 	c.User = NewUserClient(c.config)
@@ -290,6 +286,9 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		AnnouncementRead:              NewAnnouncementReadClient(cfg),
 		AuthIdentity:                  NewAuthIdentityClient(cfg),
 		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:               NewBatchImageEventClient(cfg),
+		BatchImageItem:                NewBatchImageItemClient(cfg),
+		BatchImageJob:                 NewBatchImageJobClient(cfg),
 		ChannelMonitor:                NewChannelMonitorClient(cfg),
 		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
 		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
@@ -298,7 +297,6 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
 		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		ModelAvailability:             NewModelAvailabilityClient(cfg),
 		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
 		PaymentOrder:                  NewPaymentOrderClient(cfg),
 		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
@@ -306,14 +304,11 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
-		QAExportJob:                   NewQAExportJobClient(cfg),
-		QARecord:                      NewQARecordClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
 		SecuritySecret:                NewSecuritySecretClient(cfg),
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		Tier:                          NewTierClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -348,6 +343,9 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		AnnouncementRead:              NewAnnouncementReadClient(cfg),
 		AuthIdentity:                  NewAuthIdentityClient(cfg),
 		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:               NewBatchImageEventClient(cfg),
+		BatchImageItem:                NewBatchImageItemClient(cfg),
+		BatchImageJob:                 NewBatchImageJobClient(cfg),
 		ChannelMonitor:                NewChannelMonitorClient(cfg),
 		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
 		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
@@ -356,7 +354,6 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
 		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		ModelAvailability:             NewModelAvailabilityClient(cfg),
 		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
 		PaymentOrder:                  NewPaymentOrderClient(cfg),
 		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
@@ -364,14 +361,11 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
-		QAExportJob:                   NewQAExportJobClient(cfg),
-		QARecord:                      NewQARecordClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
 		SecuritySecret:                NewSecuritySecretClient(cfg),
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		Tier:                          NewTierClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -410,14 +404,14 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
-		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
-		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
-		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAvailability,
-		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QAExportJob,
-		c.QARecord, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
+		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
+		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
+		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
+		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
 	} {
@@ -430,14 +424,14 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
-		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
-		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
-		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAvailability,
-		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QAExportJob,
-		c.QARecord, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
+		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
+		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
+		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
+		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
 	} {
@@ -462,6 +456,12 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.AuthIdentity.mutate(ctx, m)
 	case *AuthIdentityChannelMutation:
 		return c.AuthIdentityChannel.mutate(ctx, m)
+	case *BatchImageEventMutation:
+		return c.BatchImageEvent.mutate(ctx, m)
+	case *BatchImageItemMutation:
+		return c.BatchImageItem.mutate(ctx, m)
+	case *BatchImageJobMutation:
+		return c.BatchImageJob.mutate(ctx, m)
 	case *ChannelMonitorMutation:
 		return c.ChannelMonitor.mutate(ctx, m)
 	case *ChannelMonitorDailyRollupMutation:
@@ -478,8 +478,6 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IdempotencyRecord.mutate(ctx, m)
 	case *IdentityAdoptionDecisionMutation:
 		return c.IdentityAdoptionDecision.mutate(ctx, m)
-	case *ModelAvailabilityMutation:
-		return c.ModelAvailability.mutate(ctx, m)
 	case *PaymentAuditLogMutation:
 		return c.PaymentAuditLog.mutate(ctx, m)
 	case *PaymentOrderMutation:
@@ -494,10 +492,6 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.PromoCodeUsage.mutate(ctx, m)
 	case *ProxyMutation:
 		return c.Proxy.mutate(ctx, m)
-	case *QAExportJobMutation:
-		return c.QAExportJob.mutate(ctx, m)
-	case *QARecordMutation:
-		return c.QARecord.mutate(ctx, m)
 	case *RedeemCodeMutation:
 		return c.RedeemCode.mutate(ctx, m)
 	case *SecuritySecretMutation:
@@ -508,8 +502,6 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SubscriptionPlan.mutate(ctx, m)
 	case *TLSFingerprintProfileMutation:
 		return c.TLSFingerprintProfile.mutate(ctx, m)
-	case *TierMutation:
-		return c.Tier.mutate(ctx, m)
 	case *UsageCleanupTaskMutation:
 		return c.UsageCleanupTask.mutate(ctx, m)
 	case *UsageLogMutation:
@@ -1702,6 +1694,405 @@ func (c *AuthIdentityChannelClient) mutate(ctx context.Context, m *AuthIdentityC
 		return (&AuthIdentityChannelDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown AuthIdentityChannel mutation op: %q", m.Op())
+	}
+}
+
+// BatchImageEventClient is a client for the BatchImageEvent schema.
+type BatchImageEventClient struct {
+	config
+}
+
+// NewBatchImageEventClient returns a client for the BatchImageEvent from the given config.
+func NewBatchImageEventClient(c config) *BatchImageEventClient {
+	return &BatchImageEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `batchimageevent.Hooks(f(g(h())))`.
+func (c *BatchImageEventClient) Use(hooks ...Hook) {
+	c.hooks.BatchImageEvent = append(c.hooks.BatchImageEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `batchimageevent.Intercept(f(g(h())))`.
+func (c *BatchImageEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.BatchImageEvent = append(c.inters.BatchImageEvent, interceptors...)
+}
+
+// Create returns a builder for creating a BatchImageEvent entity.
+func (c *BatchImageEventClient) Create() *BatchImageEventCreate {
+	mutation := newBatchImageEventMutation(c.config, OpCreate)
+	return &BatchImageEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of BatchImageEvent entities.
+func (c *BatchImageEventClient) CreateBulk(builders ...*BatchImageEventCreate) *BatchImageEventCreateBulk {
+	return &BatchImageEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *BatchImageEventClient) MapCreateBulk(slice any, setFunc func(*BatchImageEventCreate, int)) *BatchImageEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &BatchImageEventCreateBulk{err: fmt.Errorf("calling to BatchImageEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*BatchImageEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &BatchImageEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for BatchImageEvent.
+func (c *BatchImageEventClient) Update() *BatchImageEventUpdate {
+	mutation := newBatchImageEventMutation(c.config, OpUpdate)
+	return &BatchImageEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *BatchImageEventClient) UpdateOne(_m *BatchImageEvent) *BatchImageEventUpdateOne {
+	mutation := newBatchImageEventMutation(c.config, OpUpdateOne, withBatchImageEvent(_m))
+	return &BatchImageEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *BatchImageEventClient) UpdateOneID(id int64) *BatchImageEventUpdateOne {
+	mutation := newBatchImageEventMutation(c.config, OpUpdateOne, withBatchImageEventID(id))
+	return &BatchImageEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for BatchImageEvent.
+func (c *BatchImageEventClient) Delete() *BatchImageEventDelete {
+	mutation := newBatchImageEventMutation(c.config, OpDelete)
+	return &BatchImageEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *BatchImageEventClient) DeleteOne(_m *BatchImageEvent) *BatchImageEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *BatchImageEventClient) DeleteOneID(id int64) *BatchImageEventDeleteOne {
+	builder := c.Delete().Where(batchimageevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &BatchImageEventDeleteOne{builder}
+}
+
+// Query returns a query builder for BatchImageEvent.
+func (c *BatchImageEventClient) Query() *BatchImageEventQuery {
+	return &BatchImageEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeBatchImageEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a BatchImageEvent entity by its id.
+func (c *BatchImageEventClient) Get(ctx context.Context, id int64) (*BatchImageEvent, error) {
+	return c.Query().Where(batchimageevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *BatchImageEventClient) GetX(ctx context.Context, id int64) *BatchImageEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *BatchImageEventClient) Hooks() []Hook {
+	return c.hooks.BatchImageEvent
+}
+
+// Interceptors returns the client interceptors.
+func (c *BatchImageEventClient) Interceptors() []Interceptor {
+	return c.inters.BatchImageEvent
+}
+
+func (c *BatchImageEventClient) mutate(ctx context.Context, m *BatchImageEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&BatchImageEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&BatchImageEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&BatchImageEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&BatchImageEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown BatchImageEvent mutation op: %q", m.Op())
+	}
+}
+
+// BatchImageItemClient is a client for the BatchImageItem schema.
+type BatchImageItemClient struct {
+	config
+}
+
+// NewBatchImageItemClient returns a client for the BatchImageItem from the given config.
+func NewBatchImageItemClient(c config) *BatchImageItemClient {
+	return &BatchImageItemClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `batchimageitem.Hooks(f(g(h())))`.
+func (c *BatchImageItemClient) Use(hooks ...Hook) {
+	c.hooks.BatchImageItem = append(c.hooks.BatchImageItem, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `batchimageitem.Intercept(f(g(h())))`.
+func (c *BatchImageItemClient) Intercept(interceptors ...Interceptor) {
+	c.inters.BatchImageItem = append(c.inters.BatchImageItem, interceptors...)
+}
+
+// Create returns a builder for creating a BatchImageItem entity.
+func (c *BatchImageItemClient) Create() *BatchImageItemCreate {
+	mutation := newBatchImageItemMutation(c.config, OpCreate)
+	return &BatchImageItemCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of BatchImageItem entities.
+func (c *BatchImageItemClient) CreateBulk(builders ...*BatchImageItemCreate) *BatchImageItemCreateBulk {
+	return &BatchImageItemCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *BatchImageItemClient) MapCreateBulk(slice any, setFunc func(*BatchImageItemCreate, int)) *BatchImageItemCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &BatchImageItemCreateBulk{err: fmt.Errorf("calling to BatchImageItemClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*BatchImageItemCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &BatchImageItemCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for BatchImageItem.
+func (c *BatchImageItemClient) Update() *BatchImageItemUpdate {
+	mutation := newBatchImageItemMutation(c.config, OpUpdate)
+	return &BatchImageItemUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *BatchImageItemClient) UpdateOne(_m *BatchImageItem) *BatchImageItemUpdateOne {
+	mutation := newBatchImageItemMutation(c.config, OpUpdateOne, withBatchImageItem(_m))
+	return &BatchImageItemUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *BatchImageItemClient) UpdateOneID(id int64) *BatchImageItemUpdateOne {
+	mutation := newBatchImageItemMutation(c.config, OpUpdateOne, withBatchImageItemID(id))
+	return &BatchImageItemUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for BatchImageItem.
+func (c *BatchImageItemClient) Delete() *BatchImageItemDelete {
+	mutation := newBatchImageItemMutation(c.config, OpDelete)
+	return &BatchImageItemDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *BatchImageItemClient) DeleteOne(_m *BatchImageItem) *BatchImageItemDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *BatchImageItemClient) DeleteOneID(id int64) *BatchImageItemDeleteOne {
+	builder := c.Delete().Where(batchimageitem.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &BatchImageItemDeleteOne{builder}
+}
+
+// Query returns a query builder for BatchImageItem.
+func (c *BatchImageItemClient) Query() *BatchImageItemQuery {
+	return &BatchImageItemQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeBatchImageItem},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a BatchImageItem entity by its id.
+func (c *BatchImageItemClient) Get(ctx context.Context, id int64) (*BatchImageItem, error) {
+	return c.Query().Where(batchimageitem.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *BatchImageItemClient) GetX(ctx context.Context, id int64) *BatchImageItem {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *BatchImageItemClient) Hooks() []Hook {
+	return c.hooks.BatchImageItem
+}
+
+// Interceptors returns the client interceptors.
+func (c *BatchImageItemClient) Interceptors() []Interceptor {
+	return c.inters.BatchImageItem
+}
+
+func (c *BatchImageItemClient) mutate(ctx context.Context, m *BatchImageItemMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&BatchImageItemCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&BatchImageItemUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&BatchImageItemUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&BatchImageItemDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown BatchImageItem mutation op: %q", m.Op())
+	}
+}
+
+// BatchImageJobClient is a client for the BatchImageJob schema.
+type BatchImageJobClient struct {
+	config
+}
+
+// NewBatchImageJobClient returns a client for the BatchImageJob from the given config.
+func NewBatchImageJobClient(c config) *BatchImageJobClient {
+	return &BatchImageJobClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `batchimagejob.Hooks(f(g(h())))`.
+func (c *BatchImageJobClient) Use(hooks ...Hook) {
+	c.hooks.BatchImageJob = append(c.hooks.BatchImageJob, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `batchimagejob.Intercept(f(g(h())))`.
+func (c *BatchImageJobClient) Intercept(interceptors ...Interceptor) {
+	c.inters.BatchImageJob = append(c.inters.BatchImageJob, interceptors...)
+}
+
+// Create returns a builder for creating a BatchImageJob entity.
+func (c *BatchImageJobClient) Create() *BatchImageJobCreate {
+	mutation := newBatchImageJobMutation(c.config, OpCreate)
+	return &BatchImageJobCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of BatchImageJob entities.
+func (c *BatchImageJobClient) CreateBulk(builders ...*BatchImageJobCreate) *BatchImageJobCreateBulk {
+	return &BatchImageJobCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *BatchImageJobClient) MapCreateBulk(slice any, setFunc func(*BatchImageJobCreate, int)) *BatchImageJobCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &BatchImageJobCreateBulk{err: fmt.Errorf("calling to BatchImageJobClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*BatchImageJobCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &BatchImageJobCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for BatchImageJob.
+func (c *BatchImageJobClient) Update() *BatchImageJobUpdate {
+	mutation := newBatchImageJobMutation(c.config, OpUpdate)
+	return &BatchImageJobUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *BatchImageJobClient) UpdateOne(_m *BatchImageJob) *BatchImageJobUpdateOne {
+	mutation := newBatchImageJobMutation(c.config, OpUpdateOne, withBatchImageJob(_m))
+	return &BatchImageJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *BatchImageJobClient) UpdateOneID(id int64) *BatchImageJobUpdateOne {
+	mutation := newBatchImageJobMutation(c.config, OpUpdateOne, withBatchImageJobID(id))
+	return &BatchImageJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for BatchImageJob.
+func (c *BatchImageJobClient) Delete() *BatchImageJobDelete {
+	mutation := newBatchImageJobMutation(c.config, OpDelete)
+	return &BatchImageJobDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *BatchImageJobClient) DeleteOne(_m *BatchImageJob) *BatchImageJobDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *BatchImageJobClient) DeleteOneID(id int64) *BatchImageJobDeleteOne {
+	builder := c.Delete().Where(batchimagejob.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &BatchImageJobDeleteOne{builder}
+}
+
+// Query returns a query builder for BatchImageJob.
+func (c *BatchImageJobClient) Query() *BatchImageJobQuery {
+	return &BatchImageJobQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeBatchImageJob},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a BatchImageJob entity by its id.
+func (c *BatchImageJobClient) Get(ctx context.Context, id int64) (*BatchImageJob, error) {
+	return c.Query().Where(batchimagejob.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *BatchImageJobClient) GetX(ctx context.Context, id int64) *BatchImageJob {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *BatchImageJobClient) Hooks() []Hook {
+	return c.hooks.BatchImageJob
+}
+
+// Interceptors returns the client interceptors.
+func (c *BatchImageJobClient) Interceptors() []Interceptor {
+	return c.inters.BatchImageJob
+}
+
+func (c *BatchImageJobClient) mutate(ctx context.Context, m *BatchImageJobMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&BatchImageJobCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&BatchImageJobUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&BatchImageJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&BatchImageJobDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown BatchImageJob mutation op: %q", m.Op())
 	}
 }
 
@@ -3027,139 +3418,6 @@ func (c *IdentityAdoptionDecisionClient) mutate(ctx context.Context, m *Identity
 	}
 }
 
-// ModelAvailabilityClient is a client for the ModelAvailability schema.
-type ModelAvailabilityClient struct {
-	config
-}
-
-// NewModelAvailabilityClient returns a client for the ModelAvailability from the given config.
-func NewModelAvailabilityClient(c config) *ModelAvailabilityClient {
-	return &ModelAvailabilityClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `modelavailability.Hooks(f(g(h())))`.
-func (c *ModelAvailabilityClient) Use(hooks ...Hook) {
-	c.hooks.ModelAvailability = append(c.hooks.ModelAvailability, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `modelavailability.Intercept(f(g(h())))`.
-func (c *ModelAvailabilityClient) Intercept(interceptors ...Interceptor) {
-	c.inters.ModelAvailability = append(c.inters.ModelAvailability, interceptors...)
-}
-
-// Create returns a builder for creating a ModelAvailability entity.
-func (c *ModelAvailabilityClient) Create() *ModelAvailabilityCreate {
-	mutation := newModelAvailabilityMutation(c.config, OpCreate)
-	return &ModelAvailabilityCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of ModelAvailability entities.
-func (c *ModelAvailabilityClient) CreateBulk(builders ...*ModelAvailabilityCreate) *ModelAvailabilityCreateBulk {
-	return &ModelAvailabilityCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *ModelAvailabilityClient) MapCreateBulk(slice any, setFunc func(*ModelAvailabilityCreate, int)) *ModelAvailabilityCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &ModelAvailabilityCreateBulk{err: fmt.Errorf("calling to ModelAvailabilityClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*ModelAvailabilityCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &ModelAvailabilityCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for ModelAvailability.
-func (c *ModelAvailabilityClient) Update() *ModelAvailabilityUpdate {
-	mutation := newModelAvailabilityMutation(c.config, OpUpdate)
-	return &ModelAvailabilityUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *ModelAvailabilityClient) UpdateOne(_m *ModelAvailability) *ModelAvailabilityUpdateOne {
-	mutation := newModelAvailabilityMutation(c.config, OpUpdateOne, withModelAvailability(_m))
-	return &ModelAvailabilityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOneID returns an update builder for the given id.
-func (c *ModelAvailabilityClient) UpdateOneID(id int64) *ModelAvailabilityUpdateOne {
-	mutation := newModelAvailabilityMutation(c.config, OpUpdateOne, withModelAvailabilityID(id))
-	return &ModelAvailabilityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for ModelAvailability.
-func (c *ModelAvailabilityClient) Delete() *ModelAvailabilityDelete {
-	mutation := newModelAvailabilityMutation(c.config, OpDelete)
-	return &ModelAvailabilityDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// DeleteOne returns a builder for deleting the given entity.
-func (c *ModelAvailabilityClient) DeleteOne(_m *ModelAvailability) *ModelAvailabilityDeleteOne {
-	return c.DeleteOneID(_m.ID)
-}
-
-// DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *ModelAvailabilityClient) DeleteOneID(id int64) *ModelAvailabilityDeleteOne {
-	builder := c.Delete().Where(modelavailability.ID(id))
-	builder.mutation.id = &id
-	builder.mutation.op = OpDeleteOne
-	return &ModelAvailabilityDeleteOne{builder}
-}
-
-// Query returns a query builder for ModelAvailability.
-func (c *ModelAvailabilityClient) Query() *ModelAvailabilityQuery {
-	return &ModelAvailabilityQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeModelAvailability},
-		inters: c.Interceptors(),
-	}
-}
-
-// Get returns a ModelAvailability entity by its id.
-func (c *ModelAvailabilityClient) Get(ctx context.Context, id int64) (*ModelAvailability, error) {
-	return c.Query().Where(modelavailability.ID(id)).Only(ctx)
-}
-
-// GetX is like Get, but panics if an error occurs.
-func (c *ModelAvailabilityClient) GetX(ctx context.Context, id int64) *ModelAvailability {
-	obj, err := c.Get(ctx, id)
-	if err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-// Hooks returns the client hooks.
-func (c *ModelAvailabilityClient) Hooks() []Hook {
-	return c.hooks.ModelAvailability
-}
-
-// Interceptors returns the client interceptors.
-func (c *ModelAvailabilityClient) Interceptors() []Interceptor {
-	return c.inters.ModelAvailability
-}
-
-func (c *ModelAvailabilityClient) mutate(ctx context.Context, m *ModelAvailabilityMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&ModelAvailabilityCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&ModelAvailabilityUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&ModelAvailabilityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&ModelAvailabilityDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown ModelAvailability mutation op: %q", m.Op())
-	}
-}
-
 // PaymentAuditLogClient is a client for the PaymentAuditLog schema.
 type PaymentAuditLogClient struct {
 	config
@@ -4221,272 +4479,6 @@ func (c *ProxyClient) mutate(ctx context.Context, m *ProxyMutation) (Value, erro
 	}
 }
 
-// QAExportJobClient is a client for the QAExportJob schema.
-type QAExportJobClient struct {
-	config
-}
-
-// NewQAExportJobClient returns a client for the QAExportJob from the given config.
-func NewQAExportJobClient(c config) *QAExportJobClient {
-	return &QAExportJobClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `qaexportjob.Hooks(f(g(h())))`.
-func (c *QAExportJobClient) Use(hooks ...Hook) {
-	c.hooks.QAExportJob = append(c.hooks.QAExportJob, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `qaexportjob.Intercept(f(g(h())))`.
-func (c *QAExportJobClient) Intercept(interceptors ...Interceptor) {
-	c.inters.QAExportJob = append(c.inters.QAExportJob, interceptors...)
-}
-
-// Create returns a builder for creating a QAExportJob entity.
-func (c *QAExportJobClient) Create() *QAExportJobCreate {
-	mutation := newQAExportJobMutation(c.config, OpCreate)
-	return &QAExportJobCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of QAExportJob entities.
-func (c *QAExportJobClient) CreateBulk(builders ...*QAExportJobCreate) *QAExportJobCreateBulk {
-	return &QAExportJobCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *QAExportJobClient) MapCreateBulk(slice any, setFunc func(*QAExportJobCreate, int)) *QAExportJobCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &QAExportJobCreateBulk{err: fmt.Errorf("calling to QAExportJobClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*QAExportJobCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &QAExportJobCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for QAExportJob.
-func (c *QAExportJobClient) Update() *QAExportJobUpdate {
-	mutation := newQAExportJobMutation(c.config, OpUpdate)
-	return &QAExportJobUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *QAExportJobClient) UpdateOne(_m *QAExportJob) *QAExportJobUpdateOne {
-	mutation := newQAExportJobMutation(c.config, OpUpdateOne, withQAExportJob(_m))
-	return &QAExportJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOneID returns an update builder for the given id.
-func (c *QAExportJobClient) UpdateOneID(id int64) *QAExportJobUpdateOne {
-	mutation := newQAExportJobMutation(c.config, OpUpdateOne, withQAExportJobID(id))
-	return &QAExportJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for QAExportJob.
-func (c *QAExportJobClient) Delete() *QAExportJobDelete {
-	mutation := newQAExportJobMutation(c.config, OpDelete)
-	return &QAExportJobDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// DeleteOne returns a builder for deleting the given entity.
-func (c *QAExportJobClient) DeleteOne(_m *QAExportJob) *QAExportJobDeleteOne {
-	return c.DeleteOneID(_m.ID)
-}
-
-// DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *QAExportJobClient) DeleteOneID(id int64) *QAExportJobDeleteOne {
-	builder := c.Delete().Where(qaexportjob.ID(id))
-	builder.mutation.id = &id
-	builder.mutation.op = OpDeleteOne
-	return &QAExportJobDeleteOne{builder}
-}
-
-// Query returns a query builder for QAExportJob.
-func (c *QAExportJobClient) Query() *QAExportJobQuery {
-	return &QAExportJobQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeQAExportJob},
-		inters: c.Interceptors(),
-	}
-}
-
-// Get returns a QAExportJob entity by its id.
-func (c *QAExportJobClient) Get(ctx context.Context, id int64) (*QAExportJob, error) {
-	return c.Query().Where(qaexportjob.ID(id)).Only(ctx)
-}
-
-// GetX is like Get, but panics if an error occurs.
-func (c *QAExportJobClient) GetX(ctx context.Context, id int64) *QAExportJob {
-	obj, err := c.Get(ctx, id)
-	if err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-// Hooks returns the client hooks.
-func (c *QAExportJobClient) Hooks() []Hook {
-	return c.hooks.QAExportJob
-}
-
-// Interceptors returns the client interceptors.
-func (c *QAExportJobClient) Interceptors() []Interceptor {
-	return c.inters.QAExportJob
-}
-
-func (c *QAExportJobClient) mutate(ctx context.Context, m *QAExportJobMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&QAExportJobCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&QAExportJobUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&QAExportJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&QAExportJobDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown QAExportJob mutation op: %q", m.Op())
-	}
-}
-
-// QARecordClient is a client for the QARecord schema.
-type QARecordClient struct {
-	config
-}
-
-// NewQARecordClient returns a client for the QARecord from the given config.
-func NewQARecordClient(c config) *QARecordClient {
-	return &QARecordClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `qarecord.Hooks(f(g(h())))`.
-func (c *QARecordClient) Use(hooks ...Hook) {
-	c.hooks.QARecord = append(c.hooks.QARecord, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `qarecord.Intercept(f(g(h())))`.
-func (c *QARecordClient) Intercept(interceptors ...Interceptor) {
-	c.inters.QARecord = append(c.inters.QARecord, interceptors...)
-}
-
-// Create returns a builder for creating a QARecord entity.
-func (c *QARecordClient) Create() *QARecordCreate {
-	mutation := newQARecordMutation(c.config, OpCreate)
-	return &QARecordCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of QARecord entities.
-func (c *QARecordClient) CreateBulk(builders ...*QARecordCreate) *QARecordCreateBulk {
-	return &QARecordCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *QARecordClient) MapCreateBulk(slice any, setFunc func(*QARecordCreate, int)) *QARecordCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &QARecordCreateBulk{err: fmt.Errorf("calling to QARecordClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*QARecordCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &QARecordCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for QARecord.
-func (c *QARecordClient) Update() *QARecordUpdate {
-	mutation := newQARecordMutation(c.config, OpUpdate)
-	return &QARecordUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *QARecordClient) UpdateOne(_m *QARecord) *QARecordUpdateOne {
-	mutation := newQARecordMutation(c.config, OpUpdateOne, withQARecord(_m))
-	return &QARecordUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOneID returns an update builder for the given id.
-func (c *QARecordClient) UpdateOneID(id int64) *QARecordUpdateOne {
-	mutation := newQARecordMutation(c.config, OpUpdateOne, withQARecordID(id))
-	return &QARecordUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for QARecord.
-func (c *QARecordClient) Delete() *QARecordDelete {
-	mutation := newQARecordMutation(c.config, OpDelete)
-	return &QARecordDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// DeleteOne returns a builder for deleting the given entity.
-func (c *QARecordClient) DeleteOne(_m *QARecord) *QARecordDeleteOne {
-	return c.DeleteOneID(_m.ID)
-}
-
-// DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *QARecordClient) DeleteOneID(id int64) *QARecordDeleteOne {
-	builder := c.Delete().Where(qarecord.ID(id))
-	builder.mutation.id = &id
-	builder.mutation.op = OpDeleteOne
-	return &QARecordDeleteOne{builder}
-}
-
-// Query returns a query builder for QARecord.
-func (c *QARecordClient) Query() *QARecordQuery {
-	return &QARecordQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeQARecord},
-		inters: c.Interceptors(),
-	}
-}
-
-// Get returns a QARecord entity by its id.
-func (c *QARecordClient) Get(ctx context.Context, id int64) (*QARecord, error) {
-	return c.Query().Where(qarecord.ID(id)).Only(ctx)
-}
-
-// GetX is like Get, but panics if an error occurs.
-func (c *QARecordClient) GetX(ctx context.Context, id int64) *QARecord {
-	obj, err := c.Get(ctx, id)
-	if err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-// Hooks returns the client hooks.
-func (c *QARecordClient) Hooks() []Hook {
-	return c.hooks.QARecord
-}
-
-// Interceptors returns the client interceptors.
-func (c *QARecordClient) Interceptors() []Interceptor {
-	return c.inters.QARecord
-}
-
-func (c *QARecordClient) mutate(ctx context.Context, m *QARecordMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&QARecordCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&QARecordUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&QARecordUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&QARecordDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown QARecord mutation op: %q", m.Op())
-	}
-}
-
 // RedeemCodeClient is a client for the RedeemCode schema.
 type RedeemCodeClient struct {
 	config
@@ -5181,139 +5173,6 @@ func (c *TLSFingerprintProfileClient) mutate(ctx context.Context, m *TLSFingerpr
 		return (&TLSFingerprintProfileDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown TLSFingerprintProfile mutation op: %q", m.Op())
-	}
-}
-
-// TierClient is a client for the Tier schema.
-type TierClient struct {
-	config
-}
-
-// NewTierClient returns a client for the Tier from the given config.
-func NewTierClient(c config) *TierClient {
-	return &TierClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `tier.Hooks(f(g(h())))`.
-func (c *TierClient) Use(hooks ...Hook) {
-	c.hooks.Tier = append(c.hooks.Tier, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `tier.Intercept(f(g(h())))`.
-func (c *TierClient) Intercept(interceptors ...Interceptor) {
-	c.inters.Tier = append(c.inters.Tier, interceptors...)
-}
-
-// Create returns a builder for creating a Tier entity.
-func (c *TierClient) Create() *TierCreate {
-	mutation := newTierMutation(c.config, OpCreate)
-	return &TierCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of Tier entities.
-func (c *TierClient) CreateBulk(builders ...*TierCreate) *TierCreateBulk {
-	return &TierCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *TierClient) MapCreateBulk(slice any, setFunc func(*TierCreate, int)) *TierCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &TierCreateBulk{err: fmt.Errorf("calling to TierClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*TierCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &TierCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for Tier.
-func (c *TierClient) Update() *TierUpdate {
-	mutation := newTierMutation(c.config, OpUpdate)
-	return &TierUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *TierClient) UpdateOne(_m *Tier) *TierUpdateOne {
-	mutation := newTierMutation(c.config, OpUpdateOne, withTier(_m))
-	return &TierUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOneID returns an update builder for the given id.
-func (c *TierClient) UpdateOneID(id int64) *TierUpdateOne {
-	mutation := newTierMutation(c.config, OpUpdateOne, withTierID(id))
-	return &TierUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for Tier.
-func (c *TierClient) Delete() *TierDelete {
-	mutation := newTierMutation(c.config, OpDelete)
-	return &TierDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// DeleteOne returns a builder for deleting the given entity.
-func (c *TierClient) DeleteOne(_m *Tier) *TierDeleteOne {
-	return c.DeleteOneID(_m.ID)
-}
-
-// DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *TierClient) DeleteOneID(id int64) *TierDeleteOne {
-	builder := c.Delete().Where(tier.ID(id))
-	builder.mutation.id = &id
-	builder.mutation.op = OpDeleteOne
-	return &TierDeleteOne{builder}
-}
-
-// Query returns a query builder for Tier.
-func (c *TierClient) Query() *TierQuery {
-	return &TierQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeTier},
-		inters: c.Interceptors(),
-	}
-}
-
-// Get returns a Tier entity by its id.
-func (c *TierClient) Get(ctx context.Context, id int64) (*Tier, error) {
-	return c.Query().Where(tier.ID(id)).Only(ctx)
-}
-
-// GetX is like Get, but panics if an error occurs.
-func (c *TierClient) GetX(ctx context.Context, id int64) *Tier {
-	obj, err := c.Get(ctx, id)
-	if err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-// Hooks returns the client hooks.
-func (c *TierClient) Hooks() []Hook {
-	return c.hooks.Tier
-}
-
-// Interceptors returns the client interceptors.
-func (c *TierClient) Interceptors() []Interceptor {
-	return c.inters.Tier
-}
-
-func (c *TierClient) mutate(ctx context.Context, m *TierMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&TierCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&TierUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&TierUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&TierDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown Tier mutation op: %q", m.Op())
 	}
 }
 
@@ -6808,23 +6667,23 @@ func (c *UserSubscriptionClient) mutate(ctx context.Context, m *UserSubscription
 type (
 	hooks struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
-		AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
-		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
-		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QAExportJob, QARecord, RedeemCode,
-		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile, Tier,
+		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
+		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
+		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, IdempotencyRecord,
+		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
+		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
 		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
-		AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
-		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
-		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QAExportJob, QARecord, RedeemCode,
-		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile, Tier,
+		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
+		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
+		ChannelMonitorRequestTemplate, ErrorPassthroughRule, Group, IdempotencyRecord,
+		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
+		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
 		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
 	}

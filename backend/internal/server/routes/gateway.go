@@ -64,6 +64,16 @@ func RegisterGatewayRoutes(
 		// TK: re-mint a short-lived presigned URL for an already-offloaded image
 		// (the Studio reload path). Utility endpoint — no group-platform routing.
 		gateway.POST("/images/presign", h.OpenAIGateway.ImagesPresign)
+		gateway.POST("/images/batches", h.BatchImage.Submit)
+		gateway.GET("/images/batches", h.BatchImage.List)
+		gateway.GET("/images/batches/models", h.BatchImage.Models)
+		gateway.GET("/images/batches/:id", h.BatchImage.Get)
+		gateway.GET("/images/batches/:id/items", h.BatchImage.Items)
+		gateway.GET("/images/batches/:id/items/:custom_id/content", h.BatchImage.ItemContent)
+		gateway.GET("/images/batches/:id/download", h.BatchImage.Download)
+		gateway.POST("/images/batches/:id/cancel", h.BatchImage.Cancel)
+		gateway.DELETE("/images/batches/:id", h.BatchImage.DeleteRecord)
+		gateway.DELETE("/images/batches/:id/outputs", h.BatchImage.DeleteOutputs)
 		registerTKOpenAICompatVideoRoutes(gateway, h)
 	}
 

@@ -563,7 +563,7 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
 }
 
-func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
 	if platform == service.AccountListPlatformKiroStubFilter {
@@ -665,6 +665,11 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 		}))
 	}
 
+	return q
+}
+
+func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -702,6 +707,14 @@ func accountKiroRelayStubPredicate() dbpredicate.Account {
 			s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
 		}),
 	)
+}
+
+func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.accountsToService(ctx, accounts)
 }
 
 func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platformFilter string, groupIDFilter *int64) ([]service.Account, error) {

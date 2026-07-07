@@ -546,6 +546,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 		"base_url",
 		"mirror_platform",
 		"pool_mode",
+		"plan_type",
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
