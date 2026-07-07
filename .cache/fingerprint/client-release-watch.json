@@ -1,26 +1,26 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-05T08:20:38Z",
-  "git_sha": "",
+  "updated_at": "2026-07-07T11:45:00Z",
+  "git_sha": "198496f6195155530b384d42349a989d637f7a42",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.201",
-      "upstream_latest": "2.1.201",
+      "pinned": "2.1.202",
+      "upstream_latest": "2.1.202",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.201",
-          "published_at": "2026-07-03T23:50:35Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.201",
-          "raw_tag": "v2.1.201"
+          "version": "2.1.202",
+          "published_at": "2026-07-06T22:51:16Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.202",
+          "raw_tag": "v2.1.202"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.201",
+          "version": "2.1.202",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.201"
+          "raw_tag": "2.1.202"
         }
       }
     },
@@ -97,17 +97,17 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.2.82",
-      "upstream_latest": "0.2.82",
+      "pinned": "0.2.89",
+      "upstream_latest": "0.2.89",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "npm @xai-official/grok": {
-          "version": "0.2.82",
+          "version": "0.2.89",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@xai-official/grok",
-          "raw_tag": "0.2.82"
+          "raw_tag": "0.2.89"
         }
       }
     },
