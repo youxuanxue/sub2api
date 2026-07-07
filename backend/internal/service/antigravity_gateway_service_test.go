@@ -51,6 +51,24 @@ func TestAntigravityUpstreamErrorBodyReadLimit_RespectsDiagnosticLimit(t *testin
 	require.Equal(t, int64(svc.settingService.cfg.Gateway.LogUpstreamErrorBodyMaxBytes), svc.upstreamErrorBodyReadLimit())
 }
 
+func TestAntigravityWriteMappedClaudeError_Upstream404IsInvalidRequest(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	svc := &AntigravityGatewayService{}
+	account := &Account{ID: 3, Name: "antigravity-oh1-ls-b", Platform: PlatformAntigravity}
+	body := []byte(`{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND"}}`)
+
+	err := svc.writeMappedClaudeError(c, account, http.StatusNotFound, "", body)
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errObj, _ := payload["error"].(map[string]any)
+	require.Equal(t, "invalid_request_error", errObj["type"])
+	require.Equal(t, "Upstream model not found", errObj["message"])
+}
+
 func TestStripSignatureSensitiveBlocksFromClaudeRequest(t *testing.T) {
 	req := &antigravity.ClaudeRequest{
 		Model: "claude-sonnet-4-5",

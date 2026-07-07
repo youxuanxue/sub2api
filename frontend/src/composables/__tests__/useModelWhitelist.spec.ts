@@ -63,10 +63,14 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('totally-unknown')).toEqual([])
   })
 
-  it('antigravity 模型列表包含 Gemini 3.1 Pro 通用别名', () => {
-    const models = getModelsByPlatform('antigravity')
+  it('antigravity 预设映射包含 Gemini 3.1 Pro 通用别名', () => {
+    const mappings = getPresetMappingsByPlatform('antigravity')
 
-    expect(models).toContain('gemini-3.1-pro')
+    expect(mappings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: 'gemini-3.1-pro', to: 'gemini-pro-agent' }),
+      ])
+    )
   })
 
   it('whitelist 模式会忽略通配符条目', () => {
@@ -98,6 +102,25 @@ describe('useModelWhitelist', () => {
 
     expect(newapiMappings).not.toBe(openaiMappings)
     expect(newapiMappings.some(item => item.from === 'gpt-5.4' && item.to === 'gpt-5.4')).toBe(true)
+  })
+
+  it('antigravity presets only target live Claude upstream ids', () => {
+    const mappings = getPresetMappingsByPlatform('antigravity')
+    const claudeMappings = mappings.filter(item => item.from.startsWith('claude-'))
+
+    expect(claudeMappings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: 'claude-sonnet-4-6', to: 'claude-sonnet-4-6' }),
+        expect.objectContaining({ from: 'claude-opus-4-6', to: 'claude-opus-4-6-thinking' }),
+        expect.objectContaining({ from: 'claude-opus-4-6-thinking', to: 'claude-opus-4-6-thinking' }),
+      ])
+    )
+    for (const item of claudeMappings) {
+      expect(['claude-sonnet-4-6', 'claude-opus-4-6-thinking']).toContain(item.to)
+    }
+    expect(claudeMappings.some(item => item.from === 'claude-fable-5')).toBe(false)
+    expect(claudeMappings.some(item => item.from === 'claude-opus-4-8')).toBe(false)
+    expect(claudeMappings.some(item => item.to === 'claude-sonnet-4-5')).toBe(false)
   })
 
   it('combined 模式会同时保留白名单身份映射和模型映射', () => {

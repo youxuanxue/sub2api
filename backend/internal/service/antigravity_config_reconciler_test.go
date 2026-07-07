@@ -13,8 +13,8 @@ import (
 )
 
 // An antigravity account with an empty model_mapping falls back to
-// DefaultAntigravityModelMapping (which includes claude + gpt-oss), so it must be
-// reconciled to gemini-only.
+// DefaultAntigravityModelMapping (live Claude subset + gpt-oss included), so the
+// canonical account config must still be reconciled to gemini-only.
 func TestAntigravityReconciler_EmptyMapAccount_ReconciledToGeminiOnly(t *testing.T) {
 	acc := &reconcilerAccountStub{
 		byPlatform: map[string][]Account{

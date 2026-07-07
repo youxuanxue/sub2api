@@ -59,12 +59,13 @@ func TestDefaultAntigravityModelMapping_DeprecatedProRemap(t *testing.T) {
 	}
 }
 
-func TestDefaultAntigravityModelMapping_ContainsNewClaudeModels(t *testing.T) {
+func TestDefaultAntigravityModelMapping_ContainsLiveAntigravityClaudeModels(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"claude-fable-5":  "claude-fable-5",
-		"claude-opus-4-8": "claude-opus-4-8",
+		"claude-sonnet-4-6":        "claude-sonnet-4-6",
+		"claude-opus-4-6":          "claude-opus-4-6-thinking",
+		"claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
 	}
 	for from, want := range cases {
 		got, ok := DefaultAntigravityModelMapping[from]
@@ -75,14 +76,23 @@ func TestDefaultAntigravityModelMapping_ContainsNewClaudeModels(t *testing.T) {
 			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
 		}
 	}
+	for _, unavailable := range []string{
+		"claude-fable-5",
+		"claude-opus-4-8",
+		"claude-sonnet-5",
+		"claude-haiku-4-5",
+	} {
+		if _, ok := DefaultAntigravityModelMapping[unavailable]; ok {
+			t.Fatalf("antigravity default mapping must not expose live-unavailable Claude model %q", unavailable)
+		}
+	}
 }
 
 func TestDefaultAntigravityModelMapping_ContainsEmpiricalGeminiWireIDs(t *testing.T) {
 	t.Parallel()
 
 	// 2026-06 实测 /v1internal:fetchAvailableModels 的线上 wire id（identity）+ 友好别名。
-	// claude 系仍保留在默认映射中（claude 经 anthropic 账号服务；antigravity 账号按需在
-	// credentials.model_mapping 排除 claude），此处只断言新增 gemini wire id 已就位。
+	// Claude 由单独测试守护 live 子集；此处只断言新增 gemini wire id 已就位。
 	cases := map[string]string{
 		"gemini-3.5-flash-low":       "gemini-3.5-flash-low",
 		"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
