@@ -61,6 +61,16 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
+	t.Run("no_available_accounts_with_deprecated_model_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		status, errType, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts, "claude-3-5-haiku-20241022")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedAnthropicErrorType, errType)
+		assert.Contains(t, msg, "claude-3-5-haiku-20241022")
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
 	t.Run("unsupported_model_returns_400_invalid_request", func(t *testing.T) {
 		// The scheduler determined no account in the pool serves this model NAME
 		// (e.g. a client sending "deepseek-chat" to a pool mapping only

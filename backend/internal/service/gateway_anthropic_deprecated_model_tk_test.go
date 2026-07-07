@@ -138,3 +138,15 @@ func TestTkWrapSelectionFailure_DeprecatedModelBeatsRouting429(t *testing.T) {
 	require.False(t, errors.Is(err, ErrNoAvailableAccounts))
 	require.False(t, errors.Is(err, ErrUnsupportedModel))
 }
+
+func TestTkSelectionNoAvailableAccountsError_DeprecatedModel(t *testing.T) {
+	err := TkSelectionNoAvailableAccountsError("claude-3-5-haiku-20241022")
+	require.ErrorIs(t, err, ErrDeprecatedAnthropicModel)
+	require.NotContains(t, strings.ToLower(err.Error()), "no available accounts")
+}
+
+func TestTkSelectionNoAvailableAccountsError_CurrentModel(t *testing.T) {
+	err := TkSelectionNoAvailableAccountsError("claude-sonnet-4-6")
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.False(t, errors.Is(err, ErrDeprecatedAnthropicModel))
+}

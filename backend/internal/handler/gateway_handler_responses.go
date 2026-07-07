@@ -101,6 +101,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 	}
 
+	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
+		return
+	}
+
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 

@@ -282,6 +282,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 
+	if platform == service.PlatformAnthropic {
+		if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
+			return
+		}
+	}
+
 	if platform == service.PlatformGemini {
 		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
 
@@ -1799,6 +1805,10 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 验证 model 必填
 	if parsedReq.Model == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+
+	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog) {
 		return
 	}
 
