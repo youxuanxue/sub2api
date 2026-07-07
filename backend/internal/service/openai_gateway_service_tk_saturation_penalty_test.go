@@ -21,8 +21,8 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesSaturatedStub(t *testing.
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		63: anthropicSaturationThreshold,
-		68: anthropicSaturationThreshold - 1,
+		63: openAIEdgeMirrorStubSaturationThreshold,
+		68: openAIEdgeMirrorStubSaturationThreshold - 1,
 	}})
 
 	candidates := []openAIAccountCandidateScore{

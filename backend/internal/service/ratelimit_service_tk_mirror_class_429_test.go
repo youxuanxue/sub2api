@@ -39,15 +39,15 @@ func TestMirrorClass429_SustainedSonnet_WritesClassScopedCooldown(t *testing.T) 
 
 	body := headerlessEmptyPoolBody()
 	before := time.Now()
-	// Drive past the sustained threshold (4-in-window): 5 hits.
-	for i := 0; i < 5; i++ {
+	// Drive past the sustained threshold: 4 hits (first write at count==3).
+	for i := 0; i < 4; i++ {
 		require.True(t, svc.HandleUpstreamError(context.Background(), account,
 			http.StatusTooManyRequests, http.Header{}, body, "claude-sonnet-4-5"))
 	}
 	after := time.Now()
 
 	require.NotEmpty(t, repo.modelRateLimitCalls, "sustained sonnet 429 must write a class cooldown")
-	// First write lands on the threshold-crossing hit (count==4); subsequent hits
+	// First write lands on the threshold-crossing hit (count==3); subsequent hits
 	// are suppressed by the rewrite guard while remaining stays high.
 	first := repo.modelRateLimitCalls[0]
 	require.Equal(t, int64(54), first.accountID)
@@ -69,8 +69,8 @@ func TestMirrorClass429_BelowThreshold_NoCooldown(t *testing.T) {
 	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 
 	body := headerlessEmptyPoolBody()
-	// Only 3 hits → count never reaches the threshold (4).
-	for i := 0; i < 3; i++ {
+	// Only 2 hits → count never reaches the threshold (3).
+	for i := 0; i < 2; i++ {
 		require.True(t, svc.HandleUpstreamError(context.Background(), account,
 			http.StatusTooManyRequests, http.Header{}, body, "claude-sonnet-4-5"))
 	}

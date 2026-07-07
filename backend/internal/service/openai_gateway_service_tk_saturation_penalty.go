@@ -5,10 +5,7 @@ import (
 	"log/slog"
 )
 
-// openAISaturationScorePenalty subtracts from the OpenAI scheduler's weighted
-// score when a stub is SUSTAINEDLY saturated. Scores are ~0..5; this constant
-// pushes saturated candidates to the bottom without excluding them.
-const openAISaturationScorePenalty = 10.0
+// Threshold + penalty: edge_mirror_stub_saturation_tk.go (SSOT).
 
 func (s *OpenAIGatewayService) SetOpenAISaturationCounter(cache OpenAISaturationCounterCache) {
 	if s != nil {
@@ -54,7 +51,7 @@ func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(ctx context.Cont
 		if !tkIsOpenAIEdgeMirrorStub(acc) {
 			continue
 		}
-		if counts[acc.ID] >= anthropicSaturationThreshold {
+		if counts[acc.ID] >= openAIEdgeMirrorStubSaturationThreshold {
 			candidates[i].saturationScorePenalty = openAISaturationScorePenalty
 			penalized = append(penalized, acc.ID)
 		}

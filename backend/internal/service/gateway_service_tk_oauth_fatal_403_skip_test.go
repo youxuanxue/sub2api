@@ -60,7 +60,13 @@ func TestGatewayService_tkIsAccountFatal403(t *testing.T) {
 			rationale: "org-ban / 空 body 终局信号是 anthropic 专属，不改其它平台 OAuth 重试语义",
 		},
 		{
-			name:      "nil_account",
+			name:      "tls_fingerprint_keyword",
+			account:   &Account{ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth},
+			body:      `{"error":{"message":"forbidden: JA4 fingerprint mismatch on this client"}}`,
+			expect:    true,
+			rationale: "TLS/WAF 403 → SetError with TLS prefix，原地重试只加重暴露",
+		},
+		{
 			account:   nil,
 			body:      "",
 			expect:    false,

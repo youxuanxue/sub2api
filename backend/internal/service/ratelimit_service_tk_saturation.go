@@ -23,31 +23,6 @@ import (
 // routes AWAY from a SUSTAINEDLY saturated stub — a preference, NOT a cooldown:
 // it never SetTempUnschedulable / advances the ladder / SetRateLimited.
 
-const (
-	// anthropicSaturationWindowSeconds is the fixed-window TTL of the per-stub
-	// saturation counter. ~90s: long enough that a real ~47-min upstream-limit
-	// window keeps the count continuously above threshold (each forwarded request
-	// re-increments), short enough that a recovered edge clears the preference
-	// within ~1.5 min of its last no-available hit (self-clearing, no 200-hook).
-	anthropicSaturationWindowSeconds = 90
-
-	// anthropicSaturationThreshold is the in-window hit count at/above which a
-	// stub is treated as "saturated" and de-prioritized. A small threshold (not
-	// 1) preserves current behaviour for transient blips — a couple of stray
-	// no-available hits (e.g. one momentary edge burst) never trip it; only a
-	// SUSTAINED pattern does.
-	anthropicSaturationThreshold int64 = 4
-
-	// tkAnthropicMirrorClassCooldownSeconds is the bounded, self-renewing floor
-	// (in seconds) written on a prod MIRROR account's per-class cooldown when an
-	// edge's header-less empty-pool 429 is SUSTAINED for the in-flight model's
-	// class (see ratelimit_service_tk_mirror_class_429.go). Reuses the saturation
-	// window so there is a single knob: the edge 429 carries no authoritative
-	// reset, so the floor self-renews on each subsequent class-429 and
-	// self-expires on read.
-	tkAnthropicMirrorClassCooldownSeconds = anthropicSaturationWindowSeconds
-)
-
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
 // RateLimitService (optional dependency). Nil-safe: when unset, the increment
 // helper is a no-op and the feature is inert.
@@ -71,7 +46,7 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 	if s == nil || s.anthropicSaturationCounter == nil {
 		return 0
 	}
-	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, anthropicSaturationWindowSeconds)
+	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, edgeMirrorStubSaturationWindowSeconds)
 	if err != nil {
 		slog.Warn("anthropic_stub_saturation_increment_failed",
 			"account_id", accountID,
@@ -86,7 +61,7 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 			"account_id", accountID,
 			"recent_count", count,
 			"threshold", anthropicSaturationThreshold,
-			"window_seconds", anthropicSaturationWindowSeconds,
+			"window_seconds", edgeMirrorStubSaturationWindowSeconds,
 			"status_code", statusCode,
 			"reason", reason)
 	}

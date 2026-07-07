@@ -113,25 +113,7 @@ const (
 	// expires when the window closes so a healed deploy reads zero.
 	anthropicCooldownTierEscalationsWindowMinutes = 60
 
-	// 403 keyword scan used by handle403 to surface suspected TLS / bot-
-	// detection regressions. When the upstream body contains any of these
-	// tokens we skip the long account_disabled_auth_error cooldown and
-	// keep the account on a short cooldown so an operator can react.
-	tlsFingerprintFailureCooldown = 30 * time.Second
 )
-
-// tlsFingerprintFailureKeywords matches Cloudflare / WAF responses that
-// reveal the request was rejected on TLS shape rather than on the OAuth
-// identity itself (e.g. "ja3" / "ja4" / "bot detection" / "tls fingerprint").
-// Order is insignificant; matching is case-insensitive.
-var tlsFingerprintFailureKeywords = []string{
-	"ja3",
-	"ja4",
-	"bot detection",
-	"bot management",
-	"tls fingerprint",
-	"client fingerprint",
-}
 
 // openAICloudflareChallengeKeywords matches Cloudflare / Arkose challenge
 // pages where an OpenAI 403 was returned by infrastructure (CF JS challenge,
@@ -390,18 +372,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg := "Identity verification required (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
-		} else if account.Platform == PlatformAnthropic {
-			// TK (upstream#2608): a client-induced invalid_request_error must NOT
-			// advance the per-account cooldown counter — otherwise any caller can
-			// pause a shared OAuth subscription account by sending malformed 400s.
-			// Account-level 400s (org disabled / credit / KYC) are handled above;
-			// only atypical 400s still go through the normal threshold path.
-			if tkIsAnthropicClientInducedBadRequest(responseBody) {
-				slog.Info("anthropic_client_induced_400_skip_penalty",
-					"account_id", account.ID, "status_code", statusCode)
-			} else {
-				shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
-			}
+		} else if account.Platform == PlatformAnthropic && tkIsAnthropicClientInducedBadRequest(responseBody) {
+			// TK (upstream#2608): client-induced invalid_request_error is caller-side;
+			// atypical 400s are also out of stub-health fuse scope (see
+			// tkAnthropicStubHealthFuseEligible).
+			slog.Info("anthropic_client_induced_400_skip_penalty",
+				"account_id", account.ID, "status_code", statusCode)
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
@@ -537,10 +513,6 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
-		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
-			break
-		}
 		if s.tkHandleKiroQuotaLimit402(ctx, account, upstreamMsg, responseBody) {
 			shouldDisable = true
 			break
@@ -625,7 +597,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"account_id", account.ID,
 				"status_code", statusCode,
 				"reason", reason)
-			s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
+			satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
+			s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded
@@ -672,10 +645,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// provided reset time. If so, suppress the ladder's parallel
 		// SetTempUnschedulable write (last-write-wins would otherwise
 		// race a less-precise local cooldown over the just-written reset).
-		// The 3/3 + tier counters still advance so persistent failure
-		// still escalates.
+		// The 3/3 + tier counters advance only when SetRateLimited landed (see
+		// tkAnthropicStubHealthFuseEligible).
 		rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)
-		if account.Platform == PlatformAnthropic {
+		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, rateLimitSet) {
 			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, rateLimitSet)
 		} else {
 			shouldDisable = false
@@ -698,7 +671,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = false
 		}
 	default:
-		if account.Platform == PlatformAnthropic && statusCode >= 400 && statusCode <= 599 {
+		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, false) {
 			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
 		} else if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
@@ -1170,53 +1143,33 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
-		// TLS / bot-detection 失效专项：上游用 403 拒绝是因为 Cloudflare / WAF
-		// 识别到 JA3/JA4 不像真实 Claude Code CLI（指纹库失效或 CLI 版本升级）。
-		// 这种情况下账号本身没问题，是基础设施层面的问题，需要 ops 立即介入
-		// 重新抓 TLS 指纹。用一个短 cooldown 避免持续重试加重风控，并打一个
-		// 高可见性 slog 让告警钩子能拉起来（运维侧用 log-based alert 接入即可）。
-		if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), tlsFingerprintFailureKeywords); matched != "" {
-			until := time.Now().Add(tlsFingerprintFailureCooldown)
-			reasonMessage := fmt.Sprintf("Anthropic 403 with TLS/bot-detection signal (%s): %s",
-				matched, upstreamMsg)
-			state := &TempUnschedState{
-				UntilUnix:       until.Unix(),
-				TriggeredAtUnix: time.Now().Unix(),
-				StatusCode:      http.StatusForbidden,
-				MatchedKeyword:  "tls_fingerprint_failure",
-				RuleIndex:       -1,
-				ErrorMessage:    truncateTempUnschedMessage([]byte(reasonMessage), tempUnschedMessageMaxBytes),
-			}
-			reasonJSON := reasonMessage
-			if raw, marshalErr := json.Marshal(state); marshalErr == nil {
-				reasonJSON = string(raw)
-			}
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonJSON); err != nil {
-				slog.Warn("anthropic_tls_fingerprint_set_temp_unschedulable_failed",
-					"account_id", account.ID, "error", err)
-			}
-			if s.tempUnschedCache != nil {
-				if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
-					slog.Warn("anthropic_tls_fingerprint_temp_unsched_cache_set_failed",
-						"account_id", account.ID, "error", err)
-				}
-			}
-			slog.Error("anthropic_tls_fingerprint_failure_suspected",
-				"account_id", account.ID,
-				"matched_keyword", matched,
-				"cooldown_seconds", int(tlsFingerprintFailureCooldown.Seconds()),
-				"action", "ops_should_re-capture_claude_cli_tls_profile",
-				"upstream_msg", upstreamMsg)
+		// TLS / bot-detection 403：共享 canonical profile 失效时逐账号 30s 重试会
+		// 反复暴露 OAuth；永久 SetError + 可 grep 前缀，便于全平台重采集后 bulk recover。
+		// 见 ratelimit_service_tk_anthropic_tls_fingerprint_403.go。
+		if s.tkTryDisableAnthropicTLSFingerprint403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
 		// TK (handle403 gap, 空 body org-ban): #810 的结构化短语 breaker 抓不到以**空 body**
-		// 返回的 org 封禁（id=1 历史即如此），它会落回下面自动恢复的 3/3 阶梯永久 flap。
-		// 持续空 body 403 累计到阈值即永久禁用 + 告警。见
-		// ratelimit_service_tk_anthropic_bodyless_403.go。
+		// 返回的 org 封禁（id=1 历史即如此）。持续空 body 403 累计到阈值即永久禁用；
+		// 未达阈值则 failover + saturation（403 不在 stub-health 3/3 fuse 内）。
+		// 见 ratelimit_service_tk_anthropic_bodyless_403.go。
 		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
-		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
+		// Structured account-auth 403 (invalid bearer / lacks scopes): permanent
+		// disable. Model-level and mirror relay wrappers fail over only.
+		if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {
+			msg := buildForbiddenErrorMessage(
+				"Access forbidden (403):",
+				upstreamMsg,
+				responseBody,
+				"account may be suspended or lack permissions",
+			)
+			s.handleAuthError(ctx, account, msg)
+			return true
+		}
+		s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "permission_failover")
+		return true
 	}
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
@@ -1228,8 +1181,10 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	return true
 }
 
-// handleAnthropicUpstreamError counts upstream errors per account in a 1-min
-// short window and, on the 3rd hit, marks the account temp_unschedulable.
+// handleAnthropicUpstreamError counts upstream infra-health errors per account
+// in a 1-min short window and, on the 3rd hit, marks the account
+// temp_unschedulable. Only status codes passing tkAnthropicStubHealthFuseEligible
+// reach this path (502/503/504/529, plus 429 only after SetRateLimited).
 //
 // Pool-mode policy (2026-05-21 revision of PR #333, which itself reversed
 // PR #248): pool_mode accounts are NOT bypassed here. PR #333's blanket
@@ -1306,6 +1261,9 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 // is suppressed so the just-written rate_limit_reset / overload_until is
 // not raced by a less-precise ladder cooldown (last-write-wins).
 func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte, skipCooldownWrite bool) (shouldDisable bool) {
+	if !tkAnthropicStubHealthFuseEligible(statusCode, skipCooldownWrite) {
+		return false
+	}
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)
