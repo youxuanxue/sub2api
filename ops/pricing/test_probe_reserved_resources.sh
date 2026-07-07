@@ -26,6 +26,16 @@ TK_PROBE_LEGACY_SCOPE=1
 assert_eq "$(tk_probe_canonical_scope endpoint_matrix_grok grok source_group_id 25)" "endpoint_matrix_grok" "legacy scope override"
 unset TK_PROBE_LEGACY_SCOPE
 
+assert_eq "$(tk_probe_platform_reuse_scopes | tr '\n' ' ' | sed 's/ $//')" "anthropic kiro openai gemini grok antigravity newapi" "platform reuse scopes"
+if ! tk_probe_is_legacy_oneoff_probe_name "__tk_probe_tkprobe-2-20260629T102307Z-3222117"; then
+	echo "FAIL: tkprobe legacy group name should match legacy oneoff probe pattern" >&2
+	exit 1
+fi
+if tk_probe_is_legacy_oneoff_probe_name "__tk_probe_kiro_group"; then
+	echo "FAIL: reusable kiro probe group should not match legacy oneoff pattern" >&2
+	exit 1
+fi
+
 TK_PROBE_TEST_SCENARIO=case_match
 TK_PROBE_LAST_SQL=""
 tk_probe_psql() {
@@ -60,6 +70,9 @@ tk_probe_psql() {
 			printf '1\n'
 		fi
 		;;
+	unbind)
+		printf '\n'
+		;;
 	*)
 		printf '\n'
 		;;
@@ -72,6 +85,16 @@ TK_PROBE_GROUP_ID=39
 TK_PROBE_TEST_SCENARIO=case_match
 tk_probe_bind_from_group_id probe 16
 tk_probe_bind_from_group_id_like probe 1 'cc-%'
+TK_PROBE_TEST_SCENARIO=unbind
+tk_probe_unbind_account_from_stale_probe_groups 66 '__tk_probe_kiro_group'
+if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "DELETE FROM account_groups ag"; then
+	echo "FAIL: stale probe unbind should delete account_groups rows" >&2
+	exit 1
+fi
+if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "__tk_probe_kiro_group"; then
+	echo "FAIL: stale probe unbind should keep the current reuse group" >&2
+	exit 1
+fi
 TK_PROBE_TEST_SCENARIO=group_id
 tk_probe_clear_bindings probe
 if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "status = 'disabled'"; then

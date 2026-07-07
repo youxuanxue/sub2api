@@ -26,6 +26,16 @@ REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
 PROBE_USER_ID=1
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
+PSQL_ARRAY=("${PSQL[@]}")
+PROBE_RESOURCES="${SCRIPT_DIR}/../pricing/probe_reserved_resources.sh"
+if [ ! -f "$PROBE_RESOURCES" ]; then
+  PROBE_RESOURCES="${SCRIPT_DIR}/probe_reserved_resources.sh"
+fi
+if [ ! -f "$PROBE_RESOURCES" ]; then
+  fail_json "missing probe_reserved_resources.sh companion (deliver with run-probe --with ops/pricing/probe_reserved_resources.sh)"
+fi
+# shellcheck source=../pricing/probe_reserved_resources.sh
+. "$PROBE_RESOURCES"
 
 sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
@@ -301,6 +311,11 @@ INSERT INTO user_allowed_groups (user_id, group_id, created_at)
 VALUES (${PROBE_USER_ID}, ${GROUP_ID}, NOW())
 ON CONFLICT (user_id, group_id) DO NOTHING;
 " >/dev/null
+
+if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
+  tk_probe_unbind_account_from_stale_probe_groups "$ACCOUNT_ID" "$GROUP_NAME" || \
+    fail_json "failed to unbind stale __tk_probe_* groups for account_id=${ACCOUNT_ID}"
+fi
 
 "${PSQL[@]}" -c "
 DELETE FROM account_groups WHERE group_id = ${GROUP_ID};

@@ -177,6 +177,43 @@ tk_probe_key_name() {
 	printf '__tk_probe_%s_key' "$1"
 }
 
+# Platform slugs for probe_account_model.sh PROBE_REUSE_MODE=1
+# (__tk_probe_<platform>_group / __tk_probe_<platform>_key). prune-probe-resources.sh
+# merges these into its canonical keep set.
+tk_probe_platform_reuse_scopes() {
+	printf '%s\n' anthropic kiro openai gemini grok antigravity newapi
+}
+
+tk_probe_is_legacy_oneoff_probe_name() { # $1=group or key name
+	case "$1" in
+	__tk_probe_tkprobe*) return 0 ;;
+	esac
+	return 1
+}
+
+# Remove stale __tk_probe_* bindings before reuse-mode account-model probes rebind.
+# Keeps the current reuse group (e.g. __tk_probe_kiro_group) when provided.
+tk_probe_unbind_account_from_stale_probe_groups() { # $1=account_id $2=keep_group_name
+	local account_id="$1" keep_group_name="${2:-}"
+	local keep_clause=""
+	if [[ ! "$account_id" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: invalid account id '$account_id' for stale probe unbind" >&2
+		return 1
+	fi
+	if [ -n "$keep_group_name" ]; then
+		keep_clause="AND g.name <> '$(tk_probe_sql_escape "$keep_group_name")'"
+	fi
+	tk_probe_psql -c "
+DELETE FROM account_groups ag
+USING groups g
+WHERE ag.account_id = ${account_id}
+  AND ag.group_id = g.id
+  AND g.deleted_at IS NULL
+  AND g.name LIKE '\_\_tk\_probe\_%' ESCAPE '\'
+  ${keep_clause};
+" >/dev/null
+}
+
 # Same lock path as tokenkey-account-model-probe (PROBE_REUSE_MODE=1) so catalog
 # refresh and single-account probes never DELETE/rebind the same __tk_probe_* group concurrently.
 tk_probe_reuse_lock_path() {
