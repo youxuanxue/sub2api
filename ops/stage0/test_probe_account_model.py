@@ -48,6 +48,16 @@ class ProbeAccountModelTest(unittest.TestCase):
         self.assertIn("/var/lib/tokenkey/active-color", script)
         self.assertIn("app container not running", script)
 
+    def test_reuse_mode_unbinds_stale_probe_groups_before_bind(self) -> None:
+        script = _SCRIPT.read_text()
+        self.assertIn("probe_reserved_resources.sh", script)
+        self.assertIn("tk_probe_unbind_account_from_stale_probe_groups", script)
+        self.assertIn('if [[ "$PROBE_REUSE_MODE" == "1" ]]; then', script)
+        self.assertIn("${SCRIPT_DIR}/probe_reserved_resources.sh", script)
+        unbind_at = script.index("tk_probe_unbind_account_from_stale_probe_groups")
+        bind_at = script.index("INSERT INTO account_groups (account_id, group_id, priority, created_at)")
+        self.assertLess(unbind_at, bind_at)
+
 
 if __name__ == "__main__":
     unittest.main()
