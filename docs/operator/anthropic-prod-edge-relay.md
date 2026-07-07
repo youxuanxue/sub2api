@@ -2,7 +2,7 @@
 
 > 适用：在 prod admin UI 上配置 `cc-uk1-oauth` 分组、对接 edge-uk1 节点。
 >
-> 想了解链路代码细节 → 见 [`cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md`](./cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md)。
+> 想了解链路代码细节 → 见 [`cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md`](../ops/cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md)。
 
 ## 这条链路是什么
 
@@ -112,6 +112,6 @@ edge 上挂的账号（如 `cc-en-ld-ec2-16-1-a`）是真要把流量送到 Anth
 
 ## 不在本手册范围
 
-- 代码层调用链 / 函数 / sentinel 细节 → [审计文档](./cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md)
+- 代码层调用链 / 函数 / sentinel 细节 → [审计文档](../ops/cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md)
 - new-api / OpenAI / Gemini 等其他平台的分组配置
 - edge-us1 / sg1（当前未部署）；fra1（法国巴黎，`api-fra1.tokenkey.dev`）见 `deploy/aws/README.md` Edge 小节
