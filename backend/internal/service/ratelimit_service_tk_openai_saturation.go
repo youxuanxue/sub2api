@@ -20,7 +20,7 @@ func (s *RateLimitService) recordOpenAIStubSaturation(ctx context.Context, accou
 	if s == nil || s.openaiSaturationCounter == nil {
 		return 0
 	}
-	count, err := s.openaiSaturationCounter.IncrementSaturation(ctx, accountID, anthropicSaturationWindowSeconds)
+	count, err := s.openaiSaturationCounter.IncrementSaturation(ctx, accountID, edgeMirrorStubSaturationWindowSeconds)
 	if err != nil {
 		slog.Warn("openai_stub_saturation_increment_failed",
 			"account_id", accountID,
@@ -28,12 +28,12 @@ func (s *RateLimitService) recordOpenAIStubSaturation(ctx context.Context, accou
 			"error", err)
 		return 0
 	}
-	if count == anthropicSaturationThreshold {
+	if count == openAIEdgeMirrorStubSaturationThreshold {
 		slog.Info("openai_stub_saturated_deprioritized",
 			"account_id", accountID,
 			"recent_count", count,
-			"threshold", anthropicSaturationThreshold,
-			"window_seconds", anthropicSaturationWindowSeconds,
+			"threshold", openAIEdgeMirrorStubSaturationThreshold,
+			"window_seconds", edgeMirrorStubSaturationWindowSeconds,
 			"status_code", statusCode,
 			"reason", reason)
 	}

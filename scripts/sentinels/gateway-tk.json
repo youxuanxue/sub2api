@@ -2968,7 +2968,7 @@
       "must_contain": [
         "func (s *GatewayService) computeAnthropicSaturationPenalties(",
         "func (a accountWithLoad) effectivePriority() int",
-        "anthropicSaturationPriorityPenalty = 1000",
+        "anthropicSaturationPriorityPenalty",
         "IsAnthropicSaturatedStubDeprioritizeEnabled"
       ],
       "rationale": "Read side of the anthropic saturated mirror-stub de-prioritization (prod 2026-06-12): a BOUNDED additive priority penalty folded into the load-aware candidate ranking so prod routes AWAY from an edge stub emitting SUSTAINED downstream-capacity 429/502 instead of selecting it first and wasting a failover hop every request for the whole ~47-min upstream-limit window. It is a PREFERENCE not a cooldown — the penalty is a finite ADD (1000) that can never exclude a stub from the candidate set (filterByMinPriority compares values, all-saturated keeps relative order), so amplifier-safety (2026-05-31 503 amplifier) is preserved by construction. Dropping this file silently reverts prod to selecting the dead stub first. The kill-switch read (IsAnthropicSaturatedStubDeprioritizeEnabled) keeps it operator-disableable."
@@ -2983,11 +2983,21 @@
       "rationale": "Thin injection of the saturation de-prioritization into the upstream-shaped load-aware scheduler: the penalty is computed once on the Layer-2 'available' set, and filterByMinPriority ranks on effectivePriority() (Priority+saturationPenalty) instead of bare Priority. Removing the compute call leaves penalties at 0 (feature inert); reverting filterByMinPriority to bare account.Priority drops the fold-in even if penalties are set. Either silently disables the preference, so both anchors are pinned."
     },
     {
+      "path": "backend/internal/service/edge_mirror_stub_saturation_tk.go",
+      "must_contain": [
+        "edgeMirrorStubSaturationWindowSeconds = 90",
+        "anthropicEdgeMirrorStubSaturationThreshold int64 = 4",
+        "openAIEdgeMirrorStubSaturationThreshold int64 = 3",
+        "anthropicSaturationPriorityPenalty = 1000",
+        "openAISaturationScorePenalty = 50.0"
+      ],
+      "rationale": "SSOT for prod edge-mirror stub downstream-empty de-prioritization: shared 90s window, platform thresholds (Anthropic 4 / OpenAI 3), and scheduler penalty magnitudes. Anthropic-only class cooldown write stays in ratelimit_service_tk_mirror_class_429.go; OpenAI intentionally has preference-only (sticky clear + score penalty), no temp_unschedulable or per-failover runtime block."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_saturation.go",
       "must_contain": [
         "func (s *RateLimitService) recordAnthropicStubSaturation(",
-        "anthropicSaturationThreshold int64 = 4",
-        "anthropicSaturationWindowSeconds = 90",
+        "edgeMirrorStubSaturationWindowSeconds",
         "anthropic_stub_saturated_deprioritized"
       ],
       "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; the small threshold (4) preserves current behaviour for transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a cooldown. The threshold-crossing slog line (anthropic_stub_saturated_deprioritized) is the ops visibility for a stub entering the de-prioritized state. Dropping this file stops feeding the counter and the scheduler preference becomes inert."
@@ -3055,16 +3065,17 @@
       "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(",
-        "openAISaturationScorePenalty = 10.0",
+        "openAIEdgeMirrorStubSaturationThreshold",
+        "openAISaturationScorePenalty",
         "IsOpenAISaturatedStubDeprioritizeEnabled"
       ],
-      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization (prod 2026-07 recovered-200 incident): prod openai-us* apikey stubs forward to api-us*.tokenkey.dev; when the edge OAuth pool is empty the stub receives TokenKey's own downstream-capacity 429 and load_balance keeps selecting it first, wasting a failover hop every request. Mirrors gateway_service_tk_saturation_penalty.go for the GPT scheduler: a bounded score penalty (-10) folded into buildOpenAIAccountLoadPlan, never excluding the stub from the candidate set. Dropping this file silently reverts prod to hammering saturated stubs."
+      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at openAIEdgeMirrorStubSaturationThreshold (3 hits / 90s) fold score penalty into buildOpenAIAccountLoadPlan and rely on sticky clear — single preference layer per edge_mirror_stub_saturation_tk.go SSOT. No temp_unschedulable or per-failover runtime block."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(",
-        "count < anthropicSaturationThreshold",
+        "count < openAIEdgeMirrorStubSaturationThreshold",
         "openai_sticky_cleared_saturated_stub"
       ],
       "rationale": "Sticky-side completion of OpenAI saturated mirror-stub de-prioritization: selectBySessionHash honors sticky bindings that bypass load_balance penalties unless cleared here when the bound openai-us* stub is SUSTAINEDLY saturated. Without this helper sticky sessions keep selecting the dead stub first every request (same failure mode as anthropic cc-us5 2026-06-19). PREFERENCE not cooldown — shares the kill-switch and 90s counter TTL."
@@ -3082,6 +3093,8 @@
       "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
       "must_contain": [
         "func (s *RateLimitService) recordOpenAIStubSaturation(",
+        "openAIEdgeMirrorStubSaturationThreshold",
+        "edgeMirrorStubSaturationWindowSeconds",
         "openai_stub_saturated_deprioritized"
       ],
       "rationale": "Write side of OpenAI saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path. Never advances handle429 / ladder — preference feed only. Dropping this file stops feeding the counter and scheduler preference becomes inert."
