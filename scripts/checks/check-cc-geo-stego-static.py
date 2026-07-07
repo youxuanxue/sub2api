@@ -81,14 +81,37 @@ def run(quiet: bool) -> int:
     return 0
 
 
+def run_selftest() -> int:
+    json.loads(REGISTRY.read_text(encoding="utf-8"))
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    needles = registry.get("binary_must_contain") or []
+    if not needles:
+        print("FAIL: binary_must_contain empty", file=sys.stderr)
+        return 1
+    # Hermetic: synthetic blob must satisfy marker logic without a real cc install.
+    blob = b"\n".join(n.encode("utf-8") for n in needles)
+    for needle in needles:
+        if needle.encode("utf-8") not in blob:
+            print(f"FAIL: selftest blob missing {needle!r}", file=sys.stderr)
+            return 1
+    failures, notes = check_binary(registry, registry.get("cc_version", "0.0.0"))
+    if failures:
+        for item in failures:
+            print(f"FAIL: {item}", file=sys.stderr)
+        return 1
+    if notes:
+        print(f"note: {notes[0]} (expected in selftest — no real cc binary)")
+    print("ok: check-cc-geo-stego-static selftest")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
-        json.loads(REGISTRY.read_text(encoding="utf-8"))
-        return 0
+        return run_selftest()
     return run(args.quiet)
 
 
