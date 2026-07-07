@@ -2260,6 +2260,36 @@
         </div>
       </div>
 
+      <!-- Anthropic OAuth 自动透传开关 -->
+      <div
+        v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.oauthPassthrough') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.oauthPassthroughDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="anthropicOAuthPassthroughEnabled = !anthropicOAuthPassthroughEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              anthropicOAuthPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                anthropicOAuthPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
         v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
@@ -3644,6 +3674,7 @@ const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
+const anthropicOAuthPassthroughEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
@@ -4252,6 +4283,7 @@ watch(
     }
     if (newPlatform !== PLATFORM_ANTHROPIC) {
       anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
@@ -4275,6 +4307,7 @@ watch(
     }
     if (platform !== PLATFORM_ANTHROPIC || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
       anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
@@ -4664,6 +4697,7 @@ const resetForm = () => {
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
   anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   // Reset quota control state
@@ -4781,6 +4815,14 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+const writeAnthropicOAuthPassthroughExtra = (extra: Record<string, unknown>) => {
+  if (anthropicOAuthPassthroughEnabled.value) {
+    extra.anthropic_oauth_passthrough = true
+  } else {
+    delete extra.anthropic_oauth_passthrough
+  }
 }
 
 const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
@@ -6052,6 +6094,8 @@ const handleAnthropicExchange = async (authCode: string) => {
       extra.custom_base_url = customBaseUrl.value.trim()
     }
 
+    writeAnthropicOAuthPassthroughExtra(extra)
+
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
@@ -6170,6 +6214,8 @@ const handleCookieAuth = async (sessionKey: string) => {
           extra.custom_base_url_enabled = true
           extra.custom_base_url = customBaseUrl.value.trim()
         }
+
+        writeAnthropicOAuthPassthroughExtra(extra)
 
         const accountName = keys.length > 1 ? `${form.name} #${i + 1}` : form.name
 
