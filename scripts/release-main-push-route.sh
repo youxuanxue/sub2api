@@ -16,6 +16,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_RESOLVER="$SCRIPT_DIR/lib/resolve-gh-repo.sh"
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -23,7 +24,7 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 0
 fi
 
-REPO="$(bash "$REPO_RESOLVER" "$(pwd)" 2>/dev/null)" || {
+REPO="$(bash "$REPO_RESOLVER" "$REPO_ROOT" 2>/dev/null)" || {
   echo "[release-main-push-route] ERROR: failed to resolve GitHub repo" >&2
   exit 2
 }

@@ -32,7 +32,9 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 2
 fi
 
-REPO="$(bash "$(dirname "$0")/lib/resolve-gh-repo.sh" "$(pwd)" 2>/dev/null)" || {
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO="$(bash "$SCRIPT_DIR/lib/resolve-gh-repo.sh" "$REPO_ROOT" 2>/dev/null)" || {
   echo "[release-configure-main-bypass] ERROR: failed to resolve GitHub repo" >&2
   exit 2
 }

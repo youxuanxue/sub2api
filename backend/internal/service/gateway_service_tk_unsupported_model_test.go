@@ -141,7 +141,7 @@ func TestDiagnoseSelectionFailure_ModelUnsupportedPrecedesUnschedulable(t *testi
 			"mirror_platform": PlatformKiro,
 		},
 	}
-	got := svc.diagnoseSelectionFailure(nil, unsupportedUnsched, "gpt-4o", PlatformAnthropic, nil, false)
+	got := svc.diagnoseSelectionFailure(nil, unsupportedUnsched, "claude-fable-5", PlatformAnthropic, nil, false)
 	if got.Category != "model_unsupported" {
 		t.Fatalf("unsupported unschedulable account misclassified: got=%+v", got)
 	}
