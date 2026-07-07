@@ -87,6 +87,17 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
+	t.Run("load_batch_cross_vendor_gpt_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		err := service.TkSelectionNoAvailableAccountsError("gpt")
+		status, errType, msg := tkSelectFailureStatusMessage(c, err, "gpt")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
+		assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), msg)
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
 	t.Run("no_available_compact_accounts_returns_429", func(t *testing.T) {
 		c, _ := newCtx(t)
 		status, _, _ := tkSelectFailureStatusMessage(c, service.ErrNoAvailableCompactAccounts, "gpt-5.2")

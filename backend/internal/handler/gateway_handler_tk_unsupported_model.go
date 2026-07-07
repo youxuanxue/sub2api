@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -40,4 +41,18 @@ func (h *GatewayHandler) tkWriteUnsupportedModelIfApplicable(c *gin.Context, err
 	markOpsClientRequestRejected(c)
 	h.handleStreamingAwareError(c, http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel), streamStarted)
 	return true
+}
+
+// tkWriteUnsupportedAnthropicModelAtIngress rejects non-claude-* model names on
+// Anthropic platform routes before account selection so cross-vendor dirty names
+// (model=gpt, bare opus, deepseek-*, …) never enter load-batch scheduling or
+// surface as empty-pool routing 429.
+func (h *GatewayHandler) tkWriteUnsupportedAnthropicModelAtIngress(c *gin.Context, reqModel string, streamStarted bool, reqLog *zap.Logger) bool {
+	if !service.TkIsAnthropicCrossVendorModelName(reqModel) {
+		return false
+	}
+	if reqLog != nil {
+		reqLog.Warn("gateway.unsupported_model_ingress_reject", zap.String("model", reqModel))
+	}
+	return h.tkWriteUnsupportedModelIfApplicable(c, fmt.Errorf("%w: %s (anthropic namespace)", service.ErrUnsupportedModel, reqModel), reqModel, streamStarted, reqLog)
 }

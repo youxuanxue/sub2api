@@ -286,6 +286,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
 			return
 		}
+		if h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, streamStarted, reqLog) {
+			return
+		}
 	}
 
 	if platform == service.PlatformGemini {
@@ -1809,6 +1812,9 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	}
 
 	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog) {
+		return
+	}
+	if h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog) {
 		return
 	}
 

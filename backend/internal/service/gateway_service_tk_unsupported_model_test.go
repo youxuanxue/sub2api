@@ -92,6 +92,36 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 			t.Fatalf("capacity failure must not be classified as unsupported model: %v", err)
 		}
 	})
+
+	t.Run("cross-vendor model beats mixed stats routing 429", func(t *testing.T) {
+		stats := selectionFailureStats{
+			Total:            5,
+			ModelUnsupported: 4,
+			Unschedulable:    1,
+		}
+		err := tkWrapSelectionFailure("gpt", stats)
+		if !errors.Is(err, ErrUnsupportedModel) {
+			t.Fatalf("want ErrUnsupportedModel for cross-vendor name, got %v", err)
+		}
+		if errors.Is(err, ErrNoAvailableAccounts) {
+			t.Fatalf("cross-vendor must not fall through to empty pool: %v", err)
+		}
+	})
+}
+
+func TestTkIsAnthropicCrossVendorModelName(t *testing.T) {
+	if !TkIsAnthropicCrossVendorModelName("gpt") {
+		t.Fatal("gpt must be cross-vendor on anthropic ingress")
+	}
+	if !TkIsAnthropicCrossVendorModelName("deepseek-v4-flash") {
+		t.Fatal("deepseek must be cross-vendor on anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("claude-opus-4-8") {
+		t.Fatal("claude-opus-4-8 must not be cross-vendor")
+	}
+	if TkIsAnthropicCrossVendorModelName("") {
+		t.Fatal("empty model is out of scope for cross-vendor ingress")
+	}
 }
 
 // Tk cross-vendor dirty-model guard (prod 2026-06-16, edge us3 oh1-ls-b ID 4):

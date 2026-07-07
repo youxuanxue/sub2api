@@ -97,7 +97,8 @@ func TestGatewayOpenAICompatibleHandlersAllowBooleanStreamToContinue(t *testing.
 		{
 			name: "responses_false",
 			path: "/v1/responses",
-			body: `{"model":"gpt-5","stream":false,"input":"hello"}`,
+			// claude-* so ingress cross-vendor 400 does not short-circuit CC-only 403.
+			body: `{"model":"claude-opus-4-8","stream":false,"input":"hello"}`,
 			run: func(c *gin.Context) {
 				(&GatewayHandler{gatewayService: &service.GatewayService{}}).Responses(c)
 			},
