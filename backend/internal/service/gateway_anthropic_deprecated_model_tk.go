@@ -140,6 +140,9 @@ func TkSelectionNoAvailableAccountsError(requestedModel string) error {
 	if err := tkDeprecatedAnthropicSelectionFailure(requestedModel); err != nil {
 		return err
 	}
+	if err := tkAnthropicCrossVendorSelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	return ErrNoAvailableAccounts
 }
 

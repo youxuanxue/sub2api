@@ -1312,6 +1312,7 @@
         "tkDeprecatedAnthropicSelectionFailure",
         "tkDeprecatedAnthropicModels",
         "func TkSelectionNoAvailableAccountsError",
+        "tkAnthropicCrossVendorSelectionFailure(requestedModel)",
         "claude-3-5-sonnet-20241022",
         "claude-3-7-sonnet-20250219",
         "claude-sonnet-4-20250514",
@@ -2569,7 +2570,9 @@
         "h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog)",
         "h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog)",
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
-        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog)"
+        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, streamStarted, reqLog)",
+        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog)",
+        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog)"
       ],
       "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages and count_tokens: tkWriteDeprecatedAnthropicModelAtIngress rejects sunset ids before scheduling (#1257); select-account failures call tkWriteDeprecatedAnthropicModelIfApplicable BEFORE tkWriteUnsupportedModelIfApplicable, mapping ErrDeprecatedAnthropicModel to the Anthropic-shape migration 400 (client-owned) instead of routing 429 when the Forward-path gate never ran."
     },
@@ -2583,9 +2586,19 @@
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
-        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)"
+        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
+        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
       ],
-      "rationale": "/v1/responses Anthropic ingress must reject retired model IDs before selection (#1257)."
+      "rationale": "/v1/responses Anthropic ingress must reject retired model IDs and cross-vendor dirty names before selection (#1257 + cross-vendor 400 gate)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_unsupported_model.go",
+      "must_contain": [
+        "func (h *GatewayHandler) tkWriteUnsupportedAnthropicModelAtIngress",
+        "gateway.unsupported_model_ingress_reject",
+        "service.TkIsAnthropicCrossVendorModelName"
+      ],
+      "rationale": "Anthropic ingress pre-check for non-claude-* model names (model=gpt, deepseek-*, bare opus): reject with HTTP 400 before load-batch scheduling so client-fault requests never surface routing/platform 429 (prod 2026-07-07 user16 key121)."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_deprecated_model.go",
@@ -2611,9 +2624,11 @@
     {
       "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
       "must_contain": [
-        "tkDeprecatedAnthropicSelectionFailure(requestedModel)"
+        "tkDeprecatedAnthropicSelectionFailure(requestedModel)",
+        "tkAnthropicCrossVendorSelectionFailure(requestedModel)",
+        "func TkIsAnthropicCrossVendorModelName"
       ],
-      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel before unsupported-model vs empty-pool classification; otherwise mixed model_unsupported + unschedulable stats surface routing 429 for sunset ids."
+      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification; otherwise mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts surface routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt)."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",

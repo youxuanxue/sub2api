@@ -150,3 +150,9 @@ func TestTkSelectionNoAvailableAccountsError_CurrentModel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.False(t, errors.Is(err, ErrDeprecatedAnthropicModel))
 }
+
+func TestTkSelectionNoAvailableAccountsError_CrossVendorModel(t *testing.T) {
+	err := TkSelectionNoAvailableAccountsError("gpt")
+	require.ErrorIs(t, err, ErrUnsupportedModel)
+	require.NotContains(t, strings.ToLower(err.Error()), "no available accounts")
+}
