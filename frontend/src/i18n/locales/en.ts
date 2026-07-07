@@ -4142,6 +4142,9 @@ export default {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
         apiKeyPassthroughDesc:
           'Only applies to Anthropic API Key accounts. When enabled, messages/count_tokens are forwarded in passthrough mode with auth replacement only, while billing/concurrency/audit and safety filtering are preserved. Disable to roll back immediately.',
+        oauthPassthrough: 'OAuth auto passthrough (auth only)',
+        oauthPassthroughDesc:
+          'Only applies to Anthropic OAuth/setup-token accounts. When enabled, skips fingerprint/mimic/canonical rewrites and forwards messages/count_tokens with Authorization replacement only, while billing/concurrency/audit and safety filtering are preserved.',
         mirrorPlatform: 'Mirror platform',
         mirrorPlatformHint:
           'Only for edge "mirror stub" accounts (base URL points at an internal api-<edge>.tokenkey.dev host). Declares which edge pool this stub mirrors its concurrency from: Anthropic (default) or Kiro. Leave Anthropic for normal API Key accounts.',

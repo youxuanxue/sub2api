@@ -2074,6 +2074,36 @@
         </div>
       </div>
 
+      <!-- Anthropic OAuth 自动透传开关 -->
+      <div
+        v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.oauthPassthrough') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.oauthPassthroughDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="anthropicOAuthPassthroughEnabled = !anthropicOAuthPassthroughEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              anthropicOAuthPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                anthropicOAuthPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
         v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
@@ -2831,6 +2861,7 @@ type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
+const anthropicOAuthPassthroughEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
@@ -3308,6 +3339,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   codexCLIOnlyAppServerEnabled.value = false
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === PLATFORM_OPENAI && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
@@ -3855,6 +3887,7 @@ function loadQuotaControlSettings(account: Account) {
   cacheTTLOverrideTarget.value = '5m'
   customBaseUrlEnabled.value = false
   customBaseUrl.value = ''
+  anthropicOAuthPassthroughEnabled.value = false
 
   // Remaining quota control settings only apply to Anthropic accounts
   if (account.platform !== PLATFORM_ANTHROPIC) {
@@ -3865,6 +3898,9 @@ function loadQuotaControlSettings(account: Account) {
   if (account.type !== 'oauth' && account.type !== 'setup-token') {
     return
   }
+
+  anthropicOAuthPassthroughEnabled.value =
+    (account.extra as Record<string, unknown> | undefined)?.anthropic_oauth_passthrough === true
 
   // Load from extra field (via backend DTO fields)
   if (account.max_sessions != null && account.max_sessions > 0) {
@@ -4446,6 +4482,12 @@ const handleSubmit = async () => {
     if (props.account.platform === PLATFORM_ANTHROPIC && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
+
+      if (anthropicOAuthPassthroughEnabled.value) {
+        newExtra.anthropic_oauth_passthrough = true
+      } else {
+        delete newExtra.anthropic_oauth_passthrough
+      }
 
       // Window cost limit settings
       // Session limit settings
