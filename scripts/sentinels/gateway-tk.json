@@ -240,6 +240,7 @@
         "openai_403_client_induced_capability_skip_cooldown",
         "handleAnthropicUpstreamError(",
         "handleAnthropicUpstreamErrorWithOptions",
+        "tkAnthropicStubHealthFuseEligible",
         "IncrementAnthropicUpstreamErrorCount",
         "IncrementAnthropicCooldownTier(",
         "IncrementAnthropicCooldownTierEscalations",
@@ -364,7 +365,28 @@
         "invalid_request_error",
         "request_too_large"
       ],
-      "rationale": "G1 client-induced exemption predicate. An Anthropic invalid_request_error (#2608) OR request_too_large is a caller-side fault, not account health, and must be skipped from the 3/3 ladder (via case 400 catch-all and case 413 in ratelimit_service.go). Dropping the request_too_large arm re-arms the oversized-body amplifier on the 400-shape; dropping invalid_request_error restores the original #2608 amplifier where any caller can pause a shared OAuth account with malformed requests. Removing the predicate reopens the external account-disable abuse vector (TK#2608)."
+      "rationale": "G1 client-induced exemption predicate. An Anthropic invalid_request_error (#2608) OR request_too_large is a caller-side fault, not account health, and must be skipped from the stub-health 3/3 fuse (case 400 / case 413 in ratelimit_service.go). Dropping the request_too_large arm re-arms the oversized-body amplifier on the 400-shape; dropping invalid_request_error restores the original #2608 amplifier where any caller can pause a shared OAuth account with malformed requests. Removing the predicate reopens the external account-disable abuse vector (TK#2608)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_stub_health_fuse.go",
+      "must_contain": [
+        "func tkAnthropicStubHealthFuseEligible(statusCode int, authoritativeCooldownWritten bool) bool",
+        "http.StatusBadGateway",
+        "http.StatusServiceUnavailable",
+        "http.StatusGatewayTimeout",
+        "529",
+        "http.StatusTooManyRequests"
+      ],
+      "rationale": "Single allowlist gate for the Anthropic stub-health 3/3 temp_unschedulable fuse. Only 502/503/504/529 and 429 after SetRateLimited may advance the counter; 400/402/403 and header-less/extra-usage 429 must stay out so permission/billing/client errors and Path-A downstream envelopes do not re-arm the 2026-05-31 / cc-us7 amplifiers. Dropping this predicate silently widens the fuse back to the old 400-599 catch-all."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_stub_health_fuse_test.go",
+      "must_contain": [
+        "TestTkAnthropicStubHealthFuseEligible",
+        "TestRateLimitService_HandleUpstreamError_AnthropicExtraUsage429_DoesNotAdvanceFuse",
+        "TestRateLimitService_HandleUpstreamError_Anthropic429WithoutSetRateLimited_DoesNotAdvanceFuse"
+      ],
+      "rationale": "Mechanical proof that the stub-health fuse allowlist stays narrow: predicate unit tests plus regressions that extra-usage / no-SetRateLimited 429 must not feed the 3/3 counter while authoritative 429 still does."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available.go",

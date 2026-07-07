@@ -390,18 +390,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg := "Identity verification required (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
-		} else if account.Platform == PlatformAnthropic {
-			// TK (upstream#2608): a client-induced invalid_request_error must NOT
-			// advance the per-account cooldown counter — otherwise any caller can
-			// pause a shared OAuth subscription account by sending malformed 400s.
-			// Account-level 400s (org disabled / credit / KYC) are handled above;
-			// only atypical 400s still go through the normal threshold path.
-			if tkIsAnthropicClientInducedBadRequest(responseBody) {
-				slog.Info("anthropic_client_induced_400_skip_penalty",
-					"account_id", account.ID, "status_code", statusCode)
-			} else {
-				shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
-			}
+		} else if account.Platform == PlatformAnthropic && tkIsAnthropicClientInducedBadRequest(responseBody) {
+			// TK (upstream#2608): client-induced invalid_request_error is caller-side;
+			// atypical 400s are also out of stub-health fuse scope (see
+			// tkAnthropicStubHealthFuseEligible).
+			slog.Info("anthropic_client_induced_400_skip_penalty",
+				"account_id", account.ID, "status_code", statusCode)
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
@@ -537,10 +531,6 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
-		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
-			break
-		}
 		if s.tkHandleKiroQuotaLimit402(ctx, account, upstreamMsg, responseBody) {
 			shouldDisable = true
 			break
@@ -673,10 +663,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// provided reset time. If so, suppress the ladder's parallel
 		// SetTempUnschedulable write (last-write-wins would otherwise
 		// race a less-precise local cooldown over the just-written reset).
-		// The 3/3 + tier counters still advance so persistent failure
-		// still escalates.
+		// The 3/3 + tier counters advance only when SetRateLimited landed (see
+		// tkAnthropicStubHealthFuseEligible).
 		rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)
-		if account.Platform == PlatformAnthropic {
+		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, rateLimitSet) {
 			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, rateLimitSet)
 		} else {
 			shouldDisable = false
@@ -699,7 +689,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = false
 		}
 	default:
-		if account.Platform == PlatformAnthropic && statusCode >= 400 && statusCode <= 599 {
+		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, false) {
 			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
 		} else if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
@@ -1217,7 +1207,17 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}
-		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
+		// Unclassified Anthropic 403: permanent auth/permission disable (upstream
+		// shape). Do NOT enter the stub-health 3/3 fuse — permission errors are not
+		// infra blips and the auto-recovering ladder caused recoverable flap.
+		msg := buildForbiddenErrorMessage(
+			"Access forbidden (403):",
+			upstreamMsg,
+			responseBody,
+			"account may be suspended or lack permissions",
+		)
+		s.handleAuthError(ctx, account, msg)
+		return true
 	}
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
@@ -1229,8 +1229,10 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	return true
 }
 
-// handleAnthropicUpstreamError counts upstream errors per account in a 1-min
-// short window and, on the 3rd hit, marks the account temp_unschedulable.
+// handleAnthropicUpstreamError counts upstream infra-health errors per account
+// in a 1-min short window and, on the 3rd hit, marks the account
+// temp_unschedulable. Only status codes passing tkAnthropicStubHealthFuseEligible
+// reach this path (502/503/504/529, plus 429 only after SetRateLimited).
 //
 // Pool-mode policy (2026-05-21 revision of PR #333, which itself reversed
 // PR #248): pool_mode accounts are NOT bypassed here. PR #333's blanket
@@ -1307,6 +1309,9 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 // is suppressed so the just-written rate_limit_reset / overload_until is
 // not raced by a less-precise ladder cooldown (last-write-wins).
 func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte, skipCooldownWrite bool) (shouldDisable bool) {
+	if !tkAnthropicStubHealthFuseEligible(statusCode, skipCooldownWrite) {
+		return false
+	}
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)

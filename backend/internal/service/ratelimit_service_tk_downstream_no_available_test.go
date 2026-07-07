@@ -217,7 +217,7 @@ func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError
 	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
 }
 
-func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_StillCounts(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_PermanentlyDisables(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}, tierCounts: []int64{1}}
 	sat := &fakeSaturationCounterRL{}
@@ -238,10 +238,10 @@ func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_StillCounts(t
 	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "generic Kiro mirror 403 must not use the invalid-bearer skip")
-	require.Equal(t, 1, repo.tempCalls, "generic Kiro mirror 403 must still enter the upstream-error ladder")
-	require.Equal(t, []int64{66}, counter.incrementIDs)
-	require.Empty(t, sat.incrementIDs, "generic Kiro mirror 403 must not feed auth-reject saturation")
+	require.Equal(t, 1, repo.setErrorCalls, "generic Kiro mirror 403 must permanently disable, not 3/3 fuse")
+	require.Equal(t, 0, repo.tempCalls)
+	require.Empty(t, counter.incrementIDs)
+	require.Empty(t, sat.incrementIDs)
 }
 
 func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError(t *testing.T) {
@@ -257,7 +257,7 @@ func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsE
 	require.Contains(t, repo.lastErrorMsg, "Authentication failed (401)")
 }
 
-func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_StillCounts(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_PermanentlyDisables(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}, tierCounts: []int64{1}}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -268,9 +268,9 @@ func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_StillCount
 	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "generic Anthropic API-key 403 must not use the Kiro mirror skip")
-	require.Equal(t, 1, repo.tempCalls, "generic Anthropic API-key 403 must still enter the upstream-error ladder")
-	require.Equal(t, []int64{67}, counter.incrementIDs)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Empty(t, counter.incrementIDs)
 }
 
 // Regression: a genuine Anthropic upstream 503 (no "no available accounts" body)
