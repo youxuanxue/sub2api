@@ -6,12 +6,12 @@ package service
 // model_mapping edit required.
 //
 // Why it exists: an antigravity account with an empty credentials.model_mapping
-// falls back to domain.DefaultAntigravityModelMapping, which still includes
-// claude-* and gpt-oss-* (kept there as a code-level capability per CLAUDE.md
-// §5.x keep-don't-strip). To route claude off antigravity (to the anthropic
-// pool) and drop gpt-oss, each account must carry a gemini-only custom mapping.
-// This reconciler applies that mapping automatically on deploy and keeps it
-// applied (current accounts, future-created accounts, and any drift).
+// falls back to domain.DefaultAntigravityModelMapping, which still includes the
+// live-supported claude-* subset plus gpt-oss-* for controlled account-level
+// opt-in. To keep the default operator policy "gemini only", each account must
+// carry a gemini-only custom mapping. This reconciler applies that mapping
+// automatically on deploy and keeps it applied (current accounts, future-created
+// accounts, and any drift).
 //
 // Boundaries (mirrors AnthropicConfigReconciler):
 //   - Writes ONLY this deployment's own DB; never fleet-wide.
@@ -19,8 +19,8 @@ package service
 //     rewritten; already-gemini-only accounts are left untouched (idempotent,
 //     no write thrash — the canonical map has no wildcards, so the probe is
 //     stable across ticks).
-//   - It does NOT touch domain.DefaultAntigravityModelMapping — claude stays a
-//     code-level capability; only per-account data is reconciled.
+//   - It does NOT touch domain.DefaultAntigravityModelMapping — per-account data
+//     controls whether the live Claude subset is actually schedulable.
 //
 // Divergence from AnthropicConfigReconciler: this one runs an immediate pass at
 // goroutine start (before the ticker loop) so the gemini-only policy takes
@@ -237,7 +237,7 @@ func antigravityCanServeExcluded(a *Account) bool {
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	if len(rawMapping) == 0 {
 		// Empty / malformed custom mappings fall back to DefaultAntigravityModelMapping,
-		// which still contains excluded families and compatibility aliases.
+		// which still contains excluded families.
 		return true
 	}
 	for k := range rawMapping {
@@ -254,8 +254,7 @@ func antigravityCanServeExcluded(a *Account) bool {
 // runOnce enforces gemini-only model_mapping on every antigravity account in the
 // LOCAL DB. An account that can still serve claude/gpt-oss or carries stale
 // structural-dead aliases / unpriced keys (an empty mapping falls back to
-// DefaultAntigravityModelMapping, which includes excluded families and
-// compatibility aliases) has its
+// DefaultAntigravityModelMapping, which includes excluded families) has its
 // credentials.model_mapping rewritten to GeminiOnlyAntigravityModelMapping via
 // BulkUpdate (whose JSONB shallow-merge replaces the whole model_mapping sub-object
 // — dropping excluded/stale keys — and enqueues a scheduler_outbox event so the
