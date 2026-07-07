@@ -245,7 +245,7 @@
         "IncrementAnthropicCooldownTierEscalations",
         "anthropic_cooldown_tier_escalation",
         "anthropic_upstream_error_cooldown_write_skipped",
-        "anthropic_tls_fingerprint_403_permanent_disable",
+        "tkTryDisableAnthropicTLSFingerprint403",
         "403_escalated_to_error",
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         ") ResetAnthropicUpstreamErrorCounter(",
