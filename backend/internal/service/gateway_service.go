@@ -3737,9 +3737,6 @@ func (s *GatewayService) diagnoseSelectionFailure(
 	if _, excluded := excludedIDs[acc.ID]; excluded {
 		return selectionFailureDiagnosis{Category: "excluded"}
 	}
-	if !s.isAccountSchedulableForSelection(acc) {
-		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
-	}
 	if isPlatformFilteredForSelection(acc, platform, allowMixedScheduling) {
 		return selectionFailureDiagnosis{
 			Category: "platform_filtered",
@@ -3751,6 +3748,9 @@ func (s *GatewayService) diagnoseSelectionFailure(
 			Category: "model_unsupported",
 			Detail:   fmt.Sprintf("model=%s", requestedModel),
 		}
+	}
+	if !s.isAccountSchedulableForSelection(acc) {
+		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
 	}
 	if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
 		remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)

@@ -25,9 +25,14 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "unsupported plus an unschedulable candidate -> false (may support once recovered)",
+			name:  "unsupported plus an unschedulable supporting candidate -> false (capacity after recovery)",
 			stats: selectionFailureStats{Total: 5, ModelUnsupported: 4, Unschedulable: 1},
 			want:  false,
+		},
+		{
+			name:  "unsupported candidates stay unsupported even when some are unschedulable",
+			stats: selectionFailureStats{Total: 5, ModelUnsupported: 5},
+			want:  true,
 		},
 		{
 			name:  "an eligible candidate exists -> false",
@@ -124,6 +129,39 @@ func TestTkIsAnthropicCrossVendorModelName(t *testing.T) {
 	}
 }
 
+func TestDiagnoseSelectionFailure_ModelUnsupportedPrecedesUnschedulable(t *testing.T) {
+	svc := &GatewayService{}
+	unsupportedUnsched := &Account{
+		ID:          1,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: false,
+		Credentials: map[string]any{
+			"mirror_platform": PlatformKiro,
+		},
+	}
+	got := svc.diagnoseSelectionFailure(nil, unsupportedUnsched, "claude-fable-5", PlatformAnthropic, nil, false)
+	if got.Category != "model_unsupported" {
+		t.Fatalf("unsupported unschedulable account misclassified: got=%+v", got)
+	}
+
+	supportingUnsched := &Account{
+		ID:          2,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: false,
+		Credentials: map[string]any{
+			"base_url": "https://api-us3.tokenkey.dev",
+		},
+	}
+	got = svc.diagnoseSelectionFailure(nil, supportingUnsched, "claude-opus-4-8", PlatformAnthropic, nil, false)
+	if got.Category != "unschedulable" {
+		t.Fatalf("supporting unschedulable account must stay capacity-owned: got=%+v", got)
+	}
+}
+
 // Tk cross-vendor dirty-model guard (prod 2026-06-16, edge us3 oh1-ls-b ID 4):
 // a passthrough anthropic OAuth account forwarded non-claude names
 // (deepseek-v4-flash) to api.anthropic.com → 404 + abuse fingerprint. The guard
@@ -133,7 +171,7 @@ func TestTkIsAnthropicCrossVendorModelName(t *testing.T) {
 func TestTkIsForwardableAnthropicModelName(t *testing.T) {
 	forwardable := []string{
 		"claude-opus-4-8",
-		"claude-haiku-4-6",            // same-family stale/typo: intentionally allowed (upstream tolerates)
+		"claude-haiku-4-6",           // same-family stale/typo: intentionally allowed (upstream tolerates)
 		"claude-sonnet-4-5-20250929", // dated snapshot
 		"Claude-Opus-4-8",            // case-insensitive
 		" claude-opus-4-8 ",          // trimmed
