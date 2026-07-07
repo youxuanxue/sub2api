@@ -47,7 +47,7 @@ func TestRateLimitService_AnthropicUpstreamError_IncidentStillLadders(t *testing
 		shouldDisable := svc.HandleUpstreamError(
 			context.Background(),
 			account,
-			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
 			http.Header{},
 			[]byte(`{"error":{"type":"api_error","message":"upstream 500"}}`),
 		)
@@ -88,7 +88,7 @@ func TestRateLimitService_AnthropicUpstreamError_OperationalStillLadders(t *test
 		svc.HandleUpstreamError(
 			context.Background(),
 			account,
-			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
 			http.Header{},
 			[]byte(`{"error":{"type":"api_error","message":"upstream 500"}}`),
 		)
@@ -123,7 +123,7 @@ func TestRateLimitService_AnthropicUpstreamError_StaleIncidentFailsSafe(t *testi
 		svc.HandleUpstreamError(
 			context.Background(),
 			account,
-			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
 			http.Header{},
 			[]byte(`{"error":{"type":"api_error","message":"upstream 500"}}`),
 		)

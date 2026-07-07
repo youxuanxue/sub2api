@@ -34,6 +34,28 @@ def _gh_json(args: list[str]) -> object:
 
 
 def resolve_repo(repo_root: str) -> str:
+    origin = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if origin.returncode == 0:
+        url = origin.stdout.strip()
+        prefixes = (
+            ("git@github.com:", ""),
+            ("https://github.com/", ""),
+            ("ssh://git@github.com/", ""),
+        )
+        for prefix, _ in prefixes:
+            if url.startswith(prefix):
+                repo = url[len(prefix):]
+                if repo.endswith(".git"):
+                    repo = repo[:-4]
+                if repo.count("/") == 1:
+                    return repo
+
     proc = subprocess.run(
         ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
         cwd=repo_root,

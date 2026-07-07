@@ -23,14 +23,14 @@ func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(ctx contex
 		return false
 	}
 	count := counts[account.ID]
-	if count < anthropicSaturationThreshold {
+	if count < openAIEdgeMirrorStubSaturationThreshold {
 		return false
 	}
 	slog.Info("openai_sticky_cleared_saturated_stub",
 		"account_id", account.ID,
 		"recent_count", count,
-		"threshold", anthropicSaturationThreshold,
-		"window_seconds", anthropicSaturationWindowSeconds,
+		"threshold", openAIEdgeMirrorStubSaturationThreshold,
+		"window_seconds", edgeMirrorStubSaturationWindowSeconds,
 		"session", shortSessionHash(sessionHash),
 	)
 	return true

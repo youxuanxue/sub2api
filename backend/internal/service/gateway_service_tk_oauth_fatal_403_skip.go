@@ -7,8 +7,9 @@ package service
 // 这 5 次必然全部 403、纯属加重上游封禁——而账号马上就会被熔断器禁用。这里识别这类 403,
 // 让调用方跳过原地重试、直奔 failover + 禁用副作用。
 //
-// 与 #810 / Gap-A 共用判定真值：org-ban 短语经 tkMatchAnthropicOrgBan403Body、空 body 经
-// tkIsUnstructuredAnthropicErrorBody——两者都是该 403 会被永久禁用(或落入终局升级)的信号,
+// 与 #810 / Gap-A 共用判定真值：org-ban 短语经 tkMatchAnthropicOrgBan403Body、
+// TLS/WAF 403 经 tkMatchAnthropicTLSFingerprint403Body、空 body 经
+// tkIsUnstructuredAnthropicErrorBody——三者都是该 403 会被永久禁用(或落入终局升级)的信号,
 // 原地重试它们没有意义。仅限 Anthropic OAuth：其它平台 OAuth 403 的重试语义不变。
 func (s *GatewayService) tkIsAccountFatal403(account *Account, body []byte) bool {
 	if account == nil || !account.IsOAuth() || account.Platform != PlatformAnthropic {
@@ -16,6 +17,10 @@ func (s *GatewayService) tkIsAccountFatal403(account *Account, body []byte) bool
 	}
 	// org 封禁短语(#810 会永久禁用)——原地重试必然继续 403。
 	if tkMatchAnthropicOrgBan403Body("", body) != "" {
+		return true
+	}
+	// TLS/WAF 指纹 403（canonical profile stale）——原地重试只加重暴露。
+	if tkMatchAnthropicTLSFingerprint403Body("", body) != "" {
 		return true
 	}
 	// 空 body / 非结构化 403(Gap-A 持续累计即终局禁用;且本就是逃过短语匹配的 org-ban 形态)。

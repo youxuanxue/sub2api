@@ -282,6 +282,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 
+	if platform == service.PlatformAnthropic {
+		if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
+			return
+		}
+		if h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, streamStarted, reqLog) {
+			return
+		}
+	}
+
 	if platform == service.PlatformGemini {
 		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
 
@@ -296,6 +305,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog) {
+						return
+					}
 					if h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog) {
 						return
 					}
@@ -577,6 +589,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog) {
+						return
+					}
 					if h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog) {
 						return
 					}
@@ -1793,6 +1808,13 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 验证 model 必填
 	if parsedReq.Model == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+
+	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog) {
+		return
+	}
+	if h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog) {
 		return
 	}
 

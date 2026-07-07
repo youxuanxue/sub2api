@@ -1770,6 +1770,17 @@ func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
 	return ok && enabled
 }
 
+// IsAnthropicOAuthPassthroughEnabled 返回 Anthropic OAuth/setup-token 账号是否启用
+// 「自动透传（仅替换认证）」：跳过 fingerprint / mimic / canonical 等改写，仅替换
+// Authorization。字段：accounts.extra.anthropic_oauth_passthrough。
+func (a *Account) IsAnthropicOAuthPassthroughEnabled() bool {
+	if a == nil || a.Platform != PlatformAnthropic || !a.IsOAuth() || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra["anthropic_oauth_passthrough"].(bool)
+	return ok && enabled
+}
+
 // WebSearch 模拟三态常量
 const (
 	WebSearchModeDefault  = "default"  // 跟随渠道配置

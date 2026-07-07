@@ -1813,7 +1813,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		return nil, err
 	}
 	if len(accounts) == 0 {
-		return nil, ErrNoAvailableAccounts
+		return nil, TkSelectionNoAvailableAccountsError(requestedModel)
 	}
 	ctx = s.withRPMPrefetch(ctx, accounts)
 
@@ -2330,7 +2330,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			)
 			return nil, ErrThinPoolAllExcluded
 		}
-		return nil, ErrNoAvailableAccounts
+		return nil, TkSelectionNoAvailableAccountsError(requestedModel)
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
@@ -2424,7 +2424,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			MaxWaiting:     cfg.FallbackMaxWaiting,
 		})
 	}
-	return nil, ErrNoAvailableAccounts
+	return nil, TkSelectionNoAvailableAccountsError(requestedModel)
 }
 
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
@@ -3737,9 +3737,6 @@ func (s *GatewayService) diagnoseSelectionFailure(
 	if _, excluded := excludedIDs[acc.ID]; excluded {
 		return selectionFailureDiagnosis{Category: "excluded"}
 	}
-	if !s.isAccountSchedulableForSelection(acc) {
-		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
-	}
 	if isPlatformFilteredForSelection(acc, platform, allowMixedScheduling) {
 		return selectionFailureDiagnosis{
 			Category: "platform_filtered",
@@ -3751,6 +3748,9 @@ func (s *GatewayService) diagnoseSelectionFailure(
 			Category: "model_unsupported",
 			Detail:   fmt.Sprintf("model=%s", requestedModel),
 		}
+	}
+	if !s.isAccountSchedulableForSelection(acc) {
+		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
 	}
 	if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
 		remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)
@@ -4815,6 +4815,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		})
 	}
 
+	if account != nil && account.IsAnthropicOAuthPassthroughEnabled() {
+		return s.forwardAnthropicOAuthPassthroughWithInput(ctx, c, account, anthropicPassthroughForwardInput{
+			Body:          parsed.Body.Bytes(),
+			Parsed:        parsed,
+			RequestModel:  parsed.Model,
+			OriginalModel: parsed.Model,
+			RequestStream: parsed.Stream,
+			StartTime:     startTime,
+		})
+	}
+
 	if account != nil && account.IsBedrock() {
 		return s.forwardBedrock(ctx, c, account, parsed, startTime)
 	}
@@ -5089,7 +5100,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// See gateway_anthropic_deprecated_model_tk.go.
 	if account.Platform == PlatformAnthropic {
 		if replacement, deprecated := tkIsDeprecatedAnthropicModel(mappedModel); deprecated {
-			tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
+			TkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
 			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
 		}
 	}
@@ -5862,12 +5873,36 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	account *Account,
 	input anthropicPassthroughForwardInput,
 ) (*ForwardResult, error) {
+	return s.forwardAnthropicPassthroughWithInput(ctx, c, account, input, anthropicPassthroughAuthAPIKey)
+}
+
+func anthropicPassthroughAuthLabel(kind anthropicPassthroughAuthKind) string {
+	if kind == anthropicPassthroughAuthOAuth {
+		return "OAuth"
+	}
+	return "API Key"
+}
+
+func (s *GatewayService) forwardAnthropicPassthroughWithInput(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	input anthropicPassthroughForwardInput,
+	authKind anthropicPassthroughAuthKind,
+) (*ForwardResult, error) {
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}
-	if tokenType != AccountTypeAPIKey {
-		return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+	switch authKind {
+	case anthropicPassthroughAuthOAuth:
+		if tokenType != AccountTypeOAuth && tokenType != AccountTypeSetupToken {
+			return nil, fmt.Errorf("anthropic oauth passthrough requires oauth token, got: %s", tokenType)
+		}
+	default:
+		if tokenType != AccountTypeAPIKey {
+			return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+		}
 	}
 
 	proxyURL := ""
@@ -5875,11 +5910,14 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		proxyURL = account.Proxy.URL()
 	}
 
-	logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 API Key 透传分支: account=%d name=%s model=%s stream=%v",
-		account.ID, account.Name, input.RequestModel, input.RequestStream)
+	logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 %s 透传分支: account=%d name=%s model=%s stream=%v",
+		anthropicPassthroughAuthLabel(authKind), account.ID, account.Name, input.RequestModel, input.RequestStream)
 
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
+		if authKind == anthropicPassthroughAuthOAuth {
+			c.Set("anthropic_oauth_passthrough", true)
+		}
 	}
 	// TK: strip the Claude Code 1M-context model alias ("...[1m]") before forward
 	// so the API-key passthrough path does not 404 + silently downgrade to 200K
@@ -5965,7 +6003,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	adaptiveRetryAttempted := false
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
-		upstreamReq, wireBody, err := s.buildUpstreamRequestAnthropicAPIKeyPassthrough(upstreamCtx, c, account, input.Body, token)
+		upstreamReq, wireBody, err := s.buildAnthropicPassthroughUpstreamRequest(upstreamCtx, c, account, input.Body, token, authKind)
 		releaseUpstreamCtx()
 		if err != nil {
 			return nil, err
@@ -10205,7 +10243,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
 			}
 		}
-		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
+		return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, passthroughBody, anthropicPassthroughAuthAPIKey)
+	}
+
+	if account != nil && account.IsAnthropicOAuthPassthroughEnabled() {
+		return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, parsed.Body.Bytes(), anthropicPassthroughAuthOAuth)
 	}
 
 	// Bedrock 不支持 count_tokens 端点
@@ -10369,7 +10411,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// rewrites take precedence. See gateway_anthropic_deprecated_model_tk.go.
 	if account.Platform == PlatformAnthropic && reqModel != "" {
 		if replacement, deprecated := tkIsDeprecatedAnthropicModel(reqModel); deprecated {
-			tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
+			TkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
 			return fmt.Errorf("anthropic model %q is retired (suggest %q)", reqModel, replacement)
 		}
 	}
@@ -10542,14 +10584,32 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 }
 
 func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
+	return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, body, anthropicPassthroughAuthAPIKey)
+}
+
+func (s *GatewayService) forwardCountTokensAnthropicPassthrough(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	authKind anthropicPassthroughAuthKind,
+) error {
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
 		return err
 	}
-	if tokenType != AccountTypeAPIKey {
-		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Invalid account token type")
-		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+	switch authKind {
+	case anthropicPassthroughAuthOAuth:
+		if tokenType != AccountTypeOAuth && tokenType != AccountTypeSetupToken {
+			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Invalid account token type")
+			return fmt.Errorf("anthropic oauth passthrough requires oauth token, got: %s", tokenType)
+		}
+	default:
+		if tokenType != AccountTypeAPIKey {
+			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Invalid account token type")
+			return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+		}
 	}
 
 	// Pre-filter: strip fields that count_tokens rejects (see comment on the
@@ -10575,7 +10635,7 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		}
 	}
 
-	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
+	upstreamReq, err := s.buildAnthropicPassthroughCountTokensRequest(ctx, c, account, body, token, authKind)
 	if err != nil {
 		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
 		return err

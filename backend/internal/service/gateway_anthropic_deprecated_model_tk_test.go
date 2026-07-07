@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,7 +53,7 @@ func TestTkIsDeprecatedAnthropicModel(t *testing.T) {
 }
 
 func TestTkBuildDeprecatedAnthropicMessage(t *testing.T) {
-	msg := tkBuildDeprecatedAnthropicMessage("claude-3-5-sonnet-20241022", tkDeprecatedAnthropicReplacementSonnet)
+	msg := TkBuildDeprecatedAnthropicMessage("claude-3-5-sonnet-20241022", tkDeprecatedAnthropicReplacementSonnet)
 	require.Contains(t, msg, "claude-3-5-sonnet-20241022", "must echo the requested model")
 	require.Contains(t, msg, tkDeprecatedAnthropicReplacementSonnet, "must suggest sonnet replacement")
 	require.Contains(t, msg, tkDeprecatedAnthropicReplacementOpus, "must mention opus replacement")
@@ -64,7 +65,7 @@ func TestTkWriteAnthropicDeprecatedModelError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	tkWriteAnthropicDeprecatedModelError(c, "claude-3-5-sonnet-20241022", tkDeprecatedAnthropicReplacementSonnet)
+	TkWriteAnthropicDeprecatedModelError(c, "claude-3-5-sonnet-20241022", tkDeprecatedAnthropicReplacementSonnet)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.True(t, c.IsAborted(), "must abort further gin handlers")
 
@@ -76,7 +77,7 @@ func TestTkWriteAnthropicDeprecatedModelError(t *testing.T) {
 
 	errObj, ok := payload["error"].(map[string]any)
 	require.True(t, ok, "error field must be an object, got %T", payload["error"])
-	require.Equal(t, tkDeprecatedAnthropicErrorType, errObj["type"])
+	require.Equal(t, TkDeprecatedAnthropicErrorType, errObj["type"])
 
 	message, _ := errObj["message"].(string)
 	require.Contains(t, message, "claude-3-5-sonnet-20241022")
@@ -87,7 +88,7 @@ func TestTkWriteAnthropicDeprecatedModelError(t *testing.T) {
 
 func TestTkWriteAnthropicDeprecatedModelErrorNilContextIsSafe(t *testing.T) {
 	require.NotPanics(t, func() {
-		tkWriteAnthropicDeprecatedModelError(nil, "anything", "anything")
+		TkWriteAnthropicDeprecatedModelError(nil, "anything", "anything")
 	}, "nil context must be a safe no-op")
 }
 
@@ -114,4 +115,44 @@ func TestTkDeprecatedAnthropicModelsTableIsExhaustive(t *testing.T) {
 		_, ok := tkDeprecatedAnthropicModels[id]
 		require.Truef(t, ok, "retired model %q must remain on the gate list", id)
 	}
+}
+
+func TestTkDeprecatedAnthropicSelectionFailure(t *testing.T) {
+	err := tkDeprecatedAnthropicSelectionFailure("claude-3-5-sonnet-20241022")
+	require.ErrorIs(t, err, ErrDeprecatedAnthropicModel)
+	require.NotContains(t, strings.ToLower(err.Error()), "no available accounts")
+
+	err = tkDeprecatedAnthropicSelectionFailure("claude-sonnet-4-6")
+	require.NoError(t, err)
+}
+
+func TestTkWrapSelectionFailure_DeprecatedModelBeatsRouting429(t *testing.T) {
+	// Mixed stats would previously fall through to ErrNoAvailableAccounts (429).
+	stats := selectionFailureStats{
+		Total:            5,
+		ModelUnsupported: 4,
+		Unschedulable:    1,
+	}
+	err := tkWrapSelectionFailure("claude-3-5-sonnet-20241022", stats)
+	require.ErrorIs(t, err, ErrDeprecatedAnthropicModel)
+	require.False(t, errors.Is(err, ErrNoAvailableAccounts))
+	require.False(t, errors.Is(err, ErrUnsupportedModel))
+}
+
+func TestTkSelectionNoAvailableAccountsError_DeprecatedModel(t *testing.T) {
+	err := TkSelectionNoAvailableAccountsError("claude-3-5-haiku-20241022")
+	require.ErrorIs(t, err, ErrDeprecatedAnthropicModel)
+	require.NotContains(t, strings.ToLower(err.Error()), "no available accounts")
+}
+
+func TestTkSelectionNoAvailableAccountsError_CurrentModel(t *testing.T) {
+	err := TkSelectionNoAvailableAccountsError("claude-sonnet-4-6")
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.False(t, errors.Is(err, ErrDeprecatedAnthropicModel))
+}
+
+func TestTkSelectionNoAvailableAccountsError_CrossVendorModel(t *testing.T) {
+	err := TkSelectionNoAvailableAccountsError("gpt")
+	require.ErrorIs(t, err, ErrUnsupportedModel)
+	require.NotContains(t, strings.ToLower(err.Error()), "no available accounts")
 }

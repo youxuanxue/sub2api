@@ -19,6 +19,12 @@ func testConfig() *config.Config {
 	return &config.Config{RunMode: config.RunModeStandard}
 }
 
+// testAnthropicSchedulingModel is a current (non-retired) Anthropic model ID for
+// selection-path tests that assert ErrNoAvailableAccounts / ErrUnsupportedModel.
+// Do not use claude-3-5-sonnet-20241022 here — tkWrapSelectionFailure maps
+// retired IDs to ErrDeprecatedAnthropicModel before those errors.
+const testAnthropicSchedulingModel = "claude-sonnet-4-6"
+
 // mockAccountRepoForPlatform 单平台测试用的 mock
 type mockAccountRepoForPlatform struct {
 	accounts         []Account
@@ -460,7 +466,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_NoAvailableAccounts(t 
 		cfg:         testConfig(),
 	}
 
-	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", testAnthropicSchedulingModel, nil, PlatformAnthropic)
 	require.Error(t, err)
 	require.Nil(t, acc)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
@@ -898,7 +904,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_NoModelSupport(t *test
 		cfg:         testConfig(),
 	}
 
-	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", testAnthropicSchedulingModel, nil, PlatformAnthropic)
 	require.Error(t, err)
 	require.Nil(t, acc)
 	// No account serves this model name → unsupported-model client error (not capacity).
@@ -1904,7 +1910,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 			cfg:         testConfig(),
 		}
 
-		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", testAnthropicSchedulingModel, nil, PlatformAnthropic)
 		require.Error(t, err)
 		require.Nil(t, acc)
 		require.ErrorIs(t, err, ErrNoAvailableAccounts)
@@ -1936,7 +1942,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 			cfg:         testConfig(),
 		}
 
-		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", testAnthropicSchedulingModel, nil, PlatformAnthropic)
 		require.Error(t, err)
 		require.Nil(t, acc)
 		// No account serves this model name → unsupported-model client error (not capacity).
@@ -2465,7 +2471,7 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 			concurrencyService: nil,
 		}
 
-		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-3-5-sonnet-20241022", nil, "", int64(0))
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", testAnthropicSchedulingModel, nil, "", int64(0))
 		require.Error(t, err)
 		require.Nil(t, result)
 		require.ErrorIs(t, err, ErrNoAvailableAccounts)

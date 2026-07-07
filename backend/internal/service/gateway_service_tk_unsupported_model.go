@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
 // ErrUnsupportedModel reports that account selection failed solely because the
@@ -83,10 +85,47 @@ func tkWrapSelectionFailure(requestedModel string, stats selectionFailureStats) 
 	if requestedModel == "" {
 		return ErrNoAvailableAccounts
 	}
+	if err := tkDeprecatedAnthropicSelectionFailure(requestedModel); err != nil {
+		return err
+	}
+	if err := tkAnthropicCrossVendorSelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if tkSelectionFailedDueToUnsupportedModel(stats) {
 		return fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))
 	}
 	return fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
+}
+
+// tkAnthropicCrossVendorSelectionFailure wraps ErrUnsupportedModel when the
+// requested model name is outside the Anthropic claude-* namespace (e.g. bare
+// "gpt", "opus", deepseek-*). Mirrors tkDeprecatedAnthropicSelectionFailure:
+// beats mixed model_unsupported + unschedulable stats and load-batch bare
+// ErrNoAvailableAccounts so wrong-model traffic never surfaces routing 429.
+//
+// Prod 2026-07-07 (user_id=16, api_key_id=121): claude-group direct key hammering
+// model=gpt on /v1/messages via load-batch empty-pool returned routing/platform 429
+// even though #1255/#1257 fixed retired ids only.
+func tkAnthropicCrossVendorSelectionFailure(requestedModel string) error {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return nil
+	}
+	if tkIsForwardableAnthropicModelName(requestedModel) {
+		return nil
+	}
+	if normalized := claude.NormalizeModelID(requestedModel); normalized != "" && normalized != requestedModel {
+		if tkIsForwardableAnthropicModelName(normalized) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s (anthropic namespace)", ErrUnsupportedModel, requestedModel)
+}
+
+// TkIsAnthropicCrossVendorModelName reports whether reqModel is outside the
+// Anthropic claude-* namespace. Exported for handler ingress pre-checks.
+func TkIsAnthropicCrossVendorModelName(requestedModel string) bool {
+	return tkAnthropicCrossVendorSelectionFailure(requestedModel) != nil
 }
 
 // tkIsForwardableAnthropicModelName reports whether a (normalized) model name is

@@ -14,8 +14,8 @@ func TestShouldClearOpenAIStickyForSaturation_ThresholdBoundary(t *testing.T) {
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		63: anthropicSaturationThreshold - 1,
-		64: anthropicSaturationThreshold,
+		63: openAIEdgeMirrorStubSaturationThreshold - 1,
+		64: openAIEdgeMirrorStubSaturationThreshold,
 	}})
 
 	require.False(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), openAIEdgeStub(63), "sess"))

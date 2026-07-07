@@ -4315,6 +4315,9 @@ export default {
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
           '仅对 Anthropic API Key 生效。开启后，messages/count_tokens 请求将透传上游并仅替换认证，保留计费/并发/审计及必要安全过滤；关闭即可回滚到现有兼容链路。',
+        oauthPassthrough: 'OAuth 自动透传（仅替换认证）',
+        oauthPassthroughDesc:
+          '仅对 Anthropic OAuth/setup-token 生效。开启后跳过 fingerprint、mimic、canonical 等改写，messages/count_tokens 仅替换 Authorization；保留计费/并发/审计及必要安全过滤。',
         mirrorPlatform: '镜像平台',
         mirrorPlatformHint:
           '仅用于对接 edge 的「镜像 stub」账号（base URL 指向内部 api-<edge>.tokenkey.dev）。声明该 stub 从 edge 的哪个池镜像并发：Anthropic（默认）或 Kiro。普通 API Key 账号保持 Anthropic 即可。',

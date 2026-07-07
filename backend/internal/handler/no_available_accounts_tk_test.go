@@ -49,6 +49,28 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 
+	t.Run("deprecated_anthropic_model_returns_400_without_retry_after", func(t *testing.T) {
+		c, w := newCtx(t)
+		wrapped := fmt.Errorf("%w: claude-3-5-sonnet-20241022 (suggest %q)", service.ErrDeprecatedAnthropicModel, "claude-sonnet-4-6")
+		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "claude-3-5-sonnet-20241022")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedAnthropicErrorType, errType)
+		assert.Contains(t, msg, "claude-3-5-sonnet-20241022")
+		assert.Contains(t, msg, "retired")
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
+	t.Run("no_available_accounts_with_deprecated_model_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		status, errType, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts, "claude-3-5-haiku-20241022")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedAnthropicErrorType, errType)
+		assert.Contains(t, msg, "claude-3-5-haiku-20241022")
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
 	t.Run("unsupported_model_returns_400_invalid_request", func(t *testing.T) {
 		// The scheduler determined no account in the pool serves this model NAME
 		// (e.g. a client sending "deepseek-chat" to a pool mapping only
@@ -62,6 +84,17 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
 		assert.Equal(t, service.TkUnsupportedModelMessage("deepseek-chat"), msg)
 		// Must NOT carry the 429 capacity backoff hint.
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
+	t.Run("load_batch_cross_vendor_gpt_returns_400", func(t *testing.T) {
+		c, w := newCtx(t)
+		err := service.TkSelectionNoAvailableAccountsError("gpt")
+		status, errType, msg := tkSelectFailureStatusMessage(c, err, "gpt")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
+		assert.Equal(t, service.TkUnsupportedModelMessage("gpt"), msg)
 		assert.Empty(t, w.Header().Get("Retry-After"))
 	})
 

@@ -30,20 +30,7 @@ import (
 //     returns a stub. Safe by construction: the penalty is a bounded ADD, never
 //     a sentinel/exclusion value.
 
-// anthropicSaturationPriorityPenalty is the bounded additive delta applied to a
-// saturated stub's effective priority for ranking. Account priorities are small
-// operator-assigned ints (the cc-<edge> mirror stubs sit at 0..~100). The
-// constant (1000) is chosen ≫ the realistic priority SPREAD across the anthropic
-// pool, so a saturated stub sorts strictly after every non-saturated one as long
-// as that spread stays < 1000 — the de-prioritization is a best-effort
-// PREFERENCE, not a hard guarantee, and degrades gracefully if an operator ever
-// configures a >1000 priority gap (the saturated stub may then still be picked,
-// which is acceptable: it is only ever a routing hint). It stays a finite,
-// bounded value — it can NEVER push a candidate out of the set (filterByMinPriority
-// compares values, it does not exclude), which is the load-bearing amplifier-safety
-// property. When ALL candidates are saturated they all gain the same +1000, so
-// the base-priority/load/LRU ordering among them is preserved exactly.
-const anthropicSaturationPriorityPenalty = 1000
+// Penalty magnitude: edge_mirror_stub_saturation_tk.go (SSOT).
 
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
 // GatewayService post-construction (mirrors SetAnthropicSigPreemptCache). Nil-

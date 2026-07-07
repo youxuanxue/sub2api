@@ -36,27 +36,28 @@ func TestRateLimitService_BodylessBan403_ThresholdPermanentlyDisables(t *testing
 	require.Equal(t, []int{anthropic403BodylessWindowMinutesDefault}, counter.bodyless403WindowMin)
 }
 
-// Below threshold, a bodyless 403 must NOT permanently disable — it falls
-// through to the existing 3/3 cooldown ladder unchanged (here the general
-// counter is at its own threshold so we observe a temp_unschedulable write).
-func TestRateLimitService_BodylessBan403_BelowThresholdFallsThroughToLadder(t *testing.T) {
+// Below threshold, a bodyless 403 must NOT permanently disable — it failovers
+// with bounded saturation only (403 is outside the stub-health 3/3 fuse).
+func TestRateLimitService_BodylessBan403_BelowThresholdFailoverOnly(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{
 		bodyless403Counts: []int64{anthropic403BodylessDisableThresholdDefault - 1},
-		counts:            []int64{3}, // general 3/3 ladder at threshold → temp cool
 	}
+	sat := &fakeSaturationCounterRL{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	service.SetAnthropicSaturationCounter(sat)
 	account := &Account{ID: 902, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
 
 	shouldDisable := service.HandleUpstreamError(
 		context.Background(), account, http.StatusForbidden, http.Header{}, []byte(""),
 	)
 
-	require.True(t, shouldDisable, "still fails over via the ladder")
+	require.True(t, shouldDisable, "still fails over to the next stub")
 	require.Equal(t, 0, repo.setErrorCalls, "below threshold must NOT permanently disable")
-	require.Equal(t, 1, repo.tempCalls, "falls through to the transient cooldown ladder")
+	require.Equal(t, 0, repo.tempCalls, "403 must not enter the stub-health 3/3 fuse")
 	require.Equal(t, []int64{902}, counter.bodyless403IncrementIDs, "bodyless counter still advanced")
+	require.Equal(t, []int64{902}, sat.incrementIDs, "transient blip feeds bounded de-prioritization")
 }
 
 // A structured-body 403 (e.g. a model-level denial naming the model) must NOT
@@ -98,7 +99,7 @@ func TestRateLimitService_BodylessBan403_IncidentStillEscalates(t *testing.T) {
 }
 
 // A counter backend error must fail OPEN — never permanently disable on a
-// telemetry failure. The request still falls through to the existing ladder.
+// telemetry failure. The request still failovers without account state writes.
 func TestRateLimitService_BodylessBan403_CounterErrorFailsOpen(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{err: context.DeadlineExceeded}

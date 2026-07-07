@@ -130,12 +130,34 @@ disabled_groups AS (
     AND status <> 'disabled'
     AND name LIKE '\_\_tk\_probe\_%' ESCAPE '\'
   RETURNING 1
+),
+legacy_soft_deleted_keys AS (
+  UPDATE api_keys
+  SET deleted_at = NOW(),
+      status = 'disabled',
+      updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\'
+  RETURNING 1
+),
+legacy_soft_deleted_groups AS (
+  UPDATE groups
+  SET deleted_at = NOW(),
+      status = 'disabled',
+      updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\'
+  RETURNING 1
 )
 SELECT 'deleted_account_group_bindings=' || COUNT(*) FROM deleted_bindings
 UNION ALL
 SELECT 'disabled_probe_keys=' || COUNT(*) FROM disabled_keys
 UNION ALL
-SELECT 'disabled_probe_groups=' || COUNT(*) FROM disabled_groups;
+SELECT 'disabled_probe_groups=' || COUNT(*) FROM disabled_groups
+UNION ALL
+SELECT 'soft_deleted_legacy_tkprobe_keys=' || COUNT(*) FROM legacy_soft_deleted_keys
+UNION ALL
+SELECT 'soft_deleted_legacy_tkprobe_groups=' || COUNT(*) FROM legacy_soft_deleted_groups;
 COMMIT;
 SQL
 }

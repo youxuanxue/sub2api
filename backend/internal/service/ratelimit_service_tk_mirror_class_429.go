@@ -42,7 +42,7 @@ import (
 // writes ONLY the class-scoped key — never SetRateLimited (whole-account), never
 // the 3/3 ladder. opus/haiku on the same mirror stay schedulable, so a sonnet
 // outage on one edge never collapses the whole mirror pool. It is gated on the
-// EXISTING sustained saturation threshold (4-in-90s) so a single transient blip
+// EXISTING sustained saturation threshold so a single transient blip
 // never cools a class.
 
 const (
@@ -82,7 +82,7 @@ func (s *RateLimitService) tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(
 	}
 	// Sustained-only: same gate as the saturation preference. count==0 means the
 	// counter is unwired or errored → cannot confirm sustained → do NOT cool.
-	if saturationCount < anthropicSaturationThreshold {
+	if saturationCount < edgeMirrorStubSaturationThreshold {
 		return false
 	}
 	scopeKey := tkAnthropicModelClassScopeKeyForModel(requestedModel)

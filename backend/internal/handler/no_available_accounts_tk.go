@@ -71,6 +71,14 @@ func tkNoAvailableAccounts(c *gin.Context) int {
 // which adopted the 429 semantics in #575; before this helper the two branches
 // of the same handler disagreed (selection==nil → 429, select error → 503).
 func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (int, string, string) {
+	if errors.Is(err, service.ErrDeprecatedAnthropicModel) {
+		markOpsClientRequestRejected(c)
+		if _, replacement, ok := service.TkLookupDeprecatedAnthropicModel(reqModel); ok {
+			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,
+				service.TkBuildDeprecatedAnthropicMessage(reqModel, replacement)
+		}
+		return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType, "Model is retired or scheduled for sunset by Anthropic"
+	}
 	if errors.Is(err, service.ErrUnsupportedModel) {
 		// Own this to the client in ops regardless of the response envelope
 		// (/responses carries the type in `code`, not `type`).
@@ -78,6 +86,11 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 		return http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel)
 	}
 	if isOpsNoAvailableAccountError(err) {
+		if _, replacement, ok := service.TkLookupDeprecatedAnthropicModel(reqModel); ok {
+			markOpsClientRequestRejected(c)
+			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,
+				service.TkBuildDeprecatedAnthropicMessage(reqModel, replacement)
+		}
 		return tkNoAvailableAccounts(c), "api_error", "No available accounts: " + err.Error()
 	}
 	return http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable"

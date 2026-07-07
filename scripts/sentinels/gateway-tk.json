@@ -230,8 +230,6 @@
         "anthropicCooldownTierLadder",
         "anthropicCooldownTierTTLMinutes",
         "anthropicCooldownTierEscalationsWindowMinutes",
-        "tlsFingerprintFailureKeywords",
-        "tlsFingerprintFailureCooldown",
         "openAICloudflareChallengeKeywords",
         "openai_403_cf_challenge_skip_cooldown",
         "openAIIsHTMLBody",
@@ -240,12 +238,12 @@
         "openai_403_client_induced_capability_skip_cooldown",
         "handleAnthropicUpstreamError(",
         "handleAnthropicUpstreamErrorWithOptions",
+        "tkAnthropicStubHealthFuseEligible",
         "IncrementAnthropicUpstreamErrorCount",
         "IncrementAnthropicCooldownTier(",
         "IncrementAnthropicCooldownTierEscalations",
         "anthropic_cooldown_tier_escalation",
         "anthropic_upstream_error_cooldown_write_skipped",
-        "anthropic_tls_fingerprint_failure_suspected",
         "403_escalated_to_error",
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         ") ResetAnthropicUpstreamErrorCounter(",
@@ -347,7 +345,7 @@
     {
       "path": "backend/internal/service/ratelimit_service_403_test.go",
       "must_contain": [
-        "TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable",
+        "TestRateLimitService_HandleUpstreamError_Anthropic403Generic_PermanentlyDisables",
         "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCountsWithShortCooldown",
         "TestRateLimitService_HandleUpstreamError_AnthropicCooldownTierEscalates",
         "TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts",
@@ -364,7 +362,28 @@
         "invalid_request_error",
         "request_too_large"
       ],
-      "rationale": "G1 client-induced exemption predicate. An Anthropic invalid_request_error (#2608) OR request_too_large is a caller-side fault, not account health, and must be skipped from the 3/3 ladder (via case 400 catch-all and case 413 in ratelimit_service.go). Dropping the request_too_large arm re-arms the oversized-body amplifier on the 400-shape; dropping invalid_request_error restores the original #2608 amplifier where any caller can pause a shared OAuth account with malformed requests. Removing the predicate reopens the external account-disable abuse vector (TK#2608)."
+      "rationale": "G1 client-induced exemption predicate. An Anthropic invalid_request_error (#2608) OR request_too_large is a caller-side fault, not account health, and must be skipped from the stub-health 3/3 fuse (case 400 / case 413 in ratelimit_service.go). Dropping the request_too_large arm re-arms the oversized-body amplifier on the 400-shape; dropping invalid_request_error restores the original #2608 amplifier where any caller can pause a shared OAuth account with malformed requests. Removing the predicate reopens the external account-disable abuse vector (TK#2608)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_stub_health_fuse.go",
+      "must_contain": [
+        "func tkAnthropicStubHealthFuseEligible(statusCode int, authoritativeCooldownWritten bool) bool",
+        "http.StatusBadGateway",
+        "http.StatusServiceUnavailable",
+        "http.StatusGatewayTimeout",
+        "529",
+        "http.StatusTooManyRequests"
+      ],
+      "rationale": "Single allowlist gate for the Anthropic stub-health 3/3 temp_unschedulable fuse. Only 502/503/504/529 and 429 after SetRateLimited may advance the counter; 400/402/403 and header-less/extra-usage 429 must stay out so permission/billing/client errors and Path-A downstream envelopes do not re-arm the 2026-05-31 / cc-us7 amplifiers. Dropping this predicate silently widens the fuse back to the old 400-599 catch-all."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_stub_health_fuse_test.go",
+      "must_contain": [
+        "TestTkAnthropicStubHealthFuseEligible",
+        "TestRateLimitService_HandleUpstreamError_AnthropicExtraUsage429_DoesNotAdvanceFuse",
+        "TestRateLimitService_HandleUpstreamError_Anthropic429WithoutSetRateLimited_DoesNotAdvanceFuse"
+      ],
+      "rationale": "Mechanical proof that the stub-health fuse allowlist stays narrow: predicate unit tests plus regressions that extra-usage / no-SetRateLimited 429 must not feed the 3/3 counter while authoritative 429 still does."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available.go",
@@ -403,11 +422,11 @@
         "TestTkSkipDownstreamKiroOAuthAuthRejectPenalty",
         "TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth401_DoesNotSetError",
         "TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError",
-        "TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_StillCounts",
+        "TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_FailoverOnly",
         "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError",
-        "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_StillCounts"
+        "TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey403_PermanentlyDisables"
       ],
-      "rationale": "Focused regressions proving the G5 boundary: Kiro mirror-stub 401/403 invalid-bearer wrappers are skipped without SetError or ladder cooldown, but a generic Kiro mirror 403 wrapper still enters the upstream-error ladder, a plain Anthropic API-key 401 still permanently disables, and a plain Anthropic API-key 403 still enters the ladder. Dropping these tests lets an upstream merge silently widen or remove the auth-reject carve-out."
+      "rationale": "Focused regressions proving the G5 boundary: Kiro mirror-stub 401/403 invalid-bearer wrappers are skipped without SetError or ladder cooldown, a generic Kiro mirror upstream_error 403 failovers with bounded saturation only, a plain Anthropic API-key 401 still permanently disables, and a plain Anthropic API-key invalid-bearer 403 still permanently disables via the auth-fatal classifier."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_request_too_large_test.go",
@@ -1287,21 +1306,25 @@
       "path": "backend/internal/service/gateway_anthropic_deprecated_model_tk.go",
       "must_contain": [
         "func tkIsDeprecatedAnthropicModel",
-        "func tkWriteAnthropicDeprecatedModelError",
-        "func tkBuildDeprecatedAnthropicMessage",
+        "func TkWriteAnthropicDeprecatedModelError",
+        "func TkBuildDeprecatedAnthropicMessage",
+        "ErrDeprecatedAnthropicModel",
+        "tkDeprecatedAnthropicSelectionFailure",
         "tkDeprecatedAnthropicModels",
+        "func TkSelectionNoAvailableAccountsError",
+        "tkAnthropicCrossVendorSelectionFailure(requestedModel)",
         "claude-3-5-sonnet-20241022",
         "claude-3-7-sonnet-20250219",
         "claude-sonnet-4-20250514",
         "claude-opus-4-20250514"
       ],
-      "rationale": "Anchors the customer-facing deprecation gate for retired / soon-to-sunset Anthropic model IDs. PR #329 / #327 removed the IDs from admin dropdowns + default chain but did NOT short-circuit requests; this module is what turns a hardcoded-client request into a friendly 400 + migration suggestion instead of an opaque upstream not_found_error. The table literal IDs (3-5-sonnet-20241022, 3-7-sonnet, 4.0 sonnet/opus snapshots) are pinned because dropping any of them silently re-opens the cliff for a specific client population — the snapshot ID is the contract the customer's migration message refers to. The replacement-message builder is anchored separately because the Anthropic 4.0 family is still upstream-accepted until 2026-06-15: the friendly message is the only signal customers get before that date. See /xj-review R-001 (decision path c)."
+      "rationale": "Anchors the customer-facing deprecation gate for retired / soon-to-sunset Anthropic model IDs. PR #329 / #327 removed the IDs from admin dropdowns + default chain but did NOT short-circuit requests; this module turns hardcoded-client requests into a friendly 400 + migration suggestion instead of an opaque upstream not_found_error or routing 429 when selection fails before Forward. ErrDeprecatedAnthropicModel + tkDeprecatedAnthropicSelectionFailure pin the account-selection failure path (mixed model_unsupported + unschedulable stats previously fell through to empty-pool 429). TkSelectionNoAvailableAccountsError pins the load-batch empty-pool returns in SelectAccountWithLoadAwareness (PR #1257 gap after #1255). The table literal IDs are pinned because dropping any silently re-opens the cliff for a specific client population. See /xj-review R-001 (decision path c)."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)",
-        "tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)"
+        "TkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)",
+        "TkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)"
       ],
       "rationale": "Pins the TWO deprecation-gate call sites in gateway_service.go: the Forward path (~4585) checks `mappedModel` AFTER account.GetMappedModel + claude.NormalizeModelID so admin-configured mappings take precedence, and the ForwardCountTokens path (~9175) checks `reqModel` AFTER its own mapping block. Two distinct argument shapes are anchored separately because the literal `tkWriteAnthropicDeprecatedModelError(c, ` alone would be satisfied by either call site, leaving the other silently unguarded — same pattern the normalize anchors already use. Without both, an upstream merge that touches the surrounding mapping/normalize code can silently drop one path and re-open the 2026-06-15 customer cliff on count_tokens (or vice versa)."
     },
@@ -2544,9 +2567,68 @@
     {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
-        "h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog)"
+        "h.tkWriteDeprecatedAnthropicModelIfApplicable(c, err, reqModel, reqLog)",
+        "h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog)",
+        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
+        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, streamStarted, reqLog)",
+        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog)",
+        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog)"
       ],
-      "rationale": "Handler half of the unsupported-model fix: the /v1/messages select-account-failure branches (Anthropic + Gemini) call tkWriteUnsupportedModelIfApplicable BEFORE markOpsRoutingCapacityLimitedIfNoAvailable, mapping service.ErrUnsupportedModel to HTTP 400 invalid_request_error (ops phase=request, client-owned) instead of the 429 'No available accounts' path. An upstream merge that overwrites this hotspot drops the early-return and the fix dies silently (the TK companion file still compiles, just unused). This sentinel pins the call sites."
+      "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages and count_tokens: tkWriteDeprecatedAnthropicModelAtIngress rejects sunset ids before scheduling (#1257); select-account failures call tkWriteDeprecatedAnthropicModelIfApplicable BEFORE tkWriteUnsupportedModelIfApplicable, mapping ErrDeprecatedAnthropicModel to the Anthropic-shape migration 400 (client-owned) instead of routing 429 when the Forward-path gate never ran."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "return nil, TkSelectionNoAvailableAccountsError(requestedModel)"
+      ],
+      "rationale": "Load-batch SelectAccountWithLoadAwareness empty-pool returns (zero schedulable accounts, Layer-2 no candidates, Layer-3 session-quota exhausted) must route through TkSelectionNoAvailableAccountsError so retired Anthropic model IDs become ErrDeprecatedAnthropicModel instead of bare ErrNoAvailableAccounts → routing 429. PR #1255 fixed tkWrapSelectionFailure only; this sentinel pins the three load-batch exit sites (#1257)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
+        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
+      ],
+      "rationale": "/v1/responses Anthropic ingress must reject retired model IDs and cross-vendor dirty names before selection (#1257 + cross-vendor 400 gate)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_unsupported_model.go",
+      "must_contain": [
+        "func (h *GatewayHandler) tkWriteUnsupportedAnthropicModelAtIngress",
+        "gateway.unsupported_model_ingress_reject",
+        "service.TkIsAnthropicCrossVendorModelName"
+      ],
+      "rationale": "Anthropic ingress pre-check for non-claude-* model names (model=gpt, deepseek-*, bare opus): reject with HTTP 400 before load-batch scheduling so client-fault requests never surface routing/platform 429 (prod 2026-07-07 user16 key121)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_deprecated_model.go",
+      "must_contain": [
+        "func (h *GatewayHandler) tkWriteDeprecatedAnthropicModelIfApplicable",
+        "func (h *GatewayHandler) tkWriteDeprecatedAnthropicModelAtIngress",
+        "func tkWriteDeprecatedAnthropicModelResponse",
+        "isOpsNoAvailableAccountError(err)",
+        "service.ErrDeprecatedAnthropicModel",
+        "service.TkWriteAnthropicDeprecatedModelError"
+      ],
+      "rationale": "Companion wiring for deprecated-model account-selection failures on native Anthropic ingress. tkWriteDeprecatedAnthropicModelAtIngress rejects before scheduling; tkWriteDeprecatedAnthropicModelIfApplicable upgrades load-batch ErrNoAvailableAccounts when reqModel is sunset (#1257)."
+    },
+    {
+      "path": "backend/internal/handler/no_available_accounts_tk.go",
+      "must_contain": [
+        "service.ErrDeprecatedAnthropicModel",
+        "service.TkLookupDeprecatedAnthropicModel(reqModel)",
+        "service.TkBuildDeprecatedAnthropicMessage"
+      ],
+      "rationale": "OpenAI-compat + count_tokens select-failure mapper: tkSelectFailureStatusMessage must classify ErrDeprecatedAnthropicModel as HTTP 400 invalid_request_error (no Retry-After) before the empty-pool 429 branch, and upgrade bare ErrNoAvailableAccounts when reqModel is a sunset id (#1257)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
+      "must_contain": [
+        "tkDeprecatedAnthropicSelectionFailure(requestedModel)",
+        "tkAnthropicCrossVendorSelectionFailure(requestedModel)",
+        "func TkIsAnthropicCrossVendorModelName"
+      ],
+      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification; otherwise mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts surface routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt)."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -2920,7 +3002,7 @@
       "must_contain": [
         "func (s *GatewayService) computeAnthropicSaturationPenalties(",
         "func (a accountWithLoad) effectivePriority() int",
-        "anthropicSaturationPriorityPenalty = 1000",
+        "anthropicSaturationPriorityPenalty",
         "IsAnthropicSaturatedStubDeprioritizeEnabled"
       ],
       "rationale": "Read side of the anthropic saturated mirror-stub de-prioritization (prod 2026-06-12): a BOUNDED additive priority penalty folded into the load-aware candidate ranking so prod routes AWAY from an edge stub emitting SUSTAINED downstream-capacity 429/502 instead of selecting it first and wasting a failover hop every request for the whole ~47-min upstream-limit window. It is a PREFERENCE not a cooldown — the penalty is a finite ADD (1000) that can never exclude a stub from the candidate set (filterByMinPriority compares values, all-saturated keeps relative order), so amplifier-safety (2026-05-31 503 amplifier) is preserved by construction. Dropping this file silently reverts prod to selecting the dead stub first. The kill-switch read (IsAnthropicSaturatedStubDeprioritizeEnabled) keeps it operator-disableable."
@@ -2935,14 +3017,23 @@
       "rationale": "Thin injection of the saturation de-prioritization into the upstream-shaped load-aware scheduler: the penalty is computed once on the Layer-2 'available' set, and filterByMinPriority ranks on effectivePriority() (Priority+saturationPenalty) instead of bare Priority. Removing the compute call leaves penalties at 0 (feature inert); reverting filterByMinPriority to bare account.Priority drops the fold-in even if penalties are set. Either silently disables the preference, so both anchors are pinned."
     },
     {
+      "path": "backend/internal/service/edge_mirror_stub_saturation_tk.go",
+      "must_contain": [
+        "edgeMirrorStubSaturationWindowSeconds = 90",
+        "edgeMirrorStubSaturationThreshold int64 = 3",
+        "anthropicSaturationPriorityPenalty = 1000",
+        "openAISaturationScorePenalty = 50.0"
+      ],
+      "rationale": "SSOT for prod edge-mirror stub downstream-empty de-prioritization: shared 90s window + threshold 3, scheduler penalties, mirror model/class write at threshold. Never temp_unschedulable or whole-account block on this path."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_saturation.go",
       "must_contain": [
         "func (s *RateLimitService) recordAnthropicStubSaturation(",
-        "anthropicSaturationThreshold int64 = 4",
-        "anthropicSaturationWindowSeconds = 90",
+        "edgeMirrorStubSaturationWindowSeconds",
         "anthropic_stub_saturated_deprioritized"
       ],
-      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; the small threshold (4) preserves current behaviour for transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a cooldown. The threshold-crossing slog line (anthropic_stub_saturated_deprioritized) is the ops visibility for a stub entering the de-prioritized state. Dropping this file stops feeding the counter and the scheduler preference becomes inert."
+      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; threshold 3 (see edge_mirror_stub_saturation_tk.go) preserves transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a whole-account cooldown."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -2957,7 +3048,7 @@
       "path": "backend/internal/service/ratelimit_service_tk_mirror_class_429.go",
       "must_contain": [
         "func (s *RateLimitService) tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(",
-        "if saturationCount < anthropicSaturationThreshold {",
+        "if saturationCount < edgeMirrorStubSaturationThreshold {",
         "scopeKey := tkAnthropicModelClassScopeKeyForModel(requestedModel)",
         "s.accountRepo.SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
         "anthropic_mirror_class_rate_limited",
@@ -3007,16 +3098,17 @@
       "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(",
-        "openAISaturationScorePenalty = 10.0",
+        "openAIEdgeMirrorStubSaturationThreshold",
+        "openAISaturationScorePenalty",
         "IsOpenAISaturatedStubDeprioritizeEnabled"
       ],
-      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization (prod 2026-07 recovered-200 incident): prod openai-us* apikey stubs forward to api-us*.tokenkey.dev; when the edge OAuth pool is empty the stub receives TokenKey's own downstream-capacity 429 and load_balance keeps selecting it first, wasting a failover hop every request. Mirrors gateway_service_tk_saturation_penalty.go for the GPT scheduler: a bounded score penalty (-10) folded into buildOpenAIAccountLoadPlan, never excluding the stub from the candidate set. Dropping this file silently reverts prod to hammering saturated stubs."
+      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at threshold 3 fold score penalty + sticky clear + mirror per-model cooldown (ratelimit_service_tk_openai_mirror_model.go). No temp_unschedulable or per-failover runtime block on downstream-empty path."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(",
-        "count < anthropicSaturationThreshold",
+        "count < openAIEdgeMirrorStubSaturationThreshold",
         "openai_sticky_cleared_saturated_stub"
       ],
       "rationale": "Sticky-side completion of OpenAI saturated mirror-stub de-prioritization: selectBySessionHash honors sticky bindings that bypass load_balance penalties unless cleared here when the bound openai-us* stub is SUSTAINEDLY saturated. Without this helper sticky sessions keep selecting the dead stub first every request (same failure mode as anthropic cc-us5 2026-06-19). PREFERENCE not cooldown — shares the kill-switch and 90s counter TTL."
@@ -3034,6 +3126,8 @@
       "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
       "must_contain": [
         "func (s *RateLimitService) recordOpenAIStubSaturation(",
+        "openAIEdgeMirrorStubSaturationThreshold",
+        "edgeMirrorStubSaturationWindowSeconds",
         "openai_stub_saturated_deprioritized"
       ],
       "rationale": "Write side of OpenAI saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path. Never advances handle429 / ladder — preference feed only. Dropping this file stops feeding the counter and scheduler preference becomes inert."
@@ -3041,10 +3135,20 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
+        "satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
+        "s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))",
         "openai_downstream_capacity_skip_penalty"
       ],
       "rationale": "Thin injection of OpenAI saturation counter increments at the HandleUpstreamError downstream-capacity skip branch (429 no-available / failover-exhausted on openai-us* edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched — only feeds de-prioritization preference. Upstream merge rewriting the skip branch would silently drop the feed."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_mirror_model.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(",
+        "429_openai_mirror_downstream_empty",
+        "SetModelRateLimit"
+      ],
+      "rationale": "OpenAI edge-mirror stub per-model downstream-empty write (spark / gpt-5.4 sibling safety): sustained empty-pool on openai-us* infers model scope from in-flight requested model and writes model_rate_limits only — mirrors Anthropic tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty. Never temp_unschedulable or whole-account SetRateLimited on this path."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
@@ -3296,10 +3400,49 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {",
+        "if s.tkTryDisableAnthropicTLSFingerprint403(ctx, account, upstreamMsg, responseBody) {",
         "if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {",
+        "if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {",
+        "s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, \"permission_failover\")",
         "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)"
       ],
-      "rationale": "Injection points that wire the Anthropic 403 terminal disables into handle403, BEFORE the TLS-fingerprint cooldown and the handleAnthropicUpstreamError 3/3 ladder. (1) tkTryDisableAnthropicOrgBan403 — structured-body org-ban phrase (#810). (2) tkTryEscalatePersistentBodyless403 — empty/unstructured 403 org ban that escapes the phrase breaker (2026-06-16 edge us6 id=1 emitted empty-body 403s); without it the bodyless ban falls into the auto-recovering 3/3 ladder and flaps forever. (3) The ResetAnthropicBodyless403Count call inside ResetAnthropicUpstreamErrorCounter clears bodyless strikes on every recovery hotpath so a healed account does not carry stale strikes toward a future permanent disable. handle403 / the reset helper are upstream-shaped seams; a merge that rewrites the anthropic 403 branch or the reset fan-out could drop a one-line call and silently regress (the companion files still compile). Pairs with the ratelimit_service_tk_anthropic_org_ban_403.go and ratelimit_service_tk_anthropic_bodyless_403.go file sentinels."
+      "rationale": "Injection points for Anthropic handle403 after specialist skips. (1) tkTryDisableAnthropicOrgBan403 — structured org-ban (#810). (2) tkTryDisableAnthropicTLSFingerprint403 — TLS/WAF 403 SetError with greppable prefix (bulk recover after profile re-capture). (3) tkTryEscalatePersistentBodyless403 — bodyless episode terminal disable. (4) tkIsAnthropicAccountAuthFatal403 — structured invalid-bearer / lacks-scopes only. (5) permission_failover saturation — default for remaining 403s. (6) ResetAnthropicBodyless403Count on recovery hotpaths."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_tls_fingerprint_403.go",
+      "must_contain": [
+        "tkAnthropicTLSFingerprintDisablePrefix",
+        "func tkMatchAnthropicTLSFingerprint403Body(",
+        "func (s *RateLimitService) tkTryDisableAnthropicTLSFingerprint403(",
+        "anthropic_tls_fingerprint_403_permanent_disable",
+        "ja3"
+      ],
+      "rationale": "TLS/WAF Anthropic 403 permanent disable with greppable prefix for bulk recover after canonical profile re-capture. Replaces the old 30s temp path that re-exposed OAuth accounts on shared profile drift."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_tls_fingerprint_403_test.go",
+      "must_contain": [
+        "TestTkMatchAnthropicTLSFingerprint403Body",
+        "TestTkAnthropicTLSFingerprintDisablePrefixDistinctFromOrgBan"
+      ],
+      "rationale": "Predicate + prefix regressions for TLS fingerprint 403 SetError."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_account_auth_fatal_403.go",
+      "must_contain": [
+        "func tkIsAnthropicAccountAuthFatal403(upstreamMsg string, responseBody []byte) bool",
+        "invalid bearer token",
+        "oauth token lacks required scopes",
+        "do not have access to this model"
+      ],
+      "rationale": "Structured Anthropic 403 account-auth classifier: only invalid bearer / invalid x-api-key / lacks-scopes permanently disable. Model-level denials and mirror upstream_error wrappers must fail over only (403 outside stub-health fuse)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_account_auth_fatal_403_test.go",
+      "must_contain": [
+        "TestTkIsAnthropicAccountAuthFatal403"
+      ],
+      "rationale": "Predicate regressions for the Anthropic account-auth-fatal 403 gate."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_bodyless_403.go",
@@ -3317,6 +3460,7 @@
       "must_contain": [
         "func (s *GatewayService) tkIsAccountFatal403(",
         "tkMatchAnthropicOrgBan403Body(\"\", body)",
+        "tkMatchAnthropicTLSFingerprint403Body(\"\", body)",
         "tkIsUnstructuredAnthropicErrorBody(body)"
       ],
       "rationale": "account-fatal 403 in-place-retry skip (Gap B, handle403 gap follow-up). shouldRetryUpstreamError retries OAuth accounts specifically on 403, so a single client request hammers a banned account up to 5x/10s before failover — pure upstream aggravation for a deterministic org ban. tkIsAccountFatal403 reuses the SHARED org-ban predicate (tkMatchAnthropicOrgBan403Body) + the bodyless predicate (tkIsUnstructuredAnthropicErrorBody) so the retry-skip decides 'account-fatal' from the same source of truth as the breaker. Scoped to Anthropic OAuth so other platforms' 403 retry semantics are unchanged. Dropping this skip silently restores the 5x in-place retry on a known-dead account."
@@ -4180,6 +4324,43 @@
         "openAIWSPassthroughPolicyModelForFrame(account, payload)"
       ],
       "rationale": "WS v2 passthrough dial/error rate-limit signals must carry the session model (first-frame model or per-frame policy resolver fallback) into persistOpenAIWSRateLimitSignal; losing these args reverts spark sub-window 429s to whole-account cooldown on passthrough ingress."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "func (a *Account) IsAnthropicOAuthPassthroughEnabled() bool {",
+        "anthropic_oauth_passthrough"
+      ],
+      "rationale": "Account-level opt-in for Anthropic OAuth/setup-token auth-only passthrough (skip fingerprint/mimic/canonical on the wire). Without this extra gate, operators cannot enable the dedicated branch and the gateway falls back to the full OAuth rewrite path."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_oauth_passthrough.go",
+      "must_contain": [
+        "func (s *GatewayService) buildUpstreamRequestAnthropicOAuthPassthrough(",
+        "func (s *GatewayService) buildCountTokensRequestAnthropicOAuthPassthrough(",
+        "func setAnthropicOAuthPassthroughAuthHeader(headers http.Header, token string)",
+        "anthropicPassthroughAuthOAuth"
+      ],
+      "rationale": "TK companion for Anthropic OAuth auth-only passthrough upstream builders. Keeps Bearer auth replacement + header whitelist copy out of upstream-shaped gateway_service.go so merges cannot silently drop the bypass while leaving the Forward early-return intact."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "account.IsAnthropicOAuthPassthroughEnabled()",
+        "forwardAnthropicOAuthPassthroughWithInput",
+        "forwardAnthropicPassthroughWithInput",
+        "anthropicPassthroughAuthOAuth"
+      ],
+      "rationale": "Load-bearing wiring: OAuth passthrough must early-return in Forward and ForwardCountTokens BEFORE canonical/mimic/fingerprint rewrite, reusing the shared passthrough forward loop with anthropicPassthroughAuthOAuth. An upstream merge that drops either early-return re-enables fingerprint/mimic/canonical for accounts explicitly configured for raw egress."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_oauth_passthrough_test.go",
+      "must_contain": [
+        "TestBuildUpstreamRequestAnthropicOAuthPassthrough_PreservesClientHeadersAndBearerAuth",
+        "TestGatewayService_AnthropicOAuthPassthrough_ForwardSkipsFingerprintRewrite",
+        "x-stainless-lang"
+      ],
+      "rationale": "Focused regressions: OAuth passthrough must preserve client UA/anthropic-beta and must NOT inject OAuth fingerprint headers on the forward path."
     }
   ]
 }

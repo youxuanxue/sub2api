@@ -4,7 +4,7 @@
 >
 > 基线：base commit `4be7dd9c` + PR #190。
 >
-> 运营手册（admin UI / 字段配置）：[`cc-uk1-oauth-edge-uk1-config-2026-05-12.md`](./cc-uk1-oauth-edge-uk1-config-2026-05-12.md)
+> 运营手册（admin UI / 字段配置）：[`anthropic-prod-edge-relay.md`](../operator/anthropic-prod-edge-relay.md)
 
 ## 1. 链路
 

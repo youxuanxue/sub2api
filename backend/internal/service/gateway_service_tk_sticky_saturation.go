@@ -77,7 +77,7 @@ func (s *GatewayService) tkShouldClearStickyForSaturation(ctx context.Context, a
 		"account_id", account.ID,
 		"recent_count", count,
 		"threshold", anthropicSaturationThreshold,
-		"window_seconds", anthropicSaturationWindowSeconds,
+		"window_seconds", edgeMirrorStubSaturationWindowSeconds,
 		"session", shortSessionHash(sessionHash),
 	)
 	return true
