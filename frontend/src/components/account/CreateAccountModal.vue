@@ -3637,6 +3637,7 @@ async function fillAllowedFromPlatform(platform: string): Promise<void> {
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
+const DEFAULT_KIRO_ACCOUNT_PRIORITY = 10
 const poolModeEnabled = ref(false)
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
@@ -4226,6 +4227,7 @@ watch(
       // 同时避免渲染通用 apikey / 配额块。kiro 字段重置由 composable.reset()
       // 在 resetForm 中负责，平台切换不清除已填字段。
       accountCategory.value = 'oauth-based'
+      form.priority = DEFAULT_KIRO_ACCOUNT_PRIORITY
       allowOverages.value = false
       antigravityWhitelistModels.value = []
       antigravityModelMappings.value = []

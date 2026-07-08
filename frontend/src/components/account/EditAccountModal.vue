@@ -343,12 +343,18 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.poolModeHint') }}
               </p>
+              <p v-if="isSystemManagedAnthropicStub" class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {{ t('admin.accounts.poolModeSystemManaged') }}
+              </p>
             </div>
             <button
               type="button"
-              @click="poolModeEnabled = !poolModeEnabled"
+              data-testid="pool-mode-toggle"
+              :disabled="isSystemManagedAnthropicStub"
+              @click="!isSystemManagedAnthropicStub && (poolModeEnabled = !poolModeEnabled)"
               :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                isSystemManagedAnthropicStub ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
                 poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
               ]"
             >
@@ -375,6 +381,7 @@
               :max="MAX_POOL_MODE_RETRY_COUNT"
               step="1"
               class="input"
+              :disabled="isSystemManagedAnthropicStub"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{
@@ -391,6 +398,7 @@
               v-model="poolModeRetryStatusCodesInput"
               type="text"
               class="input"
+              :disabled="isSystemManagedAnthropicStub"
               :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -2681,6 +2689,15 @@ const editApiKey = ref('')
 // TK: edge mirror-stub pool selector (anthropic + apikey only). See
 // constants/mirrorPlatformOptions.tk.ts.
 const editMirrorPlatform = ref<MirrorPlatform>('anthropic')
+const INTERNAL_EDGE_STUB_BASE_URL_RE = /^https:\/\/api-[a-z0-9-]+\.tokenkey\.dev\/?$/i
+const isSystemManagedAnthropicStub = computed(() => {
+  if (props.account?.platform !== PLATFORM_ANTHROPIC || props.account?.type !== 'apikey') {
+    return false
+  }
+  const storedBaseURL = (props.account.credentials as Record<string, unknown> | undefined)?.base_url
+  const baseURL = (editBaseUrl.value || (typeof storedBaseURL === 'string' ? storedBaseURL : '')).trim()
+  return INTERNAL_EDGE_STUB_BASE_URL_RE.test(baseURL)
+})
 // 第五平台 newapi：表单状态 + 副作用统一收口在 composable。
 // EditModal 多传一个 storedAccount，让「获取模型列表」在用户没重新输入 api_key 时走 stored
 // credential 路径——与上游 new-api 的 channel 编辑体验一致。
@@ -4244,20 +4261,23 @@ const handleSubmit = async () => {
         }
       }
 
-      // Add pool mode if enabled
-      if (poolModeEnabled.value) {
-        newCredentials.pool_mode = true
-        newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
-        const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
-        if (parsedRetryStatusCodes.length > 0) {
-          newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
+      // Internal edge stubs are reconciler-managed for pool mode; keep the
+      // stored credentials untouched so a generic account save cannot clear them.
+      if (!isSystemManagedAnthropicStub.value) {
+        if (poolModeEnabled.value) {
+          newCredentials.pool_mode = true
+          newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+          const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+          if (parsedRetryStatusCodes.length > 0) {
+            newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
+          } else {
+            delete newCredentials.pool_mode_retry_status_codes
+          }
         } else {
+          delete newCredentials.pool_mode
+          delete newCredentials.pool_mode_retry_count
           delete newCredentials.pool_mode_retry_status_codes
         }
-      } else {
-        delete newCredentials.pool_mode
-        delete newCredentials.pool_mode_retry_count
-        delete newCredentials.pool_mode_retry_status_codes
       }
 
       // Add custom error codes if enabled

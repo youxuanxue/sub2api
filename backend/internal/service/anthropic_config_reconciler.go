@@ -13,13 +13,10 @@ package service
 //     (base_rpm / max_sessions / window — overlaid at runtime from the tiers
 //     table) is REPORTED ONLY (slog.Warn) — never silently rewritten, because the
 //     tier NUMBER is set explicitly via the admin UI ApplyTier action.
-//   - shared_baseline INFRASTRUCTURE, by contrast, IS self-healed (Step baseline):
-//     the canonical TLS profile's existence + the account's binding to it, the
-//     credentials self-protection template, and the (post-#551 uniform) priority.
-//     These are tier-independent and were the root cause of silent built-in-default
-//     TLS fallback when an account was created without the profile row present.
-//     Self-heal re-runs the SAME complete write path (ApplyTier), so any creation
-//     path (admin UI, bare SQL) converges.
+//   - shared_baseline INFRASTRUCTURE, by contrast, IS narrowly self-healed (Step
+//     baseline): the canonical TLS profile's existence + the account's binding to
+//     it, plus missing credentials self-protection template keys. It does not
+//     re-apply the full baseline, so normal admin UI edits are not overwritten.
 //   - surface C (concurrency mirror) NEVER writes 0 on a failed/timed-out/5xx
 //     edge read — it skips the stub and leaves the prior value intact.
 
@@ -74,7 +71,6 @@ type reconcilerAccountStore interface {
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
 	SumConcurrencyAnthropic(ctx context.Context) (int64, error)
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
-	BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error
 }
 
 // reconcilerUserStore is the narrow user dependency for the operator Σ sync and
@@ -103,13 +99,12 @@ type reconcilerTierResolver interface {
 	ResolveName(tierID int64) (string, bool)
 }
 
-// reconcilerTierApplier re-asserts the shared_baseline INFRASTRUCTURE onto an
-// account (TLS profile ensure+bind, credentials template, extra flags,
-// concurrency) WITHOUT touching priority — priority is owned at runtime by the
-// window-rebalance pipeline, so the per-tick self-heal must not revert it.
-// *AccountTierService satisfies it. nil-safe (Step baseline no-ops when absent).
-type reconcilerTierApplier interface {
-	ReapplyBaselineInfra(ctx context.Context, accountID int64, tier string) (*Account, error)
+// reconcilerBaselineRepairer narrowly repairs account-side baseline drift:
+// canonical TLS ensure+bind plus missing credentials template keys only. It does
+// not re-apply baseline extra/concurrency/priority. *AccountTierService
+// satisfies it. nil-safe (Step baseline no-ops when absent).
+type reconcilerBaselineRepairer interface {
+	RepairBaselineDrift(ctx context.Context, accountID int64, tier string) (*Account, error)
 }
 
 // reconcilerTLSProfileResolver reads a TLS profile by id so the baseline drift
@@ -135,7 +130,7 @@ type AnthropicConfigReconciler struct {
 	users       reconcilerUserStore
 	balance     reconcilerBalanceSetter
 	tiers       reconcilerTierResolver
-	tierApplier reconcilerTierApplier
+	repairer    reconcilerBaselineRepairer
 	tlsProfiles reconcilerTLSProfileResolver
 	mimicry     reconcilerMimicrySettings
 	cfg         *config.Config
@@ -153,14 +148,14 @@ type AnthropicConfigReconciler struct {
 
 // NewAnthropicConfigReconciler constructs the reconciler. A nil accounts/users
 // store produces a no-op on Start, keeping wire wiring safe for minimal test deps.
-// tierApplier/tlsProfiles may be nil — the baseline self-heal step degrades to a
-// no-op (applier absent) or skips the dangling-binding sub-check (resolver absent).
+// repairer/tlsProfiles may be nil — the baseline self-heal step degrades to a
+// no-op (repairer absent) or skips the dangling-binding sub-check (resolver absent).
 func NewAnthropicConfigReconciler(
 	accounts reconcilerAccountStore,
 	users reconcilerUserStore,
 	balance reconcilerBalanceSetter,
 	tiers reconcilerTierResolver,
-	tierApplier reconcilerTierApplier,
+	repairer reconcilerBaselineRepairer,
 	tlsProfiles reconcilerTLSProfileResolver,
 	mimicry reconcilerMimicrySettings,
 	cfg *config.Config,
@@ -171,7 +166,7 @@ func NewAnthropicConfigReconciler(
 		users:       users,
 		balance:     balance,
 		tiers:       tiers,
-		tierApplier: tierApplier,
+		repairer:    repairer,
 		tlsProfiles: tlsProfiles,
 		mimicry:     mimicry,
 		cfg:         cfg,
@@ -291,22 +286,15 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	// Step B: pool_mode self-heal on prod mirror stubs.
 	r.reconcileStubPoolMode(ctx, accounts)
 
-	// Step B-groups: keep kiro mirror stubs group-parity with their anthropic
-	// sibling stub on the same edge host, while retaining any kiro-local extra
-	// bindings already present on the kiro stub (e.g. kiro-edges).
-	r.reconcileKiroMirrorStubGroups(ctx, accounts)
-
 	// Step T: value-sync each tier-bound anthropic OAUTH account's concurrency
 	// column from its tier row (the reference-table write-source). Runs before
 	// Step A so the operator Σ reflects any concurrency it just re-asserted.
 	r.reconcileTierConcurrency(ctx, accounts)
 
-	// Step baseline: self-heal shared_baseline INFRASTRUCTURE (canonical TLS
-	// profile existence + binding, credentials self-protection template, extra
-	// mimicry flags) for tier-bound anthropic OAuth/setup-token accounts by
-	// re-running ReapplyBaselineInfra when drifted. Idempotent. priority is NOT in
-	// this set — it is a dynamic runtime signal owned by the window-rebalance
-	// pipeline, and reverting it every tick would flatten that ordering.
+	// Step baseline: narrowly self-heal account-side shared_baseline drift
+	// (canonical TLS profile existence + binding, and missing credentials
+	// self-protection template keys). Does not re-apply full baseline extra or
+	// priority, so ordinary admin UI edits remain operator-owned.
 	r.reconcileAccountBaselineDrift(ctx, accounts)
 
 	// Step C: surface-C concurrency mirror (prod). Runs before the operator Σ
@@ -326,12 +314,6 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 
 	// Step tier-drift: REPORT ONLY.
 	r.reportTierDrift(accounts)
-
-	// Step kiro-priority: HARD-ENFORCE kiro account priority baseline. Fetches its
-	// own kiro account list (the list above is anthropic-only). Kiro-scoped; the
-	// anthropic-side priority value-sync lives in Step baseline above (kiro
-	// schedules in its own isolated pool).
-	r.reconcileKiroPriorityBaseline(ctx)
 
 	// Step UA: self-heal the deployment-level Claude Code UA + mimicry manifest
 	// settings toward the embedded baseline (in-process `sync-runtime`). Runs once
@@ -360,8 +342,7 @@ func (r *AnthropicConfigReconciler) reconcileClaudeCodeMimicry(ctx context.Conte
 // priority — anthropic priority is a dynamic runtime signal owned by the
 // window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py); the
 // git baseline seeds it only on the operator-explicit ApplyTier path, and Step
-// baseline (ReapplyBaselineInfra) does NOT reconverge it. (kiro is the opposite —
-// hard-pinned by reconcileKiroPriorityBaseline, no rebalance pipeline.)
+// baseline repair does NOT reconverge it.
 func (r *AnthropicConfigReconciler) reconcileTierConcurrency(ctx context.Context, accounts []Account) {
 	if r.tiers == nil {
 		return
@@ -457,70 +438,6 @@ func (r *AnthropicConfigReconciler) reconcileStubPoolMode(ctx context.Context, a
 		slog.Info("anthropic config reconciler: stub pool_mode self-healed (local deployment only)",
 			"account_id", a.ID, "account_name", a.Name,
 			"pool_mode", wantPool, "pool_mode_retry_count", wantRetry)
-	}
-}
-
-// reconcileKiroMirrorStubGroups keeps every prod kiro mirror stub reachable from
-// the same anthropic groups as its sibling anthropic mirror stub on the same edge
-// host (same credentials.base_url), while preserving any kiro-local extra groups
-// the kiro stub already carries. This closes the prod routing gap where group-
-// scoped Claude Code traffic (for example cc-edges / paopi groups) could select
-// the anthropic sibling but never the kiro mirror because the kiro stub was only
-// bound to default + a kiro-local group.
-func (r *AnthropicConfigReconciler) reconcileKiroMirrorStubGroups(ctx context.Context, accounts []Account) {
-	doc, re, err := baseline.LoadStubPoolBaseline()
-	if err != nil {
-		slog.Warn("anthropic config reconciler: load stub-pool baseline failed (kiro groups)", "err", err)
-		return
-	}
-	_ = doc
-
-	sourceGroupsByBaseURL := make(map[string][]int64)
-	for i := range accounts {
-		a := &accounts[i]
-		if !r.isMirrorStub(a, re) {
-			continue
-		}
-		if mirrorCapacityPlatform(a.GetCredential("mirror_platform")) != PlatformAnthropic {
-			continue
-		}
-		baseURL := normalizeMirrorStubBaseURL(a.GetCredential("base_url"))
-		if baseURL == "" {
-			continue
-		}
-		sourceGroupsByBaseURL[baseURL] = appendUniquePositiveInt64s(sourceGroupsByBaseURL[baseURL], a.GroupIDs)
-	}
-
-	for i := range accounts {
-		a := &accounts[i]
-		if !r.isMirrorStub(a, re) {
-			continue
-		}
-		if mirrorCapacityPlatform(a.GetCredential("mirror_platform")) != PlatformKiro {
-			continue
-		}
-		baseURL := normalizeMirrorStubBaseURL(a.GetCredential("base_url"))
-		if baseURL == "" {
-			continue
-		}
-		siblingGroupIDs := sourceGroupsByBaseURL[baseURL]
-		if len(siblingGroupIDs) == 0 {
-			continue
-		}
-		desiredGroupIDs := append([]int64(nil), siblingGroupIDs...)
-		desiredGroupIDs = appendMissingPositiveInt64s(desiredGroupIDs, a.GroupIDs)
-		if int64SlicesEqual(a.GroupIDs, desiredGroupIDs) {
-			continue
-		}
-		if err := r.accounts.BindGroups(ctx, a.ID, desiredGroupIDs); err != nil {
-			slog.Warn("anthropic config reconciler: kiro mirror stub group self-heal write failed",
-				"account_id", a.ID, "account_name", a.Name, "base_url", baseURL,
-				"want_group_ids", desiredGroupIDs, "err", err)
-			continue
-		}
-		slog.Info("anthropic config reconciler: kiro mirror stub groups self-healed (local deployment only)",
-			"account_id", a.ID, "account_name", a.Name, "base_url", baseURL,
-			"group_ids", desiredGroupIDs)
 	}
 }
 
@@ -693,48 +610,4 @@ func (r *AnthropicConfigReconciler) isMirrorStub(a *Account, re interface{ Match
 	}
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	return baseURL != "" && re.MatchString(baseURL)
-}
-
-func normalizeMirrorStubBaseURL(raw string) string {
-	baseURL := strings.ToLower(strings.TrimSpace(raw))
-	return strings.TrimRight(baseURL, "/")
-}
-
-func appendUniquePositiveInt64s(dst []int64, src []int64) []int64 {
-	if len(src) == 0 {
-		return dst
-	}
-	seen := make(map[int64]struct{}, len(dst)+len(src))
-	for _, id := range dst {
-		if id > 0 {
-			seen[id] = struct{}{}
-		}
-	}
-	for _, id := range src {
-		if id <= 0 {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		dst = append(dst, id)
-	}
-	return dst
-}
-
-func appendMissingPositiveInt64s(dst []int64, src []int64) []int64 {
-	return appendUniquePositiveInt64s(dst, src)
-}
-
-func int64SlicesEqual(a []int64, b []int64) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

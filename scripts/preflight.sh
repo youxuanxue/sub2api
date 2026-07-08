@@ -129,15 +129,24 @@ fi
 # byte-equivalent per section.
 _bg_spawn() {  # _bg_spawn <key> <cmd...>
     local key="$1"; shift
-    ( "$@" >"$_preflight_bg_dir/$key.out" 2>&1; echo "$?" >"$_preflight_bg_dir/$key.rc" ) &
+    (
+        set +e  # preflight-allow: swallow (rc is captured into <key>.rc and joined by section)
+        "$@" >"$_preflight_bg_dir/$key.out" 2>&1
+        printf '%s\n' "$?" >"$_preflight_bg_dir/$key.rc"
+        exit 0
+    ) &
     echo "$!" >"$_preflight_bg_dir/$key.pid"
 }
 _bg_join() {  # _bg_join <key> → sets _bg_rc to the captured exit code; output in $_preflight_bg_dir/<key>.out
     # Must run in the MAIN shell (never inside $(...)): `wait` can only reap
     # children of the shell that spawned them.
     local key="$1"
-    wait "$(cat "$_preflight_bg_dir/$key.pid")" 2>/dev/null
-    _bg_rc="$(cat "$_preflight_bg_dir/$key.rc")"
+    wait "$(cat "$_preflight_bg_dir/$key.pid")" 2>/dev/null || true  # preflight-allow: swallow (use captured <key>.rc)
+    if [ -f "$_preflight_bg_dir/$key.rc" ]; then
+        _bg_rc="$(cat "$_preflight_bg_dir/$key.rc")"
+    else
+        _bg_rc=1
+    fi
     return 0
 }
 _bg_spawned() { [ -f "$_preflight_bg_dir/$1.pid" ]; }
