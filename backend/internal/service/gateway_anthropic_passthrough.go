@@ -108,7 +108,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models.
-	input.Body = tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
+	input.Body = tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
 	if input.Parsed != nil {
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
 			return nil, err

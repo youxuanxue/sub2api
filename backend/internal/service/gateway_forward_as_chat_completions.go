@@ -115,7 +115,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
-	anthropicBody = tkStripDeprecatedTemperature(anthropicBody)
+	anthropicBody = tkStripDeprecatedSamplingParams(anthropicBody)
 
 	// TK: thread gemini-native image aspect ratio (extra_body.google.image_config.
 	// aspect_ratio) from the raw CC body onto the relayed Anthropic body; the antigravity

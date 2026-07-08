@@ -16,6 +16,7 @@ APP_CONTAINER="${APP_CONTAINER:-auto}"
 APP_URL="${APP_URL:-http://localhost:8080}"
 MAX_TOKENS="${MAX_TOKENS:-32}"
 PROMPT_TEXT="${PROMPT_TEXT:-hi}"
+REQUEST_EXTRA_JSON="${REQUEST_EXTRA_JSON:-}"
 KEEP_PROBE_ARTIFACTS="${KEEP_PROBE_ARTIFACTS:-0}"
 PROBE_REUSE_MODE="${PROBE_REUSE_MODE:-1}"
 PROBE_LOCK_TIMEOUT_SECONDS="${PROBE_LOCK_TIMEOUT_SECONDS:-120}"
@@ -448,6 +449,24 @@ PY
   )"
 fi
 
+if [[ -n "$REQUEST_EXTRA_JSON" ]]; then
+  if ! payload="$(REQUEST_EXTRA_JSON_VALUE="$REQUEST_EXTRA_JSON" python3 - "$payload" <<'PY'
+import json
+import os
+import sys
+
+payload = json.loads(sys.argv[1])
+extra = json.loads(os.environ["REQUEST_EXTRA_JSON_VALUE"])
+if not isinstance(payload, dict) or not isinstance(extra, dict):
+    raise SystemExit("payload and REQUEST_EXTRA_JSON must both be JSON objects")
+payload.update(extra)
+print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+PY
+  )"; then
+    fail_json "REQUEST_EXTRA_JSON must be a JSON object"
+  fi
+fi
+
 case "$ENDPOINT" in
   messages) PATH_SUFFIX="/v1/messages"; AUTH_HEADER_NAME="x-api-key";;
   count_tokens) PATH_SUFFIX="/v1/messages/count_tokens"; AUTH_HEADER_NAME="x-api-key";;
@@ -543,7 +562,7 @@ python3 - \
   "$TARGET_JSON" "$PLATFORM" "$GROUP_ID" "$GROUP_NAME" "$API_KEY_ID" "$KEY_NAME" \
   "$MODEL" "$ENDPOINT" "$http_code" "$tmp_body" "$tmp_headers" "$tmp_err" "$tmp_logs" \
   "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" "$REQUEST_TIMEOUT_SECONDS" \
-  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" <<'PY'
+  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" "$REQUEST_EXTRA_JSON" <<'PY'
 import json
 import re
 import sys
@@ -553,8 +572,8 @@ from pathlib import Path
     target_raw, platform, group_id, group_name, api_key_id, key_name,
     model, endpoint, http_code, body_path, headers_path, err_path, logs_path,
     usage_raw, keep_raw, log_window, request_timeout_seconds,
-    reuse_mode, probe_started_at,
-) = sys.argv[1:20]
+    reuse_mode, probe_started_at, request_extra_raw,
+) = sys.argv[1:21]
 
 target = json.loads(target_raw)
 body = Path(body_path).read_text(encoding="utf-8", errors="replace")
@@ -565,6 +584,10 @@ try:
     usage = json.loads(usage_raw) if usage_raw and usage_raw != "null" else None
 except Exception:
     usage = None
+try:
+    request_extra = json.loads(request_extra_raw) if request_extra_raw else {}
+except Exception:
+    request_extra = {}
 
 def classify(code: str, body_text: str, usage_row, curl_err: str):
     if not code or code == "000":
@@ -617,6 +640,7 @@ out = {
         "exclusive_group": True,
         "universal_routing_excluded": True,
         "request_timeout_seconds": int(request_timeout_seconds),
+        "request_extra_keys": sorted(request_extra.keys()) if isinstance(request_extra, dict) else [],
     },
     "usage_match": usage,
     "response": {

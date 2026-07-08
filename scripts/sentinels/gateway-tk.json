@@ -719,7 +719,7 @@
       "path": "backend/internal/service/gateway_claude_oauth_body.go",
       "must_contain": [
         "!strings.Contains(strings.ToLower(modelID), \"haiku\")",
-        "return tkStripDeprecatedTemperature(body)"
+        "return tkStripDeprecatedSamplingParams(body)"
       ]
     },
     {
@@ -3008,23 +3008,30 @@
       "rationale": "Proactive pre-send strip of explicit thinking:{type:\"disabled\"} for Fable-tier models. Upstream rejects the explicit disabled shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — so the gate is isFableModel, NOT requiresAdaptiveOnlyThinking, and omitting the field is the documented equivalent (same rule the bedrock path already applies in sanitizeBedrockThinking's disabled case). If this function is silently dropped, fable clients sending thinking.type=disabled regress to raw upstream 400s on the direct Anthropic path."
     },
     {
-      "path": "backend/internal/service/gateway_request_tk_deprecated_temperature.go",
+      "path": "backend/internal/service/gateway_request_tk_deprecated_sampling.go",
       "must_contain": [
-        "func tkStripDeprecatedTemperature(body []byte) []byte",
-        "return isOpus47OrNewer(modelID)",
-        "tkModelDeprecatesTemperature(model)",
-        "sjson.DeleteBytes(body, \"temperature\")"
+        "func tkStripDeprecatedSamplingParams(body []byte) []byte",
+        "func tkModelDeprecatesSamplingParams(modelID string) bool",
+        "tkDeprecatedSamplingTopLevelFields = []string",
+        "\"temperature\"",
+        "\"top_p\"",
+        "\"top_k\"",
+        "isOpus47OrNewer(modelID)",
+        "tkClaudeFamilyMajorAtLeast(modelID, \"sonnet\", 5)",
+        "sjson.DeleteBytes(out, field)"
       ],
-      "rationale": "Proactive pre-send strip of top-level temperature for Anthropic Opus 4.7+ models. Prod/edge traces on 2026-07-08 showed claude-opus-4-7 upstream 400 'temperature is deprecated for this model' after the gateway preserved or injected the field. The gate deliberately reuses the Opus 4.7+ predicate so older Claude families and non-Anthropic bodies keep their request surface, while only the top-level field is deleted. Dropping this companion silently re-opens platform-owned internal 400s for chat/messages/responses/count_tokens paths."
+      "rationale": "Proactive pre-send strip of top-level sampling params for Anthropic Opus 4.7+ and Sonnet 5+ models. Prod/edge traces on 2026-07-08 showed claude-opus-4-7 upstream 400s first for 'temperature is deprecated for this model' and then for '`top_p` is deprecated for this model' after the gateway preserved or injected those fields; Anthropic compatibility notes group temperature/top_p/top_k together for this model surface. The gate keeps older Claude families and non-Anthropic bodies unchanged, while only the top-level fields are deleted so nested JSON-schema properties survive. Dropping this companion silently re-opens platform-owned internal 400s for chat/messages/responses/count_tokens paths."
     },
     {
-      "path": "backend/internal/service/gateway_request_tk_deprecated_temperature_test.go",
+      "path": "backend/internal/service/gateway_request_tk_deprecated_sampling_test.go",
       "must_contain": [
-        "TestTkStripDeprecatedTemperature_StripIsTopLevelOnly",
-        "TestTkStripDeprecatedTemperature_NoTouchForOlderClaudeModels",
-        "TestForwardAsChatCompletions_AnthropicOpus47StripsTemperature"
+        "TestTkStripDeprecatedSamplingParams_StripIsTopLevelOnly",
+        "TestTkStripDeprecatedSamplingParams_NoTouchForOlderClaudeModels",
+        "TestTkModelDeprecatesSamplingParams",
+        "TestForwardAsChatCompletions_AnthropicOpus47StripsDeprecatedSamplingParams",
+        "TestApplyClaudeCodeOAuthMimicry_AnthropicOpus47StripsDeprecatedSamplingParams"
       ],
-      "rationale": "Focused regressions for the Opus 4.7+ temperature deprecation: top-level temperature is stripped, nested JSON-schema properties named temperature are preserved, older Claude/non-Claude models are untouched, and the Anthropic Chat Completions forwarding path sends the stripped wire body upstream."
+      "rationale": "Focused regressions for the new Claude sampling-param deprecation surface: top-level temperature/top_p/top_k are stripped, nested JSON-schema properties with those names are preserved, older Claude/non-Claude models are untouched, Sonnet 5+ is included in the model gate, and the Anthropic Chat Completions forwarding path sends the stripped wire body upstream."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_bare_model_alias.go",
@@ -3045,23 +3052,23 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
+        "replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
       ],
-      "rationale": "The native Forward pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedTemperature so explicit thinking.type=disabled never reaches fable upstreams and top-level temperature never reaches Opus 4.7+ Anthropic upstreams. An upstream merge that restores the bare two-function chain silently reverts either fix and surfaces raw upstream 400s again."
+      "rationale": "The native Forward pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedSamplingParams so explicit thinking.type=disabled never reaches fable upstreams and top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams. An upstream merge that restores the bare two-function chain silently reverts either fix and surfaces raw upstream 400s again."
     },
     {
       "path": "backend/internal/service/gateway_count_tokens.go",
       "must_contain": [
-        "replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
+        "replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
       ],
-      "rationale": "The count_tokens pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedTemperature so explicit thinking.type=disabled never reaches fable upstreams and top-level temperature never reaches Opus 4.7+ Anthropic upstreams."
+      "rationale": "The count_tokens pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedSamplingParams so explicit thinking.type=disabled never reaches fable upstreams and top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
-        "input.Body = tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))"
+        "input.Body = tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))"
       ],
-      "rationale": "Passthrough sanitize chain split from gateway_service.go must retain both fable-disabled-thinking and Opus 4.7+ deprecated-temperature stripping."
+      "rationale": "Passthrough sanitize chain split from gateway_service.go must retain both fable-disabled-thinking and Opus 4.7+/Sonnet 5+ deprecated sampling-param stripping."
     },
     {
       "path": "backend/internal/handler/api_key_handler.go",

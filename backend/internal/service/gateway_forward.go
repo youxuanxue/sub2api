@@ -403,7 +403,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models before upstream.
-	if err := replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	if err := replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return nil, err
 	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept

@@ -17,38 +17,65 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestTkStripDeprecatedTemperature_StripIsTopLevelOnly(t *testing.T) {
-	input := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"tools":[{"name":"set_temp","input_schema":{"type":"object","properties":{"temperature":{"type":"number"}}}}],"messages":[{"role":"user","content":"hi"}]}`)
+func TestTkStripDeprecatedSamplingParams_StripIsTopLevelOnly(t *testing.T) {
+	input := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"top_p":0.9,"top_k":40,"tools":[{"name":"set_temp","input_schema":{"type":"object","properties":{"temperature":{"type":"number"},"top_p":{"type":"number"},"top_k":{"type":"integer"}}}}],"messages":[{"role":"user","content":"hi"}]}`)
 
-	got := tkStripDeprecatedTemperature(input)
+	got := tkStripDeprecatedSamplingParams(input)
 
 	require.False(t, gjson.GetBytes(got, "temperature").Exists())
+	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.False(t, gjson.GetBytes(got, "top_k").Exists())
 	require.True(t, gjson.GetBytes(got, "tools.0.input_schema.properties.temperature").Exists())
+	require.True(t, gjson.GetBytes(got, "tools.0.input_schema.properties.top_p").Exists())
+	require.True(t, gjson.GetBytes(got, "tools.0.input_schema.properties.top_k").Exists())
 	require.Equal(t, "claude-opus-4-7", gjson.GetBytes(got, "model").String())
 	require.True(t, gjson.ValidBytes(got))
 }
 
-func TestTkStripDeprecatedTemperature_NoTouchForOlderClaudeModels(t *testing.T) {
+func TestTkStripDeprecatedSamplingParams_NoTouchForOlderClaudeModels(t *testing.T) {
 	cases := []string{
-		`{"model":"claude-opus-4-6","temperature":0.7,"messages":[]}`,
-		`{"model":"claude-sonnet-4-6","temperature":0.7,"messages":[]}`,
-		`{"model":"claude-haiku-4-5","temperature":0.7,"messages":[]}`,
-		`{"model":"gpt-5.5","temperature":0.7,"messages":[]}`,
+		`{"model":"claude-opus-4-6","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`,
+		`{"model":"claude-sonnet-4-6","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`,
+		`{"model":"claude-haiku-4-5","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`,
+		`{"model":"gpt-5.5","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`,
 	}
 	for _, body := range cases {
 		t.Run(gjson.Get(body, "model").String(), func(t *testing.T) {
-			got := tkStripDeprecatedTemperature([]byte(body))
+			got := tkStripDeprecatedSamplingParams([]byte(body))
 			require.Equal(t, body, string(got))
 		})
 	}
 }
 
-func TestForwardAsChatCompletions_AnthropicOpus47StripsTemperature(t *testing.T) {
+func TestTkModelDeprecatesSamplingParams(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"claude-opus-4-7", true},
+		{"claude-opus-4.8", true},
+		{"anthropic.claude-opus-5-v1:0", true},
+		{"claude-sonnet-5", true},
+		{"claude-sonnet-5-20260708", true},
+		{"anthropic.claude-sonnet-5-v1:0", true},
+		{"claude-opus-4-6", false},
+		{"claude-sonnet-4-7", false},
+		{"claude-haiku-5-0", false},
+		{"gpt-5.5", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			require.Equal(t, tc.want, tkModelDeprecatesSamplingParams(tc.model))
+		})
+	}
+}
+
+func TestForwardAsChatCompletions_AnthropicOpus47StripsDeprecatedSamplingParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	body := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -73,7 +100,7 @@ data: {"type":"message_stop"}
 `
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_opus47_temperature"}},
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_opus47_sampling"}},
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}}
 
@@ -97,13 +124,17 @@ data: {"type":"message_stop"}
 	require.NotNil(t, result)
 	require.False(t, gjson.GetBytes(upstream.lastBody, "temperature").Exists(),
 		"Opus 4.7+ rejects top-level temperature on Anthropic Messages")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "top_p").Exists(),
+		"Opus 4.7+ rejects top-level top_p on Anthropic Messages")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "top_k").Exists(),
+		"Opus 4.7+ rejects top-level top_k on Anthropic Messages")
 	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
 	require.Equal(t, "claude-opus-4-7", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestApplyClaudeCodeOAuthMimicry_AnthropicOpus47StripsTemperature(t *testing.T) {
-	body := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"messages":[{"role":"user","content":"hello"}]}`)
+func TestApplyClaudeCodeOAuthMimicry_AnthropicOpus47StripsDeprecatedSamplingParams(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hello"}]}`)
 	svc := &GatewayService{}
 	account := &Account{
 		ID:       53,
@@ -115,6 +146,10 @@ func TestApplyClaudeCodeOAuthMimicry_AnthropicOpus47StripsTemperature(t *testing
 
 	require.False(t, gjson.GetBytes(got, "temperature").Exists(),
 		"OAuth mimicry normalize must not leave deprecated top-level temperature for Opus 4.7+")
+	require.False(t, gjson.GetBytes(got, "top_p").Exists(),
+		"OAuth mimicry normalize must not leave deprecated top-level top_p for Opus 4.7+")
+	require.False(t, gjson.GetBytes(got, "top_k").Exists(),
+		"OAuth mimicry normalize must not leave deprecated top-level top_k for Opus 4.7+")
 	require.True(t, gjson.GetBytes(got, "messages").Exists())
 	require.Equal(t, "claude-opus-4-7", gjson.GetBytes(got, "model").String())
 }
