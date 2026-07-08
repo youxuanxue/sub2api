@@ -338,6 +338,11 @@ func (s *BillingService) initFallbackPricing() {
 	}
 	s.fallbackPrices["gpt-5.6-chat-latest"] = s.fallbackPrices["gpt-5.6-sol"]
 
+	// GPT-5.6（sol / terra / luna）暂无独立定价，回退到 GPT-5.4。
+	s.fallbackPrices["gpt-5.6-sol"] = s.fallbackPrices["gpt-5.4"]
+	s.fallbackPrices["gpt-5.6-terra"] = s.fallbackPrices["gpt-5.4"]
+	s.fallbackPrices["gpt-5.6-luna"] = s.fallbackPrices["gpt-5.4"]
+
 	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
 		InputPricePerToken:     7.5e-7,
 		OutputPricePerToken:    4.5e-6,
@@ -826,6 +831,14 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 落入 fallback / ErrModelPricingUnavailable，让缺价 funnel 记零成本并告警。
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
+		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
+		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
+		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
+		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
+		// PricingService，不受影响。
+		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
+			litellmPricing = nil
+		}
 		if litellmPricing != nil && !tkIsEffectivelyUnpriced(litellmPricing) {
 			// 启用 5m/1h 分类计费的条件：
 			// 1. 存在 1h 价格

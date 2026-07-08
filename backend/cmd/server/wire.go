@@ -98,6 +98,8 @@ func provideCleanup(
 	// is Stopped at shutdown and so wire forces evaluation of
 	// ProvideHoldReconcilerService (which starts the ticker at construction).
 	holdReconciler *service.HoldReconcilerService,
+	batchImageCleanup *service.BatchImageCleanupService,
+	batchImageWorker *service.BatchImageWorkerRuntime,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
@@ -252,6 +254,18 @@ func provideCleanup(
 			{"HoldReconcilerService", func() error {
 				if holdReconciler != nil {
 					holdReconciler.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageCleanupService", func() error {
+				if batchImageCleanup != nil {
+					batchImageCleanup.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageWorkerRuntime", func() error {
+				if batchImageWorker != nil {
+					batchImageWorker.Stop()
 				}
 				return nil
 			}},
