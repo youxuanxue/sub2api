@@ -125,6 +125,17 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:end openai
 }
 
+// supportedOpenAIAinzyRelayCatalogModels — gpt IDs confirmed 200 on prod
+// account 76 (api.ainzy.net/v1, 2026-07-08 probe). gpt-5.4-mini is excluded:
+// 2026-07-08 ops_error_logs show persistent upstream access forbidden on ainzy.
+var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
+	"gpt-5-codex":   {},
+	"gpt-5.2":       {},
+	"gpt-5.2-pro":   {},
+	"gpt-5.3":       {},
+	"gpt-5.3-codex": {},
+}
+
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
 // the google group (us6, account 3 Vertex), 2026-06-09 probe. While EMPTY the
 // catalog/menu gates fall through to passthrough/canonical (no regression).

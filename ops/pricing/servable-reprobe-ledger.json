@@ -264,8 +264,8 @@
     {
       "platform": "newapi",
       "model": "doubao-seed-translation-250915",
-      "reason": "2026-06-23 direct VolcEngine Ark /api/v3/chat/completions reprobe returned 400 inconclusive twice; tk_020 maps it and overlay prices it, but it is not promoted to tk_served_models.json until a 200 probe or a confirmed correct translation surface.",
-      "last_probe": "2026-06-23",
+      "reason": "2026-07-08 prod VolcEngine Ark /api/v3/chat/completions reprobe returned 400 does not support this api (gateway_rejected); tk_020 legacy mapping only — not in tk_served_models.json and must be dropped on apply.",
+      "last_probe": "2026-07-08",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"

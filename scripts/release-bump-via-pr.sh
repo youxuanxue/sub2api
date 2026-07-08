@@ -111,10 +111,19 @@ if [ -z "$PR_NUM" ]; then
   fi
 
   printf '%s\n' "$NEXT_VERSION" > "$WT_DIR/backend/cmd/server/VERSION"
+  python3 "$WT_DIR/scripts/sync_endpoint_compat_baseline_anchor.py" \
+    --version "$NEXT_VERSION" \
+    --previous-deploy-tag "$CURRENT_TAG"
+  git -C "$WT_DIR" add backend/cmd/server/VERSION docs/ops/endpoint-compat-baseline.md
+  if ! python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >/dev/null; then
+    echo "[release-bump-via-pr] ERROR: endpoint-compat baseline freshness check failed after sync" >&2
+    python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >&2 || true
+    exit 1
+  fi
   git -C "$WT_DIR" checkout -b "$BRANCH"
-  git -C "$WT_DIR" add backend/cmd/server/VERSION
   git -C "$WT_DIR" commit -m "chore: bump VERSION to $NEXT_VERSION
 
+Sync endpoint-compat baseline runtime anchor for release.yml gate.
 no-web-impact"
 
   echo "[release-bump-via-pr] pushing branch $BRANCH"
@@ -124,13 +133,13 @@ no-web-impact"
     --title "chore: bump VERSION to $NEXT_VERSION" \
     --body "$(cat <<EOF
 ## 摘要
-发版 $TARGET_TAG 所需的 VERSION 文件 bump。
+发版 $TARGET_TAG 所需的 VERSION bump，并同步 `docs/ops/endpoint-compat-baseline.md` runtime anchor（满足 `release.yml` freshness gate）。
 
 ## 风险
-低 — 仅 \`backend/cmd/server/VERSION\` 变更。
+低 — 仅 VERSION 与 endpoint-compat baseline 锚点变更。
 
 ## 验证
-preflight 已在 bump worktree 通过。
+preflight 已在 bump worktree 通过；`python3 scripts/check_endpoint_compat_baseline_freshness.py` 在 bump commit 前机械校验。
 
 Web impact: none
 EOF

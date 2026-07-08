@@ -320,15 +320,16 @@ def _run_check_sql_json(region: str, instance_id: str, label: str) -> dict[str, 
         raise RuntimeError(f"{label}: failed to decode SQL JSON bundle: {e}") from e
 
 
-def _resolve_check_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
+def _resolve_check_targets(skip_prod: bool, include_edges: bool = False) -> list[tuple[str, str, str]]:
     ec2_matrix = _ROUTING.load_matrix(REPO_ROOT / "deploy/aws/stage0/edge-targets.json")
     ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
     targets: list[tuple[str, str, str]] = []
-    for eid in _ROUTING.iter_effective_deployable_edge_ids(ec2_matrix, ls_targets):
-        ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        targets.append((f"edge:{eid}", ident.region, ident.instance_id))
     if not skip_prod:
         targets.append(("prod", _SSM.PROD_REGION, _SSM.resolve_prod_instance()))
+    if skip_prod or include_edges:
+        for eid in _ROUTING.iter_effective_deployable_edge_ids(ec2_matrix, ls_targets):
+            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+            targets.append((f"edge:{eid}", ident.region, ident.instance_id))
     return targets
 
 
@@ -347,7 +348,7 @@ def _resolve_apply_targets(target: str) -> list[tuple[str, str, str]]:
             fail("--target edge:<id> requires an edge id")
         return [_resolve_single_edge_target(edge_id)]
     if target in {"all", "all-deployable-and-prod"}:
-        return _resolve_check_targets(skip_prod=False)
+        return _resolve_check_targets(skip_prod=False, include_edges=True)
     fail("--target must be prod, edge:<id>, or all-deployable-and-prod")
 
 
@@ -441,7 +442,18 @@ def _is_kiro_scope(row: dict[str, Any]) -> bool:
     )
 
 
+def _is_openai_ainzy_relay(row: dict[str, Any]) -> bool:
+    if str(row.get("platform") or "").strip().lower() != "openai":
+        return False
+    if str(row.get("type") or "") != "apikey":
+        return False
+    base = str(row.get("base_url") or "").strip().lower().rstrip("/")
+    return base in {"https://api.ainzy.net/v1", "https://api.ainzy.net"}
+
+
 def _account_scope(row: dict[str, Any]) -> str:
+    if _is_openai_ainzy_relay(row):
+        return "openai_ainzy_relay"
     if _is_kiro_scope(row):
         return "kiro"
     platform = str(row.get("platform") or "").strip().lower()
@@ -774,10 +786,8 @@ def _apply_plan_remote(plan: dict[str, Any]) -> str:
     shell = (
         "set -euo pipefail\n"
         f"PSQL='{PSQL}'\n"
-        "tmp=/tmp/tk_account_model_mapping_apply_$$.sql\n"
-        f"echo {sql_b64} | base64 -d > \"$tmp\"\n"
-        "$PSQL -f \"$tmp\"\n"
-        "rm -f \"$tmp\"\n"
+        f"echo {sql_b64} | base64 -d | $PSQL\n"
+        "echo APPLY_OK\n"
     )
     return _ssm_run_shell_b64_region(
         plan["region"],
@@ -844,7 +854,7 @@ def cmd_check(args) -> int:
 
 
 def cmd_check_accounts(args) -> int:
-    targets = _resolve_check_targets(args.skip_prod)
+    targets = _resolve_check_targets(args.skip_prod, include_edges=args.include_edges)
     violations: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
@@ -1146,6 +1156,23 @@ def cmd_selftest(_args) -> int:
     assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}) is None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
     assert _runtime_setting_violation('{"platforms":{"grok":{"grok":"grok-4.3"}}}') is None
+    assert _is_openai_ainzy_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://api.ainzy.net/v1",
+    })
+    assert not _is_openai_ainzy_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://relay.example.com/v1",
+    })
+    assert not _is_openai_ainzy_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://api.openai.com/v1",
+    })
+    prod_only = _resolve_check_targets(skip_prod=False, include_edges=False)
+    assert len(prod_only) == 1 and prod_only[0][0] == "prod"
     print("selftest ok")
     return 0
 
@@ -1161,9 +1188,10 @@ def main() -> int:
     sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
-    sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff")
+    sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff (prod only by default)")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
+    sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
     sp.add_argument("--target", required=True, help="prod, edge:<id>, or all-deployable-and-prod")

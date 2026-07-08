@@ -54,6 +54,16 @@ describe('AccountActionMenu — 设置 Tier gating', () => {
     expect(hasTierItem(makeAccount({ platform: 'anthropic', type: 'apikey' }))).toBe(false)
   })
 
+  it('hides tier action for anthropic OAuth passthrough accounts', () => {
+    expect(
+      hasTierItem(makeAccount({
+        platform: 'anthropic',
+        type: 'oauth',
+        extra: { anthropic_oauth_passthrough: true }
+      } as Partial<Account>))
+    ).toBe(false)
+  })
+
   it('hides tier action for non-anthropic accounts', () => {
     expect(hasTierItem(makeAccount({ platform: 'openai', type: 'oauth' }))).toBe(false)
   })

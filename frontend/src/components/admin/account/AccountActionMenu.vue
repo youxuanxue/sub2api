@@ -117,15 +117,17 @@ const isShadow = computed(() => props.account?.parent_account_id != null)
 // A "parent" OpenAI OAuth account is one that is NOT itself a shadow (parent_account_id == null)
 const isOpenAIOAuthParent = computed(() => isOpenAIOAuth.value && !isShadow.value)
 const supportsPrivacy = computed(() => (isAntigravityOAuth.value || isOpenAIOAuth.value) && !isShadow.value)
-// Tier (5h window / session control) only applies to anthropic OAUTH and
-// setup-token accounts — mirrors backend AccountTierService.applyTier, which
-// rejects api-key / mirror-stub accounts (e.g. prod cc-<edge> stubs whose
-// concurrency is reconciler-mirrored, not tier-driven). Without this the menu
-// offered "设置 Tier" on stubs where the apply call always errors out.
+const isAnthropicOAuthPassthrough = computed(
+  () => (props.account?.extra as Record<string, unknown> | undefined)?.anthropic_oauth_passthrough === true
+)
+// Tier (5h window / session control) only applies to non-passthrough anthropic
+// OAUTH and setup-token accounts — mirrors backend AccountTierService.applyTier,
+// which rejects api-key / mirror-stub / passthrough accounts.
 const canSetTier = computed(
   () =>
     props.account?.platform === PLATFORM_ANTHROPIC &&
-    (props.account?.type === 'oauth' || props.account?.type === 'setup-token')
+    (props.account?.type === 'oauth' || props.account?.type === 'setup-token') &&
+    !isAnthropicOAuthPassthrough.value
 )
 const hasQuotaLimit = computed(() => {
   return (props.account?.type === 'apikey' || props.account?.type === 'bedrock') && (

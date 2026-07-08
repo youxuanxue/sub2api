@@ -23,9 +23,9 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 
 | Field | Value |
 |---|---|
-| Baseline date | 2026-07-07 |
+| Baseline date | 2026-07-08 |
 | Target | prod (`https://api.tokenkey.dev`) |
-| Runtime code anchor | `v1.8.91` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.90`. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
+| Runtime code anchor | `v1.8.92` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.91`. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
 | Paid media probes | approved and rerun post-`v1.8.80` / #1207 for Imagen, Veo, and Grok media SSOT display gate plus direct-vs-universal parity; latest full displayed+priced paid media gate on 2026-07-05 returned `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`. |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
@@ -190,7 +190,7 @@ intent but hides the row until provisioning or a later SSOT gate proves it.
    **Live delta** (CI when catalog paths change): `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` — probes only models added/changed in the PR (not the full catalog).
    **Deploy canary** (prod post-deploy): `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout`.
    Add `--include-paid` when paid media is intentionally in scope. Do **not** schedule daily full `--gate-sharded` scans (account-ban risk); use focused `--model` reprobes from this baseline when a row regresses.
-   Update this baseline to mention `v{VERSION}` on every deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`).
+   Update this baseline to mention `v{VERSION}` on every deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`). Release bump scripts run `scripts/sync_endpoint_compat_baseline_anchor.py` automatically.
 8. Reprobe Anthropic/Gemini/Kiro direct live rows only when a real schedulable
    direct probe pool exists; current `429` rows prove route openness, not
    servability.

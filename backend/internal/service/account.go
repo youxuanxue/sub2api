@@ -1202,6 +1202,17 @@ func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
+// IsOpenAIAinzyRelay reports the single prod api.ainzy.net/v1 OpenAI apikey
+// account (id=76). Its servable set is probe-curated and must not inherit the
+// canonical OAuth-oriented OpenAI floor.
+func (a *Account) IsOpenAIAinzyRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(a.GetCredential("base_url"), "/")))
+	return base == "https://api.ainzy.net/v1" || base == "https://api.ainzy.net"
+}
+
 func (a *Account) GetOpenAIBaseURL() string {
 	if a == nil {
 		return ""

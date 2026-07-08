@@ -13,7 +13,8 @@
 # Flow (driven by scripts/release-decide-version.sh):
 #   action=skip-bump-skip-tag → nothing to do; exit 0 (deploy the existing tag).
 #   action=tag-only           → tag origin/main from an ephemeral worktree.
-#   action=bump-and-tag       → in the worktree: write VERSION, commit
+#   action=bump-and-tag       → in the worktree: write VERSION, sync
+#                               endpoint-compat baseline anchor, commit
 #                               "chore: bump VERSION to X.Y.Z" (pre-commit
 #                               preflight runs against the clean worktree),
 #                               push origin HEAD:main, then tag.
@@ -140,11 +141,20 @@ if [ "$ACTION" = "bump-and-tag" ]; then
     exit 1
   fi
   printf '%s\n' "$NEXT_VERSION" > "$WT_DIR/backend/cmd/server/VERSION"
-  git -C "$WT_DIR" add backend/cmd/server/VERSION
+  python3 "$WT_DIR/scripts/sync_endpoint_compat_baseline_anchor.py" \
+    --version "$NEXT_VERSION" \
+    --previous-deploy-tag "$CURRENT_TAG"
+  git -C "$WT_DIR" add backend/cmd/server/VERSION docs/ops/endpoint-compat-baseline.md
+  if ! python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >/dev/null; then
+    echo "[release-bump-and-tag] ERROR: endpoint-compat baseline freshness check failed after sync" >&2
+    python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >&2 || true
+    exit 1
+  fi
   # NOTE: the commit body must never contain the bracketed skip-ci marker
   # (CLAUDE.md §9.2); release-tag.sh re-validates this before tagging.
   git -C "$WT_DIR" commit -m "chore: bump VERSION to $NEXT_VERSION
 
+Sync endpoint-compat baseline runtime anchor for release.yml gate.
 no-web-impact"
   echo "[release-bump-and-tag] pushing bump commit to origin/main"
   PUSH_ERR=""

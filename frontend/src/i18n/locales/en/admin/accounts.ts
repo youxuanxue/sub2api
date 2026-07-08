@@ -537,6 +537,7 @@ export default {
       modelCount: '{count} models',
       poolMode: 'Pool Mode',
       poolModeHint: 'Enable when upstream is an account pool; errors won\'t mark local account status',
+      poolModeSystemManaged: 'System-managed: internal edge stubs are maintained by the reconciler',
       poolModeInfo:
         'When enabled, upstream 429/403/401 errors will auto-retry without marking the account as rate-limited or errored. Suitable for upstream pointing to another sub2api instance.',
       poolModeRetryCount: 'Same-Account Retries',

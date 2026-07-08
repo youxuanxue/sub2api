@@ -42,15 +42,13 @@ const AccountTierExtraKey = "stability_tier"
 //     the apply/发版 moment, and the reconciler self-heal path
 //     (ReapplyBaselineInfra) deliberately does NOT touch priority — reverting it
 //     every tick would flatten the window-aware ordering rebalance just computed.
-//     Contrast kiro, which has no rebalance pipeline and is hard-pinned by
-//     reconcileKiroPriorityBaseline.
 //
 // It NEVER copies the tier-managed NUMERIC extra keys (base_rpm / max_sessions /
 // window / cache_ttl_override_*) into the account — those overlay at runtime from
 // the tiers table (model.IsTierManagedExtraKey strips them). Fleet fan-out stays
-// with the ops/anthropic pipeline; the per-node reconciler re-asserts this same
-// complete shape via ReapplyBaselineInfra (everything EXCEPT priority) so any
-// creation path self-heals without flattening the window-rebalance ordering.
+// with the ops/anthropic pipeline; the per-node reconciler now uses
+// RepairBaselineDrift to repair only TLS binding and missing credentials keys,
+// leaving operator-owned Admin UI settings alone.
 type AccountTierService struct {
 	adminSvc AdminService
 	tierSvc  *TierService
@@ -82,6 +80,127 @@ func (s *AccountTierService) ReapplyBaselineInfra(ctx context.Context, accountID
 	return s.applyTier(ctx, accountID, tier, false /* syncPriority */)
 }
 
+// RepairBaselineDrift is the reconciler path. It is intentionally narrower than
+// ReapplyBaselineInfra: only canonical TLS ensure+bind and missing credentials
+// template keys are repaired. It does not write tier_id, concurrency,
+// rate_multiplier, priority, or baseline extra flags such as rpm_strategy /
+// session_id_masking_enabled / custom_base_url_enabled.
+func (s *AccountTierService) RepairBaselineDrift(ctx context.Context, accountID int64, tier string) (*Account, error) {
+	if s == nil || s.adminSvc == nil || s.tierSvc == nil {
+		return nil, fmt.Errorf("account tier service unavailable")
+	}
+
+	account, err := s.adminSvc.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, fmt.Errorf("account %d not found", accountID)
+	}
+	if account.Platform != PlatformAnthropic {
+		return nil, fmt.Errorf("baseline repair is only supported for anthropic accounts (account %d is platform %q)", accountID, account.Platform)
+	}
+	if account.Type != AccountTypeOAuth && account.Type != AccountTypeSetupToken {
+		return nil, fmt.Errorf("baseline repair is only supported for anthropic OAuth / setup-token accounts (account %d is type %q)", accountID, account.Type)
+	}
+	if account.IsAnthropicOAuthPassthroughEnabled() {
+		return nil, fmt.Errorf("baseline repair is disabled for anthropic OAuth passthrough accounts (account %d)", accountID)
+	}
+
+	row, err := s.tierSvc.GetByName(ctx, tier)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, fmt.Errorf("unknown tier %q", tier)
+	}
+	eff, err := baseline.EffectiveBaselineForTier(row.Name)
+	if err != nil {
+		return nil, fmt.Errorf("load tier baseline %q: %w", row.Name, err)
+	}
+
+	var extra map[string]any
+	var credentials map[string]any
+	extraChanged := false
+	credentialsChanged := false
+
+	if s.accountNeedsCanonicalTLSRepair(ctx, account, eff) {
+		if s.tlsSvc == nil {
+			return nil, fmt.Errorf("tls fingerprint service unavailable; cannot ensure canonical profile %q", eff.TLSProfileName)
+		}
+		prof, err := s.tlsSvc.GetOrCreateByName(ctx, eff.CanonicalTLSProfile())
+		if err != nil {
+			return nil, fmt.Errorf("ensure canonical TLS profile %q: %w", eff.TLSProfileName, err)
+		}
+		extra = copyStringAnyMap(account.Extra)
+		extra["enable_tls_fingerprint"] = true
+		extra["tls_fingerprint_profile_id"] = prof.ID
+		extraChanged = true
+	}
+
+	for k, v := range eff.Credentials {
+		if _, ok := account.Credentials[k]; ok {
+			continue
+		}
+		if credentials == nil {
+			credentials = copyStringAnyMap(account.Credentials)
+		}
+		credentials[k] = v
+		credentialsChanged = true
+	}
+
+	if !extraChanged && !credentialsChanged {
+		return account, nil
+	}
+
+	input := &UpdateAccountInput{}
+	if extraChanged {
+		input.Extra = extra
+	}
+	if credentialsChanged {
+		input.Credentials = credentials
+	}
+	updated, err := s.adminSvc.UpdateAccount(ctx, accountID, input)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("account baseline drift repaired narrowly (local deployment only)",
+		"account_id", accountID,
+		"account_name", account.Name,
+		"tier", row.Name,
+		"tls_repaired", extraChanged,
+		"credentials_repaired", credentialsChanged,
+	)
+	return updated, nil
+}
+
+func (s *AccountTierService) accountNeedsCanonicalTLSRepair(ctx context.Context, account *Account, eff *baseline.EffectiveTierBaseline) bool {
+	if v, _ := account.Extra["enable_tls_fingerprint"].(bool); !v {
+		return true
+	}
+	id := account.GetTLSFingerprintProfileID()
+	if id <= 0 {
+		return true
+	}
+	if s == nil || s.tlsSvc == nil {
+		return false
+	}
+	prof, err := s.tlsSvc.GetByID(ctx, id)
+	if err != nil {
+		return false
+	}
+	return prof == nil || prof.Name != eff.TLSProfileName
+}
+
+func copyStringAnyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 // applyTier binds the given account to `tier`. Only anthropic OAUTH and
 // setup-token accounts are accepted — these are the two types subject to 5h
 // window + session control (see Account.IsAnthropicOAuthOrSetupToken). apikey
@@ -106,6 +225,9 @@ func (s *AccountTierService) applyTier(ctx context.Context, accountID int64, tie
 	}
 	if account.Type != AccountTypeOAuth && account.Type != AccountTypeSetupToken {
 		return nil, fmt.Errorf("apply-tier is only supported for anthropic OAuth / setup-token accounts (account %d is type %q); tier does not apply to api-key / mirror-stub accounts", accountID, account.Type)
+	}
+	if account.IsAnthropicOAuthPassthroughEnabled() {
+		return nil, fmt.Errorf("apply-tier is not supported for anthropic OAuth passthrough accounts (account %d); disable passthrough before applying a tier", accountID)
 	}
 
 	row, err := s.tierSvc.GetByName(ctx, tier)

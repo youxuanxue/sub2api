@@ -306,12 +306,8 @@ TARGET=t4g.large   # 回退时改成 t4g.small，命令完全一样
 #    就会把线上静默降级（2026-06-05：prod 从 1.7.70 被 resize 降回 1.7.11）。
 OLD_ID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
   --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-CMD=$(aws ssm send-command --region "$REGION" --instance-ids "$OLD_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters 'commands=["docker inspect --format={{.Config.Image}} tokenkey | sed s/.*://"]' \
-  --query 'Command.CommandId' --output text); sleep 5
-RUNNING_TAG=$(aws ssm get-command-invocation --region "$REGION" \
-  --command-id "$CMD" --instance-id "$OLD_ID" --query StandardOutputContent --output text | tr -d '[:space:]')
+RUNNING_TAG=$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh \
+  --region "$REGION" --instance-id "$OLD_ID")
 echo "运行态 tag = $RUNNING_TAG"   # 必须非空、且等于你期望的线上版本；否则停手核对
 
 # 1) change-set 预览 — 确认 CFN 只 replace Instance + 重绑 EIP，DataVolume 绝不能被 replace。
@@ -344,13 +340,12 @@ for i in $(seq 1 30); do
     --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null)
   [ "$PING" = "Online" ] && { echo "SSM Online"; break; }; sleep 10
 done
-# 关键：确认新机真跑的是 $RUNNING_TAG（cloud-init 必须已正确 bootstrap；否则 #582 没生效或没救活）
-CMD=$(aws ssm send-command --region "$REGION" --instance-ids "$NEW_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters 'commands=["docker inspect --format={{.Config.Image}} tokenkey","docker inspect --format={{.State.Health.Status}} tokenkey"]' \
-  --query 'Command.CommandId' --output text); sleep 6
-aws ssm get-command-invocation --region "$REGION" --command-id "$CMD" --instance-id "$NEW_ID" \
-  --query StandardOutputContent --output text   # 期望 sub2api:$RUNNING_TAG + healthy
+# 关键：确认新机真跑的是 $RUNNING_TAG（cloud-init 必须已正确 bootstrap；否则 #582 没生效或没救活）。
+# helper 自动识别 prod blue/green active container；旧 legacy tokenkey 容器也可 fallback。
+NEW_RUNNING_TAG=$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh \
+  --region "$REGION" --instance-id "$NEW_ID")
+test "$NEW_RUNNING_TAG" = "$RUNNING_TAG"
+bash ops/stage0/assert-live-host-state.sh "$NEW_ID" "$RUNNING_TAG" "post-replace live-host assert"
 curl -fsS https://api.tokenkey.dev/health && echo OK                    # 期望 200
 # 业务冒烟：参照 §升级 SOP 的 smoke（ops/stage0/post_deploy_smoke.sh）。
 

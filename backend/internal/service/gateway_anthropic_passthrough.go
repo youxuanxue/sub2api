@@ -106,8 +106,9 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			"TK context-window alias stripped on APIKey passthrough (claude-code #60913): -> %s account=%d", bare, account.ID)
 	}
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
-	// text blocks, and drop explicit disabled thinking for Fable.
-	input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))
+	// text blocks, drop explicit disabled thinking for Fable, and strip fields
+	// rejected by newer Anthropic models.
+	input.Body = tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
 	if input.Parsed != nil {
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
 			return nil, err

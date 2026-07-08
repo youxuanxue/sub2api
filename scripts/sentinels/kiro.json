@@ -14,13 +14,9 @@
       "path": "backend/internal/service/anthropic_config_reconciler.go",
       "must_contain": [
         "func mirrorCapacityPlatform",
-        "mirror_platform",
-        "r.reconcileKiroMirrorStubGroups(ctx, accounts)",
-        "func (r *AnthropicConfigReconciler) reconcileKiroMirrorStubGroups",
-        "r.accounts.BindGroups(ctx, a.ID, desiredGroupIDs)",
-        "r.reconcileKiroPriorityBaseline(ctx)"
+        "mirror_platform"
       ],
-      "rationale": "Prod side of surface-C and group reachability: reads each mirror stub's credentials.mirror_platform (default anthropic) and queries the matching edge pool. Losing mirrorCapacityPlatform collapses the anthropic/kiro distinction so every mirror stub queries ?platform=anthropic again and a kiro stub silently mirrors the anthropic Σ. The reconcileKiroMirrorStubGroups call/function/BindGroups write keep a kiro mirror stub reachable from the same prod groups as its anthropic sibling on the same edge host; losing this regresses group-scoped universal routing to the 2026-06 failure mode where cc-us6 is visible in group 15 but kiro-us6 is not, so no failover target exists. The r.reconcileKiroPriorityBaseline(ctx) call in runOnce is the wiring of the kiro priority self-heal step; losing the call leaves the step defined but never run."
+      "rationale": "Prod side of surface-C: reads each mirror stub's credentials.mirror_platform (default anthropic) and queries the matching edge pool. Losing mirrorCapacityPlatform collapses the anthropic/kiro distinction so every mirror stub queries ?platform=anthropic again and a kiro stub silently mirrors the anthropic Σ."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -37,15 +33,6 @@
         "TestEdgeCapacityHandler_KiroUsesPlatformWideSum"
       ],
       "rationale": "Load-bearing QA evidence that the kiro capacity arm reads SumConcurrencyByPlatform(\"kiro\") and never the anthropic-group sum — the exact regression (kiro stub mirrors the anthropic number) this surface closes. Matches the *_tk_*_test.go hotspot-evidence rule."
-    },
-    {
-      "path": "backend/internal/service/anthropic_config_reconciler_test.go",
-      "must_contain": [
-        "TestReconciler_KiroMirrorStubGroups_InheritsAnthropicSiblingGroups",
-        "TestReconciler_KiroMirrorStubGroups_AlreadyAligned_NoWrite",
-        "TestReconciler_KiroMirrorStubGroups_NoAnthropicSibling_NoWrite"
-      ],
-      "rationale": "Load-bearing QA evidence for the prod-side kiro mirror group self-heal. These tests pin the three behaviors needed for group-scoped universal routing failover: kiro inherits sibling anthropic groups on the same edge, already-aligned stubs do not churn, and a kiro stub with no anthropic sibling is left untouched."
     },
     {
       "path": "backend/internal/domain/constants.go",
@@ -69,16 +56,24 @@
         "DefaultKiroIDEVersion",
         "DefaultKiroAccountPriority"
       ],
-      "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the single-source baseline the config reconciler hard-enforces onto every kiro account's priority; losing it would drop the kiro priority self-heal."
+      "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the creation-time default for native Kiro accounts when callers omit priority."
     },
     {
-      "path": "backend/internal/service/anthropic_config_reconciler_tk_kiro_priority.go",
+      "path": "backend/internal/service/admin_account.go",
       "must_contain": [
-        "func (r *AnthropicConfigReconciler) reconcileKiroPriorityBaseline",
-        "ListByPlatform(ctx, PlatformKiro)",
+        "func normalizeAccountPriority",
+        "platform == PlatformKiro",
         "DefaultKiroAccountPriority"
       ],
-      "rationale": "Kiro priority baseline self-heal: value-syncs every active kiro account's priority to kiro.DefaultKiroAccountPriority each reconciler tick (kiro is in neither the tier system nor the window-rebalance pipeline). Losing this step means kiro account priority silently regresses to the 0 zero-value on DB rebuild / new account creation. The call site is guarded by the reconcileKiroPriorityBaseline anchor on anthropic_config_reconciler.go."
+      "rationale": "Kiro priority is creation-defaulted, not reconciler-owned. Native Kiro account creation maps omitted/zero priority to kiro.DefaultKiroAccountPriority; after creation, admin edits own the account priority."
+    },
+    {
+      "path": "backend/internal/service/admin_service_kiro_test.go",
+      "must_contain": [
+        "TestCreateAccount_DefaultsKiroPriorityWhenOmitted",
+        "DefaultKiroAccountPriority"
+      ],
+      "rationale": "Regression evidence for Kiro creation-time priority defaulting. This replaces the retired reconciler value-sync contract."
     },
     {
       "path": "backend/internal/integration/kiro/VENDORED_FROM.md",

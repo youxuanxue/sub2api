@@ -401,8 +401,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
 		account.ID, account.Name, account.Platform, account.Type, tlsProfile, proxyURL)
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
-	// text blocks, and drop explicit disabled thinking for Fable before upstream.
-	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
+	// text blocks, drop explicit disabled thinking for Fable, and strip fields
+	// rejected by newer Anthropic models before upstream.
+	if err := replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return nil, err
 	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept

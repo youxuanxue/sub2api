@@ -718,7 +718,8 @@
       "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep its guarded thinking-shape 400 self-heal retries that record passthrough ops evidence and rewrite the body before surfacing the error; dropping any makes GPT专线 → cc-edges group switches expose Anthropic 400s to clients. Three one-shot guarded retries (each gated by its own attempted-flag): (1) thinking-signature — downgrades stale cross-upstream thinking blocks via FilterThinkingBlocksForRetry; (2) budget-constraint — RectifyThinkingBudget(input.Body, modelForRepair) when isThinkingBudgetConstraintError matches and IsBudgetRectifierEnabled; (3) Opus 4.7+ adaptive-required — RectifyThinkingTypeAdaptive when isThinkingTypeAdaptiveRequiredError matches AND isOpus47OrNewer(modelForRepair), since opus-4.7/4.8 reject thinking.type=enabled with a 400 (CC #61348). (2) and (3) bring the passthrough path to parity with the main Forward() 400-repair ladder; the model gate reads the model from wireBody (the body that actually 400'd). Dropping (2)/(3) silently regresses passthrough opus-4.7 sessions back to hard 400s. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk. Haiku 4.5 context_management auto-injection must stay exempt (upstream #2506): Anthropic rejects context_management for claude-haiku-4-5-* with HTTP 400 even when thinking.type is enabled, and the body rewrite must mirror the existing Haiku exemption in the anthropic-beta header path. count_tokens forwarding must pre-strip Anthropic-unsupported top-level fields (temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management) AND must run a second silent strip AFTER normalizeClaudeOAuthRequestBody injects mimic defaults (temperature=1 / max_tokens=128000 / context_management=...); without this second strip, OAuth-account count_tokens still 400s because normalize undoes the early sanitize (2026-05-18 09:10:30 prod trace). The breaker-exempt clause (anchor `tkCountTokensSkipBreaker(resp.StatusCode)`, defined in gateway_service_tk_count_tokens_failover.go) excludes count_tokens 400 AND the capacity statuses 429/529/503 from the anthropic_upstream_error breaker — both ForwardCountTokens and the API-key passthrough variant call it. 400 exemption stops a single client schema bug from accumulating to threshold and tripping `anthropic_upstream_error_temp_unschedulable` (2026-05-18 cc-us1-oauth → group cc-edges incident). 429/529/503 exemption stops a single transient upstream overload on this precheck endpoint from marking the busy account overload_until/temp_unschedulable +10m while an idle schedulable account sits unused (2026-06-02 edge us1: acct1 罚下 / acct4 空闲); 503 (pool stub prod→edge 'no available accounts') is the same transient capacity class and is now aligned with the main /v1/messages path, whose shouldFailoverUpstreamError fails over on >=500 — without the 503 exemption count_tokens would penalize the main account on a downstream pool-exhaustion blip that the failover loop should simply rotate past. Rotation on these statuses is the count_tokens failover loop's job (gateway_handler_tk_count_tokens_failover.go) via the shared tkCountTokensFailoverError helper, not a breaker write — count_tokens returns *UpstreamFailoverError for failover-eligible statuses instead of writing the client response; if tkCountTokensSkipBreaker narrows back below {400,429,529,503}, count_tokens reverts to penalizing the main account on transient overload. OAuth-401-revocation guard: the 401 branch calls `tkDisableIfOAuth401OnValidToken(ctx, account, upstreamMsg)` before the temp_unschedulable cooldown — a 401 on a still-valid (not near-expiry) access token is treated as an upstream grant revocation and SetError'd on the first strike (manual re-authorization), while an expired/near-expiry token 401 falls through to the cooldown + background-refresh self-heal. See the dedicated ratelimit_service_tk_oauth401.go sentinel for the companion logic.",
       "path": "backend/internal/service/gateway_claude_oauth_body.go",
       "must_contain": [
-        "!strings.Contains(strings.ToLower(modelID), \"haiku\")"
+        "!strings.Contains(strings.ToLower(modelID), \"haiku\")",
+        "return tkStripDeprecatedTemperature(body)"
       ]
     },
     {
@@ -1757,12 +1758,14 @@
       "path": "backend/internal/service/account_tier_service_tk.go",
       "must_contain": [
         "func (s *AccountTierService) ApplyTier(",
+        "account.IsAnthropicOAuthPassthroughEnabled()",
+        "func (s *AccountTierService) RepairBaselineDrift(",
         "s.tlsSvc.GetOrCreateByName(ctx, eff.CanonicalTLSProfile())",
         "extra[\"tls_fingerprint_profile_id\"] = tlsProfileID",
         "AccountTierExtraKey",
         "func (s *AccountTierService) ReapplyBaselineInfra("
       ],
-      "rationale": "TK per-account tier-apply service: the UI 'Set Tier' action that replaces the high-frequency ops/anthropic SSM fan-out for a single deployment. ApplyTier accepts anthropic OAuth AND setup-token accounts (both are subject to 5h window + session control per Account.IsAnthropicOAuthOrSetupToken); api-key / mirror stubs and other platforms are rejected. It derives the desired account config from the embedded tier baseline (concurrency/priority/rate_multiplier + merged extra + shared credentials), CREATES-IF-ABSENT the canonical TLS fingerprint profile via GetOrCreateByName (the GetByName-only lookup was the root cause of silent built-in-default ClientHello fallback when the profile row was missing; an EXISTING row's content is preserved — it is owned by the ops pipeline, so an older binary can never roll a fleet-updated fingerprint back), binds tls_fingerprint_profile_id + pins the shared_baseline extra/credentials template + priority on the account, and persists via the existing UpdateAccount path (which runs the operator-Σ sync). The per-node config reconciler re-runs this same path to self-heal any creation path. Writes ONLY this deployment's DB. The GetOrCreateByName + tls_fingerprint_profile_id binding anchors are the regression guard for the fix; silent upstream-merge deletion would break the admin Set-Tier UI flow and reintroduce the unbound-TLS bug. Priority ownership is split: ApplyTier (operator/admin-UI path) seeds priority from the git baseline at apply time, while ReapplyBaselineInfra (reconciler self-heal path) re-asserts TLS/credentials/extra-flag/concurrency infrastructure but NEVER writes priority — anthropic runtime priority is owned by the window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py). The ReapplyBaselineInfra anchor guards against a regression that re-introduces a per-tick priority revert and flattens the window-aware ordering."
+      "rationale": "TK per-account tier-apply service: the UI 'Set Tier' action that replaces the high-frequency ops/anthropic SSM fan-out for a single deployment. ApplyTier accepts non-passthrough anthropic OAuth AND setup-token accounts (both are subject to 5h window + session control per Account.IsAnthropicOAuthOrSetupToken); api-key / mirror stubs, passthrough accounts, and other platforms are rejected. It derives the desired account config from the embedded tier baseline (concurrency/priority/rate_multiplier + merged extra + shared credentials), CREATES-IF-ABSENT the canonical TLS fingerprint profile via GetOrCreateByName (the GetByName-only lookup was the root cause of silent built-in-default ClientHello fallback when the profile row was missing; an EXISTING row's content is preserved — it is owned by the ops pipeline, so an older binary can never roll a fleet-updated fingerprint back), binds tls_fingerprint_profile_id + pins the shared_baseline extra/credentials template + priority on the account, and persists via the existing UpdateAccount path (which runs the operator-Σ sync). Writes ONLY this deployment's DB. RepairBaselineDrift is the per-node reconciler path and is intentionally narrower: it repairs only canonical TLS ensure+bind plus missing credentials template keys, never priority/concurrency/rate_multiplier or operator-owned baseline extra."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_tier.go",
@@ -2003,11 +2006,15 @@
         "func parseAccountModelMappingRuntime(",
         "runtime.newAPIChannelTypes[account.ChannelType]",
         "func accountModelMappingForAccount(",
-        "case PlatformAnthropic, PlatformOpenAI, PlatformGemini:",
+        "case PlatformOpenAI:",
+        "IsOpenAIAinzyRelay()",
+        "openAIAinzyRelayAccountModelMappingFloor(",
+        "case PlatformAnthropic, PlatformGemini:",
         "case PlatformAntigravity:",
         "case PlatformGrok:",
         "case PlatformKiro:",
         "case accountModelMappingPlatformBedrock:",
+        "accountModelMappingPlatformOpenAIAinzyRelay",
         "func antigravityAccountModelMappingFloor(",
         "func grokAccountModelMappingFloor("
       ],
@@ -2112,10 +2119,10 @@
       "path": "backend/internal/service/anthropic_config_reconciler_tk_account_baseline.go",
       "must_contain": [
         "func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(",
-        "r.tierApplier.ReapplyBaselineInfra(ctx, a.ID, tierName)",
+        "r.repairer.RepairBaselineDrift(ctx, a.ID, tierName)",
         "priority is intentionally NOT checked here"
       ],
-      "rationale": "TK per-node account-baseline self-heal step. It re-asserts the shared_baseline INFRASTRUCTURE (canonical TLS profile existence + binding, credentials self-protection template, extra mimicry flags) via ReapplyBaselineInfra — NOT ApplyTier — so it never writes priority. anthropic runtime priority is owned by the window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py); the git baseline seeds it only on the operator-explicit ApplyTier path. The ReapplyBaselineInfra call anchor + the 'priority is intentionally NOT checked' anchor are the regression guard: a silent revert to ApplyTier (or re-adding a priority drift reason) would re-introduce a per-tick revert that flattens rebalance's window-aware ordering back to the uniform baseline."
+      "rationale": "TK per-node account-baseline self-heal step. It narrowly repairs account-side INFRASTRUCTURE (canonical TLS profile existence + binding and missing credentials self-protection template keys) via RepairBaselineDrift — NOT ApplyTier/ReapplyBaselineInfra — so it never rewrites priority/concurrency/rate_multiplier or operator-owned extra such as rpm_strategy/session_id_masking/custom_base_url. anthropic runtime priority is owned by the window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py); the git baseline seeds it only on the operator-explicit ApplyTier path. The RepairBaselineDrift call anchor + the 'priority is intentionally NOT checked' anchor are the regression guard."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
@@ -3001,6 +3008,25 @@
       "rationale": "Proactive pre-send strip of explicit thinking:{type:\"disabled\"} for Fable-tier models. Upstream rejects the explicit disabled shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — so the gate is isFableModel, NOT requiresAdaptiveOnlyThinking, and omitting the field is the documented equivalent (same rule the bedrock path already applies in sanitizeBedrockThinking's disabled case). If this function is silently dropped, fable clients sending thinking.type=disabled regress to raw upstream 400s on the direct Anthropic path."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_deprecated_temperature.go",
+      "must_contain": [
+        "func tkStripDeprecatedTemperature(body []byte) []byte",
+        "return isOpus47OrNewer(modelID)",
+        "tkModelDeprecatesTemperature(model)",
+        "sjson.DeleteBytes(body, \"temperature\")"
+      ],
+      "rationale": "Proactive pre-send strip of top-level temperature for Anthropic Opus 4.7+ models. Prod/edge traces on 2026-07-08 showed claude-opus-4-7 upstream 400 'temperature is deprecated for this model' after the gateway preserved or injected the field. The gate deliberately reuses the Opus 4.7+ predicate so older Claude families and non-Anthropic bodies keep their request surface, while only the top-level field is deleted. Dropping this companion silently re-opens platform-owned internal 400s for chat/messages/responses/count_tokens paths."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_deprecated_temperature_test.go",
+      "must_contain": [
+        "TestTkStripDeprecatedTemperature_StripIsTopLevelOnly",
+        "TestTkStripDeprecatedTemperature_NoTouchForOlderClaudeModels",
+        "TestForwardAsChatCompletions_AnthropicOpus47StripsTemperature"
+      ],
+      "rationale": "Focused regressions for the Opus 4.7+ temperature deprecation: top-level temperature is stripped, nested JSON-schema properties named temperature are preserved, older Claude/non-Claude models are untouched, and the Anthropic Chat Completions forwarding path sends the stripped wire body upstream."
+    },
+    {
       "path": "backend/internal/service/gateway_request_tk_bare_model_alias.go",
       "must_contain": [
         "func tkDeriveBareModelAliases(set map[string]struct{}) map[string]string",
@@ -3019,16 +3045,23 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))"
+        "replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
       ],
-      "rationale": "The three pre-send sanitize chains (main Forward ~4834, API-Key passthrough ~5526, count_tokens ~9922) must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking so an explicit thinking.type=disabled never reaches upstream for fable models. An upstream merge that restores the bare two-function chain silently reverts the fix and fable+disabled requests 400 again. The replaceBody form covers both Forward and count_tokens; the input.Body form covers the passthrough path."
+      "rationale": "The native Forward pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedTemperature so explicit thinking.type=disabled never reaches fable upstreams and top-level temperature never reaches Opus 4.7+ Anthropic upstreams. An upstream merge that restores the bare two-function chain silently reverts either fix and surfaces raw upstream 400s again."
+    },
+    {
+      "path": "backend/internal/service/gateway_count_tokens.go",
+      "must_contain": [
+        "replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
+      ],
+      "rationale": "The count_tokens pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedTemperature so explicit thinking.type=disabled never reaches fable upstreams and top-level temperature never reaches Opus 4.7+ Anthropic upstreams."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
-        "input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))"
+        "input.Body = tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))"
       ],
-      "rationale": "Passthrough fable-disabled-thinking sanitize chain split from gateway_service.go."
+      "rationale": "Passthrough sanitize chain split from gateway_service.go must retain both fable-disabled-thinking and Opus 4.7+ deprecated-temperature stripping."
     },
     {
       "path": "backend/internal/handler/api_key_handler.go",
