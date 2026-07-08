@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
@@ -25,6 +26,14 @@ type accountModelMappingRuntime struct {
 type accountModelMappingRuntimeDoc struct {
 	Platforms          map[string]map[string]string `json:"platforms"`
 	NewAPIChannelTypes map[string]map[string]string `json:"newapi_channel_types"`
+}
+
+// AccountModelMappingFloorDoc is the ops-facing export of the effective
+// account model_mapping floor. Platform/newapi scopes are full replacements.
+type AccountModelMappingFloorDoc struct {
+	Platforms          map[string]map[string]string `json:"platforms"`
+	NewAPIChannelTypes map[string]map[string]string `json:"newapi_channel_types"`
+	AntigravityScopes  []string                     `json:"antigravity_group_scopes"`
 }
 
 func parseAccountModelMappingRuntime(raw string) (*accountModelMappingRuntime, error) {
@@ -127,6 +136,55 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 	default:
 		return nil, false
 	}
+}
+
+// AccountModelMappingFloorForOps returns the compiled floor plus an optional
+// runtime replacement layer. It is intentionally used by ops tooling instead of
+// duplicating the SSOT in Python.
+func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*AccountModelMappingFloorDoc, error) {
+	runtime, err := parseAccountModelMappingRuntime(runtimeRaw)
+	if err != nil {
+		return nil, err
+	}
+	out := &AccountModelMappingFloorDoc{
+		Platforms:          make(map[string]map[string]string),
+		NewAPIChannelTypes: make(map[string]map[string]string),
+		AntigravityScopes:  append([]string(nil), canonicalAntigravityModelScopes...),
+	}
+	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKiro} {
+		mapping, ok := accountModelMappingForAccount(ctx, &Account{Platform: platform}, nil, nil, runtime)
+		if ok && len(mapping) > 0 {
+			out.Platforms[platform] = cloneStringMap(mapping)
+		}
+	}
+	bedrock, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}, nil, nil, runtime)
+	if ok && len(bedrock) > 0 {
+		out.Platforms[accountModelMappingPlatformBedrock] = cloneStringMap(bedrock)
+	}
+
+	channelTypes := map[int]struct{}{
+		newapiconstant.ChannelTypeVertexAi: {},
+	}
+	for _, ct := range NewAPIManifestPresetChannelTypes() {
+		channelTypes[ct] = struct{}{}
+	}
+	if runtime != nil {
+		for ct := range runtime.newAPIChannelTypes {
+			channelTypes[ct] = struct{}{}
+		}
+	}
+	sortedCT := make([]int, 0, len(channelTypes))
+	for ct := range channelTypes {
+		sortedCT = append(sortedCT, ct)
+	}
+	sort.Ints(sortedCT)
+	for _, ct := range sortedCT {
+		mapping, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformNewAPI, ChannelType: ct}, nil, nil, runtime)
+		if ok && len(mapping) > 0 {
+			out.NewAPIChannelTypes[strconv.Itoa(ct)] = cloneStringMap(mapping)
+		}
+	}
+	return out, nil
 }
 
 func accountModelMappingScopeForAccount(account *Account) string {

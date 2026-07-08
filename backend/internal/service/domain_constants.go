@@ -596,8 +596,8 @@ const (
 	// tk_served_models.json, and compatibility aliases. When present, JSON
 	// scopes under "platforms" or "newapi_channel_types" REPLACE that compiled
 	// scope, so ops can add or remove a servable/displayable mapping without a
-	// deploy; AccountModelMappingReconciler then writes accounts on the next
-	// tick or settings pub/sub signal.
+	// deploy. It is only a desired layer; accounts are updated by the explicit
+	// ops check/diff/apply flow, not by server startup or settings fan-out.
 	SettingKeyTKAccountModelMappingRuntime = "tk_account_model_mapping_runtime"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，

@@ -4,16 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/google/uuid"
 )
 
 const (
-	accountModelMappingReconcilerLockTTL = 4 * time.Minute
-	accountModelMappingReconcilerRunTO   = 60 * time.Second
+	accountModelMappingReconcilerRunTO = 60 * time.Second
 )
 
 type accountModelMappingAccountStore interface {
@@ -30,32 +25,15 @@ type accountModelMappingSettingReader interface {
 	GetRawSettingValue(ctx context.Context, key string) (string, bool)
 }
 
-type accountModelMappingLeaderLock interface {
-	TryAcquire(ctx context.Context, holder string, ttl time.Duration) (func(), bool)
-}
-
-// AccountModelMappingReconciler keeps every active account on an explicit
-// credentials.model_mapping derived from TokenKey's servable+priced+displayable
-// SSOT. Empty native mappings no longer act as an operational policy surface:
-// they are drift that this reconciler rewrites to the canonical whitelist.
+// AccountModelMappingReconciler is a one-shot applier for TokenKey's explicit
+// account model_mapping SSOT. Production servers do not start it as a background
+// self-healer; ops tooling must diff first and invoke an explicit apply path.
 type AccountModelMappingReconciler struct {
 	accounts     accountModelMappingAccountStore
 	groups       accountModelMappingGroupStore
 	settings     accountModelMappingSettingReader
 	pricing      *PricingCatalogService
 	availability MePricingAvailability
-	cfg          *config.Config
-	lock         accountModelMappingLeaderLock
-	pubsub       SettingPubSub
-	instanceID   string
-
-	stopCh       chan struct{}
-	stopOnce     sync.Once
-	startOne     sync.Once
-	wg           sync.WaitGroup
-	pubsubCancel context.CancelFunc
-
-	warnNoRedisOnce sync.Once
 }
 
 func NewAccountModelMappingReconciler(
@@ -64,9 +42,6 @@ func NewAccountModelMappingReconciler(
 	settings accountModelMappingSettingReader,
 	pricing *PricingCatalogService,
 	availability *PricingAvailabilityService,
-	cfg *config.Config,
-	lock accountModelMappingLeaderLock,
-	pubsub SettingPubSub,
 ) *AccountModelMappingReconciler {
 	var avail MePricingAvailability
 	if availability != nil {
@@ -78,95 +53,13 @@ func NewAccountModelMappingReconciler(
 		settings:     settings,
 		pricing:      pricing,
 		availability: avail,
-		cfg:          cfg,
-		lock:         lock,
-		pubsub:       pubsub,
-		instanceID:   uuid.NewString(),
-		stopCh:       make(chan struct{}),
 	}
 }
 
-func (r *AccountModelMappingReconciler) tickInterval() time.Duration {
-	if r == nil || r.cfg == nil {
-		return 0
-	}
-	sec := r.cfg.Gateway.Scheduling.AccountModelMappingReconcilerIntervalSeconds
-	if sec <= 0 {
-		return 0
-	}
-	return time.Duration(sec) * time.Second
-}
-
-func (r *AccountModelMappingReconciler) Start() {
-	if r == nil || r.accounts == nil {
-		return
-	}
-	interval := r.tickInterval()
-	if interval <= 0 {
-		return
-	}
-	r.startOne.Do(func() {
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			r.runOnceLocked()
-			ticker := time.NewTicker(interval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					r.runOnceLocked()
-				case <-r.stopCh:
-					return
-				}
-			}
-		}()
-		if r.pubsub != nil {
-			pubsubCtx, cancel := context.WithCancel(context.Background())
-			r.pubsubCancel = cancel
-			r.pubsub.Subscribe(pubsubCtx, func() {
-				go r.runOnceLocked()
-			})
-		}
-	})
-}
-
-func (r *AccountModelMappingReconciler) Stop() {
-	if r == nil {
-		return
-	}
-	r.stopOnce.Do(func() {
-		if r.pubsubCancel != nil {
-			r.pubsubCancel()
-		}
-		close(r.stopCh)
-	})
-	r.wg.Wait()
-}
-
-func (r *AccountModelMappingReconciler) runOnceLocked() {
-	release, ok := r.tryAcquireLock()
-	if !ok {
-		return
-	}
-	if release != nil {
-		defer release()
-	}
+func (r *AccountModelMappingReconciler) RunOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), accountModelMappingReconcilerRunTO)
 	defer cancel()
 	r.runOnce(ctx)
-}
-
-func (r *AccountModelMappingReconciler) tryAcquireLock() (func(), bool) {
-	if r.lock == nil {
-		r.warnNoRedisOnce.Do(func() {
-			slog.Warn("account model_mapping reconciler running without distributed lock (no redis)")
-		})
-		return nil, true
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return r.lock.TryAcquire(ctx, r.instanceID, accountModelMappingReconcilerLockTTL)
 }
 
 func (r *AccountModelMappingReconciler) runOnce(ctx context.Context) {

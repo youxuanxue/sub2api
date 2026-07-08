@@ -26,7 +26,7 @@ description: >-
 | 目录/Menu 过时、模型可能不再 200、要刷新 allowlist | **分支 B**（本 skill 路由后读写入子 skill） |
 | Antigravity `gemini-2.5-pro` generateContent 超时 / inconclusive，要窄探 chat vs v1beta | **分支 B** → `tokenkey-servable-model-refresh` §「Antigravity gemini-2.5-pro 专项」 |
 | Qwen/DeepSeek mapping 漂、429 空池、60↔72 mirror | **分支 A** |
-| 已有 servable+priced+displayable SSOT，需要快速热更新所有账号 `model_mapping` | **分支 D**（runtime settings 热更新） |
+| 已有 servable+priced+displayable SSOT，需要快速热更新账号 `model_mapping` | **分支 D**（runtime desired layer + 显式 check/diff/apply） |
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe`（诊断，非 hub 子分支） |
 
@@ -41,7 +41,7 @@ description: >-
 1. 问清是 **catalog/menu**、**newapi mapping/镜像**、**账号 model_mapping runtime 热更新**、还是 **上新模型**。
 2. catalog/menu → **§分支 B**，加载 `tokenkey-servable-model-refresh` 执行写入。
 3. mapping/mirror/空池 → **§分支 A**（`modelops.py plan`）。
-4. runtime 热更新 → **§分支 D**，先 `validate/check --file`，确认后再 `sync-runtime`。
+4. runtime 热更新 → **§分支 D**，先 `validate/check --file`，确认后 `sync-runtime`（只写 setting）；账号持久化写入必须再跑 `check-accounts` 看 diff，确认后 `apply-accounts --confirm ...`。
 5. plan 出 `ready_for_onboard` → **§分支 C**，加载 `tokenkey-onboard-model`。
 
 同一工单可 A→C 或「B 与 A 并行认知、分开 PR」；**禁止**在分支 A 里跑 refresh `run/apply`。
@@ -113,15 +113,17 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 ---
 
-## 分支 D：账号 `model_mapping` runtime 热更新（写 prod settings）
+## 分支 D：账号 `model_mapping` runtime 热更新（desired layer + 显式 apply）
 
 脚本：`ops/pricing/manage-account-model-mapping-runtime.py`。
 
 用途：把已确认 **可服务、已定价、可展示** 的账号 `model_mapping` SSOT 作为 runtime
-replacement 写入 `settings.tk_account_model_mapping_runtime`，触发
-`AccountModelMappingReconciler` 通过 `settings_updated` fan-out 或周期 tick 更新所有 active
-账号。该文件是 **scope replacement**，不是增量 patch：写了某个平台或 newapi channel_type，
-就必须给出该 scope 的完整期望 mapping；未出现的 scope 继续用编译期 floor。
+replacement 写入 `settings.tk_account_model_mapping_runtime`，再用只读 `check-accounts`
+对 prod + deployable edges 生成 diff。账号和 Antigravity group 的持久化写入只通过
+`apply-accounts --confirm yes-apply-account-model-mapping` 执行；服务进程启动、周期 tick
+和 `settings_updated` fan-out 都不会批量覆盖账号配置。该文件是 **scope replacement**，
+不是增量 patch：写了某个平台或 newapi channel_type，就必须给出该 scope 的完整期望
+mapping；未出现的 scope 继续用编译期 floor。
 
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest
@@ -129,18 +131,25 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py example > /tmp/accou
 python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json
 python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/account-model-mapping-runtime.json
 
-# 人审 JSON + check 输出后再写 prod：
+# 人审 JSON + check 输出后再写 prod setting（不改 accounts）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
 
-# 发版后 / 热更新后只读收敛检查（prod + deployable edges）：
+# 发版后 / 热更新后只读 diff（prod + deployable edges）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
+
+# 人审 diff 后，显式覆盖账号 model_mapping / Antigravity group scopes：
+python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
+  --target all-deployable-and-prod \
+  --confirm yes-apply-account-model-mapping
 
 # 回到编译期 floor（也需人审）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py clear-runtime
 ```
 
-新增模型的安全顺序：先确认 live probe / pricing / display gate，再更新 runtime JSON；如果这是长期产品面，
-随后把同样的 mapping 折回 Go floor 或 `tk_served_models.json`，避免 runtime 长期 shadow 编译期事实。
+新增模型的安全顺序：先确认 live probe / pricing / display gate，再更新 runtime JSON，
+`sync-runtime` 后跑 `check-accounts` 生成 diff，最后经人审 `apply-accounts`。如果这是长期
+产品面，随后把同样的 mapping 折回 Go floor 或 `tk_served_models.json`，避免 runtime
+长期 shadow 编译期事实。
 
 ---
 

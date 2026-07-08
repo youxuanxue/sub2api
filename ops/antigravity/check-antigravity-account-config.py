@@ -2,8 +2,8 @@
 """TokenKey post-rollout antigravity config check (read-only).
 
 Verifies the Antigravity explicit model_mapping policy across all deployable
-edges + prod, on BOTH surfaces the backend ``AccountModelMappingReconciler``
-self-heals:
+edges + prod, on BOTH surfaces managed by the reviewed account model_mapping
+ops apply flow:
 
   1. **accounts** — every ``platform=antigravity`` account carries an explicit
      ``credentials.model_mapping`` for the live Antigravity Gemini set plus the
@@ -17,10 +17,11 @@ self-heals:
      so ``/antigravity/v1/models`` exposes only the scope families this platform
      can actually serve.
 
-The reconciler self-heals account mappings and group scopes on every node (boot
-+ tick); the group binding is a one-time provisioning step the reconciler does
-NOT heal, so this tool is the only safety net for it. This tool is the
-post-rollout *verification*.
+Account mappings and group scopes are not self-healed by server startup/ticks;
+operators review the diff and then run the explicit apply flow. The group
+binding is a one-time provisioning step the apply flow does NOT infer, so this
+tool remains the safety net for it. This tool is the post-rollout
+*verification*.
 
 A **violation** is any antigravity account whose ``model_mapping`` is null/empty
 (all platforms now use explicit mappings) or omits the live Claude subset, or
@@ -65,15 +66,15 @@ ANTIGRAVITY_ACCOUNTS_SQL = (
 )
 
 # Active antigravity groups + their supported_model_scopes. status='active' mirrors
-# the reconciler's ListActiveByPlatform (same口径: only groups the reconciler heals
-# are asserted). `deleted_at IS NULL` mandatory (soft-delete gate).
+# the account model_mapping apply flow (same口径: only active groups are asserted).
+# `deleted_at IS NULL` mandatory (soft-delete gate).
 ANTIGRAVITY_GROUPS_SQL = (
     "SELECT COALESCE(json_agg(json_build_object("
     "'id', id, 'name', name, 'scopes', supported_model_scopes))::text, '[]') "
     "FROM groups WHERE platform = 'antigravity' AND status = 'active' AND deleted_at IS NULL;"
 )
 
-# Canonical Antigravity group scopes — mirrors AccountModelMappingReconciler.
+# Canonical Antigravity group scopes — mirrors the account model_mapping SSOT.
 ANTIGRAVITY_CANONICAL_SCOPES = {"claude", "gemini_text", "gemini_image"}
 
 ANTIGRAVITY_LIVE_CLAUDE_MAPPING = {
@@ -182,8 +183,9 @@ def _account_violation(row: dict) -> str | None:
          antigravity group via account_groups, else the scheduler finds no
          account for that group and fast-fails every request with
          "No available accounts" 429 (the account looks ready but silently
-         never serves). This binding is a provisioning step the reconciler does
-         NOT self-heal, so the post-rollout check is the only safety net.
+         never serves). This binding is a provisioning step the account
+         model_mapping apply flow does NOT infer, so the post-rollout check is
+         the only safety net.
     """
     reasons: list[str] = []
 

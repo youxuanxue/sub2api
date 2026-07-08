@@ -184,7 +184,7 @@ func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t 
 			},
 		},
 	}
-	r := NewAccountModelMappingReconciler(acc, nil, nil, nil, nil, nil, nil, nil)
+	r := NewAccountModelMappingReconciler(acc, nil, nil, nil, nil)
 	r.runOnce(context.Background())
 
 	var touched []int64
@@ -208,7 +208,7 @@ func TestAccountModelMappingReconciler_RuntimeOverrideFromSettings(t *testing.T)
 	settings := accountModelMappingSettingStub{values: map[string]string{
 		SettingKeyTKAccountModelMappingRuntime: `{"platforms":{"grok":{"grok":"grok-4.3"}}}`,
 	}}
-	r := NewAccountModelMappingReconciler(acc, nil, settings, nil, nil, nil, nil, nil)
+	r := NewAccountModelMappingReconciler(acc, nil, settings, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Len(t, acc.bulkCalls, 1)
@@ -226,7 +226,7 @@ func TestAccountModelMappingReconciler_AntigravityGroupScopesAllowClaudeAndGemin
 			},
 		},
 	}
-	r := NewAccountModelMappingReconciler(nil, grp, nil, nil, nil, nil, nil, nil)
+	r := NewAccountModelMappingReconciler(nil, grp, nil, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Len(t, grp.updateCalls, 2)
@@ -239,8 +239,8 @@ func TestAccountModelMappingReconciler_AntigravityGroupScopesAllowClaudeAndGemin
 
 func TestAccountModelMappingReconciler_NilSafe(t *testing.T) {
 	var nilRec *AccountModelMappingReconciler
-	require.NotPanics(t, func() { nilRec.runOnce(context.Background()); nilRec.Start(); nilRec.Stop() })
+	require.NotPanics(t, func() { nilRec.runOnce(context.Background()); nilRec.RunOnce() })
 
-	rec := NewAccountModelMappingReconciler(nil, nil, nil, nil, nil, nil, nil, nil)
-	require.NotPanics(t, func() { rec.runOnce(context.Background()); rec.Start(); rec.Stop() })
+	rec := NewAccountModelMappingReconciler(nil, nil, nil, nil, nil)
+	require.NotPanics(t, func() { rec.runOnce(context.Background()); rec.RunOnce() })
 }

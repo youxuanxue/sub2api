@@ -160,9 +160,10 @@ func antigravityModelScope(id string) string {
 
 // tkAntigravityFilterModelsByGroupScopes keeps only models whose scope is in the
 // group's supported_model_scopes. Empty scopes = no restriction (back-compat for
-// pre-#774 groups). AccountModelMappingReconciler converges active Antigravity
-// groups to [claude, gemini_text, gemini_image], while legacy/narrow groups can
-// still intentionally hide Claude from /antigravity/v1/models.
+// pre-#774 groups). The explicit account model_mapping ops apply flow can
+// converge active Antigravity groups to [claude, gemini_text, gemini_image],
+// while legacy/narrow groups can still intentionally hide Claude from
+// /antigravity/v1/models until an operator applies that change.
 func tkAntigravityFilterModelsByGroupScopes(scopes []string, models []antigravity.ClaudeModel) []antigravity.ClaudeModel {
 	if len(scopes) == 0 {
 		return models

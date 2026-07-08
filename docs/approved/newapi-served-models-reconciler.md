@@ -80,12 +80,12 @@ reconciler converging toward this feed would freeze the account to a snapshot po
 ids the operator must not serve — and freezing *to* a polluted snapshot is worse than the
 allow-all it replaces.
 
-The account model_mapping reconciler (`account_model_mapping_reconciler.go`) is safe
-**only because** it converges toward reviewed in-repo desired-state:
+The account model_mapping SSOT (`account_model_mapping_ssot_tk.go`) is safe
+**only because** explicit ops apply converges toward reviewed in-repo desired-state:
 `supported*CatalogModels`, `tk_served_models.json` display projection, and explicit
-compatibility aliases. It performs **zero upstream discovery I/O**. An unattended
-reconciler must not converge toward `FetchUpstreamSupportedModels`, because that feed can
-include unpriced, retired, or operator-unapproved ids.
+compatibility aliases. It performs **zero upstream discovery I/O**. Server runtime must
+not run an unattended account-mapping reconciler toward `FetchUpstreamSupportedModels`,
+because that feed can include unpriced, retired, or operator-unapproved ids.
 
 ### 1.3 Reason 3 — `BulkUpdate` is the wrong primitive for add-only grow
 

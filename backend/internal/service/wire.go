@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -305,66 +304,6 @@ func ProvideAnthropicConfigReconciler(
 	redisClient *redis.Client,
 ) *AnthropicConfigReconciler {
 	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, tierApplier, tlsSvc, settingSvc, cfg, redisClient)
-	rec.Start()
-	return rec
-}
-
-const accountModelMappingReconcilerLockKey = "account_model_mapping:reconciler:leader"
-
-var accountModelMappingReconcilerLockRelease = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-  return redis.call("DEL", KEYS[1])
-end
-return 0
-`)
-
-type accountModelMappingRedisLeaderLock struct {
-	redis *redis.Client
-}
-
-func (l accountModelMappingRedisLeaderLock) TryAcquire(ctx context.Context, holder string, ttl time.Duration) (func(), bool) {
-	if l.redis == nil {
-		return nil, true
-	}
-	acquired, err := l.redis.SetNX(ctx, accountModelMappingReconcilerLockKey, holder, ttl).Result()
-	if err != nil {
-		slog.Warn("account model_mapping reconciler leader lock SetNX failed; skipping cycle", "err", err)
-		return nil, false
-	}
-	if !acquired {
-		return nil, false
-	}
-	return func() {
-		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer releaseCancel()
-		_, _ = accountModelMappingReconcilerLockRelease.Run(releaseCtx, l.redis, []string{accountModelMappingReconcilerLockKey}, holder).Result()
-	}, true
-}
-
-// ProvideAccountModelMappingReconciler creates and starts the TK per-node
-// account model_mapping self-healer. It writes explicit model_mapping for every
-// active account from the compiled/runtime SSOT and keeps Antigravity group
-// scopes aligned with the live model families.
-func ProvideAccountModelMappingReconciler(
-	accountRepo AccountRepository,
-	groupRepo GroupRepository,
-	settingSvc *SettingService,
-	pricing *PricingCatalogService,
-	availability *PricingAvailabilityService,
-	cfg *config.Config,
-	redisClient *redis.Client,
-	pubsub SettingPubSub,
-) *AccountModelMappingReconciler {
-	rec := NewAccountModelMappingReconciler(
-		accountRepo,
-		groupRepo,
-		settingSvc,
-		pricing,
-		availability,
-		cfg,
-		accountModelMappingRedisLeaderLock{redis: redisClient},
-		pubsub,
-	)
 	rec.Start()
 	return rec
 }
@@ -737,7 +676,6 @@ var ProviderSet = wire.NewSet(
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
-	ProvideAccountModelMappingReconciler,
 	ProvideUpstreamBalanceSentinel,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
 	ProvideEdgeAccountsAggregator,

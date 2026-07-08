@@ -87,9 +87,6 @@ func provideCleanup(
 	// TK: per-node anthropic config self-healer — see
 	// internal/service/anthropic_config_reconciler.go.
 	anthropicConfigReconciler *service.AnthropicConfigReconciler,
-	// TK: per-node all-platform model_mapping self-healer — see
-	// internal/service/account_model_mapping_reconciler.go.
-	accountModelMappingReconciler *service.AccountModelMappingReconciler,
 	upstreamBalanceSentinel *service.UpstreamBalanceSentinel,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
@@ -231,12 +228,6 @@ func provideCleanup(
 			{"AnthropicConfigReconciler", func() error {
 				if anthropicConfigReconciler != nil {
 					anthropicConfigReconciler.Stop()
-				}
-				return nil
-			}},
-			{"AccountModelMappingReconciler", func() error {
-				if accountModelMappingReconciler != nil {
-					accountModelMappingReconciler.Stop()
 				}
 				return nil
 			}},

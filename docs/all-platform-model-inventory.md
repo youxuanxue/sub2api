@@ -31,7 +31,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 
 | 类别 | 是什么 | 现状 | 处置 |
 |---|---|---|---|
-| `servable_unpriced`（chat） | 可服务但无价 → 计 `$0` 无扣额 | **会发 P0 告警，不是 silent**（`served_zero_cost` 探针）。本轮已处理主例：grok-4.3/4.20/build/code-fast 官方价进 overlay+allowlist，antigravity `tab_flash_lite_preview` 从默认/mapping 自愈面移除 | 新发现条目需补**官方**核实价进 overlay → 加 allowlist；或从 defaults/mapping 移除。**不要给 chat 加 fail-closed 守卫**（见下） |
+| `servable_unpriced`（chat） | 可服务但无价 → 计 `$0` 无扣额 | **会发 P0 告警，不是 silent**（`served_zero_cost` 探针）。本轮已处理主例：grok-4.3/4.20/build/code-fast 官方价进 overlay+allowlist，antigravity `tab_flash_lite_preview` 从默认/mapping SSOT 移除 | 新发现条目需补**官方**核实价进 overlay → 加 allowlist；或从 defaults/mapping 移除。**不要给 chat 加 fail-closed 守卫**（见下） |
 | `advertised_dead` | 在 `DefaultModels` 但实测 502/404 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧已改为统一 servable+priced fallback：`codex-auto-review` 2026-06-22 实测 200 后保留，`gpt-5.2`、`gpt-5.3-codex`、`gpt-image-*` 不再进入默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
 | `channel_not_onboarded` | 渠道适配器理论可达但无 TK 账号/价 | 扩展 backlog，非缺陷。openai 153+24 尾、gemini ct24/41、Moonshot/MiniMax/Zhipu… | 有客户需求时走 `tokenkey-onboard-model` 逐个上架 |
 
@@ -143,8 +143,8 @@ gemini-3.5-flash-low       gemini-pro-agent
 
 - 价/展示闭环（2026-06-23）：`gemini-2.5-flash-thinking` 已补 `tk_pricing_overlay.json`（按 bundled `gemini-2.5-flash` 官方价镜像：in $0.30/M、out $2.50/M、cache-read $0.03/M）；`gemini-3-flash-agent`、`gemini-3.5-flash-{low,extra-low}`、`gemini-pro-agent` 继续走 Antigravity overlay；`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-3-flash`、`gemini-3.1-flash-image`、`gemini-3.1-pro-low` 走 bundled/litellm Gemini/Vertex 非零价。`/antigravity/models` 和 admin selector 已接 `supportedAntigravityCatalogModels`，因此这些 10 个 id 会作为 Antigravity 默认可见候选；`gemini-2.5-pro` 虽有原生 Gemini 价，但因 Antigravity 复测未拿到 200，不进该面。
 - `/api/v1/public/pricing` 仍是 flat `model_id` 目录：同名模型（如 `gemini-3-flash`）已有 Gemini/Vertex vendor 行时，fill-only overlay 不改 vendor 归属；只有 overlay-only wire id（如 `gemini-2.5-flash-thinking`、`gemini-3-flash-agent`、`gemini-pro-agent`）会显示为 `vendor=antigravity`。这是当前 DTO 的平台维度限制，不影响 Antigravity 请求按 `requested_model` 计费。
-- **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / reconciler 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或自愈回写。
-- **policy（不可服务因策略）**：`gpt-oss-120b-medium` 与非 live Antigravity Claude id 不在 antigravity 服务；`AccountModelMappingReconciler` 写入显式 `model_mapping`，仅保留 PR #1265 live Claude 子集（`claude-sonnet-4-6`、`claude-opus-4-6-thinking`，含 `claude-opus-4-6` 兼容别名）+ Gemini 可服务清单。
+- **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / SSOT 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或经显式 apply 回写。
+- **policy（不可服务因策略）**：`gpt-oss-120b-medium` 与非 live Antigravity Claude id 不在 antigravity 服务；account model_mapping SSOT + 显式 `apply-accounts` 仅保留 PR #1265 live Claude 子集（`claude-sonnet-4-6`、`claude-opus-4-6-thinking`，含 `claude-opus-4-6` 兼容别名）+ Gemini 可服务清单。
 
 ### 2.5 grok（第七平台，xAI）
 
@@ -229,7 +229,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | kind | 平台 | 代表模型 | 危 | 处置 |
 |---|---|---|---|---|
 | `servable_unpriced_zero_cost_p0` | grok | grok-3/2/search 未核价长尾 | 中 | grok-4.3/4.20/build/code-fast 已补官方价+allowlist；剩余项继续 leave_excluded，等官方价+200 |
-| `servable_unpriced_zero_cost_p0` | antigravity | `tab_flash_lite_preview` | 已收敛 | 已从默认/mapping 自愈面移除，静态检查阻止回写 |
+| `servable_unpriced_zero_cost_p0` | antigravity | `tab_flash_lite_preview` | 已收敛 | 已从默认/mapping SSOT 移除，静态检查阻止回写 |
 | `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
 | `retired_pool` | gemini native | `Google-Gemini` group 8；`gemini-eng-g2` / `gemini-am-g2` | 已收敛 | 2026-07-04 soft-delete group/accounts；deploy smoke 默认跳过 native Gemini；新池必须先 account-model probe 200 |
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 仅在新 native 池上线后复测；用 servable-allowlist 闸 DefaultModels |
@@ -269,7 +269,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 
 ### 4.3 policy（能服务但故意不上）—— 代表
 
-- **antigravity** 非 PR #1265 live Claude id + `gpt-oss-120b-medium`（`AccountModelMappingReconciler` 显式 mapping 自愈）。
+- **antigravity** 非 PR #1265 live Claude id + `gpt-oss-120b-medium`（account model_mapping SSOT 显式 mapping；需经 `check-accounts` diff 后 `apply-accounts` 写入）。
 - **grok** `grok-4.x`/`grok-3`/`-search` 变体（unpriced-by-discipline，$0-P0；上价后才上）。
 - **openai** `gpt-image-{1,1.5,2}`（真产品，缺 `api.model.images.request` scope；加 `type=apikey` 账号后可复测）。
 - **newapi 聚合器/未接渠道**：~30 个无 TK 账号的 channel（Bedrock/OpenRouter/SiliconFlow/Mistral/Cohere/Perplexity/Midjourney/Kling/Jimeng/Vidu/Sora/Suno…）——见 §5。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hot-push the TK account model_mapping SSOT runtime layer to prod settings.
+"""Manage the TK account model_mapping runtime layer and explicit account apply.
 
 The compiled floor lives in Go:
   - native platforms: supported*CatalogModels + pricing/display gates
@@ -9,8 +9,9 @@ The compiled floor lives in Go:
 This tool writes an optional runtime replacement layer to settings key
 ``tk_account_model_mapping_runtime``. A present scope REPLACES the compiled floor
 for that platform or newapi channel_type; absent scopes keep the compiled floor.
-The AccountModelMappingReconciler then rewrites active accounts on the next
-settings_updated pub/sub signal or periodic tick.
+Writing the setting does not mutate accounts. Use ``check-accounts`` to diff
+live accounts against the Go SSOT, then ``apply-accounts --confirm ...`` when
+an operator has reviewed the diff and wants to overwrite persisted mappings.
 
 Runtime JSON shape:
 
@@ -35,6 +36,7 @@ import io
 import json
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, NoReturn
@@ -75,6 +77,8 @@ KIRO_REQUIRED_MODELS = {"claude-sonnet-4-5", "claude-sonnet-5"}
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
+APPLY_CONFIRM = "yes-apply-account-model-mapping"
+GO_HELPER = ["go", "run", "./cmd/account-model-mapping", "floors", "--runtime-json", "-"]
 
 ACCOUNT_MODEL_MAPPING_CHECK_SQL = """
 SELECT jsonb_build_object(
@@ -322,6 +326,73 @@ def _resolve_check_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
     return targets
 
 
+def _resolve_single_edge_target(edge_id: str) -> tuple[str, str, str]:
+    ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, edge_id)
+    return (f"edge:{edge_id}", ident.region, ident.instance_id)
+
+
+def _resolve_apply_targets(target: str) -> list[tuple[str, str, str]]:
+    target = target.strip().lower()
+    if target == "prod":
+        return [("prod", _SSM.PROD_REGION, _SSM.resolve_prod_instance())]
+    if target.startswith("edge:"):
+        edge_id = target.split(":", 1)[1].strip()
+        if not edge_id:
+            fail("--target edge:<id> requires an edge id")
+        return [_resolve_single_edge_target(edge_id)]
+    if target in {"all", "all-deployable-and-prod"}:
+        return _resolve_check_targets(skip_prod=False)
+    fail("--target must be prod, edge:<id>, or all-deployable-and-prod")
+
+
+_FLOOR_CACHE: dict[str, dict[str, Any]] = {}
+_FLOOR_LOCK = threading.Lock()
+
+
+def _runtime_cache_key(raw: Any) -> str:
+    if raw is None or str(raw).strip() == "":
+        return ""
+    try:
+        doc = normalize_runtime_doc(json.loads(str(raw)))
+    except SystemExit as e:
+        raise ValueError(f"invalid {SETTING_KEY} document (exit {e.code})") from e
+    return canonical_json(doc)
+
+
+def _load_effective_floor(runtime_raw: Any) -> dict[str, Any]:
+    key = _runtime_cache_key(runtime_raw)
+    with _FLOOR_LOCK:
+        cached = _FLOOR_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+    proc = subprocess.run(
+        GO_HELPER,
+        cwd=REPO_ROOT / "backend",
+        input=key,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Go account model_mapping SSOT helper failed: "
+            + (proc.stderr or proc.stdout).strip()[:1600]
+        )
+    try:
+        floor = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Go account model_mapping SSOT helper emitted invalid JSON: {e}") from e
+    if not isinstance(floor.get("platforms"), dict):
+        raise RuntimeError("Go account model_mapping SSOT helper omitted platforms")
+    if not isinstance(floor.get("newapi_channel_types"), dict):
+        raise RuntimeError("Go account model_mapping SSOT helper omitted newapi_channel_types")
+    with _FLOOR_LOCK:
+        _FLOOR_CACHE[key] = floor
+    return floor
+
+
 def _model_mapping(row: dict[str, Any]) -> tuple[dict[str, str], str | None]:
     raw = row.get("model_mapping")
     if not isinstance(raw, dict) or not raw:
@@ -366,7 +437,7 @@ def _account_scope(row: dict[str, Any]) -> str:
     return platform
 
 
-def _account_violations(row: dict[str, Any]) -> list[str]:
+def _account_invariant_violations(row: dict[str, Any]) -> list[str]:
     scope = _account_scope(row)
     mm, err = _model_mapping(row)
     if err:
@@ -417,6 +488,91 @@ def _account_violations(row: dict[str, Any]) -> list[str]:
     return reasons
 
 
+def _desired_mapping_for_account(row: dict[str, Any], floor: dict[str, Any]) -> tuple[dict[str, str] | None, str]:
+    scope = _account_scope(row)
+    if scope == "newapi":
+        ct = str(row.get("channel_type") or "").strip()
+        mapping = (floor.get("newapi_channel_types") or {}).get(ct)
+        return mapping if isinstance(mapping, dict) else None, f"newapi_channel_type:{ct or '0'}"
+    mapping = (floor.get("platforms") or {}).get(scope)
+    return mapping if isinstance(mapping, dict) else None, scope
+
+
+def _mapping_diff(got: dict[str, str], want: dict[str, str]) -> dict[str, Any]:
+    missing = sorted(k for k in want if k not in got)
+    extra = sorted(k for k in got if k not in want)
+    bad = sorted(k for k in want if k in got and got[k] != want[k])
+    return {
+        "missing_keys": missing,
+        "extra_keys": extra,
+        "bad_targets": [
+            {"key": k, "got": got[k], "want": want[k]}
+            for k in bad
+        ],
+        "current_count": len(got),
+        "desired_count": len(want),
+    }
+
+
+def _has_mapping_diff(diff: dict[str, Any]) -> bool:
+    return bool(diff["missing_keys"] or diff["extra_keys"] or diff["bad_targets"])
+
+
+def _short_list(values: list[Any], limit: int = 8) -> str:
+    if len(values) <= limit:
+        return ", ".join(str(v) for v in values)
+    return ", ".join(str(v) for v in values[:limit]) + f", ... (+{len(values) - limit})"
+
+
+def _format_mapping_diff_reason(scope: str, diff: dict[str, Any]) -> str:
+    parts = [f"model_mapping differs from SSOT (scope={scope})"]
+    if diff["missing_keys"]:
+        parts.append("missing: " + _short_list(diff["missing_keys"]))
+    if diff["extra_keys"]:
+        parts.append("extra: " + _short_list(diff["extra_keys"]))
+    if diff["bad_targets"]:
+        bad = [f"{b['key']}->{b['got']!r} want {b['want']!r}" for b in diff["bad_targets"]]
+        parts.append("bad_targets: " + _short_list(bad))
+    parts.append(f"count current={diff['current_count']} desired={diff['desired_count']}")
+    return "; ".join(parts)
+
+
+def _account_plan(row: dict[str, Any], floor: dict[str, Any]) -> dict[str, Any] | None:
+    want, scope = _desired_mapping_for_account(row, floor)
+    if not want:
+        return None
+    got, err = _model_mapping(row)
+    if err:
+        diff = {
+            "missing_keys": sorted(want),
+            "extra_keys": [],
+            "bad_targets": [],
+            "current_count": 0,
+            "desired_count": len(want),
+        }
+        reason = f"{err}; will replace with SSOT (scope={scope}, desired_count={len(want)})"
+    else:
+        diff = _mapping_diff(got, want)
+        if not _has_mapping_diff(diff):
+            invariants = _account_invariant_violations(row)
+            if not invariants:
+                return None
+            reason = "; ".join(invariants)
+        else:
+            reason = _format_mapping_diff_reason(scope, diff)
+    return {
+        "kind": "account",
+        "id": row.get("id"),
+        "name": row.get("name"),
+        "platform": row.get("platform"),
+        "type": row.get("type"),
+        "scope": scope,
+        "reason": reason,
+        "diff": diff,
+        "desired_model_mapping": dict(sorted(want.items())),
+    }
+
+
 def _group_violation(row: dict[str, Any]) -> str | None:
     scopes = row.get("scopes")
     if not scopes or not isinstance(scopes, list):
@@ -453,18 +609,34 @@ def _runtime_setting_violation(raw: Any) -> str | None:
 def _check_target(label: str, region: str, instance_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     bundle = _run_check_sql_json(region, instance_id, label)
     violations: list[dict[str, Any]] = []
+    runtime_reason = _runtime_setting_violation(bundle.get("runtime_setting"))
+    if runtime_reason:
+        violations.append({
+            "target": label,
+            "kind": "runtime_setting",
+            "id": SETTING_KEY,
+            "name": SETTING_KEY,
+            "reason": runtime_reason,
+        })
+        return violations, []
+    floor = _load_effective_floor(bundle.get("runtime_setting"))
     for row in bundle.get("accounts") or []:
-        for reason in _account_violations(row):
-            violations.append({
-                "target": label,
-                "kind": "account",
-                "id": row.get("id"),
-                "name": row.get("name"),
-                "platform": row.get("platform"),
-                "type": row.get("type"),
-                "scope": _account_scope(row),
-                "reason": reason,
-            })
+        plan = _account_plan(row, floor)
+        if not plan:
+            for reason in _account_invariant_violations(row):
+                violations.append({
+                    "target": label,
+                    "kind": "account",
+                    "id": row.get("id"),
+                    "name": row.get("name"),
+                    "platform": row.get("platform"),
+                    "type": row.get("type"),
+                    "scope": _account_scope(row),
+                    "reason": reason,
+                })
+            continue
+        plan["target"] = label
+        violations.append(plan)
     for row in bundle.get("antigravity_groups") or []:
         reason = _group_violation(row)
         if reason:
@@ -476,16 +648,130 @@ def _check_target(label: str, region: str, instance_id: str) -> tuple[list[dict[
                 "platform": "antigravity",
                 "reason": reason,
             })
+    return violations, []
+
+
+def _collect_apply_plan(label: str, region: str, instance_id: str) -> dict[str, Any]:
+    bundle = _run_check_sql_json(region, instance_id, label)
     runtime_reason = _runtime_setting_violation(bundle.get("runtime_setting"))
     if runtime_reason:
-        violations.append({
+        raise RuntimeError(runtime_reason)
+    floor = _load_effective_floor(bundle.get("runtime_setting"))
+    account_changes: list[dict[str, Any]] = []
+    for row in bundle.get("accounts") or []:
+        plan = _account_plan(row, floor)
+        if plan and plan.get("desired_model_mapping"):
+            plan["target"] = label
+            account_changes.append(plan)
+
+    group_changes: list[dict[str, Any]] = []
+    desired_scopes = list(floor.get("antigravity_group_scopes") or sorted(ANTIGRAVITY_CANONICAL_SCOPES))
+    for row in bundle.get("antigravity_groups") or []:
+        reason = _group_violation(row)
+        if not reason:
+            continue
+        group_changes.append({
             "target": label,
-            "kind": "runtime_setting",
-            "id": SETTING_KEY,
-            "name": SETTING_KEY,
-            "reason": runtime_reason,
+            "kind": "group",
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "platform": "antigravity",
+            "reason": reason,
+            "desired_supported_model_scopes": desired_scopes,
         })
-    return violations, []
+    return {
+        "target": label,
+        "region": region,
+        "instance_id": instance_id,
+        "account_changes": sorted(account_changes, key=lambda p: int(p.get("id") or 0)),
+        "group_changes": sorted(group_changes, key=lambda p: int(p.get("id") or 0)),
+    }
+
+
+def _ids_sql(ids: list[int]) -> str:
+    clean = sorted({int(i) for i in ids if int(i) > 0})
+    if not clean:
+        raise ValueError("empty id list")
+    return ",".join(str(i) for i in clean)
+
+
+def _json_b64(doc: Any) -> str:
+    raw = json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _render_apply_sql(plan: dict[str, Any]) -> str:
+    lines = [
+        "BEGIN;",
+        "SET LOCAL statement_timeout = '30s';",
+    ]
+
+    by_mapping: dict[str, dict[str, Any]] = {}
+    for change in plan.get("account_changes") or []:
+        mapping = change.get("desired_model_mapping")
+        if not isinstance(mapping, dict) or not mapping:
+            continue
+        sig = canonical_json({"model_mapping": mapping})
+        slot = by_mapping.setdefault(sig, {"ids": [], "payload_b64": _json_b64({"model_mapping": mapping})})
+        slot["ids"].append(int(change["id"]))
+
+    for slot in by_mapping.values():
+        ids = _ids_sql(slot["ids"])
+        payload_b64 = slot["payload_b64"]
+        outbox_b64 = _json_b64({"account_ids": sorted({int(i) for i in slot["ids"]})})
+        lines.append(
+            "UPDATE accounts "
+            "SET credentials = COALESCE(credentials, '{}'::jsonb) "
+            f"|| convert_from(decode('{payload_b64}', 'base64'), 'UTF8')::jsonb, "
+            "updated_at = NOW() "
+            f"WHERE id = ANY(ARRAY[{ids}]::bigint[]) AND deleted_at IS NULL;"
+        )
+        lines.append(
+            "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload) "
+            "VALUES ('account_bulk_changed', NULL, NULL, "
+            f"convert_from(decode('{outbox_b64}', 'base64'), 'UTF8')::jsonb);"
+        )
+
+    group_changes = plan.get("group_changes") or []
+    if group_changes:
+        group_ids = _ids_sql([int(g["id"]) for g in group_changes])
+        scopes = group_changes[0].get("desired_supported_model_scopes") or sorted(ANTIGRAVITY_CANONICAL_SCOPES)
+        scopes_b64 = _json_b64(scopes)
+        lines.append(
+            "UPDATE groups "
+            f"SET supported_model_scopes = convert_from(decode('{scopes_b64}', 'base64'), 'UTF8')::jsonb, "
+            "updated_at = NOW() "
+            f"WHERE id = ANY(ARRAY[{group_ids}]::bigint[]) AND deleted_at IS NULL;"
+        )
+        lines.append(
+            "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload) "
+            f"SELECT 'group_changed', NULL, id, NULL FROM unnest(ARRAY[{group_ids}]::bigint[]) AS id;"
+        )
+
+    lines.extend([
+        "COMMIT;",
+        "SELECT 'APPLY_OK' AS status;",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def _apply_plan_remote(plan: dict[str, Any]) -> str:
+    sql = _render_apply_sql(plan)
+    sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
+    shell = (
+        "set -euo pipefail\n"
+        f"PSQL='{PSQL}'\n"
+        "tmp=/tmp/tk_account_model_mapping_apply_$$.sql\n"
+        f"echo {sql_b64} | base64 -d > \"$tmp\"\n"
+        "$PSQL -f \"$tmp\"\n"
+        "rm -f \"$tmp\"\n"
+    )
+    return _ssm_run_shell_b64_region(
+        plan["region"],
+        plan["instance_id"],
+        base64.b64encode(shell.encode("utf-8")).decode("ascii"),
+        f"account model_mapping explicit apply {plan['target']}",
+    )
 
 
 def cmd_validate(args) -> int:
@@ -555,6 +841,68 @@ def cmd_check_accounts(args) -> int:
     return 1 if violations else 0
 
 
+def cmd_apply_accounts(args) -> int:
+    if not args.dry_run and args.confirm != APPLY_CONFIRM:
+        fail(f"apply-accounts requires --confirm {APPLY_CONFIRM}")
+    targets = _resolve_apply_targets(args.target)
+    plans: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(_collect_apply_plan, *t): t for t in targets}
+        for fut in as_completed(futs):
+            label = futs[fut][0]
+            try:
+                plans.append(fut.result())
+            except Exception as e:  # noqa: BLE001 - collect all target planning failures before any write.
+                errors.append({"target": label, "error": str(e)})
+
+    plans.sort(key=lambda p: str(p.get("target") or ""))
+    report = {
+        "targets": [p["target"] for p in plans],
+        "target_count": len(targets),
+        "account_change_count": sum(len(p.get("account_changes") or []) for p in plans),
+        "group_change_count": sum(len(p.get("group_changes") or []) for p in plans),
+        "plans": plans,
+        "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
+    }
+    if errors:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 2
+    if args.dry_run:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+    if report["account_change_count"] == 0 and report["group_change_count"] == 0:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print("apply-accounts: no changes.")
+        return 0
+
+    apply_errors: list[dict[str, Any]] = []
+    applied: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(_apply_plan_remote, p): p for p in plans if p.get("account_changes") or p.get("group_changes")}
+        for fut in as_completed(futs):
+            plan = futs[fut]
+            label = plan["target"]
+            try:
+                out = fut.result()
+                if "APPLY_OK" not in out:
+                    raise RuntimeError("remote SQL did not report APPLY_OK")
+                applied.append({
+                    "target": label,
+                    "account_changes": len(plan.get("account_changes") or []),
+                    "group_changes": len(plan.get("group_changes") or []),
+                })
+            except Exception as e:  # noqa: BLE001 - report all failed target writes.
+                apply_errors.append({"target": label, "error": str(e)})
+
+    result = {
+        "applied": sorted(applied, key=lambda p: str(p.get("target") or "")),
+        "errors": sorted(apply_errors, key=lambda e: str(e.get("target") or "")),
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 2 if apply_errors else 0
+
+
 def _publish_settings_updated(instance_id: str, sql: str, comment: str) -> str:
     shell = (
         "set -uo pipefail\n"
@@ -562,9 +910,9 @@ def _publish_settings_updated(instance_id: str, sql: str, comment: str) -> str:
         f"RC='{REDISCLI}'\n"
         "echo '=== update tk_account_model_mapping_runtime ==='\n"
         f"$PSQL -c \"{sql}\" </dev/null && echo UPDATE_OK\n"
-        "echo '=== publish settings_updated (fan-out reconcile) ==='\n"
+        "echo '=== publish settings_updated (fan-out reload) ==='\n"
         "$RC PUBLISH settings_updated refresh </dev/null || "
-        "echo 'WARN: redis PUBLISH failed; replicas reconcile on poll interval'\n"
+        "echo 'WARN: redis PUBLISH failed; replicas reload on normal settings cache TTL'\n"
         "echo '=== settings_after ==='\n"
         f"$PSQL -c \"SELECT key, length(value) AS bytes FROM settings WHERE key='{SETTING_KEY}';\" </dev/null\n"
     )
@@ -579,7 +927,7 @@ def cmd_sync_runtime(args) -> int:
     payload = canonical_json(doc).encode("utf-8")
     if args.dry_run:
         print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on prod "
-              f"({len(payload)} bytes, scopes={list(doc.keys())}) + PUBLISH settings_updated.")
+              f"({len(payload)} bytes, scopes={list(doc.keys())}) + PUBLISH settings_updated reload.")
         return 0
     inst = _SSM.resolve_prod_instance()
     gz_b64 = base64.b64encode(gzip.compress(payload)).decode()
@@ -595,9 +943,9 @@ def cmd_sync_runtime(args) -> int:
         f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
         "echo '=== update tk_account_model_mapping_runtime ==='\n"
         f"$PSQL -c \"{sql}\" </dev/null && echo UPDATE_OK\n"
-        "echo '=== publish settings_updated (fan-out reconcile) ==='\n"
+        "echo '=== publish settings_updated (fan-out reload) ==='\n"
         "$RC PUBLISH settings_updated refresh </dev/null || "
-        "echo 'WARN: redis PUBLISH failed; replicas reconcile on poll interval'\n"
+        "echo 'WARN: redis PUBLISH failed; replicas reload on normal settings cache TTL'\n"
         "echo '=== settings_after ==='\n"
         f"$PSQL -c \"SELECT key, length(value) AS bytes FROM settings WHERE key='{SETTING_KEY}';\" </dev/null\n"
     )
@@ -616,7 +964,7 @@ def cmd_sync_runtime(args) -> int:
 
 def cmd_clear_runtime(args) -> int:
     if args.dry_run:
-        print(f"DRY-RUN: would DELETE settings[{SETTING_KEY}] on prod + PUBLISH settings_updated.")
+        print(f"DRY-RUN: would DELETE settings[{SETTING_KEY}] on prod + PUBLISH settings_updated reload.")
         return 0
     inst = _SSM.resolve_prod_instance()
     sql = f"DELETE FROM settings WHERE key='{SETTING_KEY}';"
@@ -624,7 +972,7 @@ def cmd_clear_runtime(args) -> int:
     print(out)
     if "UPDATE_OK" not in out:
         fail("settings delete did not report success")
-    print("cleared: prod will use the compiled account model_mapping floor.")
+    print("cleared: future check/apply uses the compiled account model_mapping floor.")
     return 0
 
 
@@ -662,38 +1010,48 @@ def cmd_selftest(_args) -> int:
             assert e.code == 2
         else:
             raise AssertionError("empty mapping accepted")
-    assert _account_violations({
+    assert _account_invariant_violations({
         "platform": "openai",
         "type": "oauth",
         "model_mapping": {},
     })
-    assert not _account_violations({
+    assert not _account_invariant_violations({
         "platform": "grok",
         "type": "oauth",
         "model_mapping": {**GROK_REQUIRED_ALIASES, "grok-4.3": "grok-4.3"},
     })
-    assert _account_violations({
+    assert _account_invariant_violations({
         "platform": "grok",
         "type": "oauth",
         "model_mapping": {"grok": "grok-4.3"},
     })
-    assert _account_violations({
+    assert _account_invariant_violations({
         "platform": "antigravity",
         "type": "oauth",
         "model_mapping": {**ANTIGRAVITY_LIVE_CLAUDE_MAPPING, "claude-sonnet-5": "claude-sonnet-5"},
     })
-    assert not _account_violations({
+    assert not _account_invariant_violations({
         "platform": "kiro",
         "type": "oauth",
         "model_mapping": {"claude-sonnet-4-5": "claude-sonnet-4-5", "claude-sonnet-5": "claude-sonnet-5"},
     })
-    assert _account_violations({
+    assert _account_invariant_violations({
         "platform": "anthropic",
         "type": "apikey",
         "name": "kiro-us6",
         "base_url": "https://api-us6.tokenkey.dev",
         "model_mapping": {"claude-sonnet-4-5": "claude-sonnet-4-5"},
     })
+    plan = _account_plan(
+        {"id": 1, "platform": "grok", "type": "oauth", "model_mapping": {"grok": "grok-4.3"}},
+        {"platforms": {"grok": {**GROK_REQUIRED_ALIASES, "grok-4.3": "grok-4.3"}}, "newapi_channel_types": {}},
+    )
+    assert plan and plan["desired_model_mapping"]["grok-latest"] == "grok-4.3"
+    sql = _render_apply_sql({
+        "account_changes": [plan],
+        "group_changes": [{"id": 7, "desired_supported_model_scopes": ["claude", "gemini_text", "gemini_image"]}],
+    })
+    assert "account_bulk_changed" in sql and "group_changed" in sql
     assert _group_violation({"scopes": ["gemini_text"]})
     assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}) is None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
@@ -710,11 +1068,16 @@ def main() -> int:
     sp.add_argument("--file", type=Path, required=True)
     sp = sub.add_parser("check", help="compare prod runtime settings to a JSON file")
     sp.add_argument("--file", type=Path, required=True)
-    sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping convergence check")
+    sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
-    sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to prod settings")
+    sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
+    sp.add_argument("--target", required=True, help="prod, edge:<id>, or all-deployable-and-prod")
+    sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")
+    sp.add_argument("--dry-run", action="store_true", help="print the planned account/group changes without writing")
+    sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
+    sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to prod settings only")
     sp.add_argument("--file", type=Path, required=True)
     sp.add_argument("--dry-run", action="store_true")
     sp = sub.add_parser("clear-runtime", help="delete prod runtime override and use compiled floor")
@@ -729,6 +1092,8 @@ def main() -> int:
         return cmd_check(args)
     if args.cmd == "check-accounts":
         return cmd_check_accounts(args)
+    if args.cmd == "apply-accounts":
+        return cmd_apply_accounts(args)
     if args.cmd == "sync-runtime":
         return cmd_sync_runtime(args)
     if args.cmd == "clear-runtime":

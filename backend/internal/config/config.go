@@ -1235,13 +1235,6 @@ type GatewaySchedulingConfig struct {
 	// 提供 300 秒默认。仅写本部署自己的库。
 	AnthropicConfigReconcilerIntervalSeconds int `mapstructure:"anthropic_config_reconciler_interval_seconds"`
 
-	// AccountModelMappingReconcilerIntervalSeconds 本机全平台账号 model_mapping 自愈
-	// reconciler 周期（秒）。它把 TokenKey 的可服务+已定价+可展示模型 SSOT 写入每个 active
-	// account 的 credentials.model_mapping，使 native 平台也不再依赖“空 mapping = allow-all”
-	// 作为运营状态。启动时立即跑一次 + 周期自愈，覆盖当前账号/未来新建账号/漂移；
-	// <=0 禁用 reconciler goroutine；viper.SetDefault 提供 300 秒默认。仅写本部署自己的库。
-	AccountModelMappingReconcilerIntervalSeconds int `mapstructure:"account_model_mapping_reconciler_interval_seconds"`
-
 	// AnthropicConfigReconcilerConcurrencyMirrorEnabled 开启 surface-C 并发镜像消费端
 	// （prod：经 HTTP 实时拉每个镜像 stub 指向的 edge capacity，把 stub.concurrency 收敛为
 	// edge 的 live Σschedulable）。真实作用于 prod 的镜像 stub；edge 无匹配 stub 时天然空转，
@@ -2159,7 +2152,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_interval_seconds", 300)
-	viper.SetDefault("gateway.scheduling.account_model_mapping_reconciler_interval_seconds", 300)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", true)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_balance_floor_enabled", false)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
