@@ -173,11 +173,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			googleError(c, http.StatusRequestEntityTooLarge, buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		googleError(c, http.StatusBadRequest, "Failed to read request body")
+		writeGoogleReadRequestBodyError(c, err)
 		return
 	}
 	if len(body) == 0 {
