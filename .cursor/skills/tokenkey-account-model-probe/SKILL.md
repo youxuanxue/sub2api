@@ -36,6 +36,7 @@ Useful options:
 - `ENDPOINT=messages|chat|responses` chooses `/v1/messages`, `/v1/chat/completions`, or `/v1/responses`.
 - `MAX_TOKENS=16` keeps cost low.
 - `PROMPT_TEXT='Reply OK only.'` changes the prompt.
+- `REQUEST_EXTRA_JSON='{"temperature":0.7,"top_p":0.9}'` merges extra top-level JSON fields into the generated payload for request-shape compatibility probes.
 - `REQUEST_TIMEOUT_SECONDS=90` caps the in-container gateway request.
 - `PROBE_REUSE_MODE=1` is the default: reuse `__tk_probe_<platform>_group` / `__tk_probe_<platform>_key`.
 - `PROBE_REUSE_MODE=0` creates a one-off `__tk_probe_tkprobe-*` group/key and soft-deletes it on cleanup.

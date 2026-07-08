@@ -83,14 +83,14 @@ func TestTkStripFableDisabledThinking_ModelVariants(t *testing.T) {
 // TestTkStripFableDisabledThinking_SanitizeChainShape mirrors the exact
 // composition used at all three gateway_service.go pre-send sites:
 //
-//	tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))
+//	tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))
 //
 // and proves the composed outbound body carries no thinking member.
 func TestTkStripFableDisabledThinking_SanitizeChainShape(t *testing.T) {
 	account := &Account{ID: 1, Name: "fable-test", Platform: PlatformAnthropic}
 	body := []byte(`{"model":"claude-fable-5","thinking":{"type":"disabled"},"messages":[{"role":"user","content":[{"type":"text","text":"hello"},{"type":"text","text":""}]}],"max_tokens":100}`)
 
-	out := tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))
+	out := tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))
 
 	require.False(t, gjson.GetBytes(out, "thinking").Exists())
 	require.Equal(t, "claude-fable-5", gjson.GetBytes(out, "model").String())

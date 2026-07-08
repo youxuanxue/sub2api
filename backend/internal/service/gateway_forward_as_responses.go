@@ -114,7 +114,7 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
-	anthropicBody = tkStripDeprecatedTemperature(anthropicBody)
+	anthropicBody = tkStripDeprecatedSamplingParams(anthropicBody)
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
