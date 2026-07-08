@@ -9,21 +9,12 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
-	accountModelMappingReconcilerLockKey = "account_model_mapping:reconciler:leader"
 	accountModelMappingReconcilerLockTTL = 4 * time.Minute
 	accountModelMappingReconcilerRunTO   = 60 * time.Second
 )
-
-var accountModelMappingReconcilerLockRelease = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-  return redis.call("DEL", KEYS[1])
-end
-return 0
-`)
 
 type accountModelMappingAccountStore interface {
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
@@ -39,6 +30,10 @@ type accountModelMappingSettingReader interface {
 	GetRawSettingValue(ctx context.Context, key string) (string, bool)
 }
 
+type accountModelMappingLeaderLock interface {
+	TryAcquire(ctx context.Context, holder string, ttl time.Duration) (func(), bool)
+}
+
 // AccountModelMappingReconciler keeps every active account on an explicit
 // credentials.model_mapping derived from TokenKey's servable+priced+displayable
 // SSOT. Empty native mappings no longer act as an operational policy surface:
@@ -50,7 +45,7 @@ type AccountModelMappingReconciler struct {
 	pricing      *PricingCatalogService
 	availability MePricingAvailability
 	cfg          *config.Config
-	redis        *redis.Client
+	lock         accountModelMappingLeaderLock
 	pubsub       SettingPubSub
 	instanceID   string
 
@@ -70,7 +65,7 @@ func NewAccountModelMappingReconciler(
 	pricing *PricingCatalogService,
 	availability *PricingAvailabilityService,
 	cfg *config.Config,
-	redisClient *redis.Client,
+	lock accountModelMappingLeaderLock,
 	pubsub SettingPubSub,
 ) *AccountModelMappingReconciler {
 	var avail MePricingAvailability
@@ -84,7 +79,7 @@ func NewAccountModelMappingReconciler(
 		pricing:      pricing,
 		availability: avail,
 		cfg:          cfg,
-		redis:        redisClient,
+		lock:         lock,
 		pubsub:       pubsub,
 		instanceID:   uuid.NewString(),
 		stopCh:       make(chan struct{}),
@@ -163,7 +158,7 @@ func (r *AccountModelMappingReconciler) runOnceLocked() {
 }
 
 func (r *AccountModelMappingReconciler) tryAcquireLock() (func(), bool) {
-	if r.redis == nil {
+	if r.lock == nil {
 		r.warnNoRedisOnce.Do(func() {
 			slog.Warn("account model_mapping reconciler running without distributed lock (no redis)")
 		})
@@ -171,19 +166,7 @@ func (r *AccountModelMappingReconciler) tryAcquireLock() (func(), bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	acquired, err := r.redis.SetNX(ctx, accountModelMappingReconcilerLockKey, r.instanceID, accountModelMappingReconcilerLockTTL).Result()
-	if err != nil {
-		slog.Warn("account model_mapping reconciler leader lock SetNX failed; skipping cycle", "err", err)
-		return nil, false
-	}
-	if !acquired {
-		return nil, false
-	}
-	return func() {
-		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer releaseCancel()
-		_, _ = accountModelMappingReconcilerLockRelease.Run(releaseCtx, r.redis, []string{accountModelMappingReconcilerLockKey}, r.instanceID).Result()
-	}, true
+	return r.lock.TryAcquire(ctx, r.instanceID, accountModelMappingReconcilerLockTTL)
 }
 
 func (r *AccountModelMappingReconciler) runOnce(ctx context.Context) {

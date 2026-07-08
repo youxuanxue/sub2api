@@ -180,7 +180,19 @@ func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogSe
 			out[from] = to
 		}
 	}
+	for from, to := range tkGrokCompatibilityAliases {
+		if _, ok := displaySet[to]; ok {
+			out[from] = to
+		}
+	}
 	return out
+}
+
+var tkGrokCompatibilityAliases = map[string]string{
+	"grok-4.3-latest":       "grok-4.3",
+	"grok-4-fast-reasoning": "grok-4.3",
+	"grok-code-fast":        "grok-build-0.1",
+	"grok-code-fast-1-0825": "grok-build-0.1",
 }
 
 func identityModelMapping(ids []string) map[string]string {
@@ -254,10 +266,10 @@ func modelMappingSignatureString(mapping map[string]string) string {
 	sort.Strings(keys)
 	var b strings.Builder
 	for _, k := range keys {
-		b.WriteString(k)
-		b.WriteByte('=')
-		b.WriteString(mapping[k])
-		b.WriteByte('\n')
+		_, _ = b.WriteString(k)
+		_ = b.WriteByte('=')
+		_, _ = b.WriteString(mapping[k])
+		_ = b.WriteByte('\n')
 	}
 	return b.String()
 }
