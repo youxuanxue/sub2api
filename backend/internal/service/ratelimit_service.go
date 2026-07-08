@@ -43,8 +43,8 @@ type RateLimitService struct {
 	// TK: OpenAI edge-mirror stub downstream-capacity counter (optional). See
 	// ratelimit_service_tk_openai_saturation.go.
 	openaiSaturationCounter OpenAISaturationCounterCache
-	usageCacheMu               sync.RWMutex
-	usageCache                 map[int64]*geminiUsageCacheEntry
+	usageCacheMu            sync.RWMutex
+	usageCache              map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {
@@ -112,7 +112,6 @@ const (
 	// "is the whole pool burning down right now" question; the counter
 	// expires when the window closes so a healed deploy reads zero.
 	anthropicCooldownTierEscalationsWindowMinutes = 60
-
 )
 
 // openAICloudflareChallengeKeywords matches Cloudflare / Arkose challenge

@@ -10583,10 +10583,6 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	return nil
 }
 
-func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
-	return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, body, anthropicPassthroughAuthAPIKey)
-}
-
 func (s *GatewayService) forwardCountTokensAnthropicPassthrough(
 	ctx context.Context,
 	c *gin.Context,
