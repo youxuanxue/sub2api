@@ -580,23 +580,6 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		}
 	}
 	if len(result) > 0 {
-		if a.Platform == domain.PlatformAntigravity {
-			ensureAntigravityDefaultPassthroughs(result, []string{
-				"gemini-3-flash",
-				// gemini-3.1-pro-high 上游已 deprecated（直接请求 400，2026-06-15 prod 中继实测）；
-				// safety-net 只能补 identity 透传（→ 400），故不再补全——等价的非弃用档
-				// 走下方 gemini-pro-agent（上游显示名同为 "Gemini 3.1 Pro (High)"）。
-				"gemini-3.1-pro-low",
-				// 2026-06 实测新增 user-facing wire id（三档 thinking budget
-				// low/extra-low/high=agent 全部可服务，须对称补全；友好别名
-				// gemini-3.5-flash 不在此列——它须重映到 -low 而非 identity 透传）
-				"gemini-3.5-flash-low",
-				"gemini-3.5-flash-extra-low",
-				"gemini-3-flash-agent",
-				"gemini-pro-agent",
-			})
-			applyAntigravityGemini31ProAliases(result)
-		}
 		return result
 	}
 
@@ -639,82 +622,6 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 		_, _ = h.Write([]byte{0xff})
 	}
 	return h.Sum64()
-}
-
-func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
-	if mapping == nil || model == "" {
-		return
-	}
-	if _, exists := mapping[model]; exists {
-		return
-	}
-	for pattern := range mapping {
-		if matchWildcard(pattern, model) {
-			return
-		}
-	}
-	mapping[model] = model
-}
-
-func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []string) {
-	for _, model := range models {
-		ensureAntigravityDefaultPassthrough(mapping, model)
-	}
-}
-
-func applyAntigravityGemini31ProAliases(mapping map[string]string) {
-	target := strings.TrimSpace(mapping[domain.AntigravityGemini31ProAgentModel])
-	if target == "" {
-		return
-	}
-
-	aliases := []struct {
-		model         string
-		legacyTargets map[string]struct{}
-	}{
-		{
-			model: "gemini-3.1-pro",
-			legacyTargets: map[string]struct{}{
-				"gemini-3.1-pro": {},
-			},
-		},
-		{
-			model: "gemini-3.1-pro-high",
-			legacyTargets: map[string]struct{}{
-				"gemini-3.1-pro-high": {},
-			},
-		},
-		{
-			model: "gemini-3.1-pro-preview",
-			legacyTargets: map[string]struct{}{
-				"gemini-3.1-pro-preview": {},
-				"gemini-3.1-pro-high":    {},
-			},
-		},
-	}
-
-	for _, alias := range aliases {
-		current, exists := mapping[alias.model]
-		if exists {
-			if _, legacy := alias.legacyTargets[current]; legacy {
-				mapping[alias.model] = target
-			}
-			continue
-		}
-		if mappingHasWildcardForModel(mapping, alias.model) {
-			continue
-		}
-		mapping[alias.model] = target
-	}
-}
-
-func mappingHasWildcardForModel(mapping map[string]string, model string) bool {
-	for pattern := range mapping {
-		if matchWildcard(pattern, model) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {

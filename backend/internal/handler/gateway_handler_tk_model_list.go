@@ -78,8 +78,8 @@ func (h *GatewayHandler) tkClaudeDefaultModelIDs(ctx context.Context, platform s
 }
 
 // tkAntigravityDefaultModels returns the /antigravity/models fallback as
-// []antigravity.ClaudeModel, synthesized from the unified servable set (gemini-only
-// per operator policy — the antigravity allowlist already excludes claude/gpt-oss).
+// []antigravity.ClaudeModel, synthesized from the unified Antigravity servable
+// set (Gemini + the PR #1265 live Claude subset; gpt-oss excluded).
 // Preserves the []ClaudeModel shape (R-001) and prefers the canonical
 // antigravity.DefaultModels() entry for DisplayName fidelity. The group
 // supported_model_scopes filter still runs after this in AntigravityModels.
@@ -138,7 +138,7 @@ func (h *GatewayHandler) tkGeminiFallbackModelsList(ctx context.Context) gemini.
 
 // antigravityModelScope classifies an antigravity model id into the group
 // supported_model_scopes vocabulary ("claude" / "gemini_text" / "gemini_image").
-// gpt-oss gets its own bucket so a gemini-only group filters it out too (it is
+// gpt-oss gets its own bucket so a group without its scope filters it out (it is
 // neither a gemini text nor image scope). Same bucketing as the frontend
 // SubscriptionPlanCard badge labels (claude / gemini_text→Gemini / gemini_image→
 // Imagen). Note the UseKeyModal usage guide does NOT classify per-model — it only
@@ -160,11 +160,10 @@ func antigravityModelScope(id string) string {
 
 // tkAntigravityFilterModelsByGroupScopes keeps only models whose scope is in the
 // group's supported_model_scopes. Empty scopes = no restriction (back-compat for
-// pre-#774 groups). This is the FIRST request-path enforcement of
-// supported_model_scopes: the operator policy "antigravity serves gemini only"
-// (group scopes [gemini_text, gemini_image]) now actually hides claude from
-// /antigravity/v1/models, matching the per-account gemini-only model_mapping
-// (see domain.GeminiOnlyAntigravityModelMapping + AntigravityConfigReconciler).
+// pre-#774 groups). The explicit account model_mapping ops apply flow can
+// converge active Antigravity groups to [claude, gemini_text, gemini_image],
+// while legacy/narrow groups can still intentionally hide Claude from
+// /antigravity/v1/models until an operator applies that change.
 func tkAntigravityFilterModelsByGroupScopes(scopes []string, models []antigravity.ClaudeModel) []antigravity.ClaudeModel {
 	if len(scopes) == 0 {
 		return models

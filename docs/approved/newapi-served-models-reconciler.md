@@ -80,12 +80,12 @@ reconciler converging toward this feed would freeze the account to a snapshot po
 ids the operator must not serve — and freezing *to* a polluted snapshot is worse than the
 allow-all it replaces.
 
-The antigravity reconciler (`antigravity_config_reconciler.go`) is safe **only because** it
-converges toward a **fixed code constant** (`buildGeminiOnlyAntigravityModelMapping()`,
-`constants.go:158-169`) with **zero network I/O** — a reviewed, in-repo desired-state. There
-is no equivalent trustworthy fixed desired-state for the open-ended newapi long-tail; the
-manifest is intent, not a complete account allowlist, and converging an account *to* the
-manifest would strip operator-added ids.
+The account model_mapping SSOT (`account_model_mapping_ssot_tk.go`) is safe
+**only because** explicit ops apply converges toward reviewed in-repo desired-state:
+`supported*CatalogModels`, `tk_served_models.json` display projection, and explicit
+compatibility aliases. It performs **zero upstream discovery I/O**. Server runtime must
+not run an unattended account-mapping reconciler toward `FetchUpstreamSupportedModels`,
+because that feed can include unpriced, retired, or operator-unapproved ids.
 
 ### 1.3 Reason 3 — `BulkUpdate` is the wrong primitive for add-only grow
 

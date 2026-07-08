@@ -308,22 +308,6 @@ func ProvideAnthropicConfigReconciler(
 	return rec
 }
 
-// ProvideAntigravityConfigReconciler creates and starts the TK per-node
-// antigravity config self-healer (enforces gemini-only model_mapping on every
-// antigravity account in the local DB). Adapts the wire-provided concrete
-// account repo (which satisfies the reconciler's narrow store interface) and
-// Start()s the ticker. See antigravity_config_reconciler.go for the doctrine.
-func ProvideAntigravityConfigReconciler(
-	accountRepo AccountRepository,
-	groupRepo GroupRepository,
-	cfg *config.Config,
-	redisClient *redis.Client,
-) *AntigravityConfigReconciler {
-	rec := NewAntigravityConfigReconciler(accountRepo, groupRepo, cfg, redisClient)
-	rec.Start()
-	return rec
-}
-
 // ProvideUpstreamBalanceSentinel creates and starts the TK per-node upstream
 // low-balance sentinel. It polls newapi channel accounts that expose a public
 // balance API (currently DeepSeek) and fires a pre-emptive Feishu warning before
@@ -692,7 +676,6 @@ var ProviderSet = wire.NewSet(
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
-	ProvideAntigravityConfigReconciler,
 	ProvideUpstreamBalanceSentinel,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
 	ProvideEdgeAccountsAggregator,

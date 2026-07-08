@@ -1182,8 +1182,9 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	// Goal 2 / R-003; shape/scope regression fix from review-20260507 R-001/R-002.
 	models := h.tkAntigravityDefaultModels(c.Request.Context())
 	// TK: enforce the group's supported_model_scopes on the advertised list, so a
-	// gemini-only antigravity group ([gemini_text, gemini_image]) hides claude here —
-	// matching the per-account gemini-only model_mapping. Empty scopes = unrestricted.
+	// narrow antigravity group without the claude scope hides Claude here. Empty
+	// scopes = unrestricted; canonical scopes (claude + gemini_text + gemini_image)
+	// are enforced only after an operator-reviewed apply-accounts run.
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
 		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
 	}

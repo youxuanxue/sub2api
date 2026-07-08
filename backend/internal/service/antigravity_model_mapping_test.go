@@ -131,10 +131,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "gemini-2.5-flash",
 		},
 		{
-			name:           "默认映射透传 - gemini-2.5-pro",
+			name:           "默认映射不支持 - gemini-2.5-pro",
 			requestedModel: "gemini-2.5-pro",
 			accountMapping: nil,
-			expected:       "gemini-2.5-pro",
+			expected:       "",
 		},
 		{
 			name:           "默认映射透传 - gemini-3-flash",
@@ -301,10 +301,10 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			expected:       "gemini-2.5-flash",
 		},
 		{
-			name:           "customtools alias falls back to normalized servable preview mapping",
+			name:           "customtools alias resolves through explicit normalized mapping",
 			modelMapping:   map[string]any{"gemini-3.1-pro-preview": "gemini-3.1-pro-high"},
 			requestedModel: "gemini-3.1-pro-preview-customtools",
-			expected:       "gemini-pro-agent",
+			expected:       "gemini-3.1-pro-high",
 		},
 	}
 

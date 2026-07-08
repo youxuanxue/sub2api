@@ -3227,9 +3227,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// 出 3.5/3.7-sonnet 默认（Anthropic 2026-06-15 退役），保持 4-6 作为默认值。
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-sonnet-4-6",
-		SettingKeyFallbackModelOpenAI:      "gpt-4o",
+		SettingKeyFallbackModelOpenAI:      "gpt-5.4",
 		SettingKeyFallbackModelGemini:      "gemini-2.5-pro",
-		SettingKeyFallbackModelAntigravity: "gemini-2.5-pro",
+		SettingKeyFallbackModelAntigravity: "gemini-3-flash",
 		// Identity patch defaults
 		SettingKeyEnableIdentityPatch: "true",
 		SettingKeyIdentityPatchPrompt: "",
@@ -3720,9 +3720,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// Model fallback settings
 	result.EnableModelFallback = settings[SettingKeyEnableModelFallback] == "true"
 	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-sonnet-4-6")
-	result.FallbackModelOpenAI = s.getStringOrDefault(settings, SettingKeyFallbackModelOpenAI, "gpt-4o")
+	result.FallbackModelOpenAI = s.getStringOrDefault(settings, SettingKeyFallbackModelOpenAI, "gpt-5.4")
 	result.FallbackModelGemini = s.getStringOrDefault(settings, SettingKeyFallbackModelGemini, "gemini-2.5-pro")
-	result.FallbackModelAntigravity = s.getStringOrDefault(settings, SettingKeyFallbackModelAntigravity, "gemini-2.5-pro")
+	result.FallbackModelAntigravity = s.getStringOrDefault(settings, SettingKeyFallbackModelAntigravity, "gemini-3-flash")
 
 	// Identity patch settings (default: enabled, to preserve existing behavior)
 	if v, ok := settings[SettingKeyEnableIdentityPatch]; ok && v != "" {
@@ -4196,13 +4196,13 @@ func (s *SettingService) GetFallbackModel(ctx context.Context, platform string) 
 		defaultModel = "claude-sonnet-4-6"
 	case PlatformOpenAI:
 		key = SettingKeyFallbackModelOpenAI
-		defaultModel = "gpt-4o"
+		defaultModel = "gpt-5.4"
 	case PlatformGemini:
 		key = SettingKeyFallbackModelGemini
 		defaultModel = "gemini-2.5-pro"
 	case PlatformAntigravity:
 		key = SettingKeyFallbackModelAntigravity
-		defaultModel = "gemini-2.5-pro"
+		defaultModel = "gemini-3-flash"
 	default:
 		return ""
 	}

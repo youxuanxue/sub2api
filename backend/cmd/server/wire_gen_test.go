@@ -65,7 +65,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		schedulerSnapshotSvc,
 		schedulerRateLimitReaperSvc,
 		nil, // anthropicConfigReconciler
-		nil, // antigravityConfigReconciler
 		nil, // upstreamBalanceSentinel
 		tokenRefreshSvc,
 		accountExpirySvc,

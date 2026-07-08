@@ -37,8 +37,8 @@ const (
 	chatgptCodexAPIURL     = "https://chatgpt.com/backend-api/codex/responses"
 	defaultGrokTestModelID = "grok-4.3"
 	GrokDefaultTestModelID = defaultGrokTestModelID
-	// Antigravity serves gemini only (AntigravityConfigReconciler); claude-* probes
-	// fail mapAntigravityModel whitelist on reconciled accounts.
+	// Keep the default smoke on Gemini; the #1265 live Claude subset is covered by
+	// targeted mapping tests and may have account-specific upstream catalog gates.
 	defaultAntigravityTestModelID = "gemini-3-flash"
 	AntigravityDefaultTestModelID = defaultAntigravityTestModelID
 )

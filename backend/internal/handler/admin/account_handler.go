@@ -2052,7 +2052,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Antigravity accounts: gemini-only servable set (same SSOT as /antigravity/models).
+	// Handle Antigravity accounts: live servable set (same SSOT as /antigravity/models).
 	if account.Platform == service.PlatformAntigravity {
 		response.Success(c, tkAntigravityAdminDefaultModels(c.Request.Context(), account))
 		return

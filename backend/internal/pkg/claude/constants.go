@@ -173,6 +173,12 @@ var DefaultModels = []Model{
 		CreatedAt:   "2025-11-01T00:00:00Z",
 	},
 	{
+		ID:          "claude-opus-4-1",
+		Type:        "model",
+		DisplayName: "Claude Opus 4.1",
+		CreatedAt:   "2025-08-05T00:00:00Z",
+	},
+	{
 		ID:          "claude-opus-4-6",
 		Type:        "model",
 		DisplayName: "Claude Opus 4.6",
@@ -201,12 +207,6 @@ var DefaultModels = []Model{
 		Type:        "model",
 		DisplayName: "Claude Sonnet 4.6",
 		CreatedAt:   "2026-02-18T00:00:00Z",
-	},
-	{
-		ID:          "claude-sonnet-5",
-		Type:        "model",
-		DisplayName: "Claude Sonnet 5",
-		CreatedAt:   "2026-06-30T00:00:00Z",
 	},
 	{
 		ID:          "claude-sonnet-4-5-20250929",

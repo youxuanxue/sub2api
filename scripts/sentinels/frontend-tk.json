@@ -777,7 +777,7 @@
         "const antigravityClaudeAllowed = computed(",
         "supportedModelScopes"
       ],
-      "rationale": "antigravity 使用指南的 gemini-only gate（与后端 /antigravity/v1/models 的 supported_model_scopes 过滤同口径）。antigravityClaudeAllowed 据分组 supportedModelScopes 是否含 'claude' 决定是否展示 Claude flavor（Claude Code tab、OpenCode antigravity-claude provider）；gemini-only 分组([gemini_text, gemini_image])隐藏 claude，避免使用指南教用户配 claude on antigravity 却 403。上游 merge 若删除该 computed 或 supportedModelScopes prop，指南会静默回退到展示 claude——本 sentinel 守护。与后端 gateway_handler_tk_model_list.go 的 tkAntigravityFilterModelsByGroupScopes 锚点配对。Canonical surface: UseKeyGuide.vue."
+      "rationale": "Antigravity 使用指南的 scope gate（与后端 /antigravity/v1/models 的 supported_model_scopes 过滤同口径）。antigravityClaudeAllowed 据分组 supportedModelScopes 是否含 'claude' 决定是否展示 Claude flavor（Claude Code tab、OpenCode antigravity-claude provider）；默认全量 Antigravity 分组可展示 #1265 live Claude 子集，若运营创建 gemini_text/gemini_image-only 分组则隐藏 Claude，避免指南教用户配置该分组不可服务的 flavor。上游 merge 若删除该 computed 或 supportedModelScopes prop，指南会静默回退到无视分组 scopes。本 sentinel 与后端 gateway_handler_tk_model_list.go 的 tkAntigravityFilterModelsByGroupScopes 锚点配对。Canonical surface: UseKeyGuide.vue."
     },
     {
       "path": "frontend/src/views/HomeView.vue",

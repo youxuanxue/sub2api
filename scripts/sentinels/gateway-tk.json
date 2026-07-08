@@ -1860,27 +1860,44 @@
       "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
     },
     {
-      "path": "backend/internal/service/antigravity_config_reconciler.go",
+      "path": "backend/internal/service/account_model_mapping_reconciler.go",
       "must_contain": [
-        "func (r *AntigravityConfigReconciler) runOnce(",
-        "func antigravityCanServeExcluded(",
-        "domain.IsAntigravityStructuralDeadModelMappingKey",
-        "domain.GeminiOnlyAntigravityModelMapping",
-        "func (r *AntigravityConfigReconciler) reconcileGroups(",
-        "func antigravityGroupScopesNeedGeminiOnly(",
-        "domain.GeminiOnlyAntigravityModelScopes"
+        "type AccountModelMappingReconciler struct",
+        "func (r *AccountModelMappingReconciler) runtimeOverride(",
+        "func (r *AccountModelMappingReconciler) reconcileAccounts(",
+        "PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformNewAPI, PlatformKiro, PlatformGrok",
+        "func (r *AccountModelMappingReconciler) reconcileAntigravityGroupScopes(",
+        "var canonicalAntigravityModelScopes = []string{\"claude\", \"gemini_text\", \"gemini_image\"}"
       ],
-      "rationale": "Per-node in-process self-healer that enforces the operator policy 'Antigravity serves gemini only' on TWO surfaces: (1) accounts — rewrites every antigravity account's credentials.model_mapping to domain.GeminiOnlyAntigravityModelMapping (antigravityCanServeExcluded drift predicate, including PR #921 structural-dead aliases via domain.IsAntigravityStructuralDeadModelMappingKey); (2) groups — rewrites every active antigravity group's supported_model_scopes to domain.GeminiOnlyAntigravityModelScopes (antigravityGroupScopesNeedGeminiOnly drift predicate, reconcileGroups), so /antigravity/v1/models + the API key usage guide hide claude for newly-created / drifted groups too. It is a plain-named (non-_tk_) service file that is compile-clean if dropped, so an upstream merge or refactor could silently delete either half and the gemini-only auto-sync would stop with no test failure. Both drift predicates must stay aligned with the post-rollout check ops/antigravity/check-antigravity-account-config.py (accounts + groups same口径); weakening antigravityCanServeExcluded back to a two-id probe re-opens the claude/stale-alias leak the reconciler exists to close; dropping reconcileGroups re-opens claude in /models + usage guide for new groups."
+      "rationale": "One-shot all-platform account model_mapping applier. It can rewrite active anthropic/openai/gemini/antigravity/newapi/kiro/grok accounts to explicit credentials.model_mapping derived from the compiled/runtime SSOT, and can align Antigravity groups to the live families (claude/gemini_text/gemini_image), but production servers must not start it as a background self-healer. Empty native mappings are no longer a target operator state; they are surfaced by ops/pricing/manage-account-model-mapping-runtime.py check-accounts and corrected only after an explicit apply. If this file, the platform loop, the runtime settings read, or the Antigravity group-scope apply logic disappears, reviewed apply-accounts can no longer converge live config."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
+      "must_contain": [
+        "func parseAccountModelMappingRuntime(",
+        "runtime.newAPIChannelTypes[account.ChannelType]",
+        "func accountModelMappingForAccount(",
+        "case PlatformAnthropic, PlatformOpenAI, PlatformGemini:",
+        "case PlatformAntigravity:",
+        "case PlatformGrok:",
+        "case PlatformKiro:",
+        "case accountModelMappingPlatformBedrock:",
+        "func antigravityAccountModelMappingFloor(",
+        "func grokAccountModelMappingFloor("
+      ],
+      "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from served+priced+displayable catalogs, Antigravity filtered default mapping, Grok default aliases, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops compatibility aliases such as grok/grok-latest/grok-build. Runtime JSON is scope replacement, not patch; ops/pricing/manage-account-model-mapping-runtime.py calls the Go helper that exports this floor before diff/apply."
     },
     {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
-        "func buildGeminiOnlyAntigravityModelMapping(",
-        "strings.HasPrefix(k, \"claude-\") || strings.HasPrefix(k, \"gpt-oss-\")",
+        "var DefaultAntigravityModelMapping = map[string]string{",
+        "\"claude-opus-4-6\":",
+        "\"claude-sonnet-4-6\":",
         "antigravityStructuralDeadModelMappingKeys",
+        "antigravityUnpricedModelMappingKeys",
         "func IsAntigravityStructuralDeadModelMappingKey("
       ],
-      "rationale": "GeminiOnlyAntigravityModelMapping — the canonical map the AntigravityConfigReconciler writes onto every antigravity account — is derived once at package init from DefaultAntigravityModelMapping by dropping claude-* / gpt-oss-* keys and PR #921-confirmed structural-dead antigravity aliases. A silent upstream-merge change to (or removal of) either filter would let excluded families or stale request aliases back into the map the reconciler writes, i.e. silently serve claude on antigravity or re-widen the DB mapping surface. Locked by TestGeminiOnlyAntigravityModelMapping too; this sentinel additionally catches a source revert that lands without the test running."
+      "rationale": "DefaultAntigravityModelMapping is the compatibility base for Antigravity account mappings; the account model_mapping SSOT filters it through served+priced+displayable IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The #1265 live Claude subset (claude-sonnet-4-6 plus claude-opus-4-6[-thinking]) must remain explicit, while PR #921 structural-dead aliases and unpriced $0-risk models must remain machine-classified so post-release check/apply keeps persisted mappings clean."
     },
     {
       "path": "backend/migrations/tk_043_prune_antigravity_structural_dead_mapping.sql",
@@ -1894,21 +1911,25 @@
     {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
+        "\"gemini-3-pro-high\":              {}",
+        "\"gemini-3.1-pro-high\":            {}",
+        "\"gemini-2.5-flash-image-preview\": {}"
+      ],
+      "must_not_contain": [
         "\"gemini-3-pro-high\": \"gemini-pro-agent\"",
         "\"gemini-3.1-pro-high\": \"gemini-pro-agent\"",
         "\"gemini-2.5-flash-image-preview\": \"gemini-3.1-flash-image\""
       ],
-      "rationale": "DefaultAntigravityModelMapping 收敛锚点（2026-06-15 prod 中继实测，PR #774）。三类坏映射必须保持重指到等价可服务 wire id，不得回退到不可服务裸名 identity：(1) gemini-3-pro-*（high/low/preview）上游目录已无 gemini-3-pro-*，identity 请求返回 200 但 0/0（静默空响应）→ high/preview→gemini-pro-agent、low→gemini-3.1-pro-low；(2) gemini-3.1-pro-high（及 -pro-preview）在上游 deprecatedModelIds，identity 请求返回 400 → gemini-pro-agent（非弃用、上游显示名同为 'Gemini 3.1 Pro (High)'）；(3) gemini-2.5-flash-image（及 -preview）上游返回 502 → gemini-3.1-flash-image。上游 merge 若把这些 target 改回 identity 即重新静默服务坏模型；与 TestDefaultAntigravityModelMapping_DeprecatedProRemap / _ImageCompatibilityAliases 双重守护，sentinel 额外兜住源码 revert 未跑测试的情况。"
+      "rationale": "Antigravity structural-dead alias 收敛锚点。PR #921 / live snapshot 确认 gemini-3-pro-*、gemini-3.1-pro-high/preview、gemini-2.5-flash-image-preview 等旧请求名不应再写入 canonical account model_mapping；它们必须留在 antigravityStructuralDeadModelMappingKeys deadlist，由 account model_mapping SSOT 过滤掉。must_not_contain 防止旧的 DefaultAntigravityModelMapping compatibility remap 回流，让 post-release check 与 explicit apply 把 persisted mappings 重新变宽。"
     },
     {
       "path": "backend/internal/service/account.go",
       "must_contain": [
-        "ensureAntigravityDefaultPassthroughs(result, []string{",
-        "\"gemini-3-flash-agent\",",
-        "\"gemini-pro-agent\",",
+        "func (a *Account) GetBaseURL() string",
+        "if baseURL == \"\" {",
         "a.Platform == PlatformAnthropic || a.Platform == \"\""
       ],
-      "rationale": "Two load-bearing TK behaviors in account.go. (1) Antigravity 自定义-映射账号的 safety-net 透传列表（GetModelMapping 内）：antigravity gemini-only 服务面的「五面」之一，公共目录 / UseKeyModal 宣告可服务的 wire id，若自定义 model_mapping 账号未显式声明，必须由此列表补 identity 透传，否则静默 404（xj-review R / memory antigravity_claude_exclude_per_account_not_global_default）。2026-06-15（PR #774）起该列表已移除上游 deprecated 的 gemini-3.1-pro-high（identity 透传 → 400），等价档走 gemini-pro-agent。上游 merge 若删除 ensureAntigravityDefaultPassthroughs 调用或丢失 gemini-pro-agent / gemini-3-flash-agent 成员，自定义账号会静默拒绝可服务模型。 (2) GetBaseURL 的平台感知空-base_url 兜底（`a.Platform == PlatformAnthropic || a.Platform == \"\"`）：空 base_url 仅对 anthropic（及 legacy 空 platform）账号回退 api.anthropic.com；其它平台（newapi/openai/gemini/grok/kiro）返回空，避免把 VolcEngine Ark 等 newapi 请求静默发往 Anthropic 主机（baffling 404）。上游 merge 若把 GetBaseURL 还原成无条件 `return \"https://api.anthropic.com\"`，本 anchor 会丢失——sentinel 即在此处拦截回退。"
+      "rationale": "GetBaseURL 的平台感知空-base_url 兜底：空 base_url 仅对 anthropic（及 legacy 空 platform）账号回退 api.anthropic.com；其它平台（newapi/openai/gemini/grok/kiro）返回空，避免把 VolcEngine Ark 等 newapi 请求静默发往 Anthropic 主机（baffling 404）。Antigravity custom passthrough 已迁到 account_model_mapping_ssot_tk.go 的显式 mapping SSOT；account.go 这里只继续守 base_url 行为。上游 merge 若把 GetBaseURL 还原成无条件 `return \"https://api.anthropic.com\"`，本 anchor 会丢失。"
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
@@ -1916,14 +1937,14 @@
         "func tkAntigravityFilterModelsByGroupScopes(",
         "func antigravityModelScope("
       ],
-      "rationale": "supported_model_scopes 的请求路径 enforcement（首次落地，PR 后续）：/antigravity/v1/models 经 AntigravityModels handler 调用 tkAntigravityFilterModelsByGroupScopes 按分组 supported_model_scopes（claude / gemini_text / gemini_image）过滤已宣告模型，使 gemini-only 分组（[gemini_text, gemini_image]）从 /models 隐藏 claude，与 per-account gemini-only model_mapping + 前端 UseKeyModal 的 claude-flavor gate 同口径。antigravityModelScope 是 model→scope 归类器（claude-/gpt-oss-/含 image/其余=gemini_text），与前端分类镜像。上游 merge 若删除这两个函数或 AntigravityModels 里的过滤调用，/models 会静默回退到含 claude 的全目录——本 sentinel 守护。"
+      "rationale": "supported_model_scopes 的请求路径 enforcement：/antigravity/v1/models 经 AntigravityModels handler 调用 tkAntigravityFilterModelsByGroupScopes 按分组 supported_model_scopes（claude / gemini_text / gemini_image）过滤已宣告模型；默认全量 scopes 展示 #1265 live Claude 子集 + Gemini，gemini_text/gemini_image-only 分组隐藏 claude。它必须与 per-account explicit model_mapping + 前端 UseKeyGuide 的 claude-flavor gate 同口径。antigravityModelScope 是 model→scope 归类器（claude-/gpt-oss-/含 image/其余=gemini_text），与前端分类镜像。上游 merge 若删除这两个函数或 AntigravityModels 里的过滤调用，/models 会静默回退到含所有声明模型的全目录——本 sentinel 守护。"
     },
     {
       "path": "backend/internal/handler/dto/types.go",
       "must_contain": [
         "json:\"supported_model_scopes,omitempty\""
       ],
-      "rationale": "supported_model_scopes 的用户侧呈现路径（PR #784）—— 字段必须挂在基础 Group DTO（带 omitempty），而非仅 AdminGroup：用户 keys 接口经 APIKeyFromService → GroupFromServiceShallow → groupFromServiceBase 序列化基础 Group，只有该字段在基础 Group 上，前端 KeysView/UseKeyModal 才拿得到 supported_model_scopes，进而对 gemini-only antigravity 分组隐藏 Claude flavor（与 gateway-tk 的 tkAntigravityFilterModelsByGroupScopes /models 过滤、reconcileGroups 自愈、per-account gemini-only model_mapping 同口径）。dto/types.go 是 upstream-shaped（Wei-Shaw/sub2api 原版仅在 AdminGroup 上有该字段、且无 omitempty），一次 git merge upstream/main 可能把该字段从基础 Group 移回 AdminGroup 或整体覆盖，使用户路径静默回退到 undefined → 前端 gate 默认放行 → 使用指南重新出现 antigravity-claude tab，且 admin 路径仍正常、无测试失败（正是本 sentinel 守护的 backward-drift）。锚 `json:\"supported_model_scopes,omitempty\"` 唯一标识基础 Group 上的该字段形态（AdminGroup 旧版用无 omitempty 的 tag）。配套 mappers.go 的 groupFromServiceBase 填充锚。"
+      "rationale": "supported_model_scopes 的用户侧呈现路径（PR #784）—— 字段必须挂在基础 Group DTO（带 omitempty），而非仅 AdminGroup：用户 keys 接口经 APIKeyFromService → GroupFromServiceShallow → groupFromServiceBase 序列化基础 Group，只有该字段在基础 Group 上，前端 KeysView/UseKeyGuide 才拿得到 supported_model_scopes，进而按 Antigravity 分组 scopes 展示/隐藏 Claude flavor（与 gateway-tk 的 tkAntigravityFilterModelsByGroupScopes /models 过滤、explicit apply 写入的 group scopes、per-account explicit model_mapping 同口径）。dto/types.go 是 upstream-shaped（Wei-Shaw/sub2api 原版仅在 AdminGroup 上有该字段、且无 omitempty），一次 git merge upstream/main 可能把该字段从基础 Group 移回 AdminGroup 或整体覆盖，使用户路径静默回退到 undefined → 前端 gate 默认放行 → 使用指南无视 antigravity scopes，且 admin 路径仍正常、无测试失败（正是本 sentinel 守护的 backward-drift）。锚 `json:\"supported_model_scopes,omitempty\"` 唯一标识基础 Group 上的该字段形态（AdminGroup 旧版用无 omitempty 的 tag）。配套 mappers.go 的 groupFromServiceBase 填充锚。"
     },
     {
       "path": "backend/internal/handler/dto/mappers.go",
@@ -1935,11 +1956,31 @@
     },
     {
       "path": "backend/internal/service/wire.go",
-      "must_contain": [
-        "func ProvideAntigravityConfigReconciler(",
-        "ProvideAntigravityConfigReconciler,"
+      "must_not_contain": [
+        "ProvideAccountModelMappingReconciler",
+        "accountModelMappingReconciler"
       ],
-      "rationale": "AntigravityConfigReconciler DI registration. If the provider drops out of ProviderSet (the trailing-comma membership line) while its provider func and cmd/server cleanup parameter remain, the build still compiles and wire just never constructs/Start()s the reconciler — the gemini-only auto-sync silently never runs. Pin both the provider definition and the ProviderSet membership so a silent upstream-merge drop is caught (mirrors the ProvideHoldReconcilerService guard)."
+      "rationale": "Account model_mapping writes must not be wired into server startup/tick/settings fan-out. If an upstream merge reintroduces a provider or cleanup dependency here, deploys can overwrite admin UI/manual ops/runtime hotfix mappings without an operator-reviewed diff. The only live write path is ops/pricing/manage-account-model-mapping-runtime.py apply-accounts."
+    },
+    {
+      "path": "ops/pricing/manage-account-model-mapping-runtime.py",
+      "must_contain": [
+        "APPLY_CONFIRM = \"yes-apply-account-model-mapping\"",
+        "GO_HELPER = [\"go\", \"run\", \"./cmd/account-model-mapping\", \"floors\", \"--runtime-json\", \"-\"]",
+        "def cmd_apply_accounts(",
+        "\"account_bulk_changed\"",
+        "\"group_changed\""
+      ],
+      "rationale": "Explicit ops apply surface for account model_mapping. The script must call the Go SSOT helper for desired mappings, require a human confirmation phrase before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events so live snapshots refresh. Dropping any of these anchors either forks the SSOT into Python or makes reviewed apply unsafe/no-op."
+    },
+    {
+      "path": "backend/cmd/account-model-mapping/main.go",
+      "must_contain": [
+        "account-model-mapping floors",
+        "service.AccountModelMappingFloorForOps",
+        "--runtime-json"
+      ],
+      "rationale": "Small Go helper used by ops/pricing/manage-account-model-mapping-runtime.py to export the effective compiled/runtime model_mapping floor. This prevents Python from duplicating model catalogs, Grok aliases, Antigravity filtering, Kiro presets, Bedrock defaults, or newapi channel projections."
     },
     {
       "path": "backend/internal/service/anthropic_config_reconciler_tk_account_baseline.go",

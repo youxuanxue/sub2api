@@ -122,7 +122,7 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     expect(activeBlocks).toHaveLength(0)
   })
 
-  it('hides Claude flavor for a gemini-only antigravity group (scope gate)', async () => {
+  it('hides Claude flavor for an antigravity group without claude scope', async () => {
     const wrapper = mountModal({ platform: 'antigravity', supportedModelScopes: ['gemini_text', 'gemini_image'] })
     await nextTick()
     expect(wrapper.findAll('button').find((b) => b.text().includes('keys.useKeyModal.cliTabs.claudeCode'))).toBeUndefined()
