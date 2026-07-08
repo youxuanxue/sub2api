@@ -11,6 +11,9 @@
 # Env:
 #   SSM_OUTPUT_S3_BUCKET   default: layer-zip-repro-682751977094-us-east-1
 #   LOG_PATH               default: /app/data/gateway_debug.log
+#   CONTAINER              default: auto; resolves tokenkey-blue/green from
+#                          /var/lib/tokenkey/active-color, then tokenkey
+#   ACTIVE_COLOR_FILE      default: /var/lib/tokenkey/active-color
 #   OUT_DIR                default: ./.cache/gateway-debug
 #   AWS_SSM_WAIT_MAX       default: 900
 #   PRESIGN_TTL_SEC        default: 7200
@@ -20,6 +23,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TARGET=""
 OUT_DIR="${OUT_DIR:-./.cache/gateway-debug}"
 LOG_PATH="${LOG_PATH:-/app/data/gateway_debug.log}"
+CONTAINER="${CONTAINER:-auto}"
+ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 BUCKET="${SSM_OUTPUT_S3_BUCKET:-layer-zip-repro-682751977094-us-east-1}"
 S3_REGION="${SSM_OUTPUT_S3_REGION:-us-east-1}"
 PREFIX="tokenkey/gateway-debug"
@@ -110,13 +115,20 @@ PRESIGN_B64="$(printf '%s' "$PUT_URL" | base64 | tr -d '\n')"
 PARAMS="$SCRATCH/ssm-params.json"
 jq -n \
   --arg log_path "$LOG_PATH" \
+  --arg container "$CONTAINER" \
+  --arg active_color_file "$ACTIVE_COLOR_FILE" \
   --arg remote_gz "$REMOTE_GZ" \
   --arg b64 "$PRESIGN_B64" \
   '{
     commands: [
       "set -euo pipefail",
-      ("docker exec tokenkey test -f " + ($log_path | @sh)),
-      ("docker exec tokenkey gzip -c " + ($log_path | @sh) + " > " + ($remote_gz | @sh)),
+      ("TK_CONTAINER=" + ($container | @sh)),
+      ("ACTIVE_COLOR_FILE=" + ($active_color_file | @sh)),
+      "if [ \"$TK_CONTAINER\" = auto ]; then if [ -f \"$ACTIVE_COLOR_FILE\" ]; then color=$(cat \"$ACTIVE_COLOR_FILE\" 2>/dev/null | tr -d \" \\t\\r\\n\"); case \"$color\" in blue|green) if docker inspect \"tokenkey-$color\" >/dev/null 2>&1; then TK_CONTAINER=\"tokenkey-$color\"; fi ;; esac; fi; fi",
+      "if [ \"$TK_CONTAINER\" = auto ]; then for c in tokenkey tokenkey-blue tokenkey-green; do if docker inspect \"$c\" >/dev/null 2>&1; then TK_CONTAINER=\"$c\"; break; fi; done; fi",
+      "echo \"container=$TK_CONTAINER\" >&2",
+      ("docker exec \"$TK_CONTAINER\" test -f " + ($log_path | @sh)),
+      ("docker exec \"$TK_CONTAINER\" gzip -c " + ($log_path | @sh) + " > " + ($remote_gz | @sh)),
       ("echo " + $b64 + " | base64 -d > /tmp/gw-debug-put.url"),
       ("curl -fS --max-time 3600 -X PUT --upload-file " + ($remote_gz | @sh) + " \"$(cat /tmp/gw-debug-put.url)\""),
       "rm -f /tmp/gw-debug-put.url",

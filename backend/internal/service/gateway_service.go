@@ -1525,7 +1525,7 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 		body = applyToolsLastCacheBreakpoint(body)
 	}
 
-	return tkStripDeprecatedTemperature(body)
+	return tkStripDeprecatedSamplingParams(body)
 }
 
 // buildOAuthMetadataUserIDFromBody 是 buildOAuthMetadataUserID 的变体，
@@ -5161,8 +5161,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// body as JSON; both prevent an upstream 400 before the first call.
 	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
 	// with a 400 (gateway_request_tk_fable.go).
-	// tkStripDeprecatedTemperature: Opus 4.7+ rejects top-level temperature.
-	if err := replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	// tkStripDeprecatedSamplingParams: Opus 4.7+/Sonnet 5+ reject top-level sampling params.
+	if err := replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return nil, err
 	}
 	// Pre-filter: remove thinking blocks with missing/invalid signatures before forwarding.
@@ -5942,8 +5942,8 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	// the body as JSON; both prevent an upstream 400.
 	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
 	// with a 400 (gateway_request_tk_fable.go).
-	// tkStripDeprecatedTemperature: Opus 4.7+ rejects top-level temperature.
-	input.Body = tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
+	// tkStripDeprecatedSamplingParams: Opus 4.7+/Sonnet 5+ reject top-level sampling params.
+	input.Body = tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -10289,8 +10289,8 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// an upstream 400 (here also guarding the per-account upstream-error breaker).
 	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
 	// with a 400 (gateway_request_tk_fable.go).
-	// tkStripDeprecatedTemperature: Opus 4.7+ rejects top-level temperature.
-	if err := replaceBody(tkStripDeprecatedTemperature(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	// tkStripDeprecatedSamplingParams: Opus 4.7+/Sonnet 5+ reject top-level sampling params.
+	if err := replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return err
 	}
 
