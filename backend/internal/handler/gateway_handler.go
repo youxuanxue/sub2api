@@ -1183,8 +1183,8 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	models := h.tkAntigravityDefaultModels(c.Request.Context())
 	// TK: enforce the group's supported_model_scopes on the advertised list, so a
 	// narrow antigravity group without the claude scope hides Claude here. Empty
-	// scopes = unrestricted; the reconciler converges active groups to include
-	// claude + gemini text/image.
+	// scopes = unrestricted; canonical scopes (claude + gemini_text + gemini_image)
+	// are enforced only after an operator-reviewed apply-accounts run.
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
 		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
 	}
