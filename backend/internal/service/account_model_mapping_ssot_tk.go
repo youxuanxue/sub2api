@@ -13,7 +13,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
-const accountModelMappingPlatformBedrock = "bedrock"
+const (
+	accountModelMappingPlatformBedrock              = "bedrock"
+	accountModelMappingPlatformOpenAIThirdPartyRelay = "openai_third_party_relay"
+)
 
 // accountModelMappingRuntime is the hot runtime replacement layer for the
 // compiled model_mapping floor. If a platform/channel appears here, it replaces
@@ -116,7 +119,12 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		}
 	}
 	switch scope {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini:
+	case PlatformOpenAI:
+		if account.IsOpenAIThirdPartyRelay() {
+			return openAIThirdPartyRelayAccountModelMappingFloor(ctx, pricing, availability), true
+		}
+		return openAICanonicalAccountModelMappingFloor(ctx, pricing, availability), true
+	case PlatformAnthropic, PlatformGemini:
 		ids := ServableClientFacingIDs(ctx, scope, availability, pricing)
 		if len(ids) == 0 {
 			ids = supportedCatalogModelIDsForPlatform(scope)
@@ -156,6 +164,16 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		if ok && len(mapping) > 0 {
 			out.Platforms[platform] = cloneStringMap(mapping)
 		}
+	}
+	relayMapping, ok := accountModelMappingForAccount(ctx, &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://third-party-relay.invalid/v1",
+		},
+	}, nil, nil, runtime)
+	if ok && len(relayMapping) > 0 {
+		out.Platforms[accountModelMappingPlatformOpenAIThirdPartyRelay] = cloneStringMap(relayMapping)
 	}
 	bedrock, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}, nil, nil, runtime)
 	if ok && len(bedrock) > 0 {
@@ -199,6 +217,67 @@ func accountModelMappingScopeForAccount(account *Account) string {
 	default:
 		return normalizeAccountModelMappingPresetPlatform(account.Platform)
 	}
+}
+
+func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
+	ids := ServableClientFacingIDs(ctx, PlatformOpenAI, availability, pricing)
+	if len(ids) == 0 {
+		ids = supportedCatalogModelIDsForPlatform(PlatformOpenAI)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return identityModelMapping(ids)
+}
+
+func openAIThirdPartyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
+	ids := ServableClientFacingIDs(ctx, PlatformOpenAI, availability, pricing)
+	if len(ids) == 0 {
+		ids = catalogModelIDsUnion(supportedOpenAICatalogModels, supportedOpenAIThirdPartyRelayCatalogModels)
+	} else {
+		ids = appendCatalogModelIDs(ids, supportedOpenAIThirdPartyRelayCatalogModels)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return identityModelMapping(ids)
+}
+
+func catalogModelIDsUnion(a, b map[string]struct{}) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for id := range a {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for id := range b {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func appendCatalogModelIDs(ids []string, extra map[string]struct{}) []string {
+	if len(extra) == 0 {
+		return ids
+	}
+	seen := stringSet(ids)
+	out := append([]string(nil), ids...)
+	for id := range extra {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func antigravityAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {

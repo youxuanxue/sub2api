@@ -1182,6 +1182,20 @@ func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
+// IsOpenAIThirdPartyRelay reports apikey OpenAI-platform accounts whose
+// credentials base_url points at a non-openai.com relay. Those relays may
+// expose chat models (e.g. gpt-5.2*) that official ChatGPT OAuth rejects.
+func (a *Account) IsOpenAIThirdPartyRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(a.GetCredential("base_url"), "/")))
+	if base == "" {
+		return false
+	}
+	return !strings.Contains(base, "openai.com")
+}
+
 func (a *Account) GetOpenAIBaseURL() string {
 	if a == nil {
 		return ""

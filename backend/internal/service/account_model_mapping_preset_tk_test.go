@@ -88,6 +88,7 @@ func TestAccountModelMappingPresetIDs_NewAPIVolcEngineUsesManifest(t *testing.T)
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVolcEngine, nil)
 	require.NotEmpty(t, ids)
 	require.Contains(t, ids, "doubao-seed-2-0-pro-260215")
+	require.NotContains(t, ids, "doubao-seed-translation-250915", "translation API is not chat/completions servable")
 }
 
 func TestAccountModelMappingPresetIDs_UnknownPlatformEmpty(t *testing.T) {

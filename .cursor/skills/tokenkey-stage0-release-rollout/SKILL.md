@@ -34,7 +34,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
 | 发版后 tick 探针（hook 计数 + 流量/5xx/panic） | 机械 | `ops/observability/probe-post-release-tick.sh`（经 `run-probe.sh` 投递；默认 `CONTAINER=auto` 自动识别 prod blue/green active container；`HOOK_PATTERNS` 里的 hook 关键词由模型按 Step A 命名——命名是判断，计数是机械） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
-| **发版后 Account model_mapping 配置 diff** | 机械 | `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`（prod + deployable edges，只读；见 §「发版后 Account model_mapping 配置检查」） |
+| **发版后 Account model_mapping 配置 diff** | 机械 | `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only；edge 保持空 mapping 不纳入门禁，见 §「发版后 Account model_mapping 配置检查」） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
@@ -57,7 +57,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
 | `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
-| `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`，只读 diff prod + deployable edges 的显式 `model_mapping` 与 Go SSOT，并检查关键别名/禁用模型不变量。`account_model_mapping_check=false` 跳过。 |
+| `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only），只读 diff prod 显式 `model_mapping` 与 Go SSOT，并检查关键别名/禁用模型不变量。edge 空 mapping 不纳入 post-release 门禁；需显式 `--include-edges` 才查 edge。`account_model_mapping_check=false` 跳过。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
@@ -607,7 +607,7 @@ next: none | /tokenkey-anthropic-oauth-config <plan kind>
 - 本次请求的 deploy + smoke 已验收通过（与上一段同条件）
 - 未显式 `account_model_mapping_check=false`
 
-**做什么 / 不做什么**：本段**只读**——逐 deployable edge + prod 经 SSM 读 active 账号和 Antigravity active groups，使用 Go SSOT 生成期望 mapping 并输出 diff，验证所有受管平台账号都已显式配置非空 `credentials.model_mapping`，并守住关键不变量：Grok 兼容别名保留、Antigravity 只包含 #1265 实测可服务 Claude 子集且无 `gpt-oss` / structural-dead / unpriced 键、Kiro 关键 Claude 模型存在、Antigravity group scopes 为 `claude/gemini_text/gemini_image`。不写任何库；runtime setting 只做合法性校验并作为 desired layer 参与 diff。服务进程不会在启动、`settings_updated` fan-out 或周期 tick 中批量覆盖账号配置；写入必须走 `/tokenkey-modelops-planner` 分支 D 的显式 `apply-accounts --confirm yes-apply-account-model-mapping`。
+**做什么 / 不做什么**：本段**只读**——默认仅 prod 经 SSM 读 active 账号和 Antigravity active groups，使用 Go SSOT 生成期望 mapping 并输出 diff，验证所有受管平台账号都已显式配置非空 `credentials.model_mapping`，并守住关键不变量：Grok 兼容别名保留、Antigravity 只包含 #1265 实测可服务 Claude 子集且无 `gpt-oss` / structural-dead / unpriced 键、Kiro 关键 Claude 模型存在、Antigravity group scopes 为 `claude/gemini_text/gemini_image`。edge 账号 `model_mapping` 保持空（全路由），不纳入 post-release 门禁；需显式 `--include-edges` 才查 deployable edges。不写任何库；runtime setting 只做合法性校验并作为 desired layer 参与 diff。服务进程不会在启动、`settings_updated` fan-out 或周期 tick 中批量覆盖账号配置；写入必须走 `/tokenkey-modelops-planner` 分支 D 的显式 `apply-accounts --confirm yes-apply-account-model-mapping`。
 
 **机械化命令**：
 
@@ -659,7 +659,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | edge-<edge_id>（其余） | dispatch 脚本 → deploy-edge-lightsail-stage0 | ... | X.Y.Z | success/fail/skipped | infra |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
 | anthropic-oauth-config | manage-anthropic-config.py | — | — | check OK / violation / skip | snapshot+check（只读） |
-| account-model-mapping | manage-account-model-mapping-runtime.py check-accounts | — | — | check OK / violation / skip | 逐 edge+prod 显式 model_mapping（只读） |
+| account-model-mapping | manage-account-model-mapping-runtime.py check-accounts | — | — | check OK / violation / skip | prod 显式 model_mapping（只读；默认不含 edge） |
 
 并补充：
 
@@ -703,7 +703,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |
 | 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
 | 发版后 Account model_mapping `check-accounts` 报 violation | **不要** rollback 镜像；审 `$JOBDIR/post-release-account-model-mapping-check.json` 的账号/group diff。确认要覆盖 live 配置时走 `/tokenkey-modelops-planner` 分支 D：必要时 `validate/check/sync-runtime` 更新 desired layer，然后 `apply-accounts --confirm yes-apply-account-model-mapping`。 |
-| 发版后 Account model_mapping `check-accounts` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`，必要时先 `--skip-prod` 只查 edge。 |
+| 发版后 Account model_mapping `check-accounts` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`；仅排障 edge 时加 `--include-edges` 或 `--skip-prod`。 |
 
 ## 扩展阅读（按需打开）
 

@@ -125,6 +125,17 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:end openai
 }
 
+// supportedOpenAIThirdPartyRelayCatalogModels — gpt IDs confirmed servable on
+// non-openai.com apikey relays (2026-07-08 prod probe via api.ainzy.net/v1)
+// but rejected by ChatGPT OAuth accounts (400 unsupported).
+var supportedOpenAIThirdPartyRelayCatalogModels = map[string]struct{}{
+	"gpt-5-codex":   {},
+	"gpt-5.2":       {},
+	"gpt-5.2-pro":   {},
+	"gpt-5.3":       {},
+	"gpt-5.3-codex": {},
+}
+
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
 // the google group (us6, account 3 Vertex), 2026-06-09 probe. While EMPTY the
 // catalog/menu gates fall through to passthrough/canonical (no regression).
