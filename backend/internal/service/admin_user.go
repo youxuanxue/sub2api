@@ -444,10 +444,19 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 		return nil, fmt.Errorf("balance cannot be negative, current balance: %.2f, requested operation would result in: %.2f", oldBalance, user.Balance)
 	}
 
-	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, err
-	}
 	balanceDiff := user.Balance - oldBalance
+	if balanceDiff != 0 && s.entClient != nil {
+		if err := s.updateUserBalanceWithLedgerTx(ctx, user, balanceDiff, notes); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			return nil, err
+		}
+		if balanceDiff != 0 {
+			bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, user.ID, balanceDiff, notes, "service.admin")
+		}
+	}
 	if s.authCacheInvalidator != nil && balanceDiff != 0 {
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
 	}
@@ -462,30 +471,24 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 		}()
 	}
 
-	if balanceDiff != 0 {
-		code, err := GenerateRedeemCode()
-		if err != nil {
-			logger.LegacyPrintf("service.admin", "failed to generate adjustment redeem code: %v", err)
-			return user, nil
-		}
-
-		adjustmentRecord := &RedeemCode{
-			Code:   code,
-			Type:   AdjustmentTypeAdminBalance,
-			Value:  balanceDiff,
-			Status: StatusUsed,
-			UsedBy: &user.ID,
-			Notes:  notes,
-		}
-		now := time.Now()
-		adjustmentRecord.UsedAt = &now
-
-		if err := s.redeemCodeRepo.Create(ctx, adjustmentRecord); err != nil {
-			logger.LegacyPrintf("service.admin", "failed to create balance adjustment redeem code: %v", err)
-		}
-	}
-
 	return user, nil
+}
+
+func (s *adminServiceImpl) updateUserBalanceWithLedgerTx(ctx context.Context, user *User, balanceDiff float64, notes string) error {
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	opCtx := dbent.NewTxContext(ctx, tx)
+	if err := s.userRepo.Update(opCtx, user); err != nil {
+		return err
+	}
+	if err := writeBalanceGrantLedger(opCtx, tx.Client(), user.ID, balanceDiff, notes); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error) {
