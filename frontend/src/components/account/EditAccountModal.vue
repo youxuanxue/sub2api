@@ -4261,12 +4261,9 @@ const handleSubmit = async () => {
         }
       }
 
-      // Internal edge stubs are reconciler-managed for pool mode.
-      if (isSystemManagedAnthropicStub.value) {
-        delete newCredentials.pool_mode
-        delete newCredentials.pool_mode_retry_count
-        delete newCredentials.pool_mode_retry_status_codes
-      } else {
+      // Internal edge stubs are reconciler-managed for pool mode; keep the
+      // stored credentials untouched so a generic account save cannot clear them.
+      if (!isSystemManagedAnthropicStub.value) {
         if (poolModeEnabled.value) {
           newCredentials.pool_mode = true
           newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)

@@ -371,9 +371,9 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials as Record<string, unknown>
     expect(credentials.base_url).toBe('https://api-us1.tokenkey.dev')
-    expect(credentials).not.toHaveProperty('pool_mode')
-    expect(credentials).not.toHaveProperty('pool_mode_retry_count')
-    expect(credentials).not.toHaveProperty('pool_mode_retry_status_codes')
+    expect(credentials.pool_mode).toBe(false)
+    expect(credentials.pool_mode_retry_count).toBe(1)
+    expect(credentials.pool_mode_retry_status_codes).toEqual([401])
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
