@@ -7,11 +7,12 @@ The compiled floor lives in Go:
   - aliases: DefaultAntigravityModelMapping / xai.DefaultModelMapping
 
 This tool writes an optional runtime replacement layer to settings key
-``tk_account_model_mapping_runtime``. A present scope REPLACES the compiled floor
-for that platform or newapi channel_type; absent scopes keep the compiled floor.
-Writing the setting does not mutate accounts. Use ``check-accounts`` to diff
-live accounts against the Go SSOT, then ``apply-accounts --confirm ...`` when
-an operator has reviewed the diff and wants to overwrite persisted mappings.
+``tk_account_model_mapping_runtime`` across prod/deployable edges. A present
+scope REPLACES the compiled floor for that platform or newapi channel_type;
+absent scopes keep the compiled floor. Writing the setting does not mutate
+accounts. Use ``check-accounts`` to diff live accounts against the Go SSOT, then
+``apply-accounts --confirm ...`` when an operator has reviewed the diff and
+wants to overwrite persisted mappings.
 
 Runtime JSON shape:
 
@@ -79,6 +80,7 @@ PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
 APPLY_CONFIRM = "yes-apply-account-model-mapping"
 GO_HELPER = ["go", "run", "./cmd/account-model-mapping", "floors", "--runtime-json", "-"]
+DEFAULT_RUNTIME_TARGET = "all-deployable-and-prod"
 
 ACCOUNT_MODEL_MAPPING_CHECK_SQL = """
 SELECT jsonb_build_object(
@@ -234,13 +236,17 @@ def _decode_runtime_value(out: str) -> dict:
     return json.loads(raw)
 
 
-def read_runtime_blob(instance_id: str) -> dict:
+def read_runtime_blob(region: str, instance_id: str) -> dict:
     shell = (
         f"{PSQL} -c \"SELECT value FROM settings WHERE key='{SETTING_KEY}';\""
         " | gzip -c | base64 | tr -d '\\n'"
     )
-    b64 = base64.b64encode(shell.encode()).decode()
-    out = _SSM.run_shell_b64(instance_id, b64, "account model_mapping runtime: read settings")
+    out = _ssm_run_shell_b64_region(
+        region,
+        instance_id,
+        base64.b64encode(shell.encode("utf-8")).decode("ascii"),
+        "account model_mapping runtime: read settings",
+    )
     try:
         raw = _decode_runtime_value(out)
     except (OSError, ValueError) as e:
@@ -343,6 +349,13 @@ def _resolve_apply_targets(target: str) -> list[tuple[str, str, str]]:
     if target in {"all", "all-deployable-and-prod"}:
         return _resolve_check_targets(skip_prod=False)
     fail("--target must be prod, edge:<id>, or all-deployable-and-prod")
+
+
+def _runtime_scope_summary(doc: dict) -> dict[str, list[str]]:
+    return {
+        "platforms": sorted((doc.get("platforms") or {}).keys()),
+        "newapi_channel_types": sorted((doc.get("newapi_channel_types") or {}).keys(), key=lambda v: int(v)),
+    }
 
 
 _FLOOR_CACHE: dict[str, dict[str, Any]] = {}
@@ -782,15 +795,52 @@ def cmd_validate(args) -> int:
 
 def cmd_check(args) -> int:
     want = load_doc(args.file)
-    inst = _SSM.resolve_prod_instance()
-    got = read_runtime_blob(inst)
-    if canonical_json(got) == canonical_json(want):
-        print("OK: prod account model_mapping runtime matches file.")
-        return 0
-    print("DRIFT: prod account model_mapping runtime differs from file.")
-    print(f"file scopes: {list(want.keys())}")
-    print(f"prod scopes: {list(got.keys())}")
-    return 1
+    targets = _resolve_apply_targets(args.target)
+    rows: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    want_json = canonical_json(want)
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(read_runtime_blob, region, instance_id): label for label, region, instance_id in targets}
+        for fut in as_completed(futs):
+            label = futs[fut]
+            try:
+                got = fut.result()
+                rows.append({
+                    "target": label,
+                    "matches": canonical_json(got) == want_json,
+                    "file_scopes": _runtime_scope_summary(want),
+                    "target_scopes": _runtime_scope_summary(got),
+                })
+            except Exception as e:  # noqa: BLE001 - report every target.
+                errors.append({"target": label, "error": str(e)})
+    rows.sort(key=lambda r: str(r.get("target") or ""))
+    errors.sort(key=lambda e: str(e.get("target") or ""))
+    report = {
+        "targets": [t[0] for t in targets],
+        "target_count": len(targets),
+        "match_count": sum(1 for r in rows if r["matches"]),
+        "drift_count": sum(1 for r in rows if not r["matches"]),
+        "error_count": len(errors),
+        "results": rows,
+        "errors": errors,
+    }
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    elif errors:
+        print(f"ERROR: account model_mapping runtime check could not read {len(errors)} target(s).")
+        for e in errors:
+            print(f"  [{e['target']}] {e['error']}")
+    elif report["drift_count"]:
+        print(f"DRIFT: {report['drift_count']} target(s) differ from file.")
+        for row in rows:
+            if row["matches"]:
+                continue
+            print(f"  [{row['target']}] file={row['file_scopes']} target={row['target_scopes']}")
+    else:
+        print(f"OK: account model_mapping runtime matches file across {len(targets)} target(s).")
+    if errors:
+        return 2
+    return 1 if report["drift_count"] else 0
 
 
 def cmd_check_accounts(args) -> int:
@@ -903,7 +953,7 @@ def cmd_apply_accounts(args) -> int:
     return 2 if apply_errors else 0
 
 
-def _publish_settings_updated(instance_id: str, sql: str, comment: str) -> str:
+def _publish_settings_updated(region: str, instance_id: str, sql: str, comment: str) -> str:
     shell = (
         "set -uo pipefail\n"
         f"PSQL='{PSQL}'\n"
@@ -919,17 +969,10 @@ def _publish_settings_updated(instance_id: str, sql: str, comment: str) -> str:
     b64 = base64.b64encode(shell.encode()).decode()
     if len(b64) > 90_000:
         fail(f"encoded SSM payload is {len(b64)}B (>90KB); runtime blob is too large for inline SSM")
-    return _SSM.run_shell_b64(instance_id, b64, comment)
+    return _ssm_run_shell_b64_region(region, instance_id, b64, comment)
 
 
-def cmd_sync_runtime(args) -> int:
-    doc = load_doc(args.file)
-    payload = canonical_json(doc).encode("utf-8")
-    if args.dry_run:
-        print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on prod "
-              f"({len(payload)} bytes, scopes={list(doc.keys())}) + PUBLISH settings_updated reload.")
-        return 0
-    inst = _SSM.resolve_prod_instance()
+def _sync_runtime_target(label: str, region: str, instance_id: str, payload: bytes, doc: dict) -> dict[str, Any]:
     gz_b64 = base64.b64encode(gzip.compress(payload)).decode()
     sql = (
         f"INSERT INTO settings (key, value, updated_at) VALUES "
@@ -952,28 +995,75 @@ def cmd_sync_runtime(args) -> int:
     b64 = base64.b64encode(shell.encode()).decode()
     if len(b64) > 90_000:
         fail(f"encoded SSM payload is {len(b64)}B (>90KB); runtime blob is too large for inline SSM")
-    out = _SSM.run_shell_b64(inst, b64, "account model_mapping runtime: upsert + publish")
-    print(out)
+    out = _ssm_run_shell_b64_region(region, instance_id, b64, f"account model_mapping runtime: upsert + publish {label}")
     if "UPDATE_OK" not in out:
-        fail("settings update did not report success")
-    if canonical_json(read_runtime_blob(inst)) != canonical_json(doc):
-        fail("post-sync verify shows prod runtime does not match file")
-    print("synced + verified: prod account model_mapping runtime == file.")
-    return 0
+        raise RuntimeError("settings update did not report success")
+    if canonical_json(read_runtime_blob(region, instance_id)) != canonical_json(doc):
+        raise RuntimeError("post-sync verify shows runtime does not match file")
+    return {"target": label, "bytes": len(payload)}
+
+
+def _clear_runtime_target(label: str, region: str, instance_id: str) -> dict[str, Any]:
+    sql = f"DELETE FROM settings WHERE key='{SETTING_KEY}';"
+    out = _publish_settings_updated(region, instance_id, sql, f"account model_mapping runtime: clear + publish {label}")
+    if "UPDATE_OK" not in out:
+        raise RuntimeError("settings delete did not report success")
+    if read_runtime_blob(region, instance_id):
+        raise RuntimeError("post-clear verify still sees a runtime setting")
+    return {"target": label}
+
+
+def cmd_sync_runtime(args) -> int:
+    doc = load_doc(args.file)
+    payload = canonical_json(doc).encode("utf-8")
+    targets = _resolve_apply_targets(args.target)
+    if args.dry_run:
+        print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on {len(targets)} target(s) "
+              f"({len(payload)} bytes, scopes={_runtime_scope_summary(doc)}) + PUBLISH settings_updated reload.")
+        for label, _, _ in targets:
+            print(f"  - {label}")
+        return 0
+    synced: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(_sync_runtime_target, label, region, instance_id, payload, doc): label for label, region, instance_id in targets}
+        for fut in as_completed(futs):
+            label = futs[fut]
+            try:
+                synced.append(fut.result())
+            except Exception as e:  # noqa: BLE001 - report every target write.
+                errors.append({"target": label, "error": str(e)})
+    result = {
+        "synced": sorted(synced, key=lambda r: str(r.get("target") or "")),
+        "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 2 if errors else 0
 
 
 def cmd_clear_runtime(args) -> int:
+    targets = _resolve_apply_targets(args.target)
     if args.dry_run:
-        print(f"DRY-RUN: would DELETE settings[{SETTING_KEY}] on prod + PUBLISH settings_updated reload.")
+        print(f"DRY-RUN: would DELETE settings[{SETTING_KEY}] on {len(targets)} target(s) + PUBLISH settings_updated reload.")
+        for label, _, _ in targets:
+            print(f"  - {label}")
         return 0
-    inst = _SSM.resolve_prod_instance()
-    sql = f"DELETE FROM settings WHERE key='{SETTING_KEY}';"
-    out = _publish_settings_updated(inst, sql, "account model_mapping runtime: clear + publish")
-    print(out)
-    if "UPDATE_OK" not in out:
-        fail("settings delete did not report success")
-    print("cleared: future check/apply uses the compiled account model_mapping floor.")
-    return 0
+    cleared: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(_clear_runtime_target, label, region, instance_id): label for label, region, instance_id in targets}
+        for fut in as_completed(futs):
+            label = futs[fut]
+            try:
+                cleared.append(fut.result())
+            except Exception as e:  # noqa: BLE001 - report every target write.
+                errors.append({"target": label, "error": str(e)})
+    result = {
+        "cleared": sorted(cleared, key=lambda r: str(r.get("target") or "")),
+        "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 2 if errors else 0
 
 
 def cmd_example(_args) -> int:
@@ -1066,8 +1156,11 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd")
     sp = sub.add_parser("validate", help="validate and print canonical JSON")
     sp.add_argument("--file", type=Path, required=True)
-    sp = sub.add_parser("check", help="compare prod runtime settings to a JSON file")
+    sp = sub.add_parser("check", help="compare runtime settings to a JSON file")
     sp.add_argument("--file", type=Path, required=True)
+    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
@@ -1077,11 +1170,15 @@ def main() -> int:
     sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")
     sp.add_argument("--dry-run", action="store_true", help="print the planned account/group changes without writing")
     sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
-    sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to prod settings only")
+    sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to runtime settings")
     sp.add_argument("--file", type=Path, required=True)
+    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
     sp.add_argument("--dry-run", action="store_true")
-    sp = sub.add_parser("clear-runtime", help="delete prod runtime override and use compiled floor")
+    sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
+    sp = sub.add_parser("clear-runtime", help="delete runtime override and use compiled floor")
+    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
     sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
     sub.add_parser("example", help="print an example runtime JSON")
     args = ap.parse_args()
     if args.selftest:

@@ -18,7 +18,7 @@ description: >-
          ▼                    ▼                    ▼                    ▼
    分支 A 对账            分支 B catalog/menu     分支 C 上架           分支 D runtime
    modelops.py plan      refresh-servable-*      tokenkey-onboard-model manage-account-model-mapping-runtime.py
-   （只读）               （写 Go allowlist）      （写 manifest/migration/价） （写 prod settings）
+   （只读）               （写 Go allowlist）      （写 manifest/migration/价） （写 prod/edge settings）
 ```
 
 | 运营说法 / 症状 | 走哪条分支 |
@@ -30,7 +30,7 @@ description: >-
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe`（诊断，非 hub 子分支） |
 
-硬边界：**分支 A 只读**；分支 B/C/D 会改仓库或 prod，**合并/apply/sync-runtime/clear-runtime 等人授权**。
+硬边界：**分支 A 只读**；分支 B/C/D 会改仓库或 prod/edge，**合并/apply/sync-runtime/clear-runtime 等人授权**。
 
 设计基线：`docs/approved/served-model-reconcile-planner.md` · 脚本表：`ops/pricing/README.md`
 
@@ -131,7 +131,7 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py example > /tmp/accou
 python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json
 python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/account-model-mapping-runtime.json
 
-# 人审 JSON + check 输出后再写 prod setting（不改 accounts）：
+# 人审 JSON + check 输出后再写 prod + deployable edge settings（不改 accounts）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
 
 # 发版后 / 热更新后只读 diff（prod + deployable edges）：
@@ -142,7 +142,7 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
   --target all-deployable-and-prod \
   --confirm yes-apply-account-model-mapping
 
-# 回到编译期 floor（也需人审）：
+# 回到编译期 floor（prod + deployable edges，也需人审）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py clear-runtime
 ```
 
