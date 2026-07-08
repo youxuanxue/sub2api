@@ -119,7 +119,7 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 用途：把已确认 **可服务、已定价、可展示** 的账号 `model_mapping` SSOT 作为 runtime
 replacement 写入 `settings.tk_account_model_mapping_runtime`，再用只读 `check-accounts`
-对 prod + deployable edges 生成 diff。账号和 Antigravity group 的持久化写入只通过
+对 prod 生成 diff（默认 prod only；edge 空 mapping 不纳入门禁，需 `--include-edges` 才查 edge）。账号和 Antigravity group 的持久化写入只通过
 `apply-accounts --confirm yes-apply-account-model-mapping` 执行；服务进程启动、周期 tick
 和 `settings_updated` fan-out 都不会批量覆盖账号配置。该文件是 **scope replacement**，
 不是增量 patch：写了某个平台或 newapi channel_type，就必须给出该 scope 的完整期望
@@ -134,7 +134,7 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/ac
 # 人审 JSON + check 输出后再写 prod + deployable edge settings（不改 accounts）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
 
-# 发版后 / 热更新后只读 diff（prod + deployable edges）：
+# 发版后 / 热更新后只读 diff（默认 prod only）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
 
 # 人审 diff 后，显式覆盖账号 model_mapping / Antigravity group scopes：

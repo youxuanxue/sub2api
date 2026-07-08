@@ -190,7 +190,7 @@ intent but hides the row until provisioning or a later SSOT gate proves it.
    **Live delta** (CI when catalog paths change): `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` — probes only models added/changed in the PR (not the full catalog).
    **Deploy canary** (prod post-deploy): `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout`.
    Add `--include-paid` when paid media is intentionally in scope. Do **not** schedule daily full `--gate-sharded` scans (account-ban risk); use focused `--model` reprobes from this baseline when a row regresses.
-   Update this baseline to mention `v{VERSION}` on every deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`).
+   Update this baseline to mention `v{VERSION}` on every deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`). Release bump scripts run `scripts/sync_endpoint_compat_baseline_anchor.py` automatically.
 8. Reprobe Anthropic/Gemini/Kiro direct live rows only when a real schedulable
    direct probe pool exists; current `429` rows prove route openness, not
    servability.

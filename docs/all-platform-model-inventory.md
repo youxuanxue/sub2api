@@ -108,7 +108,7 @@ gpt-5.5  gpt-5.5-pro
 ```
 
 - 价全部来自 **litellm 镜像**（overlay 无 openai 条目）。
-- **`advertised_dead` 收敛结果（2026-06-22）**：`codex-auto-review` 经 `/v1/responses` 实测 200，已进 openai allowlist；`gpt-5.2`（400 unsupported）、`gpt-5.3-codex`（400 unsupported）、`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）不再进入 /v1/models fallback 或 admin 默认候选。
+- **`advertised_dead` 收敛结果（2026-06-22）**：`codex-auto-review` 经 `/v1/responses` 实测 200，已进 openai allowlist；`gpt-5.2`（OAuth 400 unsupported）、`gpt-5.3-codex`（OAuth 400 unsupported）、`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）不再进入 /v1/models fallback 或 admin 默认候选。`api.ainzy.net/v1`（prod account 76）经 2026-07-08 探测 `gpt-5.2`/`gpt-5.3-codex` 等 5 键返回 200；SSOT 使用独立 `openai_ainzy_relay` floor（不继承 canonical 15 键）。`gpt-5.4-mini` 在 ainzy 上持续 upstream access forbidden，已从该 floor 排除。
 - **codex 形** 走 `/v1/responses`；`codex-mini-latest` 被 codex normalization 重计为 `gpt-5.3-codex` 才免于 $0。
 - **channel 长尾**：ct=1（153 模型：o1/o3/o4、gpt-4*/4o*、audio/realtime/tts、embeddings、dall-e、sora-2…）与 ct=57 codex 订阅（24）**均未经原生 openai 平台服务**——是 newapi bridge 的扩展 backlog（§5）。
 
@@ -235,7 +235,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 仅在新 native 池上线后复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
 | `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low | 低 | Gemini media 2026-06-23 复测 429，留 watchlist |
-| `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 mapping + overlay 已有，但 2026-06-23 direct Ark 两次 400 inconclusive；不进 manifest，留 watchlist |
+| `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 legacy mapping + overlay；2026-07-08 Ark chat 400 确认不支持；不进 manifest，apply 时从账号 7 移除 |
 | `priced_not_served` | newapi(qwen) | qwen2.5-coder-* | 中 | 抑制 parity 行的展示，或在账号 60 真 mapping；qwen3.7-max preview/dated 已由 2026-06-23 prod mapping + livefire 证实可服务 |
 | `dated_dup` | anthropic/grok/volcengine | claude bare↔dated、grok-imagine-image-pro、no-prefix seedream/seedance | 低 | anthropic 已由 override 机制处理；其余被 media 守卫/上游 404 收口 |
 | `cross_platform_inconsistency` | claude×{anthropic,kiro,bridge}；gemini×{native,antigravity} | claude-opus-4-*、gemini-2.5/3.x | 中 | 预期的 per-platform 路由真值；唯 kiro 估算 token 路径结构性有损 |
