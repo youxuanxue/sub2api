@@ -182,22 +182,60 @@
       "rationale": "Shared usage-window quota summary de-duplication owner. Account usage cells render primary 5h/7d bars first, then UpstreamQuotaSummary renders only supplemental upstream quota facts after filtering dimensions already represented by those bars. Anchors prevent an upstream-shaped component rewrite from silently reintroducing duplicate grey quota chips beside the canonical progress bars."
     },
     {
+      "path": "frontend/src/components/account/usage-cells/TodayStatsBadges.vue",
+      "must_contain": [
+        "formatCompactNumber(props.stats.requests",
+        "formatCompactNumber(props.stats.tokens)",
+        "props.stats.cost.toFixed(2)",
+        "stats.user_cost != null",
+        "usage.accountBilled",
+        "usage.userBilled"
+      ],
+      "rationale": "Shared owner for the compact current-day request/token/account-cost/user-cost badges rendered inside account usage cells. Plain, Gemini, OpenAI OAuth, and Anthropic OAuth usage cells should consume this component instead of duplicating badge formatting; losing it during an upstream merge can compile cleanly while dropping the generic usage window from OAuth-only accounts."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/PlainUsageCell.vue",
+      "must_contain": [
+        "TodayStatsBadges",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\"",
+        "!todayStats && !todayStatsLoading && !hasApiKeyQuota"
+      ],
+      "rationale": "Plain account usage cells keep the same current-day request/token/cost badges through the shared TodayStatsBadges owner while rendering API-key quota bars below it. Anchors prevent an upstream merge from silently dropping the shared badge callsite or regressing the empty-state guard back to hiding useful current-day stats."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/GeminiUsageCell.vue",
+      "must_contain": [
+        "TodayStatsBadges",
+        "v-if=\"showGeminiTodayStats\"",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\""
+      ],
+      "rationale": "Gemini account usage cells also consume the shared TodayStatsBadges owner, but only when useGeminiUsageMeta says current-day stats should be shown. Anchors keep upstream merges from reverting to duplicated formatter code or silently dropping the current-day badge callsite."
+    },
+    {
       "path": "frontend/src/components/account/usage-cells/AnthropicUsageCell.vue",
       "must_contain": [
+        "TodayStatsBadges",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\"",
         ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
         "anthropic_5h",
         "anthropic_7d_sonnet"
       ],
-      "rationale": "Anthropic OAuth usage windows have one canonical visual owner: the 5h, 7d, and 7d S progress bars. The upstream_quota block may still carry the same dimensions for contract consumers, but the UI must filter them out of the supplemental summary to avoid repeating the same window percentages in the Edge panel and Accounts list."
+      "rationale": "Anthropic OAuth usage windows have two canonical visual owners: TodayStatsBadges for current-day request/token/account-cost/user-cost badges, and the 5h, 7d, and 7d S progress bars for Anthropic quota windows. The upstream_quota block may still carry the same dimensions for contract consumers, but the UI must filter them out of the supplemental summary to avoid repeating the same window percentages in the Edge panel and Accounts list. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate quota chips."
     },
     {
       "path": "frontend/src/components/account/usage-cells/OpenAIUsageCell.vue",
       "must_contain": [
+        "TodayStatsBadges",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\"",
         ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
         "openai_codex_5h",
         "openai_codex_7d"
       ],
-      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: the 5h and 7d progress bars are canonical, while UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from restoring duplicate Codex window chips."
+      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: TodayStatsBadges owns current-day request/token/account-cost/user-cost badges, the 5h and 7d progress bars own Codex quota windows, and UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate Codex window chips."
     },
     {
       "path": "frontend/src/components/account/usage-cells/KiroUsageCell.vue",
@@ -225,6 +263,18 @@
         "await refreshEdges({ force: true })"
       ],
       "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound. The sixth literal anchors current_rpm inside shouldReplaceAutoRefreshRow's auto-refresh field whitelist: current_rpm is a Redis-backed realtime gauge that never bumps updated_at, so an upstream merge that drops it from the whitelist would silently regress the 6s auto-refresh back to RPM-stale (only manual refresh would update the RPM badge). The seventh literal anchors the admin notes (备注) display under the account name in the #cell-name template: operators edit notes in EditAccountModal but the only other notes render is a default-hidden column, so dropping this line would silently hide multi-line notes again — it is rendered with whitespace-pre-wrap so newlines edited by the operator survive verbatim. The EdgeAccountPanelTk/useTkAccountsEdgePanels anchors pin the /admin/accounts inline edge panels, and the refreshEdges({force:true}) anchors pin the manual refresh/retry path that bypasses the edge aggregate SWR cache so prod stubs and edge account runtime gauges sync on operator clicks."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "const DEFAULT_HIDDEN_COLUMNS = [\n  'id',\n  'today_stats',\n  'proxy',\n  'rate_multiplier',\n  'last_used_at',\n  'created_at',\n  'expires_at',\n  'notes'\n]",
+        "const LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMNS = [\n  'today_stats',\n  'proxy',\n  'notes',\n  'priority',\n  'rate_multiplier'\n]",
+        "const COLUMN_SETTINGS_VERSION_KEY = 'account-column-settings-version'",
+        "const COLUMN_SETTINGS_VERSION = '2'",
+        "shouldMigrateLegacyDefaultColumns(parsed)",
+        "localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)"
+      ],
+      "rationale": "Admin account-table default visible columns are TK operator workflow, not upstream defaults: platform/type, capacity, status, schedulable, groups, usage, and priority should be visible on a fresh profile, while legacy auto-saved defaults from version 1 migrate once. The exact DEFAULT_HIDDEN_COLUMNS block pins the new default so an upstream merge cannot silently hide priority or usage-adjacent operational columns again; the version-key and migration anchors keep old localStorage snapshots from resetting operators back to the old column set after refresh."
     },
     {
       "path": "frontend/src/views/admin/GroupsView.vue",

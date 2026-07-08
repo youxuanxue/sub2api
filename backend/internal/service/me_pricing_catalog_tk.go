@@ -821,7 +821,7 @@ func addFallbackModel(
 // catalog filters by — so both surfaces advertise exactly the models that
 // passed a live prod probe (operator directive: "实测通过的才行"). This
 // supersedes the earlier canonical-list fallback, which advertised
-// upstream-rejected models (e.g. gpt-5.2, gpt-4o) that 400/502 at runtime. Grok
+// upstream-rejected models (e.g. gpt-5.6-sol, gpt-4o) that 400/502 at runtime. Grok
 // has no canonical DefaultModels list at all — its served set IS its priced
 // overlay set, so the allowlist is the only correct source.
 //

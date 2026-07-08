@@ -219,6 +219,10 @@ func (m *mockAccountRepoForPlatform) SumConcurrencyByPlatform(context.Context, s
 	return 0, nil
 }
 
+func (m *mockAccountRepoForPlatform) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockAccountRepoForPlatform) RevertProxyFallback(ctx context.Context, accountID int64) error {
 	return nil
 }

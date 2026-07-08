@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -47,7 +48,7 @@ func (h *GatewayHandler) tkFilterModelIDs(ctx context.Context, platform string, 
 // structurally-gone ids and filtered to priced. Every /v1/models-family FALLBACK
 // sources its ids here, so the gateway advertises exactly the set the public
 // /pricing catalog and the Your-Menu fallback show — no advertised_dead (a priced
-// id not in the allowlist, e.g. gpt-5.2), no visible-but-unpriced. Nil-safe: no
+// id not in the allowlist, e.g. gpt-5.6-sol), no visible-but-unpriced. Nil-safe: no
 // filter wired → service.ServableClientFacingIDs fail-opens to the candidate set.
 func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []string {
 	if h == nil || h.tkModelListFilter == nil {
@@ -56,12 +57,54 @@ func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []str
 	return h.tkModelListFilter.ServableClientFacingIDs(ctx, platform)
 }
 
+// tkUniversalModelIDs returns the metadata model list for a universal API key.
+// Universal request routing is model-driven, so GET /v1/models deliberately skips
+// the resolver and has no single backing group. The list must therefore be the
+// union of the key owner's entitled groups, not GatewayService.GetAvailableModels
+// with groupID=nil (that is the global schedulable account pool).
+func (h *GatewayHandler) tkUniversalModelIDs(ctx context.Context, apiKey *service.APIKey, forcedPlatform string) ([]string, bool) {
+	if h == nil || h.apiKeyService == nil || h.gatewayService == nil || apiKey == nil || !apiKey.IsUniversal() {
+		return nil, false
+	}
+	groups, err := h.apiKeyService.GetAvailableGroups(ctx, apiKey.UserID)
+	if err != nil {
+		return nil, true
+	}
+	modelSet := make(map[string]struct{})
+	for _, group := range groups {
+		if strings.HasPrefix(group.Name, "__tk_probe_") {
+			continue
+		}
+		if forcedPlatform != "" && group.Platform != forcedPlatform {
+			continue
+		}
+		groupID := group.ID
+		ids := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
+		ids = h.tkFilterModelIDs(ctx, group.Platform, ids)
+		if len(ids) == 0 {
+			ids = h.servableIDs(ctx, group.Platform)
+		}
+		for _, id := range ids {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				modelSet[id] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(modelSet))
+	for id := range modelSet {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, true
+}
+
 // tkOpenAIDefaultModelIDs returns the /v1/models fallback for OpenAI-compat
 // platforms as []openai.Model, synthesized from the unified servable set
 // (servableIDs) and preferring the canonical openai.DefaultModels entry for an id
 // when present (DisplayName/Created fidelity), else synthesizing — mirroring
 // writeOpenAIModelsList. Converges with /pricing (drops advertised_dead like
-// gpt-5.2/gpt-image-*; surfaces every servable allowlist id).
+// gpt-5.6*/gpt-image-*; surfaces every servable allowlist id).
 func (h *GatewayHandler) tkOpenAIDefaultModelIDs(ctx context.Context, platform string) []openai.Model {
 	return openai.ModelsForIDs(h.servableIDs(ctx, platform))
 }

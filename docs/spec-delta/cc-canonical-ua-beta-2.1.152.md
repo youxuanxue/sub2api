@@ -17,7 +17,7 @@ Community / upstream context (why this PR exists, not what it fully solves):
 | Anthropic 2026-04 third-party policy | OAuth subscription plan limits apply to **first-party cc**; third-party harnesses draw **extra usage** even with perfect beta alignment. |
 | LINUX DO (deployment / ban threads) | **TLS/HTTP fingerprint mismatch**, IP profile, pooling concurrency, and token refresh batching dominate anecdotal ban stories — beta/UA alone is insufficient. |
 
-Related TK docs: `docs/accounts/anthropic-oauth-edge-guidelines.md`. Prior mimicry work: `docs/spec-delta-2489-580-no-web-impact.md`.
+Related TK docs: `docs/accounts/anthropic-oauth-edge-guidelines.md`. Prior mimicry work: `docs/spec-delta/2489-580-no-web-impact.md`.
 
 ## Delta
 

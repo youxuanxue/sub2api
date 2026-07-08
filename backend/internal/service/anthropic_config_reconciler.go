@@ -55,6 +55,16 @@ const (
 	anthropicEdgeBalanceFloorDefault   = 9999999.0
 )
 
+// surfaceCCrossPlatformMirrorPlatforms lists native-platform prod mirror stubs whose
+// edge pool capacity is mirrored via group_scope=caller (the stub relay api-key's
+// group). Anthropic-transport stubs (cc-*, kiro-*) stay on isMirrorStub +
+// mirrorCapacityPlatform; newapi "all" stubs are excluded (no single platform sum).
+var surfaceCCrossPlatformMirrorPlatforms = []string{
+	PlatformOpenAI,
+	PlatformGrok,
+	PlatformAntigravity,
+}
+
 // anthropicReconcilerLockRelease is the compare-and-delete unlock script — only
 // the instance that holds the lock may delete it (mirrors the ops alert evaluator).
 var anthropicReconcilerLockRelease = redis.NewScript(`
@@ -455,33 +465,57 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 		if !r.isMirrorStub(a, re) {
 			continue
 		}
-		baseURL := strings.TrimSpace(a.GetCredential("base_url"))
-		apiKey := strings.TrimSpace(a.GetCredential("api_key"))
-		if baseURL == "" || apiKey == "" {
-			continue
-		}
-		// A mirror stub's transport platform is always anthropic-apikey, but the
-		// edge pool it represents (its capacity source) may differ — kiro rides the
-		// same relay shape. credentials.mirror_platform declares which edge pool to
-		// mirror; absent → anthropic (back-compat: every existing stub stays correct).
 		platform := mirrorCapacityPlatform(a.GetCredential("mirror_platform"))
-		total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey, platform)
-		if !ok {
-			// Hard rule: failure/timeout/5xx/<1 → skip, never write 0.
-			continue
-		}
-		if a.Concurrency == total {
-			continue
-		}
-		want := total
-		if _, err := r.accounts.BulkUpdate(ctx, []int64{a.ID}, AccountBulkUpdate{Concurrency: &want}); err != nil {
-			slog.Warn("anthropic config reconciler: mirror concurrency write failed",
-				"account_id", a.ID, "account_name", a.Name, "want", want, "err", err)
-			continue
-		}
-		slog.Info("anthropic config reconciler: stub concurrency mirrored from edge (local deployment only)",
-			"account_id", a.ID, "account_name", a.Name, "base_url", baseURL, "concurrency", want)
+		r.applyConcurrencyMirrorFromEdge(ctx, a, platform, false)
 	}
+	for _, platform := range surfaceCCrossPlatformMirrorPlatforms {
+		stubs, err := r.accounts.ListByPlatform(ctx, platform)
+		if err != nil {
+			slog.Warn("anthropic config reconciler: list mirror stubs failed",
+				"platform", platform, "err", err)
+			continue
+		}
+		for i := range stubs {
+			a := &stubs[i]
+			if a.Type != AccountTypeAPIKey || !isEdgeMirrorStub(a, re) {
+				continue
+			}
+			poolPlatform := edgeStubPoolPlatform(a)
+			if poolPlatform == edgeStubAllPoolsPlatform {
+				continue
+			}
+			r.applyConcurrencyMirrorFromEdge(ctx, a, poolPlatform, true)
+		}
+	}
+}
+
+func (r *AnthropicConfigReconciler) applyConcurrencyMirrorFromEdge(
+	ctx context.Context,
+	a *Account,
+	platform string,
+	groupScopeCaller bool,
+) {
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+	apiKey := strings.TrimSpace(a.GetCredential("api_key"))
+	if baseURL == "" || apiKey == "" {
+		return
+	}
+	total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey, platform, groupScopeCaller)
+	if !ok {
+		// Hard rule: failure/timeout/5xx/<1 → skip, never write 0.
+		return
+	}
+	if a.Concurrency == total {
+		return
+	}
+	want := total
+	if _, err := r.accounts.BulkUpdate(ctx, []int64{a.ID}, AccountBulkUpdate{Concurrency: &want}); err != nil {
+		slog.Warn("anthropic config reconciler: mirror concurrency write failed",
+			"account_id", a.ID, "account_name", a.Name, "want", want, "err", err)
+		return
+	}
+	slog.Info("anthropic config reconciler: stub concurrency mirrored from edge (local deployment only)",
+		"account_id", a.ID, "account_name", a.Name, "base_url", baseURL, "concurrency", want)
 }
 
 // mirrorCapacityPlatform normalizes a stub's credentials.mirror_platform into the
@@ -490,9 +524,9 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 // anthropic pool). A non-empty value is passed through verbatim (lower/trimmed)
 // rather than coerced to a known platform: the edge endpoint is the authoritative
 // validator and rejects anything it does not support, so an unknown/typo'd value
-// (e.g. "openai", "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write
-// 0, never silently mirror the wrong pool. Coercing unknowns to "anthropic" here
-// would reintroduce the exact silent-wrong-pool bug this surface exists to kill.
+// (e.g. "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write 0, never
+// silently mirror the wrong pool. Coercing unknowns to "anthropic" here would
+// reintroduce the exact silent-wrong-pool bug this surface exists to kill.
 func mirrorCapacityPlatform(raw string) string {
 	p := strings.ToLower(strings.TrimSpace(raw))
 	if p == "" {
@@ -502,12 +536,20 @@ func mirrorCapacityPlatform(raw string) string {
 }
 
 // fetchEdgeCapacity GETs {base_url}/api/v1/edge/scheduling-capacity?platform={platform}
-// with x-api-key auth. Returns (total, true) only on a 2xx with total_concurrency >= 1.
-func (r *AnthropicConfigReconciler) fetchEdgeCapacity(ctx context.Context, baseURL, apiKey, platform string) (int, bool) {
+// (and &group_scope=caller for native-platform mirror stubs) with x-api-key auth.
+// Returns (total, true) only on a 2xx with total_concurrency >= 1.
+func (r *AnthropicConfigReconciler) fetchEdgeCapacity(
+	ctx context.Context,
+	baseURL, apiKey, platform string,
+	groupScopeCaller bool,
+) (int, bool) {
 	if r.http == nil {
 		return 0, false
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/edge/scheduling-capacity?platform=" + url.QueryEscape(platform)
+	if groupScopeCaller {
+		endpoint += "&group_scope=caller"
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, anthropicReconcilerHTTPTO)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)

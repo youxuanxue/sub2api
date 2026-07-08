@@ -141,11 +141,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 读取请求体
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		writeReadRequestBodyError(c, err, h.errorResponse)
 		return
 	}
 
@@ -1022,6 +1018,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
+	if apiKey != nil && apiKey.IsUniversal() && groupID == nil {
+		if models, ok := h.tkUniversalModelIDs(c.Request.Context(), apiKey, platform); ok {
+			writeModelsList(c, models)
+			return
+		}
+	}
+
 	// Get available models from account configurations, filtered to the
 	// selected group platform so cross-platform model_mapping entries on
 	// sibling accounts in the same group don't leak through.
@@ -1817,11 +1820,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 读取请求体
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		writeReadRequestBodyError(c, err, h.errorResponse)
 		return
 	}
 

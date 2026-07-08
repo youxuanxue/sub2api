@@ -276,7 +276,7 @@ Edge TokenKey 已暴露 /v1/chat/completions 和 /v1/messages 等网关入口。
 > **SUPERSEDED 2026-06-07：本节「EC2/CFN 为默认 Edge 路径」的判定已废止。** edges 改为
 > **Lightsail-only**（EC2/CFN 的 edge 路径、workflow `deploy-edge-stage0.yml`、模板
 > `stage0-edge-ec2.yaml`、EIP 轮换工具均已删除，`edge-targets.json` 清空为 stub）。
-> **prod 主网关仍是 EC2/CFN，不受影响。** 现行 edge 形态见 `docs/spec-delta-edge-lightsail.md`、
+> **prod 主网关仍是 EC2/CFN，不受影响。** 现行 edge 形态见 `docs/spec-delta/edge-lightsail.md`、
 > `deploy/aws/lightsail/README.md` 与 skill `tokenkey-stage0-edge-lightsail-expansion`。
 > 以下历史正文保留作设计沿革记录。
 

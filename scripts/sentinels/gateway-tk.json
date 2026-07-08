@@ -165,7 +165,9 @@
       "must_contain": [
         "maybeSendAlertFeishuRecovery",
         "markFiringDelivered",
-        "strings.EqualFold(strings.TrimSpace(rule.Severity), \"P0\")",
+        "opsAlertFeishuSeverityAllowed",
+        "ruleSeverity == \"P0\" && eventSeverity == \"P0\"",
+        "OpsAlertMetricClientVisibleFailureCount",
         "rule.NotifyEmail",
         "opsFeishuDedupeKey",
         "opsFeishuRecoveryDedupeKey",
@@ -173,7 +175,7 @@
         "s.limiter.SetLimit(cfg.RateLimitPerHour)",
         "s.cfg.Server.FrontendURL"
       ],
-      "rationale": "TK companion that keeps Feishu alerting P0-only, tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Paired green recovery cards must fire only after a delivered firing card (firedFeishuEventIDs) and use a separate recovery dedupe key so resolve notifications are not blocked by the firing cooldown. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise. FrontendURL threads the per-node public base URL into the card so prod vs each edge is distinguishable; losing it silently regresses every card back to an unattributable 'overall'."
+      "rationale": "TK companion that keeps Feishu alerting limited to P0 plus the explicit P1 client_visible_failure_count real-user failure exception, tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Paired green recovery cards must fire only after a delivered firing card (firedFeishuEventIDs) and use a separate recovery dedupe key so resolve notifications are not blocked by the firing cooldown. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise. FrontendURL threads the per-node public base URL into the card so prod vs each edge is distinguishable; losing it silently regresses every card back to an unattributable 'overall'."
     },
     {
       "path": "backend/internal/service/ops_feishu_notifier_tk.go",
@@ -1865,7 +1867,10 @@
       "must_contain": [
         "func (h *EdgeCapacityHandler) GetSchedulingCapacity(",
         "SumConcurrencyAnthropicByGroup(",
-        "anthropicDefaultGroupName"
+        "SumConcurrencyByPlatformAndGroupID(",
+        "anthropicDefaultGroupName",
+        "group_scope=caller",
+        "PlatformOpenAI"
       ],
       "rationale": "Edge capacity read endpoint (surface C): GET /api/v1/edge/scheduling-capacity exposes Σ schedulable anthropic concurrency so prod's reconciler can mirror a live edge's capacity onto its stub. The pool partitions by group — capacity counts ONLY the default scheduling pool (SumConcurrencyAnthropicByGroup with anthropicDefaultGroupName = \"default\", the group every edge's anthropic accounts actually belong to), not every anthropic row across all groups; a silent switch to the unscoped global sum would over-count cross-group accounts. The group name MUST stay \"default\": edges keep their anthropic accounts in an operator-managed group named \"default\", which INTENTIONALLY differs from the \"<platform>-default\" convention of the simple-mode seed + admin auto-bind (those would yield \"anthropic-default\", which returns 0 on the live edge — PR #476, then its revert). Do not \"correct\" it to anthropic-default to match the seed convention; that reintroduces the silent always-0 no-op. Read-only, off the gateway billing/concurrency chain. Silent deletion would break the prod concurrency-mirror without a compile error (prod would just stop converging)."
     },
@@ -1984,6 +1989,8 @@
       "must_contain": [
         "func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(",
         "skip, never write 0",
+        "surfaceCCrossPlatformMirrorPlatforms",
+        "group_scope=caller",
         "func (r *AnthropicConfigReconciler) reportTierDrift("
       ],
       "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
@@ -3037,10 +3044,11 @@
       "path": "backend/internal/service/gateway_request_tk_bare_model_alias.go",
       "must_contain": [
         "func tkDeriveBareModelAliases(set map[string]struct{}) map[string]string",
+        "func tkDeriveDottedVersionAliases(set map[string]struct{}) map[string]string",
         "func TkApplyBareModelAlias(platform string, parsed *ParsedRequest) ([]byte, string)",
-        "tkDeriveBareModelAliases(supportedAnthropicCatalogModels)"
+        "tkDeriveAnthropicModelAliases(supportedAnthropicCatalogModels)"
       ],
-      "rationale": "Bare claude family-name fallback (\"opus\"/\"sonnet\"/\"haiku\"/\"fable\"/\"claude-<family>\" → latest servable full id), derived dynamically from the servable allowlist (pricing_catalog_supported_models_tk.go) with no hand-kept family list — a servable refresh changes the answer with zero code edits. Trigger is lexical-exact only (after lower+trim and [1m] strip); full ids, dated snapshots and the retired claude-3-5-haiku-20241022 are natural byte-identical misses, so the deprecated-model interceptor and the #617 unsupported-model 400 contract are untouched. If this companion or its derivation from the real table is silently dropped by an upstream merge, bare family names regress to 'Unsupported model' 400s."
+      "rationale": "Anthropic shorthand model aliases (\"opus\"/\"sonnet\"/\"haiku\"/\"fable\"/\"claude-<family>\" → latest servable full id, plus dotted version aliases like \"opus-4.7\"/\"claude-opus-4.7\" → the catalog-backed canonical id), derived dynamically from the servable allowlist (pricing_catalog_supported_models_tk.go) with no hand-kept family list. A servable refresh changes the answer with zero code edits. Trigger is lexical-exact only (after lower+trim and [1m] strip); full ids, dated snapshots and the retired claude-3-5-haiku-20241022 are natural byte-identical misses, so the deprecated-model interceptor and unsupported-model 400 contract are untouched. If this companion or its derivation from the real table is silently dropped by an upstream merge, shorthand names regress to 'Unsupported model' 400s."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",
@@ -4151,6 +4159,16 @@
       "rationale": "Universal-key routing must use the same account-level model+protocol predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, endpoint-shape capability gates (including video-capable accounts), the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model/protocol while existing /v1/models output still looks plausible."
     },
     {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "func normalizeModelMappingLookupKey(model string) string",
+        "return strings.ToLower(strings.TrimSpace(model))",
+        "if normalizeModelMappingLookupKey(key) == lookupKey",
+        "func matchNormalizedWildcardMappingResult(mapping map[string]string, requestedModel string)"
+      ],
+      "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged."
+    },
+    {
       "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "ProvideTKUniversalModelsProvider(",
@@ -4169,9 +4187,27 @@
         "TestResolve_GeminiMessagesAnthropicShapeAvoidsOpenAIPassthrough",
         "TestUniversalGroupSupportsModel_NewapiRequiresCompatPoolMember",
         "TestModelInServedSet_UsesDirectMappingAliases",
+        "newapi served set matches mixed-case deepseek",
+        "newapi served wildcard matches mixed-case deepseek",
+        "TestUniversalOpenAICompatAccountSupportsModel_MixedCaseMappingLookup",
         "TestResolve_User16GPTAliasPicksOpenAIGroup"
       ],
       "rationale": "Focused regression coverage for universal/direct-key model-support parity: direct provider wins over the served-set fallback, provider unknown fails over safely, OpenAI-compatible mapping and newapi pool membership match direct scheduler semantics, served-set fallback is alias/wildcard aware, and the user16 gpt5.4-mini alias resolves to the OpenAI group instead of newapi. These tests are the semantic guard for the production 429 regression."
+    },
+    {
+      "path": "backend/internal/service/account_wildcard_test.go",
+      "must_contain": [
+        "newapi mapping matches mixed-case client spelling and returns canonical upstream",
+        "case-insensitive lookup prefers exact requested spelling when configured",
+        "wildcard mapping matches mixed-case client spelling",
+        "TestAccountIsModelSupported_MixedCaseMappingLookup",
+        "DeepSeek-V4-Pro",
+        "deepSeek-v4-pro",
+        "DeepSeek-V4-Flash",
+        "deepSeek-v4-flash",
+        "DeepSeek-V4-Max"
+      ],
+      "rationale": "Focused regression coverage for account model_mapping case-normalized lookup. It pins both mapping resolution and IsModelSupported so mixed-case DeepSeek client spellings route to the canonical lowercase upstream names, exact requested spelling remains highest priority, normalized wildcard matching still works, and unmapped mixed-case variants remain rejected."
     },
     {
       "path": "backend/internal/service/account_openai_passthrough_test.go",

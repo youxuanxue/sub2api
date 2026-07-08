@@ -93,7 +93,7 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 // (output_cost_per_second) — both with NO token price — must appear with their
 // billing_mode + per-unit price instead of being dropped by the old token-only
 // guard. This is the data the /pricing page and Studio render as "$0.04 /image"
-// and "$0.40 /s" (docs/playground-media-redesign.md batch 2).
+// and "$0.40 /s" (docs/archive/studio/playground-media-redesign.md batch 2).
 func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 	const fixture = `{
 	  "imagen-4.0-generate-001": {"output_cost_per_image":0.04,"mode":"image_generation","litellm_provider":"vertex_ai"},
@@ -399,8 +399,23 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"openai", "gpt-5.6-luna", false},
 		{"openai", "gpt-5.6", false},
 		{"openai", "gpt-5.6-chat-latest", false},
-		{"openai", "gpt-5-mini", true},   // servable extra beyond canonical
-		{"openai", "gpt-5.2", false},     // canonical but probe-unservable (502)
+		{"openai", "codex-auto-review", true},
+		{"openai", "gpt-5", true},
+		{"openai", "gpt-5-codex", true},
+		{"openai", "gpt-5-chat", true},
+		{"openai", "gpt-5-chat-latest", true},
+		{"openai", "gpt-5-mini", true},
+		{"openai", "gpt-5-nano", true},
+		{"openai", "gpt-5-pro", true},
+		{"openai", "gpt-5-search-api", true},
+		{"openai", "gpt-5.1", true},
+		{"openai", "gpt-5.1-chat-latest", true},
+		{"openai", "gpt-5.2", true},
+		{"openai", "gpt-5.2-pro", true},
+		{"openai", "gpt-5.3", true},
+		{"openai", "gpt-5.3-codex", true},
+		{"openai", "gpt-5.3-codex-spark", true},
+		{"openai", "gpt-5.4-pro", true},
 		{"openai", "gpt-image-2", false}, // not servable on a probeable path
 		{"openai", "gpt-4o", false},
 		{"azure_openai", "gpt-4", false},                      // azure_openai → openai platform, gated

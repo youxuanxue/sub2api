@@ -655,28 +655,80 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 }
 
 func mappingSupportsRequestedModel(mapping map[string]string, requestedModel string) bool {
-	if requestedModel == "" {
-		return false
-	}
-	if _, exists := mapping[requestedModel]; exists {
-		return true
-	}
-	for pattern := range mapping {
-		if matchWildcard(pattern, requestedModel) {
-			return true
-		}
-	}
-	return false
+	_, matched := resolveRequestedModelInMapping(mapping, requestedModel)
+	return matched
 }
 
 func resolveRequestedModelInMapping(mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
+	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
 		return "", false
 	}
 	if mappedModel, exists := mapping[requestedModel]; exists {
 		return mappedModel, true
 	}
-	return matchWildcardMappingResult(mapping, requestedModel)
+	lookupKey := normalizeModelMappingLookupKey(requestedModel)
+	if lookupKey != "" && lookupKey != requestedModel {
+		if mappedModel, exists := mapping[lookupKey]; exists {
+			return mappedModel, true
+		}
+	}
+	if lookupKey != "" {
+		for _, key := range sortedModelMappingKeys(mapping) {
+			if key == requestedModel || key == lookupKey {
+				continue
+			}
+			if normalizeModelMappingLookupKey(key) == lookupKey {
+				return mapping[key], true
+			}
+		}
+	}
+	if mappedModel, matched := matchWildcardMappingResult(mapping, requestedModel); matched {
+		return mappedModel, true
+	}
+	if lookupKey != "" && lookupKey != requestedModel {
+		if mappedModel, matched := matchNormalizedWildcardMappingResult(mapping, lookupKey); matched {
+			return mappedModel, true
+		}
+	}
+	return requestedModel, false
+}
+
+func normalizeModelMappingLookupKey(model string) string {
+	return strings.ToLower(strings.TrimSpace(model))
+}
+
+func sortedModelMappingKeys(mapping map[string]string) []string {
+	keys := make([]string, 0, len(mapping))
+	for key := range mapping {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func matchNormalizedWildcardMappingResult(mapping map[string]string, requestedModel string) (string, bool) {
+	type patternMatch struct {
+		pattern string
+		target  string
+	}
+	var matches []patternMatch
+	for pattern, target := range mapping {
+		normalizedPattern := normalizeModelMappingLookupKey(pattern)
+		if matchWildcard(normalizedPattern, requestedModel) {
+			matches = append(matches, patternMatch{pattern: pattern, target: target})
+		}
+	}
+	if len(matches) == 0 {
+		return requestedModel, false
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if len(matches[i].pattern) != len(matches[j].pattern) {
+			return len(matches[i].pattern) > len(matches[j].pattern)
+		}
+		return matches[i].pattern < matches[j].pattern
+	})
+	return matches[0].target, true
 }
 
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）

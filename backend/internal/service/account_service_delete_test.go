@@ -227,6 +227,10 @@ func (s *accountRepoStub) SumConcurrencyByPlatform(context.Context, string) (int
 	return 0, nil
 }
 
+func (s *accountRepoStub) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
+	return 0, nil
+}
+
 func (s *accountRepoStub) RevertProxyFallback(ctx context.Context, accountID int64) error {
 	panic("unexpected RevertProxyFallback call")
 }

@@ -777,6 +777,35 @@ func TestClassifyOpsOtherErrorsStillCountForSLA(t *testing.T) {
 	require.Equal(t, "gateway", errorSource)
 }
 
+func TestClassifyOpsClientClosedRequestExcludedFromSLAFault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	service.MarkOpsClientClosedRequest(c)
+
+	errType := normalizeOpsErrorType("api_error", "CLIENT_CLOSED_REQUEST")
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "context canceled", "CLIENT_CLOSED_REQUEST", statusClientClosedRequest)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "request", phase)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}
+
+func TestClassifyOpsStatus499ExcludedFromSLAFault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	errType := normalizeOpsErrorType("api_error", "")
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "context canceled", "", statusClientClosedRequest)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "request", phase)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}
+
 func TestClassifyOpsUnsupportedModelRoutingCountsAsPlatformSLAFault(t *testing.T) {
 	tests := []string{
 		"No available accounts: no available accounts supporting model: made-up-model",

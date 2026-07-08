@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Canonical account-model gateway probe — also used by edge native oauth smoke.
+# For modelops, this separates TokenKey local model_mapping/floor rejection
+# (gateway_rejected, often "Unsupported model") from upstream account capability
+# rejection (upstream_rejected; exact text is platform-specific).
 # Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
 # Skill wrapper: .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh
 set -euo pipefail
@@ -250,6 +253,7 @@ SET
   claude_code_only = false,
   model_routing_enabled = false,
   model_routing = '{}'::jsonb,
+  allow_messages_dispatch = true,
   supported_model_scopes = '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
   messages_dispatch_model_config = '{}'::jsonb,
   models_list_config = '{}'::jsonb,
@@ -266,7 +270,7 @@ RETURNING id;
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, supported_model_scopes,
+  model_routing_enabled, model_routing, allow_messages_dispatch, supported_model_scopes,
   messages_dispatch_model_config, models_list_config,
   sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
@@ -275,7 +279,7 @@ INSERT INTO groups (
   '$(sql_escape "$PLATFORM")',
   1.0, true, 'active',
   'standard', 30, false,
-  false, '{}'::jsonb, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
   '{}'::jsonb, '{}'::jsonb,
   2147483000, 0, NOW(), NOW()
 )
@@ -287,7 +291,7 @@ else
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, supported_model_scopes,
+  model_routing_enabled, model_routing, allow_messages_dispatch, supported_model_scopes,
   messages_dispatch_model_config, models_list_config,
   sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
@@ -296,7 +300,7 @@ INSERT INTO groups (
 	  '$(sql_escape "$PLATFORM")',
 	  1.0, true, 'active',
 	  'standard', 30, false,
-	  false, '{}'::jsonb, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+	  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
 	  '{}'::jsonb, '{}'::jsonb,
 	  2147483000, 0, NOW(), NOW()
 	) RETURNING id;
@@ -608,6 +612,9 @@ def classify(code: str, body_text: str, usage_row, curl_err: str):
         return "upstream_rejected"
     if n == 429 and "no available accounts" in low:
         return "gateway_rejected"
+    # Keep "Unsupported model: X" (TokenKey local floor/model_mapping rejection)
+    # as gateway_rejected. Platform-specific "not supported" errors mean the
+    # upstream path was reached and rejected the account/model/request.
     if n in (400, 404) and any(s in low for s in ["invalid model", "model_not_found", "not supported", "does not exist", "not a valid"]):
         return "upstream_rejected"
     if n >= 500:

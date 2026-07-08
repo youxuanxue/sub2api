@@ -12,7 +12,7 @@ import (
 // prefix-wins (haiku-4-5 vs dated) and family emergence (zenith is not
 // hand-listed anywhere in the implementation).
 var fixtureBareAliasSet = map[string]struct{}{
-	"claude-opus-4-1": {}, "claude-opus-4-9": {}, "claude-opus-4-10": {},
+	"claude-opus-4-1": {}, "claude-opus-4-7": {}, "claude-opus-4-9": {}, "claude-opus-4-10": {},
 	"claude-sonnet-4-5": {}, "claude-sonnet-4-6": {},
 	"claude-haiku-4-5": {}, "claude-haiku-4-5-20251001": {},
 	"claude-fable-5": {}, "claude-zenith-6-2": {},
@@ -28,6 +28,25 @@ func TestTkDeriveBareModelAliases_Fixture(t *testing.T) {
 	}
 	if got := tkDeriveBareModelAliases(fixtureBareAliasSet); !reflect.DeepEqual(got, want) {
 		t.Fatalf("derived aliases:\n got=%v\nwant=%v", got, want)
+	}
+}
+
+func TestTkDeriveDottedVersionAliases_Fixture(t *testing.T) {
+	aliases := tkDeriveDottedVersionAliases(fixtureBareAliasSet)
+	for in, want := range map[string]string{
+		"opus-4.1":   "claude-opus-4-1",
+		"opus-4.7":   "claude-opus-4-7",
+		"opus-4.10":  "claude-opus-4-10",
+		"sonnet-4.6": "claude-sonnet-4-6",
+		"haiku-4.5":  "claude-haiku-4-5",
+		"zenith-6.2": "claude-zenith-6-2",
+	} {
+		if got := aliases[in]; got != want {
+			t.Errorf("dotted alias %q = %q, want %q", in, got, want)
+		}
+	}
+	if got := aliases["haiku-4.5.20251001"]; got != "" {
+		t.Fatalf("dated model must not derive a dotted shorthand alias, got %q", got)
 	}
 }
 
@@ -48,10 +67,11 @@ func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T) {
 }
 
 func TestTkResolveBareModelAlias_Trigger(t *testing.T) {
-	aliases := tkDeriveBareModelAliases(fixtureBareAliasSet)
+	aliases := tkDeriveAnthropicModelAliases(fixtureBareAliasSet)
 	for in, want := range map[string]string{
 		"opus": "claude-opus-4-10", "Opus ": "claude-opus-4-10", "OPUS": "claude-opus-4-10",
 		"claude-opus": "claude-opus-4-10", "opus[1m]": "claude-opus-4-10",
+		"opus-4.7": "claude-opus-4-7", "claude-opus-4.7": "claude-opus-4-7",
 		"sonnet": "claude-sonnet-4-6", "claude-haiku": "claude-haiku-4-5",
 		"fable": "claude-fable-5", "zenith": "claude-zenith-6-2",
 	} {
@@ -60,16 +80,46 @@ func TestTkResolveBareModelAlias_Trigger(t *testing.T) {
 		}
 	}
 	for _, in := range []string{
-		"claude-opus-4-8",            // full id — never rewritten
-		"claude-opus-4-8[1m]",        // strips to full id, still miss
-		"claude-sonnet-4-5-20250929", // dated snapshot
-		"claude-3-5-haiku-20241022",  // retired: versioned → natural miss; deprecated interceptor owns it
-		"Claude-Opus-4.8",            // dotted variant — not a bare family word
+		"claude-opus-4-8",                            // full id — never rewritten
+		"claude-opus-4-8[1m]",                        // strips to full id, still miss
+		"claude-sonnet-4-5-20250929",                 // dated snapshot
+		"claude-3-5-haiku-20241022",                  // retired: versioned → natural miss; deprecated interceptor owns it
+		"Claude-Opus-4.8",                            // dotted variant without a fixture-backed canonical id
 		"gpt", "gemini", "claude-zzz-5", "", "opusx", // no fuzzy/substring matching
 	} {
 		if got, ok := tkResolveBareModelAlias(in, aliases); ok {
 			t.Errorf("resolve(%q) = (%q, true), want miss", in, got)
 		}
+	}
+}
+
+func TestTkApplyBareModelAlias_DottedVersionRewrite(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		model    string
+		resolved string
+	}{
+		{"no prefix", "opus-4.7", "claude-opus-4-7"},
+		{"claude prefix", "claude-opus-4.7", "claude-opus-4-7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := []byte(`{"model":"` + tc.model + `","max_tokens":1}`)
+			parsed, err := ParseGatewayRequest(NewRequestBodyRef(append([]byte(nil), orig...)), PlatformAnthropic)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			newBody, resolved := TkApplyBareModelAlias(PlatformAnthropic, parsed)
+			if resolved != tc.resolved {
+				t.Fatalf("resolved = %q, want %q", resolved, tc.resolved)
+			}
+			want := []byte(`{"model":"` + tc.resolved + `","max_tokens":1}`)
+			if !bytes.Equal(newBody, want) {
+				t.Fatalf("dotted rewrite:\n got=%s\nwant=%s", newBody, want)
+			}
+			if parsed.Model != tc.resolved || !bytes.Equal(parsed.Body.Bytes(), want) {
+				t.Fatalf("parsed not refreshed: model=%q body=%s", parsed.Model, parsed.Body.Bytes())
+			}
+		})
 	}
 }
 

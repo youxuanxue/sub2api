@@ -1,7 +1,7 @@
 {
   "_meta": {
     "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). Entries store pre-tax official list prices; billing and public /pricing apply tkOfficialListBaseTaxMultiplier (1.06) at resolution time for deepseek, dashscope, and volcengine so display matches charge. Channel (DB) pricing overrides sit above this layer and are not re-taxed. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that. Video entries MUST declare failure_billing (currently only 'success_only' is legal): TokenKey refunds the user in full when a video task ends failed, which is only loss-free if the provider does not charge for failed tasks — the person pricing a new video model verifies that on the official page and declares it here; scripts/checks/pricing-overlay.py enforces the field, and any other value must first change the refund design.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12/2026-07-02, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in the live configured Ark account and priced from official sources are served — seedream-4.5/5.0 need separate 2K activation probes/pricing before serving, seedance-1.0-lite and wan2.1 returned unsupported on 2026-07-02; video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12/2026-07-02, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in the live configured Ark account and priced from official sources are served — seedream-4.5/5.0 need separate 2K activation probes/pricing before serving, seedance-1.0-lite and wan2.1 returned unsupported on 2026-07-02; video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
   },
   "grok-imagine-image": {
@@ -843,7 +843,7 @@
     "input_cost_per_token": 1.7910447761194032e-06,
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_read_input_token_cost": 1.7910447761194032e-06,
-    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
   },
   "qwen3.7-max-preview": {
     "litellm_provider": "dashscope",
@@ -851,7 +851,7 @@
     "input_cost_per_token": 1.7910447761194032e-06,
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_read_input_token_cost": 1.7910447761194032e-06,
-    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
   },
   "qwen3.7-max-2026-05-17": {
     "litellm_provider": "dashscope",
@@ -859,7 +859,7 @@
     "input_cost_per_token": 1.7910447761194032e-06,
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_read_input_token_cost": 1.7910447761194032e-06,
-    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
   },
   "qwen3.7-max-2026-05-20": {
     "litellm_provider": "dashscope",
@@ -867,7 +867,7 @@
     "input_cost_per_token": 1.7910447761194032e-06,
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_read_input_token_cost": 1.7910447761194032e-06,
-    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
   },
   "qwen3.7-max-2026-06-08": {
     "litellm_provider": "dashscope",
@@ -875,7 +875,7 @@
     "input_cost_per_token": 1.7910447761194032e-06,
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_read_input_token_cost": 1.7910447761194032e-06,
-    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
   },
   "qwen3.7-plus": {
     "litellm_provider": "dashscope",
@@ -899,7 +899,7 @@
         "cache_read_input_token_cost": 8.955223880597016e-07
       }
     ],
-    "source": "Alibaba DashScope qwen3.7-plus official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<256K in ¥2/M out ¥8/M; 256K<1M in ¥6/M out ¥24/M; non-thinking == thinking output); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — Batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+    "source": "Alibaba DashScope qwen3.7-plus official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<256K in ¥2/M out ¥8/M; 256K<1M in ¥6/M out ¥24/M; non-thinking == thinking output); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — Batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "qwen-max": {
     "litellm_provider": "dashscope",
@@ -907,7 +907,7 @@
     "input_cost_per_token": 3.582089552238806e-07,
     "output_cost_per_token": 1.432835820895522e-06,
     "cache_read_input_token_cost": 3.582089552238806e-07,
-    "source": "Alibaba DashScope qwen-max (legacy stable alias, 当前能力等同 qwen-max snapshot) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥2.4/M out ¥9.6/M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover (empty-pool 429 incident). List price only — Batch (half-price)/context-cache discounts not modeled (bill at list). International deployment is ~5x higher (¥11.743/¥46.971) and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen-max (legacy stable alias, 当前能力等同 qwen-max snapshot) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥2.4/M out ¥9.6/M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover (empty-pool 429 incident). List price only — Batch (half-price)/context-cache discounts not modeled (bill at list). International deployment is ~5x higher (¥11.743/¥46.971) and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen-turbo": {
     "litellm_provider": "dashscope",
@@ -915,7 +915,7 @@
     "input_cost_per_token": 4.477611940298507e-08,
     "output_cost_per_token": 8.955223880597015e-08,
     "cache_read_input_token_cost": 4.477611940298507e-08,
-    "source": "Alibaba DashScope qwen-turbo (commercial qwen3 alias) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯 in ¥0.3/M, out 非思考 ¥0.6/M); docs/accounts/aliyun_pricing_20260612.md line 394 captured 2026-06-12. Added 2026-06-22 (Goal 2 fleet servable-expansion): client-facing model served via account 60 (dashscope.aliyuncs.com), mapped by tk_042. Output priced at NON-thinking list; enable_thinking defaults FALSE for commercial qwen (same treatment as qwen-plus), thinking-mode output (¥3/M) intentionally NOT modeled (bill at non-thinking list). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen-turbo (commercial qwen3 alias) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯 in ¥0.3/M, out 非思考 ¥0.6/M); docs/evidence/pricing/aliyun_pricing_20260612.md line 394 captured 2026-06-12. Added 2026-06-22 (Goal 2 fleet servable-expansion): client-facing model served via account 60 (dashscope.aliyuncs.com), mapped by tk_042. Output priced at NON-thinking list; enable_thinking defaults FALSE for commercial qwen (same treatment as qwen-plus), thinking-mode output (¥3/M) intentionally NOT modeled (bill at non-thinking list). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen-plus": {
     "litellm_provider": "dashscope",
@@ -946,7 +946,7 @@
         "cache_read_input_token_cost": 7.164179104477612e-07
       }
     ],
-    "source": "Alibaba DashScope qwen-plus (legacy stable alias, 当前能力等同 qwen-plus-2025-12-01) official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=128K in ¥0.8 out ¥2; 128K<=256K in ¥2.4 out ¥20; 256K<=1M in ¥4.8 out ¥48 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover. Output priced at NON-thinking list; thinking-mode output is higher (¥8/¥24/¥64 per tier) and intentionally NOT modeled (bill at non-thinking list). Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+    "source": "Alibaba DashScope qwen-plus (legacy stable alias, 当前能力等同 qwen-plus-2025-12-01) official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=128K in ¥0.8 out ¥2; 128K<=256K in ¥2.4 out ¥20; 256K<=1M in ¥4.8 out ¥48 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover. Output priced at NON-thinking list; thinking-mode output is higher (¥8/¥24/¥64 per tier) and intentionally NOT modeled (bill at non-thinking list). Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "qwen3.6-flash": {
     "litellm_provider": "dashscope",
@@ -970,7 +970,7 @@
         "cache_read_input_token_cost": 7.164179104477612e-07
       }
     ],
-    "source": "Alibaba DashScope qwen3.6-flash official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<256K in ¥1.2/M out ¥7.2/M; 256K<1M in ¥4.8/M out ¥28.8/M; 非思考和思考同价); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+    "source": "Alibaba DashScope qwen3.6-flash official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<256K in ¥1.2/M out ¥7.2/M; 256K<1M in ¥4.8/M out ¥28.8/M; 非思考和思考同价); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "qwen3-coder-plus": {
     "litellm_provider": "dashscope",
@@ -1008,7 +1008,7 @@
         "cache_read_input_token_cost": 2.9850746268656716e-06
       }
     ],
-    "source": "Alibaba DashScope qwen3-coder-plus official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥4/¥16; 32K<=128K ¥6/¥24; 128K<=256K ¥10/¥40; 256K<=1M ¥20/¥200 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — context-cache discount not modeled. Whole-request input-tier via overlay intervals."
+    "source": "Alibaba DashScope qwen3-coder-plus official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥4/¥16; 32K<=128K ¥6/¥24; 128K<=256K ¥10/¥40; 256K<=1M ¥20/¥200 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — context-cache discount not modeled. Whole-request input-tier via overlay intervals."
   },
   "qwen3-8b": {
     "litellm_provider": "dashscope",
@@ -1017,7 +1017,7 @@
     "output_cost_per_token": 2.9850746268656716e-07,
     "thinking_output_cost_per_token": 7.462686567164179e-07,
     "cache_read_input_token_cost": 7.462686567164179e-08,
-    "source": "Alibaba DashScope qwen3-8b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥0.5/M; out 非思考 ¥2/M / 思考 ¥5/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen3-8b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥0.5/M; out 非思考 ¥2/M / 思考 ¥5/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen3-14b": {
     "litellm_provider": "dashscope",
@@ -1026,7 +1026,7 @@
     "output_cost_per_token": 5.970149253731343e-07,
     "thinking_output_cost_per_token": 1.4925373134328358e-06,
     "cache_read_input_token_cost": 1.4925373134328358e-07,
-    "source": "Alibaba DashScope qwen3-14b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥1/M; out 非思考 ¥4/M / 思考 ¥10/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen3-14b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥1/M; out 非思考 ¥4/M / 思考 ¥10/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen3-32b": {
     "litellm_provider": "dashscope",
@@ -1035,7 +1035,7 @@
     "output_cost_per_token": 1.1940298507462686e-06,
     "thinking_output_cost_per_token": 2.9850746268656716e-06,
     "cache_read_input_token_cost": 2.9850746268656716e-07,
-    "source": "Alibaba DashScope qwen3-32b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen3-32b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen3-235b-a22b": {
     "litellm_provider": "dashscope",
@@ -1044,7 +1044,7 @@
     "output_cost_per_token": 1.1940298507462686e-06,
     "thinking_output_cost_per_token": 2.9850746268656716e-06,
     "cache_read_input_token_cost": 2.9850746268656716e-07,
-    "source": "Alibaba DashScope qwen3-235b-a22b (开源版 MoE, 235B total / 22B active, hybrid 非思考和思考模式) official China-mainland (Beijing) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (qwen3-235b-a22b 中国内地 row). Added 2026-06-18 per customer request to surface the flagship Qwen3 model on the Qwen group (account 60), which previously listed only the smaller Qwen3 models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M) — coincidentally identical per-token rates to qwen3-32b — switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for the open-source Qwen3 hybrid base alias, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen3-235b-a22b (开源版 MoE, 235B total / 22B active, hybrid 非思考和思考模式) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (qwen3-235b-a22b 中国内地 row). Added 2026-06-18 per customer request to surface the flagship Qwen3 model on the Qwen group (account 60), which previously listed only the smaller Qwen3 models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M) — coincidentally identical per-token rates to qwen3-32b — switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for the open-source Qwen3 hybrid base alias, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen3.6-27b": {
     "litellm_provider": "dashscope",
@@ -1053,7 +1053,7 @@
     "output_cost_per_token": 2.6865671641791044e-06,
     "thinking_output_cost_per_token": 2.6865671641791044e-06,
     "cache_read_input_token_cost": 4.477611940298508e-07,
-    "source": "Alibaba DashScope qwen3.6-27b (开源版 dense, Qwen3.6 family, released 2026-04-22) official China-mainland (华北2北京) RMB list ÷ 6.7; docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (Qwen3.6 华北2北京 row, single tier 0<Token≤256K). Mirrors Alibaba's two-rate table for the SAME model id (in ¥3/M; out 非思考 ¥18/M / 思考 ¥18/M — i.e. 非思考和思考同价, unlike the older dense qwen3-8b/14b/32b whose thinking rate is higher), switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking (equal here). enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). Added 2026-06-21 per customer request to serve the dense 27B Qwen3.6 model on the Qwen group (account 60). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen3.6-27b (开源版 dense, Qwen3.6 family, released 2026-04-22) official China-mainland (华北2北京) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (Qwen3.6 华北2北京 row, single tier 0<Token≤256K). Mirrors Alibaba's two-rate table for the SAME model id (in ¥3/M; out 非思考 ¥18/M / 思考 ¥18/M — i.e. 非思考和思考同价, unlike the older dense qwen3-8b/14b/32b whose thinking rate is higher), switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking (equal here). enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). Added 2026-06-21 per customer request to serve the dense 27B Qwen3.6 model on the Qwen group (account 60). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen2.5-coder-32b": {
     "litellm_provider": "dashscope",
@@ -1091,7 +1091,7 @@
         "cache_read_input_token_cost": 2.985075e-06
       }
     ],
-    "source": "TK proxy fill — qwen2.5-coder-32b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-plus. Alibaba DashScope qwen3-coder-plus China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥4/¥16, 32K<=128K ¥6/¥24, 128K<=256K ¥10/¥40, 256K<=1M ¥20/¥200 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+    "source": "TK proxy fill — qwen2.5-coder-32b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-plus. Alibaba DashScope qwen3-coder-plus China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥4/¥16, 32K<=128K ¥6/¥24, 128K<=256K ¥10/¥40, 256K<=1M ¥20/¥200 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "qwen2.5-coder-7b": {
     "litellm_provider": "dashscope",
@@ -1129,7 +1129,7 @@
         "cache_read_input_token_cost": 7.462687e-07
       }
     ],
-    "source": "TK proxy fill — qwen2.5-coder-7b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-flash. Alibaba DashScope qwen3-coder-flash China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥1/¥4, 32K<=128K ¥1.5/¥6, 128K<=256K ¥2.5/¥10, 256K<=1M ¥5/¥25 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+    "source": "TK proxy fill — qwen2.5-coder-7b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-flash. Alibaba DashScope qwen3-coder-flash China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥1/¥4, 32K<=128K ¥1.5/¥6, 128K<=256K ¥2.5/¥10, 256K<=1M ¥5/¥25 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "glm-5.2": {
     "litellm_provider": "zhipu",
@@ -1307,7 +1307,7 @@
     "litellm_provider": "antigravity",
     "mode": "image_generation",
     "output_cost_per_image": 0.134,
-    "source": "Gemini 3 Pro Image via antigravity (per-image display /bin/zsh.134 = 1K/2K official Vertex rate, 1120 output tokens; = TK getDefaultImagePrice hardcoded fallback). Ref docs/accounts/google_vertex_pricing_20260619.md. Serves as itself (migration 049 identity mapping; -preview maps into it). Gemini-native image bills via the /v1/chat/completions token path, so this is the display figure. Surfaced by audit-display-coverage 2026-06-27."
+    "source": "Gemini 3 Pro Image via antigravity (per-image display /bin/zsh.134 = 1K/2K official Vertex rate, 1120 output tokens; = TK getDefaultImagePrice hardcoded fallback). Ref docs/evidence/pricing/google_vertex_pricing_20260619.md. Serves as itself (migration 049 identity mapping; -preview maps into it). Gemini-native image bills via the /v1/chat/completions token path, so this is the display figure. Surfaced by audit-display-coverage 2026-06-27."
   },
   "claude-opus-4-6": {
     "litellm_provider": "antigravity",
@@ -1384,5 +1384,353 @@
     "supports_pdf_input": true,
     "supports_reasoning": true,
     "source": "litellm claude-sonnet-5 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-codex": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-codex (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.2": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.2 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.2-pro": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000021,
+    "output_cost_per_token": 0.000168,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.2-pro (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.3-codex": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.3-codex (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.3": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "TokenKey display alias for bare gpt-5.3 from account-76 mapping; price/context mirror litellm gpt-5.3-chat-latest captured via apply-pricing-hotfix.py lookup on 2026-07-09 (same token rate as gpt-5.3-codex)."
+  },
+  "gpt-5.4": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000025,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.00000025,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.4 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.4-mini": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000075,
+    "output_cost_per_token": 0.0000045,
+    "cache_read_input_token_cost": 0.000000075,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.4-mini (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.5": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.00003,
+    "cache_read_input_token_cost": 0.0000005,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.5 (captured via apply-pricing-hotfix.py)"
+  },
+  "codex-auto-review": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "input_cost_per_token_priority": 0.00001,
+    "input_cost_per_token_flex": 0.0000025,
+    "input_cost_per_token_batches": 0.0000025,
+    "input_cost_per_token_above_272k_tokens": 0.00001,
+    "output_cost_per_token": 0.00003,
+    "output_cost_per_token_priority": 0.00006,
+    "output_cost_per_token_flex": 0.000015,
+    "output_cost_per_token_batches": 0.000015,
+    "output_cost_per_token_above_272k_tokens": 0.000045,
+    "cache_read_input_token_cost": 0.0000005,
+    "cache_read_input_token_cost_priority": 0.000001,
+    "cache_read_input_token_cost_flex": 0.00000025,
+    "cache_read_input_token_cost_above_272k_tokens": 0.000001,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Bundled litellm resource backend/resources/model-pricing/model_prices_and_context_window.json codex-auto-review; added to TK overlay because prod display mirror is trimmed and audit-display-coverage requires repo-reliable display pricing."
+  },
+  "gpt-5": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-chat": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": false,
+    "supports_tool_choice": false,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-chat (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-chat-latest": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": false,
+    "supports_tool_choice": false,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-chat-latest (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-mini": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000025,
+    "output_cost_per_token": 0.000002,
+    "cache_read_input_token_cost": 0.000000025,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-mini (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-nano": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000005,
+    "output_cost_per_token": 0.0000004,
+    "cache_read_input_token_cost": 0.000000005,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-nano (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-pro": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000015,
+    "output_cost_per_token": 0.00012,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 272000,
+    "max_tokens": 272000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-pro (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-search-api": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "source": "litellm gpt-5-search-api (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.1": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.1 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.1-chat-latest": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": false,
+    "supports_tool_choice": false,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.1-chat-latest (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.3-codex-spark": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.3-codex-spark (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.4-pro": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00003,
+    "output_cost_per_token": 0.00018,
+    "cache_read_input_token_cost": 0.000003,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.4-pro (captured via apply-pricing-hotfix.py)"
   }
 }

@@ -45,37 +45,11 @@
     </div>
 
     <div class="space-y-1">
-      <div v-if="showGeminiTodayStats && todayStats" class="mb-0.5 flex items-center">
-        <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-            {{ formatKeyRequests }} req
-          </span>
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-            {{ formatKeyTokens }}
-          </span>
-          <span
-            class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
-            :title="t('usage.accountBilled')"
-          >
-            A ${{ formatKeyCost }}
-          </span>
-          <span
-            v-if="todayStats.user_cost != null"
-            class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
-            :title="t('usage.userBilled')"
-          >
-            U ${{ formatKeyUserCost }}
-          </span>
-        </div>
-      </div>
-      <div
-        v-else-if="showGeminiTodayStats && todayStatsLoading"
-        class="mb-0.5 flex items-center gap-1"
-      >
-        <div class="h-3 w-10 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-3 w-8 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-      </div>
+      <TodayStatsBadges
+        v-if="showGeminiTodayStats"
+        :stats="todayStats"
+        :loading="todayStatsLoading"
+      />
       <div v-if="loading" class="space-y-1">
         <div class="flex items-center gap-1">
           <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
@@ -114,13 +88,13 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
+import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps
 } from '../accountUsageCellProps'
 import { useAccountUsageFetch } from './useAccountUsageFetch'
 import { useGeminiUsageMeta } from './useGeminiUsageMeta'
-import { useTodayStatsFormatters } from './useTodayStatsFormatters'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
@@ -139,7 +113,4 @@ const {
   geminiUsageBars,
   showGeminiTodayStats
 } = useGeminiUsageMeta(props.account, usageInfo)
-
-const { formatKeyRequests, formatKeyTokens, formatKeyCost, formatKeyUserCost } =
-  useTodayStatsFormatters(props)
 </script>

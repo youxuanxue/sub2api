@@ -2,7 +2,7 @@
 
 > **Lightsail 是 edge 的唯一路径**（2026-06-07 起；EC2/CFN 的 edge 路径已移除）。
 > **prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不在本目录范围。**
-> 背景见 `docs/spec-delta-edge-lightsail.md` 与 `docs/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6（已标 superseded）。
+> 背景见 `docs/spec-delta/edge-lightsail.md` 与 `docs/archive/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6（已标 superseded）。
 
 Lightsail Edge 与 prod Stage0 **共用**：
 

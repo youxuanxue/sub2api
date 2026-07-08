@@ -485,6 +485,63 @@ describe('AccountUsageCell', () => {
     expect(getUsage).not.toHaveBeenCalled()
   })
 
+  it('OpenAI OAuth 用量窗口同时展示今日 req/token/account/user 统计', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 20141,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {}
+        }),
+        todayStats: {
+          requests: 806,
+          tokens: 5_880_000,
+          cost: 24.78,
+          standard_cost: 24.78,
+          user_cost: 6.28
+        },
+        usageOverride: {
+          source: 'passive',
+          updated_at: null,
+          five_hour: {
+            utilization: 44,
+            resets_at: '2099-03-07T12:00:00Z',
+            remaining_seconds: 3600,
+            window_stats: {
+              requests: 12_000,
+              tokens: 24_250_000,
+              cost: 171.61,
+              standard_cost: 171.61,
+              user_cost: 42.49
+            }
+          },
+          seven_day: null,
+          seven_day_sonnet: null
+        },
+        manualRefreshToken: 0
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('806 req')
+    expect(wrapper.text()).toContain('5.9M')
+    expect(wrapper.text()).toContain('A $24.78')
+    expect(wrapper.text()).toContain('U $6.28')
+    expect(wrapper.text()).toContain('5h|44|24250000')
+    expect(getUsage).not.toHaveBeenCalled()
+  })
+
   it('Grok 平台复用 5h/7d usage 窗口展示本地统计', async () => {
     getUsage.mockResolvedValue({
       source: 'passive',

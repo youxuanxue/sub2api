@@ -23,11 +23,18 @@ setup_workspace() {
   printf '%s\n' "${ws}"
 }
 
+init_fixture_repo() {
+  local repo="$1"
+  git -C "${repo}" init -q
+  git -C "${repo}" config user.email "test@example.com"
+  git -C "${repo}" config user.name "Test"
+}
+
 test_symlink_points_at_cache_dir() {
   local ws
   ws="$(setup_workspace)"
   mkdir -p "${ws}/.cache/new-api"
-  git -C "${ws}/.cache/new-api" init -q
+  init_fixture_repo "${ws}/.cache/new-api"
   git -C "${ws}/.cache/new-api" commit --allow-empty -q -m "seed"
 
   ENSURE_NEW_API_LAYOUT_ONLY=1 bash "${SCRIPT}" "${ws}"
@@ -43,7 +50,7 @@ test_migrates_legacy_real_sibling_dir() {
   local ws
   ws="$(setup_workspace)"
   mkdir -p "${ws}/../new-api"
-  git -C "${ws}/../new-api" init -q
+  init_fixture_repo "${ws}/../new-api"
   git -C "${ws}/../new-api" commit --allow-empty -q -m "legacy"
 
   ENSURE_NEW_API_LAYOUT_ONLY=1 bash "${SCRIPT}" "${ws}"

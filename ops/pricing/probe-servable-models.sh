@@ -75,6 +75,8 @@
 #   ARK_ACCOUNT_ID           default 7   (accounts row holding the ark api_key + base_url)
 #   PROD_BASE                default https://api.tokenkey.dev
 #   PROBE_OPENAI_SOURCE_GROUP_ID defaults via probe_source_group_id openai
+#                            Must point at the native OpenAI pool, not the
+#                            api.ainzy.net/v1 relay account/scope.
 #   PROBE_OPENAI_SOURCE_GROUP optional legacy override by group name
 #   PROBE_ANTHROPIC_SOURCE_GROUP_ID defaults via probe_source_group_id anthropic_edge
 #                            probe runs ON an edge, NOT prod — see refresh-allowlist ANTHROPIC_EDGES)
@@ -108,6 +110,12 @@
 #   200                                   -> servable
 #   400/404 + retired/not-found/invalid   -> unsupported (deprecated gate / upstream reject)
 #   400 "not supported when using Codex"  -> unsupported (this account does not serve it)
+#   400 "Unsupported model: X"             -> usually inconclusive here: TokenKey may have
+#                                            rejected before account selection because the
+#                                            prod allowlist/model_mapping floor lacks X. Use
+#                                            ops/stage0/probe_account_model.sh on a specific
+#                                            prod/edge account, or a platform direct probe, to
+#                                            separate local floor from upstream capability.
 #   429 + "No available accounts"          -> not_allowlisted (TK empty-pool: model not allowlisted at scheduling layer)
 #   429(other) / 502 / 503                  -> inconclusive (capacity / wrong protocol / rate-limit)
 #   401/403                               -> auth_error (upstream rejected the key — not a model signal)
@@ -334,6 +342,11 @@ probe_anthropic_prod_mirror() { # $1=key $2=emit-tag  (models from $ANTHROPIC_PR
 # probe_compat_endpoint: OpenAI-compatible Bearer-auth probe against an arbitrary
 # base. Used by openai, gemini, and dashscope/GLM legacy alias (all PROD / OpenAI-compat) families —
 # they share the same /v1/* OpenAI-compat surface, only base + key + emit-tag differ.
+# This proves the current PROD catalog/menu surface for prod-backed compatible
+# families, not raw upstream capability. New ids can be locally blocked by the
+# SSOT account model_mapping floor before any upstream account is selected
+# (observed 2026-07-08: gpt-5.6*). Follow up with probe_account_model.sh or
+# the platform's direct capability probe before promoting such a model.
 probe_compat_endpoint() { # $1=platform-tag $2=base $3=key $4=endpoint $5=models $6=jsonbody-template-fn
 	local platform="$1" base="$2" key="$3" path="$4" models="$5" buildfn="$6" m f code
 	for m in $models; do
@@ -494,6 +507,11 @@ main() {
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
+		# OpenAI catalog probing must use the native OpenAI serving truth. Do not
+		# bind this to account 76 / api.ainzy.net/v1: that relay has its own
+		# openai_ainzy_relay floor and must not overwrite native OpenAI.
+		# A 400 "Unsupported model: X" can mean prod mapping floor rejected the id
+		# before upstream; do not treat it as raw upstream proof.
 		probe_bind_source "$PROBE_OPENAI_SOURCE_GROUP_ID" "$PROBE_OPENAI_SOURCE_GROUP"
 		if tk_probe_catalog_key openai openai "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			okey="$REPLY_KEY"

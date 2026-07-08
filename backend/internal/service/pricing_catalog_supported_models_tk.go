@@ -22,18 +22,18 @@ import (
 // dropped even if it is in DefaultModels, and a servable model is kept even
 // if it is not.
 //
-// Provenance (2026-06-05 live prod probes):
+// Provenance:
 //   - anthropic: Claude-Code-shaped POST /v1/messages through the edge-us7
 //     relay (account #54 key). Kept the IDs that returned 200; dropped
 //     deprecated-gate 400s, upstream-rejected 502s, and dated snapshots whose
 //     non-dated form also serves.
-//   - openai: POST /v1/chat/completions (+ a full-shape /v1/responses retry
-//     for the codex family) through prod with the GPT-line key. Kept the IDs
-//     that returned 200; dropped chat/responses rejections (gpt-5.2,
-//     gpt-5.3-codex, codex-mini-latest all 502'd on the proper shape; gpt-4*,
-//     gpt-3.5*, gpt-4o*, audio/realtime/tts/transcribe rejected) and
-//     gpt-image-* (502 auth / 503 no-account through the tested group — not
-//     servable on a probeable path).
+//   - openai: the native OpenAI floor is independent from api.ainzy.net/v1.
+//     It keeps the historical 15 native GPT/Codex IDs plus the newer 2026-07-09
+//     OpenAI replay additions that are not Ainzy-only. Do not replace this set
+//     with account-76 probe results: account 76 is the separate Ainzy relay
+//     floor below. Still dropped here: gpt-4*, gpt-3.5*, gpt-4o*,
+//     audio/realtime/tts/transcribe, gpt-image-* and gpt-5.6* rows that are not
+//     servable on the native OpenAI catalog path.
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
 //     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
@@ -81,9 +81,10 @@ import (
 // ops/pricing/refresh-servable-allowlist.py from a live probe. The
 // `servable-allowlist:begin/end <platform>` markers are the splice anchors the
 // generator rewrites between — keep them intact, and hand-edits inside those
-// three blocks will be overwritten on the next refresh. Last claude/gpt probe:
-// 2026-06-05. The antigravity block is hand-maintained from the empirical probe
-// above: the refresh tool's platforms tuple is anthropic/openai/gemini and its
+// three blocks will be overwritten on the next refresh. Last claude probe:
+// 2026-06-05. Last native openai replay: 2026-07-09. The antigravity block is
+// hand-maintained from the empirical probe above: the refresh tool's platforms
+// tuple is anthropic/openai/gemini and its
 // GEMINI_EXCLUDE_RE drops antigravity from the google catch-all, so it never
 // rewrites the antigravity anchors. Adding an antigravity probe family to that
 // tool is a follow-up.
@@ -109,6 +110,7 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
 	"codex-auto-review":   {},
 	"gpt-5":               {},
+	"gpt-5-codex":         {},
 	"gpt-5-chat":          {},
 	"gpt-5-chat-latest":   {},
 	"gpt-5-mini":          {},
@@ -117,6 +119,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5-search-api":    {},
 	"gpt-5.1":             {},
 	"gpt-5.1-chat-latest": {},
+	"gpt-5.2":             {},
+	"gpt-5.2-pro":         {},
+	"gpt-5.3":             {},
+	"gpt-5.3-codex":       {},
 	"gpt-5.3-codex-spark": {},
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
@@ -125,15 +131,20 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:end openai
 }
 
-// supportedOpenAIAinzyRelayCatalogModels — gpt IDs confirmed 200 on prod
-// account 76 (api.ainzy.net/v1, 2026-07-08 probe). gpt-5.4-mini is excluded:
-// 2026-07-08 ops_error_logs show persistent upstream access forbidden on ainzy.
+// supportedOpenAIAinzyRelayCatalogModels — gpt IDs kept in the compiled
+// model_mapping floor for prod account 76 (api.ainzy.net/v1). Mirrors the
+// operator-applied 2026-07-09 runtime mapping so deploys do not re-narrow the
+// account back to the stale 5-model floor.
 var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
-	"gpt-5-codex":   {},
-	"gpt-5.2":       {},
-	"gpt-5.2-pro":   {},
-	"gpt-5.3":       {},
-	"gpt-5.3-codex": {},
+	"codex-auto-review": {},
+	"gpt-5-codex":       {},
+	"gpt-5.2":           {},
+	"gpt-5.2-pro":       {},
+	"gpt-5.3":           {},
+	"gpt-5.3-codex":     {},
+	"gpt-5.4":           {},
+	"gpt-5.4-mini":      {},
+	"gpt-5.5":           {},
 }
 
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through

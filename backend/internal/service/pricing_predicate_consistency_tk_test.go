@@ -215,8 +215,8 @@ func TestIsServedViaFamilyFloor(t *testing.T) {
 		"a model with a real litellm/overlay price is NOT served via floor")
 	require.True(t, billing.IsServedViaFamilyFloor("gemini-9-ultra-preview"),
 		"a gemini model with no real price falls to the gemini family floor → served via floor")
-	require.True(t, billing.IsServedViaFamilyFloor("gpt-9-unknown-codex"),
-		"an unknown gpt model falls to the gpt family floor → served via floor")
+	require.False(t, billing.IsServedViaFamilyFloor("gpt-9-unknown-codex"),
+		"unknown gpt models fall through the OpenAI default-model pricing path; with a real overlay price there is no served-via-floor alert")
 	require.True(t, billing.IsServedViaFamilyFloor("claude-brand-new-xyz"),
 		"an unknown claude model falls to the claude family floor → served via floor")
 	require.False(t, billing.IsServedViaFamilyFloor("no-family-vendor-zzz"),
