@@ -128,7 +128,11 @@ verdict_args=()
 [[ -n "${REQUIRE_ENV:-}" ]] && verdict_args+=(--require-env "${REQUIRE_ENV}")
 
 set +e
-verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py" "${verdict_args[@]}")"
+if [[ -n "${EXPECTED_TAG}" || -n "${REQUIRE_ENV:-}" ]]; then
+  verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py" "${verdict_args[@]}")"
+else
+  verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py")"
+fi
 verdict_rc=$?
 set -e
 

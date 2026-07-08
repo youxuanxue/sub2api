@@ -17,7 +17,9 @@ _SCRIPT = pathlib.Path(__file__).resolve().parent / "assert-live-host-state.sh"
 
 
 class AssertLiveHostStateTransportTest(unittest.TestCase):
-    def _run_with_fake_aws(self, *, region: str | None = None) -> subprocess.CompletedProcess[str]:
+    def _run_with_fake_aws(
+        self, *, region: str | None = None, expected_tag: str | None = "1.8.40"
+    ) -> subprocess.CompletedProcess[str]:
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="assert-live-host-state-"))
         calls = tmp / "aws-calls.txt"
         fake_bin = tmp / "bin"
@@ -69,8 +71,11 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
         env.pop("AWS_DEFAULT_REGION", None)
         if region is not None:
             env["AWS_REGION"] = region
+        cmd = ["bash", str(_SCRIPT), "i-test"]
+        if expected_tag is not None:
+            cmd.append(expected_tag)
         proc = subprocess.run(
-            ["bash", str(_SCRIPT), "i-test", "1.8.40"],
+            cmd,
             env=env,
             capture_output=True,
             text=True,
@@ -85,6 +90,12 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
         self.assertIn("OK: live host matches intended state", proc.stdout)
         self.assertTrue(proc.calls)  # type: ignore[attr-defined]
         self.assertTrue(all(not call.startswith("--region ") for call in proc.calls))  # type: ignore[attr-defined]
+        self.assertNotIn("unbound variable", proc.stderr)
+
+    def test_no_expected_tag_runs_daily_audit_mode_without_unbound_array(self) -> None:
+        proc = self._run_with_fake_aws(expected_tag=None)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("OK: live host matches intended state", proc.stdout)
         self.assertNotIn("unbound variable", proc.stderr)
 
     def test_region_is_passed_before_ssm_subcommand(self) -> None:
