@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	accountModelMappingPlatformBedrock              = "bedrock"
+	accountModelMappingPlatformBedrock               = "bedrock"
 	accountModelMappingPlatformOpenAIThirdPartyRelay = "openai_third_party_relay"
 )
 
