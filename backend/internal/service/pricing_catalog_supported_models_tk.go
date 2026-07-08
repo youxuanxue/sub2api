@@ -125,10 +125,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:end openai
 }
 
-// supportedOpenAIThirdPartyRelayCatalogModels — gpt IDs confirmed servable on
-// non-openai.com apikey relays (2026-07-08 prod probe via api.ainzy.net/v1)
-// but rejected by ChatGPT OAuth accounts (400 unsupported).
-var supportedOpenAIThirdPartyRelayCatalogModels = map[string]struct{}{
+// supportedOpenAIAinzyRelayCatalogModels — gpt IDs confirmed 200 on prod
+// account 76 (api.ainzy.net/v1, 2026-07-08 probe). gpt-5.4-mini is excluded:
+// 2026-07-08 ops_error_logs show persistent upstream access forbidden on ainzy.
+var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 	"gpt-5-codex":   {},
 	"gpt-5.2":       {},
 	"gpt-5.2-pro":   {},

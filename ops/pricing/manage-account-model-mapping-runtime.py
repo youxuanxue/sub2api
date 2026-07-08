@@ -442,20 +442,18 @@ def _is_kiro_scope(row: dict[str, Any]) -> bool:
     )
 
 
-def _is_openai_third_party_relay(row: dict[str, Any]) -> bool:
+def _is_openai_ainzy_relay(row: dict[str, Any]) -> bool:
     if str(row.get("platform") or "").strip().lower() != "openai":
         return False
     if str(row.get("type") or "") != "apikey":
         return False
     base = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    if not base:
-        return False
-    return "openai.com" not in base
+    return base in {"https://api.ainzy.net/v1", "https://api.ainzy.net"}
 
 
 def _account_scope(row: dict[str, Any]) -> str:
-    if _is_openai_third_party_relay(row):
-        return "openai_third_party_relay"
+    if _is_openai_ainzy_relay(row):
+        return "openai_ainzy_relay"
     if _is_kiro_scope(row):
         return "kiro"
     platform = str(row.get("platform") or "").strip().lower()
@@ -1158,12 +1156,17 @@ def cmd_selftest(_args) -> int:
     assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}) is None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
     assert _runtime_setting_violation('{"platforms":{"grok":{"grok":"grok-4.3"}}}') is None
-    assert _is_openai_third_party_relay({
+    assert _is_openai_ainzy_relay({
         "platform": "openai",
         "type": "apikey",
         "base_url": "https://api.ainzy.net/v1",
     })
-    assert not _is_openai_third_party_relay({
+    assert not _is_openai_ainzy_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://relay.example.com/v1",
+    })
+    assert not _is_openai_ainzy_relay({
         "platform": "openai",
         "type": "apikey",
         "base_url": "https://api.openai.com/v1",
