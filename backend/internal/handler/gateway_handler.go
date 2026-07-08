@@ -1171,6 +1171,7 @@ func filterModelsByCustomList(availableModels, fallbackModels, selectedModels []
 }
 
 func customModelsListAllowsModel(availablePatterns []string, model string) bool {
+	modelBase := customModelsListComparableModel(model)
 	for _, pattern := range availablePatterns {
 		if pattern == model {
 			return true
@@ -1178,8 +1179,22 @@ func customModelsListAllowsModel(availablePatterns []string, model string) bool 
 		if strings.HasSuffix(pattern, "*") && strings.HasPrefix(model, strings.TrimSuffix(pattern, "*")) {
 			return true
 		}
+		if modelBase != "" && customModelsListComparableModel(pattern) == modelBase {
+			return true
+		}
 	}
 	return false
+}
+
+func customModelsListComparableModel(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" || !strings.HasPrefix(model, "claude-") {
+		return model
+	}
+	if base, ok := strings.CutSuffix(model, "-thinking"); ok {
+		model = base
+	}
+	return claude.DenormalizeModelID(model)
 }
 
 func mergeModelIDs(primary, secondary []string) []string {

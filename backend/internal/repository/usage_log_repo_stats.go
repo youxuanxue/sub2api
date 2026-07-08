@@ -491,6 +491,9 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 	for _, id := range normalizedUserIDs {
 		result[id] = &BatchUserUsageStats{UserID: id}
 	}
+	if r.db != nil {
+		return r.getBatchUserUsageStatsRollup(ctx, normalizedUserIDs, startTime, endTime)
+	}
 
 	// GROUP BY (user_id, effective_platform) 一次查询同时得到总值与按平台拆分。
 	// 应用层把同一 user_id 的多行累加为总值，并把非空 platform 行收集到 ByPlatform。
@@ -724,6 +727,26 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 
 	// 汇总查询:失败即致命。
 	runSummary := func(c context.Context) error {
+		if filters.SkipSummary {
+			return nil
+		}
+		if filters.StartTime != nil && filters.EndTime != nil {
+			rollup, ok, err := r.getStatsWithFiltersFromHourlyRollup(c, filters, start, end)
+			if err != nil {
+				return err
+			}
+			if ok {
+				stats.TotalRequests = rollup.TotalRequests
+				stats.TotalInputTokens = rollup.TotalInputTokens
+				stats.TotalOutputTokens = rollup.TotalOutputTokens
+				stats.TotalCacheTokens = rollup.TotalCacheTokens
+				stats.TotalCost = rollup.TotalCost
+				stats.TotalActualCost = rollup.TotalActualCost
+				totalAccountCost = rollup.totalAccountCost
+				stats.AverageDurationMs = rollup.AverageDurationMs
+				return nil
+			}
+		}
 		return scanSingleRow(
 			c, r.sql, query, args,
 			&stats.TotalRequests,
@@ -770,13 +793,29 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		endpointPaths = res
 	}
 
+	runEndpointStats := func(c context.Context) {
+		if filters.SkipEndpointStats {
+			return
+		}
+		switch strings.TrimSpace(filters.EndpointStatsSource) {
+		case usagestats.EndpointSourceInbound:
+			runEndpoints(c)
+		case usagestats.EndpointSourceUpstream:
+			runUpstream(c)
+		case usagestats.EndpointSourcePath:
+			runPaths(c)
+		default:
+			runEndpoints(c)
+			runUpstream(c)
+			runPaths(c)
+		}
+	}
+
 	if r.db != nil {
 		// 生产路径:r.sql 是 *sql.DB 连接池,可并发。4 条查询并行,延迟取最大值。
 		g, gctx := errgroup.WithContext(ctx)
 		g.Go(func() error { return runSummary(gctx) })
-		g.Go(func() error { runEndpoints(gctx); return nil })
-		g.Go(func() error { runUpstream(gctx); return nil })
-		g.Go(func() error { runPaths(gctx); return nil })
+		g.Go(func() error { runEndpointStats(gctx); return nil })
 		if err := g.Wait(); err != nil {
 			return nil, err
 		}
@@ -785,9 +824,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		if err := runSummary(ctx); err != nil {
 			return nil, err
 		}
-		runEndpoints(ctx)
-		runUpstream(ctx)
-		runPaths(ctx)
+		runEndpointStats(ctx)
 	}
 
 	stats.TotalAccountCost = &totalAccountCost

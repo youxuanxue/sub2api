@@ -87,7 +87,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 	mappedModel := s.getMappedModel(account, originalModel)
 	if mappedModel == "" {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
+		MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalFeatureGate)
 		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
 	billingModel := mappedModel

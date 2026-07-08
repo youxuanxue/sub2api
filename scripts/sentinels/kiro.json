@@ -181,13 +181,10 @@
       "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
-      "path": "backend/internal/service/gateway_service.go",
+      "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "account.IsKiro()",
-        "kiroGateway",
-        "KiroEndpointQuotaExhaustedError",
-        "setKiroInternalThinkingMirrorHopHeader",
-        "parseKiroInternalThinkingSSECommentLine"
+        "kiroGateway"
       ],
       "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. The setKiroInternalThinkingMirrorHopHeader + parseKiroInternalThinkingSSECommentLine anchors wire the prod mirror passthrough that strips Kiro plaintext-thinking side channels before the end client while stashing blocks for QA/traj export. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail)."
     },
@@ -359,7 +356,7 @@
       "rationale": "TK-only options + backend-aligned default normalizer for the surface-C mirror-stub pool selector (anthropic/kiro), consumed by both account modals. Losing it breaks the mirror_platform UI and the anthropic-default fallback."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
         "kiroPlatform"
       ],
@@ -419,7 +416,7 @@
       "rationale": "Regression guard that admin Kiro account-test forwards UpstreamFailoverError into HandleUpstreamError so a reproduced 402 quota hit triggers the Feishu incident funnel."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
         "kiroPlatform"
       ],

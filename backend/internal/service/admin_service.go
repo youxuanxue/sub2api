@@ -68,6 +68,7 @@ type AdminService interface {
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
+	GetAccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int) ([]string, error)
 	// UpdateAccountExtra 仅对 Extra 做 JSONB 增量合并（key 级覆盖），不会影响其它字段或运行态键。
 	// 用于刷新流程持久化 account_uuid / org_uuid 等少量键，避免被全量快照覆盖。
 	UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error
@@ -132,15 +133,16 @@ type CreateUserInput struct {
 }
 
 type UpdateUserInput struct {
-	Email         string
-	Password      string
-	Username      *string
-	Notes         *string
-	Balance       *float64 // 使用指针区分"未提供"和"设置为0"
-	Concurrency   *int     // 使用指针区分"未提供"和"设置为0"
-	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
-	Status        string
-	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
+	Email             string
+	Password          string
+	Username          *string
+	Notes             *string
+	Balance           *float64 // 使用指针区分"未提供"和"设置为0"
+	Concurrency       *int     // 使用指针区分"未提供"和"设置为0"
+	RPMLimit          *int     // 使用指针区分"未提供"和"设置为0"
+	Status            string
+	AllowedGroups     *[]int64 // 使用指针区分"未提供"和"设置为空数组"
+	TrajExportEnabled *bool
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64
@@ -225,9 +227,12 @@ type CreateGroupInput struct {
 	RequireOAuthOnly            bool
 	RequirePrivacySet           bool
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
+	StickyRoutingMode           string
 	ModelsListConfig            GroupModelsListConfig
 	// RPMLimit 分组 RPM 上限（0 = 不限制）
-	RPMLimit int
+	RPMLimit                               int
+	MessagesCompactionEnabled              *bool
+	MessagesCompactionInputTokensThreshold *int
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -274,9 +279,12 @@ type UpdateGroupInput struct {
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig
+	StickyRoutingMode           *string
 	ModelsListConfig            *GroupModelsListConfig
 	// RPMLimit 分组 RPM 上限（0 = 不限制），nil 表示未提供不改动。
-	RPMLimit *int
+	RPMLimit                               *int
+	MessagesCompactionEnabled              *bool
+	MessagesCompactionInputTokensThreshold *int
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -286,6 +294,7 @@ type CreateAccountInput struct {
 	Notes              *string
 	Platform           string
 	Type               string
+	ChannelType        int
 	Credentials        map[string]any
 	Extra              map[string]any
 	ProxyID            *int64
@@ -296,6 +305,7 @@ type CreateAccountInput struct {
 	GroupIDs           []int64
 	ExpiresAt          *int64
 	AutoPauseOnExpired *bool
+	AccountEmail       string
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
@@ -316,17 +326,20 @@ type UpdateAccountInput struct {
 	Name                  string
 	Notes                 *string
 	Type                  string // Account type: oauth, setup-token, apikey
+	ChannelType           *int
 	Credentials           map[string]any
 	Extra                 map[string]any
 	ProxyID               *int64
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
+	TierID                *int64   // anthropic oauth/setup-token 稳定性档位绑定；nil 表示不更新
 	LoadFactor            *int
 	Status                string
 	GroupIDs              *[]int64
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
+	AccountEmail          *string
 	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
 }
 
@@ -572,6 +585,7 @@ type adminServiceImpl struct {
 	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
+	availability         *PricingAvailabilityService
 }
 
 type userGroupRateBatchReader interface {
@@ -598,6 +612,7 @@ func NewAdminService(
 	userSubRepo UserSubscriptionRepository,
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
+	availability *PricingAvailabilityService,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
@@ -618,5 +633,6 @@ func NewAdminService(
 		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
+		availability:         availability,
 	}
 }

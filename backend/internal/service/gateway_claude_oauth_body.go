@@ -290,7 +290,7 @@ func normalizeClaudeOAuthRequestBody(body []byte, modelID string, opts claudeOAu
 	// sanitizeBedrockFieldsForBetaTokens 对称。
 	if !gjson.GetBytes(out, "context_management").Exists() {
 		thinkingType := gjson.GetBytes(out, "thinking.type").String()
-		if thinkingType == "enabled" || thinkingType == "adaptive" {
+		if (thinkingType == "enabled" || thinkingType == "adaptive") && !strings.Contains(strings.ToLower(modelID), "haiku") {
 			const cmDefault = `{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}`
 			if next, ok := setJSONRawBytes(out, "context_management", []byte(cmDefault)); ok {
 				out = next
@@ -398,7 +398,7 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
 
 	if s.identityService != nil && c != nil && c.Request != nil {
-		if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header); err == nil && fp != nil {
+		if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header, resolveTLSProfileNameForAccount(s.tlsFPProfileService, account)); err == nil && fp != nil {
 			mimicMPT := false
 			if s.settingService != nil {
 				_, mimicMPT, _ = s.settingService.GetGatewayForwardingSettings(ctx)
@@ -946,7 +946,11 @@ type cacheControlPath struct {
 	log  string
 }
 
-func collectCacheControlPaths(body []byte) (invalidThinking []cacheControlPath, messagePaths []string, toolPaths []string, systemPaths []string) {
+func collectCacheControlPaths(body []byte) (invalidThinking []cacheControlPath, topLevelPaths []string, messagePaths []string, toolPaths []string, systemPaths []string) {
+	if gjson.GetBytes(body, "cache_control").Exists() {
+		topLevelPaths = append(topLevelPaths, "cache_control")
+	}
+
 	system := gjson.GetBytes(body, "system")
 	if system.IsArray() {
 		sysIndex := 0
@@ -1007,7 +1011,7 @@ func collectCacheControlPaths(body []byte) (invalidThinking []cacheControlPath, 
 		})
 	}
 
-	return invalidThinking, messagePaths, toolPaths, systemPaths
+	return invalidThinking, topLevelPaths, messagePaths, toolPaths, systemPaths
 }
 
 // enforceCacheControlLimit 强制执行 cache_control 块数量限制（最多 4 个）
@@ -1017,7 +1021,7 @@ func enforceCacheControlLimit(body []byte) []byte {
 		return body
 	}
 
-	invalidThinking, messagePaths, toolPaths, systemPaths := collectCacheControlPaths(body)
+	invalidThinking, topLevelPaths, messagePaths, toolPaths, systemPaths := collectCacheControlPaths(body)
 	out := body
 	modified := false
 
@@ -1035,7 +1039,7 @@ func enforceCacheControlLimit(body []byte) []byte {
 		logger.LegacyPrintf("service.gateway", "%s", item.log)
 	}
 
-	count := len(messagePaths) + len(toolPaths) + len(systemPaths)
+	count := len(topLevelPaths) + len(messagePaths) + len(toolPaths) + len(systemPaths)
 	if count <= maxCacheControlBlocks {
 		if modified {
 			return out
@@ -1043,8 +1047,24 @@ func enforceCacheControlLimit(body []byte) []byte {
 		return body
 	}
 
-	// 超限：优先从 tools 中移除，再从 messages 中移除，最后才从 system 中移除。
+	// 超限：优先移除非标准 top-level，再从 tools/messages/system 中按稳定性递减移除。
 	remaining := count - maxCacheControlBlocks
+	for _, path := range topLevelPaths {
+		if remaining <= 0 {
+			break
+		}
+		if !gjson.GetBytes(out, path).Exists() {
+			continue
+		}
+		next, ok := deleteJSONPathBytes(out, path)
+		if !ok {
+			continue
+		}
+		out = next
+		modified = true
+		remaining--
+	}
+
 	for i := len(toolPaths) - 1; i >= 0 && remaining > 0; i-- {
 		path := toolPaths[i]
 		if !gjson.GetBytes(out, path).Exists() {

@@ -71,6 +71,8 @@ type APIKeyAuthGroupSnapshot struct {
 	MonthlyLimitUSD                 *float64 `json:"monthly_limit_usd,omitempty"`
 	AllowImageGeneration            bool     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
+	BatchImageDiscountMultiplier    float64  `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        float64  `json:"batch_image_hold_multiplier"`
 	ImageRateIndependent            bool     `json:"image_rate_independent"`
 	ImageRateMultiplier             float64  `json:"image_rate_multiplier"`
 	ImagePrice1K                    *float64 `json:"image_price_1k,omitempty"`

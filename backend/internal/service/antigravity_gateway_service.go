@@ -254,6 +254,12 @@ func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(
 	return true
 }
 
+// MapAntigravityModel exposes the Antigravity mapping owner for handlers/tests
+// that need the same support predicate without constructing a gateway service.
+func MapAntigravityModel(account *Account, requestedModel string) string {
+	return mapAntigravityModel(account, requestedModel)
+}
+
 // mapAntigravityModel 获取映射后的模型名
 // 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底（DefaultAntigravityModelMapping）
 // 注意：返回空字符串表示模型不被支持，调度时会过滤掉该账号

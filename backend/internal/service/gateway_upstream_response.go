@@ -110,6 +110,9 @@ func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, accoun
 	if !ShouldRectifyThinkingSignatureError(mappedModel) {
 		return false
 	}
+	if s.settingService == nil {
+		return false
+	}
 	if account.Type == AccountTypeAPIKey {
 		// API Key 账号：独立开关，一次读取配置
 		settings, err := s.settingService.GetRectifierSettings(ctx)
@@ -331,17 +334,22 @@ func extractUpstreamErrorCode(body []byte) string {
 }
 
 func isCountTokensUnsupported404(statusCode int, body []byte) bool {
-	if statusCode != http.StatusNotFound {
-		return false
-	}
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
-	if msg == "" {
+	raw := strings.ToLower(strings.TrimSpace(string(body)))
+	haystack := strings.TrimSpace(msg + "\n" + raw)
+	if haystack == "" || !strings.Contains(haystack, "count_tokens") {
 		return false
 	}
-	if strings.Contains(msg, "/v1/messages/count_tokens") {
-		return true
+	if statusCode == http.StatusNotFound {
+		if strings.Contains(haystack, "/v1/messages/count_tokens") || strings.Contains(haystack, "v1/messages/count_tokens") {
+			return true
+		}
+		return strings.Contains(haystack, "not found")
 	}
-	return strings.Contains(msg, "count_tokens") && strings.Contains(msg, "not found")
+	if statusCode == http.StatusBadRequest || statusCode == http.StatusInternalServerError {
+		return strings.Contains(haystack, "noresourcefoundexception") || strings.Contains(haystack, "no static resource")
+	}
+	return false
 }
 
 func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, error) {
@@ -413,6 +421,29 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	}
 
 	MarkResponseCommitted(c)
+	if account != nil &&
+		account.Platform == PlatformAnthropic &&
+		resp.StatusCode == http.StatusNotFound &&
+		IsAnthropicModelNotFound404(body, upstreamMsg) {
+		model := ""
+		if len(requestedModel) > 0 {
+			model = strings.TrimSpace(requestedModel[0])
+		}
+		if model == "" {
+			model = extractAnthropicNotFoundModel(body, upstreamMsg)
+		}
+		if model != "" {
+			s.tkModelNotFoundRecordUpstream404(account.Platform, model)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    TkUnsupportedModelErrType,
+					"message": TkUnsupportedModelMessage(model),
+				},
+			})
+			return nil, fmt.Errorf("upstream error: %d unsupported model=%s", resp.StatusCode, model)
+		}
+	}
 
 	// 记录上游错误响应体摘要便于排障（可选：由配置控制；不回显到客户端）
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
@@ -1003,6 +1034,13 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			line := ev.line
 			trimmed := strings.TrimSpace(line)
 
+			if strings.HasPrefix(trimmed, strings.TrimSpace(kiroInternalThinkingSSECommentPfx)) {
+				if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
+					applyKiroInternalThinkingBlocks(c, blocks)
+				}
+				continue
+			}
+
 			if trimmed == "" {
 				if len(pendingEventLines) == 0 {
 					continue
@@ -1132,17 +1170,17 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 		}
 
 		patch := &sseUsagePatch{}
-		patch.hasInputTokens = true
 		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok {
 			patch.inputTokens = v
+			patch.hasInputTokens = true
 		}
-		patch.hasCacheCreationInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok {
 			patch.cacheCreationInputTokens = v
+			patch.hasCacheCreationInput = true
 		}
-		patch.hasCacheReadInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
 			patch.cacheReadInputTokens = v
+			patch.hasCacheReadInput = true
 		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {

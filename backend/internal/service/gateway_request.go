@@ -504,14 +504,9 @@ func stripEmptyTextBlocksFromSlice(blocks []any) ([]any, bool) {
 // fields defensively on the way out so a client schema bug cannot cascade into
 // repeated 400s and (pre-fix) trigger the per-account upstream-error breaker.
 //
-// `context_management` is in the list because normalizeClaudeOAuthRequestBody
-// (OAuth mimic path on /v1/messages) injects it for Sonnet/Opus thinking
-// requests to match the real Claude Code CLI fingerprint. count_tokens
-// rejects it the same way the messages endpoint does for Haiku 4.5 (see
-// normalizeClaudeOAuthRequestBody comment referencing upstream
-// Wei-Shaw/sub2api#2506). 2026-05-18 09:10:30 prod trace confirmed the gap:
-// temperature / max_tokens / context_management injected by mimic, none
-// accepted by count_tokens.
+// `context_management` is intentionally not stripped here. Anthropic accepts it
+// when the final anthropic-beta header contains context-management-2025-06-27,
+// so sanitizeAnthropicBodyForBetaTokens owns that body/header symmetry.
 var countTokensUnsupportedTopLevelFields = []string{
 	"temperature",
 	"top_p",
@@ -521,7 +516,6 @@ var countTokensUnsupportedTopLevelFields = []string{
 	"stream",
 	"metadata",
 	"service_tier",
-	"context_management",
 }
 
 // StripCountTokensUnsupportedFields removes top-level fields that Anthropic's

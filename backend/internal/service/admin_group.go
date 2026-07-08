@@ -62,7 +62,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		platform = PlatformAnthropic
 	}
 
-	candidates := defaultModelsListCandidateIDs(platform)
+	candidates := tkServableCandidateIDs(ctx, platform, s.availability)
 	if id <= 0 || s.accountRepo == nil {
 		return candidates, nil
 	}
@@ -249,42 +249,45 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	group := &Group{
-		Name:                            input.Name,
-		Description:                     input.Description,
-		Platform:                        platform,
-		RateMultiplier:                  input.RateMultiplier,
-		IsExclusive:                     input.IsExclusive,
-		Status:                          StatusActive,
-		SubscriptionType:                subscriptionType,
-		DailyLimitUSD:                   dailyLimit,
-		WeeklyLimitUSD:                  weeklyLimit,
-		MonthlyLimitUSD:                 monthlyLimit,
-		AllowImageGeneration:            allowImageGeneration,
-		AllowBatchImageGeneration:       allowBatchImageGeneration,
-		ImageRateIndependent:            input.ImageRateIndependent,
-		ImageRateMultiplier:             imageRateMultiplier,
-		BatchImageDiscountMultiplier:    batchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:        batchImageHoldMultiplier,
-		PeakRateEnabled:                 peakRateEnabled,
-		PeakStart:                       peakStart,
-		PeakEnd:                         peakEnd,
-		PeakRateMultiplier:              peakRateMultiplier,
-		ImagePrice1K:                    imagePrice1K,
-		ImagePrice2K:                    imagePrice2K,
-		ImagePrice4K:                    imagePrice4K,
-		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
-		FallbackGroupID:                 input.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
-		ModelRouting:                    input.ModelRouting,
-		MCPXMLInject:                    mcpXMLInject,
-		SupportedModelScopes:            input.SupportedModelScopes,
-		AllowMessagesDispatch:           input.AllowMessagesDispatch,
-		RequireOAuthOnly:                input.RequireOAuthOnly,
-		RequirePrivacySet:               input.RequirePrivacySet,
-		DefaultMappedModel:              input.DefaultMappedModel,
-		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
-		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
-		RPMLimit:                        input.RPMLimit,
+		Name:                                   input.Name,
+		Description:                            input.Description,
+		Platform:                               platform,
+		RateMultiplier:                         input.RateMultiplier,
+		IsExclusive:                            input.IsExclusive,
+		Status:                                 StatusActive,
+		SubscriptionType:                       subscriptionType,
+		DailyLimitUSD:                          dailyLimit,
+		WeeklyLimitUSD:                         weeklyLimit,
+		MonthlyLimitUSD:                        monthlyLimit,
+		AllowImageGeneration:                   allowImageGeneration,
+		AllowBatchImageGeneration:              allowBatchImageGeneration,
+		ImageRateIndependent:                   input.ImageRateIndependent,
+		ImageRateMultiplier:                    imageRateMultiplier,
+		BatchImageDiscountMultiplier:           batchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:               batchImageHoldMultiplier,
+		PeakRateEnabled:                        peakRateEnabled,
+		PeakStart:                              peakStart,
+		PeakEnd:                                peakEnd,
+		PeakRateMultiplier:                     peakRateMultiplier,
+		ImagePrice1K:                           imagePrice1K,
+		ImagePrice2K:                           imagePrice2K,
+		ImagePrice4K:                           imagePrice4K,
+		ClaudeCodeOnly:                         input.ClaudeCodeOnly,
+		FallbackGroupID:                        input.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:        fallbackOnInvalidRequest,
+		ModelRouting:                           input.ModelRouting,
+		MCPXMLInject:                           mcpXMLInject,
+		SupportedModelScopes:                   input.SupportedModelScopes,
+		AllowMessagesDispatch:                  input.AllowMessagesDispatch,
+		RequireOAuthOnly:                       input.RequireOAuthOnly,
+		RequirePrivacySet:                      input.RequirePrivacySet,
+		DefaultMappedModel:                     input.DefaultMappedModel,
+		MessagesDispatchModelConfig:            normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
+		StickyRoutingMode:                      strings.TrimSpace(input.StickyRoutingMode),
+		ModelsListConfig:                       normalizeGroupModelsListConfig(input.ModelsListConfig),
+		RPMLimit:                               input.RPMLimit,
+		MessagesCompactionEnabled:              input.MessagesCompactionEnabled,
+		MessagesCompactionInputTokensThreshold: input.MessagesCompactionInputTokensThreshold,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 	if err := s.groupRepo.Create(ctx, group); err != nil {
@@ -574,11 +577,20 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.MessagesDispatchModelConfig != nil {
 		group.MessagesDispatchModelConfig = normalizeOpenAIMessagesDispatchModelConfig(*input.MessagesDispatchModelConfig)
 	}
+	if input.StickyRoutingMode != nil {
+		group.StickyRoutingMode = strings.TrimSpace(*input.StickyRoutingMode)
+	}
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit
+	}
+	if input.MessagesCompactionEnabled != nil {
+		group.MessagesCompactionEnabled = input.MessagesCompactionEnabled
+	}
+	if input.MessagesCompactionInputTokensThreshold != nil {
+		group.MessagesCompactionInputTokensThreshold = input.MessagesCompactionInputTokensThreshold
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 
@@ -730,7 +742,20 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 			return fmt.Errorf("rate_multiplier must be > 0 (user_id=%d)", e.UserID)
 		}
 	}
-	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
+	userIDs := make([]int64, 0, len(entries))
+	for _, e := range entries {
+		userIDs = append(userIDs, e.UserID)
+	}
+	if err := s.grantExclusiveStandardGroupAccess(ctx, groupID, userIDs); err != nil {
+		return err
+	}
+	if err := s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries); err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+	}
+	return nil
 }
 
 func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, groupID int64) error {
@@ -751,10 +776,17 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupI
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
+	userIDs := make([]int64, 0, len(entries))
 	for _, e := range entries {
 		if e.RPMOverride != nil && *e.RPMOverride < 0 {
 			return infraerrors.BadRequest("INVALID_RPM_OVERRIDE", fmt.Sprintf("rpm_override must be >= 0 (user_id=%d)", e.UserID))
 		}
+		if e.RPMOverride != nil {
+			userIDs = append(userIDs, e.UserID)
+		}
+	}
+	if err := s.grantExclusiveStandardGroupAccess(ctx, groupID, userIDs); err != nil {
+		return err
 	}
 	if err := s.userGroupRateRepo.SyncGroupRPMOverrides(ctx, groupID, entries); err != nil {
 		return err
@@ -767,7 +799,47 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupI
 }
 
 func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error {
-	return s.groupRepo.UpdateSortOrders(ctx, updates)
+	if err := s.groupRepo.UpdateSortOrders(ctx, updates); err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		seen := make(map[int64]struct{}, len(updates))
+		for _, update := range updates {
+			if _, ok := seen[update.ID]; ok {
+				continue
+			}
+			seen[update.ID] = struct{}{}
+			s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, update.ID)
+		}
+	}
+	return nil
+}
+
+func (s *adminServiceImpl) grantExclusiveStandardGroupAccess(ctx context.Context, groupID int64, userIDs []int64) error {
+	if len(userIDs) == 0 || s.groupRepo == nil || s.userRepo == nil {
+		return nil
+	}
+	group, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if group == nil || !group.IsExclusive || group.IsSubscriptionType() {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		if _, ok := seen[userID]; ok {
+			continue
+		}
+		seen[userID] = struct{}{}
+		if err := s.userRepo.AddGroupToAllowedGroups(ctx, userID, groupID); err != nil {
+			return fmt.Errorf("add group to user allowed groups: %w", err)
+		}
+		if s.authCacheInvalidator != nil {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)
+		}
+	}
+	return nil
 }
 
 // AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定

@@ -222,6 +222,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		return false
 	}
+	if tkIsCapabilityScope401(statusCode, upstreamBody) {
+		return false
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
@@ -265,9 +268,10 @@ func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, requestedModel ...string) {
 	if len(requestedModel) > 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, requestedModel[0])
-		return
+	} else {
+		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
 	}
-	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
+	s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)
 }
 
 func (s *OpenAIGatewayService) handleErrorResponse(
@@ -350,6 +354,40 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			return nil, fmt.Errorf("upstream error: %d (passthrough rule matched)", resp.StatusCode)
 		}
 		return nil, fmt.Errorf("upstream error: %d (passthrough rule matched) message=%s", resp.StatusCode, upstreamMsg)
+	}
+
+	if isOpenAIClientInduced4xx(resp.StatusCode) {
+		errType := "invalid_request_error"
+		if resp.StatusCode == http.StatusNotFound {
+			errType = "not_found_error"
+		} else if upstreamType := strings.TrimSpace(gjson.GetBytes(body, "error.type").String()); upstreamType != "" {
+			errType = upstreamType
+		}
+		errMsg := upstreamMsg
+		if errMsg == "" {
+			errMsg = "Upstream rejected the request"
+		}
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: resp.StatusCode,
+			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			Kind:               "http_error",
+			Message:            upstreamMsg,
+			Detail:             upstreamDetail,
+		})
+		MarkResponseCommitted(c)
+		c.JSON(resp.StatusCode, gin.H{
+			"error": gin.H{
+				"type":    errType,
+				"message": errMsg,
+			},
+		})
+		if upstreamMsg == "" {
+			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
 	}
 
 	// Check custom error codes
@@ -451,6 +489,15 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
 	}
 	return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+}
+
+func isOpenAIClientInduced4xx(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
 }
 
 // compatErrorWriter is the signature for format-specific error writers used by

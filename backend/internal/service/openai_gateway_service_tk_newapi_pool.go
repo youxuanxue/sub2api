@@ -51,7 +51,7 @@ func (s *OpenAIGatewayService) listOpenAICompatSchedulableAccounts(ctx context.C
 	}
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, groupPlatform, false)
-		return accounts, err
+		return filterOpenAICompatPoolMembers(accounts, groupPlatform), err
 	}
 	var accounts []Account
 	var err error
@@ -65,7 +65,54 @@ func (s *OpenAIGatewayService) listOpenAICompatSchedulableAccounts(ctx context.C
 	if err != nil {
 		return nil, err
 	}
-	return accounts, nil
+	return filterOpenAICompatPoolMembers(accounts, groupPlatform), nil
+}
+
+// listOpenAICompatSchedulableAccountEvidence returns the pre-membership-filter
+// account pool for diagnostics only. Scheduling must use
+// listOpenAICompatSchedulableAccounts so incomplete newapi accounts
+// (channel_type=0) never reach dispatch, but no-candidate classification still
+// needs to inspect their model_mapping to distinguish wrong-model client errors
+// from true capacity gaps.
+func (s *OpenAIGatewayService) listOpenAICompatSchedulableAccountEvidence(ctx context.Context, groupID *int64, groupPlatform string) []Account {
+	if groupPlatform == "" {
+		groupPlatform = PlatformOpenAI
+	}
+	if s.schedulerSnapshot != nil {
+		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, groupPlatform, false)
+		if err == nil {
+			return accounts
+		}
+		return nil
+	}
+	var (
+		accounts []Account
+		err      error
+	)
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, groupPlatform)
+	} else if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, groupPlatform)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, groupPlatform)
+	}
+	if err != nil {
+		return nil
+	}
+	return accounts
+}
+
+func filterOpenAICompatPoolMembers(accounts []Account, groupPlatform string) []Account {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	filtered := accounts[:0]
+	for i := range accounts {
+		if accounts[i].IsOpenAICompatPoolMember(groupPlatform) {
+			filtered = append(filtered, accounts[i])
+		}
+	}
+	return filtered
 }
 
 // listSchedulableAccounts is the legacy entrypoint preserved for callers that

@@ -76,10 +76,7 @@ func (r *usageLogRepository) modelDailyBackfilled(ctx context.Context) (bool, er
 	if err := scanSingleRow(ctx, r.sql,
 		"SELECT EXISTS(SELECT 1 FROM usage_dashboard_model_daily WHERE bucket_date = DATE '"+modelDailyBackfillMarkerDate+"' AND model = $1)",
 		[]any{modelDailyBackfillMarkerModel}, &done); err != nil {
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-		return false, err
+		return false, nil
 	}
 	return done, nil
 }

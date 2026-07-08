@@ -136,7 +136,7 @@ class CompanionDedupTest(unittest.TestCase):
             id="codex",
             name="Codex CLI",
             skill="tokenkey-codex-fingerprint-alignment",
-            pin_path="setting_service.go",
+            pin_path="setting_gateway_runtime.go",
             pinned="0.1.0",
             upstream_latest="9.9.9",
             upstream_sources={},

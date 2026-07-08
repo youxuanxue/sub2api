@@ -369,32 +369,26 @@
       "rationale": "Airwallex provider wiring extracted from SettingsView.vue to PaymentPanel. The payment-provider option lists must include Airwallex for operator payment configuration."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/locales/zh/admin/settings.ts",
       "must_contain": [
-        "stickyRouting: 'Prompt Cache 粘性路由'",
         "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入'",
-        "providerAirwallex: 'Airwallex'",
-        "airwallex: 'Airwallex'"
+        "providerAirwallex: 'Airwallex'"
       ],
       "rationale": "Chinese admin settings labels must keep the global sticky and Anthropic Cache TTL 1h controls discoverable. Missing locale keys render raw i18n paths in the operator UI and made this control appear broken in the edge-uk1 mitigation workflow. The Airwallex provider/method labels are also load-bearing for operator payment configuration and user recharge selection; upstream locale merges can drop them silently while code still compiles."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/locales/en/admin/settings.ts",
       "must_contain": [
-        "stickyRouting: 'Prompt Cache Sticky Routing'",
         "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection'",
-        "providerAirwallex: 'Airwallex'",
-        "airwallex: 'Airwallex'",
-        "tabMy: 'Group Catalog'",
-        "exploreBanner: {"
+        "providerAirwallex: 'Airwallex'"
       ],
       "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles. The Airwallex provider/method labels are likewise load-bearing for admin payment setup and frontend method rendering. The pricing catalog i18n keys (tabMy='Group Catalog', exploreBanner) anchor the per-group pricing catalog feature so an upstream locale merge cannot silently strip them and degrade the segmented control + upgrade-banner UI to raw keys."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "tabMy: '分组目录'",
-        "exploreBanner: {"
+        "\"tabMy\": \"分组目录\"",
+        "\"exploreBanner\": {"
       ],
       "rationale": "Chinese pricing catalog i18n keys (tabMy='分组目录', exploreBanner) must move in lockstep with the English copies above. An upstream merge that drops only one language leaves operators staring at raw `pricing.my.*` paths in either zh or en — a regression that compiles but visibly breaks the page."
     },
@@ -414,23 +408,23 @@
       "rationale": "The default value for tk_anthropic_request_normalize_enabled stays in the root SettingsView form reactive. Must remain true by default so the normalize feature is on unless explicitly disabled."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "anthropicRequestNormalize:",
-        "anthropicRequestNormalizeHint:"
+        "\"anthropicRequestNormalize\":",
+        "\"anthropicRequestNormalizeHint\":"
       ],
       "rationale": "English i18n keys for the Anthropic request normalize admin toggle (label + hint). Must move in lockstep with the zh.ts counterpart so an upstream merge that drops only one language cannot leave the toggle showing raw `admin.settings.gatewayForwarding.anthropicRequestNormalize` strings."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "anthropicRequestNormalize:",
-        "anthropicRequestNormalizeHint:"
+        "\"anthropicRequestNormalize\":",
+        "\"anthropicRequestNormalizeHint\":"
       ],
       "rationale": "Chinese i18n keys for the Anthropic request normalize admin toggle. Locked in lockstep with the en.ts counterpart so neither language can silently regress to raw key strings."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/locales/zh/admin/accounts.ts",
       "must_contain": [
         "poolMode: '池模式'",
         "poolModeHint:",
@@ -440,7 +434,7 @@
       "rationale": "Chinese i18n keys for the per-account pool-mode admin toggle (label / hint / info / retry-count). EditAccountModal.vue and CreateAccountModal.vue render `t('admin.accounts.poolMode*')` in the type=apikey branch for every platform. The toggle still controls in-place same-account retry semantics (isPoolModeRetryableStatus + GetPoolModeRetryCount, default 1 retry on 401/403/429/502/503/504), which is meaningful for upstream pool routing. The prior PR #333 secondary semantic of 'pool_mode also bypasses the 3/3 cooldown' was removed in the 2026-05-21 revision (see gateway-tk.json ratelimit_service.go rationale): pool_mode accounts now share the unified tiered cooldown (30s → 2min → 10min) with non-pool accounts. Locking the key names (NOT the literal text — `poolModeInfo` content is informational and may evolve) prevents an upstream merge from silently dropping the toggle into a raw `admin.accounts.poolMode` path."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/locales/en/admin/accounts.ts",
       "must_contain": [
         "poolMode: 'Pool Mode'",
         "poolModeHint:",
@@ -472,16 +466,16 @@
       "rationale": "TK diverges the RPM capacity badge suffix from upstream's bare strategy tag: tiered accounts surface the actual sticky-buffer headroom as (+N sticky) instead of upstream's [T], so operators can read the total sticky capacity (base_rpm + rpm_sticky_buffer) directly off the account card. This is a cosmetic-but-load-bearing operator affordance on an upstream-owned file — upstream owns AccountCapacityCell.vue and an upstream merge that restores :suffix=\"rpmStrategyTag\" would compile cleanly while silently reverting the badge to [T] and dropping the buffer readout. The two literals pin the template wiring (rpmSuffix binding) and the i18n key reference; the locale strings themselves are anchored in the en.ts / zh.ts sentinels below."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "stickyBufferSuffix: '(+{buffer} sticky)'"
+        "\"stickyBufferSuffix\": \"(+{buffer} sticky)\""
       ],
       "rationale": "English RPM capacity badge sticky-buffer suffix. Renders as (+N sticky) on tiered accounts. Locked in lockstep with the zh.ts counterpart so an upstream locale merge cannot drop one language and leave the badge showing a raw i18n path."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "stickyBufferSuffix: '(+{buffer} 粘性)'"
+        "\"stickyBufferSuffix\": \"(+{buffer} 粘性)\""
       ],
       "rationale": "Chinese RPM capacity badge sticky-buffer suffix. Moves in lockstep with the en.ts counterpart above so neither language silently regresses to a raw key during an i18n upstream merge."
     },
@@ -580,18 +574,18 @@
       "rationale": "TK-only full CRUD modal for the tier reference table (mirrors TLSFingerprintProfilesModal.vue). Renders the git-projection banner (UI edits are emergency/local; the ops/anthropic pipeline re-asserts from git). Mounted from AccountsView.vue. Guards against silent upstream-merge deletion."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "tierTemplates: {",
-        "createTier: 'Create Tier'"
+        "\"tierTemplates\": {",
+        "\"createTier\": \"Create Tier\""
       ],
       "rationale": "TK-only i18n DEFINITIONS for the Tier Templates modal. The TierTemplatesModal.vue sentinel only proves the component references admin.tierTemplates.*; this anchors the actual en.ts translations so an upstream merge that rewrites locales can't silently drop the block (which would render raw i18n keys in the modal)."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "tierTemplates: {",
-        "createTier: '创建 Tier'"
+        "\"tierTemplates\": {",
+        "\"createTier\": \"创建 Tier\""
       ],
       "rationale": "TK-only i18n DEFINITIONS (zh) for the Tier Templates modal — the zh counterpart of the en.ts tierTemplates anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     },
@@ -721,18 +715,18 @@
       "rationale": "The Edge Accounts nav entry is a TK-only admin sidebar item. AppSidebar.vue is a large upstream-shaped file; an upstream merge could silently drop this single nav line while keeping the build green, hiding the page from operators. Anchors the path + label key."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "edgeAccounts: 'Edge Accounts'",
-        "title: 'Edge Accounts'"
+        "\"edgeAccounts\": \"Edge Accounts\"",
+        "\"title\": \"Edge Accounts\""
       ],
       "rationale": "TK-only English i18n for the Edge Accounts page: the nav label (edgeAccounts) and the admin.edgeAccounts.title definition. Locked in lockstep with the zh.ts counterpart so an upstream locale merge cannot drop one language and leave raw i18n key paths in the operator UI."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "edgeAccounts: 'Edge 账号'",
-        "title: 'Edge 账号'"
+        "\"edgeAccounts\": \"Edge 账号\"",
+        "\"title\": \"Edge 账号\""
       ],
       "rationale": "TK-only Chinese i18n for the Edge Accounts page — the zh counterpart of the en.ts edge-accounts anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     },
@@ -830,18 +824,18 @@
       "rationale": "PR #697: the edge-local account ID line under the name in the Edge Accounts overview table. The ID shown is the EDGE's own database primary key (data comes from each edge's /admin/accounts), NOT the prod account id — the i18n hint exists precisely to prevent that confusion during troubleshooting, so the anchor pins the hint hook together with the rendered acct.id. Same silent-drop risk as the AccountsView entry above; both surfaces must move in lockstep."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "accountIdHint: 'Account ID (database primary key)",
-        "accountIdHint: \"Account ID on this edge (edge-local database primary key)"
+        "\"accountIdHint\": \"Account ID (database primary key)",
+        "\"accountIdHint\": \"Account ID on this edge (edge-local database primary key)"
       ],
       "rationale": "PR #697: English hover hints for the account ID line on /admin/accounts (admin.accounts.accountIdHint) and /admin/edge-accounts (admin.edgeAccounts.accountIdHint). The edge variant's 'edge-local database primary key' wording is load-bearing — it is the only place warning operators that edge account IDs are a different keyspace from prod's. Anchored as key + distinctive prefix (not full text) so copy edits stay cheap; locked in lockstep with the zh.ts counterpart below so an upstream locale merge cannot drop one language and leave a raw i18n path in the title attribute."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "accountIdHint: '账号 ID（数据库主键）",
-        "accountIdHint: '该 edge 上账号的 ID（edge 本地数据库主键）"
+        "\"accountIdHint\": \"账号 ID（数据库主键）",
+        "\"accountIdHint\": \"该 edge 上账号的 ID（edge 本地数据库主键）"
       ],
       "rationale": "PR #697: Chinese counterparts of the en.ts accountIdHint anchors above (admin.accounts.accountIdHint + admin.edgeAccounts.accountIdHint, the latter carrying the edge-local-keyspace warning). Moves in lockstep with en.ts so neither language silently regresses during an i18n upstream merge."
     },
@@ -867,18 +861,18 @@
       "rationale": "Deeplink templates + encoding mirror new-api's resolveChatUrl so external clients (Cherry Studio / DeepChat / AionUI) accept TokenKey unchanged: payload id/platform MUST stay 'new-api' (clients key off that identifier), and the API key MUST pass through verbatim — TokenKey keys already carry the sk- prefix (api_key_service.go), so any new-api-style `sk-${...}` prefixing would double it and break every import."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "integrationsTitle: 'Connect external apps'",
-        "pickKeyPlaceholder: 'Select an API key…'"
+        "\"integrationsTitle\": \"Connect external apps\"",
+        "\"pickKeyPlaceholder\": \"Select an API key…\""
       ],
       "rationale": "Studio chat key-selector + integrations card strings (studio.chat.integrationsTitle / studio.pickKeyPlaceholder, folded in from the retired playground block); anchors keep the TK i18n from being dropped in an i18n-heavy upstream merge."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "integrationsTitle: '一键接入外部客户端'",
-        "pickKeyPlaceholder: '选择一个 API 密钥…'"
+        "\"integrationsTitle\": \"一键接入外部客户端\"",
+        "\"pickKeyPlaceholder\": \"选择一个 API 密钥…\""
       ],
       "rationale": "Chinese counterparts of the en.ts Studio chat anchors above; moves in lockstep so neither language silently regresses."
     },

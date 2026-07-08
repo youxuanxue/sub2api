@@ -78,8 +78,9 @@ type forceCacheBillingKeyType struct{}
 
 // accountWithLoad 账号与负载信息的组合，用于负载感知调度
 type accountWithLoad struct {
-	account  *Account
-	loadInfo *AccountLoadInfo
+	account           *Account
+	loadInfo          *AccountLoadInfo
+	saturationPenalty int
 }
 
 var ForceCacheBillingContextKey = forceCacheBillingKeyType{}
@@ -174,7 +175,9 @@ func openAIStreamEventIsTerminal(data string) bool {
 		return true
 	}
 	switch gjson.Get(trimmed, "type").String() {
-	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+	case "response.completed", "response.done", "response.failed":
+		return true
+	case "response.incomplete", "response.cancelled", "response.canceled":
 		return true
 	default:
 		return false
@@ -323,7 +326,6 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 		"x-api-key",
 		"content-type",
 		"accept",
-		"x-stainless-helper-method",
 	}
 
 	h := make([]string, 0, len(interesting))
@@ -391,6 +393,7 @@ var (
 	// 注意：前缀之间不应存在包含关系，否则会导致冗余匹配
 	claudeCodePromptPrefixes = []string{
 		"You are Claude Code, Anthropic's official CLI for Claude",             // 标准版 & Agent SDK 版（含 running within...）
+		"You are an interactive CLI tool that helps users",                     // Claude Code CLI 主系统提示词变体
 		"You are a Claude agent, built on Anthropic's Claude Agent SDK",        // Agent SDK 变体
 		"You are a file search specialist for Claude Code",                     // Explore Agent 版
 		"You are a helpful AI assistant tasked with summarizing conversations", // Compact 版
@@ -414,7 +417,6 @@ var allowedHeaders = map[string]bool{
 	"x-stainless-arch":                          true,
 	"x-stainless-runtime":                       true,
 	"x-stainless-runtime-version":               true,
-	"x-stainless-helper-method":                 true,
 	"anthropic-dangerous-direct-browser-access": true,
 	"anthropic-version":                         true,
 	"x-app":                                     true,
@@ -547,6 +549,7 @@ type ForwardResult struct {
 	FirstTokenMs     *int // 首字时间（流式请求）
 	ClientDisconnect bool // 客户端是否在流式传输过程中断开
 	ReasoningEffort  *string
+	BillingTier      string
 
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount         int    // 生成的图片数量
@@ -738,6 +741,15 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return ""
 	}
 
+	recordStickyHashSource := func(source string, sessionHash string) {
+		logger.WriteSinkEvent("info", "http.access.sticky", "sticky.hash_source", map[string]any{
+			"request_id":         parsed.RequestID,
+			"client_request_id":  parsed.ClientRequestID,
+			"source":             source,
+			"session_hash_short": shortSessionHash(sessionHash),
+		})
+	}
+
 	// 1. 最高优先级：从 metadata.user_id 提取 session_xxx
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
@@ -748,12 +760,33 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 				"device_id", uid.DeviceID,
 				"is_new_format", uid.IsNewFormat,
 			)
+			recordStickyHashSource("metadata_user_id", uid.SessionID)
 			return uid.SessionID
 		}
 		slog.Info("sticky.hash_metadata_parse_failed",
 			"metadata_user_id", parsed.MetadataUserID,
 			"parsed_nil", uid == nil,
 		)
+	}
+
+	if seed := strings.TrimSpace(parsed.ExplicitStickyKey.Value); seed != "" {
+		hash := DeriveSessionHashFromSeed(seed)
+		slog.Info("sticky.hash_source",
+			"source", parsed.ExplicitStickyKey.Source,
+			"hash", hash,
+		)
+		recordStickyHashSource(parsed.ExplicitStickyKey.Source, hash)
+		return hash
+	}
+
+	if seed := strings.TrimSpace(parsed.PromptCacheKey); seed != "" {
+		hash := DeriveSessionHashFromSeed(seed)
+		slog.Info("sticky.hash_source",
+			"source", StickyKeySourceClientPromptCacheKey,
+			"hash", hash,
+		)
+		recordStickyHashSource(StickyKeySourceClientPromptCacheKey, hash)
+		return hash
 	}
 
 	// 2. 提取带 cache_control: {type: "ephemeral"} 的内容
@@ -764,6 +797,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"source", "cacheable_content",
 			"hash", hash,
 		)
+		recordStickyHashSource("cacheable_content", hash)
 		return hash
 	}
 
@@ -793,6 +827,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"hash", hash,
 			"content_len", combined.Len(),
 		)
+		recordStickyHashSource("message_content_fallback", hash)
 		return hash
 	}
 
@@ -1154,9 +1189,10 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 			}
 		}
 	}
+	mergeGrokNativeCatalogModels(platform, modelSet)
 
 	// If no account has model_mapping, return nil (use default)
-	if !hasAnyMapping {
+	if !hasAnyMapping && len(modelSet) == 0 {
 		if s.modelsListCache != nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)

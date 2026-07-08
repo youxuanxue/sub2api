@@ -423,6 +423,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
 		return 0, nil, "", nil
 	}
+	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+		return 0, nil, "", nil
+	}
 	if s.schedulerSnapshot != nil && s.accountRepo != nil {
 		latest, latestErr := s.accountRepo.GetByID(ctx, account.ID)
 		if latestErr != nil || latest == nil {
@@ -444,6 +447,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 		if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, latest); paused {
+			return 0, nil, "", nil
+		}
+		if !s.isAccountSchedulableForOpenAIWindow(ctx, latest, true) {
 			return 0, nil, "", nil
 		}
 		if s.isOpenAIAccountRuntimeBlocked(latest) {
@@ -510,14 +516,26 @@ func isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw string) bool {
 	return false
 }
 
-func (s *OpenAIGatewayService) persistOpenAIWSRateLimitSignal(ctx context.Context, account *Account, headers http.Header, responseBody []byte, codeRaw, errTypeRaw, msgRaw string) {
+func (s *OpenAIGatewayService) persistOpenAIWSRateLimitSignal(ctx context.Context, account *Account, headers http.Header, responseBody []byte, codeRaw, errTypeRaw, msgRaw string, requestedModel ...string) {
 	if s == nil || s.rateLimitService == nil || account == nil || account.Platform != PlatformOpenAI {
 		return
 	}
 	if !isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw) {
 		return
 	}
+	if len(requestedModel) > 0 && strings.TrimSpace(requestedModel[0]) != "" {
+		s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody, requestedModel[0])
+		return
+	}
 	s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody)
+}
+
+func openAIWSUpstreamModelForRateLimit(account *Account, requestModel string) string {
+	model := strings.TrimSpace(requestModel)
+	if account == nil || model == "" {
+		return model
+	}
+	return account.GetMappedModel(model)
 }
 
 func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (string, bool) {

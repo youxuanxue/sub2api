@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -34,6 +35,10 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
 	}
 
+	if account != nil && account.IsAnthropicOAuthPassthroughEnabled() {
+		return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, parsed.Body.Bytes(), anthropicPassthroughAuthOAuth)
+	}
+
 	// Bedrock 不支持 count_tokens 端点
 	if account != nil && account.IsBedrock() {
 		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for Bedrock")
@@ -50,9 +55,53 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 	reqModel := parsed.Model
 
-	// Pre-filter: strip empty text blocks to prevent upstream 400.
-	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
+	// TK: strip Claude Code context-window aliases before count_tokens reaches
+	// upstream or per-account breaker accounting.
+	if account != nil && account.Platform == PlatformAnthropic {
+		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
+			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
+				return err
+			}
+			reqModel, parsed.Model = bare, bare
+			logger.LegacyPrintf("service.gateway",
+				"TK context-window alias stripped on count_tokens (claude-code #60913): -> %s account=%d", bare, account.ID)
+		}
+	}
+
+	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
+	// text blocks, and drop explicit disabled thinking for Fable.
+	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return err
+	}
+
+	// TK: normalize Anthropic native request body for count_tokens path.
+	if account != nil && account.Platform == PlatformAnthropic {
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)
+	}
+
+	if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {
+		body = next
+		slog.Info(
+			"count_tokens.stripped_unsupported_fields",
+			"account_id", account.ID,
+			"account_name", account.Name,
+			"fields", stripped,
+		)
+	}
+
+	if shouldEstimateCountTokensLocally(account) {
+		writeEstimatedAnthropicCountTokens(c, body)
+		return nil
+	}
+
+	// TK canonical-OAuth strict ingress UA gate on count_tokens.
+	if c != nil && c.Request != nil && s.isCanonicalAnthropicOAuth(account) &&
+		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
+			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
+			return nil
+		}
 	}
 
 	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
@@ -60,8 +109,14 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	if shouldMimicClaudeCode {
 		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: true}
+		hadContextManagement := gjson.GetBytes(body, "context_management").Exists()
 		var normalizedBody []byte
 		normalizedBody, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
+		if !hadContextManagement && gjson.GetBytes(normalizedBody, "context_management").Exists() {
+			if stripped, ok := deleteJSONPathBytes(normalizedBody, "context_management"); ok {
+				normalizedBody = stripped
+			}
+		}
 		if err := replaceBody(normalizedBody); err != nil {
 			return err
 		}
@@ -78,13 +133,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 				return err
 			}
 		}
-	}
-
-	// Antigravity 账户不支持 count_tokens，返回 404 让客户端 fallback 到本地估算。
-	// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
-	if account.Platform == PlatformAntigravity {
-		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for this platform")
-		return nil
+		if strippedBody, _ := StripCountTokensUnsupportedFields(body); !bytes.Equal(strippedBody, body) {
+			if err := replaceBody(strippedBody); err != nil {
+				return err
+			}
+		}
 	}
 
 	// 应用模型映射：
@@ -114,6 +167,20 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			reqModel = mappedModel
 			parsed.Model = mappedModel
 			logger.LegacyPrintf("service.gateway", "CountTokens model mapping applied: %s -> %s (account: %s, source=%s)", originalReqModel, mappedModel, account.Name, mappingSource)
+		}
+	}
+	if account.Platform == PlatformAnthropic && reqModel != "" {
+		if replacement, deprecated := tkIsDeprecatedAnthropicModel(reqModel); deprecated {
+			TkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
+			return fmt.Errorf("anthropic model %q is retired (suggest %q)", reqModel, replacement)
+		}
+	}
+	if account.Platform == PlatformAnthropic {
+		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
+	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false); err != nil {
+			return err
 		}
 	}
 
@@ -165,6 +232,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
 	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
+		s.armSigPreemptOnError(ctx, c, account)
 
 		filteredBody := FilterThinkingBlocksForRetry(body, reqModel)
 		retryReq, retryWireBody, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
@@ -197,8 +265,21 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
+		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
+			logger.LegacyPrintf("service.gateway",
+				"count_tokens (status=%d), returning local estimate: account=%d name=%s",
+				resp.StatusCode, account.ID, account.Name)
+			writeEstimatedAnthropicCountTokens(c, body)
+			return nil
+		}
+		if failoverErr := s.tkCountTokensFailoverError(account, resp, respBody); failoverErr != nil {
+			return failoverErr
+		}
+
 		// 标记账号状态（429/529等）
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -245,17 +326,29 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 }
 
 func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
+	return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, body, anthropicPassthroughAuthAPIKey)
+}
+
+func (s *GatewayService) forwardCountTokensAnthropicPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, authKind anthropicPassthroughAuthKind) error {
+	if normalized, _ := tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, body); len(normalized) > 0 {
+		body = normalized
+	}
+
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to get access token")
 		return err
 	}
-	if tokenType != "apikey" {
+	expectedTokenType := "apikey"
+	if authKind == anthropicPassthroughAuthOAuth {
+		expectedTokenType = "oauth"
+	}
+	if tokenType != expectedTokenType {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Invalid account token type")
-		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+		return fmt.Errorf("anthropic %s passthrough requires %s token, got: %s", expectedTokenType, expectedTokenType, tokenType)
 	}
 
-	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
+	upstreamReq, err := s.buildAnthropicPassthroughCountTokensRequest(ctx, c, account, body, token, authKind)
 	if err != nil {
 		s.countTokensError(c, http.StatusInternalServerError, "api_error", "Failed to build request")
 		return err
@@ -296,23 +389,22 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		if s.rateLimitService != nil {
+		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
+			logger.LegacyPrintf("service.gateway",
+				"[count_tokens] Upstream does not support count_tokens, returning local estimate: account=%d name=%s",
+				account.ID, account.Name)
+			writeEstimatedAnthropicCountTokens(c, body)
+			return nil
+		}
+		if failoverErr := s.tkCountTokensFailoverError(account, resp, respBody); failoverErr != nil {
+			return failoverErr
+		}
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-
-		// 中转站不支持 count_tokens 端点时（404），返回 404 让客户端 fallback 到本地估算。
-		// 仅在错误消息明确指向 count_tokens endpoint 不存在时生效，避免误吞其他 404（如错误 base_url）。
-		// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
-		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
-			logger.LegacyPrintf("service.gateway",
-				"[count_tokens] Upstream does not support count_tokens (404), returning 404: account=%d name=%s msg=%s",
-				account.ID, account.Name, truncateString(upstreamMsg, 512))
-			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
-			return nil
-		}
 
 		upstreamDetail := ""
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
@@ -396,16 +488,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	}
 
 	if c != nil && c.Request != nil {
-		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] {
-				continue
-			}
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
-			}
-		}
+		copyAnthropicPassthroughHeaders(req.Header, c.Request.Header, s.anthropicPassthroughAllowTimeoutHeaders())
 	}
 
 	req.Header.Del("authorization")
@@ -465,7 +548,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 	var ctFingerprint *Fingerprint
 	if account.IsOAuth() && s.identityService != nil {
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
+		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, resolveTLSProfileNameForAccount(s.tlsFPProfileService, account))
 		if err == nil {
 			ctFingerprint = fp
 			if !ctEnableMPT {
@@ -553,14 +636,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		setHeaderRaw(req.Header, "anthropic-beta", finalBetaHeader)
 	}
 
-	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
-	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
-		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
-			if parsed := ParseMetadataUserID(uid); parsed != nil {
-				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
-			}
-		}
-	}
+	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
@@ -576,19 +652,10 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 }
 
 func sanitizeCountTokensRequestBody(body []byte) []byte {
-	out := body
-	for _, path := range []string{
-		"temperature",
-		"top_p",
-		"top_k",
-		"stream",
-		"stop_sequences",
-		"stop",
-	} {
-		if gjson.GetBytes(out, path).Exists() {
-			if next, ok := deleteJSONPathBytes(out, path); ok {
-				out = next
-			}
+	out, _ := StripCountTokensUnsupportedFields(body)
+	if gjson.GetBytes(out, "stop").Exists() {
+		if next, ok := deleteJSONPathBytes(out, "stop"); ok {
+			out = next
 		}
 	}
 	return out

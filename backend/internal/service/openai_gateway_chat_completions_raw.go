@@ -152,9 +152,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, err
 	}
 	customUA := account.GetOpenAIUserAgent()
-	if customUA == "" && account.Platform == PlatformGrok {
-		customUA = "sub2api-grok/1.0"
-	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA)
 	if err != nil {
 		return nil, err
@@ -204,7 +201,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if clientStream {
 		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
 	} else {
-		result, forwardErr = s.bufferRawChatCompletions(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
 		addOpenAIUsage(&result.Usage, bridgeUsage)
@@ -213,15 +210,29 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 }
 
 func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, error) {
-	if account.Platform == PlatformGrok {
-		targetURL, err := xai.BuildChatCompletionsURL(account.GetGrokBaseURL())
+	if account == nil {
+		return "", fmt.Errorf("account is required")
+	}
+	switch {
+	case account.IsGrokAPIKey():
+		baseURL := strings.TrimSpace(account.GetOpenAIBaseURL())
+		if baseURL == "" {
+			return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+		}
+		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 		if err != nil {
 			return "", fmt.Errorf("invalid grok base_url: %w", err)
 		}
-		return targetURL, nil
+		return buildOpenAIChatCompletionsURL(validatedURL), nil
+	case account.IsGrokOAuth():
+		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
+		if err != nil {
+			return "", fmt.Errorf("invalid grok base_url: %w", err)
+		}
+		return buildOpenAIChatCompletionsURL(validatedURL), nil
+	default:
+		return s.openAIChatCompletionsTargetURL(account)
 	}
-
-	return s.openAIChatCompletionsTargetURL(account)
 }
 
 // streamRawChatCompletions 透传上游 CC SSE 流到客户端，并提取 usage（包括

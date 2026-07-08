@@ -693,6 +693,10 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 		statusCode = http.StatusBadRequest
 		errType = "invalid_request_error"
 		errMsg = getPassthroughOrDefault(upstreamMsg, "Invalid request")
+	case 404:
+		statusCode = http.StatusBadRequest
+		errType = "invalid_request_error"
+		errMsg = "Upstream model not found"
 	case 401:
 		statusCode = http.StatusBadGateway
 		errType = "authentication_error"
@@ -1133,18 +1137,5 @@ func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
 // isImageGenerationModel 判断模型是否为图片生成模型
 // 支持的模型：gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image 等
 func isImageGenerationModel(model string) bool {
-	modelLower := strings.ToLower(model)
-	// 移除 models/ 前缀
-	modelLower = strings.TrimPrefix(modelLower, "models/")
-
-	// 精确匹配或前缀匹配
-	return modelLower == "gemini-3.1-flash-image" ||
-		modelLower == "gemini-3.1-flash-image-preview" ||
-		strings.HasPrefix(modelLower, "gemini-3.1-flash-image-") ||
-		modelLower == "gemini-3-pro-image" ||
-		modelLower == "gemini-3-pro-image-preview" ||
-		strings.HasPrefix(modelLower, "gemini-3-pro-image-") ||
-		modelLower == "gemini-2.5-flash-image" ||
-		modelLower == "gemini-2.5-flash-image-preview" ||
-		strings.HasPrefix(modelLower, "gemini-2.5-flash-image-")
+	return antigravity.IsImageModel(model)
 }

@@ -416,6 +416,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
 
+	s.tkAppendColdStartSettingUpdates(updates, settings)
+	s.tkAppendAnthropicNormalizeSettingUpdates(updates, settings)
+	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
+
 	return updates, nil
 }
 

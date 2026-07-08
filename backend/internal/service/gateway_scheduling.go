@@ -17,7 +17,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 // SelectAccount 选择账号（粘性会话+优先级）
@@ -56,7 +55,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	// anthropic/gemini 分组支持混合调度（包含启用了 mixed_scheduling 的 antigravity 账户）
@@ -108,7 +107,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	var stickyAccountID int64
@@ -208,7 +207,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		return nil, err
 	}
 	if len(accounts) == 0 {
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, selectionFailureStats{})
 	}
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
@@ -493,7 +492,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			account, ok := accountByID[accountID]
 			if ok {
 				// 检查账户是否需要清理粘性会话绑定
-				clearSticky := shouldClearStickySession(account, requestedModel)
+				clearSticky := shouldClearStickySession(account, requestedModel) ||
+					s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)
 				if clearSticky {
 					slog.Debug("sticky.layer1_5_no_routing_clear",
 						"account_id", accountID,
@@ -648,7 +648,31 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAccounts
+		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, useMixed)
+		slog.Warn("account_scheduling_loadbalance_no_candidates",
+			"group_id", derefGroupID(groupID),
+			"model", requestedModel,
+			"session", shortSessionHash(sessionHash),
+			"total_accounts", stats.Total,
+			"filtered_excluded", stats.Excluded,
+			"filtered_unschedulable", stats.Unschedulable,
+			"filtered_platform", stats.PlatformFiltered,
+			"filtered_model_unsupported", stats.ModelUnsupported,
+			"filtered_model_rate_limited", stats.ModelRateLimited,
+			"eligible_before_quota", stats.Eligible,
+		)
+		otherFilters := stats.Total - stats.Excluded
+		if s.tkThinPoolAllExcluded(ctx, len(accounts), stats.Excluded, otherFilters) {
+			slog.Warn("account_scheduling_thin_pool_all_excluded",
+				"group_id", derefGroupID(groupID),
+				"model", requestedModel,
+				"session", shortSessionHash(sessionHash),
+				"total_accounts", stats.Total,
+				"filtered_excluded", stats.Excluded,
+			)
+			return nil, ErrThinPoolAllExcluded
+		}
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
@@ -680,6 +704,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				})
 			}
 		}
+
+		s.computeAnthropicSaturationPenalties(ctx, available)
+		computeAnthropicKiroMirrorStubPenalties(available, requestedModel)
 
 		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
@@ -736,7 +763,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			MaxWaiting:     cfg.FallbackMaxWaiting,
 		})
 	}
-	return nil, ErrNoAvailableAccounts
+	stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, useMixed)
+	return nil, tkWrapSelectionFailure(requestedModel, stats)
 }
 
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
@@ -855,7 +883,7 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 			return nil, nil, err
 		}
 
-		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) {
+		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) || IsClaudeDesktopGatewayClient(ctx) {
 			return group, &currentID, nil
 		}
 
@@ -1009,17 +1037,6 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 	return accounts, useMixed, nil
 }
 
-// IsSingleAntigravityAccountGroup 检查指定分组是否只有一个 antigravity 平台的可调度账号。
-// 用于 Handler 层在首次请求时提前设置 SingleAccountRetry context，
-// 避免单账号分组收到 503 时错误地设置模型限流标记导致后续请求连续快速失败。
-func (s *GatewayService) IsSingleAntigravityAccountGroup(ctx context.Context, groupID *int64) bool {
-	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, PlatformAntigravity, true)
-	if err != nil {
-		return false
-	}
-	return len(accounts) == 1
-}
-
 func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform string, useMixed bool) bool {
 	if account == nil {
 		return false
@@ -1072,226 +1089,12 @@ func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, accountID in
 	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
 }
 
-type usageLogWindowStatsBatchProvider interface {
-	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
-}
-
-type windowCostPrefetchContextKeyType struct{}
-
-var windowCostPrefetchContextKey = windowCostPrefetchContextKeyType{}
-
-func windowCostFromPrefetchContext(ctx context.Context, accountID int64) (float64, bool) {
-	if ctx == nil || accountID <= 0 {
-		return 0, false
-	}
-	m, ok := ctx.Value(windowCostPrefetchContextKey).(map[int64]float64)
-	if !ok || len(m) == 0 {
-		return 0, false
-	}
-	v, exists := m[accountID]
-	return v, exists
-}
-
 func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []Account) context.Context {
-	if ctx == nil || len(accounts) == 0 || s.sessionLimitCache == nil || s.usageLogRepo == nil {
-		return ctx
-	}
-
-	accountByID := make(map[int64]*Account)
-	accountIDs := make([]int64, 0, len(accounts))
-	for i := range accounts {
-		account := &accounts[i]
-		if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
-			continue
-		}
-		if account.GetWindowCostLimit() <= 0 {
-			continue
-		}
-		accountByID[account.ID] = account
-		accountIDs = append(accountIDs, account.ID)
-	}
-	if len(accountIDs) == 0 {
-		return ctx
-	}
-
-	costs := make(map[int64]float64, len(accountIDs))
-	cacheValues, err := s.sessionLimitCache.GetWindowCostBatch(ctx, accountIDs)
-	if err == nil {
-		for accountID, cost := range cacheValues {
-			costs[accountID] = cost
-		}
-		windowCostPrefetchCacheHitTotal.Add(int64(len(cacheValues)))
-	} else {
-		windowCostPrefetchErrorTotal.Add(1)
-		logger.LegacyPrintf("service.gateway", "window_cost batch cache read failed: %v", err)
-	}
-	cacheMissCount := len(accountIDs) - len(costs)
-	if cacheMissCount < 0 {
-		cacheMissCount = 0
-	}
-	windowCostPrefetchCacheMissTotal.Add(int64(cacheMissCount))
-
-	missingByStart := make(map[int64][]int64)
-	startTimes := make(map[int64]time.Time)
-	for _, accountID := range accountIDs {
-		if _, ok := costs[accountID]; ok {
-			continue
-		}
-		account := accountByID[accountID]
-		if account == nil {
-			continue
-		}
-		startTime := account.GetCurrentWindowStartTime()
-		startKey := startTime.Unix()
-		missingByStart[startKey] = append(missingByStart[startKey], accountID)
-		startTimes[startKey] = startTime
-	}
-	if len(missingByStart) == 0 {
-		return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
-	}
-
-	batchReader, hasBatch := s.usageLogRepo.(usageLogWindowStatsBatchProvider)
-	for startKey, ids := range missingByStart {
-		startTime := startTimes[startKey]
-
-		if hasBatch {
-			windowCostPrefetchBatchSQLTotal.Add(1)
-			queryStart := time.Now()
-			statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, ids, startTime)
-			if err == nil {
-				slog.Debug("window_cost_batch_query_ok",
-					"accounts", len(ids),
-					"window_start", startTime.Format(time.RFC3339),
-					"duration_ms", time.Since(queryStart).Milliseconds())
-				for _, accountID := range ids {
-					stats := statsByAccount[accountID]
-					cost := 0.0
-					if stats != nil {
-						cost = stats.StandardCost
-					}
-					costs[accountID] = cost
-					_ = s.sessionLimitCache.SetWindowCost(ctx, accountID, cost)
-				}
-				continue
-			}
-			windowCostPrefetchErrorTotal.Add(1)
-			logger.LegacyPrintf("service.gateway", "window_cost batch db query failed: start=%s err=%v", startTime.Format(time.RFC3339), err)
-		}
-
-		// 回退路径：缺少批量仓储能力或批量查询失败时，按账号单查（失败开放）。
-		windowCostPrefetchFallbackTotal.Add(int64(len(ids)))
-		for _, accountID := range ids {
-			stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
-			if err != nil {
-				windowCostPrefetchErrorTotal.Add(1)
-				continue
-			}
-			cost := stats.StandardCost
-			costs[accountID] = cost
-			_ = s.sessionLimitCache.SetWindowCost(ctx, accountID, cost)
-		}
-	}
-
-	return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
+	return ctx
 }
 
-// isAccountSchedulableForQuota 检查账号是否在配额限制内
-// 适用于配置了 quota_limit 的 apikey 和 bedrock 类型账号
-func (s *GatewayService) isAccountSchedulableForQuota(account *Account) bool {
-	if !account.IsAPIKeyOrBedrock() {
-		return true
-	}
-	return !account.IsQuotaExceeded()
-}
-
-// isAccountSchedulableForWindowCost 检查账号是否可根据窗口费用进行调度
-// 仅适用于 Anthropic OAuth/SetupToken 账号
-// 返回 true 表示可调度，false 表示不可调度
 func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, account *Account, isSticky bool) bool {
-	// 只检查 Anthropic OAuth/SetupToken 账号
-	if !account.IsAnthropicOAuthOrSetupToken() {
-		return true
-	}
-
-	limit := account.GetWindowCostLimit()
-	if limit <= 0 {
-		return true // 未启用窗口费用限制
-	}
-
-	// 尝试从缓存获取窗口费用
-	var currentCost float64
-	if cost, ok := windowCostFromPrefetchContext(ctx, account.ID); ok {
-		currentCost = cost
-		goto checkSchedulability
-	}
-	if s.sessionLimitCache != nil {
-		if cost, hit, err := s.sessionLimitCache.GetWindowCost(ctx, account.ID); err == nil && hit {
-			currentCost = cost
-			goto checkSchedulability
-		}
-	}
-
-	// 缓存未命中，从数据库查询
-	{
-		// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-		startTime := account.GetCurrentWindowStartTime()
-
-		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
-		if err != nil {
-			// 失败开放：查询失败时允许调度
-			return true
-		}
-
-		// 使用标准费用（不含账号倍率）
-		currentCost = stats.StandardCost
-
-		// 设置缓存（忽略错误）
-		if s.sessionLimitCache != nil {
-			_ = s.sessionLimitCache.SetWindowCost(ctx, account.ID, currentCost)
-		}
-	}
-
-checkSchedulability:
-	schedulability := account.CheckWindowCostSchedulability(currentCost)
-
-	switch schedulability {
-	case WindowCostSchedulable:
-		return true
-	case WindowCostStickyOnly:
-		return isSticky
-	case WindowCostNotSchedulable:
-		return false
-	}
 	return true
-}
-
-// checkAndRegisterSession 检查并注册会话，用于会话数量限制
-// 仅适用于 Anthropic OAuth/SetupToken 账号
-// sessionID: 会话标识符（使用粘性会话的 hash）
-// 返回 true 表示允许（在限制内或会话已存在），false 表示拒绝（超出限制且是新会话）
-func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *Account, sessionID string) bool {
-	// 只检查 Anthropic OAuth/SetupToken 账号
-	if !account.IsAnthropicOAuthOrSetupToken() {
-		return true
-	}
-
-	maxSessions := account.GetMaxSessions()
-	if maxSessions <= 0 || sessionID == "" {
-		return true // 未启用会话限制或无会话ID
-	}
-
-	if s.sessionLimitCache == nil {
-		return true // 缓存不可用时允许通过
-	}
-
-	idleTimeout := time.Duration(account.GetSessionIdleTimeoutMinutes()) * time.Minute
-
-	allowed, err := s.sessionLimitCache.RegisterSession(ctx, account.ID, sessionID, maxSessions, idleTimeout)
-	if err != nil {
-		// 失败开放：缓存错误时允许通过
-		return true
-	}
-	return allowed
 }
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -1333,15 +1136,15 @@ func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
 		return accounts
 	}
-	minPriority := accounts[0].account.Priority
+	minPriority := accounts[0].effectivePriority()
 	for _, acc := range accounts[1:] {
-		if acc.account.Priority < minPriority {
-			minPriority = acc.account.Priority
+		if p := acc.effectivePriority(); p < minPriority {
+			minPriority = p
 		}
 	}
 	result := make([]accountWithLoad, 0, len(accounts))
 	for _, acc := range accounts {
-		if acc.account.Priority == minPriority {
+		if acc.effectivePriority() == minPriority {
 			result = append(result, acc)
 		}
 	}
@@ -1874,10 +1677,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
-		if requestedModel != "" {
-			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
-		}
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	// 4. 建立粘性绑定
@@ -2135,10 +1935,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
-		if requestedModel != "" {
-			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
-		}
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	// 4. 建立粘性绑定
@@ -2253,9 +2050,6 @@ func (s *GatewayService) diagnoseSelectionFailure(
 	if _, excluded := excludedIDs[acc.ID]; excluded {
 		return selectionFailureDiagnosis{Category: "excluded"}
 	}
-	if !s.isAccountSchedulableForSelection(acc) {
-		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
-	}
 	if isPlatformFilteredForSelection(acc, platform, allowMixedScheduling) {
 		return selectionFailureDiagnosis{
 			Category: "platform_filtered",
@@ -2267,6 +2061,9 @@ func (s *GatewayService) diagnoseSelectionFailure(
 			Category: "model_unsupported",
 			Detail:   fmt.Sprintf("model=%s", requestedModel),
 		}
+	}
+	if !s.isAccountSchedulableForSelection(acc) {
+		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
 	}
 	if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
 		remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)
@@ -2360,9 +2157,18 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
-	// OpenAI 透传模式：仅替换认证，允许所有模型
+	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount && len(account.GetModelMapping()) == 0 {
+		if !tkIsForwardableAnthropicModelName(requestedModel) {
+			return false
+		}
+	}
+	// OpenAI 透传模式：仅替换认证；显式 passthrough 账号只应认领 OpenAI
+	// namespace，避免在 universal routing 中抢走 Gemini/Claude 等外部平台模型。
 	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
-		return true
+		if len(account.GetModelMapping()) > 0 {
+			return account.IsModelSupported(requestedModel)
+		}
+		return tkIsForwardableOpenAIModelName(requestedModel)
 	}
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {

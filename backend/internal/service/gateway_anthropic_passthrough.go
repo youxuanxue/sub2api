@@ -58,12 +58,28 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	account *Account,
 	input anthropicPassthroughForwardInput,
 ) (*ForwardResult, error) {
+	return s.forwardAnthropicPassthroughWithInput(ctx, c, account, input, anthropicPassthroughAuthAPIKey)
+}
+
+func (s *GatewayService) forwardAnthropicPassthroughWithInput(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	input anthropicPassthroughForwardInput,
+	authKind anthropicPassthroughAuthKind,
+) (*ForwardResult, error) {
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, err
 	}
-	if tokenType != "apikey" {
-		return nil, fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+	expectedTokenType := "apikey"
+	authLabel := "API Key"
+	if authKind == anthropicPassthroughAuthOAuth {
+		expectedTokenType = "oauth"
+		authLabel = "OAuth"
+	}
+	if tokenType != expectedTokenType {
+		return nil, fmt.Errorf("anthropic %s passthrough requires %s token, got: %s", strings.ToLower(authLabel), expectedTokenType, tokenType)
 	}
 
 	proxyURL := ""
@@ -71,19 +87,57 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		proxyURL = account.Proxy.URL()
 	}
 
-	logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 API Key 透传分支: account=%d name=%s model=%s stream=%v",
-		account.ID, account.Name, input.RequestModel, input.RequestStream)
+	logger.LegacyPrintf("service.gateway", "[Anthropic 自动透传] 命中 %s 透传分支: account=%d name=%s model=%s stream=%v",
+		authLabel, account.ID, account.Name, input.RequestModel, input.RequestStream)
 
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
 	}
-	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
-	input.Body = StripEmptyTextBlocks(input.Body)
+	// TK: strip Claude Code context-window aliases on passthrough before
+	// billing/quota and upstream forward see the bracketed id.
+	if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {
+		input.Body = s.replaceModelInBody(input.Body, bare)
+		input.RequestModel = bare
+		input.OriginalModel = bare
+		if input.Parsed != nil {
+			input.Parsed.Model = bare
+		}
+		logger.LegacyPrintf("service.gateway",
+			"TK context-window alias stripped on APIKey passthrough (claude-code #60913): -> %s account=%d", bare, account.ID)
+	}
+	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
+	// text blocks, and drop explicit disabled thinking for Fable.
+	input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))
+	if input.Parsed != nil {
+		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
+			return nil, err
+		}
+	}
+	// TK: CC prompt-surface normalize; passthrough skips the full normalize hook.
+	if s != nil && s.settingService != nil && s.settingService.IsAnthropicRequestNormalizeEnabled(ctx) {
+		var changes []tkAnthropicNormalizeChange
+		input.Body, changes = tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, input.Body)
+		if len(changes) > 0 && input.Parsed != nil {
+			if err := input.Parsed.ReplaceBody(input.Body); err != nil {
+				return nil, err
+			}
+		}
+	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept
 	// (emulation-synthesized ones always; genuine ones additionally for
 	// passback-required third-party upstreams such as GLM/Kimi/DeepSeek,
 	// which reject server_tool_use with 400). input.RequestModel 已是映射后的模型 ID。
 	input.Body = FilterWebSearchHistoryBlocks(input.Body, input.RequestModel)
+	// TK: ToolSearch + stale signed thinking pre-filter.
+	input.Body = TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)
+	if account.Platform == PlatformAnthropic {
+		input.Body = s.applySigPreemptIfArmed(ctx, c, account, input.Body, input.RequestModel)
+	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, input.Body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), true); err != nil {
+			return nil, err
+		}
+	}
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -95,7 +149,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	retryStart := time.Now()
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
-		upstreamReq, wireBody, err := s.buildUpstreamRequestAnthropicAPIKeyPassthrough(upstreamCtx, c, account, input.Body, token)
+		upstreamReq, wireBody, err := s.buildAnthropicPassthroughUpstreamRequest(upstreamCtx, c, account, input.Body, token, authKind)
 		releaseUpstreamCtx()
 		if err != nil {
 			return nil, err
@@ -133,6 +187,57 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 				},
 			})
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		}
+
+		if resp.StatusCode == http.StatusBadRequest {
+			respBody, readErr := s.readUpstreamErrorBody(resp)
+			if readErr == nil {
+				_ = resp.Body.Close()
+				retryBody, retryKind, shouldRetry := s.rectifyAnthropicPassthrough400(ctx, account, input.Body, input.RequestModel, respBody)
+				if shouldRetry && time.Since(retryStart) < maxRetryElapsed {
+					if retryKind == "signature_retry_thinking" {
+						s.armSigPreemptOnError(ctx, c, account)
+					}
+					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
+					retryReq, retryWireBody, buildErr := s.buildAnthropicPassthroughUpstreamRequest(retryCtx, c, account, retryBody, token, authKind)
+					releaseRetryCtx()
+					if buildErr == nil {
+						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+						if retryErr == nil {
+							appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+								Platform:           account.Platform,
+								AccountID:          account.ID,
+								AccountName:        account.Name,
+								UpstreamStatusCode: resp.StatusCode,
+								UpstreamRequestID:  resp.Header.Get("x-request-id"),
+								UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+								Passthrough:        true,
+								Kind:               retryKind,
+								Message:            extractUpstreamErrorMessage(respBody),
+							})
+							if retryResp.StatusCode < 400 {
+								input.Body = retryWireBody
+								setOpsUpstreamRequestBody(c, retryWireBody)
+								if input.Parsed != nil {
+									if err := input.Parsed.ReplaceBody(retryWireBody); err != nil {
+										_ = retryResp.Body.Close()
+										return nil, err
+									}
+								}
+							}
+							resp = retryResp
+							break
+						}
+						if retryResp != nil && retryResp.Body != nil {
+							_ = retryResp.Body.Close()
+						}
+						logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: 400 rectifier retry failed: %v", account.ID, retryErr)
+					} else {
+						logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: 400 rectifier retry build failed: %v", account.ID, buildErr)
+					}
+				}
+				resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			}
 		}
 
 		// 透传分支禁止 400 请求体降级重试（该重试会改写请求体）
@@ -330,16 +435,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	}
 
 	if c != nil && c.Request != nil {
-		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] {
-				continue
-			}
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
-			}
-		}
+		copyAnthropicPassthroughHeaders(req.Header, c.Request.Header, s.anthropicPassthroughAllowTimeoutHeaders())
 	}
 
 	// 覆盖入站鉴权残留，并注入上游认证
@@ -356,10 +452,34 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 
+	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
+
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
 
 	return req, body, nil
+}
+
+func (s *GatewayService) rectifyAnthropicPassthrough400(ctx context.Context, account *Account, body []byte, model string, respBody []byte) ([]byte, string, bool) {
+	if s.shouldRectifySignatureError(ctx, account, respBody, model) {
+		return FilterThinkingBlocksForRetry(body, model), "signature_retry_thinking", true
+	}
+
+	errMsg := extractUpstreamErrorMessage(respBody)
+	if isThinkingTypeAdaptiveRequiredError(errMsg) {
+		if rectified, ok := RectifyThinkingTypeAdaptive(body); ok {
+			return rectified, "thinking_adaptive_retry", true
+		}
+	}
+	if isThinkingBudgetConstraintError(errMsg) {
+		if s.settingService != nil && !s.settingService.IsBudgetRectifierEnabled(ctx) {
+			return body, "", false
+		}
+		if rectified, ok := RectifyThinkingBudget(body, model); ok {
+			return rectified, "budget_constraint_retry", true
+		}
+	}
+	return body, "", false
 }
 
 func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
@@ -521,6 +641,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
+				applyKiroInternalThinkingBlocks(c, blocks)
+				continue
+			}
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				if anthropicStreamEventIsTerminal("", trimmed) {

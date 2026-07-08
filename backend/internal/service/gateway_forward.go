@@ -117,8 +117,33 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		})
 	}
 
+	if account != nil && account.IsAnthropicOAuthPassthroughEnabled() {
+		return s.forwardAnthropicOAuthPassthroughWithInput(ctx, c, account, anthropicPassthroughForwardInput{
+			Body:          parsed.Body.Bytes(),
+			Parsed:        parsed,
+			RequestModel:  parsed.Model,
+			OriginalModel: parsed.Model,
+			RequestStream: parsed.Stream,
+			StartTime:     startTime,
+		})
+	}
+
 	if account != nil && account.IsBedrock() {
 		return s.forwardBedrock(ctx, c, account, parsed, startTime)
+	}
+
+	if account != nil && account.IsKiro() {
+		if s.kiroGateway == nil {
+			return nil, fmt.Errorf("kiro gateway service not configured")
+		}
+		result, err := s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
+		if err != nil && s.rateLimitService != nil {
+			var failoverErr *UpstreamFailoverError
+			if errors.As(err, &failoverErr) {
+				s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody)
+			}
+		}
+		return result, err
 	}
 
 	// Beta policy: evaluate once; block check + cache filter set for buildUpstreamRequest.
@@ -147,14 +172,57 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
+	// TK: strip the Claude Code 1M-context model alias suffix before model
+	// mapping / scheduling / pricing. See gateway_anthropic_context_window_alias_tk.go.
+	if account.Platform == PlatformAnthropic {
+		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
+			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
+				return nil, err
+			}
+			logger.LegacyPrintf("service.gateway",
+				"TK context-window alias stripped before forward (prevents Anthropic 404 + silent 200K fallback, claude-code #60913): %s -> %s account=%d",
+				reqModel, bare, account.ID)
+			reqModel, parsed.Model, originalModel = bare, bare, bare
+		}
+	}
+
+	// TK canonical-OAuth ingress gates. cc_only=false groups admit non-CC
+	// traffic and complete the disguise on egress via haiku mimicry below.
+	groupAdmitsNonCC := s.tkGroupAdmitsNonCC(ctx, parsed)
+	if c != nil && c.Request != nil && s.isCanonicalAnthropicOAuth(account) {
+		if s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+			if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+				return nil, err
+			}
+		} else if !groupAdmitsNonCC {
+			if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
+				return nil, err
+			}
+		}
+		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
+			if err := replaceBody(s.replaceModelInBody(body, newModel)); err != nil {
+				return nil, err
+			}
+			logger.LegacyPrintf("service.gateway",
+				"Canonical OAuth model remap: %s -> %s (account: %s)",
+				reqModel, newModel, account.Name)
+			reqModel, parsed.Model = newModel, newModel
+		}
+	}
+
 	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
-	if c != nil {
+	if c != nil && c.Request != nil {
 		s.debugLogGatewaySnapshot("CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{
 			"account":      fmt.Sprintf("%d(%s)", account.ID, account.Name),
 			"account_type": string(account.Type),
 			"model":        reqModel,
 			"stream":       strconv.FormatBool(reqStream),
 		})
+	}
+
+	// TK: normalize Anthropic native request body before downstream rewrites.
+	if account.Platform == PlatformAnthropic {
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)
 	}
 
 	// Claude Code 客户端判定：UA 匹配 claude-cli/* 且携带 metadata.user_id。
@@ -164,7 +232,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 最低缓存门槛，导致系统级缓存失效）。
 	//
 	// 对于非 Claude Code 的第三方客户端（opencode 等），仍然走完整 mimicry。
-	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
+	userAgent := ""
+	if c != nil && c.Request != nil {
+		userAgent = c.GetHeader("User-Agent")
+	}
+	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(userAgent, parsed.MetadataUserID)
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
 
 	if shouldMimicClaudeCode {
@@ -174,7 +246,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 检测到"有 CC prompt 但无 billing block"的不一致而判为 third-party。
 		// Parrot 的 transform_request 从不检查客户端 system 内容，直接覆盖。
 		systemRewritten := false
-		if !strings.Contains(strings.ToLower(reqModel), "haiku") {
+		canonicalHaikuMimicry := s.isCanonicalAnthropicOAuth(account) &&
+			(s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx) || groupAdmitsNonCC)
+		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalHaikuMimicry) {
 			systemRaw, _ := parsed.SystemValue()
 			systemPromptInjectionEnabled, systemPrompt, systemPromptBlocks := s.claudeOAuthSystemPromptInjectionSettings(ctx)
 			if systemPromptInjectionEnabled {
@@ -190,7 +264,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 两种情况下 enforceCacheControlLimit 都会兜底处理上限。
 		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
 		if s.identityService != nil {
-			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header)
+			clientHeaders := http.Header{}
+			if c != nil && c.Request != nil {
+				clientHeaders = c.Request.Header
+			}
+			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, resolveTLSProfileNameForAccount(s.tlsFPProfileService, account))
 			if err == nil && fp != nil {
 				// metadata 透传开启时跳过 metadata 注入
 				_, mimicMPT, _ := s.settingService.GetGatewayForwardingSettings(ctx)
@@ -281,6 +359,20 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		parsed.Model = mappedModel
 		logger.LegacyPrintf("service.gateway", "Model mapping applied: %s -> %s (account: %s, source=%s)", originalModel, mappedModel, account.Name, mappingSource)
 	}
+	if account.Platform == PlatformAnthropic {
+		if replacement, deprecated := tkIsDeprecatedAnthropicModel(mappedModel); deprecated {
+			TkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
+			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
+		}
+	}
+
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
+
+	if handled, ncErr := s.tkModelNotFoundShortCircuit(c, account, mappedModel); handled {
+		return nil, ncErr
+	}
 
 	if s.shouldInjectAnthropicCacheTTL1h(ctx, account) {
 		if err := replaceBody(injectAnthropicCacheControlTTL1h(body)); err != nil {
@@ -303,13 +395,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 
 	// 解析 TLS 指纹 profile（同一请求生命周期内不变，避免重试循环中重复解析）
-	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
+	tlsProfile := resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)
 
 	// 调试日志：记录即将转发的账号信息
 	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
 		account.ID, account.Name, account.Platform, account.Type, tlsProfile, proxyURL)
-	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
-	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
+	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
+	// text blocks, and drop explicit disabled thinking for Fable before upstream.
+	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return nil, err
 	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept
@@ -332,6 +425,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if err := replaceBody(FilterThinkingBlocks(body, reqModel)); err != nil {
 		return nil, err
 	}
+	// TK: ToolSearch dynamic loading can perturb historical signed thinking
+	// blocks; strip those before the first upstream call.
+	if err := replaceBody(TkPrefilterToolSearchHistoricalThinking(body, reqModel)); err != nil {
+		return nil, err
+	}
 	// Chinese LLM thinking.type 协议差异补正（如 MiniMax 只接受 adaptive；Anthropic-SDK
 	// 客户端默认发 enabled）。仅对 passback-required 上游生效（claude-* 不会进来）。
 	if ResolveThinkingProtocol(reqModel) == ThinkingProtocolPassbackRequired {
@@ -342,6 +440,15 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			logger.LegacyPrintf("service.gateway", "Account %d: rewrote thinking.type for %s (Anthropic-SDK default 'enabled' -> vendor-specific)", account.ID, reqModel)
 		}
 	}
+	if account.Platform == PlatformAnthropic {
+		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
+	}
+	if account.Platform == PlatformAnthropic {
+		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false); err != nil {
+			return nil, err
+		}
+	}
+	setOpsUpstreamRequestBody(c, body)
 
 	// 重试循环
 	var resp *http.Response
@@ -359,7 +466,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		lastWireBody = wireBody
 
 		// 发送请求
+		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		hwka.stop()
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -409,6 +518,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							return ""
 						}(),
 					})
+					s.armSigPreemptOnError(ctx, c, account)
 
 					looksLikeToolSignatureError := func(msg string) bool {
 						m := strings.ToLower(msg)
@@ -446,6 +556,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									_ = retryResp.Body.Close()
 									return nil, err
 								}
+								setOpsUpstreamRequestBody(c, retryWireBody)
 								logger.LegacyPrintf("service.gateway", "Account %d: thinking block retry succeeded (blocks downgraded)", account.ID)
 								resp = retryResp
 								break
@@ -487,6 +598,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 													_ = retryResp2.Body.Close()
 													return nil, err
 												}
+												setOpsUpstreamRequestBody(c, retryWireBody2)
 											}
 											resp = retryResp2
 											break
@@ -531,6 +643,60 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					break
 				}
 				// 不是签名错误（或整流器已关闭），继续检查 budget 约束
+				if rejected := parseRejectedAnthropicBetas(respBody); len(rejected) > 0 {
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: resp.StatusCode,
+						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+						Kind:               "anthropic_beta_rejected",
+						Message:            extractUpstreamErrorMessage(respBody),
+						Detail: func() string {
+							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+							}
+							return ""
+						}(),
+					})
+					if time.Since(retryStart) < maxRetryElapsed {
+						logger.LegacyPrintf("service.gateway", "[warn] Account %d: upstream rejected anthropic-beta token(s) %v; retrying once with them dropped (manifest needs update)", account.ID, rejected)
+						betaRetryCtx, releaseBetaRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						betaRetryCtx = withBetaSelfHealDrop(betaRetryCtx, rejected)
+						betaRetryReq, betaWireBody, buildErr := s.buildUpstreamRequest(betaRetryCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
+						releaseBetaRetryCtx()
+						if buildErr == nil {
+							betaRetryResp, retryErr := s.httpUpstream.DoWithTLS(betaRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							if retryErr == nil {
+								if betaRetryResp.StatusCode < 400 {
+									lastWireBody = betaWireBody
+									if err := replaceBody(betaWireBody); err != nil {
+										_ = betaRetryResp.Body.Close()
+										return nil, err
+									}
+									setOpsUpstreamRequestBody(c, betaWireBody)
+									logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal succeeded after dropping %v", account.ID, rejected)
+									resp = betaRetryResp
+									break
+								}
+								if betaRetryResp.Body != nil {
+									_ = betaRetryResp.Body.Close()
+								}
+								logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal retry still failed (status=%d)", account.ID, betaRetryResp.StatusCode)
+							} else {
+								if betaRetryResp != nil && betaRetryResp.Body != nil {
+									_ = betaRetryResp.Body.Close()
+								}
+								logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal retry request failed: %v", account.ID, retryErr)
+							}
+						} else {
+							logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal build request failed: %v", account.ID, buildErr)
+						}
+					}
+					resp.Body = io.NopCloser(bytes.NewReader(respBody))
+				}
+
 				errMsg := extractUpstreamErrorMessage(respBody)
 				if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -550,7 +716,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						}(),
 					})
 
-					rectifiedBody, applied := RectifyThinkingBudget(body)
+					rectifiedBody, applied := RectifyThinkingBudget(body, reqModel)
 					if applied && time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "Account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
 						budgetRetryCtx, releaseBudgetRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
@@ -581,6 +747,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				}
 
 				resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			}
+		}
+
+		if resp.StatusCode == http.StatusForbidden && account.IsOAuth() {
+			peekedFatalBody, _ := s.readUpstreamErrorBody(resp)
+			_ = resp.Body.Close()
+			resp.Body = io.NopCloser(bytes.NewReader(peekedFatalBody))
+			if s.tkIsAccountFatal403(account, peekedFatalBody) {
+				logger.LegacyPrintf("service.gateway", "Account %d: account-fatal 403 (org-ban/bodyless), skipping in-place retry, failing over",
+					account.ID)
+				break
 			}
 		}
 

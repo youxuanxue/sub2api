@@ -83,6 +83,10 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 
 // GetUserUsageTrend returns usage trend data grouped by user and date
 func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
+	if granularity == "day" {
+		return r.getUserUsageTrendRollup(ctx, startTime, endTime, granularity, limit)
+	}
+
 	dateFormat := safeDateFormat(granularity)
 
 	query := fmt.Sprintf(`
@@ -144,6 +148,7 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 	if limit <= 0 {
 		limit = 12
 	}
+	return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)
 
 	query := `
 		WITH user_spend AS (
@@ -436,6 +441,16 @@ func (r *usageLogRepository) GetModelStatsWithUsageFiltersBySource(ctx context.C
 }
 
 func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, source string, billingMode string) (results []ModelStat, err error) {
+	if strings.TrimSpace(model) == "" &&
+		strings.TrimSpace(billingMode) == "" &&
+		shouldUseModelDailyRollup(userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source) {
+		if rollupResults, ok, rollupErr := r.getModelStatsFromRollup(ctx, startTime, endTime); rollupErr != nil {
+			return nil, rollupErr
+		} else if ok {
+			return rollupResults, nil
+		}
+	}
+
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
@@ -519,6 +534,16 @@ func (r *usageLogRepository) GetGroupStatsWithUsageFilters(ctx context.Context, 
 }
 
 func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, billingMode string) (results []usagestats.GroupStat, err error) {
+	if strings.TrimSpace(model) == "" &&
+		strings.TrimSpace(billingMode) == "" &&
+		shouldUseGroupDailyStatsRollup(userID, apiKeyID, accountID, requestType, stream, billingType) {
+		if rollupResults, ok, rollupErr := r.getGroupStatsFromRollup(ctx, startTime, endTime, groupID); rollupErr != nil {
+			return nil, rollupErr
+		} else if ok {
+			return rollupResults, nil
+		}
+	}
+
 	query := `
 		SELECT
 			COALESCE(ul.group_id, 0) as group_id,
@@ -695,6 +720,12 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 // When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
 // or a materialized view / pre-aggregation table for cumulative costs.
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
+	if rollupResults, ok, err := r.groupUsageSummaryFromRollup(ctx, todayStart); err != nil {
+		return nil, err
+	} else if ok {
+		return rollupResults, nil
+	}
+
 	query := `
 		SELECT
 			g.id AS group_id,

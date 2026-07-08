@@ -96,12 +96,20 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(input.AccountEmail) != "" {
+		var err error
+		input.Extra, input.Credentials, err = ApplyAccountEmail(input.Extra, input.Credentials, input.AccountEmail)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	account := &Account{
 		Name:        input.Name,
 		Notes:       normalizeAccountNotes(input.Notes),
 		Platform:    input.Platform,
 		Type:        input.Type,
+		ChannelType: input.ChannelType,
 		Credentials: input.Credentials,
 		Extra:       input.Extra,
 		ProxyID:     input.ProxyID,
@@ -138,6 +146,12 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			return nil, errors.New("load_factor must be <= 10000")
 		}
 		account.LoadFactor = input.LoadFactor
+	}
+	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
+		return nil, err
+	}
+	if err := resolveGrokTokenOnSave(ctx, account); err != nil {
+		return nil, err
 	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
@@ -218,6 +232,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Type != "" {
 		account.Type = input.Type
 	}
+	if input.ChannelType != nil {
+		account.ChannelType = *input.ChannelType
+	}
 	if input.Notes != nil {
 		account.Notes = normalizeAccountNotes(input.Notes)
 	}
@@ -260,6 +277,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		ComputeQuotaResetAt(account.Extra)
 		NormalizeFixedQuotaWindows(account.Extra)
 	}
+	if input.AccountEmail != nil {
+		var err error
+		account.Extra, account.Credentials, err = ApplyAccountEmail(account.Extra, account.Credentials, *input.AccountEmail)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// 影子代理恒继承母账号(由 propagateProxyToShadows 同步),不接受独立编辑——外审 B/P1;
 	// 否则要等母账号下次改 proxy 才被覆盖,期间影子会出现"有时继承、有时独立"的漂移。
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
@@ -284,6 +308,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		account.RateMultiplier = input.RateMultiplier
+	}
+	if input.TierID != nil {
+		if *input.TierID <= 0 {
+			account.TierID = nil
+		} else {
+			account.TierID = input.TierID
+		}
 	}
 	if input.LoadFactor != nil {
 		if *input.LoadFactor <= 0 {
@@ -323,6 +354,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
+		return nil, err
+	}
+	if account.Platform == PlatformGrok && tkInputHasNonEmptyCredential(input.Credentials, "refresh_token") {
+		if err := resolveGrokTokenOnSave(ctx, account); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, err
 	}
@@ -348,6 +388,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	return updated, nil
+}
+
+func (s *adminServiceImpl) GetAccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int) ([]string, error) {
+	return AccountModelMappingPresetIDs(ctx, platform, channelType, nil), nil
 }
 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
@@ -527,6 +571,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		result.Success++
 		result.SuccessIDs = append(result.SuccessIDs, accountID)
 		result.Results = append(result.Results, entry)
+	}
+
+	if result.Success > 0 && s.userRepo != nil {
+		if err := SyncAnthropicOperatorConcurrency(ctx, s.accountRepo, s.userRepo); err != nil {
+			return nil, err
+		}
 	}
 
 	return result, nil

@@ -338,11 +338,6 @@ func (s *BillingService) initFallbackPricing() {
 	}
 	s.fallbackPrices["gpt-5.6-chat-latest"] = s.fallbackPrices["gpt-5.6-sol"]
 
-	// GPT-5.6（sol / terra / luna）暂无独立定价，回退到 GPT-5.4。
-	s.fallbackPrices["gpt-5.6-sol"] = s.fallbackPrices["gpt-5.4"]
-	s.fallbackPrices["gpt-5.6-terra"] = s.fallbackPrices["gpt-5.4"]
-	s.fallbackPrices["gpt-5.6-luna"] = s.fallbackPrices["gpt-5.4"]
-
 	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
 		InputPricePerToken:     7.5e-7,
 		OutputPricePerToken:    4.5e-6,

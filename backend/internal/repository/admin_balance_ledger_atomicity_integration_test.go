@@ -46,7 +46,7 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 		redeemRepo,
 		nil, nil, nil, nil, nil, nil,
 		client,
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 	)
 	return adminSvc, userRepo
 }

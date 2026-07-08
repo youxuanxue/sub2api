@@ -11,7 +11,7 @@
       "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression."
     },
     {
-      "path": "backend/internal/repository/usage_log_repo.go",
+      "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",
       "must_contain": [
         "groupUsageSummaryFromRollup",
         "getGroupStatsFromRollup"
@@ -19,13 +19,12 @@
       "rationale": "GetAllGroupUsageSummary feeds the admin Groups page usage-summary on every load, and GetGroupStatsWithFilters feeds Dashboard/Usage group distribution. They MUST route through usage_dashboard_group_daily rollup helpers before falling back to raw usage_logs scans: groupUsageSummaryFromRollup for all-time cost summary, getGroupStatsFromRollup for completed-day requests/tokens/cost distribution plus raw head/tail. Dropping either call silently restores a 2.4M-row or wide-window scan with byte-identical results and green tests, so this sentinel is the mechanical guard."
     },
     {
-      "path": "backend/internal/repository/usage_log_repo.go",
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
       "must_contain": [
-        "shouldLoadEndpointStatsSource",
-        "EndpointStatsSource",
-        "usagestats.EndpointSourceInbound",
-        "usagestats.EndpointSourceUpstream",
-        "usagestats.EndpointSourcePath"
+        "switch strings.TrimSpace(filters.EndpointStatsSource)",
+        "case usagestats.EndpointSourceInbound:",
+        "case usagestats.EndpointSourceUpstream:",
+        "case usagestats.EndpointSourcePath:"
       ],
       "rationale": "Admin Usage endpoint distribution must be able to load only the visible dimension (inbound, upstream, or path). The legacy default still computes all three for compatibility, so a refactor can silently remove the single-source gate while default-response tests stay green and the UI falls back to the previous expensive three-query endpoint chart path. These anchors pin the branch points that skip the non-visible endpoint group-bys."
     },

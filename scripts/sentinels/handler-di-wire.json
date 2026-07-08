@@ -40,11 +40,11 @@
       "rationale": "TK compliance gate on admin page-list endpoint: setting-gated middleware that blocks admin page listing when compliance mode is enabled. This is a single-line insertion in an upstream-shaped file — trivially lost on merge, compiles cleanly without it, but silently disables the compliance guard on the admin pages route."
     },
     {
-      "path": "backend/internal/handler/admin/setting_handler.go",
+      "path": "backend/internal/handler/dto/settings.go",
       "must_contain": [
         "AnthropicCanonicalIngressStrictEnabled",
         "AnthropicCanonicalHaikuMimicryEnabled",
-        "// TK: New-User Cold Start"
+        "// New-User Cold Start"
       ],
       "rationale": "TK setting fields for canonical OAuth hardening toggles (ingress strict + haiku mimicry) and the cold-start diff helper call site. These are woven into the upstream-shaped GetSettings/UpdateSettings response/request structs and the settings diff function — dropping them compiles cleanly but silently removes the admin UI's ability to toggle canonical OAuth guards and loses cold-start setting change audit trail."
     }

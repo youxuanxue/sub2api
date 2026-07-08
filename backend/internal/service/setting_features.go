@@ -636,7 +636,7 @@ func (s *SettingService) GetRectifierSettings(ctx context.Context) (*RectifierSe
 		return DefaultRectifierSettings(), nil
 	}
 
-	var settings RectifierSettings
+	settings := *DefaultRectifierSettings()
 	if err := json.Unmarshal([]byte(value), &settings); err != nil {
 		return DefaultRectifierSettings(), nil
 	}

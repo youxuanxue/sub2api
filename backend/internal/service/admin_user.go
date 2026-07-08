@@ -127,8 +127,31 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if err := user.SetPassword(input.Password); err != nil {
 		return nil, err
 	}
+	if balance > 0 && s.entClient != nil {
+		tx, err := s.entClient.Tx(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		opCtx := dbent.NewTxContext(ctx, tx)
+		if err := s.userRepo.Create(opCtx, user); err != nil {
+			return nil, err
+		}
+		if err := writeBalanceGrantLedger(opCtx, tx.Client(), user.ID, balance, BalanceGrantNoteAdminOpening); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		s.assignDefaultSubscriptions(ctx, user.ID)
+		return user, nil
+	}
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, err
+	}
+	if balance > 0 {
+		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, user.ID, balance, BalanceGrantNoteAdminOpening, "service.admin")
 	}
 	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
@@ -175,6 +198,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldStatus := user.Status
 	oldRole := user.Role
 	oldRPMLimit := user.RPMLimit
+	oldTrajExportEnabled := user.TrajExportEnabled
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
 
 	if input.Email != "" {
@@ -208,6 +232,9 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if input.AllowedGroups != nil {
 		user.AllowedGroups = *input.AllowedGroups
 	}
+	if input.TrajExportEnabled != nil {
+		user.TrajExportEnabled = *input.TrajExportEnabled
+	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, err
@@ -223,7 +250,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if s.authCacheInvalidator != nil {
 		// RPMLimit 直接参与 billing_cache_service.checkRPM 的三级级联，
 		// allowed_groups 参与 API Key 专属分组授权判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
-		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) {
+		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || user.TrajExportEnabled != oldTrajExportEnabled || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}

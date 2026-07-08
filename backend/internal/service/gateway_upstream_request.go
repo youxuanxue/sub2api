@@ -60,7 +60,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 	if account.IsOAuth() && s.identityService != nil {
 		// 1. 获取或创建指纹（包含随机生成的ClientID）
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
+		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, resolveTLSProfileNameForAccount(s.tlsFPProfileService, account))
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Warning: failed to get fingerprint for account %d: %v", account.ID, err)
 			// 失败时降级为透传原始headers
@@ -100,20 +100,27 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	//   4) NewRequest（body 至此最终敲定）
 	//   5) 透传白名单 / fingerprint / mimic header / 写入 finalBeta
 	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
-	effectiveDropSet := mergeDropSets(policyFilterSet)
+	effectiveDropSet := mergeDropSets(policyFilterSet, betaSelfHealDropTokens(ctx)...)
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
 		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
 	)
 
 	// 账号覆写了 anthropic-beta 时，覆写值即最终上游值（由下方 ApplyHeaderOverrides 写入）：
 	// body 能力净化必须以覆写值为准，否则 header/body 不对称会被上游 400。
+	betaOverridden := false
 	if beta, ok := account.HeaderOverrideValue("anthropic-beta"); ok {
 		finalBetaHeader, finalBetaShouldSet = beta, true
+		betaOverridden = true
 	}
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
 		body = sanitized
+	}
+	outgoingFinalBetaHeader := finalBetaHeader
+	if !betaOverridden && tokenType == "oauth" && mimicClaudeCode && strings.Contains(strings.ToLower(modelID), "haiku") {
+		outgoingFinalBetaHeader = mergeAnthropicBetaDropping(claude.FullClaudeCodeHaikuMimicryBetas(), "", effectiveDropSet)
+		finalBetaShouldSet = true
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
@@ -172,21 +179,15 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// 决定是否 set，确保 dropSet 过滤后的结果一定覆盖客户端原始值。
 	deleteHeaderAllForms(req.Header, "anthropic-beta")
 	if finalBetaShouldSet {
-		setHeaderRaw(req.Header, "anthropic-beta", finalBetaHeader)
+		setHeaderRaw(req.Header, "anthropic-beta", outgoingFinalBetaHeader)
 	}
 
-	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
-	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
-		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
-			if parsed := ParseMetadataUserID(uid); parsed != nil {
-				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
-			}
-		}
-	}
+	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）。
 	// 放在所有 header 逻辑之后，确保配置值对同名头拥有最终决定权。
 	account.ApplyHeaderOverrides(req.Header)
+	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
@@ -324,6 +325,8 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	if finalBeta != "" {
 		setHeaderRaw(req.Header, "anthropic-beta", finalBeta)
 	}
+
+	tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)
 
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),
@@ -862,13 +865,14 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 		if value == "" {
 			continue
 		}
+		lowerKey := strings.ToLower(key)
+		if (lowerKey == "user-agent" || lowerKey == "x-stainless-package-version") && getHeaderRaw(req.Header, key) != "" {
+			continue
+		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
 	}
 	// Real Claude CLI uses Accept: application/json (even for streaming).
 	setHeaderRaw(req.Header, "Accept", "application/json")
-	if isStream {
-		setHeaderRaw(req.Header, "x-stainless-helper-method", "stream")
-	}
 	// Real Claude CLI 每个请求都会生成一个新的 UUID 放在 x-client-request-id。
 	// 上游会以此作为会话/请求指纹的一部分，缺失或重复都可能触发第三方判定。
 	if getHeaderRaw(req.Header, "x-client-request-id") == "" {

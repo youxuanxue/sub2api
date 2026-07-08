@@ -34,13 +34,13 @@ description: >-
 
 | pin | 真值源 | 含义 |
 |---|---|---|
-| `ua_default`（UA，含 2 处版本）| `service/setting_service.go` `DefaultOpenAICodexUserAgent` | 强制 / 兜底 UA + 后台设置默认值 |
+| `ua_default`（UA，含 2 处版本）| `service/setting_gateway_runtime.go` `DefaultOpenAICodexUserAgent` | 强制 / 兜底 UA + 后台设置默认值 |
 | `gateway_version` | `service/openai_gateway_service.go` `codexCLIVersion` | 上游 `version` 请求头 |
 | `probe_version` | `service/account_usage_service.go` `openAICodexProbeVersion` | 用量探测 `Version` 请求头 |
-| `placeholder_en` | `frontend/src/i18n/locales/en.ts` `openaiCodexUserAgentPlaceholder` | 后台 UA 输入框占位提示 |
-| `placeholder_zh` | `frontend/src/i18n/locales/zh.ts` `openaiCodexUserAgentPlaceholder` | 同上（中文） |
-| originator（非版本）| `openai_gateway_service.go` `resolveOpenAIUpstreamOriginator` | `codex_cli_rs`（只读确认，不 bump）|
-| OpenAI-Beta（非版本）| `openai_gateway_service.go` | `responses=experimental`（只读确认，不 bump）|
+| `placeholder_en` | `frontend/src/i18n/locales/en/admin/settings.ts` `openaiCodexUserAgentPlaceholder` | 后台 UA 输入框占位提示 |
+| `placeholder_zh` | `frontend/src/i18n/locales/zh/admin/settings.ts` `openaiCodexUserAgentPlaceholder` | 同上（中文） |
+| originator（非版本）| `openai_gateway_scheduling.go` `resolveOpenAIUpstreamOriginator` | `codex_cli_rs`（只读确认，不 bump）|
+| OpenAI-Beta（非版本）| `openai_gateway_forward.go` / `openai_gateway_passthrough.go` | `responses=experimental`（只读确认，不 bump）|
 
 > **5 个版本 pin 必须始终相等。** PR #1013 差点漏掉 en/zh 占位符——这就是为什么
 > `scripts/preflight.sh` 有一道 `codex fingerprint pin consistency` 机械门禁（`check-consistency`，

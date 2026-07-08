@@ -223,6 +223,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
+		SettingKeySignupBonusEnabled,
+		SettingKeySignupBonusBalance,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -278,6 +280,15 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	var balanceLowNotifyThreshold float64
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
 		balanceLowNotifyThreshold = v
+	}
+
+	signupBonusEnabled := !isFalseSettingValue(settings[SettingKeySignupBonusEnabled])
+	signupBonusBalance := defaultSignupBonusBalanceUSD
+	if v, err := strconv.ParseFloat(settings[SettingKeySignupBonusBalance], 64); err == nil && v >= 0 {
+		signupBonusBalance = v
+	}
+	if !signupBonusEnabled {
+		signupBonusBalance = 0
 	}
 
 	return &PublicSettings{
@@ -337,6 +348,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
 
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
+
+		SignupBonusEnabled:           signupBonusEnabled,
+		SignupBonusBalanceDisplayUSD: signupBonusBalance,
 	}, nil
 }
 
@@ -487,6 +501,9 @@ type PublicSettingsInjectionPayload struct {
 	AccountQuotaNotifyEnabled   bool    `json:"account_quota_notify_enabled"`
 	BalanceLowNotifyThreshold   float64 `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL string  `json:"balance_low_notify_recharge_url"`
+	PricingCatalogPublic        bool    `json:"pricing_catalog_public"`
+	SignupBonusEnabled          bool    `json:"signup_bonus_enabled"`
+	SignupBonusBalanceUSD       float64 `json:"signup_bonus_balance_usd"`
 
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
@@ -555,6 +572,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AccountQuotaNotifyEnabled:        settings.AccountQuotaNotifyEnabled,
 		BalanceLowNotifyThreshold:        settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings.BalanceLowNotifyRechargeURL,
+		PricingCatalogPublic:             settings.PricingCatalogPublic,
+		SignupBonusEnabled:               settings.SignupBonusEnabled,
+		SignupBonusBalanceUSD:            settings.SignupBonusBalanceDisplayUSD,
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
