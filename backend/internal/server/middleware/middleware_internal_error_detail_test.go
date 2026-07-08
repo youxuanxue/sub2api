@@ -54,6 +54,21 @@ func TestAbortWithErrorDetail_NilErrorDoesNotSetKey(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestAbortClientClosedRequest_SetsOpsMarkerAndDetail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	AbortClientClosedRequest(c, context.Canceled)
+
+	require.Equal(t, StatusClientClosedRequest, rec.Code)
+	require.True(t, service.HasOpsClientClosedRequest(c))
+	v, ok := c.Get(service.OpsInternalErrorDetailKey)
+	require.True(t, ok)
+	require.Equal(t, "context canceled", v)
+	require.Contains(t, rec.Body.String(), "CLIENT_CLOSED_REQUEST")
+}
+
 func TestAPIKeyAuth_500_SetsOpsInternalErrorDetail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -85,6 +100,33 @@ func TestAPIKeyAuth_500_SetsOpsInternalErrorDetail(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "postgres conn pool exhausted")
 }
 
+func TestAPIKeyAuth_ContextCanceled_ReturnsClientClosedRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			return nil, context.Canceled
+		},
+	})
+
+	r := gin.New()
+	var captured *gin.Context
+	r.Use(func(c *gin.Context) { captured = c; c.Next() })
+	r.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, &config.Config{})))
+	r.POST("/v1/messages", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer any")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, StatusClientClosedRequest, rec.Code)
+	require.NotNil(t, captured)
+	require.True(t, service.HasOpsClientClosedRequest(captured))
+	require.Contains(t, rec.Body.String(), "context canceled")
+	require.NotContains(t, rec.Body.String(), "Failed to validate API key")
+}
+
 func TestAPIKeyAuthGoogle_500_SetsOpsInternalErrorDetail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -113,4 +155,32 @@ func TestAPIKeyAuthGoogle_500_SetsOpsInternalErrorDetail(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, s, "context deadline exceeded")
 	require.NotContains(t, rec.Body.String(), "context deadline exceeded")
+}
+
+func TestAPIKeyAuthGoogle_ContextCanceled_ReturnsClientClosedRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			return nil, context.Canceled
+		},
+	})
+
+	r := gin.New()
+	var captured *gin.Context
+	r.Use(func(c *gin.Context) { captured = c; c.Next() })
+	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, &config.Config{}))
+	r.GET("/v1beta/test", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
+	req.Header.Set("Authorization", "Bearer any")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, StatusClientClosedRequest, rec.Code)
+	require.NotNil(t, captured)
+	require.True(t, service.HasOpsClientClosedRequest(captured))
+	require.Contains(t, rec.Body.String(), "context canceled")
+	require.Contains(t, rec.Body.String(), "CANCELLED")
+	require.NotContains(t, rec.Body.String(), "Failed to validate API key")
 }

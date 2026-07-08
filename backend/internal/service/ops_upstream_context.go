@@ -81,6 +81,10 @@ const (
 	OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned  = "api_key_group_unassigned"
 	OpsClientPolicyDeniedReasonLocalFeatureGate       = "local_feature_gate"
 	OpsClientPolicyDeniedReasonLocalPolicyDenied      = "local_policy_denied"
+
+	// OpsClientClosedRequestKey marks local failures caused by the caller closing
+	// the inbound request context before gateway auth/body handling completed.
+	OpsClientClosedRequestKey = "ops_client_closed_request"
 )
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
@@ -145,6 +149,25 @@ func HasOpsClientPolicyDenied(c *gin.Context) bool {
 		return false
 	}
 	v, ok := c.Get(OpsClientPolicyDeniedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
+func MarkOpsClientClosedRequest(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsClientClosedRequestKey, true)
+}
+
+func HasOpsClientClosedRequest(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsClientClosedRequestKey)
 	if !ok {
 		return false
 	}

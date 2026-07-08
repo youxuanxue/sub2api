@@ -39,6 +39,10 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				abortWithGoogleError(c, 401, "Invalid API key")
 				return
 			}
+			if IsClientClosedRequestError(c, err) {
+				abortWithGoogleClientClosedRequest(c, err)
+				return
+			}
 			abortWithGoogleErrorDetail(c, 500, "Failed to validate API key", err)
 			return
 		}
@@ -198,4 +202,14 @@ func abortWithGoogleErrorDetail(c *gin.Context, status int, message string, inte
 		}
 	}
 	abortWithGoogleError(c, status, message)
+}
+
+func abortWithGoogleClientClosedRequest(c *gin.Context, internalErr error) {
+	if c != nil {
+		service.MarkOpsClientClosedRequest(c)
+		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+			c.Set(service.OpsInternalErrorDetailKey, detail)
+		}
+	}
+	abortWithGoogleError(c, StatusClientClosedRequest, "context canceled")
 }
