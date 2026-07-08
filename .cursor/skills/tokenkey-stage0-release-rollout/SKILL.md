@@ -13,7 +13,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（默认 **direct-push**；仅 `release-main-push-route`=`bump-via-pr` 时 delegate `release-bump-via-pr.sh`；永不写共享 checkout） |
+| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（bump 时同步 `docs/ops/endpoint-compat-baseline.md` runtime anchor；默认 **direct-push**；仅 `release-main-push-route`=`bump-via-pr` 时 delegate `release-bump-via-pr.sh`；永不写共享 checkout） |
 | **发版 bypass 一次性配置（scheme 1）** | 机械 | `bash scripts/release-configure-main-bypass.sh`（个人仓库：`enforce_admins=false`；组织仓库：`bypass_pull_request_allowances.users`） |
 | **VERSION bump 经 PR（fallback）** | 机械 | `bash scripts/release-bump-via-pr.sh [--dry-run] [--pr N]`（仅当当前 gh 账号无法 direct-push 时） |
 | main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（读 protection + 当前 gh 用户 bypass 能力） |
@@ -170,6 +170,7 @@ bash scripts/release-bump-via-pr.sh --pr 1169   # CI 已绿、仅 merge+tag
 
 PR 路径纪律：
 
+- bump commit 同步 `backend/cmd/server/VERSION` **与** `docs/ops/endpoint-compat-baseline.md` runtime anchor（`scripts/sync_endpoint_compat_baseline_anchor.py`；`release.yml` freshness gate 依赖此锚点）。
 - bump commit 正文必须含 `no-web-impact`（preflight web surface 机械检查）。
 - CI 仅 **preflight** 段 flaky 时：`gh run rerun <run_id> --failed`，再 `--pr N` resume；**不要**为通过 CI 改 VERSION。
 - merge 后 worktree 可能占着 `chore/bump-version-*` 分支 → `gh pr merge` 本地删分支失败可忽略；成功路径结束时会 `worktree remove --force`。
@@ -677,6 +678,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 | 现象 | 处理 |
 |------|------|
+| `release.yml` 在 **Verify endpoint-compat baseline** 失败（baseline 仍锚定旧 tag） | 2026-07-08 v1.8.91 实录：`bump` 只改 VERSION 未同步 baseline → release 红。现已由 `release-bump-and-tag.sh` / `release-bump-via-pr.sh` 在 bump commit 内机械同步；若仍失败，手动 `python3 scripts/sync_endpoint_compat_baseline_anchor.py --version X.Y.Z --previous-deploy-tag vA.B.C` 后删 tag 重建。 |
 | `release-bump-and-tag.sh` 无输出且 exit 1（action=tag-only） | 已修：`field()` grep 无匹配 + `set -e` 静默退出。升级后重跑；临时绕过 = worktree @ origin/main + `release-tag.sh vX.Y.Z`。 |
 | `push origin HEAD:main` / GH006 **Protected branch** | 先 `bash scripts/release-configure-main-bypass.sh`；仍失败则 fallback `release-bump-via-pr.sh`。 |
 | bump PR CI 仅 **preflight** flaky fail | `gh run rerun <run_id> --failed`，再 `release-bump-via-pr.sh --pr <N>`；不要改 VERSION 对冲。 |
@@ -709,7 +711,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 - `.cursor/skills/tokenkey-anthropic-oauth-config/SKILL.md` — 发版后 check violation 的 plan/apply/verify canonical 路径。
 
-- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；默认 direct-push，fallback 才 delegate PR）。
+- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；bump 时同步 endpoint-compat baseline；默认 direct-push，fallback 才 delegate PR）。
 - `scripts/release-bump-via-pr.sh` — VERSION bump 经 PR + merge + tag。
 - `scripts/release-configure-main-bypass.sh` — scheme 1：发版账号 bypass（个人 repo / 组织 repo 双路径）。
 - `scripts/release-main-push-route.sh` — direct-push vs bump-via-pr 探测。
