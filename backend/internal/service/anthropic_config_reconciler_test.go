@@ -19,24 +19,17 @@ import (
 
 type reconcilerAccountStub struct {
 	accounts   []Account            // default list (back-compat for existing tests)
-	byPlatform map[string][]Account // optional per-platform override (runOnce now lists anthropic AND kiro)
+	byPlatform map[string][]Account // optional per-platform override
 	sum        int64
 	bulkCalls  []bulkUpdateCall
-	bindCalls  []bindGroupsCall
 	listErr    error
 	sumErr     error
 	bulkErr    error
-	bindErr    error
 }
 
 type bulkUpdateCall struct {
 	ids     []int64
 	updates AccountBulkUpdate
-}
-
-type bindGroupsCall struct {
-	accountID int64
-	groupIDs  []int64
 }
 
 func (s *reconcilerAccountStub) ListByPlatform(ctx context.Context, platform string) ([]Account, error) {
@@ -76,15 +69,6 @@ func (s *reconcilerAccountStub) BulkUpdate(ctx context.Context, ids []int64, upd
 	}
 	s.bulkCalls = append(s.bulkCalls, bulkUpdateCall{ids: ids, updates: updates})
 	return int64(len(ids)), nil
-}
-
-func (s *reconcilerAccountStub) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
-	if s.bindErr != nil {
-		return s.bindErr
-	}
-	dup := append([]int64(nil), groupIDs...)
-	s.bindCalls = append(s.bindCalls, bindGroupsCall{accountID: accountID, groupIDs: dup})
-	return nil
 }
 
 type reconcilerUserStub struct {
@@ -146,10 +130,10 @@ func newTestReconciler(acc *reconcilerAccountStub, usr *reconcilerUserStub, bal 
 // --- Step baseline (account shared_baseline self-heal) stubs + tests ----------
 
 type stubTierApplier struct {
-	calls []int64 // account ids ReapplyBaselineInfra was invoked on
+	calls []int64 // account ids RepairBaselineDrift was invoked on
 }
 
-func (s *stubTierApplier) ReapplyBaselineInfra(ctx context.Context, accountID int64, tier string) (*Account, error) {
+func (s *stubTierApplier) RepairBaselineDrift(ctx context.Context, accountID int64, tier string) (*Account, error) {
 	s.calls = append(s.calls, accountID)
 	return &Account{ID: accountID}, nil
 }
@@ -179,7 +163,7 @@ func TestReconcileAccountBaselineDrift_HealsUnboundTLS(t *testing.T) {
 		Extra:    map[string]any{"enable_tls_fingerprint": true},
 	}}
 	r.reconcileAccountBaselineDrift(context.Background(), accts)
-	require.Equal(t, []int64{7}, applier.calls, "unbound TLS must trigger ApplyTier self-heal")
+	require.Equal(t, []int64{7}, applier.calls, "unbound TLS must trigger narrow baseline repair")
 }
 
 func TestReconcileAccountBaselineDrift_IgnoresPriorityDrift(t *testing.T) {
@@ -238,6 +222,22 @@ func TestReconcileAccountBaselineDrift_SkipsApikeyStub(t *testing.T) {
 	}}
 	r.reconcileAccountBaselineDrift(context.Background(), accts)
 	require.Empty(t, applier.calls, "apikey stub must be skipped")
+}
+
+func TestReconcileAccountBaselineDrift_SkipsPassthrough(t *testing.T) {
+	applier := &stubTierApplier{}
+	r := baselineSelfHealReconciler(applier, &stubTLSByID{})
+	accts := []Account{{
+		ID:       12,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		TierID:   tierID2(),
+		Extra: map[string]any{
+			"anthropic_oauth_passthrough": true,
+		},
+	}}
+	r.reconcileAccountBaselineDrift(context.Background(), accts)
+	require.Empty(t, applier.calls, "passthrough accounts must not receive canonical TLS baseline repair")
 }
 
 // stubTierConcurrency is a minimal reconcilerTierResolver for Step T tests.
@@ -455,97 +455,6 @@ func TestReconciler_SurfaceC_DefaultsToAnthropicWhenUnset(t *testing.T) {
 	require.NotContains(t, doer.lastURL, "platform=kiro")
 }
 
-func TestReconciler_KiroMirrorStubGroups_InheritsAnthropicSiblingGroups(t *testing.T) {
-	ccStub := Account{
-		ID:       55,
-		Name:     "cc-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		GroupIDs: []int64{1, 15},
-		Credentials: map[string]any{
-			"base_url": "https://api-us6.tokenkey.dev",
-			"api_key":  "sk-cc",
-		},
-	}
-	kiroStub := Account{
-		ID:       66,
-		Name:     "kiro-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		GroupIDs: []int64{1, 17},
-		Credentials: map[string]any{
-			"base_url":        "https://api-us6.tokenkey.dev",
-			"api_key":         "sk-kiro",
-			"mirror_platform": "kiro",
-		},
-	}
-	acc := &reconcilerAccountStub{accounts: []Account{ccStub, kiroStub}, sum: 0}
-	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
-	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
-
-	r.runOnce(context.Background())
-
-	require.Len(t, acc.bindCalls, 1, "kiro mirror stub missing sibling groups must be rebound once")
-	require.Equal(t, int64(66), acc.bindCalls[0].accountID)
-	require.Equal(t, []int64{1, 15, 17}, acc.bindCalls[0].groupIDs,
-		"kiro stub must inherit sibling anthropic groups first, while preserving its own kiro-local group")
-}
-
-func TestReconciler_KiroMirrorStubGroups_AlreadyAligned_NoWrite(t *testing.T) {
-	ccStub := Account{
-		ID:       55,
-		Name:     "cc-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		GroupIDs: []int64{1, 15},
-		Credentials: map[string]any{
-			"base_url": "https://api-us6.tokenkey.dev",
-			"api_key":  "sk-cc",
-		},
-	}
-	kiroStub := Account{
-		ID:       66,
-		Name:     "kiro-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		GroupIDs: []int64{1, 15, 17},
-		Credentials: map[string]any{
-			"base_url":        "https://api-us6.tokenkey.dev",
-			"api_key":         "sk-kiro",
-			"mirror_platform": "kiro",
-		},
-	}
-	acc := &reconcilerAccountStub{accounts: []Account{ccStub, kiroStub}, sum: 0}
-	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
-	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
-
-	r.runOnce(context.Background())
-
-	require.Empty(t, acc.bindCalls, "aligned kiro mirror stub groups must not be rebound")
-}
-
-func TestReconciler_KiroMirrorStubGroups_NoAnthropicSibling_NoWrite(t *testing.T) {
-	kiroStub := Account{
-		ID:       66,
-		Name:     "kiro-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		GroupIDs: []int64{1, 17},
-		Credentials: map[string]any{
-			"base_url":        "https://api-us6.tokenkey.dev",
-			"api_key":         "sk-kiro",
-			"mirror_platform": "kiro",
-		},
-	}
-	acc := &reconcilerAccountStub{accounts: []Account{kiroStub}, sum: 0}
-	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
-	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
-
-	r.runOnce(context.Background())
-
-	require.Empty(t, acc.bindCalls, "without an anthropic sibling source, kiro stub groups must be left unchanged")
-}
-
 func TestReconciler_SurfaceC_NeverWritesZeroOnFailure(t *testing.T) {
 	stub := Account{
 		ID:          31,
@@ -643,48 +552,4 @@ func TestReconciler_BalanceFloor_DisabledByConfig(t *testing.T) {
 	r.runOnce(context.Background())
 
 	require.Empty(t, bal.setCalls, "balance floor must be a no-op when the toggle is off")
-}
-
-// --- kiro priority baseline self-heal ---------------------------------------
-
-func TestReconciler_KiroPriorityBaseline_ValueSync(t *testing.T) {
-	kiroAcct := Account{ID: 70, Name: "kiro-a", Platform: PlatformKiro, Type: AccountTypeOAuth, Priority: 3}
-	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{PlatformKiro: {kiroAcct}}}
-	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
-	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
-
-	r.runOnce(context.Background())
-
-	require.Len(t, acc.bulkCalls, 1, "kiro account with priority!=10 must be value-synced")
-	require.Equal(t, []int64{70}, acc.bulkCalls[0].ids)
-	require.NotNil(t, acc.bulkCalls[0].updates.Priority)
-	require.Equal(t, 10, *acc.bulkCalls[0].updates.Priority, "kiro priority must be hard-enforced to baseline 10")
-	require.Nil(t, acc.bulkCalls[0].updates.Concurrency, "priority sync must not touch concurrency")
-}
-
-func TestReconciler_KiroPriorityBaseline_AlreadyAligned_NoWrite(t *testing.T) {
-	kiroAcct := Account{ID: 71, Name: "kiro-b", Platform: PlatformKiro, Type: AccountTypeOAuth, Priority: 10}
-	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{PlatformKiro: {kiroAcct}}}
-	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
-	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
-
-	r.runOnce(context.Background())
-
-	require.Empty(t, acc.bulkCalls, "kiro account already at baseline 10 must not be written")
-}
-
-func TestReconciler_KiroPriorityBaseline_NonKiroUntouched(t *testing.T) {
-	anth := Account{ID: 72, Name: "anth", Platform: PlatformAnthropic, Type: AccountTypeOAuth, Priority: 5}
-	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{
-		PlatformAnthropic: {anth},
-		// kiro absent → empty list → no kiro writes
-	}}
-	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
-	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
-
-	r.runOnce(context.Background())
-
-	for _, c := range acc.bulkCalls {
-		require.Nil(t, c.updates.Priority, "non-kiro accounts must never receive a priority value-sync")
-	}
 }

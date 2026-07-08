@@ -4363,6 +4363,7 @@ export default {
       modelCount: '{count} 个模型',
       poolMode: '池模式',
       poolModeHint: '上游为账号池时启用，上游错误先原地重试若干次（默认 3）以触发池内轮换',
+      poolModeSystemManaged: '系统托管：内部 Edge Stub 由 Reconciler 自动维护',
       poolModeInfo:
         '启用后，上游 401 / 403 / 429 / 502 / 503 / 504 错误先在同账号原地重试 N 次（N=下方"同账号重试次数"，默认 3），让上游池有机会自我轮换到下一个成员；耗尽后自然 failover 到下一个本地账号。Anthropic 账号继续受 3/3 短窗保护，但 cooldown 改为指数退避：首次 30 秒、第二次 2 分钟、第三次起 10 分钟，避免单次抖动导致 10 分钟整组不可用，同时持续故障仍能升级到长冷却。适用于上游指向另一套 TokenKey / 兼容网关账号池的场景。',
       poolModeRetryCount: '同账号重试次数',

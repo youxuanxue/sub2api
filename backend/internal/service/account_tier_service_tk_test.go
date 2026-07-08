@@ -157,6 +157,20 @@ func TestApplyTier_RejectsApikeyStub(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestApplyTier_RejectsOAuthPassthrough(t *testing.T) {
+	svc := NewAccountTierService(
+		&stubAdminServiceForTier{getAccount: &Account{
+			ID:       1,
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeOAuth,
+			Extra:    map[string]any{"anthropic_oauth_passthrough": true},
+		}},
+		tierServiceWithL4(t), tlsServiceWithRepo(t, &stubTLSRepo{}))
+	_, err := svc.ApplyTier(context.Background(), 1, "l4")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "passthrough")
+}
+
 func TestApplyTier_SetupTokenBindsTier(t *testing.T) {
 	// Regression: setup-token anthropic accounts are subject to the same 5h
 	// window + session control as OAuth (Account.IsAnthropicOAuthOrSetupToken)
@@ -257,6 +271,82 @@ func TestReapplyBaselineInfra_DoesNotTouchPriority(t *testing.T) {
 	require.Equal(t, 8, *in.Concurrency, "self-heal still value-syncs concurrency")
 	require.Equal(t, true, in.Extra["enable_tls_fingerprint"], "self-heal still asserts infra flags")
 	require.Nil(t, in.Priority, "self-heal must NOT write priority (window-rebalance owns it)")
+}
+
+func TestRepairBaselineDrift_NarrowlyRepairsTLSAndMissingCredentialsOnly(t *testing.T) {
+	admin := &stubAdminServiceForTier{getAccount: &Account{
+		ID:          7,
+		Name:        "cc-oauth",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Priority:    42,
+		Concurrency: 3,
+		Extra: map[string]any{
+			"enable_tls_fingerprint":     false,
+			"rpm_strategy":               "sticky_exempt",
+			"session_id_masking_enabled": false,
+			"custom_base_url_enabled":    true,
+			"custom_base_url":            "https://operator.example",
+			"base_rpm":                   999,
+		},
+		Credentials: map[string]any{
+			"access_token":               "tok-abc",
+			"temp_unschedulable_enabled": false,
+			"temp_unschedulable_rules":   []any{"operator-rule"},
+		},
+	}}
+	tlsRepo := &stubTLSRepo{}
+	svc := NewAccountTierService(admin, tierServiceWithL4(t), tlsServiceWithRepo(t, tlsRepo))
+
+	_, err := svc.RepairBaselineDrift(context.Background(), 7, "l4")
+	require.NoError(t, err)
+	require.NotNil(t, admin.updateInput)
+
+	in := admin.updateInput
+	require.Nil(t, in.TierID, "narrow repair must not bind/rebind tier_id")
+	require.Nil(t, in.Concurrency, "narrow repair must not value-sync concurrency")
+	require.Nil(t, in.RateMultiplier, "narrow repair must not value-sync rate multiplier")
+	require.Nil(t, in.Priority, "narrow repair must not write priority")
+
+	require.Equal(t, true, in.Extra["enable_tls_fingerprint"])
+	require.NotZero(t, parseExtraInt(in.Extra["tls_fingerprint_profile_id"]))
+	require.Equal(t, "sticky_exempt", in.Extra["rpm_strategy"], "operator rpm strategy must be preserved")
+	require.Equal(t, false, in.Extra["session_id_masking_enabled"], "operator masking setting must be preserved")
+	require.Equal(t, true, in.Extra["custom_base_url_enabled"], "operator custom base URL toggle must be preserved")
+	require.Equal(t, "https://operator.example", in.Extra["custom_base_url"])
+	require.Equal(t, 999, parseExtraInt(in.Extra["base_rpm"]), "existing extra keys are preserved, not replaced by baseline")
+
+	require.Equal(t, "tok-abc", in.Credentials["access_token"])
+	require.Equal(t, false, in.Credentials["temp_unschedulable_enabled"], "present credential template key must not be overwritten")
+	require.Equal(t, []any{"operator-rule"}, in.Credentials["temp_unschedulable_rules"], "present rule key must not be overwritten")
+	require.Equal(t, true, in.Credentials["intercept_warmup_requests"], "missing credential template key is filled from baseline")
+}
+
+func TestRepairBaselineDrift_AlignedNoWrite(t *testing.T) {
+	tlsRepo := &stubTLSRepo{}
+	eff, err := baseline.EffectiveBaselineForTier("l4")
+	require.NoError(t, err)
+	seeded, err := tlsRepo.Create(context.Background(), eff.CanonicalTLSProfile())
+	require.NoError(t, err)
+	admin := &stubAdminServiceForTier{getAccount: &Account{
+		ID:       7,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"enable_tls_fingerprint":     true,
+			"tls_fingerprint_profile_id": seeded.ID,
+		},
+		Credentials: map[string]any{
+			"temp_unschedulable_enabled": true,
+			"temp_unschedulable_rules":   []any{},
+			"intercept_warmup_requests":  true,
+		},
+	}}
+	svc := NewAccountTierService(admin, tierServiceWithL4(t), tlsServiceWithRepo(t, tlsRepo))
+
+	_, err = svc.RepairBaselineDrift(context.Background(), 7, "l4")
+	require.NoError(t, err)
+	require.Nil(t, admin.updateInput, "aligned account must not be written")
 }
 
 // TestApplyTier_CreatesAndBindsCanonicalTLSProfile is the regression for the

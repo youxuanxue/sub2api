@@ -346,6 +346,36 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it('marks internal Anthropic edge stub pool mode as system-managed', async () => {
+    const account = {
+      ...buildAccount(),
+      platform: 'anthropic',
+      type: 'apikey',
+      credentials: {
+        api_key: 'sk-edge',
+        base_url: 'https://api-us1.tokenkey.dev',
+        pool_mode: false,
+        pool_mode_retry_count: 1,
+        pool_mode_retry_status_codes: [401]
+      }
+    } as any
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.text()).toContain('admin.accounts.poolModeSystemManaged')
+    expect(wrapper.get<HTMLButtonElement>('[data-testid="pool-mode-toggle"]').element.disabled).toBe(true)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials as Record<string, unknown>
+    expect(credentials.base_url).toBe('https://api-us1.tokenkey.dev')
+    expect(credentials).not.toHaveProperty('pool_mode')
+    expect(credentials).not.toHaveProperty('pool_mode_retry_count')
+    expect(credentials).not.toHaveProperty('pool_mode_retry_status_codes')
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
