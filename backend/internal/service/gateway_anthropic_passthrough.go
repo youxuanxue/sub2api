@@ -139,6 +139,22 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			return nil, err
 		}
 	}
+	metadataUserID := ""
+	if input.Parsed != nil {
+		metadataUserID = input.Parsed.MetadataUserID
+	}
+	if metadataUserID == "" {
+		metadataUserID = gjson.GetBytes(input.Body, "metadata.user_id").String()
+	}
+	userAgent := ""
+	if c != nil && c.Request != nil {
+		userAgent = c.GetHeader("User-Agent")
+	}
+	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(userAgent, metadataUserID)
+	input.Body, _, err = applyStickyToAnthropicMessagesBody(ctx, c, s.settingService, account, input.Body, input.RequestModel, isClaudeCode)
+	if err != nil {
+		return nil, err
+	}
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -303,6 +319,9 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
+			if result, err, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+				return result, err
+			}
 			s.handleRetryExhaustedSideEffects(ctx, resp, account)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -337,6 +356,9 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
+		if result, err, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+			return result, err
+		}
 		s.handleFailoverSideEffects(ctx, resp, account, input.RequestModel)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
@@ -365,6 +387,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		return s.handleErrorResponse(ctx, resp, c, account, input.RequestModel)
 	}
 
+	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool

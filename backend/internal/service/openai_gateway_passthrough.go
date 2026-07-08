@@ -728,6 +728,11 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 	if message == "" {
 		message = "OpenAI stream disconnected before completion"
 	}
+	logCtx := context.Background()
+	if c != nil && c.Request != nil {
+		logCtx = c.Request.Context()
+	}
+	logOpenAIStreamFailedEvent(logCtx, c, account, upstreamRequestID, payload, message, false, passthrough)
 	message = s.recordOpenAIStreamUpstreamError(c, account, passthrough, upstreamRequestID, "failover", payload, message)
 	body, _ := json.Marshal(gin.H{
 		"error": gin.H{

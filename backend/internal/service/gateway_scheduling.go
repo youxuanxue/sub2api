@@ -201,13 +201,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	if s.debugModelRoutingEnabled() && platform == PlatformAnthropic && requestedModel != "" {
 		logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] load-aware enabled: group_id=%v model=%s session=%s platform=%s", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), platform)
 	}
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
 
 	accounts, useMixed, err := s.listSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 	if err != nil {
 		return nil, err
 	}
 	if len(accounts) == 0 {
-		return nil, tkWrapSelectionFailure(requestedModel, selectionFailureStats{})
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, selectionFailureStats{}))
 	}
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
@@ -612,6 +615,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		"total_accounts", len(accounts),
 	)
 	candidates := make([]*Account, 0, len(accounts))
+	var windowDropped []*Account
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
@@ -638,6 +642,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 		// 窗口费用检查（非粘性会话路径）
 		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
+			windowDropped = append(windowDropped, acc)
 			continue
 		}
 		// RPM 检查（非粘性会话路径）
@@ -645,6 +650,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			continue
 		}
 		candidates = append(candidates, acc)
+	}
+	if len(candidates) == 0 && len(windowDropped) > 0 {
+		if acc := leastUtilizedAnthropicAccount(windowDropped, time.Now()); acc != nil {
+			candidates = append(candidates, acc)
+		}
 	}
 
 	if len(candidates) == 0 {
@@ -672,7 +682,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			)
 			return nil, ErrThinPoolAllExcluded
 		}
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
@@ -764,7 +774,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		})
 	}
 	stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, useMixed)
-	return nil, tkWrapSelectionFailure(requestedModel, stats)
+	return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))
 }
 
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
@@ -1094,7 +1104,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 }
 
 func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, account *Account, isSticky bool) bool {
-	return true
+	return s.isAccountSchedulableForAnthropicWindow(ctx, account, isSticky)
 }
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -1438,6 +1448,9 @@ func shuffleWithinPriority(accounts []*Account) {
 func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, platform string) (*Account, error) {
 	preferOAuth := platform == PlatformGemini
 	routingAccountIDs := s.routingAccountIDsForRequest(ctx, groupID, requestedModel, platform)
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
 
 	// require_privacy_set: 获取分组信息
 	var schedGroup *Group
@@ -1677,7 +1690,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))
 	}
 
 	// 4. 建立粘性绑定
@@ -1695,6 +1708,9 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, nativePlatform string) (*Account, error) {
 	preferOAuth := nativePlatform == PlatformGemini
 	routingAccountIDs := s.routingAccountIDsForRequest(ctx, groupID, requestedModel, nativePlatform)
+	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
+		return nil, err
+	}
 
 	// require_privacy_set: 获取分组信息
 	var schedGroup *Group
@@ -1935,7 +1951,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
-		return nil, tkWrapSelectionFailure(requestedModel, stats)
+		return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))
 	}
 
 	// 4. 建立粘性绑定

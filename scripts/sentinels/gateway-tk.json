@@ -2806,9 +2806,9 @@
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "return nil, tkWrapSelectionFailure(requestedModel, stats)"
+        "return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))"
       ],
-      "rationale": "Load-batch SelectAccountWithLoadAwareness empty-pool returns (zero schedulable accounts, Layer-2 no candidates, Layer-3 session-quota exhausted) must route through TkSelectionNoAvailableAccountsError so retired Anthropic model IDs become ErrDeprecatedAnthropicModel instead of bare ErrNoAvailableAccounts → routing 429. PR #1255 fixed tkWrapSelectionFailure only; this sentinel pins the three load-batch exit sites (#1257)."
+      "rationale": "Load-batch SelectAccountWithLoadAwareness empty-pool returns (zero schedulable accounts, Layer-2 no candidates, Layer-3 session-quota exhausted) must route through tkWrapSelectionFailure so retired Anthropic model IDs become ErrDeprecatedAnthropicModel instead of bare ErrNoAvailableAccounts → routing 429, and through tkGroupUnsupportedModelRecordErr so pure unsupported-model failures populate the per-group negative cache. PR #1255 fixed tkWrapSelectionFailure only; this sentinel pins the load-batch exit sites and their TokenKey cache side effect (#1257)."
     },
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",

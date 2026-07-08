@@ -505,6 +505,9 @@ func shouldClearStickySession(account *Account, requestedModel string) bool {
 	if !account.IsSchedulable() {
 		return true
 	}
+	if tkShouldClearStickyForKiroMirrorModelMismatch(account, requestedModel) {
+		return true
+	}
 	if remaining := account.GetRateLimitRemainingTimeWithContext(context.Background(), requestedModel); remaining > 0 {
 		return true
 	}

@@ -121,6 +121,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
 	}
+	injectedBody = tkEnsureGeminiContentRoles(injectedBody)
 
 	// 清理 Schema
 	if cleanedBody, err := cleanGeminiRequest(injectedBody); err == nil {
