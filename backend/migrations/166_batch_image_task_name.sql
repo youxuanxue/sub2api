@@ -1,3 +1,4 @@
+-- bluegreen-safe-destructive-ok: expand-only DEFAULT '' column plus backfill; old app writers omit task_name and old readers ignore it.
 ALTER TABLE batch_image_jobs
     ADD COLUMN IF NOT EXISTS task_name VARCHAR(255) NOT NULL DEFAULT '';
 

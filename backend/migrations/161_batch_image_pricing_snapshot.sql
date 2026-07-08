@@ -5,6 +5,7 @@ ALTER TABLE groups
 COMMENT ON COLUMN groups.batch_image_discount_multiplier IS '批量图片生成折扣倍率，最终单价会乘以该值；0 表示免费';
 COMMENT ON COLUMN groups.batch_image_hold_multiplier IS '批量图片生成冻结价格比例，按普通生图原价乘以该比例冻结，结算后释放差额';
 
+-- bluegreen-safe-destructive-ok: expand-only defaulted snapshot columns; old app writers omit them and old readers ignore them.
 ALTER TABLE batch_image_jobs
     ADD COLUMN IF NOT EXISTS base_unit_price DECIMAL(20,10) NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS group_rate_multiplier DECIMAL(10,4) NOT NULL DEFAULT 1.0,

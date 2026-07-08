@@ -1,3 +1,4 @@
+-- bluegreen-safe-destructive-ok: expand-only DEFAULT false column; old app writers omit it and old readers ignore it.
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS allow_batch_image_generation BOOLEAN NOT NULL DEFAULT false;
 
