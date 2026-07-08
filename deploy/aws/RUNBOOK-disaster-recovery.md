@@ -102,16 +102,18 @@ reboot 后走 §1 确认容器起来 + §last 验证。
 **原理**：`DataVolume` 是 CFN 栈内资源且 `Retain`，**只要不删栈**，它就一直是同一个物理卷。让 CFN 重建 `Instance` 资源，新实例 UserData 会 `attach-volume` 这个现存卷并按 fstab UUID 挂回 `/var/lib/tokenkey`，PG/Redis/`.env.secret` 全部原样。
 
 ```bash
-# 触发 Instance 资源替换：update-stack 改任一驱动 Instance 重建的属性即可，
-# 最干净是把 ImageTag 显式设成当前 prod 版本（值不变也会因 metadata 触发 replace；
-# 或临时改 InstanceType 再改回）。先确认当前 tag：
-aws cloudformation describe-stacks --stack-name "$STACK" \
-  --query "Stacks[0].Parameters[?ParameterKey=='ImageTag'].ParameterValue" --output text
+# 触发 Instance 资源替换：update-stack 改任一驱动 Instance 重建的属性即可。
+# 先决定新机 bootstrap 用的 ImageTag。旧实例仍能 SSM 时，机械读取运行态 tag：
+RUNNING_TAG=$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh \
+  --region "$AWS_REGION" --stack "$STACK")
+# 若旧实例已误删 / 无法 SSM，必须人工填写 last known-good semver
+# （例如最近一次成功 deploy-stage0 的 tag）；不要用陈旧 CFN ImageTag 或 mutable latest。
+# RUNNING_TAG=1.8.91
 
 # 用 change-set 预览（永远先 dry-run）：
 aws cloudformation create-change-set --stack-name "$STACK" \
   --change-set-name dr-replace-instance --use-previous-template \
-  --parameters ParameterKey=ImageTag,ParameterValue=<当前或目标semver> \
+  --parameters ParameterKey=ImageTag,ParameterValue="$RUNNING_TAG" \
                $(其余参数用 UsePreviousValue=true) \
   --capabilities CAPABILITY_NAMED_IAM
 aws cloudformation describe-change-set --stack-name "$STACK" --change-set-name dr-replace-instance \
