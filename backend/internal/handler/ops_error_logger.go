@@ -1320,6 +1320,7 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	upstreamError := hasOpsUpstreamErrorContext(c)
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
 	clientPolicyDenied := service.HasOpsClientPolicyDenied(c)
+	clientClosedRequest := service.HasOpsClientClosedRequest(c)
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
 	clientRequestRejected := hasOpsClientRequestRejected(c)
@@ -1333,6 +1334,9 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 		phase = "auth"
 	}
 	if clientRequestRejected && !upstreamError && !routingCapacityLimited {
+		phase = "request"
+	}
+	if (clientClosedRequest || status == statusClientClosedRequest) && !upstreamError && !routingCapacityLimited {
 		phase = "request"
 	}
 	if routingCapacityLimited {

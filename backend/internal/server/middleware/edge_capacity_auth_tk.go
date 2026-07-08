@@ -54,6 +54,10 @@ func NewEdgeCapacityAuthMiddleware(lookup edgeCapacityKeyLookup) gin.HandlerFunc
 				AbortWithError(c, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid API key")
 				return
 			}
+			if IsClientClosedRequestError(c, err) {
+				AbortClientClosedRequest(c, err)
+				return
+			}
 			AbortWithError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to validate API key")
 			return
 		}

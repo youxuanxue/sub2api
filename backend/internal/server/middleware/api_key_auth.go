@@ -89,6 +89,10 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				AbortWithError(c, 401, "INVALID_API_KEY", "Invalid API key")
 				return
 			}
+			if IsClientClosedRequestError(c, err) {
+				AbortClientClosedRequest(c, err)
+				return
+			}
 			AbortWithErrorDetail(c, 500, "INTERNAL_ERROR", "Failed to validate API key", err)
 			return
 		}

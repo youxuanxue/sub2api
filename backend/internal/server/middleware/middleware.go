@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -13,6 +14,10 @@ import (
 )
 
 const middlewareInternalErrorDetailMaxLen = 1024
+
+// StatusClientClosedRequest mirrors nginx's 499: the caller disconnected before
+// the gateway could finish local auth/body handling. net/http has no constant.
+const StatusClientClosedRequest = 499
 
 // ContextKey 定义上下文键类型
 type ContextKey string
@@ -96,6 +101,26 @@ func AbortWithErrorDetail(c *gin.Context, statusCode int, code, message string, 
 		}
 	}
 	AbortWithError(c, statusCode, code, message)
+}
+
+func AbortClientClosedRequest(c *gin.Context, internalErr error) {
+	if c != nil {
+		service.MarkOpsClientClosedRequest(c)
+		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+			c.Set(service.OpsInternalErrorDetailKey, detail)
+		}
+	}
+	AbortWithError(c, StatusClientClosedRequest, "CLIENT_CLOSED_REQUEST", "context canceled")
+}
+
+func IsClientClosedRequestError(c *gin.Context, err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return errors.Is(c.Request.Context().Err(), context.Canceled)
 }
 
 // sanitizeMiddlewareInternalErrorDetail trims and length-caps an internal error
