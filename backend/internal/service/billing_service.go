@@ -192,10 +192,6 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 	return s
 }
 
-func tkCNYPerMTokToUSDPerToken(cny float64) float64 {
-	return cny / 6.7e6
-}
-
 func tkGLMPricing(inputCNY, outputCNY, cacheReadCNY float64, intervals ...PricingInterval) *ModelPricing {
 	return &ModelPricing{
 		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(inputCNY),
@@ -506,15 +502,15 @@ func (s *BillingService) initFallbackPricing() {
 	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 一致），
 	// 不沿用上游的 ÷7.14。
 	s.fallbackPrices["kimi-k2-thinking"] = &ModelPricing{
-		InputPricePerToken:     0.59701e-6, // ¥4/百万 ÷6.7
-		OutputPricePerToken:    2.38806e-6, // ¥16/百万 ÷6.7
-		CacheReadPricePerToken: 0.14925e-6, // ¥1/百万 ÷6.7
+		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(4),
+		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(16),
+		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(1),
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-k2"] = &ModelPricing{
-		InputPricePerToken:     0.59701e-6, // ¥4/百万 ÷6.7
-		OutputPricePerToken:    2.38806e-6, // ¥16/百万 ÷6.7
-		CacheReadPricePerToken: 0.14925e-6, // ¥1/百万 ÷6.7
+		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(4),
+		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(16),
+		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(1),
 		SupportsCacheBreakdown: false,
 	}
 
@@ -565,8 +561,8 @@ func (s *BillingService) initFallbackPricing() {
 	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 其余
 	// VolcEngine Ark 条目一致），不沿用上游的 ÷7.14。embedding 无 output，置 0。
 	s.fallbackPrices["doubao-embedding-vision"] = &ModelPricing{
-		InputPricePerToken:      0.10448e-6, // ¥0.7/MTok ÷6.7（文本输入）
-		ImageInputPricePerToken: 0.26866e-6, // ¥1.8/MTok ÷6.7（图片输入）
+		InputPricePerToken:      tkCNYPerMTokToUSDPerToken(0.7),
+		ImageInputPricePerToken: tkCNYPerMTokToUSDPerToken(1.8),
 		OutputPricePerToken:     0,
 		SupportsCacheBreakdown:  false,
 	}

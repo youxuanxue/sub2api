@@ -1058,37 +1058,37 @@
   "qwen2.5-coder-32b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 5.970149e-07,
-    "output_cost_per_token": 2.38806e-06,
-    "cache_read_input_token_cost": 5.970149e-07,
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 5.970149253731343e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 32000,
-        "input_cost_per_token": 5.970149e-07,
-        "output_cost_per_token": 2.38806e-06,
-        "cache_read_input_token_cost": 5.970149e-07
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 5.970149253731343e-07
       },
       {
         "min_tokens": 32000,
         "max_tokens": 128000,
-        "input_cost_per_token": 8.955224e-07,
-        "output_cost_per_token": 3.58209e-06,
-        "cache_read_input_token_cost": 8.955224e-07
+        "input_cost_per_token": 8.955223880597016e-07,
+        "output_cost_per_token": 3.5820895522388063e-06,
+        "cache_read_input_token_cost": 8.955223880597016e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": 256000,
-        "input_cost_per_token": 1.492537e-06,
-        "output_cost_per_token": 5.970149e-06,
-        "cache_read_input_token_cost": 1.492537e-06
+        "input_cost_per_token": 1.4925373134328358e-06,
+        "output_cost_per_token": 5.970149253731343e-06,
+        "cache_read_input_token_cost": 1.4925373134328358e-06
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
-        "input_cost_per_token": 2.985075e-06,
-        "output_cost_per_token": 2.985075e-05,
-        "cache_read_input_token_cost": 2.985075e-06
+        "input_cost_per_token": 2.9850746268656716e-06,
+        "output_cost_per_token": 2.9850746268656717e-05,
+        "cache_read_input_token_cost": 2.9850746268656716e-06
       }
     ],
     "source": "TK proxy fill — qwen2.5-coder-32b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-plus. Alibaba DashScope qwen3-coder-plus China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥4/¥16, 32K<=128K ¥6/¥24, 128K<=256K ¥10/¥40, 256K<=1M ¥20/¥200 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
@@ -1096,37 +1096,37 @@
   "qwen2.5-coder-7b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 1.492537e-07,
-    "output_cost_per_token": 5.970149e-07,
-    "cache_read_input_token_cost": 1.492537e-07,
+    "input_cost_per_token": 1.4925373134328358e-07,
+    "output_cost_per_token": 5.970149253731343e-07,
+    "cache_read_input_token_cost": 1.4925373134328358e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 32000,
-        "input_cost_per_token": 1.492537e-07,
-        "output_cost_per_token": 5.970149e-07,
-        "cache_read_input_token_cost": 1.492537e-07
+        "input_cost_per_token": 1.4925373134328358e-07,
+        "output_cost_per_token": 5.970149253731343e-07,
+        "cache_read_input_token_cost": 1.4925373134328358e-07
       },
       {
         "min_tokens": 32000,
         "max_tokens": 128000,
-        "input_cost_per_token": 2.238806e-07,
-        "output_cost_per_token": 8.955224e-07,
-        "cache_read_input_token_cost": 2.238806e-07
+        "input_cost_per_token": 2.2388059701492537e-07,
+        "output_cost_per_token": 8.955223880597016e-07,
+        "cache_read_input_token_cost": 2.2388059701492537e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": 256000,
-        "input_cost_per_token": 3.731343e-07,
-        "output_cost_per_token": 1.492537e-06,
-        "cache_read_input_token_cost": 3.731343e-07
+        "input_cost_per_token": 3.7313432835820897e-07,
+        "output_cost_per_token": 1.4925373134328358e-06,
+        "cache_read_input_token_cost": 3.7313432835820897e-07
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
-        "input_cost_per_token": 7.462687e-07,
-        "output_cost_per_token": 3.731343e-06,
-        "cache_read_input_token_cost": 7.462687e-07
+        "input_cost_per_token": 7.462686567164179e-07,
+        "output_cost_per_token": 3.7313432835820897e-06,
+        "cache_read_input_token_cost": 7.462686567164179e-07
       }
     ],
     "source": "TK proxy fill — qwen2.5-coder-7b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-flash. Alibaba DashScope qwen3-coder-flash China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥1/¥4, 32K<=128K ¥1.5/¥6, 128K<=256K ¥2.5/¥10, 256K<=1M ¥5/¥25 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."

@@ -34,11 +34,11 @@ func newTestBillingService() *BillingService {
 }
 
 func glmCNYPerMTokWithTax(cny float64) float64 {
-	return cny / 6.7e6 * tkOfficialListBaseTaxMultiplier
+	return tkCNYPerMTokToUSDPerToken(cny) * tkOfficialListBaseTaxMultiplier
 }
 
 func glmCNYPerMTokPreTax(cny float64) float64 {
-	return cny / 6.7e6
+	return tkCNYPerMTokToUSDPerToken(cny)
 }
 
 func TestCalculateCost_BasicComputation(t *testing.T) {
@@ -649,31 +649,31 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2-thinking",
 			model:             "kimi-k2-thinking",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(4),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(16)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1)),
 		},
 		{
 			name:              "kimi k2 base",
 			model:             "kimi-k2",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(4),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(16)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1)),
 		},
 		// 关键：k2.6 / k2.5 / k2-thinking 必须先于 k2 匹配
 		{
 			name:              "kimi k2.6 vs k2 ordering",
 			model:             "kimi-k2.6",
-			expectedInput:     0.95e-6, // = k2.6 不是 k2 的 0.59701e-6
+			expectedInput:     0.95e-6, // = k2.6 不是 k2 的人民币换算价
 			expectedOutput:    floatPtr(4e-6),
 			expectedCacheRead: floatPtr(0.15e-6),
 		},
 		{
 			name:              "kimi k2 thinking hyphenated variant",
 			model:             "kimi-k2-thinking-preview",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(4),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(16)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1)),
 		},
 
 		// ---- MiniMax M 系列 ----
@@ -724,13 +724,13 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:           "doubao embedding vision text rate",
 			model:          "doubao-embedding-vision",
-			expectedInput:  0.10448e-6,
+			expectedInput:  tkCNYPerMTokToUSDPerToken(0.7),
 			expectedOutput: floatPtr(0),
 		},
 		{
 			name:          "doubao embedding vision versioned alias",
 			model:         "doubao-embedding-vision-251215",
-			expectedInput: 0.10448e-6,
+			expectedInput: tkCNYPerMTokToUSDPerToken(0.7),
 		},
 
 		// ---- 负向用例 ----
@@ -745,9 +745,9 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2-0905-preview implicit fallback to k2",
 			model:             "kimi-k2-0905-preview",
-			expectedInput:     0.59701e-6,
-			expectedOutput:    floatPtr(2.38806e-6),
-			expectedCacheRead: floatPtr(0.14925e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(4),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(16)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1)),
 		},
 	}
 
@@ -785,8 +785,8 @@ func TestGetModelPricing_DoubaoEmbeddingVisionImageInputRate(t *testing.T) {
 		pricing, err := svc.GetModelPricing(model)
 		require.NoError(t, err, "model %s should resolve fallback pricing", model)
 		require.NotNil(t, pricing)
-		require.InDelta(t, 0.10448e-6*tkOfficialListBaseTaxMultiplier, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
-		require.InDelta(t, 0.26866e-6*tkOfficialListBaseTaxMultiplier, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.7)*tkOfficialListBaseTaxMultiplier, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.8)*tkOfficialListBaseTaxMultiplier, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
 		require.Zero(t, pricing.OutputPricePerToken, "embedding has no output cost for %s", model)
 	}
 }
@@ -800,8 +800,8 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	mixed := UsageTokens{InputTokens: 1340, ImageInputTokens: 28}
 	cost, err := svc.CalculateCost("doubao-embedding-vision", mixed, 1.0)
 	require.NoError(t, err)
-	textRate := 0.10448e-6 * tkOfficialListBaseTaxMultiplier
-	imageRate := 0.26866e-6 * tkOfficialListBaseTaxMultiplier
+	textRate := tkCNYPerMTokToUSDPerToken(0.7) * tkOfficialListBaseTaxMultiplier
+	imageRate := tkCNYPerMTokToUSDPerToken(1.8) * tkOfficialListBaseTaxMultiplier
 	wantMixed := float64(1312)*textRate + float64(28)*imageRate
 	require.InDelta(t, wantMixed, cost.InputCost, 1e-15)
 	require.InDelta(t, wantMixed, cost.TotalCost, 1e-15)
@@ -1471,18 +1471,18 @@ func TestComputeTokenBreakdown_ThinkingOutputPrice(t *testing.T) {
 
 	// qwen3-8b: out ¥2/M non-thinking, ¥5/M thinking (÷6.7 → USD per token).
 	pricing := &ModelPricing{
-		InputPricePerToken:          0.5 / 6.7e6,
-		OutputPricePerToken:         2.0 / 6.7e6,
-		ThinkingOutputPricePerToken: 5.0 / 6.7e6,
+		InputPricePerToken:          tkCNYPerMTokToUSDPerToken(0.5),
+		OutputPricePerToken:         tkCNYPerMTokToUSDPerToken(2.0),
+		ThinkingOutputPricePerToken: tkCNYPerMTokToUSDPerToken(5.0),
 	}
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 1000}
 
 	nonThinking := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
 	thinking := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", true, false)
 
-	require.InDelta(t, 1000*(2.0/6.7e6), nonThinking.OutputCost, 1e-15,
+	require.InDelta(t, 1000*tkCNYPerMTokToUSDPerToken(2.0), nonThinking.OutputCost, 1e-15,
 		"non-thinking must bill the lower output rate")
-	require.InDelta(t, 1000*(5.0/6.7e6), thinking.OutputCost, 1e-15,
+	require.InDelta(t, 1000*tkCNYPerMTokToUSDPerToken(5.0), thinking.OutputCost, 1e-15,
 		"thinking must bill the higher output rate")
 	require.Greater(t, thinking.OutputCost, nonThinking.OutputCost,
 		"thinking output cost must exceed non-thinking")
