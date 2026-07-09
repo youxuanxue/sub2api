@@ -63,6 +63,16 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.InDelta(t, 0.15, job.HoldUnitPrice, 1e-12)
 	})
 
+	t.Run("rejects ungrouped owner before provider submit", func(t *testing.T) {
+		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
+
+		_, err := svc.Submit(ctx, BatchImageOwner{UserID: 11, APIKeyID: 22}, validBatchImageSubmitRequest(), "")
+		require.ErrorIs(t, err, ErrBatchImageGroupDisabled)
+		require.Empty(t, repo.jobs)
+		require.Empty(t, queue.enqueued)
+		require.Empty(t, gemini.submits)
+	})
+
 	t.Run("combines user group image rate account rate discount and hold margin", func(t *testing.T) {
 		svc, repo, _, _, _ := newTestBatchImagePublicService(true)
 		groupID := int64(7)
@@ -556,7 +566,16 @@ func TestBatchImagePublicService_ListModels(t *testing.T) {
 		_, err := svc.ListModels(ctx, BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID})
 		require.ErrorIs(t, err, ErrBatchImageGroupDisabled)
 	})
+
+	t.Run("rejects ungrouped owner", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+
+		_, err := svc.ListModels(ctx, BatchImageOwner{UserID: 11, APIKeyID: 22})
+		require.ErrorIs(t, err, ErrBatchImageGroupDisabled)
+	})
 }
+
+const testBatchImageGroupID int64 = 7
 
 func TestBatchImagePublicService_StatusItemsAndCancel(t *testing.T) {
 	ctx := context.Background()
@@ -717,7 +736,10 @@ func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fa
 	svc := &BatchImagePublicService{
 		Repo:        repo,
 		AccountRepo: &publicBatchImageAccountRepo{accounts: []Account{testBatchImageAccount(101, AccountTypeAPIKey), testBatchImageAccount(202, AccountTypeServiceAccount)}},
-		Queue:       queue,
+		GroupRepo: &publicBatchImageGroupRepo{groups: map[int64]*Group{
+			testBatchImageGroupID: testAllowedBatchImageGroup(testBatchImageGroupID),
+		}},
+		Queue: queue,
 		ProviderRegistry: NewBatchImageProviderRegistry(
 			gemini,
 			vertex,
@@ -737,7 +759,20 @@ func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fa
 }
 
 func testBatchImageOwner() BatchImageOwner {
-	return BatchImageOwner{UserID: 11, APIKeyID: 22}
+	groupID := testBatchImageGroupID
+	return BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID}
+}
+
+func testAllowedBatchImageGroup(id int64) *Group {
+	return &Group{
+		ID:                           id,
+		Platform:                     PlatformGemini,
+		RateMultiplier:               1,
+		AllowImageGeneration:         true,
+		AllowBatchImageGeneration:    true,
+		BatchImageDiscountMultiplier: 0.5,
+		BatchImageHoldMultiplier:     0.6,
+	}
 }
 
 type fakeBatchImageAuthCacheInvalidator struct {

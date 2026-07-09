@@ -48,6 +48,7 @@ func TestBatchImageMVPFlow(t *testing.T) {
 	publicSvc := &BatchImagePublicService{
 		Repo:             repo,
 		AccountRepo:      accountRepo,
+		GroupRepo:        &publicBatchImageGroupRepo{groups: map[int64]*Group{testBatchImageGroupID: testAllowedBatchImageGroup(testBatchImageGroupID)}},
 		Queue:            queue,
 		ProviderRegistry: registry,
 		Pricing:          pricing,
