@@ -126,6 +126,7 @@ SELECT row_to_json(t) FROM (
     COALESCE(tfp.name, '') AS tls_profile_name
   FROM usage_logs ul
   JOIN accounts a ON a.id = ul.account_id
+  -- ops-allow-soft-deleted: enrich recent requests with their account's fingerprint config; keep requests whose account was since soft-deleted (real in-window traffic)
   LEFT JOIN tls_fingerprint_profiles tfp
     ON tfp.id = NULLIF(a.extra->>'tls_fingerprint_profile_id', '')::bigint
   WHERE ul.created_at > now() - interval '{interval}'
