@@ -58,6 +58,10 @@ jobs:
       - name: Run preflight
         env:
           PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          # The CI test-unit job runs the same prompt-surface fixture gateway.
+          # Keep local/full preflight strict, but avoid re-running that slow Go
+          # fixture inside the CI preflight job on main pushes.
+          PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY: "1"
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
