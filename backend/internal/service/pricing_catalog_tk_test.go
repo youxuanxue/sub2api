@@ -450,6 +450,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"vertex_ai", "veo-3.1-generate-001", true},                    // 2026-07-04 post-#1198 paid gate: keep_displayed
 		// grok (xai vendor → grok platform): gated to the paid-gate-verified native set.
 		{"xai", "grok-4.3", true},
+		{"xai", "grok-4.5", true},
 		{"xai", "grok-4.20-0309-reasoning", true},
 		{"xai", "grok-build-0.1", true},
 		{"xai", "grok-code-fast-1", true},
@@ -458,6 +459,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"xai", "grok-imagine-image-quality", true},
 		{"xai", "grok-4", false},      // third-party-priced / unverified legacy slug
 		{"xai", "grok-latest", false}, // priced alias, not public-listed
+		{"xai", "grok-4.5-latest", false},
 		{"volcengine", "doubao-seedream-4-0-250828", true},
 		{"volcengine", "doubao-seedance-1-0-pro-250528", true},
 		{"", "anything", false},             // unknown vendor: hidden
@@ -525,6 +527,7 @@ func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 	}
 	for _, want := range []string{
 		"grok-4.3",
+		"grok-4.5",
 		"grok-4.20-0309-reasoning",
 		"grok-4.20-0309-non-reasoning",
 		"grok-build-0.1",

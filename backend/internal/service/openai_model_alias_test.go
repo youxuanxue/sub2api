@@ -17,6 +17,11 @@ func TestCanonicalizeOpenAICompatRoutingModel(t *testing.T) {
 		{"gpt5.4-mini", "gpt-5.4-mini"},
 		{" GPT-5.4-Mini ", "gpt-5.4-mini"},
 		{"gpt-5.4-mini", "gpt-5.4-mini"},
+		{"gpt-5", "gpt-5.5"},
+		{"gpt-5-chat", "gpt-5.5"},
+		{"gpt-5-chat-latest", "gpt-5.5"},
+		{"gpt-5.3-codex", "gpt-5.3-codex-spark"},
+		{"gpt-5-codex", "gpt-5.3-codex-spark"},
 		{"qwen-max", "qwen-max"},
 		{"", ""},
 	}

@@ -31,6 +31,30 @@
     "output_cost_per_token": 2.5e-06,
     "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-4.3 input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200 for grok-4.3, grok-4.3-latest and grok-latest; only the stable bare id is public-listed."
   },
+  "grok-4.5": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "source": "xAI official pricing (docs.x.ai/developers/pricing + docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5 input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Live probe 2026-07-09 via edge-us4 native grok OAuth account id=6 returned 200 for grok-4.5; only the stable bare id is public-listed."
+  },
+  "grok-4.5-latest": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "source": "Alias priced to grok-4.5 per xAI official model page (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Kept priced so explicit alias requests do not bill $0, but not public-listed."
+  },
+  "grok-build-latest": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "source": "Alias priced to grok-4.5 per xAI official model page (docs.x.ai/developers/models/grok-4.5 aliases include grok-build-latest, captured 2026-07-09): input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Kept priced so explicit alias requests do not bill $0, but not public-listed."
+  },
   "grok-4.3-latest": {
     "litellm_provider": "xai",
     "mode": "chat",

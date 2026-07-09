@@ -48,6 +48,28 @@ Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth ca
 
 **Attribution discipline:** a prod `cc-<edge>` cooldown (`temp_unschedulable_reason.matched_keyword='anthropic_upstream_error'`) is almost never prod-local — the real cause is on that edge. prod's `upstream-429 by account` / `recovered-200` are polluted by client-cancel tagging + failover smear and **cannot tell a dead edge from a healthy one** (a dead single-account edge and a healthy multi-account edge can both read ~1300 upstream-429). The reliable signal is each edge's OWN access-log `served_200 : no_available_429` ratio + schedulable-account count — run `ops/observability/scan-edge-health.sh`. See skills `tokenkey-online-log-troubleshooting` (§0 trap 9, §6.1 D) and `tokenkey-online-traffic-profile` (§4.1).
 
+## Model serving SSOT (`model_mapping`, catalog, prod vs edge)
+
+Customer-visible serving is gated by three layers that must stay aligned on **prod**:
+
+1. **可展示** — `supported*CatalogModels` / `ServableClientFacingIDs` (public `/models`, `/pricing`, menu).
+2. **已定价** — channel pricing + `tk_pricing_overlay.json` (zero-price leak is an ops alert, not a customer block).
+3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform.
+
+**prod is the only post-release gate.** Run:
+
+```bash
+python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
+```
+
+Default scope is prod only; `violation_count` must be `0` before treating prod serving as ready.
+
+**Edge accounts keep empty `model_mapping`.** User traffic is `client → prod gateway → edge relay → upstream`; prod already selects the model and routes to the edge mirror/OAuth account. Edge-side mapping is therefore platform-level passthrough (empty = unrestricted). Do **not** treat edge empty mappings as drift, do **not** bulk-apply prod floors to edges, and do **not** fail release checks because `--include-edges` shows violations. Use `--include-edges` only for explicit edge-specific troubleshooting.
+
+**New-model probes must split gateway vs upstream.** `400 Unsupported model: <id>` from a prod/edge TokenKey probe means the model is absent from catalog/floor/mapping — not proof that the upstream provider cannot serve it. For capability truth on a specific OAuth account, use direct upstream probes (e.g. `ops/stage0/probe_grok_upstream_model.sh` on edge) or account-scoped gateway probes after prod mapping is updated.
+
+Operator entry: skill `tokenkey-modelops-planner` (branch D). Details: `ops/pricing/README.md` § Account model_mapping runtime hot update.
+
 ## PR Checklist
 
 - `go test -tags=unit ./...` passes

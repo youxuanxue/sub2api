@@ -134,6 +134,19 @@ a scope replacement layer: each listed platform or newapi `channel_type`
 replaces the compiled account mapping floor for that scope; omitted scopes keep
 the compiled floor.
 
+**prod-only SSOT gate.** Public serving requires **可展示 + 已定价 + 可服务** to
+align on prod: catalog allowlists, pricing overlay/channel rows, and prod
+`accounts.credentials.model_mapping` (plus optional runtime replacement). Post-release
+and modelops checks use `check-accounts` **without** `--include-edges`; `violation_count`
+must be `0` on prod.
+
+**Edge empty mapping is expected.** Traffic is `user → prod → edge relay → upstream`.
+Prod chooses the model and target edge; edge OAuth/native accounts therefore keep
+`credentials.model_mapping` empty (platform-level passthrough). Do not bulk-copy prod
+floors to edges or treat edge empty mappings as violations in routine gates. Add
+`--include-edges` only for deliberate edge troubleshooting — not for release sign-off.
+Canonical wording: `docs/global/agent-reference.md` § Model serving SSOT.
+
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest
 python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json

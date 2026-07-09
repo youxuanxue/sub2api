@@ -14,6 +14,12 @@ accounts. Use ``check-accounts`` to diff live accounts against the Go SSOT, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
 wants to overwrite persisted mappings.
 
+Post-release gate is **prod only** (default). Edge accounts keep empty
+``model_mapping`` because traffic is user → prod → edge relay; prod already
+enforces the floor. Do not treat edge empty mappings as drift unless
+``--include-edges`` is explicitly requested for troubleshooting. See
+``docs/global/agent-reference.md`` § Model serving SSOT.
+
 Runtime JSON shape:
 
 {
