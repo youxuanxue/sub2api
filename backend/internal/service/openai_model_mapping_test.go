@@ -235,17 +235,21 @@ func TestResolveOpenAICompactForwardModel(t *testing.T) {
 	}
 }
 
+// TestNormalizeCodexModel pins the algorithm branches (version-prefix suffix
+// stripping, image-generation passthrough, unknown-model passthrough) — NOT
+// the codexModelMap alias table itself, which TestNormalizeOpenAIModelForUpstream
+// already exercises through the OAuth path for the specific aliases that
+// matter (gpt-5.3, codex-mini-latest, ...). Duplicating those literal map
+// entries here would just mirror the SSOT table instead of testing behavior.
 func TestNormalizeCodexModel(t *testing.T) {
 	cases := map[string]string{
-		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark",
-		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark",
+		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark", // exact prefix match
+		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark", // suffix stripped via codexVersionModelPrefixes
 		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
-		"gpt-5.3":                   "gpt-5.3-codex-spark",
-		"gpt-image-2":               "gpt-image-2",
-		"gpt-5.4-nano":              "gpt-5.4-nano",
-		"gpt-5.4-nano-high":         "gpt-5.4-nano",
-		"gpt6":                      "gpt6",
-		"claude-opus-4-6":           "claude-opus-4-6",
+		"gpt-image-2":               "gpt-image-2",     // image-generation models pass through unmapped
+		"gpt-5.4-nano-high":         "gpt-5.4-nano",    // unknown reasoning-effort suffix stripped
+		"gpt6":                      "gpt6",            // unknown gpt model passes through unchanged
+		"claude-opus-4-6":           "claude-opus-4-6", // non-gpt model passes through unchanged
 	}
 
 	for input, expected := range cases {
