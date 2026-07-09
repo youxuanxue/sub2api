@@ -1,11 +1,12 @@
 <template>
   <Teleport to="body">
-    <div v-if="show && position">
+    <div v-if="show && (position || anchor)">
       <!-- Backdrop: click anywhere outside to close -->
       <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
       <div
+        ref="contentRef"
         class="action-menu-content fixed z-[9999] w-52 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
-        :style="{ top: position.top + 'px', left: position.left + 'px' }"
+        :style="menuStyle"
         @click.stop
       >
         <div class="py-1">
@@ -45,8 +46,8 @@
               <Icon name="chart" size="sm" />
               {{ t('admin.accounts.setTierDialog.menuItem') }}
             </button>
-            <div v-if="hasRecoverableState" class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
-            <button v-if="hasRecoverableState" @click.stop.prevent="emitAction('recover-state', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+            <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+            <button @click.stop.prevent="emitAction('recover-state', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700" :title="t('admin.accounts.recoverStateHint')">
               <Icon name="sync" size="sm" />
               {{ t('admin.accounts.recoverState') }}
             </button>
@@ -62,15 +63,90 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onUnmounted, nextTick } from 'vue'
+import { computed, watch, onUnmounted, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
-const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
+const props = defineProps<{
+  show: boolean
+  account: Account | null
+  position: { top: number; left: number } | null
+  anchor?: HTMLElement | null
+}>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
 const { t } = useI18n()
+
+const DEFAULT_MENU_WIDTH = 208
+const DEFAULT_MENU_HEIGHT = 240
+const VIEWPORT_PADDING = 8
+const contentRef = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({ top: '0px', left: '0px' })
+let positionRaf = 0
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
+type AnimationFrameHandler = (time: number) => void
+const requestPositionFrame = (callback: AnimationFrameHandler) => {
+  if (typeof window.requestAnimationFrame === 'function') {
+    return window.requestAnimationFrame(callback)
+  }
+  return window.setTimeout(() => callback(window.performance?.now?.() ?? Date.now()), 0)
+}
+const cancelPositionFrame = (handle: number) => {
+  if (typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(handle)
+    return
+  }
+  window.clearTimeout(handle)
+}
+
+const resolveMenuSize = () => ({
+  width: contentRef.value?.offsetWidth || DEFAULT_MENU_WIDTH,
+  height: contentRef.value?.offsetHeight || DEFAULT_MENU_HEIGHT
+})
+
+const updateMenuPosition = () => {
+  if (!props.show) return
+  const { width, height } = resolveMenuSize()
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  let left = props.position?.left ?? VIEWPORT_PADDING
+  let top = props.position?.top ?? VIEWPORT_PADDING
+
+  if (props.anchor?.isConnected) {
+    const rect = props.anchor.getBoundingClientRect()
+    if (viewportWidth < 768) {
+      left = rect.left + rect.width / 2 - width / 2
+    } else {
+      left = rect.right - width
+    }
+    top = rect.bottom + 4
+
+    if (top + height > viewportHeight - VIEWPORT_PADDING) {
+      top = rect.top - height - 4
+    }
+  }
+
+  const maxLeft = Math.max(VIEWPORT_PADDING, viewportWidth - width - VIEWPORT_PADDING)
+  const maxTop = Math.max(VIEWPORT_PADDING, viewportHeight - height - VIEWPORT_PADDING)
+  menuStyle.value = {
+    left: `${clamp(left, VIEWPORT_PADDING, maxLeft)}px`,
+    top: `${clamp(top, VIEWPORT_PADDING, maxTop)}px`
+  }
+}
+
+const schedulePositionUpdate = () => {
+  if (!props.show) return
+  void nextTick(() => {
+    if (positionRaf) cancelPositionFrame(positionRaf)
+    positionRaf = requestPositionFrame(() => {
+      positionRaf = 0
+      updateMenuPosition()
+    })
+  })
+}
 
 type MenuActionEvent =
   | 'test'
@@ -92,24 +168,6 @@ const emitAction = (event: MenuActionEvent, account: Account) => {
   emit(event, account)
   void nextTick(() => emit('close'))
 }
-const isRateLimited = computed(() => {
-  if (props.account?.rate_limit_reset_at && new Date(props.account.rate_limit_reset_at) > new Date()) {
-    return true
-  }
-  const modelLimits = (props.account?.extra as Record<string, unknown> | undefined)?.model_rate_limits as
-    | Record<string, { rate_limit_reset_at: string }>
-    | undefined
-  if (modelLimits) {
-    const now = new Date()
-    return Object.values(modelLimits).some(info => new Date(info.rate_limit_reset_at) > now)
-  }
-  return false
-})
-const isOverloaded = computed(() => props.account?.overload_until && new Date(props.account.overload_until) > new Date())
-const isTempUnschedulable = computed(() => props.account?.temp_unschedulable_until && new Date(props.account.temp_unschedulable_until) > new Date())
-const hasRecoverableState = computed(() => {
-  return props.account?.status === 'error' || Boolean(isRateLimited.value) || Boolean(isOverloaded.value) || Boolean(isTempUnschedulable.value)
-})
 const isAntigravityOAuth = computed(() => props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'oauth')
 const isOpenAIOAuth = computed(() => props.account?.platform === PLATFORM_OPENAI && props.account?.type === 'oauth')
 // 影子账号(链接型,持 parent_account_id)不持凭据、type 不可变,凭据/隐私类操作对其无效。
@@ -146,14 +204,25 @@ watch(
   (visible) => {
     if (visible) {
       window.addEventListener('keydown', handleKeydown)
+      window.addEventListener('resize', schedulePositionUpdate)
+      schedulePositionUpdate()
     } else {
       window.removeEventListener('keydown', handleKeydown)
+      window.removeEventListener('resize', schedulePositionUpdate)
     }
   },
   { immediate: true }
 )
 
+watch(
+  () => [props.anchor, props.position?.top, props.position?.left, props.account?.id],
+  schedulePositionUpdate,
+  { flush: 'post' }
+)
+
 onUnmounted(() => {
+  if (positionRaf) cancelPositionFrame(positionRaf)
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('resize', schedulePositionUpdate)
 })
 </script>
