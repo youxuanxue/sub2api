@@ -11,7 +11,7 @@ const tkOfficialListBaseTaxMultiplier = 1.06
 
 func tkLitellmProviderHasBaseTax(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "deepseek", "dashscope", "volcengine":
+	case "deepseek", "dashscope", "volcengine", "zhipu":
 		return true
 	default:
 		return false
@@ -29,6 +29,8 @@ func tkInferBaseTaxProvider(model string) string {
 		return "volcengine"
 	case strings.HasPrefix(m, "qwen"):
 		return "dashscope"
+	case strings.HasPrefix(m, "glm"):
+		return "zhipu"
 	default:
 		return ""
 	}

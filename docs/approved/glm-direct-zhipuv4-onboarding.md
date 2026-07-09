@@ -11,6 +11,12 @@ related_commits: []
 
 # GLM Direct ZhipuV4 Onboarding
 
+> Superseded operationally: GLM serving intent now rides Alibaba DashScope/Qwen
+> accounts 60/72 (`channel_type=17`, `tk_054`). BigModel
+> `https://bigmodel.cn/pricing` is used only as the official pricing source
+> (CNY/USD=6.7 plus TokenKey's default 1.06 base-tax); do not use this historical
+> plan to restore a BigModel/Zhipu direct serving path without a new approval.
+
 ## Intent
 
 Move the GLM direct account from legacy Zhipu v3 (`channel_type=16`) to the
@@ -24,7 +30,7 @@ officially-priced GLM chat SKUs.
   `/api/paas/v4/...`.
 - `credentials.model_mapping` receives identity mappings for the paid GLM SKUs
   listed in `tk_served_models.json`.
-- Free Z.AI rows such as `glm-4.7-flash` and `glm-4.5-flash` stay excluded so no
+- Free GLM rows such as `glm-4.7-flash` and `glm-4.5-flash` stay excluded so no
   visible chat model bills at zero.
 
 ## Gates

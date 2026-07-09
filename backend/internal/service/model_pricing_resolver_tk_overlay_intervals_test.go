@@ -55,6 +55,19 @@ func TestOverlayLoader_ParsesIntervals(t *testing.T) {
 	require.InDelta(t, 9.6/6.7e6, *pro.Intervals[2].InputPrice, 1e-15, "top tier (128K+) input")
 	require.InDelta(t, 48.0/6.7e6, *pro.Intervals[2].OutputPrice, 1e-15, "top tier output")
 	require.Nil(t, pro.Intervals[2].MaxTokens, "top tier unbounded")
+
+	// BigModel GLM: overlay stores pre-tax RMB÷6.7 prices. GLM-4.7 has an
+	// output-length subtier on the official page; because TK intervals key only
+	// by input tokens, the first interval pins the higher reachable 0-32K row.
+	glm47 := overlay["glm-4.7"]
+	require.NotNil(t, glm47)
+	require.Len(t, glm47.Intervals, 2)
+	require.InDelta(t, 3/6.7e6, *glm47.Intervals[0].InputPrice, 1e-15)
+	require.InDelta(t, 14/6.7e6, *glm47.Intervals[0].OutputPrice, 1e-15)
+	require.InDelta(t, 0.6/6.7e6, *glm47.Intervals[0].CacheReadPrice, 1e-15)
+	require.InDelta(t, 4/6.7e6, *glm47.Intervals[1].InputPrice, 1e-15)
+	require.InDelta(t, 16/6.7e6, *glm47.Intervals[1].OutputPrice, 1e-15)
+	require.Nil(t, glm47.Intervals[1].MaxTokens)
 }
 
 // TestOverlayIntervalPricing_CoderPlusWholeRequestTier verifies the end-to-end
@@ -73,10 +86,10 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 		ctxTokens int
 		in, out   float64
 	}{
-		{10_000, tax * 4 / 6.7e6, tax * 16 / 6.7e6},   // tier1 (0,32K] ¥4/¥16
-		{32_000, tax * 4 / 6.7e6, tax * 16 / 6.7e6},   // 32K boundary stays tier1 (max inclusive)
-		{32_001, tax * 6 / 6.7e6, tax * 24 / 6.7e6},   // tier2 (32K,128K] ¥6/¥24
-		{200_000, tax * 10 / 6.7e6, tax * 40 / 6.7e6}, // tier3 (128K,256K] ¥10/¥40
+		{10_000, tax * 4 / 6.7e6, tax * 16 / 6.7e6},    // tier1 (0,32K] ¥4/¥16
+		{32_000, tax * 4 / 6.7e6, tax * 16 / 6.7e6},    // 32K boundary stays tier1 (max inclusive)
+		{32_001, tax * 6 / 6.7e6, tax * 24 / 6.7e6},    // tier2 (32K,128K] ¥6/¥24
+		{200_000, tax * 10 / 6.7e6, tax * 40 / 6.7e6},  // tier3 (128K,256K] ¥10/¥40
 		{500_000, tax * 20 / 6.7e6, tax * 200 / 6.7e6}, // tier4 (256K,inf) ¥20/¥200
 	}
 	for _, c := range cases {
@@ -105,8 +118,23 @@ func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 
 	flash := r.Resolve(context.Background(), PricingInput{Model: "qwen3.6-flash"})
 	require.Len(t, flash.Intervals, 2)
-	require.InDelta(t, tax*1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)  // tier1 ¥1.2
+	require.InDelta(t, tax*1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥1.2
 	require.InDelta(t, tax*28.8/6.7e6, r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
+}
+
+func TestOverlayIntervalPricing_GLMUsesBigModelTiersAndBaseTax(t *testing.T) {
+	r := overlayResolver(t)
+	resolved := r.Resolve(context.Background(), PricingInput{Model: "glm-5.1"})
+	require.NotNil(t, resolved.BasePricing)
+	require.Len(t, resolved.Intervals, 2)
+
+	tax := tkOfficialListBaseTaxMultiplier
+	require.InDelta(t, tax*6/6.7e6, r.GetIntervalPricing(resolved, 10_000).InputPricePerToken, 1e-15)
+	require.InDelta(t, tax*24/6.7e6, r.GetIntervalPricing(resolved, 10_000).OutputPricePerToken, 1e-15)
+	require.InDelta(t, tax*1.3/6.7e6, r.GetIntervalPricing(resolved, 10_000).CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, tax*8/6.7e6, r.GetIntervalPricing(resolved, 40_000).InputPricePerToken, 1e-15)
+	require.InDelta(t, tax*28/6.7e6, r.GetIntervalPricing(resolved, 40_000).OutputPricePerToken, 1e-15)
+	require.InDelta(t, tax*2/6.7e6, r.GetIntervalPricing(resolved, 40_000).CacheReadPricePerToken, 1e-15)
 }
 
 // TestOverlayIntervals_FlatModelUnaffected guards the orthogonality: a flat overlay

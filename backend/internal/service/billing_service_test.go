@@ -33,6 +33,14 @@ func newTestBillingService() *BillingService {
 	return NewBillingService(&config.Config{}, nil)
 }
 
+func glmCNYPerMTokWithTax(cny float64) float64 {
+	return cny / 6.7e6 * tkOfficialListBaseTaxMultiplier
+}
+
+func glmCNYPerMTokPreTax(cny float64) float64 {
+	return cny / 6.7e6
+}
+
 func TestCalculateCost_BasicComputation(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -170,15 +178,15 @@ func TestGetModelPricing_FallbackWarnPerModelNotGlobal(t *testing.T) {
 }
 
 // 回归:glm-5.2 命中独立兜底价(先于 glm-5 前缀匹配),防止 family 顺序回归。
-func TestGetModelPricing_GLM52FallsBackToGLM5Price(t *testing.T) {
+func TestGetModelPricing_GLM52UsesBigModelPriceWithBaseTax(t *testing.T) {
 	svc := newTestBillingService()
 
 	got, err := svc.GetModelPricing("glm-5.2")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	require.InDelta(t, 1.4e-6, got.InputPricePerToken, 1e-12)
-	require.InDelta(t, 4.4e-6, got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, glmCNYPerMTokWithTax(8), got.InputPricePerToken, 1e-12)
+	require.InDelta(t, glmCNYPerMTokWithTax(28), got.OutputPricePerToken, 1e-12)
 }
 
 func TestGetModelPricing_UnknownClaudeModelFallsBackToSonnet(t *testing.T) {
@@ -505,81 +513,74 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(2.8e-9),
 		},
 
-		// ---- 智谱 GLM（z.ai USD 口径）----
+		// ---- 智谱 GLM（BigModel 人民币价 ÷6.7；内部 fallback 保存税前价）----
 		{
 			name:              "glm 5.2 flagship",
 			model:             "glm-5.2",
-			expectedInput:     1.4e-6,
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
+			expectedInput:     glmCNYPerMTokPreTax(8),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(28)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(2)),
 		},
 		{
 			name:              "glm 5.1 flagship",
 			model:             "glm-5.1",
-			expectedInput:     1.4e-6,
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
+			expectedInput:     glmCNYPerMTokPreTax(6),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(24)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(1.3)),
 		},
 		{
 			name:              "glm 5 base",
 			model:             "glm-5",
-			expectedInput:     1e-6,
-			expectedOutput:    floatPtr(3.2e-6),
-			expectedCacheRead: floatPtr(0.2e-6),
+			expectedInput:     glmCNYPerMTokPreTax(4),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(18)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(1)),
 		},
 		{
 			name:              "glm 5 turbo",
 			model:             "glm-5-turbo",
-			expectedInput:     1.2e-6,
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.24e-6),
+			expectedInput:     glmCNYPerMTokPreTax(5),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(22)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(1.2)),
 		},
 		{
 			name:              "glm 4.7",
 			model:             "glm-4.7",
-			expectedInput:     0.6e-6,
-			expectedOutput:    floatPtr(2.2e-6),
-			expectedCacheRead: floatPtr(0.11e-6),
+			expectedInput:     glmCNYPerMTokPreTax(3),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(14)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(0.6)),
 		},
 		{
 			name:              "glm 4.6",
 			model:             "glm-4.6",
-			expectedInput:     0.6e-6,
-			expectedOutput:    floatPtr(2.2e-6),
-			expectedCacheRead: floatPtr(0.11e-6),
+			expectedInput:     glmCNYPerMTokPreTax(3),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(14)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(0.6)),
 		},
 		{
 			name:              "glm 4.5",
 			model:             "glm-4.5",
-			expectedInput:     0.6e-6,
-			expectedOutput:    floatPtr(2.2e-6),
-			expectedCacheRead: floatPtr(0.11e-6),
-		},
-		{
-			name:              "glm 4.5-x premium",
-			model:             "glm-4.5-x",
-			expectedInput:     2.2e-6,
-			expectedOutput:    floatPtr(8.9e-6),
-			expectedCacheRead: floatPtr(0.45e-6),
+			expectedInput:     glmCNYPerMTokPreTax(3),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(14)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(0.6)),
 		},
 		{
 			name:              "glm 4.5-air lightweight",
 			model:             "glm-4.5-air",
-			expectedInput:     0.2e-6,
-			expectedOutput:    floatPtr(1.1e-6),
-			expectedCacheRead: floatPtr(0.03e-6),
+			expectedInput:     glmCNYPerMTokPreTax(0.8),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(6)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(0.16)),
 		},
 		{
 			name:              "glm 4.7-flashx",
 			model:             "glm-4.7-flashx",
-			expectedInput:     0.07e-6,
-			expectedOutput:    floatPtr(0.4e-6),
-			expectedCacheRead: floatPtr(0.01e-6),
+			expectedInput:     glmCNYPerMTokPreTax(0.5),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(3)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(0.1)),
 		},
 		{
 			name:              "glm 4.5-flash free tier",
 			model:             "glm-4.5-flash",
-			expectedInput:     0, // Free tier on z.ai
+			expectedInput:     0, // Free tier on current BigModel pricing.
 			expectedOutput:    floatPtr(0),
 			expectedCacheRead: floatPtr(0),
 		},
@@ -590,27 +591,37 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedOutput:    floatPtr(0),
 			expectedCacheRead: floatPtr(0),
 		},
+		{
+			name:             "glm 4.5-x absent from current BigModel pricing",
+			model:            "glm-4.5-x",
+			expectNilPricing: true,
+		},
+		{
+			name:             "glm 4.5-airx absent from current BigModel pricing",
+			model:            "glm-4.5-airx",
+			expectNilPricing: true,
+		},
 		// 关键：5.2 / 5.1 必须先于 5 匹配（避免被 glm-5 抢走）
 		{
 			name:              "glm 5.2 vs glm 5 ordering",
 			model:             "glm-5.2",
-			expectedInput:     1.4e-6, // = glm-5.2 价格
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
+			expectedInput:     glmCNYPerMTokPreTax(8), // = glm-5.2 价格
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(28)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(2)),
 		},
 		{
 			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
 			model:             "glm-5.1",
-			expectedInput:     1.4e-6, // = glm-5.1 价格
-			expectedOutput:    floatPtr(4.4e-6),
-			expectedCacheRead: floatPtr(0.26e-6),
+			expectedInput:     glmCNYPerMTokPreTax(6), // = glm-5.1 价格
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(24)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(1.3)),
 		},
 		{
 			name:              "glm 4.5-air vs glm 4.5 ordering",
 			model:             "glm-4.5-air",
-			expectedInput:     0.2e-6, // = glm-4.5-air 价格（不是 glm-4.5 的 0.6e-6）
-			expectedOutput:    floatPtr(1.1e-6),
-			expectedCacheRead: floatPtr(0.03e-6),
+			expectedInput:     glmCNYPerMTokPreTax(0.8), // = glm-4.5-air 价格（不是 glm-4.5 的 ¥3/M）
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(6)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(0.16)),
 		},
 
 		// ---- 月之暗面 Kimi ----

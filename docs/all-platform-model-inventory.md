@@ -23,7 +23,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
 - **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 0 active native pool（历史 7-id Gemini/Vertex catalog 仍用于定价/Vertex 语义，不能当 prod native capacity）、antigravity 10、grok 8（5 个 Go map）。
-- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单），GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
+- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单），GLM 服务走账号 60/72 的 Alibaba DashScope/Qwen 池（tk_054）；BigModel 仅作为 GLM 官方定价来源。
 - **总计**：约 110 个 servable id / 140 个 priced id。
 - **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
 
@@ -200,19 +200,23 @@ overlay `litellm_provider="volcengine"` 共 27 条；`tk_served_models.json` 当
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。
 
-**(c) GLM 直连（账号 67，ct=26 ZhipuV4，group 26/GLM）**
+**(c) GLM：BigModel 定价，DashScope 服务（账号 60/72，ct=17，group 18/Qwen）**
 
-tk_044 把 GLM 从 legacy ct16 Zhipu v3 迁到 ct26 ZhipuV4/OpenAI-compatible，并把 `base_url` 规范为 `https://open.bigmodel.cn`（适配器自接 `/api/paas/v4`）。官方 paid SKU 已进 overlay + manifest：
+GLM 当前分成两个单一事实：
+
+- **定价来源**：只用 BigModel 官方页 `https://bigmodel.cn/pricing`，人民币价统一按 `CNY/USD=6.7` 进入 overlay/fallback，运行时再按 zhipu provider 默认叠加 `1.06` base-tax。
+- **服务路径**：仍走阿里 DashScope/Qwen 池（账号 60/72，`channel_type=17`，`tk_054`）。不要因为价格源是 BigModel 就恢复/推断 BigModel/Zhipu 直连 serving path。
+
+当前 manifest 展示/服务的 GLM 条目：
 
 ```
-glm-5.2  glm-5.1  glm-5  glm-5-turbo
-glm-4.7  glm-4.7-flashx  glm-4.6
-glm-4.5  glm-4.5-x  glm-4.5-air  glm-4.5-airx
+glm-5.2  glm-5.1  glm-5
+glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 ```
 
-`glm-4-32b-0414-128k` 已于 2026-07-01 从 manifest / overlay / account 67 mapping 移除：prod 上游 400 model_not_found，不再服务也不再展示。
+`glm-5-turbo` / `glm-4.7-flashx` 在 BigModel 当前价格页有价，但没有当前 manifest serving path；它们不进入公开服务清单，后续若要服务也应单独映射到 DashScope/Qwen 路径。`glm-4.5-x` / `glm-4.5-airx` 不在当前 BigModel 定价页，旧 Z.AI USD 价格不再作为官方来源保留。
 
-free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。prod canary 已于 2026-06-22 完成：runtime overlay 热推后，account 67 切到 ct26、`base_url=https://open.bigmodel.cn`、11 个 paid mapping；`ZHIPU_CHAT_MODELS=glm-4.7` 经 prod 网关返回 `200 servable`，`usage_logs` 落 account 67 / group 26 且 `total_cost=0.0004964000` 非零。
+`glm-4-32b-0414-128k` 已于 2026-07-01 从 manifest / overlay / account 67 mapping 移除：prod 上游 400 model_not_found，不再服务也不再展示。free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。
 
 ### 2.7 kiro（第六平台，CodeWhisperer 中继）
 
@@ -300,7 +304,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|
 | 高 | ct=25 Moonshot | `kimi-k2.5` `kimi-k2-thinking` 等订阅 OAuth 长上下文 | 已有 billing fallback 价；典型 net-new |
 | 中 | ct=35 MiniMax | `MiniMax-M2.x` chat + speech + `image-01` | 含音视频面 |
-| 已完成 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 + overlay + manifest + prod canary 已完成；`glm-4.7` livefire 200 且计费非零 |
+| 历史已废弃 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 曾完成直连 canary；当前 GLM serving intent 已改走 ct17 DashScope/Qwen 账号 60/72，ct26 不作为目标路径，BigModel 只保留为定价来源 |
 | 中 | ct=17/43 Ali/DeepSeek 未接 id | `qwq-32b`；deepseek-v4 `-none/-max`（实为 adaptor 追加的思考后缀别名，非独立模型）| 2026-06-23 `qwq-32b` 与 `deepseek-v4-none/max` 均为 429 not_allowlisted；DeepSeek 正式 id `deepseek-v4-pro/flash` 与 `deepseek-chat/reasoner` 均 200；`qwen-turbo` 已由 tk_042 收敛 |
 | 低 | ct=1/57 OpenAI 尾 | o1/o3/o4、gpt-4*/4o*、audio/embeddings/dall-e/sora-2（153+24）| 按 raw count 最大一桶 |
 | 低 | ct=24/41 Gemini/Vertex 尾 | gemma、native-audio、robotics、computer-use 等 | 多为非目标 surface |
@@ -331,7 +335,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|
 | 1 | OpenAI | 153 | bridge 尾，未接 |
 | 14 | Anthropic | 39 | claude bridge 面 |
-| 16/26 | Zhipu/ZhipuV4 | 4/16 | ct26 GLM paid SKU 已由 tk_044 建模并完成 prod canary；ct16 legacy 不再作为目标路径 |
+| 16/26 | Zhipu/ZhipuV4 | 4/16 | 历史直连路径；当前不作为目标路径。GLM 定价只取 BigModel，服务走 ct17 DashScope/Qwen |
 | 17 | Ali | 8 | 账号 60（部分）|
 | 24 | Gemini | 45 | bridge 尾 |
 | 25 | Moonshot | 5 | backlog（kimi）|
