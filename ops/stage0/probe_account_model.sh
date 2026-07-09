@@ -253,6 +253,7 @@ SET
   claude_code_only = false,
   model_routing_enabled = false,
   model_routing = '{}'::jsonb,
+  allow_messages_dispatch = true,
   supported_model_scopes = '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
   messages_dispatch_model_config = '{}'::jsonb,
   models_list_config = '{}'::jsonb,
@@ -269,7 +270,7 @@ RETURNING id;
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, supported_model_scopes,
+  model_routing_enabled, model_routing, allow_messages_dispatch, supported_model_scopes,
   messages_dispatch_model_config, models_list_config,
   sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
@@ -278,7 +279,7 @@ INSERT INTO groups (
   '$(sql_escape "$PLATFORM")',
   1.0, true, 'active',
   'standard', 30, false,
-  false, '{}'::jsonb, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
   '{}'::jsonb, '{}'::jsonb,
   2147483000, 0, NOW(), NOW()
 )
@@ -290,7 +291,7 @@ else
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, supported_model_scopes,
+  model_routing_enabled, model_routing, allow_messages_dispatch, supported_model_scopes,
   messages_dispatch_model_config, models_list_config,
   sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
@@ -299,7 +300,7 @@ INSERT INTO groups (
 	  '$(sql_escape "$PLATFORM")',
 	  1.0, true, 'active',
 	  'standard', 30, false,
-	  false, '{}'::jsonb, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+	  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
 	  '{}'::jsonb, '{}'::jsonb,
 	  2147483000, 0, NOW(), NOW()
 	) RETURNING id;

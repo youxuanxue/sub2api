@@ -17,6 +17,7 @@ type gatewayModelsAccountRepoStub struct {
 	service.AccountRepository
 
 	byGroup map[int64][]service.Account
+	all     []service.Account
 }
 
 type gatewayModelsResponseForTest struct {
@@ -42,6 +43,12 @@ func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Cont
 	return out, nil
 }
 
+func (s *gatewayModelsAccountRepoStub) ListSchedulable(ctx context.Context) ([]service.Account, error) {
+	out := make([]service.Account, len(s.all))
+	copy(out, s.all)
+	return out, nil
+}
+
 func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHandler {
 	return &GatewayHandler{
 		gatewayService: service.NewGatewayService(
@@ -51,6 +58,111 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 			nil,
 		),
 	}
+}
+
+type gatewayModelsUserRepoStub struct {
+	service.UserRepository
+	user *service.User
+}
+
+func (s gatewayModelsUserRepoStub) GetByID(context.Context, int64) (*service.User, error) {
+	return s.user, nil
+}
+
+type gatewayModelsGroupRepoStub struct {
+	service.GroupRepository
+	groups []service.Group
+}
+
+func (s gatewayModelsGroupRepoStub) ListActive(context.Context) ([]service.Group, error) {
+	out := make([]service.Group, len(s.groups))
+	copy(out, s.groups)
+	return out, nil
+}
+
+type gatewayModelsSubscriptionRepoStub struct {
+	service.UserSubscriptionRepository
+}
+
+func (gatewayModelsSubscriptionRepoStub) ListActiveByUserID(context.Context, int64) ([]service.UserSubscription, error) {
+	return nil, nil
+}
+
+func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	openAIGroupID := int64(31)
+	geminiGroupID := int64(32)
+	unentitledGroupID := int64(99)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				openAIGroupID: {
+					{ID: 1, Platform: service.PlatformOpenAI},
+				},
+				geminiGroupID: {
+					{ID: 2, Platform: service.PlatformGemini},
+				},
+				unentitledGroupID: {
+					{
+						ID:       3,
+						Platform: service.PlatformOpenAI,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"leaked-global-model": "leaked-global-model",
+							},
+						},
+					},
+				},
+			},
+			all: []service.Account{
+				{
+					ID:       3,
+					Platform: service.PlatformOpenAI,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"leaked-global-model": "leaked-global-model",
+						},
+					},
+				},
+			},
+		},
+	)
+	h.apiKeyService = service.NewAPIKeyService(
+		nil,
+		gatewayModelsUserRepoStub{user: &service.User{ID: 16, Status: service.StatusActive, AllowedGroups: []int64{openAIGroupID, geminiGroupID}}},
+		gatewayModelsGroupRepoStub{groups: []service.Group{
+			{ID: openAIGroupID, Name: "gpt", Platform: service.PlatformOpenAI, IsExclusive: true, Status: service.StatusActive},
+			{ID: geminiGroupID, Name: "google", Platform: service.PlatformGemini, IsExclusive: true, Status: service.StatusActive},
+			{ID: unentitledGroupID, Name: "other", Platform: service.PlatformOpenAI, IsExclusive: true, Status: service.StatusActive},
+		}},
+		gatewayModelsSubscriptionRepoStub{},
+		nil,
+		nil,
+		nil,
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		UserID:      16,
+		RoutingMode: service.RoutingModeUniversal,
+		User:        &service.User{ID: 16, Status: service.StatusActive},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "gpt-5.2", "universal OpenAI group fallback must use OpenAI SSOT")
+	require.Contains(t, ids, "gpt-5.4-mini", "universal OpenAI group fallback must include current OpenAI SSOT")
+	require.Contains(t, ids, "gemini-2.5-flash", "universal Gemini group fallback must use Gemini SSOT")
+	require.NotContains(t, ids, "gpt-5-pro", "unsupported OpenAI model must not leak into universal list")
+	require.NotContains(t, ids, "leaked-global-model", "universal list must not scan the global schedulable pool")
 }
 
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
@@ -349,7 +461,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "codex-auto-review", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-5.5", "gpt-5.2", "codex-auto-review", "gpt-5.4"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {
