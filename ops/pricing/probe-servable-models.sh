@@ -108,6 +108,12 @@
 #   200                                   -> servable
 #   400/404 + retired/not-found/invalid   -> unsupported (deprecated gate / upstream reject)
 #   400 "not supported when using Codex"  -> unsupported (this account does not serve it)
+#   400 "Unsupported model: X"             -> usually inconclusive here: TokenKey may have
+#                                            rejected before account selection because the
+#                                            prod allowlist/model_mapping floor lacks X. Use
+#                                            ops/stage0/probe_account_model.sh on a specific
+#                                            prod/edge OpenAI OAuth account to separate local
+#                                            floor from upstream account capability.
 #   429 + "No available accounts"          -> not_allowlisted (TK empty-pool: model not allowlisted at scheduling layer)
 #   429(other) / 502 / 503                  -> inconclusive (capacity / wrong protocol / rate-limit)
 #   401/403                               -> auth_error (upstream rejected the key — not a model signal)
@@ -334,6 +340,11 @@ probe_anthropic_prod_mirror() { # $1=key $2=emit-tag  (models from $ANTHROPIC_PR
 # probe_compat_endpoint: OpenAI-compatible Bearer-auth probe against an arbitrary
 # base. Used by openai, gemini, and dashscope/GLM legacy alias (all PROD / OpenAI-compat) families —
 # they share the same /v1/* OpenAI-compat surface, only base + key + emit-tag differ.
+# For OpenAI, this proves the current PROD catalog/menu surface, not raw edge
+# OAuth capability. New GPT ids can be locally blocked by the compiled
+# model_mapping floor before any upstream account is selected (observed
+# 2026-07-08: gpt-5.6*). Follow up with probe_account_model.sh on a specific
+# OpenAI OAuth edge account before promoting such a model.
 probe_compat_endpoint() { # $1=platform-tag $2=base $3=key $4=endpoint $5=models $6=jsonbody-template-fn
 	local platform="$1" base="$2" key="$3" path="$4" models="$5" buildfn="$6" m f code
 	for m in $models; do
@@ -494,6 +505,9 @@ main() {
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
+		# OpenAI catalog probing uses prod group_id=2 as the current customer
+		# serving truth. A 400 "Unsupported model: X" can mean prod floor
+		# rejected the id before upstream; do not treat it as edge OAuth proof.
 		probe_bind_source "$PROBE_OPENAI_SOURCE_GROUP_ID" "$PROBE_OPENAI_SOURCE_GROUP"
 		if tk_probe_catalog_key openai openai "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			okey="$REPLY_KEY"

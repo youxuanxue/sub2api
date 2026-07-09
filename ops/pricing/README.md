@@ -198,6 +198,14 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   using Codex"` → unsupported. `429/502/503` → inconclusive (capacity / wrong
   protocol / no account on the probed group). `401/403` → auth_error (probe
   setup wrong, not a model signal — fix and re-run).
+- OpenAI `400 Unsupported model: <id>` from the prod catalog probe is not enough
+  to answer raw OAuth capability. It can be TokenKey's compiled allowlist /
+  account `model_mapping` floor rejecting before account selection
+  (`account_id=null`). Use `ops/stage0/probe_account_model.sh` with
+  `--with ops/pricing/probe_reserved_resources.sh` on a specific prod or edge
+  OpenAI OAuth account. If that returns `upstream_rejected` with
+  `not supported when using Codex with a ChatGPT account`, clearing prod
+  model_mapping/floor will not make the model servable.
 - De-dup: when both a non-dated form and its dated snapshot serve
   (`-YYYYMMDD` for anthropic, `-YYYY-MM-DD` for openai), keep only the
   non-dated; drop `-thinking` pricing pseudo-entries.
@@ -214,6 +222,12 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   and `grok=4` on the target edge DB. Display names are operator-editable and
   only accepted through explicit legacy `PROBE_*_SOURCE_GROUP` overrides for
   diagnostics.
+- OpenAI new-model example (2026-07-08): `gpt-5.6*` is priced in overlay/fallback
+  but prod normal probes return local `Unsupported model`; edge OpenAI OAuth
+  accounts on `edge:us4` and `edge:us3` reached upstream and were rejected with
+  `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
+  Keep such models out of catalog/Menu/runtime until a single-account OAuth probe
+  returns `verdict=servable`.
 - Antigravity has two distinct probe surfaces: text/capability checks use
   `ANTIGRAVITY_CHAT_MODELS` on `/antigravity/v1beta`, while Studio
   gemini-native image uses `ANTIGRAVITY_IMAGE_MODELS` on `/v1/chat/completions`.
