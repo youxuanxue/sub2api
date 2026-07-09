@@ -128,6 +128,36 @@ func TestBuildOpsFeishuAlertTextTopCauseLine(t *testing.T) {
 	})
 }
 
+func TestFormatUserVisibleFailureAffectedShowsAPIKeyRoutingMode(t *testing.T) {
+	got := formatUserVisibleFailureAffected([]*OpsUserVisibleFailureUser{
+		{
+			UserID:            16,
+			UserEmail:         "compute@tk.com",
+			APIKeyName:        "benchmark组-赵欣宇",
+			APIKeyRoutingMode: RoutingModeUniversal,
+			GroupName:         "GPT专线",
+			Count:             171,
+		},
+		{
+			UserID:            17,
+			UserEmail:         "ops@tk.com",
+			APIKeyName:        "direct-bench",
+			APIKeyRoutingMode: RoutingModeDirect,
+			Count:             20,
+		},
+		{
+			UserID:     18,
+			UserEmail:  "deleted@tk.com",
+			APIKeyName: "deleted-key",
+			Count:      3,
+		},
+	})
+
+	require.Contains(t, got, `#16 compute@tk.com ×171（key "benchmark组-赵欣宇" / universal key / group GPT专线）`)
+	require.Contains(t, got, `#17 ops@tk.com ×20（key "direct-bench" / direct key）`)
+	require.Contains(t, got, `#18 deleted@tk.com ×3（key "deleted-key"）`)
+}
+
 func TestFormatRoutingRejectionByModel(t *testing.T) {
 	t.Run("top three requested models", func(t *testing.T) {
 		require.Equal(t,

@@ -558,7 +558,7 @@ func TestComputeUserVisibleFailureDimensions(t *testing.T) {
 			Failures:  148,
 			Successes: 17336,
 			Users: []*OpsUserVisibleFailureUser{{
-				UserID: 16, UserEmail: "compute@tk.com", APIKeyName: "训练组-何易纯", GroupName: "GPT专线", Count: 138,
+				UserID: 16, UserEmail: "compute@tk.com", APIKeyName: "训练组-何易纯", APIKeyRoutingMode: RoutingModeUniversal, GroupName: "GPT专线", Count: 138,
 			}},
 			Surfaces: []*OpsUserVisibleFailureSurface{{
 				StatusCode: 429, UpstreamStatusCode: 429, ErrorType: "rate_limit_error", Count: 148,
@@ -570,7 +570,7 @@ func TestComputeUserVisibleFailureDimensions(t *testing.T) {
 	}}
 
 	got := svc.computeUserVisibleFailureDimensions(ctx, rule, start, end, "", nil)
-	require.Equal(t, `#16 compute@tk.com ×138（key "训练组-何易纯" / group GPT专线）`, got["user_visible_affected"])
+	require.Equal(t, `#16 compute@tk.com ×138（key "训练组-何易纯" / universal key / group GPT专线）`, got["user_visible_affected"])
 	require.Equal(t, "失败 148 / 成功 17336 / 失败率 0.85% / 5m", got["user_visible_impact"])
 	require.Equal(t, "final 429 / upstream 429 / rate limit error ×148", got["user_visible_surface"])
 	require.Equal(t, "upstream/provider / openai / gpt-5.5 / account #76 / Too many pending requests ×148", got["user_visible_root"])

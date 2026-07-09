@@ -70,11 +70,12 @@ type OpsUserVisibleFailureBreakdown struct {
 }
 
 type OpsUserVisibleFailureUser struct {
-	UserID     int64
-	UserEmail  string
-	APIKeyName string
-	GroupName  string
-	Count      int64
+	UserID            int64
+	UserEmail         string
+	APIKeyName        string
+	APIKeyRoutingMode string
+	GroupName         string
+	Count             int64
 }
 
 type OpsUserVisibleFailureSurface struct {
@@ -354,6 +355,12 @@ func formatUserVisibleFailureAffected(users []*OpsUserVisibleFailureUser) string
 		details := make([]string, 0, 2)
 		if key := sanitizeFeishuLabel(u.APIKeyName); key != "" {
 			details = append(details, `key "`+key+`"`)
+		}
+		switch strings.TrimSpace(u.APIKeyRoutingMode) {
+		case RoutingModeUniversal:
+			details = append(details, "universal key")
+		case RoutingModeDirect:
+			details = append(details, "direct key")
 		}
 		if group := sanitizeFeishuLabel(u.GroupName); group != "" {
 			details = append(details, "group "+group)

@@ -27,8 +27,8 @@ func TestUserVisibleFailureCountAndBreakdown(t *testing.T) {
 		`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
 		fmt.Sprintf("uvf-%d@example.com", suffix)).Scan(&userID))
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		`INSERT INTO api_keys (user_id, key, name, group_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-		userID, fmt.Sprintf("sk-uvf-%d", suffix), "training-key", groupID).Scan(&apiKeyID))
+		`INSERT INTO api_keys (user_id, key, name, routing_mode) VALUES ($1, $2, $3, 'universal') RETURNING id`,
+		userID, fmt.Sprintf("sk-uvf-%d", suffix), "training-key").Scan(&apiKeyID))
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id = $1", groupID)
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id = $1", userID)
@@ -83,6 +83,7 @@ func TestUserVisibleFailureCountAndBreakdown(t *testing.T) {
 	require.NotEmpty(t, breakdown.Users)
 	require.Equal(t, userID, breakdown.Users[0].UserID)
 	require.Equal(t, "training-key", breakdown.Users[0].APIKeyName)
+	require.Equal(t, service.RoutingModeUniversal, breakdown.Users[0].APIKeyRoutingMode)
 	require.NotEmpty(t, breakdown.Surfaces)
 	require.Equal(t, 429, breakdown.Surfaces[0].StatusCode)
 	require.Equal(t, 429, breakdown.Surfaces[0].UpstreamStatusCode)

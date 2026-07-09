@@ -224,10 +224,6 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	if event.ThresholdValue != nil {
 		thresholdValue = fmt.Sprintf("%.2f", *event.ThresholdValue)
 	}
-	dimensions := formatOpsFeishuDimensions(event.Dimensions)
-	if dimensions == "" {
-		dimensions = "overall"
-	}
 	if strings.TrimSpace(nodeLabel) == "" {
 		nodeLabel = "overall"
 	}
@@ -246,18 +242,17 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	// back to plain prose so the card still reads cleanly.
 	advice := buildOpsFeishuAdvice(rule.MetricType, sev, dashboardURL)
 	// TK (us7 P0 2026-06-13): the top offending model/reason, when the evaluator
-	// attached it (error-rate rules). Rendered as its own line right under 范围 so
-	// an operator can tell a real fire from client noise (e.g. a hammered
-	// access-gated model) without drilling the dashboard.
+	// attached it (error-rate rules). Rendered as its own line under the metric
+	// value so an operator can tell a real fire from client noise (e.g. a
+	// hammered access-gated model) without drilling the dashboard.
 	topCauseLine := buildOpsFeishuBreakdownLines(rule.MetricType, event.Dimensions)
-	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s%s\n**时间**：%s\n\n**建议**：%s",
+	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
 		escapeFeishuText(strings.TrimSpace(rule.MetricType)),
 		escapeFeishuText(strings.TrimSpace(rule.Operator)),
 		escapeFeishuText(thresholdValue),
 		escapeFeishuText(metricValue),
-		escapeFeishuText(dimensions),
 		topCauseLine,
 		escapeFeishuText(formatAlertTime(event.FiredAt)),
 		advice,
@@ -296,10 +291,6 @@ func buildOpsFeishuRecoveryText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLa
 	if currentMetricValue != nil {
 		currentValue = fmt.Sprintf("%.2f", *currentMetricValue)
 	}
-	dimensions := formatOpsFeishuDimensions(event.Dimensions)
-	if dimensions == "" {
-		dimensions = "overall"
-	}
 	if strings.TrimSpace(nodeLabel) == "" {
 		nodeLabel = "overall"
 	}
@@ -324,7 +315,7 @@ func buildOpsFeishuRecoveryText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLa
 		note = fmt.Sprintf("[打开 Ops Dashboard](%s) 复核指标与账号可用性。指标已回落到阈值以下，告警自动解除。", dashboardURL)
 	}
 	topCauseLine := buildOpsFeishuBreakdownLines(rule.MetricType, event.Dimensions)
-	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**触发值**：%s\n**当前值**：%s\n**范围**：%s%s\n**持续时长**：%s\n**触发时间**：%s\n**恢复时间**：%s\n\n**说明**：%s",
+	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**触发值**：%s\n**当前值**：%s%s\n**持续时长**：%s\n**触发时间**：%s\n**恢复时间**：%s\n\n**说明**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
 		escapeFeishuText(strings.TrimSpace(rule.MetricType)),
@@ -332,7 +323,6 @@ func buildOpsFeishuRecoveryText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLa
 		escapeFeishuText(thresholdValue),
 		escapeFeishuText(metricValue),
 		escapeFeishuText(currentValue),
-		escapeFeishuText(dimensions),
 		topCauseLine,
 		escapeFeishuText(durationText),
 		escapeFeishuText(formatAlertTime(event.FiredAt)),
@@ -387,7 +377,7 @@ func buildOpsFeishuTopCauseLines(dimensions map[string]any) string {
 func buildOpsFeishuUserVisibleFailureLines(dimensions map[string]any) string {
 	lines := ""
 	if affected := opsFeishuDimensionString(dimensions, "user_visible_affected"); affected != "" {
-		lines += fmt.Sprintf("\n**谁受影响**：%s", escapeFeishuText(affected))
+		lines += opsFeishuBreakdownField("谁受影响", affected)
 	}
 	if impact := opsFeishuDimensionString(dimensions, "user_visible_impact"); impact != "" {
 		lines += fmt.Sprintf("\n**影响多大**：%s", escapeFeishuText(impact))
@@ -396,9 +386,31 @@ func buildOpsFeishuUserVisibleFailureLines(dimensions map[string]any) string {
 		lines += fmt.Sprintf("\n**用户看到什么**：%s", escapeFeishuText(surface))
 	}
 	if root := opsFeishuDimensionString(dimensions, "user_visible_root"); root != "" {
-		lines += fmt.Sprintf("\n**根因在哪**：%s", escapeFeishuText(root))
+		lines += opsFeishuBreakdownField("根因在哪", root)
 	}
 	return lines
+}
+
+func opsFeishuBreakdownField(label, value string) string {
+	parts := splitOpsFeishuBreakdown(value)
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return fmt.Sprintf("\n**%s**：%s", label, escapeFeishuText(parts[0]))
+	}
+	return fmt.Sprintf("\n**%s**：\n%s", label, escapeFeishuText(strings.Join(parts, "\n")))
+}
+
+func splitOpsFeishuBreakdown(value string) []string {
+	rawParts := strings.Split(strings.TrimSpace(value), " · ")
+	parts := make([]string, 0, len(rawParts))
+	for _, p := range rawParts {
+		if part := strings.TrimSpace(p); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 func opsFeishuDimensionString(dimensions map[string]any, key string) string {
@@ -458,20 +470,6 @@ func opsFeishuTopCauseModels(dimensions map[string]any) string {
 		}
 	}
 	return ""
-}
-
-func formatOpsFeishuDimensions(dimensions map[string]any) string {
-	if len(dimensions) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, 2)
-	if v, ok := dimensions["platform"]; ok {
-		parts = append(parts, fmt.Sprintf("platform=%v", v))
-	}
-	if v, ok := dimensions["group_id"]; ok {
-		parts = append(parts, fmt.Sprintf("group_id=%v", v))
-	}
-	return strings.Join(parts, " ")
 }
 
 func signFeishuWebhook(timestamp string, signingSecret string) string {
