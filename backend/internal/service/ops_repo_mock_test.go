@@ -98,6 +98,14 @@ func (m *opsRepoMock) TopRoutingCapacityRejectionByModel(ctx context.Context, fi
 	return nil, nil
 }
 
+func (m *opsRepoMock) CountUserVisibleFailures(ctx context.Context, filter *OpsDashboardFilter, ownerScope string) (int64, error) {
+	return 0, nil
+}
+
+func (m *opsRepoMock) GetUserVisibleFailureBreakdown(ctx context.Context, filter *OpsDashboardFilter, ownerScope string, limit int) (*OpsUserVisibleFailureBreakdown, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error) {
 	return &OpsThroughputTrendResponse{}, nil
 }

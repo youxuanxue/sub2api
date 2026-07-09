@@ -44,6 +44,13 @@ type OpsRepository interface {
 	// over the same routing-capacity rejection window/scope. It powers the
 	// no-available-accounts P0 card's "模型" line.
 	TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error)
+	// CountUserVisibleFailures counts terminal user-visible failures over the
+	// alert window. ownerScope is "system" (provider/platform, P0) or "client"
+	// (client-owned usage/input failures, P1).
+	CountUserVisibleFailures(ctx context.Context, filter *OpsDashboardFilter, ownerScope string) (int64, error)
+	// GetUserVisibleFailureBreakdown returns the first-screen Feishu breakdown
+	// for the same user-visible failure window/scope.
+	GetUserVisibleFailureBreakdown(ctx context.Context, filter *OpsDashboardFilter, ownerScope string, limit int) (*OpsUserVisibleFailureBreakdown, error)
 	GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error)
 	GetLatencyHistogram(ctx context.Context, filter *OpsDashboardFilter) (*OpsLatencyHistogramResponse, error)
 	GetErrorTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsErrorTrendResponse, error)
