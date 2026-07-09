@@ -27,12 +27,13 @@ import (
 //     relay (account #54 key). Kept the IDs that returned 200; dropped
 //     deprecated-gate 400s, upstream-rejected 502s, and dated snapshots whose
 //     non-dated form also serves.
-//   - openai: refreshed 2026-07-09 from the account-76 probe set and prod
-//     OpenAI allowlist replay. Kept the 9 IDs that were accepted by the
-//     operator-verified account mapping; dropped stale advertised gpt-5* IDs,
-//     gpt-5-pro (unsupported), gpt-5.3-codex-spark (429/inconclusive), gpt-4*,
-//     gpt-3.5*, gpt-4o*, audio/realtime/tts/transcribe, and gpt-image-* (not
-//     servable on a probeable OpenAI catalog path).
+//   - openai: the native OpenAI floor is independent from api.ainzy.net/v1.
+//     It keeps the historical 15 native GPT/Codex IDs plus the newer 2026-07-09
+//     OpenAI replay additions that are not Ainzy-only. Do not replace this set
+//     with account-76 probe results: account 76 is the separate Ainzy relay
+//     floor below. Still dropped here: gpt-4*, gpt-3.5*, gpt-4o*,
+//     audio/realtime/tts/transcribe, gpt-image-* and gpt-5.6* rows that are not
+//     servable on the native OpenAI catalog path.
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
 //     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
@@ -81,7 +82,7 @@ import (
 // `servable-allowlist:begin/end <platform>` markers are the splice anchors the
 // generator rewrites between — keep them intact, and hand-edits inside those
 // three blocks will be overwritten on the next refresh. Last claude probe:
-// 2026-06-05. Last openai probe/apply: 2026-07-09. The antigravity block is
+// 2026-06-05. Last native openai replay: 2026-07-09. The antigravity block is
 // hand-maintained from the empirical probe above: the refresh tool's platforms
 // tuple is anthropic/openai/gemini and its
 // GEMINI_EXCLUDE_RE drops antigravity from the google catch-all, so it never
@@ -107,15 +108,26 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
 var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
-	"codex-auto-review": {},
-	"gpt-5-codex":       {},
-	"gpt-5.2":           {},
-	"gpt-5.2-pro":       {},
-	"gpt-5.3":           {},
-	"gpt-5.3-codex":     {},
-	"gpt-5.4":           {},
-	"gpt-5.4-mini":      {},
-	"gpt-5.5":           {},
+	"codex-auto-review":   {},
+	"gpt-5":               {},
+	"gpt-5-codex":         {},
+	"gpt-5-chat":          {},
+	"gpt-5-chat-latest":   {},
+	"gpt-5-mini":          {},
+	"gpt-5-nano":          {},
+	"gpt-5-pro":           {},
+	"gpt-5-search-api":    {},
+	"gpt-5.1":             {},
+	"gpt-5.1-chat-latest": {},
+	"gpt-5.2":             {},
+	"gpt-5.2-pro":         {},
+	"gpt-5.3":             {},
+	"gpt-5.3-codex":       {},
+	"gpt-5.3-codex-spark": {},
+	"gpt-5.4":             {},
+	"gpt-5.4-mini":        {},
+	"gpt-5.4-pro":         {},
+	"gpt-5.5":             {},
 	// servable-allowlist:end openai
 }
 

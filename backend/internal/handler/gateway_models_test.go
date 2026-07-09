@@ -159,9 +159,11 @@ func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
 	require.Contains(t, ids, "gpt-5.2", "universal OpenAI group fallback must use OpenAI SSOT")
+	require.Contains(t, ids, "gpt-5-pro", "universal OpenAI group fallback must preserve native OpenAI original floor")
+	require.Contains(t, ids, "gpt-5.3-codex-spark", "universal OpenAI group fallback must preserve native OpenAI original floor")
 	require.Contains(t, ids, "gpt-5.4-mini", "universal OpenAI group fallback must include current OpenAI SSOT")
 	require.Contains(t, ids, "gemini-2.5-flash", "universal Gemini group fallback must use Gemini SSOT")
-	require.NotContains(t, ids, "gpt-5-pro", "unsupported OpenAI model must not leak into universal list")
+	require.NotContains(t, ids, "gpt-5.6-sol", "non-allowlisted OpenAI model must not leak into universal list")
 	require.NotContains(t, ids, "leaked-global-model", "universal list must not scan the global schedulable pool")
 }
 

@@ -48,7 +48,7 @@ func (h *GatewayHandler) tkFilterModelIDs(ctx context.Context, platform string, 
 // structurally-gone ids and filtered to priced. Every /v1/models-family FALLBACK
 // sources its ids here, so the gateway advertises exactly the set the public
 // /pricing catalog and the Your-Menu fallback show — no advertised_dead (a priced
-// id not in the allowlist, e.g. gpt-5-pro), no visible-but-unpriced. Nil-safe: no
+// id not in the allowlist, e.g. gpt-5.6-sol), no visible-but-unpriced. Nil-safe: no
 // filter wired → service.ServableClientFacingIDs fail-opens to the candidate set.
 func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []string {
 	if h == nil || h.tkModelListFilter == nil {
@@ -104,7 +104,7 @@ func (h *GatewayHandler) tkUniversalModelIDs(ctx context.Context, apiKey *servic
 // (servableIDs) and preferring the canonical openai.DefaultModels entry for an id
 // when present (DisplayName/Created fidelity), else synthesizing — mirroring
 // writeOpenAIModelsList. Converges with /pricing (drops advertised_dead like
-// gpt-5-pro/gpt-image-*; surfaces every servable allowlist id).
+// gpt-5.6*/gpt-image-*; surfaces every servable allowlist id).
 func (h *GatewayHandler) tkOpenAIDefaultModelIDs(ctx context.Context, platform string) []openai.Model {
 	return openai.ModelsForIDs(h.servableIDs(ctx, platform))
 }
