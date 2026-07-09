@@ -171,6 +171,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if resp.StatusCode == http.StatusBadRequest {
+			tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, mappedModel, resp.StatusCode, respBody)
+		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)

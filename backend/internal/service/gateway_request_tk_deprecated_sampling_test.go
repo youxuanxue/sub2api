@@ -59,6 +59,18 @@ func TestTkStripDeprecatedSamplingParams_StripsTopPWhenTemperatureAlsoPresent(t 
 	require.True(t, gjson.ValidBytes(got))
 }
 
+func TestTkStripDeprecatedSamplingParams_StripsTopPForOpus41(t *testing.T) {
+	input := []byte(`{"model":"claude-opus-4-1-20250805","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hi"}]}`)
+
+	got := tkStripDeprecatedSamplingParams(input)
+
+	require.True(t, gjson.GetBytes(got, "temperature").Exists())
+	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.True(t, gjson.GetBytes(got, "top_k").Exists())
+	require.Equal(t, "claude-opus-4-1-20250805", gjson.GetBytes(got, "model").String())
+	require.True(t, gjson.ValidBytes(got))
+}
+
 func TestTkStripDeprecatedSamplingParams_StripsTopPForDatedHaiku45(t *testing.T) {
 	input := []byte(`{"model":"claude-haiku-4-5-20251001","temperature":1,"top_p":0.999,"messages":[{"role":"user","content":"hi"}]}`)
 
@@ -117,6 +129,8 @@ func TestTkModelRejectsTemperatureTopPCombination(t *testing.T) {
 		{"claude-sonnet-4-5-20250929", true},
 		{"claude-haiku-4-5", true},
 		{"claude-haiku-4-5-20251001", true},
+		{"claude-opus-4-1", true},
+		{"claude-opus-4-1-20250805", true},
 		{"anthropic.claude-opus-4-5-v1:0", true},
 		{"claude-opus-4-6", true},
 		{"claude-opus-4-7", false},
@@ -130,6 +144,69 @@ func TestTkModelRejectsTemperatureTopPCombination(t *testing.T) {
 			require.Equal(t, tc.want, tkModelRejectsTemperatureTopPCombination(tc.model))
 		})
 	}
+}
+
+func TestTkSamplingParamRuleFromAnthropic400(t *testing.T) {
+	conflictBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"` + "`temperature` and `top_p` cannot both be specified for this model. Please use only one." + `"}}`)
+	rule, ok := tkSamplingParamRuleFromAnthropic400("claude-sonnet-4-5", http.StatusBadRequest, conflictBody)
+	require.True(t, ok)
+	require.Equal(t, tkSamplingParamRuleStripTopPWithTemperature, rule)
+
+	unsupportedBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"temperature: Extra inputs are not permitted"}}`)
+	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unsupportedBody)
+	require.True(t, ok)
+	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+
+	overloadedBody := []byte(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+	_, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, overloadedBody)
+	require.False(t, ok)
+
+	rangeBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"temperature: Input should be less than or equal to 1"}}`)
+	_, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, rangeBody)
+	require.False(t, ok)
+
+	prefillBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Prefilling assistant messages is not supported for this model."}}`)
+	_, ok = tkSamplingParamRuleFromAnthropic400("claude-opus-4-8", http.StatusBadRequest, prefillBody)
+	require.False(t, ok)
+
+	thinkingBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0: thinking or redacted_thinking blocks in the latest assistant message cannot be modified."}}`)
+	_, ok = tkSamplingParamRuleFromAnthropic400("claude-sonnet-4-5", http.StatusBadRequest, thinkingBody)
+	require.False(t, ok)
+}
+
+func TestTkStripDeprecatedSamplingParams_UsesCachedSamplingRule(t *testing.T) {
+	tkSamplingParamRules.Flush()
+	defer tkSamplingParamRules.Flush()
+
+	body := []byte(`{"model":"claude-next-preview","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`)
+	require.Equal(t, body, tkStripDeprecatedSamplingParams(body))
+
+	tkPutCachedSamplingParamRule("claude-next-preview", tkSamplingParamRuleStripTopPWithTemperature)
+	got := tkStripDeprecatedSamplingParams(body)
+	require.True(t, gjson.GetBytes(got, "temperature").Exists())
+	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.True(t, gjson.GetBytes(got, "top_k").Exists())
+}
+
+func TestRectifyAnthropicPassthrough400_SamplingParamRetryCachesRule(t *testing.T) {
+	tkSamplingParamRules.Flush()
+	defer tkSamplingParamRules.Flush()
+
+	body := []byte(`{"model":"claude-next-preview","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`)
+	respBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You should either alter temperature or top_p, but not both."}}`)
+	svc := &GatewayService{}
+	account := &Account{Platform: PlatformAnthropic}
+
+	got, kind, ok := svc.rectifyAnthropicPassthrough400(context.Background(), account, body, "claude-next-preview", respBody)
+
+	require.True(t, ok)
+	require.Equal(t, "sampling_param_retry", kind)
+	require.True(t, gjson.GetBytes(got, "temperature").Exists())
+	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.True(t, gjson.GetBytes(got, "top_k").Exists())
+	rule, exists := tkGetCachedSamplingParamRule("claude-next-preview")
+	require.True(t, exists)
+	require.Equal(t, tkSamplingParamRuleStripTopPWithTemperature, rule)
 }
 
 func TestForwardAsChatCompletions_AnthropicOpus47StripsDeprecatedSamplingParams(t *testing.T) {

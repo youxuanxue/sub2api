@@ -510,6 +510,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr == nil {
 				_ = resp.Body.Close()
+				tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, reqModel, resp.StatusCode, respBody)
 
 				if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

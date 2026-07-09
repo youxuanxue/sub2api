@@ -30,7 +30,7 @@ func tkModelRejectsTemperatureTopPCombination(modelID string) bool {
 	if tkModelDeprecatesSamplingParams(modelID) {
 		return false
 	}
-	return tkClaudeFamilyVersionAtLeast(modelID, "opus", 4, 5) ||
+	return tkClaudeFamilyVersionAtLeast(modelID, "opus", 4, 1) ||
 		tkClaudeFamilyVersionAtLeast(modelID, "sonnet", 4, 5) ||
 		tkClaudeFamilyVersionAtLeast(modelID, "haiku", 4, 5)
 }
@@ -89,17 +89,23 @@ func tkStripDeprecatedSamplingParams(body []byte) []byte {
 	out := body
 
 	if tkModelDeprecatesSamplingParams(model) {
-		for _, field := range tkDeprecatedSamplingTopLevelFields {
-			if !gjson.GetBytes(out, field).Exists() {
-				continue
+		return tkStripTopLevelSamplingFields(out, body)
+	}
+
+	if cachedRule, ok := tkGetCachedSamplingParamRule(model); ok {
+		switch cachedRule {
+		case tkSamplingParamRuleStripAll:
+			return tkStripTopLevelSamplingFields(out, body)
+		case tkSamplingParamRuleStripTopPWithTemperature:
+			if gjson.GetBytes(out, "temperature").Exists() && gjson.GetBytes(out, "top_p").Exists() {
+				stripped, err := sjson.DeleteBytes(out, "top_p")
+				if err != nil {
+					return body
+				}
+				out = stripped
 			}
-			stripped, err := sjson.DeleteBytes(out, field)
-			if err != nil {
-				return body
-			}
-			out = stripped
+			return out
 		}
-		return out
 	}
 
 	if tkModelRejectsTemperatureTopPCombination(model) &&
@@ -108,6 +114,21 @@ func tkStripDeprecatedSamplingParams(body []byte) []byte {
 		stripped, err := sjson.DeleteBytes(out, "top_p")
 		if err != nil {
 			return body
+		}
+		out = stripped
+	}
+	return out
+}
+
+func tkStripTopLevelSamplingFields(body []byte, fallback []byte) []byte {
+	out := body
+	for _, field := range tkDeprecatedSamplingTopLevelFields {
+		if !gjson.GetBytes(out, field).Exists() {
+			continue
+		}
+		stripped, err := sjson.DeleteBytes(out, field)
+		if err != nil {
+			return fallback
 		}
 		out = stripped
 	}

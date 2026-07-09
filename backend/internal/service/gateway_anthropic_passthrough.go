@@ -485,6 +485,16 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 }
 
 func (s *GatewayService) rectifyAnthropicPassthrough400(ctx context.Context, account *Account, body []byte, model string, respBody []byte) ([]byte, string, bool) {
+	platform := ""
+	if account != nil {
+		platform = account.Platform
+	}
+	if _, ok := tkRecordAnthropicSamplingParamRuleFrom400(platform, model, http.StatusBadRequest, respBody); ok {
+		if rectified := tkStripDeprecatedSamplingParams(body); !bytes.Equal(rectified, body) {
+			return rectified, "sampling_param_retry", true
+		}
+	}
+
 	if s.shouldRectifySignatureError(ctx, account, respBody, model) {
 		return FilterThinkingBlocksForRetry(body, model), "signature_retry_thinking", true
 	}
