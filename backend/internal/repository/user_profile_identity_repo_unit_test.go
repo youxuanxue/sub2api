@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -22,8 +23,8 @@ func TestUserRepositoryBindAuthIdentityToUserCanonicalizesLegacyWeChatAlias(t *t
 		Email:        "wechat-legacy@example.com",
 		Username:     "wechat-legacy",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, user))
 
@@ -113,8 +114,8 @@ func TestUserRepositoryUpsertIdentityAdoptionDecisionIsIdempotentUnderConcurrenc
 		Email:        "repo-adoption@example.com",
 		Username:     "repo-adoption",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, user))
 

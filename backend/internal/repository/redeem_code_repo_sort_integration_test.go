@@ -3,13 +3,14 @@
 package repository
 
 import (
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 func (s *RedeemCodeRepoSuite) TestListWithFilters_SortByValueAsc() {
-	s.Require().NoError(s.repo.Create(s.ctx, &service.RedeemCode{Code: "VALUE-20", Type: service.RedeemTypeBalance, Value: 20, Status: service.StatusUnused}))
-	s.Require().NoError(s.repo.Create(s.ctx, &service.RedeemCode{Code: "VALUE-10", Type: service.RedeemTypeBalance, Value: 10, Status: service.StatusUnused}))
+	s.Require().NoError(s.repo.Create(s.ctx, &service.RedeemCode{Code: "VALUE-20", Type: domain.RedeemTypeBalance, Value: 20, Status: domain.StatusUnused}))
+	s.Require().NoError(s.repo.Create(s.ctx, &service.RedeemCode{Code: "VALUE-10", Type: domain.RedeemTypeBalance, Value: 10, Status: domain.StatusUnused}))
 
 	codes, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
 		Page:      1,

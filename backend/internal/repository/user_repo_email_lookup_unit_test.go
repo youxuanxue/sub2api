@@ -10,6 +10,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 
@@ -45,8 +46,8 @@ func TestUserRepositoryGetByEmailNormalizesLegacySpacingAndCase(t *testing.T) {
 		Email:        " Legacy@Example.com ",
 		Username:     "legacy-user",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	})
 	require.NoError(t, err)
 
@@ -63,8 +64,8 @@ func TestUserRepositoryExistsByEmailNormalizesLegacySpacingAndCase(t *testing.T)
 		Email:        " Legacy@Example.com ",
 		Username:     "legacy-user",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	})
 	require.NoError(t, err)
 
@@ -81,8 +82,8 @@ func TestUserRepositoryCreateRejectsNormalizedEmailDuplicate(t *testing.T) {
 		Email:        " Existing@Example.com ",
 		Username:     "existing-user",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	})
 	require.NoError(t, err)
 
@@ -90,10 +91,10 @@ func TestUserRepositoryCreateRejectsNormalizedEmailDuplicate(t *testing.T) {
 		Email:        "existing@example.com",
 		Username:     "duplicate-user",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	})
-	require.ErrorIs(t, err, service.ErrEmailExists)
+	require.ErrorIs(t, err, domain.ErrEmailExists)
 }
 
 func TestUserRepositoryUpdateRejectsNormalizedEmailDuplicate(t *testing.T) {
@@ -104,8 +105,8 @@ func TestUserRepositoryUpdateRejectsNormalizedEmailDuplicate(t *testing.T) {
 		Email:        " Existing@Example.com ",
 		Username:     "existing-user",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, first))
 
@@ -113,14 +114,14 @@ func TestUserRepositoryUpdateRejectsNormalizedEmailDuplicate(t *testing.T) {
 		Email:        "second@example.com",
 		Username:     "second-user",
 		PasswordHash: "hash",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
+		Role:         domain.RoleUser,
+		Status:       domain.StatusActive,
 	}
 	require.NoError(t, repo.Create(ctx, second))
 
 	second.Email = " existing@example.com "
 	err := repo.Update(ctx, second)
-	require.ErrorIs(t, err, service.ErrEmailExists)
+	require.ErrorIs(t, err, domain.ErrEmailExists)
 }
 
 func TestUserRepositoryGetByEmailReportsNormalizedEmailConflict(t *testing.T) {
@@ -131,8 +132,8 @@ func TestUserRepositoryGetByEmailReportsNormalizedEmailConflict(t *testing.T) {
 		SetEmail("Conflict@Example.com").
 		SetUsername("conflict-user-1").
 		SetPasswordHash("hash").
-		SetRole(service.RoleUser).
-		SetStatus(service.StatusActive).
+		SetRole(domain.RoleUser).
+		SetStatus(domain.StatusActive).
 		Save(ctx)
 	require.NoError(t, err)
 
@@ -140,8 +141,8 @@ func TestUserRepositoryGetByEmailReportsNormalizedEmailConflict(t *testing.T) {
 		SetEmail(" conflict@example.com ").
 		SetUsername("conflict-user-2").
 		SetPasswordHash("hash").
-		SetRole(service.RoleUser).
-		SetStatus(service.StatusActive).
+		SetRole(domain.RoleUser).
+		SetStatus(domain.StatusActive).
 		Save(ctx)
 	require.NoError(t, err)
 
@@ -183,8 +184,8 @@ func TestUserRepositoryCreateSerializesNormalizedEmailConflictsUnderConcurrency(
 			Email:        " Race@Example.com ",
 			Username:     "race-user-1",
 			PasswordHash: "hash",
-			Role:         service.RoleUser,
-			Status:       service.StatusActive,
+			Role:         domain.RoleUser,
+			Status:       domain.StatusActive,
 		})}
 	}()
 
@@ -195,8 +196,8 @@ func TestUserRepositoryCreateSerializesNormalizedEmailConflictsUnderConcurrency(
 			Email:        "race@example.com",
 			Username:     "race-user-2",
 			PasswordHash: "hash",
-			Role:         service.RoleUser,
-			Status:       service.StatusActive,
+			Role:         domain.RoleUser,
+			Status:       domain.StatusActive,
 		})}
 	}()
 
@@ -213,7 +214,7 @@ func TestUserRepositoryCreateSerializesNormalizedEmailConflictsUnderConcurrency(
 		switch err {
 		case nil:
 			successes++
-		case service.ErrEmailExists:
+		case domain.ErrEmailExists:
 			conflicts++
 		default:
 			t.Fatalf("unexpected create error: %v", err)

@@ -10,8 +10,8 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
 	dbusagecleanuptask "github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"
@@ -42,17 +42,17 @@ func TestUsageCleanupRepositoryEntCreateAndList(t *testing.T) {
 
 	start := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)
-	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
-		Filters:   service.UsageCleanupFilters{StartTime: start, EndTime: end},
+	task := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusPending,
+		Filters:   domain.UsageCleanupFilters{StartTime: start, EndTime: end},
 		CreatedBy: 9,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task))
 	require.NotZero(t, task.ID)
 
-	task2 := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusRunning,
-		Filters:   service.UsageCleanupFilters{StartTime: start.Add(-24 * time.Hour), EndTime: end.Add(-24 * time.Hour)},
+	task2 := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusRunning,
+		Filters:   domain.UsageCleanupFilters{StartTime: start.Add(-24 * time.Hour), EndTime: end.Add(-24 * time.Hour)},
 		CreatedBy: 10,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task2))
@@ -78,16 +78,16 @@ func TestUsageCleanupRepositoryEntListEmpty(t *testing.T) {
 func TestUsageCleanupRepositoryEntGetStatusAndProgress(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
-	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
-		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
+	task := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusPending,
+		Filters:   domain.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 3,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task))
 
 	status, err := repo.GetTaskStatus(context.Background(), task.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusPending, status)
+	require.Equal(t, domain.UsageCleanupStatusPending, status)
 
 	_, err = repo.GetTaskStatus(context.Background(), task.ID+99)
 	require.ErrorIs(t, err, sql.ErrNoRows)
@@ -101,9 +101,9 @@ func TestUsageCleanupRepositoryEntGetStatusAndProgress(t *testing.T) {
 func TestUsageCleanupRepositoryEntCancelAndFinish(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
-	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
-		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
+	task := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusPending,
+		Filters:   domain.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 5,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task))
@@ -114,12 +114,12 @@ func TestUsageCleanupRepositoryEntCancelAndFinish(t *testing.T) {
 
 	loaded, err := client.UsageCleanupTask.Get(context.Background(), task.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusCanceled, loaded.Status)
+	require.Equal(t, domain.UsageCleanupStatusCanceled, loaded.Status)
 	require.NotNil(t, loaded.CanceledBy)
 	require.NotNil(t, loaded.CanceledAt)
 	require.NotNil(t, loaded.FinishedAt)
 
-	loaded.Status = service.UsageCleanupStatusSucceeded
+	loaded.Status = domain.UsageCleanupStatusSucceeded
 	_, err = client.UsageCleanupTask.Update().Where(dbusagecleanuptask.IDEQ(task.ID)).SetStatus(loaded.Status).Save(context.Background())
 	require.NoError(t, err)
 
@@ -131,9 +131,9 @@ func TestUsageCleanupRepositoryEntCancelAndFinish(t *testing.T) {
 func TestUsageCleanupRepositoryEntCancelError(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
-	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusPending,
-		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
+	task := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusPending,
+		Filters:   domain.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 5,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task))
@@ -146,9 +146,9 @@ func TestUsageCleanupRepositoryEntCancelError(t *testing.T) {
 func TestUsageCleanupRepositoryEntMarkResults(t *testing.T) {
 	repo, client := newUsageCleanupEntRepo(t)
 
-	task := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusRunning,
-		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
+	task := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusRunning,
+		Filters:   domain.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 12,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task))
@@ -156,13 +156,13 @@ func TestUsageCleanupRepositoryEntMarkResults(t *testing.T) {
 	require.NoError(t, repo.MarkTaskSucceeded(context.Background(), task.ID, 6))
 	loaded, err := client.UsageCleanupTask.Get(context.Background(), task.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusSucceeded, loaded.Status)
+	require.Equal(t, domain.UsageCleanupStatusSucceeded, loaded.Status)
 	require.Equal(t, int64(6), loaded.DeletedRows)
 	require.NotNil(t, loaded.FinishedAt)
 
-	task2 := &service.UsageCleanupTask{
-		Status:    service.UsageCleanupStatusRunning,
-		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
+	task2 := &domain.UsageCleanupTask{
+		Status:    domain.UsageCleanupStatusRunning,
+		Filters:   domain.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 12,
 	}
 	require.NoError(t, repo.CreateTask(context.Background(), task2))
@@ -170,16 +170,16 @@ func TestUsageCleanupRepositoryEntMarkResults(t *testing.T) {
 	require.NoError(t, repo.MarkTaskFailed(context.Background(), task2.ID, 4, "boom"))
 	loaded2, err := client.UsageCleanupTask.Get(context.Background(), task2.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.UsageCleanupStatusFailed, loaded2.Status)
+	require.Equal(t, domain.UsageCleanupStatusFailed, loaded2.Status)
 	require.Equal(t, "boom", *loaded2.ErrorMessage)
 }
 
 func TestUsageCleanupRepositoryEntInvalidStatus(t *testing.T) {
 	repo, _ := newUsageCleanupEntRepo(t)
 
-	task := &service.UsageCleanupTask{
+	task := &domain.UsageCleanupTask{
 		Status:    "invalid",
-		Filters:   service.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
+		Filters:   domain.UsageCleanupFilters{StartTime: time.Now().UTC(), EndTime: time.Now().UTC().Add(time.Hour)},
 		CreatedBy: 1,
 	}
 	require.Error(t, repo.CreateTask(context.Background(), task))
@@ -195,7 +195,7 @@ func TestUsageCleanupRepositoryEntListInvalidFilters(t *testing.T) {
 		context.Background(),
 		`INSERT INTO usage_cleanup_tasks (status, filters, created_by, deleted_rows, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
-		service.UsageCleanupStatusPending,
+		domain.UsageCleanupStatusPending,
 		[]byte("invalid-json"),
 		int64(1),
 		int64(0),
@@ -216,13 +216,13 @@ func TestUsageCleanupTaskFromEntFull(t *testing.T) {
 	canceledAt := start.Add(time.Minute)
 	startedAt := start.Add(2 * time.Minute)
 	finishedAt := start.Add(3 * time.Minute)
-	filters := service.UsageCleanupFilters{StartTime: start, EndTime: end}
+	filters := domain.UsageCleanupFilters{StartTime: start, EndTime: end}
 	filtersJSON, err := json.Marshal(filters)
 	require.NoError(t, err)
 
 	task, err := usageCleanupTaskFromEnt(&dbent.UsageCleanupTask{
 		ID:           10,
-		Status:       service.UsageCleanupStatusFailed,
+		Status:       domain.UsageCleanupStatusFailed,
 		Filters:      filtersJSON,
 		CreatedBy:    11,
 		DeletedRows:  7,
@@ -236,7 +236,7 @@ func TestUsageCleanupTaskFromEntFull(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(10), task.ID)
-	require.Equal(t, service.UsageCleanupStatusFailed, task.Status)
+	require.Equal(t, domain.UsageCleanupStatusFailed, task.Status)
 	require.NotNil(t, task.ErrorMsg)
 	require.NotNil(t, task.CanceledBy)
 	require.NotNil(t, task.CanceledAt)

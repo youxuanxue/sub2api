@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -73,7 +74,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		key.CreatedAt = created.CreatedAt
 		key.UpdatedAt = created.UpdatedAt
 	}
-	return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
+	return translatePersistenceError(err, nil, domain.ErrAPIKeyExists)
 }
 
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
@@ -84,7 +85,7 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrAPIKeyNotFound
+			return nil, domain.ErrAPIKeyNotFound
 		}
 		return nil, err
 	}
@@ -103,7 +104,7 @@ func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (stri
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return "", 0, service.ErrAPIKeyNotFound
+			return "", 0, domain.ErrAPIKeyNotFound
 		}
 		return "", 0, err
 	}
@@ -122,7 +123,7 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrAPIKeyNotFound
+			return nil, domain.ErrAPIKeyNotFound
 		}
 		return nil, err
 	}
@@ -212,7 +213,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return nil, service.ErrAPIKeyNotFound
+			return nil, domain.ErrAPIKeyNotFound
 		}
 		return nil, err
 	}
@@ -291,7 +292,7 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 	}
 	if affected == 0 {
 		// 更新影响行数为 0，说明记录不存在或已被软删除。
-		return service.ErrAPIKeyNotFound
+		return domain.ErrAPIKeyNotFound
 	}
 
 	// 使用同一时间戳回填，避免并发删除导致二次查询失败。
@@ -310,7 +311,7 @@ func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
 		Save(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return service.ErrAPIKeyNotFound
+			return domain.ErrAPIKeyNotFound
 		}
 		return err
 	}
@@ -324,7 +325,7 @@ func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
 		if exists {
 			return nil
 		}
-		return service.ErrAPIKeyNotFound
+		return domain.ErrAPIKeyNotFound
 	}
 	return nil
 }
@@ -394,7 +395,7 @@ func (r *apiKeyRepository) deleteWithAudit(ctx context.Context, exec *dbent.Clie
 		if exists {
 			return nil
 		}
-		return service.ErrAPIKeyNotFound
+		return domain.ErrAPIKeyNotFound
 	}
 	return nil
 }
@@ -603,7 +604,7 @@ func (r *apiKeyRepository) IncrementQuotaUsed(ctx context.Context, id int64, amo
 		Save(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
-			return 0, service.ErrAPIKeyNotFound
+			return 0, domain.ErrAPIKeyNotFound
 		}
 		return 0, err
 	}
@@ -629,7 +630,7 @@ func (r *apiKeyRepository) IncrementQuotaUsedAndGetState(ctx context.Context, id
 	state := &service.APIKeyQuotaUsageState{}
 	if err := scanSingleRow(ctx, r.sql, query, []any{amount, service.StatusAPIKeyQuotaExhausted, id}, &state.QuotaUsed, &state.Quota, &state.Key, &state.Status); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, service.ErrAPIKeyNotFound
+			return nil, domain.ErrAPIKeyNotFound
 		}
 		return nil, err
 	}
@@ -646,7 +647,7 @@ func (r *apiKeyRepository) UpdateLastUsed(ctx context.Context, id int64, usedAt 
 		return err
 	}
 	if affected == 0 {
-		return service.ErrAPIKeyNotFound
+		return domain.ErrAPIKeyNotFound
 	}
 	return nil
 }
@@ -700,7 +701,7 @@ func (r *apiKeyRepository) GetRateLimitData(ctx context.Context, id int64) (resu
 		}
 	}()
 	if !rows.Next() {
-		return nil, service.ErrAPIKeyNotFound
+		return nil, domain.ErrAPIKeyNotFound
 	}
 	data := &service.APIKeyRateLimitData{}
 	if err := rows.Scan(&data.Usage5h, &data.Usage1d, &data.Usage7d, &data.Window5hStart, &data.Window1dStart, &data.Window7dStart); err != nil {

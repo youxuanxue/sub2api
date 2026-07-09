@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -37,7 +38,7 @@ func (r *opsRepository) GetOpenAITokenStats(ctx context.Context, filter *service
 	// id 通常不是 gpt 前缀（如 moonshot-v1-32k、claude-shape、自定义渠道名），
 	// platform=newapi 时若沿用 gpt% 过滤会让该卡片几乎永远空表，等价于 newapi
 	// 没有可观测性。仅在 platform=newapi 时跳过该前缀过滤。详见 US-024。
-	if dashboardFilter.Platform != service.PlatformNewAPI {
+	if dashboardFilter.Platform != domain.PlatformNewAPI {
 		where += " AND ul.model LIKE 'gpt%'"
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
@@ -52,7 +53,7 @@ func (r *channelRepository) Create(ctx context.Context, channel *service.Channel
 		).Scan(&channel.ID, &channel.CreatedAt, &channel.UpdatedAt)
 		if err != nil {
 			if isUniqueViolation(err) {
-				return service.ErrChannelExists
+				return domain.ErrChannelExists
 			}
 			return fmt.Errorf("insert channel: %w", err)
 		}
@@ -90,7 +91,7 @@ func (r *channelRepository) GetByID(ctx context.Context, id int64) (*service.Cha
 		 FROM channels WHERE id = $1`, id,
 	).Scan(&ch.ID, &ch.Name, &ch.Description, &ch.Status, &modelMappingJSON, &ch.BillingModelSource, &ch.RestrictModels, &ch.Features, &featuresConfigJSON, &ch.ApplyPricingToAccountStats, &ch.CreatedAt, &ch.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return nil, service.ErrChannelNotFound
+		return nil, domain.ErrChannelNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get channel: %w", err)
@@ -136,13 +137,13 @@ func (r *channelRepository) Update(ctx context.Context, channel *service.Channel
 		)
 		if err != nil {
 			if isUniqueViolation(err) {
-				return service.ErrChannelExists
+				return domain.ErrChannelExists
 			}
 			return fmt.Errorf("update channel: %w", err)
 		}
 		rows, _ := result.RowsAffected()
 		if rows == 0 {
-			return service.ErrChannelNotFound
+			return domain.ErrChannelNotFound
 		}
 
 		// 更新分组关联
@@ -177,7 +178,7 @@ func (r *channelRepository) Delete(ctx context.Context, id int64) error {
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		return service.ErrChannelNotFound
+		return domain.ErrChannelNotFound
 	}
 	return nil
 }

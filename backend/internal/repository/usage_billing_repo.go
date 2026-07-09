@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -19,7 +20,7 @@ func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBill
 	return &usageBillingRepository{db: sqlDB}
 }
 
-func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
+func (r *usageBillingRepository) Apply(ctx context.Context, cmd *domain.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
 	if cmd == nil {
 		return &service.UsageBillingApplyResult{}, nil
 	}
@@ -29,7 +30,7 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 
 	cmd.Normalize()
 	if cmd.RequestID == "" {
-		return nil, service.ErrUsageBillingRequestIDRequired
+		return nil, domain.ErrUsageBillingRequestIDRequired
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -62,7 +63,7 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	return result, nil
 }
 
-func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {
+func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *domain.UsageBillingCommand) (bool, error) {
 	var id int64
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO usage_billing_dedup (request_id, api_key_id, request_fingerprint)
@@ -80,7 +81,7 @@ func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *s
 			return false, err
 		}
 		if strings.TrimSpace(existingFingerprint) != strings.TrimSpace(cmd.RequestFingerprint) {
-			return false, service.ErrUsageBillingRequestConflict
+			return false, domain.ErrUsageBillingRequestConflict
 		}
 		return false, nil
 	}
@@ -95,7 +96,7 @@ func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *s
 	`, cmd.RequestID, cmd.APIKeyID).Scan(&archivedFingerprint)
 	if err == nil {
 		if strings.TrimSpace(archivedFingerprint) != strings.TrimSpace(cmd.RequestFingerprint) {
-			return false, service.ErrUsageBillingRequestConflict
+			return false, domain.ErrUsageBillingRequestConflict
 		}
 		return false, nil
 	}
@@ -105,7 +106,7 @@ func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *s
 	return true, nil
 }
 
-func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
+func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *domain.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
 	// TK: consume the pre-flight balance hold in the SAME transaction as the
 	// deduction below (see usage_billing_repo_tk_hold.go).
 	if err := tkConsumeBalanceHoldInTx(ctx, tx, cmd.TkHoldRequestID); err != nil {
@@ -141,7 +142,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		}
 	}
 
-	if cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock)) {
+	if cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, domain.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, domain.AccountTypeBedrock)) {
 		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost)
 		if err != nil {
 			return err
@@ -177,7 +178,7 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 	if affected > 0 {
 		return nil
 	}
-	return service.ErrSubscriptionNotFound
+	return domain.ErrSubscriptionNotFound
 }
 
 func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount float64) (float64, bool, error) {
@@ -204,7 +205,7 @@ func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, am
 		RETURNING balance
 	`, amount, userID).Scan(&newBalance)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, false, service.ErrUserNotFound
+		return 0, false, domain.ErrUserNotFound
 	}
 	if err != nil {
 		return 0, false, err
@@ -230,7 +231,7 @@ func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID 
 		RETURNING quota > 0 AND quota_used >= quota AND quota_used - $1 < quota
 	`, amount, apiKeyID, service.StatusAPIKeyActive, service.StatusAPIKeyQuotaExhausted).Scan(&exhausted)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, service.ErrAPIKeyNotFound
+		return false, domain.ErrAPIKeyNotFound
 	}
 	if err != nil {
 		return false, err
@@ -258,7 +259,7 @@ func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKe
 		return err
 	}
 	if affected == 0 {
-		return service.ErrAPIKeyNotFound
+		return domain.ErrAPIKeyNotFound
 	}
 	return nil
 }
@@ -328,7 +329,7 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 			return nil, err
 		}
 		_ = rows.Close()
-		return nil, service.ErrAccountNotFound
+		return nil, domain.ErrAccountNotFound
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
@@ -349,7 +350,7 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 	crossedDaily := state.DailyLimit > 0 && state.DailyUsed >= state.DailyLimit && (state.DailyUsed-amount) < state.DailyLimit
 	crossedWeekly := state.WeeklyLimit > 0 && state.WeeklyUsed >= state.WeeklyLimit && (state.WeeklyUsed-amount) < state.WeeklyLimit
 	if crossedTotal || crossedDaily || crossedWeekly {
-		if err := enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		if err := enqueueSchedulerOutbox(ctx, tx, domain.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.usage_billing", "[SchedulerOutbox] enqueue quota exceeded failed: account=%d err=%v", accountID, err)
 			return nil, err
 		}

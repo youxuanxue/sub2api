@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -63,8 +64,8 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 	if err != nil {
 		if isQueryTimeoutErr(err) {
 			degraded = true
-			duration = service.OpsPercentiles{}
-			ttft = service.OpsPercentiles{}
+			duration = domain.OpsPercentiles{}
+			ttft = domain.OpsPercentiles{}
 		} else {
 			return nil, err
 		}
@@ -168,8 +169,8 @@ type opsDashboardPartial struct {
 
 	tokenConsumed int64
 
-	duration service.OpsPercentiles
-	ttft     service.OpsPercentiles
+	duration domain.OpsPercentiles
+	ttft     domain.OpsPercentiles
 }
 
 func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, filter *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error) {
@@ -632,8 +633,8 @@ func (r *opsRepository) queryRawPartial(ctx context.Context, filter *service.Ops
 	cancelLatency()
 	if err != nil {
 		if isQueryTimeoutErr(err) {
-			duration = service.OpsPercentiles{}
-			ttft = service.OpsPercentiles{}
+			duration = domain.OpsPercentiles{}
+			ttft = domain.OpsPercentiles{}
 			ttftSampleCount = 0
 		} else {
 			return nil, err
@@ -685,11 +686,11 @@ func (r *opsRepository) rawOpsDataExists(ctx context.Context, filter *service.Op
 
 type opsPercentileSegment struct {
 	weight int64
-	p      service.OpsPercentiles
+	p      domain.OpsPercentiles
 }
 
-func combineApproxPercentiles(segments []opsPercentileSegment) service.OpsPercentiles {
-	weightedInt := func(get func(service.OpsPercentiles) *int) *int {
+func combineApproxPercentiles(segments []opsPercentileSegment) domain.OpsPercentiles {
+	weightedInt := func(get func(domain.OpsPercentiles) *int) *int {
 		var sum float64
 		var w int64
 		for _, seg := range segments {
@@ -710,7 +711,7 @@ func combineApproxPercentiles(segments []opsPercentileSegment) service.OpsPercen
 		return &out
 	}
 
-	maxInt := func(get func(service.OpsPercentiles) *int) *int {
+	maxInt := func(get func(domain.OpsPercentiles) *int) *int {
 		var max *int
 		for _, seg := range segments {
 			v := get(seg.p)
@@ -725,13 +726,13 @@ func combineApproxPercentiles(segments []opsPercentileSegment) service.OpsPercen
 		return max
 	}
 
-	return service.OpsPercentiles{
-		P50: weightedInt(func(p service.OpsPercentiles) *int { return p.P50 }),
-		P90: weightedInt(func(p service.OpsPercentiles) *int { return p.P90 }),
-		P95: maxInt(func(p service.OpsPercentiles) *int { return p.P95 }),
-		P99: maxInt(func(p service.OpsPercentiles) *int { return p.P99 }),
-		Avg: weightedInt(func(p service.OpsPercentiles) *int { return p.Avg }),
-		Max: maxInt(func(p service.OpsPercentiles) *int { return p.Max }),
+	return domain.OpsPercentiles{
+		P50: weightedInt(func(p domain.OpsPercentiles) *int { return p.P50 }),
+		P90: weightedInt(func(p domain.OpsPercentiles) *int { return p.P90 }),
+		P95: maxInt(func(p domain.OpsPercentiles) *int { return p.P95 }),
+		P99: maxInt(func(p domain.OpsPercentiles) *int { return p.P99 }),
+		Avg: weightedInt(func(p domain.OpsPercentiles) *int { return p.Avg }),
+		Max: maxInt(func(p domain.OpsPercentiles) *int { return p.Max }),
 	}
 }
 
@@ -792,7 +793,7 @@ FROM usage_logs ul
 	return successCount, tokenConsumed, nil
 }
 
-func (r *opsRepository) queryUsageLatency(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (duration service.OpsPercentiles, ttft service.OpsPercentiles, ttftSampleCount int64, err error) {
+func (r *opsRepository) queryUsageLatency(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (duration domain.OpsPercentiles, ttft domain.OpsPercentiles, ttftSampleCount int64, err error) {
 	join, where, args, _ := buildUsageWhere(filter, start, end, 1)
 	q := `
 SELECT
@@ -824,7 +825,7 @@ FROM usage_logs ul
 		&dP50, &dP90, &dP95, &dP99, &dAvg, &dMax,
 		&tP50, &tP90, &tP95, &tP99, &tAvg, &tMax, &tCount,
 	); err != nil {
-		return service.OpsPercentiles{}, service.OpsPercentiles{}, 0, err
+		return domain.OpsPercentiles{}, domain.OpsPercentiles{}, 0, err
 	}
 
 	duration.P50 = floatToIntPtr(dP50)

@@ -5,6 +5,7 @@ package repository
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -12,8 +13,8 @@ import (
 func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	account := service.Account{
 		ID:       42,
-		Platform: service.PlatformOpenAI,
-		Type:     service.AccountTypeOAuth,
+		Platform: domain.PlatformOpenAI,
+		Type:     domain.AccountTypeOAuth,
 		Extra: map[string]any{
 			"openai_oauth_responses_websockets_v2_enabled": true,
 			"openai_oauth_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
@@ -44,7 +45,7 @@ func TestBuildSchedulerMetadataAccount_KeepsPrivacyMode(t *testing.T) {
 	t.Run("openai_training_off", func(t *testing.T) {
 		account := service.Account{
 			ID:       1,
-			Platform: service.PlatformOpenAI,
+			Platform: domain.PlatformOpenAI,
 			Extra: map[string]any{
 				"privacy_mode": service.PrivacyModeTrainingOff,
 			},
@@ -60,7 +61,7 @@ func TestBuildSchedulerMetadataAccount_KeepsPrivacyMode(t *testing.T) {
 	t.Run("antigravity_privacy_set", func(t *testing.T) {
 		account := service.Account{
 			ID:       2,
-			Platform: service.PlatformAntigravity,
+			Platform: domain.PlatformAntigravity,
 			Extra: map[string]any{
 				"privacy_mode": service.AntigravityPrivacySet,
 			},
@@ -75,7 +76,7 @@ func TestBuildSchedulerMetadataAccount_KeepsPrivacyMode(t *testing.T) {
 	t.Run("training_set_failed_remains_unset", func(t *testing.T) {
 		account := service.Account{
 			ID:       3,
-			Platform: service.PlatformOpenAI,
+			Platform: domain.PlatformOpenAI,
 			Extra: map[string]any{
 				"privacy_mode": service.PrivacyModeFailed,
 			},
@@ -92,7 +93,7 @@ func TestBuildSchedulerMetadataAccount_KeepsPrivacyMode(t *testing.T) {
 func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
 	account := service.Account{
 		ID:       42,
-		Platform: service.PlatformAnthropic,
+		Platform: domain.PlatformAnthropic,
 		GroupIDs: []int64{7, 9, 7, 0},
 		AccountGroups: []service.AccountGroup{
 			{
@@ -165,7 +166,7 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 func TestBuildSchedulerMetadataAccount_KeepsModelRateLimits(t *testing.T) {
 	account := service.Account{
 		ID:       90,
-		Platform: service.PlatformAntigravity,
+		Platform: domain.PlatformAntigravity,
 		Extra: map[string]any{
 			"model_rate_limits": map[string]any{
 				"gemini-3-flash": map[string]any{
@@ -192,8 +193,8 @@ func TestBuildSchedulerMetadataAccount_KeepsSparkShadowRoutingIdentity(t *testin
 	parentID := int64(100)
 	account := service.Account{
 		ID:              200,
-		Platform:        service.PlatformOpenAI,
-		Type:            service.AccountTypeOAuth,
+		Platform:        domain.PlatformOpenAI,
+		Type:            domain.AccountTypeOAuth,
 		ParentAccountID: &parentID,
 		QuotaDimension:  service.QuotaDimensionSpark,
 		Credentials: map[string]any{
@@ -221,8 +222,8 @@ func TestBuildSchedulerMetadataAccount_KeepsMirrorStubRoutingMetadata(t *testing
 	account := service.Account{
 		ID:       300,
 		Name:     "kiro-us6",
-		Platform: service.PlatformAnthropic,
-		Type:     service.AccountTypeAPIKey,
+		Platform: domain.PlatformAnthropic,
+		Type:     domain.AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":         "tk-edge",
 			"base_url":        "https://api-us6.tokenkey.dev",

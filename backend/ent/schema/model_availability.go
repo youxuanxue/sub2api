@@ -30,14 +30,14 @@ import (
 //   - ok           — verified within 24h AND 24h success rate >=95%
 //   - stale        — 24h success rate 80-95%, OR last_seen_ok >24h ago
 //   - unreachable  — last_failure_kind=model_not_found (single sample) OR
-//                    24h success rate <80%
+//     24h success rate <80%
 //   - untested     — no samples ever
 //
 // last_failure_kind taxonomy (kept narrow, do not invent):
 //   - "" (cleared on success)
 //   - model_not_found  / not_found  — strong / medium signal, model-level
 //   - rate_limited / auth_failure   — INCONCLUSIVE, account-level; do not flip
-//                                     status, only refresh last_checked_at
+//     status, only refresh last_checked_at
 //   - upstream_5xx / network_error / bad_response_shape — soft signal, accumulate
 type ModelAvailability struct {
 	ent.Schema

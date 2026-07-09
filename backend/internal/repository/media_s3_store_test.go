@@ -13,9 +13,9 @@ import (
 // inline base64 instead of crashing or silently pointing at an empty bucket.
 func TestNewMediaStore_DisabledWhenUnconfigured(t *testing.T) {
 	cases := []config.MediaStorageConfig{
-		{},                                  // nothing set
-		{Driver: "s3"},                      // bucket missing
-		{Bucket: "b"},                       // driver missing
+		{},             // nothing set
+		{Driver: "s3"}, // bucket missing
+		{Bucket: "b"},  // driver missing
 		{Driver: "", Bucket: "b", Region: "us-east-1"}, // driver empty
 	}
 	for i, mc := range cases {

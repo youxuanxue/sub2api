@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -24,7 +25,7 @@ func NewUserSubscriptionRepository(client *dbent.Client) service.UserSubscriptio
 
 func (r *userSubscriptionRepository) Create(ctx context.Context, sub *service.UserSubscription) error {
 	if sub == nil {
-		return service.ErrSubscriptionNilInput
+		return domain.ErrSubscriptionNilInput
 	}
 
 	client := clientFromContext(ctx, r.client)
@@ -58,7 +59,7 @@ func (r *userSubscriptionRepository) Create(ctx context.Context, sub *service.Us
 	if err == nil {
 		applyUserSubscriptionEntityToService(sub, created)
 	}
-	return translatePersistenceError(err, nil, service.ErrSubscriptionAlreadyExists)
+	return translatePersistenceError(err, nil, domain.ErrSubscriptionAlreadyExists)
 }
 
 func (r *userSubscriptionRepository) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
@@ -70,7 +71,7 @@ func (r *userSubscriptionRepository) GetByID(ctx context.Context, id int64) (*se
 		WithAssignedByUser().
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 	}
 	return userSubscriptionEntityToService(m), nil
 }
@@ -85,7 +86,7 @@ func (r *userSubscriptionRepository) GetByIDIncludeDeleted(ctx context.Context, 
 		WithAssignedByUser().
 		Only(queryCtx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 	}
 	return userSubscriptionEntityToServicePreserveStatus(m), nil
 }
@@ -97,7 +98,7 @@ func (r *userSubscriptionRepository) GetByUserIDAndGroupID(ctx context.Context, 
 		WithGroup().
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 	}
 	return userSubscriptionEntityToService(m), nil
 }
@@ -108,20 +109,20 @@ func (r *userSubscriptionRepository) GetActiveByUserIDAndGroupID(ctx context.Con
 		Where(
 			usersubscription.UserIDEQ(userID),
 			usersubscription.GroupIDEQ(groupID),
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(time.Now()),
 		).
 		WithGroup().
 		Only(ctx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+		return nil, translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 	}
 	return userSubscriptionEntityToService(m), nil
 }
 
 func (r *userSubscriptionRepository) Update(ctx context.Context, sub *service.UserSubscription) error {
 	if sub == nil {
-		return service.ErrSubscriptionNilInput
+		return domain.ErrSubscriptionNilInput
 	}
 
 	client := clientFromContext(ctx, r.client)
@@ -146,7 +147,7 @@ func (r *userSubscriptionRepository) Update(ctx context.Context, sub *service.Us
 		applyUserSubscriptionEntityToService(sub, updated)
 		return nil
 	}
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, service.ErrSubscriptionAlreadyExists)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, domain.ErrSubscriptionAlreadyExists)
 }
 
 func (r *userSubscriptionRepository) Delete(ctx context.Context, id int64) error {
@@ -165,7 +166,7 @@ func (r *userSubscriptionRepository) Restore(ctx context.Context, subscriptionID
 		SetUpdatedAt(time.Now()).
 		Save(queryCtx)
 	if err != nil {
-		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, service.ErrSubscriptionRestoreConflict)
+		return nil, translatePersistenceError(err, domain.ErrSubscriptionNotFound, domain.ErrSubscriptionRestoreConflict)
 	}
 	return r.GetByID(ctx, subscriptionID)
 }
@@ -188,7 +189,7 @@ func (r *userSubscriptionRepository) ListActiveByUserID(ctx context.Context, use
 	subs, err := client.UserSubscription.Query().
 		Where(
 			usersubscription.UserIDEQ(userID),
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(time.Now()),
 		).
 		WithGroup().
@@ -226,7 +227,7 @@ func (r *userSubscriptionRepository) ListByGroupID(ctx context.Context, groupID 
 func (r *userSubscriptionRepository) List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	client := clientFromContext(ctx, r.client)
 	q := client.UserSubscription.Query()
-	includeSoftDeleted := status == "" || status == service.SubscriptionStatusRevoked
+	includeSoftDeleted := status == "" || status == domain.SubscriptionStatusRevoked
 	if userID != nil {
 		q = q.Where(usersubscription.UserIDEQ(*userID))
 	}
@@ -244,24 +245,24 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 	// Status filtering with real-time expiration check
 	now := time.Now()
 	switch status {
-	case service.SubscriptionStatusActive:
+	case domain.SubscriptionStatusActive:
 		// Active: status is active AND not yet expired
 		q = q.Where(
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(now),
 		)
-	case service.SubscriptionStatusExpired:
+	case domain.SubscriptionStatusExpired:
 		// Expired: status is expired OR (status is active but already expired)
 		q = q.Where(
 			usersubscription.Or(
-				usersubscription.StatusEQ(service.SubscriptionStatusExpired),
+				usersubscription.StatusEQ(domain.SubscriptionStatusExpired),
 				usersubscription.And(
-					usersubscription.StatusEQ(service.SubscriptionStatusActive),
+					usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 					usersubscription.ExpiresAtLTE(now),
 				),
 			),
 		)
-	case service.SubscriptionStatusRevoked:
+	case domain.SubscriptionStatusRevoked:
 		// Revoked is a DTO/API display state backed by user_subscriptions.deleted_at.
 		q = q.Where(usersubscription.DeletedAtNotNil())
 	case "":
@@ -335,7 +336,7 @@ func (r *userSubscriptionRepository) ExistsByUserIDAndGroupID(ctx context.Contex
 		Where(
 			usersubscription.UserIDEQ(userID),
 			usersubscription.GroupIDEQ(groupID),
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(time.Now()),
 		).
 		Exist(ctx)
@@ -350,7 +351,7 @@ func (r *userSubscriptionRepository) ExtendExpiry(ctx context.Context, subscript
 	_, err := client.UserSubscription.UpdateOneID(subscriptionID).
 		SetExpiresAt(newExpiresAt).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 func (r *userSubscriptionRepository) UpdateStatus(ctx context.Context, subscriptionID int64, status string) error {
@@ -358,7 +359,7 @@ func (r *userSubscriptionRepository) UpdateStatus(ctx context.Context, subscript
 	_, err := client.UserSubscription.UpdateOneID(subscriptionID).
 		SetStatus(status).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 func (r *userSubscriptionRepository) UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error {
@@ -366,7 +367,7 @@ func (r *userSubscriptionRepository) UpdateNotes(ctx context.Context, subscripti
 	_, err := client.UserSubscription.UpdateOneID(subscriptionID).
 		SetNotes(notes).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 func (r *userSubscriptionRepository) ActivateWindows(ctx context.Context, id int64, start time.Time) error {
@@ -376,7 +377,7 @@ func (r *userSubscriptionRepository) ActivateWindows(ctx context.Context, id int
 		SetWeeklyWindowStart(start).
 		SetMonthlyWindowStart(start).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 func (r *userSubscriptionRepository) ResetDailyUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
@@ -385,7 +386,7 @@ func (r *userSubscriptionRepository) ResetDailyUsage(ctx context.Context, id int
 		SetDailyUsageUsd(0).
 		SetDailyWindowStart(newWindowStart).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 func (r *userSubscriptionRepository) ResetWeeklyUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
@@ -394,7 +395,7 @@ func (r *userSubscriptionRepository) ResetWeeklyUsage(ctx context.Context, id in
 		SetWeeklyUsageUsd(0).
 		SetWeeklyWindowStart(newWindowStart).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 func (r *userSubscriptionRepository) ResetMonthlyUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
@@ -403,7 +404,7 @@ func (r *userSubscriptionRepository) ResetMonthlyUsage(ctx context.Context, id i
 		SetMonthlyUsageUsd(0).
 		SetMonthlyWindowStart(newWindowStart).
 		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	return translatePersistenceError(err, domain.ErrSubscriptionNotFound, nil)
 }
 
 // IncrementUsage 原子性地累加订阅用量。
@@ -440,17 +441,17 @@ func (r *userSubscriptionRepository) IncrementUsage(ctx context.Context, id int6
 	}
 
 	// affected == 0：订阅不存在或已删除
-	return service.ErrSubscriptionNotFound
+	return domain.ErrSubscriptionNotFound
 }
 
 func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
 	client := clientFromContext(ctx, r.client)
 	n, err := client.UserSubscription.Update().
 		Where(
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtLTE(time.Now()),
 		).
-		SetStatus(service.SubscriptionStatusExpired).
+		SetStatus(domain.SubscriptionStatusExpired).
 		Save(ctx)
 	return int64(n), err
 }
@@ -461,7 +462,7 @@ func (r *userSubscriptionRepository) ListExpired(ctx context.Context) ([]service
 	client := clientFromContext(ctx, r.client)
 	subs, err := client.UserSubscription.Query().
 		Where(
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtLTE(time.Now()),
 		).
 		All(ctx)
@@ -482,7 +483,7 @@ func (r *userSubscriptionRepository) CountActiveByGroupID(ctx context.Context, g
 	count, err := client.UserSubscription.Query().
 		Where(
 			usersubscription.GroupIDEQ(groupID),
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.StatusEQ(domain.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(time.Now()),
 		).
 		Count(ctx)
@@ -579,7 +580,7 @@ func userSubscriptionEntityToServiceWithStatusMapping(m *dbent.UserSubscription,
 	}
 	status := m.Status
 	if mapDeletedToRevoked && m.DeletedAt != nil {
-		status = service.SubscriptionStatusRevoked
+		status = domain.SubscriptionStatusRevoked
 	}
 	out := &service.UserSubscription{
 		ID:                 m.ID,
