@@ -443,7 +443,7 @@
     <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal v-if="lazyMount('stats', showStats)" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel v-if="lazyMount('schedule', showSchedulePanel)" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu v-if="lazyMount('menu', menu.show)" :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="tierCtl.open" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu v-if="lazyMount('menu', menu.show)" :show="menu.show" :account="menu.acc" :position="menu.pos" :anchor="menu.anchor" @close="closeActionMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="tierCtl.open" @create-spark-shadow="handleCreateSparkShadow" />
     <AccountTierModal
       v-if="lazyMount('tier', tierCtl.show.value)"
       :show="tierCtl.show.value"
@@ -679,7 +679,7 @@ const lazyMount = (key: string, show: boolean): boolean => {
   return everOpened.has(key)
 }
 const togglingSchedulable = ref<number | null>(null)
-const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
+const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null, anchor:HTMLElement|null}>({ show: false, acc: null, pos: null, anchor: null })
 const exportingData = ref(false)
 
 // Column settings
@@ -1504,6 +1504,10 @@ const cols = computed(() =>
 )
 
 const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
+const closeActionMenu = () => {
+  menu.show = false
+  menu.anchor = null
+}
 const openMenu = (a: Account, e: MouseEvent) => {
   // Safety net when a menu action opens a modal but a ghost click hits the row
   // "more" trigger before the deferred menu close runs.
@@ -1514,11 +1518,12 @@ const openMenu = (a: Account, e: MouseEvent) => {
   const target = e.currentTarget as HTMLElement
   if (target) {
     const rect = target.getBoundingClientRect()
-    const menuWidth = 200
+    const menuWidth = 208
     const menuHeight = 240
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
+    menu.anchor = target
 
     let left: number
     let top: number
@@ -1543,17 +1548,18 @@ const openMenu = (a: Account, e: MouseEvent) => {
       }
     } else {
       left = Math.max(padding, Math.min(
-        e.clientX - menuWidth,
+        rect.right - menuWidth,
         viewportWidth - menuWidth - padding
       ))
-      top = e.clientY
+      top = rect.bottom + 4
       if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
+        top = Math.max(padding, Math.min(rect.top - menuHeight - 4, viewportHeight - menuHeight - padding))
       }
     }
 
     menu.pos = { top, left }
   } else {
+    menu.anchor = null
     menu.pos = { top: e.clientY, left: e.clientX - 200 }
   }
 
@@ -1834,7 +1840,7 @@ const patchAccountInList = (updatedAccount: Account) => {
     syncPaginationAfterLocalRemoval()
     removeSelectedAccounts([mergedAccount.id])
     if (menu.acc?.id === mergedAccount.id) {
-      menu.show = false
+      closeActionMenu()
       menu.acc = null
     }
     return
@@ -2063,7 +2069,7 @@ const proxyExpiryText = (p?: AccountProxy | null): string => {
 
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）
 const handleScroll = () => {
-  menu.show = false
+  closeActionMenu()
 }
 
 // 点击外部关闭列设置下拉菜单
