@@ -112,6 +112,50 @@ def _overlay_priced(entry: object) -> bool:
     )
 
 
+def local_displayed_pricing_models() -> set[str]:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(MATRIX),
+            "list",
+            "--source",
+            "local-pricing",
+            "--format",
+            "json",
+        ],
+        cwd=REPO,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "failed to derive local pricing projection for ssot delta gate: "
+            + (proc.stderr.strip() or proc.stdout.strip())
+        )
+    payload = json.loads(proc.stdout)
+    rows = payload.get("rows") or []
+    return {str(row.get("model") or "").strip() for row in rows if row.get("model")}
+
+
+def overlay_delta_models_from_payloads(
+    base_overlay: dict[str, object],
+    head_overlay: dict[str, object],
+    displayed_models: set[str],
+) -> set[str]:
+    out: set[str] = set()
+    for key, head_entry in head_overlay.items():
+        if key == "_meta":
+            continue
+        base_entry = base_overlay.get(key)
+        if (
+            _overlay_priced(head_entry)
+            and not _overlay_priced(base_entry)
+            and key in displayed_models
+        ):
+            out.add(key)
+    return out
+
+
 def manifest_delta_models(base: str) -> set[str]:
     base_entries = _load_manifest(_read_at(base, MANIFEST_REL))
     head_entries = _load_manifest((REPO / MANIFEST_REL).read_text(encoding="utf-8"))
@@ -154,14 +198,11 @@ def overlay_delta_models(base: str) -> set[str]:
         head_overlay = json.loads((REPO / OVERLAY_REL).read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return set()
-    out: set[str] = set()
-    for key, head_entry in head_overlay.items():
-        if key == "_meta":
-            continue
-        base_entry = base_overlay.get(key)
-        if _overlay_priced(head_entry) and not _overlay_priced(base_entry):
-            out.add(key)
-    return out
+    return overlay_delta_models_from_payloads(
+        base_overlay,
+        head_overlay,
+        local_displayed_pricing_models(),
+    )
 
 
 def migration_delta_models(base: str) -> set[str]:
@@ -339,6 +380,15 @@ def cmd_selftest(_args) -> int:
 
     assert _overlay_priced({"output_cost_per_image": 0.04})
     assert not _overlay_priced({"input_cost_per_token": 0})
+    assert overlay_delta_models_from_payloads(
+        {},
+        {
+            "hidden-priced": {"input_cost_per_token": 0.001},
+            "shown-priced": {"input_cost_per_token": 0.001},
+            "shown-free": {"input_cost_per_token": 0},
+        },
+        {"shown-priced", "shown-free"},
+    ) == {"shown-priced"}
 
     print("ssot-delta-gate selftest: PASS")
     return 0

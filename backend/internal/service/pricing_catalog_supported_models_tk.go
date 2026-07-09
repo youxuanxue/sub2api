@@ -28,12 +28,15 @@ import (
 //     deprecated-gate 400s, upstream-rejected 502s, and dated snapshots whose
 //     non-dated form also serves.
 //   - openai: the native OpenAI floor is independent from api.ainzy.net/v1.
-//     It keeps the historical 15 native GPT/Codex IDs plus the newer 2026-07-09
-//     OpenAI replay additions that are not Ainzy-only. Do not replace this set
-//     with account-76 probe results: account 76 is the separate Ainzy relay
-//     floor below. Still dropped here: gpt-4*, gpt-3.5*, gpt-4o*,
-//     audio/realtime/tts/transcribe, gpt-image-* and gpt-5.6* rows that are not
-//     servable on the native OpenAI catalog path.
+//     Do not replace this set with account-76 probe results: account 76 is the
+//     separate Ainzy relay floor below. The 2026-07-09 SSOT delta gate kept
+//     gpt-5.3-codex-spark after real 200s on chat/messages/count_tokens/responses,
+//     but blocked the legacy advertised GPT-5/chat/pro/search rows that returned
+//     403 not_authorized for the fulltest group. Those rows may stay priced for
+//     explicit billing, but they do not enter client-facing catalog/menu fallbacks
+//     until entitlement or live probe evidence is fixed. Still dropped here:
+//     gpt-4*, gpt-3.5*, gpt-4o*, audio/realtime/tts/transcribe, gpt-image-* and
+//     gpt-5.6* rows that are not servable on the native OpenAI catalog path.
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
 //     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
@@ -109,16 +112,7 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
 	"codex-auto-review":   {},
-	"gpt-5":               {},
 	"gpt-5-codex":         {},
-	"gpt-5-chat":          {},
-	"gpt-5-chat-latest":   {},
-	"gpt-5-mini":          {},
-	"gpt-5-nano":          {},
-	"gpt-5-pro":           {},
-	"gpt-5-search-api":    {},
-	"gpt-5.1":             {},
-	"gpt-5.1-chat-latest": {},
 	"gpt-5.2":             {},
 	"gpt-5.2-pro":         {},
 	"gpt-5.3":             {},
@@ -126,7 +120,6 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.3-codex-spark": {},
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
-	"gpt-5.4-pro":         {},
 	"gpt-5.5":             {},
 	// servable-allowlist:end openai
 }

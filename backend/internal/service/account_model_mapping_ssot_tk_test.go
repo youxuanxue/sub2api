@@ -66,18 +66,9 @@ func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	t.Parallel()
 	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 20)
+	require.Len(t, mapping, 10)
 	for _, model := range []string{
 		"codex-auto-review",
-		"gpt-5",
-		"gpt-5-chat",
-		"gpt-5-chat-latest",
-		"gpt-5-mini",
-		"gpt-5-nano",
-		"gpt-5-pro",
-		"gpt-5-search-api",
-		"gpt-5.1",
-		"gpt-5.1-chat-latest",
 		"gpt-5-codex",
 		"gpt-5.2",
 		"gpt-5.2-pro",
@@ -86,11 +77,12 @@ func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 		"gpt-5.3-codex-spark",
 		"gpt-5.4",
 		"gpt-5.4-mini",
-		"gpt-5.4-pro",
 		"gpt-5.5",
 	} {
 		require.Contains(t, mapping, model)
 	}
+	require.NotContains(t, mapping, "gpt-5")
+	require.NotContains(t, mapping, "gpt-5-pro")
 	require.NotContains(t, mapping, "gpt-5.5-pro")
 	require.NotContains(t, mapping, "gpt-5.6-sol")
 	require.NotContains(t, mapping, "gpt-image-1")
@@ -108,10 +100,10 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	require.NotContains(t, ainzy, "gpt-5.3-codex-spark")
 	canonical, ok := doc.Platforms[PlatformOpenAI]
 	require.True(t, ok)
-	require.Len(t, canonical, 20)
+	require.Len(t, canonical, 10)
 	require.Contains(t, canonical, "gpt-5.2")
-	require.Contains(t, canonical, "gpt-5-pro")
 	require.Contains(t, canonical, "gpt-5.3-codex-spark")
+	require.NotContains(t, canonical, "gpt-5-pro")
 }
 
 func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {

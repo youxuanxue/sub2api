@@ -168,14 +168,16 @@ func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
 	}
 	require.True(t, ids["gpt-5.4"], "servable OpenAI default should remain visible")
 	require.True(t, ids["codex-auto-review"], "live-servable codex-auto-review should remain visible")
-	for _, want := range []string{"gpt-5", "gpt-5-chat", "gpt-5-mini", "gpt-5-pro", "gpt-5.1", "gpt-5.3-codex-spark", "gpt-5.4-pro"} {
-		require.True(t, ids[want], "native OpenAI original floor model %s should remain visible", want)
-	}
 	for _, want := range []string{"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.5"} {
 		require.True(t, ids[want], "servable OpenAI probe result %s should remain visible", want)
 	}
-	for _, dead := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
-		require.False(t, ids[dead], "advertised_dead %s must not reach /v1/models fallback", dead)
+	require.True(t, ids["gpt-5.3-codex-spark"], "SSOT delta gate 200 model should remain visible")
+	for _, hidden := range []string{
+		"gpt-5", "gpt-5-chat", "gpt-5-chat-latest", "gpt-5-mini", "gpt-5-nano",
+		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest", "gpt-5.4-pro",
+		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
+	} {
+		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not reach /v1/models fallback", hidden)
 	}
 }
 
