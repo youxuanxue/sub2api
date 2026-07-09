@@ -181,11 +181,14 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	_, ok = byID["doubao-seed-2-0-pro-260215"]
 	assert.True(t, ok, "doubao overlay model must surface")
 	glm52, ok := byID["glm-5.2"]
-	require.True(t, ok, "direct Z.AI GLM overlay model must surface")
+	require.True(t, ok, "BigModel GLM overlay model must surface")
 	assert.Equal(t, PlatformNewAPI, inferPlatformFromVendor(glm52.Vendor), "zhipu provider must classify as newapi")
-	assert.InDelta(t, 0.0014, glm52.Pricing.InputPer1KTokens, 1e-12)
-	assert.InDelta(t, 0.0044, glm52.Pricing.OutputPer1KTokens, 1e-12)
-	assert.InDelta(t, 0.00026, glm52.Pricing.CacheReadPer1K, 1e-12)
+	cnyPer1K := func(cny float64) float64 {
+		return tkCNYPerMTokToUSDPerToken(cny) * 1_000
+	}
+	assert.InDelta(t, cnyPer1K(8)*tkOfficialListBaseTaxMultiplier, glm52.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, cnyPer1K(28)*tkOfficialListBaseTaxMultiplier, glm52.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, cnyPer1K(2)*tkOfficialListBaseTaxMultiplier, glm52.Pricing.CacheReadPer1K, 1e-12)
 
 	veo, ok := byID["veo-3.1-generate-001"]
 	require.True(t, ok, "Veo overlay media row must surface in catalog")

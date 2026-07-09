@@ -1,12 +1,12 @@
 {
-  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated single-account groups, GLM chat models served through Qwen/China newapi pools such as accounts 60/72, plus the volcengine account 7 Ark family (channel_type 45: doubao chat, seedream image, seedance video) that is explicitly mapped and priced. NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by this manifest's newapi model_mapping intent). Consumers: drift guard (now), tokenkey-onboard-model skill (now), public /pricing + Group Catalog presentation filter (tk_served_models_manifest_tk.go), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated newapi pools, GLM chat models served through the configured Qwen/China newapi pool (channel_type 17; live account membership is runtime DB/config, not manifest prose), plus the volcengine account 7 Ark family (channel_type 45: doubao chat, seedream image, seedance video) that is explicitly mapped and priced. NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by this manifest's newapi model_mapping intent). Consumers: drift guard (now), tokenkey-onboard-model skill (now), public /pricing + Group Catalog presentation filter (tk_served_models_manifest_tk.go), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
   "_schema": {
     "version": 1,
     "entry_key": "<platform>/<model_id>",
     "fields": {
       "platform": "account/group platform string; for this manifest always 'newapi' (the fifth platform). MUST equal the served account's accounts.platform.",
       "model_id": "the client-facing model id that must appear as a KEY in the served account's credentials.model_mapping whitelist (identity-mapped: key==value for these accounts).",
-      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. For the seed every entry is a single dedicated account. This is the #812-catching anchor: the guard scans tk_*_model_mapping*.sql for model_id under each listed account.",
+      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. The guard scans tk_*_model_mapping*.sql for model_id under each listed account.",
       "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 43=DeepSeek, 45=VolcEngine; 26=ZhipuV4 only if a future direct GLM pool is re-provisioned). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
       "price_source": "one of 'overlay' (priced in tk_pricing_overlay.json), 'mirror' (priced by the runtime litellm/Wei-Shaw mirror under the bare key — overlay deliberately absent because the mirror already carries a non-zero price), 'channel' (priced via channel_model_pricing DB rows). The guard resolves price differently per source.",
       "price_key": "the key under which the price resolves in the named source (overlay JSON key, or mirror/litellm key, or channel pricing model id). Usually == model_id.",
@@ -73,7 +73,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots now have their own manifest rows after 2026-06-23 prod mapping audit and livefire."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots now have their own manifest rows after 2026-06-23 prod mapping audit and livefire."
     },
     "newapi/qwen3.7-max-preview": {
       "platform": "newapi",
@@ -85,7 +85,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-preview",
       "display": true,
-      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
     },
     "newapi/qwen3.7-max-2026-05-17": {
       "platform": "newapi",
@@ -97,7 +97,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-2026-05-17",
       "display": true,
-      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
     },
     "newapi/qwen3.7-max-2026-05-20": {
       "platform": "newapi",
@@ -109,7 +109,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-2026-05-20",
       "display": true,
-      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
     },
     "newapi/qwen3.7-max-2026-06-08": {
       "platform": "newapi",
@@ -121,7 +121,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-2026-06-08",
       "display": true,
-      "notes": "Qwen account 60. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
     },
     "newapi/qwen3.7-plus": {
       "platform": "newapi",
@@ -133,7 +133,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-plus",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_024. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_024. Tiered (overlay intervals)."
     },
     "newapi/qwen3.6-flash": {
       "platform": "newapi",
@@ -145,7 +145,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.6-flash",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_024. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_024. Tiered (overlay intervals)."
     },
     "newapi/qwen3-coder-plus": {
       "platform": "newapi",
@@ -157,7 +157,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-coder-plus",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_024. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_024. Tiered (overlay intervals)."
     },
     "newapi/qwen-max": {
       "platform": "newapi",
@@ -169,7 +169,7 @@
       "price_source": "overlay",
       "price_key": "qwen-max",
       "display": true,
-      "notes": "Qwen account 60. Legacy stable alias mapped by tk_027. Flat-priced in overlay."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Legacy stable alias mapped by tk_027. Flat-priced in overlay."
     },
     "newapi/qwen-turbo": {
       "platform": "newapi",
@@ -181,7 +181,7 @@
       "price_source": "overlay",
       "price_key": "qwen-turbo",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_042 (Goal 2 fleet servable-expansion). Flat non-thinking list price in overlay (commercial qwen, enable_thinking default false — thinking tier intentionally not modeled, see overlay source note)."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_042 (Goal 2 fleet servable-expansion). Flat non-thinking list price in overlay (commercial qwen, enable_thinking default false — thinking tier intentionally not modeled, see overlay source note)."
     },
     "newapi/qwen-plus": {
       "platform": "newapi",
@@ -193,7 +193,7 @@
       "price_source": "overlay",
       "price_key": "qwen-plus",
       "display": true,
-      "notes": "Qwen account 60. Legacy stable alias mapped by tk_027. Tiered (overlay intervals), non-thinking list."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Legacy stable alias mapped by tk_027. Tiered (overlay intervals), non-thinking list."
     },
     "newapi/qwen3-8b": {
       "platform": "newapi",
@@ -205,7 +205,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-8b",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812, added 2026-06-17 per customer request; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). This row was seeded in PR #819 while still gapped (priced but not yet mapped) to prove the served_on=>migration drift guard hard-fails the #812 shape; #818/tk_029 closed the gap, so A3 now passes."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812, added 2026-06-17 per customer request; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). This row was seeded in PR #819 while still gapped (priced but not yet mapped) to prove the served_on=>migration drift guard hard-fails the #812 shape; #818/tk_029 closed the gap, so A3 now passes."
     },
     "newapi/qwen3-14b": {
       "platform": "newapi",
@@ -217,7 +217,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-14b",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
     },
     "newapi/qwen3-32b": {
       "platform": "newapi",
@@ -229,7 +229,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-32b",
       "display": true,
-      "notes": "Qwen account 60. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_029 (dense open-source identity whitelist). Priced in overlay (#812). Same provenance as qwen3-8b; #818/tk_029 closed the original #812 gap."
     },
     "newapi/qwen3-235b-a22b": {
       "platform": "newapi",
@@ -241,7 +241,7 @@
       "price_source": "overlay",
       "price_key": "qwen3-235b-a22b",
       "display": true,
-      "notes": "Qwen account 60. Flagship open-source Qwen3 MoE (235B total / 22B active). Mapped by tk_032 (identity whitelist merge). Priced in overlay (added 2026-06-18, same per-token rates as qwen3-32b). Added per customer request: the Qwen group previously listed only the smaller Qwen3 models."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Flagship open-source Qwen3 MoE (235B total / 22B active). Mapped by tk_032 (identity whitelist merge). Priced in overlay (added 2026-06-18, same per-token rates as qwen3-32b). Added per customer request: the Qwen group previously listed only the smaller Qwen3 models."
     },
     "newapi/qwen3.6-27b": {
       "platform": "newapi",
@@ -253,7 +253,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.6-27b",
       "display": true,
-      "notes": "Qwen account 60. Dense 27B Qwen3.6 model (released 2026-04-22, DashScope model id qwen3.6-27b). Mapped by tk_039 (identity whitelist merge). Priced in overlay (中国内地/华北2北京 in ¥3/M out ¥18/M, 非思考和思考同价, ÷6.7; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). Added 2026-06-21 per customer request (client wrote 'qwen3.6-27B'; served under DashScope's canonical lowercase id)."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Dense 27B Qwen3.6 model (released 2026-04-22, DashScope model id qwen3.6-27b). Mapped by tk_039 (identity whitelist merge). Priced in overlay (中国内地/华北2北京 in ¥3/M out ¥18/M, 非思考和思考同价, ÷6.7; thinking-rate default because open-source dense Qwen3 defaults enable_thinking=true). Added 2026-06-21 per customer request (client wrote 'qwen3.6-27B'; served under DashScope's canonical lowercase id)."
     },
     "newapi/doubao-seed-2-0-pro-260215": {
       "platform": "newapi",
@@ -578,7 +578,7 @@
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",
@@ -591,7 +591,7 @@
       "price_source": "overlay",
       "price_key": "glm-5.1",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
     },
     "newapi/glm-5": {
       "platform": "newapi",
@@ -604,7 +604,7 @@
       "price_source": "overlay",
       "price_key": "glm-5",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
     },
     "newapi/glm-4.7": {
       "platform": "newapi",
@@ -617,7 +617,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.7",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
     },
     "newapi/glm-4.6": {
       "platform": "newapi",
@@ -630,7 +630,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.6",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; current page does not list a separate GLM-4.6 text row, so legacy traffic is priced to the current GLM-4.7 paid ladder; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
     },
     "newapi/glm-4.5": {
       "platform": "newapi",
@@ -643,7 +643,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.5",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01). Excludes free glm-4.5-flash so no zero-price model becomes visible."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; current page does not list a separate GLM-4.5 text row, so legacy traffic is priced to the current GLM-4.7 paid ladder; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time). Excludes free glm-4.5-flash so no zero-price model becomes visible."
     },
     "newapi/glm-4.5-air": {
       "platform": "newapi",
@@ -656,7 +656,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.5-air",
       "display": true,
-      "notes": "Qwen accounts 60/72 DashScope GLM (tk_054; 72 mirrors 60). GLM direct account/group was removed; related GLM models are served by Qwen/China pools. Overlay from Zhipu official list (https://open.bigmodel.cn/pricing, captured 2026-07-01)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
     }
   }
 }

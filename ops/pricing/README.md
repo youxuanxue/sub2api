@@ -107,15 +107,18 @@ a reviewable plan:
 
 ```bash
 # Generate read-only SQL for a live model_mapping snapshot, then run it through
-# the normal prod DB access path and save the JSON result locally.
-python3 ops/pricing/modelops.py snapshot-sql --accounts 60,72
+# the normal prod DB access path and save the JSON result locally. For volatile
+# pools such as Qwen/DashScope, snapshot by channel_type instead of copying
+# account ids from old docs.
+python3 ops/pricing/modelops.py snapshot-sql --channel-type 17
 
-# Compare upstream discovery, probe results, live mapping, and Qwen -> Qwen-2 mirror drift.
+# Compare upstream discovery, probe results, live mapping, and any explicitly
+# reviewed mirror pair from that same runtime snapshot.
 python3 ops/pricing/modelops.py plan \
-  --upstream 60:/tmp/qwen_upstream_models.json \
+  --upstream "$QWEN_ACCOUNT_ID":/tmp/qwen_upstream_models.json \
   --probe-results /tmp/qwen_probe.tsv \
   --live-mapping /tmp/qwen_mapping_snapshot.json \
-  --mirror 60:72
+  --mirror "$SOURCE_QWEN_ACCOUNT_ID":"$TARGET_QWEN_ACCOUNT_ID"
 ```
 
 The planner's output is intentionally an operator plan, not an apply loop:

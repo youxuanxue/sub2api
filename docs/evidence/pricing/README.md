@@ -10,6 +10,7 @@ fallback under `backend/resources/model-pricing/`.
 
 | File | Captured source |
 | --- | --- |
+| [`bigmodel_pricing_20260709.md`](bigmodel_pricing_20260709.md) | BigModel GLM pricing capture; pricing source only, GLM serving remains Alibaba DashScope via Qwen accounts. |
 | [`aliyun_pricing_20260612.md`](aliyun_pricing_20260612.md) | Alibaba DashScope pricing capture used by existing overlay provenance. |
 | [`aliyun_pricing_20260701.md`](aliyun_pricing_20260701.md) | Later Alibaba DashScope pricing capture for modelops work. |
 | [`google_vertex_pricing_20260619.md`](google_vertex_pricing_20260619.md) | Google Vertex media pricing capture. |
