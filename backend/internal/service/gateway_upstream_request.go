@@ -208,6 +208,14 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		logClaudeMimicDebug(req, body, account, tokenType, mimicClaudeCode)
 	}
 
+	if tokenType == "oauth" && mimicClaudeCode {
+		ingressUA := ""
+		if c != nil && c.Request != nil {
+			ingressUA = c.Request.Header.Get("User-Agent")
+		}
+		s.tkMaybeLogOAuthMimicEgressFingerprint(ctx, ingressUA, req, body, mimicClaudeCode)
+	}
+
 	return req, body, nil
 }
 

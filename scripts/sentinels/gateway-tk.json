@@ -1398,12 +1398,15 @@
         "func tkExtractAnthropicPromptFingerprint",
         "func tkLogAnthropicPromptFingerprint",
         "gateway.anthropic_prompt_fingerprint",
+        "gateway.anthropic_oauth_mimic_egress",
+        "tkMaybeLogOAuthMimicEgressFingerprint",
         "tkMaybeLogAnthropicPromptFingerprint",
         "prompt_surface_classes",
         "surface_signature",
-        "reminder_date_line_class"
+        "reminder_date_line_class",
+        "egress_stainless_package_version"
       ],
-      "rationale": "Prod observability for outbound Anthropic prompt surfaces: structured fingerprint (classes + short hash, never full system text). Aggregated daily by prompt-surface-watch / ops/observability/prompt_surface_aggregate.py against ops/anthropic/prompt_surface_registry.json. Dropping this module silently removes drift detection for CC system-reminder / geo-stego regressions while normalize still runs."
+      "rationale": "Prod observability for outbound Anthropic OAuth mimicry: (1) prompt-surface fingerprint (classes + short hash, never full system text) via gateway.anthropic_prompt_fingerprint; (2) egress HTTP+system mimic bundle (ingress UA class, outbound User-Agent/anthropic-beta/x-stainless-*, billing/identity anchors) via gateway.anthropic_oauth_mimic_egress — always logged for OpenAI/Python ingress, ~1% baseline for CC-native. Aggregated by probe-oauth-mimicry-chain.sh and prompt_surface_aggregate.py against ops/anthropic/prompt_surface_registry.json. Dropping this module silently removes drift detection for CC mimicry regressions while normalize still runs."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_deprecated_model_tk.go",

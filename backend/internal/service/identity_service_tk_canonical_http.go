@@ -56,7 +56,7 @@ const (
 	// neither env nor runtime resolver provides a value. Keep in sync with
 	// the most recent cc CLI release this build was validated against; the
 	// admin UI / runtime resolver is the normal update path going forward.
-	DefaultClaudeCodeUserAgentVersion = "2.1.202"
+	DefaultClaudeCodeUserAgentVersion = "2.1.205"
 
 	// canonicalUAPrefix / canonicalUASuffix wrap the version-only field.
 	// Matches interactive Claude Code REPL ingress (`claude-cli/<version> (external, cli)`).
@@ -130,7 +130,7 @@ func GetClaudeCodeUserAgentVersionForContext(ctx context.Context) string {
 }
 
 // BuildCanonicalUserAgent wraps a (validated or fallback) version into the
-// full `claude-cli/<v> (external, sdk-cli)` string.
+// full `claude-cli/<v> (external, cli)` string.
 func BuildCanonicalUserAgent(version string) string {
 	v := NormalizeClaudeCodeUserAgentVersion(version)
 	if v == "" {

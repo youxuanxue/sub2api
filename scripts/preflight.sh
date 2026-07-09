@@ -194,6 +194,8 @@ if [ -z "$template_base" ] && has_merge_base_with_head HEAD; then
     template_base="HEAD"
 fi
 
+export PREFLIGHT_BASE="${template_base:-origin/main}"
+
 # ---- TK: spawn the expensive independent gates early --------------------------
 # Spawned BEFORE the dev-rules template so the heavy jobs (QA go test, the
 # unittest-discover suites, the dockerized Caddyfile adapt) overlap with the
@@ -235,7 +237,15 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 
-PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+# dev-rules template check 18a omits PREFLIGHT_BASE until submodule picks up the fix.
+_dev_preflight_template="./dev-rules/templates/preflight.sh"
+if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null; then
+    _dev_preflight_template="$(mktemp "${TMPDIR:-/tmp}/preflight-dev-rules.XXXXXX")"
+    sed 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
+        ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
+    chmod +x "$_dev_preflight_template"
+fi
+PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" "$_dev_preflight_template" "$@"
 dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
@@ -928,6 +938,34 @@ else
     echo "  ok: prompt surface drift tooling"
 fi
 
+# ---- sub2api: oauth mimic edge aggregate self-test -------------------------
+echo ""
+echo "=== sub2api: oauth mimic edge aggregate ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for oauth mimic aggregate check)"
+    errors=$((errors + 1))
+elif ! bash -n ./ops/observability/scan-oauth-mimic-chain.sh; then
+    echo "  FAIL: scan-oauth-mimic-chain.sh syntax"
+    errors=$((errors + 1))
+elif ! bash -n ./ops/stage0/edge_anthropic_oauth_schedulable_probe.sh; then
+    echo "  FAIL: edge_anthropic_oauth_schedulable_probe.sh syntax"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/oauth_mimic_aggregate.py --selftest >/dev/null; then
+    echo "  FAIL: oauth_mimic_aggregate.py selftest"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_scan_oauth_mimic_chain -q; then
+    echo "  FAIL: scan oauth mimic chain tests"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_open_oauth_mimic_watch_issues -q; then
+    echo "  FAIL: open oauth mimic watch issue tests"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_probe_oauth_mimicry_chain -q; then
+    echo "  FAIL: probe oauth mimicry chain tests"
+    errors=$((errors + 1))
+else
+    echo "  ok: oauth mimic edge watch tooling"
+fi
+
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version is pinned in 5 places that must
 # carry the SAME version: the UA default (setting_service.go), the gateway
@@ -1056,7 +1094,8 @@ echo "=== sub2api: upstream override marker (advisory locally) ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for upstream override marker check)"
     errors=$((errors + 1))
-elif ! MARKER_GATE_ADVISORY=1 python3 ./scripts/checks/upstream-override-marker.py --quiet; then
+elif ! MARKER_GATE_ADVISORY=1 PREFLIGHT_BASE="${PREFLIGHT_BASE:-origin/main}" \
+    python3 ./scripts/checks/upstream-override-marker.py --base "${PREFLIGHT_BASE:-origin/main}" --quiet; then
     # advisory mode never returns non-zero; this branch only fires on a hard
     # script error (exit 2 — git failure).
     errors=$((errors + 1))
@@ -1347,12 +1386,11 @@ else
 fi
 
 # ---- sub2api: edge-health alert decision selftest --------------------------
-# The edge-health-watch alert logic (actionable-set + state-diff dedup + Feishu
-# message) lives in edge-health-alert.py and is the decision half of
-# .github/workflows/edge-health-watch.yml. Its fixtures pin the 2026-06-07 incident
-# shapes + the dedup behavior (no re-spam on a steady incident, alert on escalation /
-# recovery, chronic thin does not trigger), so a logic regression fails preflight
-# instead of silently re-spamming or going silent. Read-only, no AWS / no HTTP.
+# The edge-health alert decision logic (actionable-set + state-diff dedup) lives in
+# edge-health-alert.py for manual triage via scan-edge-health.sh. Scheduled
+# edge-health-watch workflow was retired (2026-07): prod pool-exhaust Feishu + daily
+# client-fidelity-watch cover user-visible failures; intermediate edge posture churn
+# is intentionally manual. Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
 echo ""
 echo "=== sub2api: edge-health alert decision selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -2416,8 +2454,8 @@ fi
 echo ""
 echo "=== sub2api: Ent generation staleness ==="
 _ent_schema_changed=0
-if git rev-parse --verify origin/main >/dev/null 2>&1 && \
-   git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^backend/ent/schema/'; then
+if has_merge_base_with_head "${PREFLIGHT_BASE:-origin/main}" && \
+   git diff --name-only "${PREFLIGHT_BASE:-origin/main}...HEAD" 2>/dev/null | grep -q '^backend/ent/schema/'; then
     _ent_schema_changed=1
 fi
 if ! command -v go >/dev/null 2>&1; then

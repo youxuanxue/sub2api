@@ -97,8 +97,8 @@ for tgt in "${TARGETS[@]}"; do
   fi
 done
 
-# --json: emit the per-edge verdict JSON lines verbatim (machine-readable, for the
-# edge-health-watch workflow / edge-health-alert.py) and skip the human table.
+# --json: emit the per-edge verdict JSON lines verbatim (machine-readable, for
+# edge-health-alert.py manual triage) and skip the human table.
 if [ "$JSON" = "1" ]; then
   cat "$RESULTS"
   exit 0

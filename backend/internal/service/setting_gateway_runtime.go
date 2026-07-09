@@ -86,7 +86,7 @@ const antigravityUserAgentVersionErrorTTL = 5 * time.Second
 const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 
 // DefaultOpenAICodexUserAgent OpenAI Codex 默认 User-Agent。
-const DefaultOpenAICodexUserAgent = "codex-tui/0.142.5 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.5)"
+const DefaultOpenAICodexUserAgent = "codex-tui/0.143.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.143.0)"
 
 // cachedOpenAICodexUserAgent 缓存 OpenAI Codex UA（进程内缓存，60s TTL）
 type cachedOpenAICodexUserAgent struct {

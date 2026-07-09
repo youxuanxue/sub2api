@@ -1,12 +1,13 @@
 name: Client Fidelity Watch
 
-# Umbrella daily watch: client release poll → prompt registry gate → prod aggregate.
+# Umbrella daily watch: client release poll → prompt registry gate → prod aggregate
+# → edge OAuth mimic aggregate (schedulable anthropic oauth edges only).
 # One schedule, one daily report artifact, unified issue labels (client-fidelity-watch + signal type).
 # Prod actionable drift and registry-gate failure fail the workflow (red).
 
 on:
   schedule:
-    # 08:03 Asia/Shanghai (23:03 UTC). Sequential: release scan → registry-gate → prod-aggregate.
+    # 08:03 Asia/Shanghai (23:03 UTC). Sequential: release scan → registry-gate → prod-aggregate → edge-oauth-mimic.
     - cron: "3 23 * * *"
   workflow_dispatch:
     inputs:
@@ -342,8 +343,85 @@ jobs:
           path: .cache/prompt-surface-watch/
           if-no-files-found: ignore
 
+  edge-oauth-mimic-aggregate:
+    needs: registry-gate
+    if: always() && needs.registry-gate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SINCE: ${{ inputs.since || '24h' }}
+      WINDOW_MINUTES: "1440"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Precheck OIDC role
+        id: precheck
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS_OIDC_ROLE_ARN empty — skipping edge oauth mimic aggregate"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.precheck.outputs.skip == 'false'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scan schedulable anthropic oauth edges for mimic chain (read-only SSM)
+        if: steps.precheck.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/oauth-mimic-watch
+          bash ops/observability/scan-oauth-mimic-chain.sh \
+            --since "$SINCE" \
+            --window-minutes "$WINDOW_MINUTES" \
+            > .cache/oauth-mimic-watch/probes.jsonl || true  # preflight-allow: swallow
+          python3 ops/observability/oauth_mimic_aggregate.py \
+            --input .cache/oauth-mimic-watch/probes.jsonl \
+            --since "$SINCE" \
+            --window-minutes "$WINDOW_MINUTES" \
+            --report-json .cache/oauth-mimic-watch/report.json \
+            --report-md .cache/oauth-mimic-watch/report.md || AGG=$?
+          cat .cache/oauth-mimic-watch/report.md || true  # preflight-allow: swallow
+          exit "${AGG:-0}"
+
+      - name: Sync edge oauth mimic drift tracking issue
+        if: always() && steps.precheck.outputs.skip == 'false' && inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates."
+            exit 1
+          fi
+          if [ ! -f .cache/oauth-mimic-watch/report.json ]; then
+            echo "No oauth mimic aggregate report — skipping issue sync"
+            exit 0
+          fi
+          python3 ops/observability/open_oauth_mimic_watch_issues.py edge-sync \
+            --report-json .cache/oauth-mimic-watch/report.json \
+            --report-md .cache/oauth-mimic-watch/report.md \
+            --run-url "$RUN_URL" \
+            --umbrella \
+            --links-json .cache/oauth-mimic-watch/links.json
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.precheck.outputs.skip == 'false'
+        with:
+          name: client-fidelity-oauth-mimic-${{ github.run_id }}
+          path: .cache/oauth-mimic-watch/
+          if-no-files-found: ignore
+
   daily-report:
-    needs: [release-scan, registry-gate, notify-registry-failure, prod-aggregate]
+    needs: [release-scan, registry-gate, notify-registry-failure, prod-aggregate, edge-oauth-mimic-aggregate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -362,12 +440,19 @@ jobs:
           path: .cache/prompt-surface-watch
         continue-on-error: true
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-fidelity-oauth-mimic-${{ github.run_id }}
+          path: .cache/oauth-mimic-watch
+        continue-on-error: true
+
       - name: Merge daily fidelity report
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RELEASE_RESULT: ${{ needs.release-scan.result }}
           REGISTRY_RESULT: ${{ needs.registry-gate.result }}
           PROD_RESULT: ${{ needs.prod-aggregate.result }}
+          OAUTH_MIMIC_RESULT: ${{ needs.edge-oauth-mimic-aggregate.result }}
         run: |
           set -euo pipefail
           mkdir -p .cache/fingerprint/client-fidelity-watch
@@ -383,10 +468,17 @@ jobs:
           fi
           PROMPT_JSON=".cache/prompt-surface-watch/report.json"
           PROMPT_MD=".cache/prompt-surface-watch/report.md"
+          OAUTH_LINKS=""
+          if [ -d .cache/oauth-mimic-watch ]; then
+            OAUTH_LINKS="$(find .cache/oauth-mimic-watch -path '*/links.json' -print -quit)"
+          fi
+          OAUTH_JSON=".cache/oauth-mimic-watch/report.json"
+          OAUTH_MD=".cache/oauth-mimic-watch/report.md"
           ARGS=(
             --release-scan-result "$RELEASE_RESULT"
             --registry-gate-result "$REGISTRY_RESULT"
             --prod-aggregate-result "$PROD_RESULT"
+            --edge-oauth-mimic-result "$OAUTH_MIMIC_RESULT"
             --run-url "$RUN_URL"
             --cache-pr-url "${{ needs.release-scan.outputs.cache_pr_url }}"
             --report-json .cache/fingerprint/client-fidelity-watch/report.json
@@ -410,6 +502,15 @@ jobs:
           if [ -n "$PROMPT_LINKS" ] && [ -f "$PROMPT_LINKS" ]; then
             ARGS+=(--prompt-links-json "$PROMPT_LINKS")
           fi
+          if [ -f "$OAUTH_JSON" ]; then
+            ARGS+=(--oauth-mimic-report-json "$OAUTH_JSON")
+          fi
+          if [ -f "$OAUTH_MD" ]; then
+            ARGS+=(--oauth-mimic-report-md "$OAUTH_MD")
+          fi
+          if [ -n "$OAUTH_LINKS" ] && [ -f "$OAUTH_LINKS" ]; then
+            ARGS+=(--oauth-mimic-links-json "$OAUTH_LINKS")
+          fi
           python3 scripts/fingerprint/client_fidelity_watch_report.py "${ARGS[@]}"
           cat .cache/fingerprint/client-fidelity-watch/report.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -421,7 +522,7 @@ jobs:
           if-no-files-found: ignore
 
   contract:
-    needs: [release-scan, registry-gate, prod-aggregate]
+    needs: [release-scan, registry-gate, prod-aggregate, edge-oauth-mimic-aggregate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -433,3 +534,4 @@ jobs:
           echo "release cache_pr_url=${{ needs.release-scan.outputs.cache_pr_url }}"
           echo "registry-gate=${{ needs.registry-gate.result }}"
           echo "prod-aggregate=${{ needs.prod-aggregate.result }}"
+          echo "edge-oauth-mimic=${{ needs.edge-oauth-mimic-aggregate.result }}"

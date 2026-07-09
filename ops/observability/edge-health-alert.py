@@ -2,9 +2,10 @@
 """edge-health-alert.py — turn scan-edge-health.sh --json output into an alert
 decision + a Feishu message, with cross-run dedup via a state key.
 
-This is the *decision* half of the edge-health-watch loop; the *transport* halves
-are scan-edge-health.sh --json (read-only SSM fleet sweep) and the
-.github/workflows/edge-health-watch.yml step that signs + POSTs to Feishu. Keeping
+This is the *decision* half of manual edge-health triage; the *transport* halves
+are scan-edge-health.sh --json (read-only SSM fleet sweep) and optional Feishu post
+by an operator. Scheduled edge-health-watch GHA was retired 2026-07 — see
+docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md. Keeping
 the decision here (pure Python, no HTTP/AWS) makes it unit-testable with fixtures
 (--selftest) and registerable in preflight, mirroring data_layer_capacity_verdict.py
 and edge_health_verdict.py.
