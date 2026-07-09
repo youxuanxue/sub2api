@@ -8,6 +8,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +20,7 @@ import (
 type schedulingCapacityReader interface {
 	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
 	SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)
+	SumConcurrencyByPlatformAndGroupID(ctx context.Context, platform string, groupID int64) (int64, error)
 }
 
 // anthropicDefaultGroupName is the group whose schedulable anthropic concurrency
@@ -66,10 +69,13 @@ type edgeCapacityResponse struct {
 // GetSchedulingCapacity handles GET /api/v1/edge/scheduling-capacity.
 //
 // platform selects which edge pool's live Σ schedulable concurrency to report,
-// mirroring the prod stub's credentials.mirror_platform:
+// mirroring the prod stub's credentials.mirror_platform (anthropic transport) or
+// native platform (openai/grok/…):
 //   - anthropic: the operator-curated "default" group (see anthropicDefaultGroupName).
 //   - kiro: all schedulable kiro accounts (the edge is single-pool-per-platform for
 //     kiro, so no group scoping — counting every kiro row IS the live pool).
+//   - openai / grok / antigravity: platform-wide by default; with group_scope=caller
+//     narrows to the authenticated caller key's group (prod mirror stubs).
 //
 // An unsupported / missing platform is rejected rather than silently defaulting,
 // so a prod misconfig surfaces loudly instead of writing a wrong number.
@@ -81,6 +87,7 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 
 	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", domain.PlatformAnthropic)))
 	ctx := c.Request.Context()
+	groupID := edgeCapacityCallerGroupID(c)
 
 	var (
 		total int64
@@ -91,8 +98,14 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 		total, err = h.accounts.SumConcurrencyAnthropicByGroup(ctx, anthropicDefaultGroupName)
 	case domain.PlatformKiro:
 		total, err = h.accounts.SumConcurrencyByPlatform(ctx, domain.PlatformKiro)
+	case domain.PlatformOpenAI, domain.PlatformGrok, domain.PlatformAntigravity:
+		if groupID > 0 {
+			total, err = h.accounts.SumConcurrencyByPlatformAndGroupID(ctx, platform, groupID)
+		} else {
+			total, err = h.accounts.SumConcurrencyByPlatform(ctx, platform)
+		}
 	default:
-		response.Error(c, http.StatusBadRequest, "unsupported platform (only anthropic, kiro)")
+		response.Error(c, http.StatusBadRequest, "unsupported platform (only anthropic, kiro, openai, grok, antigravity)")
 		return
 	}
 	if err != nil {
@@ -105,4 +118,21 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 		TotalConcurrency: total,
 		TS:               time.Now().Unix(),
 	})
+}
+
+// edgeCapacityCallerGroupID mirrors EdgeAccountsHandler's group_scope=caller filter:
+// direct caller keys narrow to their group; universal / absent keys → 0 (no filter).
+func edgeCapacityCallerGroupID(c *gin.Context) int64 {
+	if !strings.EqualFold(strings.TrimSpace(c.Query("group_scope")), "caller") {
+		return 0
+	}
+	v, ok := c.Get(middleware.EdgeCallerAPIKeyCtxKey)
+	if !ok {
+		return 0
+	}
+	ak, ok := v.(*service.APIKey)
+	if !ok || ak == nil || ak.IsUniversal() || ak.GroupID == nil {
+		return 0
+	}
+	return *ak.GroupID
 }
