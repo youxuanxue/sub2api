@@ -6,16 +6,23 @@
 #   LIMIT          rows per source (default 500)
 #   SINCE          docker logs window (default 48h)
 #   WINDOW_MINUTES if set, usage_logs/ops filter to last N minutes (overrides LIMIT ordering scope)
-#   CONTAINER      gateway container (default tokenkey)
+#   CONTAINER      gateway container (default auto). auto resolves
+#                  /var/lib/tokenkey/active-color to tokenkey-blue/green and
+#                  falls back to the legacy tokenkey container.
+#   ACTIVE_COLOR_FILE
+#                  active-color file path for CONTAINER=auto
+#                  (default /var/lib/tokenkey/active-color; test seam).
 set -u
 
 LIMIT="${LIMIT:-500}"
 SINCE="${SINCE:-48h}"
 WINDOW_MINUTES="${WINDOW_MINUTES:-}"
-CONTAINER="${CONTAINER:-tokenkey}"
+CONTAINER="${CONTAINER:-auto}"
+ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 
-python3 - "$LIMIT" "$SINCE" "$CONTAINER" "$WINDOW_MINUTES" <<'PY'
+python3 - "$LIMIT" "$SINCE" "$CONTAINER" "$WINDOW_MINUTES" "$ACTIVE_COLOR_FILE" <<'PY'
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -23,8 +30,9 @@ from collections import Counter
 
 limit = int(sys.argv[1])
 since = sys.argv[2]
-container = sys.argv[3]
+container_arg = sys.argv[3]
 window_minutes = sys.argv[4].strip() if len(sys.argv) > 4 else ""
+active_color_file = sys.argv[5] if len(sys.argv) > 5 else "/var/lib/tokenkey/active-color"
 time_where_ul = ""
 time_where_ops = ""
 if window_minutes.isdigit() and int(window_minutes) > 0:
@@ -52,6 +60,42 @@ ua_tls_keys = (
     "protocol",
     "client_ip",
 )
+
+
+def docker_inspect_exists(name: str) -> bool:
+    proc = subprocess.run(
+        ["docker", "inspect", name, "--format", "{{.Name}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def resolve_container(container: str) -> tuple[str, list[str]]:
+    notes: list[str] = []
+    if container != "auto":
+        return container, ["explicit"]
+
+    path = pathlib.Path(active_color_file)
+    if path.is_file():
+        color = path.read_text(encoding="utf-8", errors="ignore").strip()
+        notes.append(f"active-color={color or '<empty>'}")
+        if color in ("blue", "green"):
+            candidate = f"tokenkey-{color}"
+            if docker_inspect_exists(candidate):
+                return candidate, notes + ["active-color container exists"]
+            notes.append(f"{candidate} missing")
+    else:
+        notes.append("active-color missing")
+
+    for candidate in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
+        if docker_inspect_exists(candidate):
+            return candidate, notes + [f"fallback={candidate}"]
+    return "tokenkey", notes + ["fallback=tokenkey-unverified"]
+
+
+container, container_resolution = resolve_container(container_arg)
 
 
 def psql_json(sql: str) -> list[dict]:
@@ -310,7 +354,9 @@ out = {
     "meta": {
         "limit": limit,
         "since": since,
+        "container_input": container_arg,
         "container": container,
+        "container_resolution": container_resolution,
         "window_minutes": int(window_minutes) if window_minutes.isdigit() else None,
     },
     "usage_logs": {

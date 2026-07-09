@@ -50,3 +50,23 @@ WHERE created_at >= now() - interval '14 days'
 GROUP BY severity, status
 ORDER BY severity, status;
 " 2>/dev/null || echo "(ops_alert_events table missing or schema differs)"
+
+echo "=== recent_alert_events_14d_delivery (latest 50) ==="
+psql -F $'\t' -c "
+SELECT
+  id,
+  fired_at,
+  severity,
+  status,
+  email_sent,
+  feishu_firing_sent,
+  COALESCE(feishu_firing_status, '') AS feishu_firing_status,
+  left(COALESCE(feishu_firing_error, ''), 240) AS feishu_firing_error,
+  feishu_recovery_sent,
+  COALESCE(feishu_recovery_status, '') AS feishu_recovery_status,
+  left(COALESCE(feishu_recovery_error, ''), 240) AS feishu_recovery_error
+FROM ops_alert_events
+WHERE created_at >= now() - interval '14 days'
+ORDER BY fired_at DESC, id DESC
+LIMIT 50;
+" 2>/dev/null || echo "(ops_alert_events feishu delivery columns missing or schema differs)"
