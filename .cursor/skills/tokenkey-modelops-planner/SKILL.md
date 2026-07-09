@@ -25,7 +25,7 @@ description: >-
 | --- | --- |
 | 目录/Menu 过时、模型可能不再 200、要刷新 allowlist | **分支 B**（本 skill 路由后读写入子 skill） |
 | Antigravity `gemini-2.5-pro` generateContent 超时 / inconclusive，要窄探 chat vs v1beta | **分支 B** → `tokenkey-servable-model-refresh` §「Antigravity gemini-2.5-pro 专项」 |
-| OpenAI 新 GPT 型号已定价但 prod `Unsupported model` / 可能被 `model_mapping` floor 拦 | 先按下方「OpenAI 新型号判读」做只读 prod + edge OAuth 账号探测；只有 edge/prod 账号实测 `servable` 后才进入 **分支 B/D** |
+| 新模型已定价/可服务/可展示但 prod `Unsupported model`、空池或疑似被 `model_mapping` floor 拦 | 先按下方「新模型 prod model_mapping 判读」区分当前 prod floor 与上游账号能力；只有目标账号实测 `servable` 且 mapping 路径复核后才进入 **分支 B/D** |
 | Qwen/DeepSeek mapping 漂、429 空池、60↔72 mirror | **分支 A** |
 | 已有 servable+priced+displayable SSOT，需要快速热更新账号 `model_mapping` | **分支 D**（runtime desired layer + 显式 check/diff/apply） |
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
@@ -47,37 +47,41 @@ description: >-
 
 同一工单可 A→C 或「B 与 A 并行认知、分开 PR」；**禁止**在分支 A 里跑 refresh `run/apply`。
 
-### OpenAI 新型号判读（prod floor vs edge OAuth 上游）
+### 新模型 prod model_mapping 判读（全平台 floor vs 上游能力）
 
-OpenAI native/OAuth 型号不能只看「已定价」或 prod 普通探测的 400。prod 的 OpenAI catalog/Menu
-与账号 `model_mapping` floor 会先拦住未列入经验可服务集合的型号，表现为
-`Unsupported model: <id>`、`account_id=null`、无 upstream event；这只能说明当前 prod serving
-面未放行，**不等于** edge OAuth 上游账号可服务。反过来，清开 prod floor 后也不保证能服务：
-`gpt-5.6` 在 2026-07-08 的实测中，edge OpenAI OAuth account 7/5 都到达上游但返回
+新模型不能只看「已定价」「可展示」或 prod 普通探测的 400/429。prod 账号会按 SSOT
+`model_mapping` 收窄可服务模型；未列入当前 mapping/floor 的型号可能在调度或账号选择前被
+TokenKey 拦住，表现为 `Unsupported model: <id>`、`account_id=null`、无 upstream event，或
+空池/无可用账号。这只能说明**当前 prod serving 面未放行**，**不等于**上游账号不可服务。
+
+反过来，清开或热更 prod `model_mapping` 后也不保证模型可服务：仍必须看到目标账号/目标路径真正
+返回 `verdict=servable`。`gpt-5.6` 在 2026-07-08 的实测中，prod 普通探测先被本地 floor 拦截；
+edge OpenAI OAuth account 7/5 随后都到达上游，但返回
 `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`。
 
 安全顺序：
 
 ```bash
-# 1) 当前 prod/menu 真值：普通 catalog probe；若 400 Unsupported/account_id=null，先当作 floor 拦截
+# 1) 当前 prod/menu 真值：普通 catalog probe；若 Unsupported/account_id=null/空池，先当作 mapping floor 线索
 bash ops/observability/run-probe.sh --target prod \
   --script ops/pricing/probe-servable-models.sh \
   --with ops/pricing/probe_reserved_resources.sh \
-  --env "OPENAI_RESPONSES_MODELS=<model>" --timeout-seconds 180
+  --env "<PLATFORM_FAMILY_MODELS>=<model>" --timeout-seconds 180
 
-# 2) 账号能力真值：挑 deployable edge 或 prod 上的 OpenAI OAuth 账号单账号探测
-bash ops/observability/run-probe.sh --target edge:<edge_id> \
+# 2) 账号能力真值：挑目标 prod/edge 账号做单账号探测；endpoint 按平台选择 messages/chat/responses
+bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
   --script ops/stage0/probe_account_model.sh \
   --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=<openai_oauth_account_id> \
-  --env MODEL=<model> --env ENDPOINT=responses --timeout-seconds 180
+  --env ACCOUNT_ID=<account_id> \
+  --env MODEL=<model> --env ENDPOINT=<messages|chat|responses> --timeout-seconds 180
 ```
 
-只有单账号探测返回 `verdict=servable` 且 usage 命中目标账号，才允许把该型号当作
+只有单账号/平台专用探测返回 `verdict=servable` 且 usage 命中目标账号，才允许把该型号当作
 servable 候选进入 **分支 B**（公开 catalog/Menu）或 **分支 D**（runtime model_mapping）。若
-`verdict=upstream_rejected` 且错误为 `not supported when using Codex with a ChatGPT account`，保持不展示、不热更
-`model_mapping`；若 `verdict=gateway_rejected` 且 body 是 `Unsupported model: <id>`，仍需换 edge/prod
-账号或检查 floor，不能当作上游能力结论。
+`verdict=gateway_rejected` 且 body 是 `Unsupported model: <id>`、空池或无 upstream event，先当作
+当前 prod mapping/floor 未放行，不能当作上游能力结论；按平台用 edge 原生账号、直连 provider
+探测（如 ark 直连）或经人审的 **分支 D** runtime mapping 更新后重探。若已到达上游但返回平台级
+`upstream_rejected`，保持不展示、不热更 `model_mapping`，直到目标账号返回 `servable`。
 
 ---
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Canonical account-model gateway probe — also used by edge native oauth smoke.
-# For OpenAI OAuth modelops, this is the tool that separates TokenKey local
-# model_mapping/floor rejection (gateway_rejected, often "Unsupported model")
-# from upstream account capability rejection (upstream_rejected, e.g.
-# "not supported when using Codex with a ChatGPT account").
+# For modelops, this separates TokenKey local model_mapping/floor rejection
+# (gateway_rejected, often "Unsupported model") from upstream account capability
+# rejection (upstream_rejected; exact text is platform-specific).
 # Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
 # Skill wrapper: .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh
 set -euo pipefail
@@ -613,8 +612,8 @@ def classify(code: str, body_text: str, usage_row, curl_err: str):
     if n == 429 and "no available accounts" in low:
         return "gateway_rejected"
     # Keep "Unsupported model: X" (TokenKey local floor/model_mapping rejection)
-    # as gateway_rejected. "not supported when using Codex with a ChatGPT account"
-    # means the OpenAI OAuth upstream path was reached and rejected the account/model.
+    # as gateway_rejected. Platform-specific "not supported" errors mean the
+    # upstream path was reached and rejected the account/model/request.
     if n in (400, 404) and any(s in low for s in ["invalid model", "model_not_found", "not supported", "does not exist", "not a valid"]):
         return "upstream_rejected"
     if n >= 500:

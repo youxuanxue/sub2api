@@ -59,23 +59,27 @@ The script emits one JSON object. Treat these fields as the decision surface:
 
 Never paste returned API keys or credentials. The script intentionally prints IDs, names, status, short body excerpts, and log excerpts only.
 
-### OpenAI OAuth model-gate interpretation
+### model_mapping / upstream gate interpretation
 
-For OpenAI OAuth/Codex-compatible accounts, distinguish local TokenKey gates from upstream account capability:
+For modelops, distinguish TokenKey's current production serving floor from raw upstream account capability:
 
-- `gateway_rejected` with body like `Unsupported model: <id>` usually means TokenKey's current
-  account `model_mapping` / compiled floor rejected the model before a usable upstream call. This is
-  not proof that an edge OAuth account can or cannot serve the model.
-- `upstream_rejected` with body like `not supported when using Codex with a ChatGPT account`
-  means the OpenAI OAuth account path reached upstream and the upstream account/model combination
-  rejected it.
-- A model is promotable to catalog/Menu or runtime `model_mapping` only after a single-account
-  probe returns `verdict=servable` and `usage_match.account_id == ACCOUNT_ID`.
+- `gateway_rejected` with body like `Unsupported model: <id>` or an empty-pool / no-account response
+  can mean TokenKey rejected before a usable upstream call because the current account `model_mapping`
+  / compiled floor does not include the model. Prod accounts are expected to follow the SSOT
+  `model_mapping`, so a negative prod catalog probe is not proof that the raw provider account cannot
+  serve the model.
+- `upstream_rejected` means the upstream provider path was reached and the upstream account/model/request
+  combination rejected it. The exact text is platform-specific, for example OpenAI OAuth can return
+  `not supported when using Codex with a ChatGPT account`.
+- A model is promotable to catalog/Menu or runtime `model_mapping` only after the platform-appropriate
+  account probe returns `verdict=servable` with `usage_match.account_id == ACCOUNT_ID`, and the prod
+  `model_mapping` path has been updated/re-probed through the modelops flow when prod serving is the goal.
 
 Example from 2026-07-08: prod normal probes for `gpt-5.6*` returned local
 `Unsupported model` with `account_id=null`; edge OpenAI OAuth accounts on `edge:us4` and `edge:us3`
 then reached upstream but returned `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
-So clearing prod model_mapping/floor alone would not make `gpt-5.6` servable.
+So clearing or changing prod `model_mapping` alone would not make `gpt-5.6` servable; the upstream
+account capability still has to return `verdict=servable`.
 
 ## Rules
 
