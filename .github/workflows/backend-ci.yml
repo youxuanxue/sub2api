@@ -18,6 +18,10 @@ on:
           - ci
           - security
           - weekly-smoke
+      ssot_base:
+        description: Optional git ref/SHA for manual SSOT delta live gate
+        required: false
+        type: string
   schedule:
     - cron: '0 3 * * 1'
     - cron: '17 9 * * TUE'
@@ -73,7 +77,7 @@ jobs:
     # Live SSOT proof for catalog diffs only (replaces retired daily full-matrix gate).
     # No `environment: prod` — that env has deploy/OIDC approval gates; this job only
     # probes public prod API and needs TK_FULLTEST_KEY as a repository Actions secret.
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ssot_base != '')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -82,20 +86,38 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 64
-      - name: Fetch base ref for catalog diff
-        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+      - name: Resolve base ref for catalog diff
+        id: catalog_base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          MANUAL_BASE: ${{ inputs.ssot_base || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "${MANUAL_BASE:-}" ]; then
+            git fetch --no-tags origin "$MANUAL_BASE" --depth=64
+            BASE="$(git rev-parse 'FETCH_HEAD^{commit}')"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "${BEFORE_SHA:-}" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git fetch --no-tags origin "$BEFORE_SHA" --depth=64
+            BASE="$BEFORE_SHA"
+          else
+            git fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" --depth=64
+            BASE="origin/${BASE_REF}"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
       - name: Skip when catalog surface unchanged
         id: touch
         run: |
           set -euo pipefail
-          changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "origin/${GITHUB_BASE_REF:-main}")
+          changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "${{ steps.catalog_base.outputs.base }}")
           echo "changed=${changed}" >> "$GITHUB_OUTPUT"
       - name: Needs live SSOT probe (delta models only)
         id: needs_live
         if: steps.touch.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          needs=$(python3 scripts/checks/ssot-delta-gate.py needs-live --base "origin/${GITHUB_BASE_REF:-main}")
+          needs=$(python3 scripts/checks/ssot-delta-gate.py needs-live --base "${{ steps.catalog_base.outputs.base }}")
           echo "needs=${needs}" >> "$GITHUB_OUTPUT"
       - name: SSOT gate skip (catalog metadata / config only)
         if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs != 'true'
@@ -121,7 +143,7 @@ jobs:
           TK_FULLTEST_TIMEOUT: "30"
         run: |
           set -euo pipefail
-          python3 scripts/checks/ssot-delta-gate.py check --base "origin/${GITHUB_BASE_REF:-main}"
+          python3 scripts/checks/ssot-delta-gate.py check --base "${{ steps.catalog_base.outputs.base }}"
 
   test-unit:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
