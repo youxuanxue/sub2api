@@ -3893,6 +3893,16 @@
       "rationale": "Universal-key routing must use the same account-level model+protocol predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, endpoint-shape capability gates (including video-capable accounts), the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model/protocol while existing /v1/models output still looks plausible."
     },
     {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "func normalizeModelMappingLookupKey(model string) string",
+        "return strings.ToLower(strings.TrimSpace(model))",
+        "if normalizeModelMappingLookupKey(key) == lookupKey",
+        "func matchNormalizedWildcardMappingResult(mapping map[string]string, requestedModel string)"
+      ],
+      "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged."
+    },
+    {
       "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "ProvideTKUniversalModelsProvider(",
@@ -3911,9 +3921,27 @@
         "TestResolve_GeminiMessagesAnthropicShapeAvoidsOpenAIPassthrough",
         "TestUniversalGroupSupportsModel_NewapiRequiresCompatPoolMember",
         "TestModelInServedSet_UsesDirectMappingAliases",
+        "newapi served set matches mixed-case deepseek",
+        "newapi served wildcard matches mixed-case deepseek",
+        "TestUniversalOpenAICompatAccountSupportsModel_MixedCaseMappingLookup",
         "TestResolve_User16GPTAliasPicksOpenAIGroup"
       ],
       "rationale": "Focused regression coverage for universal/direct-key model-support parity: direct provider wins over the served-set fallback, provider unknown fails over safely, OpenAI-compatible mapping and newapi pool membership match direct scheduler semantics, served-set fallback is alias/wildcard aware, and the user16 gpt5.4-mini alias resolves to the OpenAI group instead of newapi. These tests are the semantic guard for the production 429 regression."
+    },
+    {
+      "path": "backend/internal/service/account_wildcard_test.go",
+      "must_contain": [
+        "newapi mapping matches mixed-case client spelling and returns canonical upstream",
+        "case-insensitive lookup prefers exact requested spelling when configured",
+        "wildcard mapping matches mixed-case client spelling",
+        "TestAccountIsModelSupported_MixedCaseMappingLookup",
+        "DeepSeek-V4-Pro",
+        "deepSeek-v4-pro",
+        "DeepSeek-V4-Flash",
+        "deepSeek-v4-flash",
+        "DeepSeek-V4-Max"
+      ],
+      "rationale": "Focused regression coverage for account model_mapping case-normalized lookup. It pins both mapping resolution and IsModelSupported so mixed-case DeepSeek client spellings route to the canonical lowercase upstream names, exact requested spelling remains highest priority, normalized wildcard matching still works, and unmapped mixed-case variants remain rejected."
     },
     {
       "path": "backend/internal/service/account_openai_passthrough_test.go",
