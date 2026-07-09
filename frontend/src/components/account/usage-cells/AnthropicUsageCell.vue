@@ -1,5 +1,7 @@
 <template>
   <div ref="rootRef">
+    <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
+
     <!-- Loading state -->
     <div v-if="loading" class="space-y-1.5">
       <div class="flex items-center gap-1">
@@ -109,6 +111,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
+import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps
