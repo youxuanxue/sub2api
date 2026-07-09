@@ -14,7 +14,7 @@ import (
 // this group" verdicts (ErrUnsupportedModel at account selection). Short-circuits
 // repeated hammering through listSchedulable / load-balance without touching upstream.
 // Complements tkModelNotFoundNegativeCache (Anthropic upstream 404 after Forward).
-// See docs/spec-delta-group-unsupported-model-negative-cache.md.
+// See docs/spec-delta/group-unsupported-model-negative-cache.md.
 
 const (
 	tkGroupUnsupportedModelNegativeCacheTTL     = 60 * time.Second

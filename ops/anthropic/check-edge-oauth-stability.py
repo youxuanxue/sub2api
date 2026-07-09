@@ -725,7 +725,7 @@ def generate_sql(edge: dict[str, Any], account_name: str, baseline: dict[str, An
         extra["stability_tier"] = selected_tier
     extra_absent = base.get("extra_absent") or []
     profile = base.get("tls_profile") or {}
-    generated_at = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+    generated_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
     profile_name = profile.get("name")
     if not profile_name:

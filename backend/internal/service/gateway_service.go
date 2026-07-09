@@ -7366,7 +7366,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// Haiku uses a DISTINCT beta set (FullClaudeCodeHaikuMimicryBetas), captured
 			// from cc 2.1.160 Haiku traffic where the server runs an A/B with
 			// structured-outputs as the majority state (see HaikuBetaHeader /
-			// docs/spec-delta-cc-2.1.160.md). That set deliberately OMITS claude-code beta
+			// docs/spec-delta/cc-2.1.160.md). That set deliberately OMITS claude-code beta
 			// and advanced-tool-use, and adds structured-outputs — it is NOT the Sonnet/Opus
 			// token set. Do not "fix" this to add claude-code beta without a fresh Haiku
 			// capture: the runtime claude_code_http_mimicry_manifest setting can override

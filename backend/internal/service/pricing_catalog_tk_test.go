@@ -93,7 +93,7 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 // (output_cost_per_second) — both with NO token price — must appear with their
 // billing_mode + per-unit price instead of being dropped by the old token-only
 // guard. This is the data the /pricing page and Studio render as "$0.04 /image"
-// and "$0.40 /s" (docs/playground-media-redesign.md batch 2).
+// and "$0.40 /s" (docs/archive/studio/playground-media-redesign.md batch 2).
 func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 	const fixture = `{
 	  "imagen-4.0-generate-001": {"output_cost_per_image":0.04,"mode":"image_generation","litellm_provider":"vertex_ai"},

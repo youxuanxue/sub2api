@@ -11,11 +11,11 @@ Convention (see the skill §4.1/§4.2):
   the record. Add **one row here** and stop.
 - **A real decision** (new/removed beta token, ja3 / TLS profile change, stainless
   change, a new A/B characterization, a one-off investigation worth preserving) →
-  write/update a **topic-named** `docs/spec-delta-cc-<topic>.md` (decision record,
+  write/update a **topic-named** `docs/spec-delta/cc-<topic>.md` (decision record,
   updated in place, referenced by code where relevant) and link it from the row.
 
 The bimodal Haiku A/B (server-side gray release) is canonically characterized once in
-[`spec-delta-cc-2.1.160.md`](spec-delta-cc-2.1.160.md) and
+[`spec-delta-cc-2.1.160.md`](spec-delta/cc-2.1.160.md) and
 [youxuanxue/sub2api#429](https://github.com/youxuanxue/sub2api/issues/429); do not
 re-document it per patch — note "A/B unchanged" in the row instead.
 
@@ -23,14 +23,14 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
-| 2.1.152 | 2026-05-27 (PR #423) | **decision** | Canonical OAuth UA + beta architecture established. Records: [`spec-delta-cc-canonical-ua-beta-2.1.152.md`](spec-delta-cc-canonical-ua-beta-2.1.152.md), [`spec-delta-cc-beta-http-2.1.152.md`](spec-delta-cc-beta-http-2.1.152.md) (first bimodal Haiku observation). Runtime mechanism: [`spec-delta-cc-http-mimicry-runtime.md`](spec-delta-cc-http-mimicry-runtime.md). |
-| 2.1.153 | 2026-05-28 | **decision** | Haiku beta **set** changed: added `thinking-token-count` + `structured-outputs`, dropped `claude-code` + `extended-cache-ttl`; `last-wins` variant pick. Record: [`spec-delta-cc-2.1.153.md`](spec-delta-cc-2.1.153.md). |
+| 2.1.152 | 2026-05-27 (PR #423) | **decision** | Canonical OAuth UA + beta architecture established. Records: [`spec-delta-cc-canonical-ua-beta-2.1.152.md`](spec-delta/cc-canonical-ua-beta-2.1.152.md), [`spec-delta-cc-beta-http-2.1.152.md`](spec-delta/cc-beta-http-2.1.152.md) (first bimodal Haiku observation). Runtime mechanism: [`spec-delta-cc-http-mimicry-runtime.md`](spec-delta/cc-http-mimicry-runtime.md). |
+| 2.1.153 | 2026-05-28 | **decision** | Haiku beta **set** changed: added `thinking-token-count` + `structured-outputs`, dropped `claude-code` + `extended-cache-ttl`; `last-wins` variant pick. Record: [`spec-delta-cc-2.1.153.md`](spec-delta/cc-2.1.153.md). |
 | 2.1.154 | 2026-05-29 | pure UA | 2.1.153 → 2.1.154. TLS/beta unchanged. |
 | 2.1.156 | 2026-05-29 | pure UA | 2.1.154 → 2.1.156. TLS/beta unchanged. |
 | 2.1.157 | 2026-05-30 | pure UA | 2.1.156 → 2.1.157. TLS/beta unchanged. (One-off: edge-uk1 error spike root-caused as signature-preempt logging, **not** TLS drift — now in ops memory.) |
 | 2.1.158 | 2026-05-30 | pure UA | 2.1.157 → 2.1.158. Haiku A/B unchanged. |
 | 2.1.159 | 2026-06-01 | pure UA | 2.1.158 → 2.1.159. TLS/beta unchanged. |
-| 2.1.160 | 2026-06-02 | **decision** | Bimodal Haiku A/B canonically characterized (server-side per-request gray release); chose dominant variant A. Record: [`spec-delta-cc-2.1.160.md`](spec-delta-cc-2.1.160.md) (referenced by `gateway_service.go`, `constants.go`). |
+| 2.1.160 | 2026-06-02 | **decision** | Bimodal Haiku A/B canonically characterized (server-side per-request gray release); chose dominant variant A. Record: [`spec-delta-cc-2.1.160.md`](spec-delta/cc-2.1.160.md) (referenced by `gateway_service.go`, `constants.go`). |
 | 2.1.161 | 2026-06-02 | pure UA | 2.1.160 → 2.1.161. Haiku A/B unchanged (per #429 / 2.1.160). |
 | 2.1.162 | 2026-06-04 | pure UA | 2.1.161 → 2.1.162. Haiku A/B unchanged. |
 | 2.1.163 | 2026-06-04 | pure UA | 2.1.162 → 2.1.163. TLS/beta unchanged. |
@@ -38,7 +38,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 | 2.1.166 | 2026-06-06 | pure UA | 2.1.165 → 2.1.166. TLS/beta unchanged. |
 | 2.1.167 | 2026-06-06 | pure UA | 2.1.166 → 2.1.167. TLS/beta unchanged; Haiku A/B 8/11 vs 3/11 (per #429). Capture egress 16.147.170.3. |
 | 2.1.168 | 2026-06-07 | pure UA | 2.1.167 → 2.1.168. TLS ja3 unchanged; sonnet beta unchanged; Haiku A/B bimodal 2/3 vs 1/3, baseline matches a variant (per #429). Capture egress 52.15.35.197. |
-| — | 2026-06-08 | **decision** | New alignment axis: **system-prompt anchors**. The CC identity banner + billing-block prefix are now captured (mitm addon records `system_anchors`), diffed (`capture_cc_fingerprint.py` adds `system.identity_anchor` hard / `system.billing_prefix` soft), and guarded against silent divergence across the 3+ Go copies (`scripts/sentinels/cc-system-prompt.json` + `check-cc-system-prompt.py`, wired into preflight). Anchors only — the full prompt is dynamic. Record: [`spec-delta-cc-system-prompt.md`](spec-delta-cc-system-prompt.md). |
+| — | 2026-06-08 | **decision** | New alignment axis: **system-prompt anchors**. The CC identity banner + billing-block prefix are now captured (mitm addon records `system_anchors`), diffed (`capture_cc_fingerprint.py` adds `system.identity_anchor` hard / `system.billing_prefix` soft), and guarded against silent divergence across the 3+ Go copies (`scripts/sentinels/cc-system-prompt.json` + `check-cc-system-prompt.py`, wired into preflight). Anchors only — the full prompt is dynamic. Record: [`spec-delta-cc-system-prompt.md`](spec-delta/cc-system-prompt.md). |
 | 2.1.169 | 2026-06-09 | pure UA | 2.1.168 → 2.1.169. TLS ja3 unchanged; sonnet beta unchanged; system identity anchor OK; Haiku A/B bimodal 8/11 vs 3/11, baseline matches a variant (per #429). Capture egress 3.148.79.145. |
 | 2.1.170 | 2026-06-09 | pure UA | 2.1.169 → 2.1.170. TLS ja3 unchanged; sonnet beta unchanged; system identity anchor OK; Haiku A/B bimodal 8/11 vs 3/11, baseline matches a variant (per #429). Capture egress 3.148.79.145. |
 | 2.1.172 | 2026-06-11 | pure UA | 2.1.170 → 2.1.172 (no 2.1.171 release observed). TLS ja3 unchanged; sonnet beta unchanged; system identity anchor OK; Haiku A/B bimodal 8/11 vs 3/11, baseline matches a variant (per #429). Capture egress 3.148.79.145. |
@@ -52,7 +52,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 | 2.1.195 | 2026-06-29 | **decision** | `X-Stainless-Runtime-Version` **v24.3.0 → v26.3.0** (6/27 HTTP mitm on cc 2.1.195; haiku/sonnet/opus). Added critical diff gate `canonical/mimic.stainless_runtime_version`. npm `@anthropic-ai/sdk@0.106.0` global install does **not** change cc on-wire stainless (post-install TLS capture still 0.94.0). |
 | 2.1.196 | 2026-06-30 | pure UA | 2.1.195 → 2.1.196. TLS ja3 unchanged; stainless **0.94.0** unchanged (TLS capture; client-release-watch npm `@anthropic-ai/sdk@0.107.0` is not on-wire ground truth per 6/29 decision). HTTP mitm skipped (OAuth overlay expired). Bundle: `.tls_list/20260630T003122Z-cc-capture.bundle.json`. Capture egress 3.148.79.145. |
 | 2.1.197 | 2026-07-01 | pure UA | 2.1.196 → 2.1.197. TLS ja3 unchanged; stainless **0.94.0** unchanged (TLS capture; client-release-watch npm `@anthropic-ai/sdk@0.109.0` is not on-wire ground truth per 6/29 decision). HTTP mitm skipped (OAuth overlay expired). Bundle: `.tls_list/20260701T013719Z-cc-capture.bundle.json`. Capture egress 3.148.79.145. Batch PR #1103 also bumps Grok 0.2.77 + Codex 0.142.5. |
-| 2.1.197 | 2026-07-01 | **decision** | Prompt-surface capture found the current main-request system block starts with `You are an interactive agent that helps users with software engineering tasks`; added it as a system identity anchor and replayed task/mode captures through gateway coverage. Record: [`spec-delta-cc-system-prompt.md`](spec-delta-cc-system-prompt.md). |
+| 2.1.197 | 2026-07-01 | **decision** | Prompt-surface capture found the current main-request system block starts with `You are an interactive agent that helps users with software engineering tasks`; added it as a system identity anchor and replayed task/mode captures through gateway coverage. Record: [`spec-delta-cc-system-prompt.md`](spec-delta/cc-system-prompt.md). |
 | 2.1.198 | 2026-07-02 | pure UA | 2.1.197 → 2.1.198. TLS ja3 unchanged; stainless **0.94.0** unchanged (TLS capture; client-release-watch npm `@anthropic-ai/sdk@0.109.1` is not on-wire ground truth per 6/29 decision). HTTP mitm skipped (OAuth overlay expired). Bundle: `.tls_list/20260702T023745Z-cc-capture.bundle.json`. Capture egress 3.148.79.145. Batch PR #1139 also bumps Grok 0.2.82. |
 | 2.1.198 | 2026-07-02 | **decision** | cc 2.1.198 binary no longer embeds literal `Asia/Shanghai` / `Asia/Urumqi` / `function pdp` (geo path uses `setTimeZone` instead). Updated `scripts/sentinels/cc-geo-stego-static.json` binary anchors; geo-stego static check is green. |
 | 2.1.199 | 2026-07-03 | pure UA | 2.1.198 → 2.1.199. TLS ja3 unchanged; stainless **0.94.0** unchanged (TLS capture; client-release-watch npm `@anthropic-ai/sdk@0.110.0` is not on-wire ground truth per 6/29 decision). Geo-stego static anchors still green. HTTP mitm skipped (OAuth overlay expired). Bundle: `.tls_list/20260703T034637Z-cc-capture.bundle.json`. Capture egress 3.148.79.145. |

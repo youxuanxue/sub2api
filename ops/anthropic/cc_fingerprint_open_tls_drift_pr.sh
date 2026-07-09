@@ -56,7 +56,7 @@ fi
 (cd "$WT_DIR" && git submodule update --init --recursive --quiet)
 
 spec_path="$(python3 "$PY" write-drift-spec --bundle "$bundle" \
-  --out "$WT_DIR/docs/spec-delta-cc-tls-drift-${stamp}.md")"
+  --out "$WT_DIR/docs/spec-delta/cc-tls-drift-${stamp}.md")"
 spec_rel_path="${spec_path#"$WT_DIR/"}"
 
 (

@@ -22,7 +22,7 @@ Reads `scripts/sentinels/cc-system-prompt.json` (single declared source) and:
 This is a GUARD, not a generator: there is no --write. When real CC drifts
 (detected by ops/anthropic/capture_cc_fingerprint.py against the same
 `capture_anchors`), edit this registry + the Go copies by hand with capture
-evidence, and record the decision in docs/spec-delta-cc-system-prompt.md.
+evidence, and record the decision in docs/spec-delta/cc-system-prompt.md.
 
 Exit codes:
   0  — all anchors intact.
@@ -176,7 +176,7 @@ def run_checks(
             "  Source of truth: scripts/sentinels/cc-system-prompt.json\n"
             "  Anchors changed by a real CC update? Update the registry + the Go\n"
             "  copies with capture evidence and record it in\n"
-            "  docs/spec-delta-cc-system-prompt.md. Do NOT silently delete anchors.",
+            "  docs/spec-delta/cc-system-prompt.md. Do NOT silently delete anchors.",
             file=sys.stderr,
         )
     return 0 if fail_count == 0 else 1
