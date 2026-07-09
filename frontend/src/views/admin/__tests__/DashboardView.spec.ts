@@ -32,6 +32,21 @@ vi.mock('vue-router', () => ({
   })
 }))
 
+vi.mock('@/composables/useBatchImageAccess', () => ({
+  useBatchImageAccess: () => ({
+    canUseBatchImage: { value: false },
+    refreshBatchImageAccess: vi.fn()
+  })
+}))
+
+vi.mock('vue-chartjs', () => ({
+  Line: {
+    name: 'Line',
+    props: ['data', 'options'],
+    template: '<div data-test="line-chart"></div>'
+  }
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -87,6 +102,22 @@ const createDashboardStats = (): DashboardStats => ({
   tpm: 0
 })
 
+const mountDashboard = () =>
+  mount(DashboardView, {
+    global: {
+      stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        LoadingSpinner: true,
+        Icon: true,
+        DateRangePicker: true,
+        Select: true,
+        ModelDistributionChart: true,
+        TokenUsageTrend: true,
+        Line: true
+      }
+    }
+  })
+
 describe('admin DashboardView', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -120,20 +151,7 @@ describe('admin DashboardView', () => {
   })
 
   it('uses last 24 hours as default dashboard range', async () => {
-    mount(DashboardView, {
-      global: {
-        stubs: {
-          AppLayout: { template: '<div><slot /></div>' },
-          LoadingSpinner: true,
-          Icon: true,
-          DateRangePicker: true,
-          Select: true,
-          ModelDistributionChart: true,
-          TokenUsageTrend: true,
-          Line: true
-        }
-      }
-    })
+    mountDashboard()
 
     await flushPromises()
 
@@ -146,33 +164,72 @@ describe('admin DashboardView', () => {
       end_date: formatLocalDate(now),
       granularity: 'hour',
       include_stats: true,
-      include_trend: false,
-      include_model_stats: false,
-      include_users_trend: false
+      include_trend: true,
+      include_model_stats: true,
+      include_group_stats: false,
+      include_users_trend: true,
+      users_trend_limit: 12
     }))
 
     vi.advanceTimersByTime(120)
     await flushPromises()
 
-    expect(getSnapshotV2).toHaveBeenCalledTimes(4)
-    expect(getSnapshotV2).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      include_stats: false,
-      include_trend: true,
-      include_model_stats: false,
-      include_users_trend: false
-    }))
-    expect(getSnapshotV2).toHaveBeenNthCalledWith(3, expect.objectContaining({
-      include_stats: false,
-      include_trend: false,
-      include_model_stats: true,
-      include_users_trend: false
-    }))
-    expect(getSnapshotV2).toHaveBeenNthCalledWith(4, expect.objectContaining({
-      include_stats: false,
-      include_trend: false,
-      include_model_stats: false,
-      include_users_trend: true
-    }))
+    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
     expect(getUserSpendingRanking).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses DOM legend buttons for recent usage and toggles the matching dataset', async () => {
+    getSnapshotV2.mockResolvedValue({
+      stats: createDashboardStats(),
+      trend: [],
+      models: [],
+      users_trend: [
+        {
+          date: '2026-07-10',
+          user_id: 1,
+          username: 'alice',
+          email: 'alice@example.com',
+          requests: 1,
+          tokens: 100,
+          cost: 0,
+          actual_cost: 0
+        },
+        {
+          date: '2026-07-10',
+          user_id: 2,
+          username: '',
+          email: 'bob@example.com',
+          requests: 1,
+          tokens: 200,
+          cost: 0,
+          actual_cost: 0
+        }
+      ]
+    })
+
+    const wrapper = mountDashboard()
+    await flushPromises()
+
+    const legend = wrapper.get('[data-test="recent-usage-legend"]')
+    const buttons = legend.findAll('button')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0].text()).toContain('alice')
+    expect(buttons[1].text()).toContain('bob@example.com')
+
+    const line = wrapper.getComponent({ name: 'Line' })
+    expect(line.props('options').plugins.legend.display).toBe(false)
+    expect(line.props('data').datasets.map((dataset: any) => dataset.hidden)).toEqual([
+      false,
+      false
+    ])
+
+    await buttons[1].trigger('click')
+    await flushPromises()
+
+    expect(buttons[1].attributes('aria-pressed')).toBe('false')
+    expect(wrapper.getComponent({ name: 'Line' }).props('data').datasets.map((dataset: any) => dataset.hidden)).toEqual([
+      false,
+      true
+    ])
   })
 })
