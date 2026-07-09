@@ -295,6 +295,43 @@ func TestMaybeSendAlertFeishuAllowsClientVisibleP1(t *testing.T) {
 	require.Contains(t, doer.bodies[0], "**根因在哪**")
 }
 
+func TestBuildOpsFeishuClientVisibleTextOmitsScopeAndWrapsBreakdowns(t *testing.T) {
+	t.Parallel()
+
+	rule := testOpsFeishuRule()
+	rule.Name = "真实用户客户端失败增多"
+	rule.Severity = "P1"
+	rule.MetricType = OpsAlertMetricClientVisibleFailureCount
+	rule.Operator = ">="
+	rule.Threshold = 20
+	event := testOpsFeishuEvent(100)
+	event.Severity = "P1"
+	triggerValue := 171.0
+	threshold := 20.0
+	event.MetricValue = &triggerValue
+	event.ThresholdValue = &threshold
+	resolvedAt := event.FiredAt.Add(31*time.Minute + 26*time.Second)
+	event.ResolvedAt = &resolvedAt
+	event.Dimensions = map[string]any{
+		"user_visible_affected": `#16 compute@tk.com ×171（key "benchmark组-赵欣宇"） · #17 ops@tk.com ×20（key "benchmark组-李雷"）`,
+		"user_visible_impact":   "失败 171 / 成功 751 / 失败率 18.55% / 5m",
+		"user_visible_surface":  "final 403 / invalid request error ×171",
+		"user_visible_root":     `auth/client / openai / No platform in your plan can serve model "gpt-5-mini". ×88 · auth/client / openai / No platform in your plan can serve model "gpt-5.1". ×83`,
+	}
+	currentValue := 1.0
+
+	firing := buildOpsFeishuAlertText(rule, event, "prod", "")
+	recovery := buildOpsFeishuRecoveryText(rule, event, "prod", "", &currentValue)
+
+	for _, text := range []string{firing, recovery} {
+		require.NotContains(t, text, "**范围**")
+		require.Contains(t, text, "**谁受影响**：\n#16 compute@tk.com ×171")
+		require.Contains(t, text, "\n#17 ops@tk.com ×20")
+		require.Contains(t, text, "**根因在哪**：\nauth/client / openai / No platform in your plan can serve model \"gpt-5-mini\". ×88")
+		require.Contains(t, text, "\nauth/client / openai / No platform in your plan can serve model \"gpt-5.1\". ×83")
+	}
+}
+
 func TestMaybeSendAlertFeishuSendsAndDedupesByCooldown(t *testing.T) {
 	t.Parallel()
 
