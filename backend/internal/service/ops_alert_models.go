@@ -13,6 +13,12 @@ const (
 	OpsAlertStatusManualResolved = "manual_resolved"
 )
 
+const (
+	OpsAlertMetricUserVisibleFailureCount       = "user_visible_failure_count"
+	OpsAlertMetricClientVisibleFailureCount     = "client_visible_failure_count"
+	OpsAlertMetricRoutingCapacityRejectionCount = "routing_capacity_rejection_count"
+)
+
 type OpsAlertRule struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`

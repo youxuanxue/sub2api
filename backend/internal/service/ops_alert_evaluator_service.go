@@ -236,6 +236,12 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			continue
 		}
 		rulesEnabled++
+		if !s.shouldEvaluateAlertRuleOnNode(rule) {
+			if s.resolveActiveSkippedRule(ctx, rule, now) {
+				eventsResolved++
+			}
+			continue
+		}
 
 		scopePlatform, scopeGroupID, scopeRegion := parseOpsAlertRuleScope(rule.Filters)
 
@@ -292,10 +298,19 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			}
 
 			dimensions := buildOpsAlertDimensions(scopePlatform, scopeGroupID)
-			// TK (us7 P0 2026-06-13): attach the top offending model/reason so the
-			// notification card is self-diagnosing (real fire vs client noise)
-			// without an SSH/dashboard drill. Best-effort — never blocks firing.
-			if cause, users, models := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" || models != "" {
+			// TK: attach a first-screen breakdown so the notification card is
+			// self-diagnosing without an SSH/dashboard drill. Best-effort — never
+			// blocks firing.
+			if extra := s.computeUserVisibleFailureDimensions(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); len(extra) > 0 {
+				if dimensions == nil {
+					dimensions = map[string]any{}
+				}
+				for k, v := range extra {
+					if strings.TrimSpace(v) != "" {
+						dimensions[k] = v
+					}
+				}
+			} else if cause, users, models := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" || models != "" {
 				if dimensions == nil {
 					dimensions = map[string]any{}
 				}
@@ -361,6 +376,45 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d feishu_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent, feishuSent), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
+}
+
+func (s *OpsAlertEvaluatorService) shouldEvaluateAlertRuleOnNode(rule *OpsAlertRule) bool {
+	if s == nil || rule == nil {
+		return true
+	}
+	return !s.isEdgeNode() || !isProdOnlyAlertRule(rule)
+}
+
+func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
+	if rule == nil {
+		return false
+	}
+	switch strings.TrimSpace(rule.MetricType) {
+	case OpsAlertMetricUserVisibleFailureCount:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *OpsAlertEvaluatorService) resolveActiveSkippedRule(ctx context.Context, rule *OpsAlertRule, now time.Time) bool {
+	if s == nil || s.opsRepo == nil || rule == nil || rule.ID <= 0 {
+		return false
+	}
+	activeEvent, err := s.opsRepo.GetActiveAlertEvent(ctx, rule.ID)
+	if err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] get skipped active event failed (rule=%d): %v", rule.ID, err)
+		return false
+	}
+	if activeEvent == nil {
+		return false
+	}
+	resolvedAt := now.UTC()
+	if err := s.opsRepo.UpdateAlertEventStatus(ctx, activeEvent.ID, OpsAlertStatusResolved, &resolvedAt); err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] resolve skipped active event failed (event=%d rule=%d): %v", activeEvent.ID, rule.ID, err)
+		return false
+	}
+	return true
 }
 
 func (s *OpsAlertEvaluatorService) pruneRuleStates(rules []*OpsAlertRule) {
@@ -664,7 +718,7 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return 0, false
 		}
 		return float64(n), true
-	case "routing_capacity_rejection_count":
+	case OpsAlertMetricRoutingCapacityRejectionCount:
 		// Count of routing/scheduling-phase capacity rejections over the rule
 		// window — the client-visible "no available accounts" empty-pool fast-fail
 		// (429, #575) plus relayed cc-<edge> downstream-capacity rejections,
@@ -684,6 +738,25 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			Platform:  platform,
 			GroupID:   groupID,
 		})
+		if err != nil {
+			return 0, false
+		}
+		return float64(n), true
+	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount:
+		// Count of terminal, attributable user-visible failures over the rule
+		// window. This is the experience-first guardrail: P0 for provider/platform
+		// owned failures, P1 for client-owned input/usage failures that still need
+		// ops/customer follow-up. Like routing_capacity_rejection_count, this is a
+		// count metric, so the rate sample floor intentionally does not apply.
+		if s == nil || s.opsRepo == nil {
+			return 0, false
+		}
+		n, err := s.opsRepo.CountUserVisibleFailures(ctx, &OpsDashboardFilter{
+			StartTime: start,
+			EndTime:   end,
+			Platform:  platform,
+			GroupID:   groupID,
+		}, userVisibleFailureOwnerScopeForMetric(strings.TrimSpace(rule.MetricType)))
 		if err != nil {
 			return 0, false
 		}
