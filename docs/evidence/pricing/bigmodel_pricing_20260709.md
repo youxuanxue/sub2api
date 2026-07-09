@@ -6,7 +6,8 @@ Important boundary:
 
 - This source is used for GLM pricing only.
 - TokenKey still serves manifest-listed GLM chat models through Alibaba
-  DashScope via Qwen accounts 60/72 (`channel_type=17`, `tk_054`).
+  DashScope via the configured Qwen pool (`channel_type=17`). The live account
+  membership is runtime DB/admin config, not pricing evidence.
 - Do not infer a BigModel/Zhipu direct serving path from this pricing source.
 
 The page is JS-rendered. On 2026-07-09 the HTML loaded:

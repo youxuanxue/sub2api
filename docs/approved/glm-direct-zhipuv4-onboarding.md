@@ -12,10 +12,11 @@ related_commits: []
 # GLM Direct ZhipuV4 Onboarding
 
 > Superseded operationally: GLM serving intent now rides Alibaba DashScope/Qwen
-> accounts 60/72 (`channel_type=17`, `tk_054`). BigModel
-> `https://bigmodel.cn/pricing` is used only as the official pricing source
-> (CNY/USD=6.7 plus TokenKey's default 1.06 base-tax); do not use this historical
-> plan to restore a BigModel/Zhipu direct serving path without a new approval.
+> pool (`channel_type=17`; live account membership is runtime DB/admin config,
+> not this historical plan). BigModel `https://bigmodel.cn/pricing` is used only
+> as the official pricing source (CNY/USD=6.7 plus TokenKey's default 1.06
+> base-tax); do not use this historical plan to restore a BigModel/Zhipu direct
+> serving path without a new approval.
 
 ## Intent
 

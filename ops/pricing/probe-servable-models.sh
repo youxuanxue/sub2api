@@ -26,7 +26,7 @@
 #     edge-side grok group.
 #   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
 #     This family routes through the normal prod TK gateway
-#     with a TK api_key BOUND TO the newapi/qwen group (account 60 lives there).
+#     with a TK api_key BOUND TO the current newapi/qwen group/pool.
 #     This is the SERVABLE-end-to-end truth probe for channel_type=17: a real 200
 #     proves the model id is both upstream-activated AND allowlisted at the TK
 #     scheduling layer (account model_mapping). The empty-pool 429 ("No available
@@ -547,7 +547,7 @@ main() {
 			[ -n "${ARK_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/contents/generations/tasks "$ARK_VIDEO_MODELS" body_ark_video
 		fi
 	fi
-	# Dashscope/qwen family: newapi channel_type=17 (account 60 "Qwen", Ali) served
+	# Dashscope/qwen family: newapi channel_type=17 served
 	# through the PROD TK gateway /v1/chat/completions. Probe key is the reserved
 	# __tk_probe_newapi_qwen_key (accounts copied from PROBE_DASHSCOPE_SOURCE_GROUP_ID);
 	# never printed. Routes at prod.

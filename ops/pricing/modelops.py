@@ -8,7 +8,7 @@ parts of model operations:
   * normalize probe TSV output from ops/pricing/probe-servable-models.sh,
   * compare candidates against tk_served_models.json and tk_pricing_overlay.json,
   * compare repo intent against an optional live model_mapping snapshot,
-  * compare mirror-account policies such as Qwen 60 -> Qwen-2 72,
+  * compare explicit mirror-account policies from a live mapping snapshot,
   * keep the public catalog / user menu surface tied to the same servable sets.
 
 Writes still go through the existing reviewed paths:
@@ -20,11 +20,12 @@ Writes still go through the existing reviewed paths:
 
 Usage:
 
+  python3 ops/pricing/modelops.py snapshot-sql --channel-type 17
   python3 ops/pricing/modelops.py plan \
-    --upstream 60:/tmp/qwen_upstream_models.json \
+    --upstream "$QWEN_ACCOUNT_ID":/tmp/qwen_upstream_models.json \
     --probe-results /tmp/qwen_probe.tsv \
     --live-mapping /tmp/model_mapping_snapshot.json \
-    --mirror 60:72
+    --mirror "$SOURCE_QWEN_ACCOUNT_ID":"$TARGET_QWEN_ACCOUNT_ID"
 
   python3 ops/pricing/modelops.py --selftest
 """
@@ -71,9 +72,9 @@ class AccountPolicy:
         self.channel_type = channel_type
 
 
-# Guard tuples for the curated long-tail accounts. These are only used to print
-# review/apply commands; the guarded live tool still verifies id+name+platform+
-# channel_type before it writes.
+# Historical guard tuples for curated long-tail seed accounts. This is not the
+# serving-pool membership source of truth: operators should pass a live snapshot
+# from snapshot-sql so name/platform/channel_type come from the runtime DB.
 KNOWN_ACCOUNTS: dict[str, AccountPolicy] = {
     "7": AccountPolicy("7", "volcengine", "newapi", 45),
     "39": AccountPolicy("39", "ds-官", "newapi", 43),
@@ -439,8 +440,13 @@ def infer_mode(model_id: str, overlay: dict[str, dict[str, Any]]) -> str:
     return "chat"
 
 
-def probe_env_name(account_id: str, model_id: str, overlay: dict[str, dict[str, Any]]) -> str | None:
-    policy = policy_for_account(account_id)
+def probe_env_name(
+    account_id: str,
+    model_id: str,
+    overlay: dict[str, dict[str, Any]],
+    snapshot: AccountSnapshot | None = None,
+) -> str | None:
+    policy = policy_for_account(account_id, snapshot)
     if policy.channel_type == 17:
         return "DASHSCOPE_CHAT_MODELS"
     if policy.channel_type == 26:
@@ -638,7 +644,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
 
     probe_groups: dict[str, set[str]] = collections.defaultdict(set)
     for item in plan["probe_needed"]:
-        env = probe_env_name(item["account_id"], item["model_id"], overlay)
+        env = probe_env_name(item["account_id"], item["model_id"], overlay, live.get(item["account_id"]))
         if env:
             probe_groups[env].add(item["model_id"])
         else:
@@ -761,12 +767,21 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_snapshot_sql(accounts: list[str]) -> str:
-    if not accounts:
-        raise SystemExit("--accounts must not be empty")
-    ids = ", ".join(a for a in accounts if a.isdigit())
-    if not ids or len(ids.split(", ")) != len(accounts):
-        raise SystemExit("--accounts must be a comma-separated list of numeric account ids")
+def build_snapshot_sql(
+    accounts: list[str] | None = None,
+    channel_type: int | None = None,
+) -> str:
+    if bool(accounts) == (channel_type is not None):
+        raise SystemExit("choose exactly one of --accounts or --channel-type")
+    if accounts:
+        ids = ", ".join(a for a in accounts if a.isdigit())
+        if not ids or len(ids.split(", ")) != len(accounts):
+            raise SystemExit("--accounts must be a comma-separated list of numeric account ids")
+        where = f"id IN ({ids})"
+    else:
+        if channel_type is None or channel_type < 0:
+            raise SystemExit("--channel-type must be a non-negative integer")
+        where = f"platform = 'newapi' AND channel_type = {channel_type}"
     return (
         "SELECT jsonb_object_agg(id::text, jsonb_build_object(\n"
         "  'id', id,\n"
@@ -776,17 +791,20 @@ def build_snapshot_sql(accounts: list[str]) -> str:
         "  'model_mapping', COALESCE(credentials->'model_mapping', '{}'::jsonb)\n"
         "))\n"
         "FROM accounts\n"
-        f"WHERE id IN ({ids}) AND deleted_at IS NULL;"
+        f"WHERE {where} AND deleted_at IS NULL;"
     )
 
 
 def iter_self_check_sql() -> list[tuple[str, str]]:
-    return [("build_snapshot_sql", build_snapshot_sql(["60", "72"]))]
+    return [
+        ("build_snapshot_sql", build_snapshot_sql(accounts=["60", "72"])),
+        ("build_snapshot_sql_channel_type", build_snapshot_sql(channel_type=17)),
+    ]
 
 
 def cmd_snapshot_sql(args: argparse.Namespace) -> int:
-    accounts = [a.strip() for a in args.accounts.split(",") if a.strip()]
-    print(build_snapshot_sql(accounts))
+    accounts = [a.strip() for a in args.accounts.split(",") if a.strip()] if args.accounts else None
+    print(build_snapshot_sql(accounts=accounts, channel_type=args.channel_type))
     return 0
 
 
@@ -833,6 +851,9 @@ def _selftest() -> int:
         failures.append("infer_mode failed for image")
     if probe_env_name("60", "qwen-new", overlay) != "DASHSCOPE_CHAT_MODELS":
         failures.append("probe env failed for qwen")
+    dynamic_qwen = AccountSnapshot("17001", "Qwen runtime member", "newapi", 17, {})
+    if probe_env_name("17001", "qwen-new", overlay, dynamic_qwen) != "DASHSCOPE_CHAT_MODELS":
+        failures.append("probe env failed for runtime qwen snapshot")
     if probe_env_name("67", "glm-5-turbo", overlay) is not None:
         failures.append("removed GLM direct account must not emit zhipu probe env")
     if probe_env_name("7", "seedream-x", overlay) != "ARK_IMAGE_MODELS":
@@ -933,14 +954,17 @@ def build_parser() -> argparse.ArgumentParser:
                       help="TSV output from ops/pricing/probe-servable-models.sh; can repeat")
     plan.add_argument("--live-mapping", help="JSON snapshot of live account model_mapping")
     plan.add_argument("--mirror", action="append", default=[],
-                      help="SOURCE:TARGET mirror policy to diff, e.g. 60:72")
+                      help="SOURCE:TARGET mirror policy to diff from the live snapshot")
     plan.add_argument("--strict-manifest", action="store_true",
                       help="flag every live mapping key absent from manifest for removal review")
     plan.add_argument("--format", choices=("text", "json"), default="text")
     plan.set_defaults(func=cmd_plan)
 
     snap = sub.add_parser("snapshot-sql", help="print read-only SQL for a live mapping snapshot")
-    snap.add_argument("--accounts", required=True, help="comma-separated account ids, e.g. 60,72")
+    snap_filter = snap.add_mutually_exclusive_group(required=True)
+    snap_filter.add_argument("--accounts", help="comma-separated account ids for a point lookup")
+    snap_filter.add_argument("--channel-type", type=int,
+                             help="snapshot all active newapi accounts with this channel_type, e.g. 17 for DashScope/Qwen")
     snap.set_defaults(func=cmd_snapshot_sql)
     return parser
 
