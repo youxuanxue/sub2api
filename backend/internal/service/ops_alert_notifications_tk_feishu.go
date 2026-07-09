@@ -17,10 +17,11 @@ type opsAlertNotificationResult struct {
 }
 
 type opsFeishuNotificationState struct {
-	mu       sync.Mutex
-	limiter  *slidingWindowLimiter
-	notifier *opsFeishuNotifier
-	sentAt   map[string]time.Time
+	mu              sync.Mutex
+	limiter         *slidingWindowLimiter
+	recoveryLimiter *slidingWindowLimiter
+	notifier        *opsFeishuNotifier
+	sentAt          map[string]time.Time
 	// firedFeishuEventIDs records alert events whose P0 firing card was actually
 	// delivered, so auto-resolve can send a paired green recovery card.
 	firedFeishuEventIDs map[int64]struct{}
@@ -29,6 +30,7 @@ type opsFeishuNotificationState struct {
 func newOpsFeishuNotificationState() *opsFeishuNotificationState {
 	return &opsFeishuNotificationState{
 		limiter:             newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
+		recoveryLimiter:     newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
 		notifier:            newOpsFeishuNotifier(),
 		sentAt:              map[string]time.Time{},
 		firedFeishuEventIDs: map[int64]struct{}{},
@@ -200,7 +202,7 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertFeishuRecovery(ctx context.Cont
 		s.recordAlertFeishuDelivery(ctx, event, OpsAlertFeishuPhaseRecovery, false, "skip_no_firing_card", "", nil)
 		return false
 	}
-	if !state.shouldSendRecovery(rule, event) {
+	if !state.shouldSendRecovery(rule, event, cfg.Feishu) {
 		s.recordAlertFeishuDelivery(ctx, event, OpsAlertFeishuPhaseRecovery, false, "skip_cooldown_or_rate_limited", "", nil)
 		return false
 	}
@@ -296,11 +298,24 @@ func (s *opsFeishuNotificationState) shouldSend(rule *OpsAlertRule, event *OpsAl
 		return false
 	}
 	s.mu.Unlock()
+	if opsFeishuBypassFiringRateLimit(rule, event) {
+		return true
+	}
 	if s.limiter == nil {
 		s.limiter = newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour)
 	}
 	s.limiter.SetLimit(cfg.RateLimitPerHour)
 	return s.limiter.Allow(now)
+}
+
+func opsFeishuBypassFiringRateLimit(rule *OpsAlertRule, event *OpsAlertEvent) bool {
+	if rule == nil || event == nil {
+		return false
+	}
+	return strings.TrimSpace(rule.MetricType) == OpsAlertMetricUserVisibleFailureCount &&
+		strings.EqualFold(strings.TrimSpace(rule.Severity), "P0") &&
+		strings.EqualFold(strings.TrimSpace(event.Severity), "P0") &&
+		strings.EqualFold(strings.TrimSpace(event.Status), OpsAlertStatusFiring)
 }
 
 func (s *opsFeishuNotificationState) markSent(rule *OpsAlertRule, event *OpsAlertEvent) {
@@ -327,7 +342,7 @@ func (s *opsFeishuNotificationState) markFiringDelivered(event *OpsAlertEvent) {
 	s.firedFeishuEventIDs[event.ID] = struct{}{}
 }
 
-func (s *opsFeishuNotificationState) shouldSendRecovery(rule *OpsAlertRule, event *OpsAlertEvent) bool {
+func (s *opsFeishuNotificationState) shouldSendRecovery(rule *OpsAlertRule, event *OpsAlertEvent, cfg OpsFeishuAlertConfig) bool {
 	if s == nil || rule == nil || event == nil || event.ID <= 0 {
 		return false
 	}
@@ -347,10 +362,11 @@ func (s *opsFeishuNotificationState) shouldSendRecovery(rule *OpsAlertRule, even
 	if seen {
 		return false
 	}
-	if s.limiter == nil {
-		s.limiter = newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour)
+	if s.recoveryLimiter == nil {
+		s.recoveryLimiter = newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour)
 	}
-	return s.limiter.Allow(time.Now().UTC())
+	s.recoveryLimiter.SetLimit(cfg.RateLimitPerHour)
+	return s.recoveryLimiter.Allow(time.Now().UTC())
 }
 
 func (s *opsFeishuNotificationState) hasFiringDelivered(event *OpsAlertEvent) bool {

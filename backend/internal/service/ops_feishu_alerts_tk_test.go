@@ -443,6 +443,69 @@ func TestMaybeSendAlertFeishuRateLimitsAcrossDistinctDimensions(t *testing.T) {
 	require.Equal(t, 1, doer.calls)
 }
 
+func TestMaybeSendAlertFeishuUserVisibleP0BypassesFiringRateLimit(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 1, CooldownSeconds: 60}, doer)
+	rule := testOpsFeishuRule()
+	rule.Name = "真实用户体验受损"
+	rule.MetricType = OpsAlertMetricUserVisibleFailureCount
+
+	first := testOpsFeishuEvent(1)
+	first.Dimensions = map[string]any{
+		"user_visible_affected": "#16 compute@tk.com ×187",
+		"user_visible_impact":   "失败 187 / 成功 5387 / 失败率 3.36% / 5m",
+	}
+	second := testOpsFeishuEvent(2)
+	second.Dimensions = map[string]any{
+		"user_visible_affected": "#17 ops@tk.com ×42",
+		"user_visible_impact":   "失败 42 / 成功 1000 / 失败率 4.03% / 5m",
+	}
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, first))
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, second))
+	require.Equal(t, 2, doer.calls)
+}
+
+func TestMaybeSendAlertFeishuUserVisibleP0StillDedupesByCooldown(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 1, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	rule.Name = "真实用户体验受损"
+	rule.MetricType = OpsAlertMetricUserVisibleFailureCount
+	event := testOpsFeishuEvent(16)
+	event.Dimensions = map[string]any{
+		"user_visible_affected": "#16 compute@tk.com ×187",
+		"user_visible_impact":   "失败 187 / 成功 5387 / 失败率 3.36% / 5m",
+	}
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, event))
+	require.False(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, event))
+	require.Equal(t, 1, doer.calls)
+}
+
+func TestMaybeSendAlertFeishuRecoveryDoesNotConsumeFiringRateLimit(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 1, CooldownSeconds: 60}, doer)
+	rule := testOpsFeishuRule()
+
+	resolvedAt := time.Unix(1700000060, 0).UTC()
+	resolved := testOpsFeishuEvent(1)
+	resolved.Status = OpsAlertStatusResolved
+	resolved.ResolvedAt = &resolvedAt
+	resolved.FeishuFiringSent = true
+	require.True(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, resolved, 0))
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, testOpsFeishuEvent(2)))
+	require.False(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, testOpsFeishuEvent(3)))
+	require.Equal(t, 2, doer.calls)
+}
+
 func TestOpsFeishuNotifierBuildsRecoveryPayload(t *testing.T) {
 	t.Parallel()
 
@@ -614,6 +677,7 @@ func newOpsFeishuAlertEvaluatorForTest(t *testing.T, feishu OpsFeishuAlertConfig
 		opsService: &OpsService{settingRepo: repo},
 		feishuState: &opsFeishuNotificationState{
 			limiter:             newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
+			recoveryLimiter:     newSlidingWindowLimiter(opsFeishuAlertRateLimitPerHourDefault, time.Hour),
 			notifier:            &opsFeishuNotifier{httpClient: doer},
 			sentAt:              map[string]time.Time{},
 			firedFeishuEventIDs: map[int64]struct{}{},
