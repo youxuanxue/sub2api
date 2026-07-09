@@ -24,6 +24,15 @@ type recordingFeishuHTTPDoer struct {
 	bodies []string
 }
 
+type recordedFeishuDelivery struct {
+	eventID    int64
+	phase      string
+	sent       bool
+	status     string
+	errMessage string
+	sentAt     *time.Time
+}
+
 func (d *recordingFeishuHTTPDoer) Do(req *http.Request) (*http.Response, error) {
 	d.calls++
 	if req.Body != nil {
@@ -295,6 +304,83 @@ func TestMaybeSendAlertFeishuAllowsClientVisibleP1(t *testing.T) {
 	require.Contains(t, doer.bodies[0], "**根因在哪**")
 }
 
+func TestMaybeSendAlertFeishuRecordsFiringDeliveryStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sent", func(t *testing.T) {
+		t.Parallel()
+
+		records := []recordedFeishuDelivery{}
+		repo := &opsRepoMock{
+			UpdateAlertEventFeishuDeliveryFn: func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+				records = append(records, recordedFeishuDelivery{eventID: eventID, phase: phase, sent: sent, status: status, errMessage: errMessage, sentAt: sentAt})
+				return nil
+			},
+		}
+		doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+		svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+		svc.opsService.opsRepo = repo
+
+		event := testOpsFeishuEvent(11)
+		require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, testOpsFeishuRule(), event))
+		require.Len(t, records, 1)
+		require.Equal(t, event.ID, records[0].eventID)
+		require.Equal(t, OpsAlertFeishuPhaseFiring, records[0].phase)
+		require.True(t, records[0].sent)
+		require.Equal(t, OpsAlertFeishuStatusSent, records[0].status)
+		require.Empty(t, records[0].errMessage)
+		require.NotNil(t, records[0].sentAt)
+	})
+
+	t.Run("failed", func(t *testing.T) {
+		t.Parallel()
+
+		records := []recordedFeishuDelivery{}
+		repo := &opsRepoMock{
+			UpdateAlertEventFeishuDeliveryFn: func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+				records = append(records, recordedFeishuDelivery{eventID: eventID, phase: phase, sent: sent, status: status, errMessage: errMessage, sentAt: sentAt})
+				return nil
+			},
+		}
+		doer := &recordingFeishuHTTPDoer{err: errors.New("Post \"https://open.feishu.cn/open-apis/bot/v2/hook/raw-token\": dial tcp failed")}
+		svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/raw-token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+		svc.opsService.opsRepo = repo
+
+		require.False(t, svc.maybeSendAlertFeishu(context.Background(), nil, testOpsFeishuRule(), testOpsFeishuEvent(12)))
+		require.Len(t, records, 1)
+		require.Equal(t, OpsAlertFeishuPhaseFiring, records[0].phase)
+		require.False(t, records[0].sent)
+		require.Equal(t, OpsAlertFeishuStatusFailed, records[0].status)
+		require.Nil(t, records[0].sentAt)
+		require.NotContains(t, records[0].errMessage, "raw-token")
+		require.Contains(t, records[0].errMessage, "https://open.feishu.cn/<redacted>")
+	})
+
+	t.Run("config disabled", func(t *testing.T) {
+		t.Parallel()
+
+		records := []recordedFeishuDelivery{}
+		repo := &opsRepoMock{
+			UpdateAlertEventFeishuDeliveryFn: func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+				records = append(records, recordedFeishuDelivery{eventID: eventID, phase: phase, sent: sent, status: status, errMessage: errMessage, sentAt: sentAt})
+				return nil
+			},
+		}
+		doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+		svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: false}, doer)
+		svc.opsService.opsRepo = repo
+
+		require.False(t, svc.maybeSendAlertFeishu(context.Background(), nil, testOpsFeishuRule(), testOpsFeishuEvent(13)))
+		require.Equal(t, 0, doer.calls)
+		require.Len(t, records, 1)
+		require.Equal(t, OpsAlertFeishuPhaseFiring, records[0].phase)
+		require.False(t, records[0].sent)
+		require.Equal(t, "skip_config_disabled", records[0].status)
+		require.Empty(t, records[0].errMessage)
+		require.Nil(t, records[0].sentAt)
+	})
+}
+
 func TestBuildOpsFeishuClientVisibleTextOmitsScopeAndWrapsBreakdowns(t *testing.T) {
 	t.Parallel()
 
@@ -453,11 +539,38 @@ func TestMaybeSendAlertFeishuRecoverySendsClientVisibleP1GreenCard(t *testing.T)
 	require.Contains(t, doer.bodies[1], "**谁受影响**")
 }
 
-func TestMaybeSendAlertFeishuRecoverySkipsWithoutPriorFiringCard(t *testing.T) {
+func TestMaybeSendAlertFeishuRecoveryUsesPersistedFiringDelivery(t *testing.T) {
 	t.Parallel()
 
 	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
 	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	resolvedAt := time.Unix(1700000060, 0).UTC()
+	resolved := testOpsFeishuEvent(101)
+	resolved.Status = OpsAlertStatusResolved
+	resolved.ResolvedAt = &resolvedAt
+	resolved.FeishuFiringSent = true
+
+	require.True(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, resolved, 0))
+	require.Equal(t, 1, doer.calls)
+	require.Contains(t, doer.bodies[0], "TokenKey P0 告警已恢复")
+	require.True(t, resolved.FeishuRecoverySent)
+	require.Equal(t, OpsAlertFeishuStatusSent, resolved.FeishuRecoveryStatus)
+}
+
+func TestMaybeSendAlertFeishuRecoverySkipsWithoutPriorFiringCard(t *testing.T) {
+	t.Parallel()
+
+	records := []recordedFeishuDelivery{}
+	repo := &opsRepoMock{
+		UpdateAlertEventFeishuDeliveryFn: func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+			records = append(records, recordedFeishuDelivery{eventID: eventID, phase: phase, sent: sent, status: status, errMessage: errMessage, sentAt: sentAt})
+			return nil
+		},
+	}
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	svc.opsService.opsRepo = repo
 	rule := testOpsFeishuRule()
 	resolvedAt := time.Unix(1700000060, 0).UTC()
 	resolved := testOpsFeishuEvent(7)
@@ -466,6 +579,10 @@ func TestMaybeSendAlertFeishuRecoverySkipsWithoutPriorFiringCard(t *testing.T) {
 
 	require.False(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, resolved, 0))
 	require.Equal(t, 0, doer.calls)
+	require.Len(t, records, 1)
+	require.Equal(t, OpsAlertFeishuPhaseRecovery, records[0].phase)
+	require.False(t, records[0].sent)
+	require.Equal(t, "skip_no_firing_card", records[0].status)
 }
 
 func TestMaybeSendAlertFeishuFailureDoesNotMarkCooldown(t *testing.T) {

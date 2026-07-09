@@ -28,15 +28,54 @@
 #               (For a past burst post-mortem pass e.g. SINCE=15h, then read the
 #                counts as "since N hours ago" — this probe does not slice to an
 #                exact UTC window; for that use parse-access-log.py on a pull.)
-#   CONTAINER   gateway container name. Default tokenkey.
+#   CONTAINER   gateway container name. Default auto. auto resolves
+#               /var/lib/tokenkey/active-color to tokenkey-blue/green and
+#               falls back to the legacy tokenkey container.
+#   ACTIVE_COLOR_FILE
+#               active-color file path for CONTAINER=auto
+#               (default /var/lib/tokenkey/active-color; test seam).
 #
 # Not pipefail (grep -c exits 1 on zero matches and we WANT the 0); set -u only.
 set -u
 
 PLATFORM="${PLATFORM:-anthropic}"
 SINCE="${SINCE:-2h}"
-CONTAINER="${CONTAINER:-tokenkey}"
+CONTAINER_INPUT="${CONTAINER:-auto}"
+ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+
+resolve_gateway_container() {
+  local requested="$1"
+  if [ "$requested" != "auto" ]; then
+    printf '%s\n' "$requested"
+    return 0
+  fi
+
+  local color candidate
+  if [ -f "$ACTIVE_COLOR_FILE" ]; then
+    color="$(tr -d '[:space:]' < "$ACTIVE_COLOR_FILE" 2>/dev/null || true)"  # preflight-allow: swallow - unreadable active-color falls back to legacy container
+    case "$color" in
+      blue|green)
+        candidate="tokenkey-$color"
+        if docker inspect "$candidate" >/dev/null 2>&1; then
+          printf '%s\n' "$candidate"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+
+  for candidate in tokenkey tokenkey-blue tokenkey-green; do
+    if docker inspect "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  printf '%s\n' tokenkey
+}
+
+CONTAINER="$(resolve_gateway_container "$CONTAINER_INPUT")"
 
 echo "=== docker ps (tokenkey stack) ==="
 docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true  # preflight-allow: swallow — diagnostic header only
@@ -57,6 +96,7 @@ SELECT 'ACCT '||row_to_json(t)::text FROM (
 " 2>&1
 
 echo "=== TRAFFIC (access-log counts over --since $SINCE) ==="
+echo "CONTAINER input=$CONTAINER_INPUT resolved=$CONTAINER"
 LOGF="$(mktemp /tmp/eh_full.XXXXXX)"
 docker logs "$CONTAINER" --since "$SINCE" >"$LOGF" 2>&1 || true  # preflight-allow: swallow — no-logs window is a valid 0-count, not a probe failure
 COMPLETED="$(grep -F 'http request completed' "$LOGF" 2>/dev/null || true)"  # preflight-allow: swallow — grep exit 1 on zero matches is the wanted empty result

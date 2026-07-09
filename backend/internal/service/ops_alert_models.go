@@ -19,6 +19,14 @@ const (
 	OpsAlertMetricRoutingCapacityRejectionCount = "routing_capacity_rejection_count"
 )
 
+const (
+	OpsAlertFeishuPhaseFiring   = "firing"
+	OpsAlertFeishuPhaseRecovery = "recovery"
+
+	OpsAlertFeishuStatusSent   = "sent"
+	OpsAlertFeishuStatusFailed = "failed"
+)
+
 type OpsAlertRule struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
@@ -63,6 +71,15 @@ type OpsAlertEvent struct {
 
 	EmailSent bool      `json:"email_sent"`
 	CreatedAt time.Time `json:"created_at"`
+
+	FeishuFiringSent     bool       `json:"feishu_firing_sent"`
+	FeishuFiringSentAt   *time.Time `json:"feishu_firing_sent_at,omitempty"`
+	FeishuFiringStatus   string     `json:"feishu_firing_status,omitempty"`
+	FeishuFiringError    string     `json:"feishu_firing_error,omitempty"`
+	FeishuRecoverySent   bool       `json:"feishu_recovery_sent"`
+	FeishuRecoverySentAt *time.Time `json:"feishu_recovery_sent_at,omitempty"`
+	FeishuRecoveryStatus string     `json:"feishu_recovery_status,omitempty"`
+	FeishuRecoveryError  string     `json:"feishu_recovery_error,omitempty"`
 }
 
 type OpsAlertSilence struct {

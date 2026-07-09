@@ -11,17 +11,25 @@ import textwrap
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "probe-tail-gateway-logs.sh"
+_SYNTAX_SCRIPTS = (
+    _SCRIPT,
+    pathlib.Path(__file__).resolve().parent / "probe-traffic-logs.sh",
+    pathlib.Path(__file__).resolve().parent / "probe-edge-health.sh",
+    pathlib.Path(__file__).resolve().parent / "probe-gateway-ua-tls-compare.sh",
+)
 
 
 class ProbeTailGatewayLogsTest(unittest.TestCase):
     def test_syntax_clean(self) -> None:
-        proc = subprocess.run(
-            ["bash", "-n", str(_SCRIPT)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        for script in _SYNTAX_SCRIPTS:
+            with self.subTest(script=script.name):
+                proc = subprocess.run(
+                    ["bash", "-n", str(script)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
     def test_auto_container_resolves_active_color(self) -> None:
         with tempfile.TemporaryDirectory() as td:
