@@ -255,6 +255,18 @@ func TestModelInServedSet_UsesDirectMappingAliases(t *testing.T) {
 			model:    "gemini-3.1-pro-preview-customtools",
 			served:   []string{"gemini-3.1-pro-preview"},
 		},
+		{
+			name:     "newapi served set matches mixed-case deepseek",
+			platform: PlatformNewAPI,
+			model:    "DeepSeek-V4-Pro",
+			served:   []string{"deepseek-v4-pro"},
+		},
+		{
+			name:     "newapi served wildcard matches mixed-case deepseek",
+			platform: PlatformNewAPI,
+			model:    "deepSeek-v4-flash",
+			served:   []string{"deepseek-v4-*"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -262,6 +274,29 @@ func TestModelInServedSet_UsesDirectMappingAliases(t *testing.T) {
 				t.Fatalf("modelInServedSet(%q, %v, %s) = false, want true", tc.model, tc.served, tc.platform)
 			}
 		})
+	}
+}
+
+func TestUniversalOpenAICompatAccountSupportsModel_MixedCaseMappingLookup(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformNewAPI,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro":   "deepseek-v4-pro",
+				"deepseek-v4-flash": "deepseek-v4-flash",
+			},
+		},
+	}
+
+	for _, model := range []string{"DeepSeek-V4-Pro", "deepSeek-v4-pro", "DeepSeek-V4-Flash", "deepSeek-v4-flash"} {
+		if !universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, model, ShapeOpenAIChat) {
+			t.Fatalf("universalOpenAICompatAccountSupportsModel(%q) = false, want true", model)
+		}
+	}
+	if universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, "DeepSeek-V4-Max", ShapeOpenAIChat) {
+		t.Fatalf("unexpected universal support for unmapped mixed-case model")
 	}
 }
 
