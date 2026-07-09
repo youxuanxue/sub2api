@@ -98,19 +98,17 @@ servable allowlist 共 **8** 个 bare canonical id（`pricing_catalog_supported_
 
 ### 2.2 openai（gpt/codex，第二平台）
 
-servable allowlist 共 **10**：
+servable allowlist 共 **5**：
 
 ```
 codex-auto-review
-gpt-5-codex  gpt-5.2  gpt-5.2-pro
-gpt-5.3  gpt-5.3-codex  gpt-5.3-codex-spark  gpt-5.4  gpt-5.4-mini
-gpt-5.5
+gpt-5.3-codex-spark  gpt-5.4  gpt-5.4-mini  gpt-5.5
 ```
 
 - native OpenAI 与 `api.ainzy.net/v1` 独立：`supportedOpenAICatalogModels` 不能由 account 76 探测结果覆盖；Ainzy 使用独立 `openai_ainzy_relay` floor。
-- **2026-07-09 边界**：native OpenAI 保留既有 9 个 live-proven 模型，并加入 SSOT delta gate 四协议 200 的 `gpt-5.3-codex-spark`；`gpt-5`、`gpt-5-chat*`、`gpt-5-mini/nano/pro/search-api`、`gpt-5.1*`、`gpt-5.4-pro` 在回填 gate 中返回 403 `not authorized for platform/group`，暂只保留价格，不进入 public/menu/default catalog。`api.ainzy.net/v1` 维持当前 9 个模型，不继承 native 的 `gpt-5.3-codex-spark`。
+- **2026-07-09 边界**：native OpenAI / `api.ainzy.net/v1` floor 收敛为 5 个实测可服务 id（见 `ops/pricing/examples/openai-oauth-proven.json`）；`gpt-5.2*`、`gpt-5.3*` legacy id、`gpt-5`、`gpt-5-chat*`、`gpt-5-mini/nano/pro/search-api`、`gpt-5.1*`、`gpt-5.4-pro` 暂不进入 public/menu/default catalog。可路由 legacy Codex/GPT-5 写法（如 `gpt-5.4-high`、`gpt-5.3-codex*`、`codex-mini-latest`、`gpt-5-chat-latest`）在账号选择前归一到上述 5 个 floor id；不可服务族（如 `gpt-5.6*`）仍拒绝。
 - **`advertised_dead` 收敛结果**：`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）、`gpt-5.6*` 和未列入 native floor 的旧镜像残留不进入 /v1/models fallback 或 admin 默认候选。
-- **codex 形** 走 `/v1/responses`；`codex-mini-latest` 被 codex normalization 重计为 `gpt-5.3-codex` 才免于 $0。
+- **codex 形** 走 `/v1/responses`；`codex-mini-latest` / `gpt-5.3-codex*` 被 codex normalization 重计为 `gpt-5.3-codex-spark` 才免于 $0。
 - **channel 长尾**：ct=1（153 模型：o1/o3/o4、gpt-4*/4o*、audio/realtime/tts、embeddings、dall-e、sora-2…）与 ct=57 codex 订阅（24）**均未经原生 openai 平台服务**——是 newapi bridge 的扩展 backlog（§5）。
 
 ### 2.3 gemini / Vertex（第三平台）
@@ -149,19 +147,24 @@ gemini-3.5-flash-low       gemini-pro-agent
 
 ### 2.5 grok（第七平台，xAI）
 
-servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
+servable allowlist 共 **15**（与公开目录、overlay xai 同源）：
 
 | model_id | mode | 价(overlay xai) | failure_billing |
 |---|---|---|---|
 | `grok-code-fast-1` | chat | $0.20/$1.50 /Mtok | — |
 | `grok-build-0.1` | chat | $1/$2 /Mtok | — |
+| `grok-code-fast` / `grok-code-fast-1-0825` | chat alias → `grok-build-0.1` | $1/$2 /Mtok | — |
+| `grok-build-latest` | chat alias → `grok-4.5` | $2/$6 /Mtok | — |
 | `grok-4.3` | chat | $1.25/$2.50 /Mtok | — |
+| `grok-4.3-latest` / `grok-latest` | chat alias → `grok-4.3` | $1.25/$2.50 /Mtok | — |
+| `grok-4.5` / `grok-4.5-latest` | chat | $2/$6 /Mtok | — |
 | `grok-4.20-0309-reasoning` / `-non-reasoning` | chat | $1.25/$2.50 /Mtok | — |
 | `grok-imagine-image` | image | $0.02/img | — |
 | `grok-imagine-image-quality` | image | $0.07/img(2K 保守档) | — |
 | `grok-imagine-video` | video | $0.08/s(720p+img 上限档) | success_only |
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
+- **2026-07-09 上架**：`grok-4.5`、`grok-4.5-latest`、`grok-build-latest` 已按 xAI 官方 model page / pricing 补 overlay，并经 edge-us4 原生 grok OAuth 直探 200 后进入 allowlist。
 - **官方别名（可展示）**：xAI model page 声明的 alias（如 `grok-4.3-latest`/`grok-latest`、`grok-4.5-latest`/`grok-build-latest`、`grok-code-fast`/`grok-code-fast-1-0825`）在 overlay 有价且探针 200 时进入 allowlist；退休重定向 `grok-4-fast-reasoning` 仍 priced-only。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
 - 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径。prod→edge grok 中继长期收敛为 `platform=grok,type=apikey` relay；旧 `newapi` edge-host bridge 仅作为迁移兼容形态保留。

@@ -30,9 +30,10 @@ import (
 //   - openai: 2026-07-09 prod OAuth account-model probes (accounts 9/73, isolated
 //     probe_account_model.sh). Native ChatGPT-OAuth servable set is exactly the
 //     runtime floor in ops/pricing/examples/openai-oauth-proven.json (5 models).
-//     Legacy ids such as gpt-5.2/gpt-5.3-codex remain priced for billing but are
-//     hidden from /pricing and /models; clients may still request them and are
-//     routed via openAICompatRoutingAliases to gpt-5.3-codex-spark. Ainzy relay
+//     Legacy Codex/GPT-5 ids such as gpt-5.3-codex, gpt-5.4-high, and
+//     codex-mini-latest remain priced for billing but are hidden from /pricing
+//     and /models; clients may still request them and are routed through
+//     CanonicalizeOpenAICompatRoutingModel to a served floor id. Ainzy relay
 //     uses the same curated display set below until a separate probe says otherwise.
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3

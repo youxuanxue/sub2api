@@ -82,6 +82,27 @@ func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	require.NotContains(t, mapping, "gpt-5-codex")
 }
 
+func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
+	t.Parallel()
+	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			"model_mapping": modelMappingToAny(mapping),
+		},
+	}
+	for _, model := range []string{
+		"gpt-5-chat-latest",
+		"gpt-5-mini",
+		"gpt-5.4-high",
+		"gpt-5.3-codex-xhigh",
+		"codex-mini-latest",
+	} {
+		require.True(t, account.IsModelSupported(model), "known routing alias should match the five-model OpenAI floor")
+	}
+	require.False(t, account.IsModelSupported("gpt-5.6"), "unsupported upstream-rejected family must stay out of the floor")
+}
+
 func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	t.Parallel()
 	doc, err := AccountModelMappingFloorForOps(context.Background(), "")

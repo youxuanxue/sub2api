@@ -71,11 +71,11 @@ func canonicalizeOpenAIModelAliasSpelling(model string) string {
 // openAICompatRoutingAliases maps legacy client ids to the OAuth-served wire id
 // without requiring per-account model_mapping keys.
 var openAICompatRoutingAliases = map[string]string{
-	"gpt-5":              "gpt-5.5",
-	"gpt-5-chat":         "gpt-5.5",
-	"gpt-5-chat-latest":  "gpt-5.5",
-	"gpt-5.3-codex":      "gpt-5.3-codex-spark",
-	"gpt-5-codex":        "gpt-5.3-codex-spark",
+	"gpt-5":             "gpt-5.5",
+	"gpt-5-chat":        "gpt-5.5",
+	"gpt-5-chat-latest": "gpt-5.5",
+	"gpt-5.3-codex":     "gpt-5.3-codex-spark",
+	"gpt-5-codex":       "gpt-5.3-codex-spark",
 }
 
 func resolveOpenAICompatRoutingAlias(model string) string {
@@ -84,6 +84,9 @@ func resolveOpenAICompatRoutingAlias(model string) string {
 		return ""
 	}
 	if target, ok := openAICompatRoutingAliases[model]; ok {
+		return target
+	}
+	if target := normalizeKnownOpenAICodexModel(model); target != "" {
 		return target
 	}
 	return model

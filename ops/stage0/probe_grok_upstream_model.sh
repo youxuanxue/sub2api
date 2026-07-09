@@ -12,10 +12,6 @@ UPSTREAM_BASE="${UPSTREAM_BASE:-https://api.x.ai/v1}"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 
-sql_escape() {
-  printf "%s" "$1" | sed "s/'/''/g"
-}
-
 fail_json() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -24,14 +20,20 @@ PY
   exit 0
 }
 
-row="$("${PSQL[@]}" -c "
+psql_err="$(mktemp)"
+if ! row="$("${PSQL[@]}" -c "
 SELECT COALESCE(credentials->>'access_token', '') || E'\t' ||
        COALESCE(NULLIF(TRIM(credentials->>'base_url'), ''), 'https://api.x.ai/v1') || E'\t' ||
        COALESCE(name, '') || E'\t' ||
        COALESCE(platform, '')
 FROM accounts
 WHERE id = $(printf '%d' "$ACCOUNT_ID") AND deleted_at IS NULL;
-" 2>/dev/null || true)"
+" 2>"$psql_err")"; then
+  err="$(tr '\n' ' ' < "$psql_err" | cut -c1-500)"
+  rm -f "$psql_err"
+  fail_json "account lookup failed: ${err:-psql exited non-zero}"
+fi
+rm -f "$psql_err"
 
 if [[ -z "${row//$'\t'/}" ]]; then
   fail_json "account ${ACCOUNT_ID} not found"
