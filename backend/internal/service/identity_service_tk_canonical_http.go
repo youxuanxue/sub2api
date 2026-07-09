@@ -130,7 +130,7 @@ func GetClaudeCodeUserAgentVersionForContext(ctx context.Context) string {
 }
 
 // BuildCanonicalUserAgent wraps a (validated or fallback) version into the
-// full `claude-cli/<v> (external, sdk-cli)` string.
+// full `claude-cli/<v> (external, cli)` string.
 func BuildCanonicalUserAgent(version string) string {
 	v := NormalizeClaudeCodeUserAgentVersion(version)
 	if v == "" {

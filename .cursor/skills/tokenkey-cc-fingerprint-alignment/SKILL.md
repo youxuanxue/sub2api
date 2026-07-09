@@ -8,6 +8,8 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。把 **真实 cc 流量** 当作 ground truth，**TokenKey 常量 + DB TLS profile** 当作待对齐对象。TLS 与 HTTP **分轨采集、分轨决策**——禁止从 UA 版本号推断 ja3 或 `X-Stainless-Package-Version`。
 
+**指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`。
+
 关联：`cc0-claude0-launcher` skill（cc0-here 环境）、`tokenkey-anthropic-oauth-config` skill（ja3 变更时的 TLS profile apply）、`docs/spec-delta-cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
 
 ## 每日漂移流程（手动按需 —— sessionStart 自动触发已关停）
@@ -71,6 +73,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | HTTP 漂移修复 + spec-delta PR | 机械 | 分支 + commit + `gh pr create`（见 §5） |
 | 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
+| OAuth mimicry chain (SDK ingress → egress headers+system) | 机械 | `ops/observability/probe-oauth-mimicry-chain.sh` on edge; log `gateway.anthropic_oauth_mimic_egress` |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
 | 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 7 份副本，§4.1）|

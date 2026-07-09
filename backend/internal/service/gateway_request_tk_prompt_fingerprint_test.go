@@ -284,3 +284,13 @@ func TestTkProbePromptSurfaceGatewayCoverageJSONL(t *testing.T) {
 		require.NotContains(t, fp.UnknownSurfaces, "geo_stego_date_line", "scenario=%s", scenario)
 	}
 }
+
+func TestTkIngressUAClass_OpenAIPython(t *testing.T) {
+	require.Equal(t, "openai_python_sdk", tkIngressUAClass("OpenAI/Python 2.44.0"))
+	require.Equal(t, "claude_code", tkIngressUAClass("claude-cli/2.1.205 (external, cli)"))
+}
+
+func TestTkShouldLogOAuthMimicEgressFingerprint_SDKAlways(t *testing.T) {
+	require.True(t, tkShouldLogOAuthMimicEgressFingerprint("OpenAI/Python 2.32.0", ""))
+	require.False(t, tkShouldLogOAuthMimicEgressFingerprint("claude-cli/2.1.205 (external, cli)", ""))
+}
