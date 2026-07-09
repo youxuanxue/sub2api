@@ -192,6 +192,33 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 	return s
 }
 
+func tkGLMPricing(inputCNY, outputCNY, cacheReadCNY float64, intervals ...PricingInterval) *ModelPricing {
+	return &ModelPricing{
+		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(inputCNY),
+		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(outputCNY),
+		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(cacheReadCNY),
+		Intervals:              intervals,
+		SupportsCacheBreakdown: false,
+	}
+}
+
+func tkGLMInterval(min int, max *int, inputCNY, outputCNY, cacheReadCNY float64) PricingInterval {
+	input := tkCNYPerMTokToUSDPerToken(inputCNY)
+	output := tkCNYPerMTokToUSDPerToken(outputCNY)
+	cacheRead := tkCNYPerMTokToUSDPerToken(cacheReadCNY)
+	return PricingInterval{
+		MinTokens:      min,
+		MaxTokens:      max,
+		InputPrice:     &input,
+		OutputPrice:    &output,
+		CacheReadPrice: &cacheRead,
+	}
+}
+
+func tkIntPtr(v int) *int {
+	return &v
+}
+
 // initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
 // 价格单位：USD per token（与LiteLLM格式一致）
 func (s *BillingService) initFallbackPricing() {
@@ -374,7 +401,7 @@ func (s *BillingService) initFallbackPricing() {
 	}
 
 	// ============================================================
-	// 国产 LLM 兜底定价（数据源：各家官方定价页/USD 口径）
+	// 国产 LLM 兜底定价（数据源：各家官方定价页，必要时按 CNY/USD=6.7 换算）
 	// 顺序：DeepSeek → 智谱 GLM → 月之暗面 Kimi → MiniMax
 	// 覆盖逻辑见同文件 getFallbackPricing()
 	// ============================================================
@@ -395,77 +422,48 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
-	// ---- 智谱 GLM（Z.AI）----
-	// Source: https://docs.z.ai/guides/overview/pricing (USD per 1M tokens)
-	// 注意：CacheReadPricePerToken 即"缓存命中"价格，CacheCreationPricePerToken 留空（智谱未公开写入价，按 0 处理）。
-	// GLM-4.6 与 GLM-4.5 在 z.ai 国际版上定价一致；GLM-4.5 国内按 ¥0.8/¥2，汇率换算后约 $0.112/$0.28，与国际版 $0.6/$2.2 不同，本分支采用国际版 USD 口径与现有 Claude/GPT 一致。
-	s.fallbackPrices["glm-5.2"] = &ModelPricing{
-		InputPricePerToken:     1.4e-6, // $1.40 per MTok
-		OutputPricePerToken:    4.4e-6, // $4.40 per MTok
-		CacheReadPricePerToken: 0.26e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-5.1"] = &ModelPricing{
-		InputPricePerToken:     1.4e-6, // $1.40 per MTok
-		OutputPricePerToken:    4.4e-6, // $4.40 per MTok
-		CacheReadPricePerToken: 0.26e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-5"] = &ModelPricing{
-		InputPricePerToken:     1e-6, // $1.00 per MTok
-		OutputPricePerToken:    3.2e-6,
-		CacheReadPricePerToken: 0.2e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-5-turbo"] = &ModelPricing{
-		InputPricePerToken:     1.2e-6,
-		OutputPricePerToken:    4e-6,
-		CacheReadPricePerToken: 0.24e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.7"] = &ModelPricing{
-		InputPricePerToken:     0.6e-6, // $0.60 per MTok
-		OutputPricePerToken:    2.2e-6,
-		CacheReadPricePerToken: 0.11e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.7-flashx"] = &ModelPricing{
-		InputPricePerToken:     0.07e-6, // $0.07 per MTok
-		OutputPricePerToken:    0.4e-6,
-		CacheReadPricePerToken: 0.01e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.6"] = &ModelPricing{
-		InputPricePerToken:     0.6e-6, // $0.60 per MTok
-		OutputPricePerToken:    2.2e-6,
-		CacheReadPricePerToken: 0.11e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.5"] = &ModelPricing{
-		InputPricePerToken:     0.6e-6, // $0.60 per MTok
-		OutputPricePerToken:    2.2e-6,
-		CacheReadPricePerToken: 0.11e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.5-x"] = &ModelPricing{
-		InputPricePerToken:     2.2e-6, // $2.20 per MTok
-		OutputPricePerToken:    8.9e-6,
-		CacheReadPricePerToken: 0.45e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.5-air"] = &ModelPricing{
-		InputPricePerToken:     0.2e-6, // $0.20 per MTok
-		OutputPricePerToken:    1.1e-6,
-		CacheReadPricePerToken: 0.03e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.5-airx"] = &ModelPricing{
-		InputPricePerToken:     1.1e-6,
-		OutputPricePerToken:    4.5e-6,
-		CacheReadPricePerToken: 0.22e-6,
-		SupportsCacheBreakdown: false,
-	}
-	// GLM-4.5-Flash / GLM-4.7-Flash 在 z.ai 上为 Free，保留 zero-cost entry 防止未知 alias 误计费。
+	// ---- 智谱 GLM（BigModel）----
+	// Source: https://bigmodel.cn/pricing (人民币/百万 tokens，统一 CNY/USD=6.7).
+	// 这里存税前官方价；GetModelPricing 末尾通过 tkApplyOfficialListBaseTaxForModel
+	// 对 glm/zhipu 默认叠加 1.06。CacheReadPricePerToken 即"缓存命中"价格，
+	// CacheCreationPricePerToken 留空（官方页缓存存储为限时免费）。
+	s.fallbackPrices["glm-5.2"] = tkGLMPricing(8, 28, 2)
+	s.fallbackPrices["glm-5.1"] = tkGLMPricing(6, 24, 1.3,
+		tkGLMInterval(0, tkIntPtr(32000), 6, 24, 1.3),
+		tkGLMInterval(32000, nil, 8, 28, 2),
+	)
+	s.fallbackPrices["glm-5"] = tkGLMPricing(4, 18, 1,
+		tkGLMInterval(0, tkIntPtr(32000), 4, 18, 1),
+		tkGLMInterval(32000, nil, 6, 22, 1.5),
+	)
+	s.fallbackPrices["glm-5-turbo"] = tkGLMPricing(5, 22, 1.2,
+		tkGLMInterval(0, tkIntPtr(32000), 5, 22, 1.2),
+		tkGLMInterval(32000, nil, 7, 26, 1.8),
+	)
+	// GLM-4.7/4.5-Air have output-length subtiers in the 0-32K input bracket.
+	// Runtime intervals only tier by input tokens, so use the higher reachable
+	// output>0.2K row for that bracket to avoid under-billing.
+	s.fallbackPrices["glm-4.7"] = tkGLMPricing(3, 14, 0.6,
+		tkGLMInterval(0, tkIntPtr(32000), 3, 14, 0.6),
+		tkGLMInterval(32000, nil, 4, 16, 0.8),
+	)
+	s.fallbackPrices["glm-4.7-flashx"] = tkGLMPricing(0.5, 3, 0.1)
+	// BigModel's current pricing page no longer lists separate GLM-4.6/4.5 text
+	// rows; keep legacy requests priced to the current GLM-4.7 paid ladder.
+	s.fallbackPrices["glm-4.6"] = tkGLMPricing(3, 14, 0.6,
+		tkGLMInterval(0, tkIntPtr(32000), 3, 14, 0.6),
+		tkGLMInterval(32000, nil, 4, 16, 0.8),
+	)
+	s.fallbackPrices["glm-4.5"] = tkGLMPricing(3, 14, 0.6,
+		tkGLMInterval(0, tkIntPtr(32000), 3, 14, 0.6),
+		tkGLMInterval(32000, nil, 4, 16, 0.8),
+	)
+	s.fallbackPrices["glm-4.5-air"] = tkGLMPricing(0.8, 6, 0.16,
+		tkGLMInterval(0, tkIntPtr(32000), 0.8, 6, 0.16),
+		tkGLMInterval(32000, nil, 1.2, 8, 0.24),
+	)
+	// GLM-4.5-Flash / GLM-4.7-Flash 在 BigModel 当前页为 free，
+	// 保留 zero-cost entry 防止未知 alias 误计费。
 	s.fallbackPrices["glm-4.5-flash"] = &ModelPricing{
 		InputPricePerToken:     0,
 		OutputPricePerToken:    0,
@@ -504,15 +502,15 @@ func (s *BillingService) initFallbackPricing() {
 	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 一致），
 	// 不沿用上游的 ÷7.14。
 	s.fallbackPrices["kimi-k2-thinking"] = &ModelPricing{
-		InputPricePerToken:     0.59701e-6, // ¥4/百万 ÷6.7
-		OutputPricePerToken:    2.38806e-6, // ¥16/百万 ÷6.7
-		CacheReadPricePerToken: 0.14925e-6, // ¥1/百万 ÷6.7
+		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(4),
+		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(16),
+		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(1),
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["kimi-k2"] = &ModelPricing{
-		InputPricePerToken:     0.59701e-6, // ¥4/百万 ÷6.7
-		OutputPricePerToken:    2.38806e-6, // ¥16/百万 ÷6.7
-		CacheReadPricePerToken: 0.14925e-6, // ¥1/百万 ÷6.7
+		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(4),
+		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(16),
+		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(1),
 		SupportsCacheBreakdown: false,
 	}
 
@@ -563,8 +561,8 @@ func (s *BillingService) initFallbackPricing() {
 	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 其余
 	// VolcEngine Ark 条目一致），不沿用上游的 ÷7.14。embedding 无 output，置 0。
 	s.fallbackPrices["doubao-embedding-vision"] = &ModelPricing{
-		InputPricePerToken:      0.10448e-6, // ¥0.7/MTok ÷6.7（文本输入）
-		ImageInputPricePerToken: 0.26866e-6, // ¥1.8/MTok ÷6.7（图片输入）
+		InputPricePerToken:      tkCNYPerMTokToUSDPerToken(0.7),
+		ImageInputPricePerToken: tkCNYPerMTokToUSDPerToken(1.8),
 		OutputPricePerToken:     0,
 		SupportsCacheBreakdown:  false,
 	}
@@ -657,7 +655,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// 匹配策略：长 key 优先（具体模型 → 系列 / 厂商），未知型号不回退以避免误计价。
 	// 与 DeepSeek 一样采用"白名单"语义：未在本表命中的国产模型 alias 一律不返回兜底价。
 
-	// 智谱 GLM（z.ai 公开 SKU：glm-5.2 / glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
+	// 智谱 GLM：定价源只用 BigModel 官方 pricing 页；可服务路径仍是 Qwen/DashScope 池。
 	// 匹配顺序：先判别最高 tier，再依次降级。
 	if canonical := normalizeGLMVolcengineDatedModelID(modelLower); canonical != "" {
 		if pricing := s.fallbackPrices[canonical]; pricing != nil {
@@ -691,11 +689,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if strings.Contains(modelLower, "glm-4.5-flash") {
 		return s.fallbackPrices["glm-4.5-flash"]
 	}
-	if strings.Contains(modelLower, "glm-4.5-x") || strings.Contains(modelLower, "glm-4.5x") {
-		return s.fallbackPrices["glm-4.5-x"]
-	}
-	if strings.Contains(modelLower, "glm-4.5-airx") || strings.Contains(modelLower, "glm-4.5airx") {
-		return s.fallbackPrices["glm-4.5-airx"]
+	if strings.Contains(modelLower, "glm-4.5-x") || strings.Contains(modelLower, "glm-4.5x") ||
+		strings.Contains(modelLower, "glm-4.5-airx") || strings.Contains(modelLower, "glm-4.5airx") {
+		return nil
 	}
 	if strings.Contains(modelLower, "glm-4.5-air") || strings.Contains(modelLower, "glm-4.5air") {
 		return s.fallbackPrices["glm-4.5-air"]

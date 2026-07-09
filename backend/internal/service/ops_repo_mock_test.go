@@ -7,13 +7,14 @@ import (
 
 // opsRepoMock is a test-only OpsRepository implementation with optional function hooks.
 type opsRepoMock struct {
-	InsertErrorLogFn              func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
-	BatchInsertErrorLogsFn        func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
-	BatchInsertSystemLogsFn       func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
-	ListSystemLogsFn              func(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
-	DeleteSystemLogsFn            func(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
-	InsertSystemLogCleanupAuditFn func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
-	LookupDeletedKeyAuditFn       func(ctx context.Context, key string) (*DeletedKeyAuditResult, error)
+	InsertErrorLogFn                 func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
+	BatchInsertErrorLogsFn           func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
+	BatchInsertSystemLogsFn          func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
+	ListSystemLogsFn                 func(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
+	DeleteSystemLogsFn               func(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
+	InsertSystemLogCleanupAuditFn    func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
+	LookupDeletedKeyAuditFn          func(ctx context.Context, key string) (*DeletedKeyAuditResult, error)
+	UpdateAlertEventFeishuDeliveryFn func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error
 }
 
 func (m *opsRepoMock) InsertErrorLog(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error) {
@@ -191,6 +192,13 @@ func (m *opsRepoMock) UpdateAlertEventStatus(ctx context.Context, eventID int64,
 }
 
 func (m *opsRepoMock) UpdateAlertEventEmailSent(ctx context.Context, eventID int64, emailSent bool) error {
+	return nil
+}
+
+func (m *opsRepoMock) UpdateAlertEventFeishuDelivery(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+	if m.UpdateAlertEventFeishuDeliveryFn != nil {
+		return m.UpdateAlertEventFeishuDeliveryFn(ctx, eventID, phase, sent, status, errMessage, sentAt)
+	}
 	return nil
 }
 

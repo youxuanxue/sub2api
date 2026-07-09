@@ -14,7 +14,8 @@ This implements the allowed half of automatic model operations:
 
 - YES: automatically compare candidate models, real probe results, pricing state, manifest
   intent, and live account mapping snapshots.
-- YES: automatically compare mirror-account policy, e.g. Qwen `60` -> Qwen-2 `72`.
+- YES: automatically compare an explicitly reviewed mirror-account policy from a live
+  mapping snapshot.
 - YES: name the shared public catalog / user menu surface so operators do not create a
   second menu list.
 - YES: automatically print the next probe commands and existing guarded apply commands.
@@ -43,10 +44,10 @@ Primary command:
 
 ```bash
 python3 ops/pricing/modelops.py plan \
-  --upstream 60:/tmp/qwen_upstream_models.json \
+  --upstream "$QWEN_ACCOUNT_ID":/tmp/qwen_upstream_models.json \
   --probe-results /tmp/qwen_probe.tsv \
   --live-mapping /tmp/model_mapping_snapshot.json \
-  --mirror 60:72
+  --mirror "$SOURCE_QWEN_ACCOUNT_ID":"$TARGET_QWEN_ACCOUNT_ID"
 ```
 
 Inputs:
@@ -56,7 +57,8 @@ Inputs:
   newline lists.
 - `--probe-results PATH`: TSV from `ops/pricing/probe-servable-models.sh`.
 - `--live-mapping PATH`: read-only JSON snapshot of prod account `model_mapping`.
-- `--mirror SOURCE:TARGET`: mirror policy, e.g. Qwen account `60` -> Qwen-2 `72`.
+- `--mirror SOURCE:TARGET`: explicit mirror policy between two accounts from the same
+  live snapshot.
 - `--candidate ACCOUNT:MODEL`: ad hoc candidate for customer-requested models.
 
 Outputs:
@@ -93,18 +95,18 @@ sets such as antigravity and grok.
 For live prod read-only mapping snapshots:
 
 ```bash
-python3 ops/pricing/modelops.py snapshot-sql --accounts 60,72
+python3 ops/pricing/modelops.py snapshot-sql --channel-type 17
 ```
 
 Run the SQL through the existing prod DB access path, store the JSON object locally, then
 feed it to `--live-mapping`.
 
-## Qwen-2 Backup Policy
+## Qwen Mirror Policy
 
-For `Qwen-2` account `72`, the desired invariant is:
+For a reviewed Qwen/DashScope mirror pair, the desired invariant is:
 
 ```text
-account 72 model_mapping == account 60 model_mapping
+target account model_mapping == source account model_mapping
 ```
 
 The planner enforces this as a diff only:
@@ -112,7 +114,7 @@ The planner enforces this as a diff only:
 ```bash
 python3 ops/pricing/modelops.py plan \
   --live-mapping /tmp/qwen_mapping_snapshot.json \
-  --mirror 60:72
+  --mirror "$SOURCE_QWEN_ACCOUNT_ID":"$TARGET_QWEN_ACCOUNT_ID"
 ```
 
 If drift appears, apply still uses the guarded live tool or a migration after review. The

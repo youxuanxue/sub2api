@@ -383,7 +383,47 @@
               <div v-if="userTrendLoading" class="flex h-full items-center justify-center">
                 <LoadingSpinner size="md" />
               </div>
-              <Line v-else-if="userTrendChartData" :data="userTrendChartData" :options="lineOptions" />
+              <div v-else-if="userTrendChartData" class="flex h-full flex-col">
+                <div
+                  v-if="userTrendLegendItems.length > 0"
+                  class="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 px-2"
+                  data-test="recent-usage-legend"
+                >
+                  <button
+                    v-for="item in userTrendLegendItems"
+                    :key="item.userId"
+                    type="button"
+                    class="inline-flex h-7 max-w-full items-center gap-1.5 rounded px-1.5 text-xs font-medium transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:hover:bg-dark-700"
+                    :class="
+                      isUserTrendHidden(item.userId)
+                        ? 'text-gray-400 dark:text-gray-500'
+                        : 'text-gray-600 dark:text-gray-300'
+                    "
+                    :aria-pressed="!isUserTrendHidden(item.userId)"
+                    :title="item.name"
+                    @click="toggleUserTrendDataset(item.userId)"
+                  >
+                    <span
+                      class="h-3 w-3 flex-shrink-0 rounded-full border-2"
+                      :style="{
+                        borderColor: item.color,
+                        backgroundColor: isUserTrendHidden(item.userId)
+                          ? 'transparent'
+                          : `${item.color}26`,
+                      }"
+                    ></span>
+                    <span
+                      class="max-w-[12rem] truncate"
+                      :class="{ 'line-through': isUserTrendHidden(item.userId) }"
+                    >
+                      {{ item.name }}
+                    </span>
+                  </button>
+                </div>
+                <div class="min-h-0 flex-1">
+                  <Line :data="userTrendChartData" :options="lineOptions" />
+                </div>
+              </div>
               <div
                 v-else
                 class="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400"
@@ -511,6 +551,23 @@ const chartColors = computed(() => ({
   grid: isDarkMode.value ? '#374151' : '#e5e7eb'
 }))
 
+const userTrendColors = [
+  '#3b82f6',
+  '#10b981',
+  '#f59e0b',
+  '#ef4444',
+  '#8b5cf6',
+  '#ec4899',
+  '#14b8a6',
+  '#f97316',
+  '#6366f1',
+  '#84cc16',
+  '#06b6d4',
+  '#a855f7'
+]
+
+const hiddenUserTrendIds = ref<Set<number>>(new Set())
+
 // Line chart options (for user trend chart)
 const lineOptions = computed(() => ({
   responsive: true,
@@ -521,16 +578,7 @@ const lineOptions = computed(() => ({
   },
   plugins: {
     legend: {
-      position: 'top' as const,
-      labels: {
-        color: chartColors.value.text,
-        usePointStyle: true,
-        pointStyle: 'circle',
-        padding: 15,
-        font: {
-          size: 11
-        }
-      }
+      display: false
     },
     tooltip: {
       itemSort: (a: any, b: any) => {
@@ -572,10 +620,7 @@ const lineOptions = computed(() => ({
   }
 }))
 
-// User trend chart data
-const userTrendChartData = computed(() => {
-  if (!userTrend.value?.length) return null
-
+const userTrendSeries = computed(() => {
   const getDisplayName = (point: UserUsageTrendPoint): string => {
     const username = point.username?.trim()
     if (username) {
@@ -604,32 +649,52 @@ const userTrendChartData = computed(() => {
   })
 
   const sortedDates = Array.from(allDates).sort()
-  const colors = [
-    '#3b82f6',
-    '#10b981',
-    '#f59e0b',
-    '#ef4444',
-    '#8b5cf6',
-    '#ec4899',
-    '#14b8a6',
-    '#f97316',
-    '#6366f1',
-    '#84cc16',
-    '#06b6d4',
-    '#a855f7'
-  ]
 
-  const datasets = Array.from(userGroups.values()).map((group, idx) => ({
-    label: group.name,
-    data: sortedDates.map((date) => group.data.get(date) || 0),
-    borderColor: colors[idx % colors.length],
-    backgroundColor: `${colors[idx % colors.length]}20`,
-    fill: false,
-    tension: 0.3
+  const series = Array.from(userGroups.entries()).map(([userId, group], idx) => ({
+    userId,
+    name: group.name,
+    color: userTrendColors[idx % userTrendColors.length],
+    data: sortedDates.map((date) => group.data.get(date) || 0)
   }))
 
   return {
     labels: sortedDates,
+    series
+  }
+})
+
+const userTrendLegendItems = computed(() => userTrendSeries.value.series)
+
+const isUserTrendHidden = (userId: number): boolean => hiddenUserTrendIds.value.has(userId)
+
+const toggleUserTrendDataset = (userId: number) => {
+  const next = new Set(hiddenUserTrendIds.value)
+  if (next.has(userId)) {
+    next.delete(userId)
+  } else {
+    next.add(userId)
+  }
+  hiddenUserTrendIds.value = next
+}
+
+// User trend chart data
+const userTrendChartData = computed(() => {
+  const { labels, series } = userTrendSeries.value
+  if (!series.length) return null
+
+  const datasets = series.map((group) => ({
+    userId: group.userId,
+    label: group.name,
+    data: group.data,
+    borderColor: group.color,
+    backgroundColor: `${group.color}20`,
+    fill: false,
+    hidden: isUserTrendHidden(group.userId),
+    tension: 0.3
+  }))
+
+  return {
+    labels,
     datasets
   }
 })

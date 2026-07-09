@@ -230,3 +230,25 @@ func (s *OpsService) UpdateAlertEventEmailSent(ctx context.Context, eventID int6
 	}
 	return s.opsRepo.UpdateAlertEventEmailSent(ctx, eventID, emailSent)
 }
+
+func (s *OpsService) UpdateAlertEventFeishuDelivery(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+	if err := s.RequireMonitoringEnabled(ctx); err != nil {
+		return err
+	}
+	if s.opsRepo == nil {
+		return infraerrors.ServiceUnavailable("OPS_REPO_UNAVAILABLE", "Ops repository not available")
+	}
+	if eventID <= 0 {
+		return infraerrors.BadRequest("INVALID_EVENT_ID", "invalid event id")
+	}
+	phase = strings.TrimSpace(phase)
+	if phase != OpsAlertFeishuPhaseFiring && phase != OpsAlertFeishuPhaseRecovery {
+		return infraerrors.BadRequest("INVALID_FEISHU_PHASE", "invalid feishu phase")
+	}
+	status = truncateString(strings.TrimSpace(status), 128)
+	if status == "" {
+		return infraerrors.BadRequest("INVALID_FEISHU_STATUS", "invalid feishu status")
+	}
+	errMessage = truncateString(strings.TrimSpace(errMessage), 2048)
+	return s.opsRepo.UpdateAlertEventFeishuDelivery(ctx, eventID, phase, sent, status, errMessage, sentAt)
+}

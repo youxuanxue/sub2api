@@ -23,7 +23,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
 - **原生 servable allowlist 数量**：anthropic 8、openai 16、gemini 0 active native pool（历史 7-id Gemini/Vertex catalog 仍用于定价/Vertex 语义，不能当 prod native capacity）、antigravity 10、grok 8（5 个 Go map）。
-- **newapi 经账号 `model_mapping` 服务的策展长尾**：qwen/deepseek 在账号 60/39，VolcEngine/doubao/seedream/seedance 在账号 7（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单），GLM 直连族在账号 67（tk_044，prod canary 2026-06-22 已 livefire 200 + 计费核账）。
+- **newapi 经账号 `model_mapping` 服务的策展长尾**：Qwen/DashScope 走运行库中配置的 `channel_type=17` 池（具体账号成员从 DB/admin 配置读取，manifest 里的 `served_on` 只是静态映射证据锚点），DeepSeek 以账号 39 为证据锚点，VolcEngine/doubao/seedream/seedance 以账号 7 为证据锚点（2026-06-23 Ark chat 19 个 200 已补 manifest；`doubao-seed-translation-250915` 400 不进清单）；GLM 服务也走同一类 DashScope/Qwen 池，BigModel 仅作为 GLM 官方定价来源。
 - **总计**：约 110 个 servable id / 140 个 priced id。
 - **不可服务台账**：机器源在 `ops/pricing/servable-reprobe-ledger.json`，当前分为 watchlist / skiplist / deadlist；不要维护手写总数。
 
@@ -173,7 +173,7 @@ servable allowlist 共 **15**（与公开目录、overlay xai 同源）：
 
 **无 Go map**，靠账号 `model_mapping` 白名单 + 价格存在透传；`display=false`。意图源 = `tk_served_models.json`。
 
-**(a) Qwen（账号 60，ct=17 Ali/DashScope，group 18）+ DeepSeek（账号 39，ct=43，group 11）**
+**(a) Qwen（运行库 `channel_type=17` Ali/DashScope 池）+ DeepSeek（账号 39，ct=43，group 11）**
 
 | 家族 | servable id（account_mapping）| 价 |
 |---|---|---|
@@ -182,7 +182,7 @@ servable allowlist 共 **15**（与公开目录、overlay xai 同源）：
 | DeepSeek | `deepseek-v4-pro` `deepseek-v4-flash` | overlay |
 | DeepSeek 经典别名 | `deepseek-chat` `deepseek-reasoner` | **mirror**（overlay 故意不收，镜像已带非零价）|
 
-- **`priced_not_served` 错配（中危）**：`qwen2.5-coder-32b` / `qwen2.5-coder-7b` —— **有价但不在账号 60 mapping**（parity 行），却因 dashscope vendor 走 default-true 而**展示**在 /pricing，请求空池快失败 429。`qwen3.7-max-preview` 与 `qwen3.7-max-2026-05-17/-05-20/-06-08` 已在 2026-06-23 prod mapping 中确认存在，thinking 路径实测 200（05-20/06-08 非 thinking 也 200；preview/05-17 非 thinking 为请求形状 400，不代表不可服务）。`qwen2.5-coder-*` 存在是为闭合一条客户-channel 漏算（`qwen2.5-coder→gpt-5.4` ~$269 低估），属计费键 parity，非给客户调。
+- **`priced_not_served` 错配（中危）**：`qwen2.5-coder-32b` / `qwen2.5-coder-7b` —— **有价但不在当前 Qwen/DashScope runtime mapping**（parity 行），却因 dashscope vendor 走 default-true 而**展示**在 /pricing，请求空池快失败 429。`qwen3.7-max-preview` 与 `qwen3.7-max-2026-05-17/-05-20/-06-08` 已在 2026-06-23 prod mapping 中确认存在，thinking 路径实测 200（05-20/06-08 非 thinking 也 200；preview/05-17 非 thinking 为请求形状 400，不代表不可服务）。`qwen2.5-coder-*` 存在是为闭合一条客户-channel 漏算（`qwen2.5-coder→gpt-5.4` ~$269 低估），属计费键 parity，非给客户调。
 
 **(b) VolcEngine / Doubao + 媒体（账号 7，ct=45）**
 
@@ -198,24 +198,28 @@ overlay `litellm_provider="volcengine"` 共 27 条；`tk_served_models.json` 当
 
 > `deepseek-v3-2-251201` 曾出现在 litellm mirror / overlay，但 **tk_020 故意不在账号 7 服务**（VolcEngine 自报价 ~4× 官方 DeepSeek 价），也 **不在 manifest**；2026-07-01 已从 overlay 移除以对齐 SSOT（定价=服务=展示均以 manifest 为准）。其 servable 家应在 DeepSeek 直连（账号 39），待正式 onboarding 后再进 manifest。
 >
-> `glm-4-7-251222` 曾是 VolcEngine Ark 上的 GLM 4.7 dated SKU；2026-07-06 从 manifest / overlay / 账号 7 mapping 移除。GLM chat 优先走 Qwen/DashScope 账号 60/72 的 `glm-4.7`（tk_054），不再经 VolcEngine 重复暴露；遗留客户端仍发 dated id 时，网关会把 `glm-4-7-251222` 归一化到 `glm-4.7` 后路由/计费。
+> `glm-4-7-251222` 曾是 VolcEngine Ark 上的 GLM 4.7 dated SKU；2026-07-06 从 manifest / overlay / 账号 7 mapping 移除。GLM chat 优先走运行库配置的 Qwen/DashScope `channel_type=17` 池上的 `glm-4.7`（tk_054 是历史映射证据），不再经 VolcEngine 重复暴露；遗留客户端仍发 dated id 时，网关会把 `glm-4-7-251222` 归一化到 `glm-4.7` 后路由/计费。
 
 - 媒体类的 `servable_unpriced` 风险全被 **media 400 守卫**收口为干净报错，无资损。
 - 故意排除的上游媒体变体（`seedream-4.5/5.0(-lite)`、`seedance-1.0-pro-fast`、`seedance-1.0-lite`）见 §4/§5。
 
-**(c) GLM 直连（账号 67，ct=26 ZhipuV4，group 26/GLM）**
+**(c) GLM：BigModel 定价，DashScope 服务（运行库 Qwen/DashScope 池，ct=17）**
 
-tk_044 把 GLM 从 legacy ct16 Zhipu v3 迁到 ct26 ZhipuV4/OpenAI-compatible，并把 `base_url` 规范为 `https://open.bigmodel.cn`（适配器自接 `/api/paas/v4`）。官方 paid SKU 已进 overlay + manifest：
+GLM 当前分成两个单一事实：
+
+- **定价来源**：只用 BigModel 官方页 `https://bigmodel.cn/pricing`，人民币价统一按 `CNY/USD=6.7` 进入 overlay/fallback，运行时再按 zhipu provider 默认叠加 `1.06` base-tax。
+- **服务路径**：仍走阿里 DashScope/Qwen 池（`channel_type=17`）。具体账号成员是运行库 DB/admin 配置事实，不写入本清单；`served_on` / `tk_054` 只作为静态 drift-guard 映射证据。不要因为价格源是 BigModel 就恢复/推断 BigModel/Zhipu 直连 serving path。
+
+当前 manifest 展示/服务的 GLM 条目：
 
 ```
-glm-5.2  glm-5.1  glm-5  glm-5-turbo
-glm-4.7  glm-4.7-flashx  glm-4.6
-glm-4.5  glm-4.5-x  glm-4.5-air  glm-4.5-airx
+glm-5.2  glm-5.1  glm-5
+glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 ```
 
-`glm-4-32b-0414-128k` 已于 2026-07-01 从 manifest / overlay / account 67 mapping 移除：prod 上游 400 model_not_found，不再服务也不再展示。
+`glm-5-turbo` / `glm-4.7-flashx` 在 BigModel 当前价格页有价，但没有当前 manifest serving path；它们不进入公开服务清单，后续若要服务也应单独映射到 DashScope/Qwen 路径。`glm-4.5-x` / `glm-4.5-airx` 不在当前 BigModel 定价页，旧 Z.AI USD 价格不再作为官方来源保留。
 
-free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。prod canary 已于 2026-06-22 完成：runtime overlay 热推后，account 67 切到 ct26、`base_url=https://open.bigmodel.cn`、11 个 paid mapping；`ZHIPU_CHAT_MODELS=glm-4.7` 经 prod 网关返回 `200 servable`，`usage_logs` 落 account 67 / group 26 且 `total_cost=0.0004964000` 非零。
+`glm-4-32b-0414-128k` 已于 2026-07-01 从 manifest / overlay / account 67 mapping 移除：prod 上游 400 model_not_found，不再服务也不再展示。free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overlay 公开目录，避免可见 `$0` 模型。
 
 ### 2.7 kiro（第六平台，CodeWhisperer 中继）
 
@@ -240,7 +244,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |
 | `priced_not_displayed` | gemini/antigravity/volcengine | imagen-3.0/veo 变体、gemini-3.1-pro-low | 低 | Gemini media 2026-06-23 复测 429，留 watchlist |
 | `priced_mapped_not_proven_served` | newapi(volcengine) | `doubao-seed-translation-250915` | 中 | tk_020 legacy mapping + overlay；2026-07-08 Ark chat 400 确认不支持；不进 manifest，apply 时从账号 7 移除 |
-| `priced_not_served` | newapi(qwen) | qwen2.5-coder-* | 中 | 抑制 parity 行的展示，或在账号 60 真 mapping；qwen3.7-max preview/dated 已由 2026-06-23 prod mapping + livefire 证实可服务 |
+| `priced_not_served` | newapi(qwen) | qwen2.5-coder-* | 中 | 抑制 parity 行的展示，或在当前 Qwen/DashScope runtime mapping 中确认后再服务；qwen3.7-max preview/dated 已由 2026-06-23 prod mapping + livefire 证实可服务 |
 | `dated_dup` | anthropic/grok/volcengine | claude bare↔dated、grok-imagine-image-pro、no-prefix seedream/seedance | 低 | anthropic 已由 override 机制处理；其余被 media 守卫/上游 404 收口 |
 | `cross_platform_inconsistency` | claude×{anthropic,kiro,bridge}；gemini×{native,antigravity} | claude-opus-4-*、gemini-2.5/3.x | 中 | 预期的 per-platform 路由真值；唯 kiro 估算 token 路径结构性有损 |
 
@@ -303,7 +307,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|
 | 高 | ct=25 Moonshot | `kimi-k2.5` `kimi-k2-thinking` 等订阅 OAuth 长上下文 | 已有 billing fallback 价；典型 net-new |
 | 中 | ct=35 MiniMax | `MiniMax-M2.x` chat + speech + `image-01` | 含音视频面 |
-| 已完成 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 + overlay + manifest + prod canary 已完成；`glm-4.7` livefire 200 且计费非零 |
+| 历史已废弃 | ct=26 ZhipuV4 | `glm-4.5/4.6/4.7/5.x` 直连容量 | tk_044 曾完成直连 canary；当前 GLM serving intent 已改走运行库配置的 ct17 DashScope/Qwen 池，ct26 不作为目标路径，BigModel 只保留为定价来源 |
 | 中 | ct=17/43 Ali/DeepSeek 未接 id | `qwq-32b`；deepseek-v4 `-none/-max`（实为 adaptor 追加的思考后缀别名，非独立模型）| 2026-06-23 `qwq-32b` 与 `deepseek-v4-none/max` 均为 429 not_allowlisted；DeepSeek 正式 id `deepseek-v4-pro/flash` 与 `deepseek-chat/reasoner` 均 200；`qwen-turbo` 已由 tk_042 收敛 |
 | 低 | ct=1/57 OpenAI 尾 | o1/o3/o4、gpt-4*/4o*、audio/embeddings/dall-e/sora-2（153+24）| 按 raw count 最大一桶 |
 | 低 | ct=24/41 Gemini/Vertex 尾 | gemma、native-audio、robotics、computer-use 等 | 多为非目标 surface |
@@ -334,8 +338,8 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|
 | 1 | OpenAI | 153 | bridge 尾，未接 |
 | 14 | Anthropic | 39 | claude bridge 面 |
-| 16/26 | Zhipu/ZhipuV4 | 4/16 | ct26 GLM paid SKU 已由 tk_044 建模并完成 prod canary；ct16 legacy 不再作为目标路径 |
-| 17 | Ali | 8 | 账号 60（部分）|
+| 16/26 | Zhipu/ZhipuV4 | 4/16 | 历史直连路径；当前不作为目标路径。GLM 定价只取 BigModel，服务走 ct17 DashScope/Qwen |
+| 17 | Ali | 8 | Qwen/DashScope 池；具体账号成员以运行库 DB/admin 配置为准 |
 | 24 | Gemini | 45 | bridge 尾 |
 | 25 | Moonshot | 5 | backlog（kimi）|
 | 33 | AWS Bedrock | 25 | 未接（claude+nova）|

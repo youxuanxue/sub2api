@@ -315,6 +315,12 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "gpt-5.3-codex-spark",
 		},
 		{
+			name:    "oauth keeps gpt-5.3-chat-latest unrewritten (SSOT audit hotfix: substring fallback would otherwise misclassify it as gpt-5.3-codex)",
+			account: &Account{Type: AccountTypeOAuth},
+			model:   "gpt-5.3-chat-latest",
+			want:    "gpt-5.3-chat-latest",
+		},
+		{
 			name:    "oauth spark model not remapped",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3-codex-spark",

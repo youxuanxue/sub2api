@@ -356,24 +356,24 @@ func TestTKPricingOverlay_FillsRetiredQwen25Coder(t *testing.T) {
 
 	c32 := data["qwen2.5-coder-32b"]
 	require.NotNil(t, c32, "overlay must inject qwen2.5-coder-32b")
-	require.InDelta(t, 5.970149e-07, c32.InputCostPerToken, 1e-13)
-	require.InDelta(t, 2.38806e-06, c32.OutputCostPerToken, 1e-13)
-	require.InDelta(t, 5.970149e-07, c32.CacheReadInputTokenCost, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), c32.InputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(16), c32.OutputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), c32.CacheReadInputTokenCost, 1e-13)
 	require.Len(t, c32.Intervals, 4, "32b must carry the 4 input-token tiers")
 	top32 := c32.Intervals[len(c32.Intervals)-1]
 	require.Nil(t, top32.MaxTokens, "last 32b tier is unbounded (>256K)")
 	require.NotNil(t, top32.InputPrice)
 	require.NotNil(t, top32.OutputPrice)
-	require.InDelta(t, 2.985075e-06, *top32.InputPrice, 1e-13)
-	require.InDelta(t, 2.985075e-05, *top32.OutputPrice, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(20), *top32.InputPrice, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(200), *top32.OutputPrice, 1e-13)
 
 	c7 := data["qwen2.5-coder-7b"]
 	require.NotNil(t, c7, "overlay must inject qwen2.5-coder-7b")
-	require.InDelta(t, 1.492537e-07, c7.InputCostPerToken, 1e-13)
-	require.InDelta(t, 5.970149e-07, c7.OutputCostPerToken, 1e-13)
-	require.InDelta(t, 1.492537e-07, c7.CacheReadInputTokenCost, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), c7.InputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), c7.OutputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), c7.CacheReadInputTokenCost, 1e-13)
 	require.Len(t, c7.Intervals, 4, "7b must carry the 4 input-token tiers")
 	base7 := c7.Intervals[0]
 	require.NotNil(t, base7.InputPrice)
-	require.InDelta(t, 1.492537e-07, *base7.InputPrice, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), *base7.InputPrice, 1e-13)
 }
