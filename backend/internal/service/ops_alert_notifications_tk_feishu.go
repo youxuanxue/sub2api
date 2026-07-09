@@ -67,7 +67,7 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 // kept as a named predicate so the policy is one obvious list, not an inline
 // string compare.
 func isEdgeSuppressedAlertRule(rule *OpsAlertRule) bool {
-	return rule != nil && strings.TrimSpace(rule.MetricType) == "routing_capacity_rejection_count"
+	return rule != nil && strings.TrimSpace(rule.MetricType) == OpsAlertMetricRoutingCapacityRejectionCount
 }
 
 // isEdgeNode reports whether this node is a prod→edge mirror-relay edge
@@ -182,8 +182,7 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertFeishuRecovery(ctx context.Cont
 func shouldSendOpsAlertToFeishu(rule *OpsAlertRule, event *OpsAlertEvent) bool {
 	return rule != nil && event != nil &&
 		strings.EqualFold(strings.TrimSpace(event.Status), OpsAlertStatusFiring) &&
-		strings.EqualFold(strings.TrimSpace(rule.Severity), "P0") &&
-		strings.EqualFold(strings.TrimSpace(event.Severity), "P0") &&
+		opsAlertFeishuSeverityAllowed(rule, event) &&
 		rule.NotifyEmail
 }
 
@@ -195,9 +194,22 @@ func shouldSendOpsAlertFeishuRecovery(rule *OpsAlertRule, event *OpsAlertEvent) 
 	if !strings.EqualFold(status, OpsAlertStatusResolved) && !strings.EqualFold(status, OpsAlertStatusManualResolved) {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(rule.Severity), "P0") &&
-		strings.EqualFold(strings.TrimSpace(event.Severity), "P0") &&
+	return opsAlertFeishuSeverityAllowed(rule, event) &&
 		rule.NotifyEmail
+}
+
+func opsAlertFeishuSeverityAllowed(rule *OpsAlertRule, event *OpsAlertEvent) bool {
+	if rule == nil || event == nil {
+		return false
+	}
+	ruleSeverity := strings.ToUpper(strings.TrimSpace(rule.Severity))
+	eventSeverity := strings.ToUpper(strings.TrimSpace(event.Severity))
+	if ruleSeverity == "P0" && eventSeverity == "P0" {
+		return true
+	}
+	return ruleSeverity == "P1" &&
+		eventSeverity == "P1" &&
+		strings.TrimSpace(rule.MetricType) == OpsAlertMetricClientVisibleFailureCount
 }
 
 func (s *opsFeishuNotificationState) shouldSend(rule *OpsAlertRule, event *OpsAlertEvent, cfg OpsFeishuAlertConfig) bool {

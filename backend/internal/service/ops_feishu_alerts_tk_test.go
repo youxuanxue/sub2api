@@ -219,7 +219,7 @@ func TestOpsFeishuNotifierSanitizesWebhookErrors(t *testing.T) {
 	require.Equal(t, "Post \"https://open.feishu.cn/<redacted>\": dial tcp failed", rootErr)
 }
 
-func TestMaybeSendAlertFeishuP0Only(t *testing.T) {
+func TestMaybeSendAlertFeishuP0AndClientVisibleP1Only(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -227,7 +227,7 @@ func TestMaybeSendAlertFeishuP0Only(t *testing.T) {
 		mutate func(rule *OpsAlertRule, event *OpsAlertEvent)
 	}{
 		{
-			name: "P1 rule never sends",
+			name: "ordinary P1 rule never sends",
 			mutate: func(rule *OpsAlertRule, event *OpsAlertEvent) {
 				rule.Severity = "P1"
 				event.Severity = "P1"
@@ -263,6 +263,36 @@ func TestMaybeSendAlertFeishuP0Only(t *testing.T) {
 			require.Equal(t, 0, doer.calls)
 		})
 	}
+}
+
+func TestMaybeSendAlertFeishuAllowsClientVisibleP1(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	rule.Name = "真实用户客户端失败增多"
+	rule.Severity = "P1"
+	rule.MetricType = OpsAlertMetricClientVisibleFailureCount
+	rule.Operator = ">="
+	rule.Threshold = 20
+	event := testOpsFeishuEvent(1)
+	event.Severity = "P1"
+	event.Dimensions = map[string]any{
+		"user_visible_affected": "#16 compute@tk.com ×21",
+		"user_visible_impact":   "失败 21 / 成功 17336 / 失败率 0.12% / 5m",
+		"user_visible_surface":  "final 400 / invalid_request_error ×21",
+		"user_visible_root":     "request/client / openai / gpt-5.5 / prompt too long ×21",
+	}
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, event))
+	require.Equal(t, 1, doer.calls)
+	require.Contains(t, doer.bodies[0], "TokenKey P1 告警")
+	require.Contains(t, doer.bodies[0], "orange")
+	require.Contains(t, doer.bodies[0], "**谁受影响**")
+	require.Contains(t, doer.bodies[0], "**影响多大**")
+	require.Contains(t, doer.bodies[0], "**用户看到什么**")
+	require.Contains(t, doer.bodies[0], "**根因在哪**")
 }
 
 func TestMaybeSendAlertFeishuSendsAndDedupesByCooldown(t *testing.T) {
@@ -303,7 +333,7 @@ func TestOpsFeishuNotifierBuildsRecoveryPayload(t *testing.T) {
 	event.FiredAt = firedAt
 	current := 0.0
 	event.Dimensions = map[string]any{
-		"top_cause":       `newapi ×128（#16 "Agent-陈乐晗-qwen" ×128）`,
+		"top_cause":        `newapi ×128（#16 "Agent-陈乐晗-qwen" ×128）`,
 		"top_cause_models": "gpt5.4-mini ×128",
 	}
 
@@ -348,6 +378,42 @@ func TestMaybeSendAlertFeishuRecoverySendsPairedGreenCard(t *testing.T) {
 
 	require.False(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, &resolved, 0))
 	require.Equal(t, 2, doer.calls, "recovery must dedupe per event")
+}
+
+func TestMaybeSendAlertFeishuRecoverySendsClientVisibleP1GreenCard(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	rule.Name = "真实用户客户端失败增多"
+	rule.Severity = "P1"
+	rule.MetricType = OpsAlertMetricClientVisibleFailureCount
+	rule.Operator = ">="
+	rule.Threshold = 20
+	firing := testOpsFeishuEvent(100)
+	firing.Severity = "P1"
+	firing.Dimensions = map[string]any{
+		"user_visible_affected": "#16 compute@tk.com ×21",
+		"user_visible_impact":   "失败 21 / 成功 17336 / 失败率 0.12% / 5m",
+		"user_visible_surface":  "final 400 / invalid_request_error ×21",
+		"user_visible_root":     "request/client / openai / gpt-5.5 / prompt too long ×21",
+	}
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, firing))
+	require.Equal(t, 1, doer.calls)
+	require.Contains(t, doer.bodies[0], "TokenKey P1 告警")
+
+	resolvedAt := firing.FiredAt.Add(time.Minute)
+	resolved := *firing
+	resolved.Status = OpsAlertStatusResolved
+	resolved.ResolvedAt = &resolvedAt
+
+	require.True(t, svc.maybeSendAlertFeishuRecovery(context.Background(), nil, rule, &resolved, 0))
+	require.Equal(t, 2, doer.calls)
+	require.Contains(t, doer.bodies[1], "TokenKey P1 告警已恢复")
+	require.Contains(t, doer.bodies[1], "green")
+	require.Contains(t, doer.bodies[1], "**谁受影响**")
 }
 
 func TestMaybeSendAlertFeishuRecoverySkipsWithoutPriorFiringCard(t *testing.T) {

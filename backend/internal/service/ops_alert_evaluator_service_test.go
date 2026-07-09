@@ -24,6 +24,12 @@ type stubOpsRepo struct {
 	routingByPlatformErr error
 	routingByModel       []*OpsRoutingRejectionModel
 	routingByModelErr    error
+
+	userVisibleFailures     int64
+	clientVisibleFailures   int64
+	userVisibleFailuresErr  error
+	userVisibleBreakdown    *OpsUserVisibleFailureBreakdown
+	userVisibleBreakdownErr error
 }
 
 func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -55,6 +61,23 @@ func (s *stubOpsRepo) TopRoutingCapacityRejectionByModel(ctx context.Context, fi
 		return nil, s.routingByModelErr
 	}
 	return s.routingByModel, nil
+}
+
+func (s *stubOpsRepo) CountUserVisibleFailures(ctx context.Context, filter *OpsDashboardFilter, ownerScope string) (int64, error) {
+	if s.userVisibleFailuresErr != nil {
+		return 0, s.userVisibleFailuresErr
+	}
+	if ownerScope == "client" {
+		return s.clientVisibleFailures, nil
+	}
+	return s.userVisibleFailures, nil
+}
+
+func (s *stubOpsRepo) GetUserVisibleFailureBreakdown(ctx context.Context, filter *OpsDashboardFilter, ownerScope string, limit int) (*OpsUserVisibleFailureBreakdown, error) {
+	if s.userVisibleBreakdownErr != nil {
+		return nil, s.userVisibleBreakdownErr
+	}
+	return s.userVisibleBreakdown, nil
 }
 
 // GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
@@ -323,7 +346,7 @@ func TestComputeRuleMetricRateSampleFloor(t *testing.T) {
 
 			svc := &OpsAlertEvaluatorService{
 				opsRepo: &stubOpsRepo{overview: &OpsDashboardOverview{
-					RequestCountTotal:   tt.requestSLA,
+					RequestCountTotal: tt.requestSLA,
 					UpstreamErrorRate: 1.0, // 100% of the (few) requests failed upstream
 				}},
 			}
@@ -396,6 +419,46 @@ func TestComputeRuleMetricRoutingCapacityRejectionCount(t *testing.T) {
 		}
 		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
 		_, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.False(t, ok)
+	})
+}
+
+func TestComputeRuleMetricUserVisibleFailureCounts(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	t.Run("provider/platform user-visible failures use the P0 count metric", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{userVisibleFailures: 148},
+		}
+		rule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 1000)
+		require.True(t, ok)
+		require.InDelta(t, 148.0, got, 0.0001)
+	})
+
+	t.Run("client-owned visible failures use the P1 count metric", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{clientVisibleFailures: 51},
+		}
+		rule := &OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 1000)
+		require.True(t, ok)
+		require.InDelta(t, 51.0, got, 0.0001)
+	})
+
+	t.Run("query error => skipped", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{userVisibleFailuresErr: context.DeadlineExceeded},
+		}
+		rule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+		_, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 1000)
 		require.False(t, ok)
 	})
 }
@@ -481,6 +544,36 @@ func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
 		require.Empty(t, users)
 		require.Empty(t, models)
 	})
+}
+
+func TestComputeUserVisibleFailureDimensions(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+	rule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+	svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+		userVisibleBreakdown: &OpsUserVisibleFailureBreakdown{
+			Failures:  148,
+			Successes: 17336,
+			Users: []*OpsUserVisibleFailureUser{{
+				UserID: 16, UserEmail: "compute@tk.com", APIKeyName: "训练组-何易纯", GroupName: "GPT专线", Count: 138,
+			}},
+			Surfaces: []*OpsUserVisibleFailureSurface{{
+				StatusCode: 429, UpstreamStatusCode: 429, ErrorType: "rate_limit_error", Count: 148,
+			}},
+			Roots: []*OpsUserVisibleFailureRoot{{
+				Phase: "upstream", Owner: "provider", Platform: "openai", Model: "gpt-5.5", AccountID: 76, Message: "Too many pending requests", Count: 148,
+			}},
+		},
+	}}
+
+	got := svc.computeUserVisibleFailureDimensions(ctx, rule, start, end, "", nil)
+	require.Equal(t, `#16 compute@tk.com ×138（key "训练组-何易纯" / group GPT专线）`, got["user_visible_affected"])
+	require.Equal(t, "失败 148 / 成功 17336 / 失败率 0.85% / 5m", got["user_visible_impact"])
+	require.Equal(t, "final 429 / upstream 429 / rate limit error ×148", got["user_visible_surface"])
+	require.Equal(t, "upstream/provider / openai / gpt-5.5 / account #76 / Too many pending requests ×148", got["user_visible_root"])
 }
 
 // TestIsEdgeNode pins the node-identity predicate that drives edge-only alert

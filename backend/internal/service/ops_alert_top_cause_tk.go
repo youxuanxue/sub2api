@@ -58,6 +58,42 @@ type OpsRoutingRejectionModel struct {
 	Count int64
 }
 
+// OpsUserVisibleFailureBreakdown is the first-screen payload for the "real user
+// experience degraded" Feishu rules. It keeps the four operator questions
+// separate so the card stays scannable: who, impact, user-visible surface, root.
+type OpsUserVisibleFailureBreakdown struct {
+	Failures  int64
+	Successes int64
+	Users     []*OpsUserVisibleFailureUser
+	Surfaces  []*OpsUserVisibleFailureSurface
+	Roots     []*OpsUserVisibleFailureRoot
+}
+
+type OpsUserVisibleFailureUser struct {
+	UserID     int64
+	UserEmail  string
+	APIKeyName string
+	GroupName  string
+	Count      int64
+}
+
+type OpsUserVisibleFailureSurface struct {
+	StatusCode         int
+	UpstreamStatusCode int
+	ErrorType          string
+	Count              int64
+}
+
+type OpsUserVisibleFailureRoot struct {
+	Phase     string
+	Owner     string
+	Platform  string
+	Model     string
+	AccountID int64
+	Message   string
+	Count     int64
+}
+
 // opsTopCauseMetricTypes are the rule metric types for which a top-cause
 // breakdown is meaningful (rate metrics over ops_error_logs). Other rule types
 // (system gauges, group-availability counts) get no breakdown — keeping the
@@ -116,7 +152,7 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 	// standalone 用户 line is retired); the notifier keeps its reader for
 	// already-stored historical events. Best-effort: a failure must not block the
 	// alert.
-	if metricType == "routing_capacity_rejection_count" {
+	if metricType == OpsAlertMetricRoutingCapacityRejectionCount {
 		filter := &OpsDashboardFilter{
 			StartTime: start,
 			EndTime:   end,
@@ -146,6 +182,49 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 		return "", "", ""
 	}
 	return formatOpsTopCause(causes), "", ""
+}
+
+func userVisibleFailureOwnerScopeForMetric(metricType string) string {
+	switch strings.TrimSpace(metricType) {
+	case OpsAlertMetricClientVisibleFailureCount:
+		return "client"
+	default:
+		return "system"
+	}
+}
+
+func (s *OpsAlertEvaluatorService) computeUserVisibleFailureDimensions(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) map[string]string {
+	if s == nil || s.opsRepo == nil || rule == nil {
+		return nil
+	}
+	metricType := strings.TrimSpace(rule.MetricType)
+	if metricType != OpsAlertMetricUserVisibleFailureCount && metricType != OpsAlertMetricClientVisibleFailureCount {
+		return nil
+	}
+	breakdown, err := s.opsRepo.GetUserVisibleFailureBreakdown(ctx, &OpsDashboardFilter{
+		StartTime: start,
+		EndTime:   end,
+		Platform:  platform,
+		GroupID:   groupID,
+		QueryMode: OpsQueryModeRaw,
+	}, userVisibleFailureOwnerScopeForMetric(metricType), 3)
+	if err != nil || breakdown == nil {
+		return nil
+	}
+	out := map[string]string{}
+	if affected := formatUserVisibleFailureAffected(breakdown.Users); affected != "" {
+		out["user_visible_affected"] = affected
+	}
+	if impact := formatUserVisibleFailureImpact(breakdown, start, end); impact != "" {
+		out["user_visible_impact"] = impact
+	}
+	if surface := formatUserVisibleFailureSurface(breakdown.Surfaces); surface != "" {
+		out["user_visible_surface"] = surface
+	}
+	if root := formatUserVisibleFailureRoot(breakdown.Roots); root != "" {
+		out["user_visible_root"] = root
+	}
+	return out
 }
 
 // formatOpsTopCause renders up to two causes as a compact one-line string, e.g.
@@ -254,6 +333,110 @@ func formatRoutingRejectionByModel(models []*OpsRoutingRejectionModel) string {
 		}
 		name := sanitizeFeishuModelLabel(m.Model)
 		parts = append(parts, fmt.Sprintf("%s ×%d", name, m.Count))
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func formatUserVisibleFailureAffected(users []*OpsUserVisibleFailureUser) string {
+	parts := make([]string, 0, 3)
+	for _, u := range users {
+		if u == nil || u.Count <= 0 {
+			continue
+		}
+		user := fmt.Sprintf("#%d", u.UserID)
+		if email := sanitizeFeishuLabel(u.UserEmail); email != "" {
+			user += " " + email
+		}
+		seg := fmt.Sprintf("%s ×%d", user, u.Count)
+		details := make([]string, 0, 2)
+		if key := sanitizeFeishuLabel(u.APIKeyName); key != "" {
+			details = append(details, `key "`+key+`"`)
+		}
+		if group := sanitizeFeishuLabel(u.GroupName); group != "" {
+			details = append(details, "group "+group)
+		}
+		if len(details) > 0 {
+			seg += "（" + strings.Join(details, " / ") + "）"
+		}
+		parts = append(parts, seg)
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func formatUserVisibleFailureImpact(b *OpsUserVisibleFailureBreakdown, start, end time.Time) string {
+	if b == nil {
+		return ""
+	}
+	windowMinutes := int(end.Sub(start).Round(time.Minute).Minutes())
+	if windowMinutes <= 0 {
+		windowMinutes = 1
+	}
+	total := b.Successes + b.Failures
+	rate := 0.0
+	if total > 0 {
+		rate = float64(b.Failures) * 100 / float64(total)
+	}
+	return fmt.Sprintf("失败 %d / 成功 %d / 失败率 %.2f%% / %dm", b.Failures, b.Successes, rate, windowMinutes)
+}
+
+func formatUserVisibleFailureSurface(surfaces []*OpsUserVisibleFailureSurface) string {
+	parts := make([]string, 0, 3)
+	for _, s := range surfaces {
+		if s == nil || s.Count <= 0 {
+			continue
+		}
+		status := fmt.Sprintf("final %d", s.StatusCode)
+		if s.UpstreamStatusCode > 0 {
+			status += fmt.Sprintf(" / upstream %d", s.UpstreamStatusCode)
+		}
+		typ := sanitizeFeishuLabel(s.ErrorType)
+		if typ != "" {
+			status += " / " + typ
+		}
+		parts = append(parts, fmt.Sprintf("%s ×%d", status, s.Count))
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func formatUserVisibleFailureRoot(roots []*OpsUserVisibleFailureRoot) string {
+	parts := make([]string, 0, 3)
+	for _, r := range roots {
+		if r == nil || r.Count <= 0 {
+			continue
+		}
+		phase := sanitizeFeishuLabel(r.Phase)
+		owner := sanitizeFeishuLabel(r.Owner)
+		platform := sanitizeFeishuLabel(r.Platform)
+		model := sanitizeFeishuModelLabel(r.Model)
+		if phase == "" {
+			phase = "unknown"
+		}
+		if owner == "" {
+			owner = "unknown"
+		}
+		seg := fmt.Sprintf("%s/%s", phase, owner)
+		if platform != "" {
+			seg += " / " + platform
+		}
+		if model != "" && model != "(unknown)" {
+			seg += " / " + model
+		}
+		if r.AccountID > 0 {
+			seg += fmt.Sprintf(" / account #%d", r.AccountID)
+		}
+		if msg := sanitizeFeishuLabel(r.Message); msg != "" {
+			seg += " / " + msg
+		}
+		parts = append(parts, fmt.Sprintf("%s ×%d", seg, r.Count))
 		if len(parts) >= 3 {
 			break
 		}
