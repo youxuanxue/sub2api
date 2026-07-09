@@ -94,13 +94,14 @@ SELECT
   COALESCE(l.user_id, l.deleted_key_owner_user_id, 0) AS user_id,
   COALESCE(u.email, '') AS user_email,
   COALESCE(ak.name, l.deleted_key_name, '') AS api_key_name,
+  COALESCE(ak.routing_mode, '') AS api_key_routing_mode,
   COALESCE(g.name, '') AS group_name,
   COUNT(*) AS n
 FROM base l
 LEFT JOIN users u ON u.id = COALESCE(l.user_id, l.deleted_key_owner_user_id)
 LEFT JOIN api_keys ak ON ak.id = l.api_key_id AND ak.deleted_at IS NULL
 LEFT JOIN groups g ON g.id = l.group_id AND g.deleted_at IS NULL
-GROUP BY 1, 2, 3, 4
+GROUP BY 1, 2, 3, 4, 5
 ORDER BY n DESC, user_id ASC
 LIMIT $` + fmt.Sprintf("%d", next)
 
@@ -113,7 +114,7 @@ LIMIT $` + fmt.Sprintf("%d", next)
 	out := make([]*service.OpsUserVisibleFailureUser, 0, limit)
 	for rows.Next() {
 		row := &service.OpsUserVisibleFailureUser{}
-		if err := rows.Scan(&row.UserID, &row.UserEmail, &row.APIKeyName, &row.GroupName, &row.Count); err != nil {
+		if err := rows.Scan(&row.UserID, &row.UserEmail, &row.APIKeyName, &row.APIKeyRoutingMode, &row.GroupName, &row.Count); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
