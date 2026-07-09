@@ -46,7 +46,12 @@ def git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def resolve_range(base: str | None, head: str) -> tuple[str | None, str | None]:
+def resolve_range(
+    base: str | None,
+    head: str,
+    *,
+    allow_tree_diff_without_merge_base: bool = False,
+) -> tuple[str | None, str | None]:
     candidates = []
     if base:
         candidates.append(base)
@@ -56,7 +61,9 @@ def resolve_range(base: str | None, head: str) -> tuple[str | None, str | None]:
             continue
         if git("rev-parse", "--verify", candidate).returncode != 0:
             continue
-        if git("merge-base", candidate, head).returncode == 0:
+        if git("rev-parse", "--verify", head).returncode != 0:
+            continue
+        if allow_tree_diff_without_merge_base or git("merge-base", candidate, head).returncode == 0:
             return candidate, head
     return None, None
 
@@ -149,13 +156,22 @@ def main() -> int:
     ap.add_argument("--base", default=os.environ.get("PREFLIGHT_BASE"))
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument(
+        "--allow-tree-diff-without-merge-base",
+        action="store_true",
+        help="allow explicit base/head tree diff in shallow deploy checkouts",
+    )
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
     if args.selftest:
         return selftest()
 
-    base, head = resolve_range(args.base, args.head)
+    base, head = resolve_range(
+        args.base,
+        args.head,
+        allow_tree_diff_without_merge_base=args.allow_tree_diff_without_merge_base,
+    )
     if not base:
         if not args.quiet:
             print("skip: cannot resolve base ref for blue/green migration safety check")

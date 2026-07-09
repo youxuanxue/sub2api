@@ -886,6 +886,8 @@ elif ! python3 ./ops/anthropic/probe_prompt_surfaces.py --check-registry >/dev/n
     errors=$((errors + 1))
 elif [ "$_preflight_fast" = "1" ]; then
     echo "  ok: prompt surface registry (fixture gateway runs in CI test-unit)"
+elif [ "${PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY:-}" = "1" ]; then
+    echo "  ok: prompt surface registry (fixture gateway deduped to CI test-unit)"
 elif ! python3 ./ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway >/dev/null; then
     errors=$((errors + 1))
 else
