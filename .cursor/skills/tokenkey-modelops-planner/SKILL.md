@@ -49,6 +49,11 @@ description: >-
 
 ### 新模型 prod model_mapping 判读（全平台 floor vs 上游能力）
 
+**可展示 SSOT（官方别名）**：对已支持的平台与 newapi channel，若上游官方 model page
+（或 `tk_served_models.json` 策展行）声明了 model id/alias，且 TokenKey 已核实 **有价 +
+可服务**，则必须进入公开 catalog/menu（不只列 stable bare id）。仅退休重定向、无官方 SKU
+的兼容键保持 priced-only。详见 `docs/global/agent-reference.md` § Model serving SSOT。
+
 新模型不能只看「已定价」「可展示」或 prod 普通探测的 400/429。prod 账号会按 SSOT
 `model_mapping` 收窄可服务模型；未列入当前 mapping/floor 的型号可能在调度或账号选择前被
 TokenKey 拦住，表现为 `Unsupported model: <id>`、`account_id=null`、无 upstream event，或

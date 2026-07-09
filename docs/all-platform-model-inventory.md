@@ -162,7 +162,7 @@ servable allowlist 共 **8**（与公开目录、overlay xai 同源）：
 | `grok-imagine-video` | video | $0.08/s(720p+img 上限档) | success_only |
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
-- **兼容别名（不公开列）**：`grok-4.3-latest`、`grok-latest`、`grok-4-fast-reasoning`、`grok-code-fast`、`grok-code-fast-1-0825` 均有 overlay 价，2026-06-23 edge-us4 原生 grok 探针复测 200；它们只保证显式请求不落 `$0`，公开目录仍只列稳定 bare id / 当前官方 SKU。
+- **官方别名（可展示）**：xAI model page 声明的 alias（如 `grok-4.3-latest`/`grok-latest`、`grok-4.5-latest`/`grok-build-latest`、`grok-code-fast`/`grok-code-fast-1-0825`）在 overlay 有价且探针 200 时进入 allowlist；退休重定向 `grok-4-fast-reasoning` 仍 priced-only。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
 - 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径。prod→edge grok 中继长期收敛为 `platform=grok,type=apikey` relay；旧 `newapi` edge-host bridge 仅作为迁移兼容形态保留。
 

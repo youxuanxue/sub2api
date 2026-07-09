@@ -45,7 +45,7 @@
     "input_cost_per_token": 2e-06,
     "cache_read_input_token_cost": 5e-07,
     "output_cost_per_token": 6e-06,
-    "source": "Alias priced to grok-4.5 per xAI official model page (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Kept priced so explicit alias requests do not bill $0, but not public-listed."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Live probe 2026-07-09 edge-us4 native grok OAuth returned 200; public-listed as official xAI alias."
   },
   "grok-build-latest": {
     "litellm_provider": "xai",
@@ -53,7 +53,7 @@
     "input_cost_per_token": 2e-06,
     "cache_read_input_token_cost": 5e-07,
     "output_cost_per_token": 6e-06,
-    "source": "Alias priced to grok-4.5 per xAI official model page (docs.x.ai/developers/models/grok-4.5 aliases include grok-build-latest, captured 2026-07-09): input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Kept priced so explicit alias requests do not bill $0, but not public-listed."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-build-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Live probe 2026-07-09 edge-us4 native grok OAuth returned 200; public-listed as official xAI alias."
   },
   "grok-4.3-latest": {
     "litellm_provider": "xai",
@@ -61,7 +61,7 @@
     "input_cost_per_token": 1.25e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2.5e-06,
-    "source": "Alias priced to grok-4.3 per xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22): input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 returned 200; kept priced so explicit alias requests do not bill $0, but not public-listed."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.3, captured 2026-07-09): grok-4.3-latest maps to grok-4.3 at input $1.25/Mtok, cached $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 edge-us4 returned 200; public-listed as official xAI alias."
   },
   "grok-latest": {
     "litellm_provider": "xai",
@@ -69,7 +69,7 @@
     "input_cost_per_token": 1.25e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2.5e-06,
-    "source": "Alias priced to grok-4.3 per xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22): input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 returned 200; kept priced so explicit alias requests do not bill $0, but not public-listed."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.3, captured 2026-07-09): grok-latest maps to grok-4.3 at input $1.25/Mtok, cached $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 edge-us4 returned 200; public-listed as official xAI alias."
   },
   "grok-4-fast-reasoning": {
     "litellm_provider": "xai",
@@ -109,7 +109,7 @@
     "input_cost_per_token": 1e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2e-06,
-    "source": "xAI official grok-build-0.1 model page (docs.x.ai/developers/models/grok-code-fast-1, captured 2026-06-22) lists grok-code-fast as an alias of grok-build-0.1. Official pricing page lists grok-build-0.1 at input $1/Mtok, cached input $0.20/Mtok, output $2/Mtok. Live probe 2026-06-22 returned 200."
+    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Live probe 2026-06-22 returned 200; public-listed as official xAI alias."
   },
   "grok-code-fast-1-0825": {
     "litellm_provider": "xai",
@@ -117,7 +117,7 @@
     "input_cost_per_token": 1e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2e-06,
-    "source": "xAI official grok-build-0.1 model page (docs.x.ai/developers/models/grok-code-fast-1, captured 2026-06-22) lists grok-code-fast-1-0825 as an alias of grok-build-0.1. Official pricing page lists grok-build-0.1 at input $1/Mtok, cached input $0.20/Mtok, output $2/Mtok. Live probe 2026-06-22 returned 200; kept priced for backward compatibility, not public-listed."
+    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast-1-0825 maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Live probe 2026-06-22 returned 200; public-listed as official xAI alias."
   },
   "grok-code-fast-1": {
     "litellm_provider": "xai",

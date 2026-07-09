@@ -140,6 +140,12 @@ align on prod: catalog allowlists, pricing overlay/channel rows, and prod
 and modelops checks use `check-accounts` **without** `--include-edges`; `violation_count`
 must be `0` on prod.
 
+**Official upstream aliases:** when a managed platform or newapi channel's provider
+model page declares an id/alias and TokenKey has priced + probe-verified servability,
+add it to the public catalog (not priced-only). Retirement redirects without a current
+official SKU stay priced-only. Canonical wording:
+`docs/global/agent-reference.md` § Model serving SSOT.
+
 **Edge empty mapping is expected.** Traffic is `user → prod → edge relay → upstream`.
 Prod chooses the model and target edge; edge OAuth/native accounts therefore keep
 `credentials.model_mapping` empty (platform-level passthrough). Do not bulk-copy prod

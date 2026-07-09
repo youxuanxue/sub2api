@@ -56,6 +56,14 @@ Customer-visible serving is gated by three layers that must stay aligned on **pr
 2. **已定价** — channel pricing + `tk_pricing_overlay.json` (zero-price leak is an ops alert, not a customer block).
 3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform.
 
+**Official upstream aliases are displayable when priced and servable.** For every
+TokenKey-managed native platform and newapi `channel_type`, if the provider's
+official model page (or curated `tk_served_models.json` row for newapi long-tail)
+declares a model id or alias, and TokenKey has verified it is **priced + servable**
+on the target account/path, it belongs in the public catalog/menu — not only the
+stable bare id. Legacy retirement redirects and third-party slugs without an
+official declaration stay **priced-only** (explicit requests must not bill `$0`).
+
 **prod is the only post-release gate.** Run:
 
 ```bash

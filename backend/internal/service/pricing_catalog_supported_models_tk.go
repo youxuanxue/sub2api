@@ -183,23 +183,27 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 // rather than the TokenKey OpenAI-video task shape.
 //
 // Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
-// anthropic/openai/gemini and does not cover grok yet). Back-compat aliases
-// such as grok-4.3-latest / grok-latest / grok-code-fast-1-0825 are priced in
-// the overlay so explicit requests do not bill $0, but are not public-listed:
-// the visible catalog prefers stable bare ids and current official SKUs. While
-// EMPTY the catalog/menu gates fall through to passthrough (no regression),
-// matching the gemini/antigravity arms.
+// anthropic/openai/gemini and does not cover grok yet). Display policy follows
+// the repo SSOT rule: upstream-official ids/aliases on the provider model page
+// that are priced and probe-servable are public-listed. Legacy retirement
+// redirects (grok-4-fast-reasoning) stay priced-only.
 var supportedGrokCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin grok
 	"grok-4.20-0309-non-reasoning": {},
 	"grok-4.20-0309-reasoning":     {},
 	"grok-4.3":                     {},
+	"grok-4.3-latest":              {},
 	"grok-4.5":                     {},
+	"grok-4.5-latest":              {},
 	"grok-build-0.1":               {},
+	"grok-build-latest":            {},
+	"grok-code-fast":               {},
 	"grok-code-fast-1":             {},
+	"grok-code-fast-1-0825":        {},
 	"grok-imagine-image":           {},
 	"grok-imagine-image-quality":   {},
 	"grok-imagine-video":           {},
+	"grok-latest":                  {},
 	// servable-allowlist:end grok
 }
 

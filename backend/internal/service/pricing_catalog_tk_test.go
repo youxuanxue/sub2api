@@ -450,16 +450,21 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"vertex_ai", "veo-3.1-generate-001", true},                    // 2026-07-04 post-#1198 paid gate: keep_displayed
 		// grok (xai vendor → grok platform): gated to the paid-gate-verified native set.
 		{"xai", "grok-4.3", true},
+		{"xai", "grok-4.3-latest", true},
 		{"xai", "grok-4.5", true},
+		{"xai", "grok-4.5-latest", true},
 		{"xai", "grok-4.20-0309-reasoning", true},
 		{"xai", "grok-build-0.1", true},
+		{"xai", "grok-build-latest", true},
+		{"xai", "grok-code-fast", true},
 		{"xai", "grok-code-fast-1", true},
+		{"xai", "grok-code-fast-1-0825", true},
 		{"xai", "grok-imagine-video", true},  // 2026-07-04 post-#1198 paid gate: keep_displayed
 		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
 		{"xai", "grok-imagine-image-quality", true},
-		{"xai", "grok-4", false},      // third-party-priced / unverified legacy slug
-		{"xai", "grok-latest", false}, // priced alias, not public-listed
-		{"xai", "grok-4.5-latest", false},
+		{"xai", "grok-4", false},              // third-party-priced / unverified legacy slug
+		{"xai", "grok-latest", true},
+		{"xai", "grok-4-fast-reasoning", false}, // retirement redirect, priced-only
 		{"volcengine", "doubao-seedream-4-0-250828", true},
 		{"volcengine", "doubao-seedance-1-0-pro-250528", true},
 		{"", "anything", false},             // unknown vendor: hidden
@@ -527,22 +532,27 @@ func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
 	}
 	for _, want := range []string{
 		"grok-4.3",
+		"grok-4.3-latest",
 		"grok-4.5",
+		"grok-4.5-latest",
 		"grok-4.20-0309-reasoning",
 		"grok-4.20-0309-non-reasoning",
 		"grok-build-0.1",
+		"grok-build-latest",
+		"grok-code-fast",
 		"grok-code-fast-1",
+		"grok-code-fast-1-0825",
 		"grok-imagine-image",
 		"grok-imagine-image-quality",
 		"grok-imagine-video",
+		"grok-latest",
 	} {
 		_, ok := set[want]
 		assert.Truef(t, ok, "expected grok menu to advertise %q", want)
 	}
 	for _, deny := range []string{
 		"grok-4",
-		"grok-latest",
-		"grok-code-fast-1-0825",
+		"grok-4-fast-reasoning",
 		"claude-opus-4-8",
 	} {
 		_, ok := set[deny]
