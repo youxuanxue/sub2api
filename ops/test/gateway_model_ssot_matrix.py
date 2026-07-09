@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 _OPS_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +27,11 @@ from ssot_recent_success import load_skip_keys, parse_recent_success_tsv
 
 DEFAULT_BASE_URL = os.environ.get("TK_FULLTEST_BASE_URL", "https://api.tokenkey.dev")
 DEFAULT_TIMEOUT = float(os.environ.get("TK_FULLTEST_TIMEOUT", "90"))
+REPO = Path(__file__).resolve().parents[2]
+LOCAL_FALLBACK_PRICING = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
+LOCAL_TK_OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
+LOCAL_ALLOWLIST_GO = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
+LOCAL_SERVED_MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
 
 VENDOR_PLATFORM = {
     "anthropic": "anthropic",
@@ -211,12 +217,182 @@ def rows_from_public_catalog(payload: dict[str, Any], source: str) -> tuple[list
     return rows, excluded
 
 
+def load_json_file(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def local_media_billing_mode(entry: dict[str, Any]) -> str:
+    has_token_price = "input_cost_per_token" in entry or "output_cost_per_token" in entry
+    pure_media_without_mode = not entry.get("mode") and not has_token_price
+    if (entry.get("output_cost_per_second") or 0) > 0 and (
+        entry.get("mode") == "video_generation" or pure_media_without_mode
+    ):
+        return "video"
+    if (entry.get("output_cost_per_image") or 0) > 0 and (
+        entry.get("mode") == "image_generation" or pure_media_without_mode
+    ):
+        return "image"
+    return ""
+
+
+def local_entry_has_catalog_price(entry: dict[str, Any]) -> bool:
+    return (
+        "input_cost_per_token" in entry
+        or "output_cost_per_token" in entry
+        or bool(local_media_billing_mode(entry))
+    )
+
+
+def local_entry_effectively_priced(entry: dict[str, Any]) -> bool:
+    return (
+        (entry.get("input_cost_per_token") or 0) > 0
+        or (entry.get("output_cost_per_token") or 0) > 0
+        or (entry.get("output_cost_per_image") or 0) > 0
+        or (entry.get("output_cost_per_second") or 0) > 0
+    )
+
+
+def local_pricing_from_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    pricing: dict[str, Any] = {
+        "currency": "USD",
+        "input_per_1k_tokens": (entry.get("input_cost_per_token") or 0) * 1000,
+        "output_per_1k_tokens": (entry.get("output_cost_per_token") or 0) * 1000,
+    }
+    if (entry.get("thinking_output_cost_per_token") or 0) > 0:
+        pricing["thinking_output_per_1k_tokens"] = entry["thinking_output_cost_per_token"] * 1000
+    if (entry.get("cache_read_input_token_cost") or 0) > 0:
+        pricing["cache_read_per_1k"] = entry["cache_read_input_token_cost"] * 1000
+    if (entry.get("cache_creation_input_token_cost") or 0) > 0:
+        pricing["cache_write_per_1k"] = entry["cache_creation_input_token_cost"] * 1000
+    media_mode = local_media_billing_mode(entry)
+    if media_mode == "image":
+        pricing["billing_mode"] = "image"
+        pricing["output_cost_per_image"] = entry.get("output_cost_per_image") or 0
+    elif media_mode == "video":
+        pricing["billing_mode"] = "video"
+        pricing["output_cost_per_second"] = entry.get("output_cost_per_second") or 0
+    return pricing
+
+
+def local_item_from_entry(model: str, entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "model_id": model,
+        "vendor": str(entry.get("litellm_provider") or "").strip(),
+        "pricing": local_pricing_from_entry(entry),
+    }
+
+
+def local_item_effectively_unpriced(item: dict[str, Any]) -> bool:
+    return not priced(item)
+
+
+def parse_local_allowlists() -> dict[str, set[str]]:
+    text = LOCAL_ALLOWLIST_GO.read_text(encoding="utf-8")
+    out: dict[str, set[str]] = {}
+    for platform in ("anthropic", "openai", "gemini", "antigravity", "grok"):
+        m = re.search(
+            rf"servable-allowlist:begin {platform}(.*?)servable-allowlist:end {platform}",
+            text,
+            re.S,
+        )
+        out[platform] = set(re.findall(r'"([^"]+)":\s*\{\}', m.group(1))) if m else set()
+    return out
+
+
+def load_local_served_manifest() -> tuple[set[str], set[str]]:
+    manifest = load_json_file(LOCAL_SERVED_MANIFEST)
+    entries = manifest.get("entries") if isinstance(manifest.get("entries"), dict) else {}
+    listed: set[str] = set()
+    displayed: set[str] = set()
+    for entry in entries.values():
+        if not isinstance(entry, dict):
+            continue
+        model = str(entry.get("model_id") or "").strip()
+        if not model:
+            continue
+        listed.add(model)
+        if entry.get("display"):
+            displayed.add(model)
+    return listed, displayed
+
+
+def is_local_newapi_longtail_vendor(vendor: str) -> bool:
+    return VENDOR_PLATFORM.get(vendor) == "newapi"
+
+
+def local_presentation_vendor(model: str, vendor: str, allowlists: dict[str, set[str]]) -> str:
+    antigravity = allowlists.get("antigravity", set())
+    gemini = allowlists.get("gemini", set())
+    if model in antigravity and model not in gemini and VENDOR_PLATFORM.get(vendor) == "gemini":
+        return "antigravity"
+    return vendor
+
+
+def local_public_catalog_supported(
+    vendor: str,
+    model: str,
+    allowlists: dict[str, set[str]],
+    manifest_displayed: set[str],
+) -> bool:
+    if is_local_newapi_longtail_vendor(vendor):
+        return model in manifest_displayed
+    platform = VENDOR_PLATFORM.get(vendor)
+    if platform in {"anthropic", "openai", "gemini", "antigravity", "grok"}:
+        allowed = allowlists.get(platform, set())
+        return not allowed or model in allowed
+    return False
+
+
+def local_pricing_payload() -> dict[str, Any]:
+    fallback = load_json_file(LOCAL_FALLBACK_PRICING)
+    overlay = load_json_file(LOCAL_TK_OVERLAY)
+    allowlists = parse_local_allowlists()
+    manifest_listed, manifest_displayed = load_local_served_manifest()
+
+    items: dict[str, dict[str, Any]] = {}
+    for model, entry in fallback.items():
+        if model == "sample_spec" or not isinstance(entry, dict):
+            continue
+        if not local_entry_has_catalog_price(entry):
+            continue
+        items[model] = local_item_from_entry(model, entry)
+
+    for model in sorted(overlay):
+        if model == "_meta":
+            continue
+        entry = overlay.get(model)
+        if not isinstance(entry, dict):
+            continue
+        vendor = str(entry.get("litellm_provider") or "").strip()
+        if is_local_newapi_longtail_vendor(vendor) and model not in manifest_listed:
+            continue
+        if not local_entry_effectively_priced(entry):
+            continue
+        if model not in items or local_item_effectively_unpriced(items[model]):
+            items[model] = local_item_from_entry(model, entry)
+
+    data: list[dict[str, Any]] = []
+    for model in sorted(items):
+        item = dict(items[model])
+        vendor = local_presentation_vendor(model, str(item.get("vendor") or ""), allowlists)
+        item["vendor"] = vendor
+        if local_public_catalog_supported(vendor, model, allowlists, manifest_displayed):
+            data.append(item)
+    return {"object": "list", "data": data}
+
+
 def load_matrix(args) -> tuple[list[MatrixRow], list[ExcludedRow]]:
-    if args.source != "live-pricing":
-        raise SystemExit(f"unsupported source: {args.source}")
-    base = args.base_url.rstrip("/")
-    payload = fetch_json(f"{base}/api/v1/public/pricing", args.timeout)
-    return rows_from_public_catalog(payload, f"live-pricing:{base}/api/v1/public/pricing")
+    if args.source == "live-pricing":
+        base = args.base_url.rstrip("/")
+        payload = fetch_json(f"{base}/api/v1/public/pricing", args.timeout)
+        return rows_from_public_catalog(payload, f"live-pricing:{base}/api/v1/public/pricing")
+    if args.source == "local-pricing":
+        return rows_from_public_catalog(local_pricing_payload(), "local-pricing:checkout")
+    raise SystemExit(f"unsupported source: {args.source}")
 
 
 def preferred_deploy_canary_model(platform: str) -> str:
@@ -296,6 +472,16 @@ def requested_models(args) -> set[str]:
             if part:
                 out.add(part)
     return out
+
+
+def required_row_misses(args, rows: list[MatrixRow]) -> list[str]:
+    if not getattr(args, "require_rows", False):
+        return []
+    wanted = requested_models(args)
+    if not wanted:
+        return []
+    present = {row.model for row in rows}
+    return sorted(wanted - present)
 
 
 def compact_body(protocol: str, model: str) -> dict[str, Any]:
@@ -552,6 +738,7 @@ def cmd_gate(args) -> int:
         rows = select_deploy_canary_rows(rows)
     if args.limit:
         rows = rows[: args.limit]
+    missing_required = required_row_misses(args, rows)
 
     skip_keys: set[tuple[str, str]] = set()
     skip_file = getattr(args, "skip_recent_file", "") or os.environ.get("TK_SSOT_SKIP_RECENT_FILE", "")
@@ -609,6 +796,9 @@ def cmd_gate(args) -> int:
         f"EXCLUDED_BLOCK={excluded_block_count} NO_ROWS={no_rows_count} "
         f"LOG_SKIP={log_skip_count}"
     )
+    if missing_required:
+        print("REQUIRE_ROWS_MISSING=" + ",".join(missing_required))
+        return 1
     if getattr(args, "deploy_closeout", False):
         return 1 if fail_count else 0
     return 1 if (block_count or fail_count or excluded_block_count) else 0
@@ -666,6 +856,13 @@ def cmd_selftest(_args) -> int:
     assert excluded_display_decision(not_priced, include_paid=False)[0] is False
     assert excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "embeddings")
     assert not excluded_matches_protocol(ExcludedRow("vertex", "e", "x", "embeddings", False), "chat")
+    require_args = argparse.Namespace(model=["gpt-5.1 missing-model"], require_rows=True)
+    assert required_row_misses(require_args, rows) == ["missing-model"]
+    soft_args = argparse.Namespace(model=["missing-model"], require_rows=False)
+    assert required_row_misses(soft_args, rows) == []
+    local_rows, _local_excluded = rows_from_public_catalog(local_pricing_payload(), "local-fixture")
+    local_require = argparse.Namespace(model=["gpt-5.4"], require_rows=True)
+    assert not required_row_misses(local_require, local_rows)
     assert "kiro" in PLATFORM_CHOICES, "deploy-stage0 sharded gate includes kiro; argparse must accept it"
     canary = select_deploy_canary_rows(rows)
     assert canary, "deploy-canary must select at least one row from fixture catalog"
@@ -683,7 +880,7 @@ def cmd_platforms(_args) -> int:
 
 
 def add_source_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--source", choices=["live-pricing"], default="live-pricing")
+    p.add_argument("--source", choices=["live-pricing", "local-pricing"], default="live-pricing")
     p.add_argument("--base-url", default=DEFAULT_BASE_URL)
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     p.add_argument("--only-platform", choices=PLATFORM_CHOICES)
@@ -739,6 +936,11 @@ def main() -> int:
         "--skip-recent-file",
         default="",
         help="TSV of model/modality/count rows to skip (normally serving in recent usage_logs)",
+    )
+    gate_p.add_argument(
+        "--require-rows",
+        action="store_true",
+        help="fail when explicitly requested models do not map to display-gate rows",
     )
     gate_p.set_defaults(func=cmd_gate)
 

@@ -31,7 +31,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
 | SSOT model matrix command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --list --include-paid --show-excluded` |
 | SSOT display gate command | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --show-excluded` |
-| SSOT delta gate (catalog PR/push) | `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` (CI job `ssot-delta-gate`; probes only diff-scoped model ids) |
+| SSOT delta gate (catalog PR/push) | `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` (CI job `ssot-delta-gate`; builds the display matrix from the checkout-local pricing projection, then probes only diff-scoped model ids against prod) |
 | SSOT deploy canary (prod post-deploy) | `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout` |
 | SSOT recent-success skip probe (ad hoc) | `bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-ssot-recent-success.sh --env WINDOW_HOURS=24` |
 | Baseline freshness gate | `python3 scripts/check_endpoint_compat_baseline_freshness.py` (preflight + release.yml; baseline must mention `backend/cmd/server/VERSION`) |
@@ -187,7 +187,7 @@ intent but hides the row until provisioning or a later SSOT gate proves it.
 7. Run SSOT gates before release close-out:
    **Structural** (every commit via preflight): `catalog-serving-drift.py`,
    `display-coverage-gate.py check --base origin/main`.
-   **Live delta** (CI when catalog paths change): `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` — probes only models added/changed in the PR (not the full catalog).
+   **Live delta** (CI when catalog paths change): `python3 scripts/checks/ssot-delta-gate.py check --base origin/main` — derives the candidate display rows from the checkout-local pricing projection, then probes only models added/changed in the PR against prod (not the full catalog).
    **Deploy canary** (prod post-deploy): `bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout`.
    Add `--include-paid` when paid media is intentionally in scope. Do **not** schedule daily full `--gate-sharded` scans (account-ban risk); use focused `--model` reprobes from this baseline when a row regresses.
    Update this baseline to mention `v{VERSION}` on every deploy (`python3 scripts/check_endpoint_compat_baseline_freshness.py`). Release bump scripts run `scripts/sync_endpoint_compat_baseline_anchor.py` automatically.

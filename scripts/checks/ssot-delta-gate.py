@@ -205,6 +205,9 @@ def run_focused_gate(models: set[str], *, base_url: str, key: str) -> int:
         str(MATRIX),
         "gate",
         "--show-excluded",
+        "--require-rows",
+        "--source",
+        "local-pricing",
         "--base-url",
         base_url,
     ]
