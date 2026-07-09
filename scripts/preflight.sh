@@ -1838,10 +1838,11 @@ else
     echo "  ok: SSOT endpoint matrix selftest"
 fi
 
-# ---- sub2api: SSOT delta gate (structural; live in CI ssot-delta-gate job) ---
+# ---- sub2api: SSOT delta gate (structural; live in post-deploy closeout) ---
 # Replaces the retired daily full SSOT matrix scan (account-ban risk). Structural
-# SSOT stays in catalog-serving-drift + display-coverage-gate; live HTTP probes
-# only the model ids touched in this diff (scripts/checks/ssot-delta-gate.py).
+# SSOT stays in catalog-serving-drift + display-coverage-gate. PR/commit gates
+# only derive the diff-scoped pending-live models; prod HTTP proof runs after
+# deployment, when new mapping/catalog code is actually live.
 echo ""
 echo "=== sub2api: SSOT delta gate (structural) ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -1853,7 +1854,7 @@ elif ! python3 ./scripts/checks/ssot-delta-gate.py selftest >/dev/null 2>&1; the
 elif ! python3 ./scripts/checks/ssot-delta-gate.py check --base "${PREFLIGHT_BASE:-origin/main}" --skip-live; then
     errors=$((errors + 1))
 else
-    echo "  ok: SSOT delta gate structural check (live gate runs in CI when catalog paths change)"
+    echo "  ok: SSOT delta gate structural check (live proof runs post-deploy)"
 fi
 
 echo ""

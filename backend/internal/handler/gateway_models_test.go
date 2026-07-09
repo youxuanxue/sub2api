@@ -158,11 +158,12 @@ func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.2", "universal OpenAI group fallback must use OpenAI SSOT")
+	require.Contains(t, ids, "gpt-5.4", "universal OpenAI group fallback must use OpenAI SSOT")
 	require.Contains(t, ids, "gpt-5.3-codex-spark", "universal OpenAI group fallback must include SSOT delta-gate 200 model")
 	require.Contains(t, ids, "gpt-5.4-mini", "universal OpenAI group fallback must include current OpenAI SSOT")
 	require.Contains(t, ids, "gemini-2.5-flash", "universal Gemini group fallback must use Gemini SSOT")
 	require.NotContains(t, ids, "gpt-5-pro", "SSOT delta-gate 403 model must not leak into universal list")
+	require.NotContains(t, ids, "gpt-5.2", "legacy OpenAI pricing-only model must not leak into universal list")
 	require.NotContains(t, ids, "gpt-5.6-sol", "non-allowlisted OpenAI model must not leak into universal list")
 	require.NotContains(t, ids, "leaked-global-model", "universal list must not scan the global schedulable pool")
 }
@@ -595,7 +596,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"gpt-5.5", "gpt-5.2", "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-5.4"},
+				Models:  []string{"gpt-5.5", "gpt-5.3-codex-spark", "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-5.2", "gpt-5.4"},
 			},
 		},
 	})
@@ -606,7 +607,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.2", "codex-auto-review", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-5.5", "gpt-5.3-codex-spark", "codex-auto-review", "gpt-5.4"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""ssot-delta-gate — live SSOT proof for catalog diffs only (no full-matrix scan).
+"""ssot-delta-gate — SSOT delta discovery for catalog diffs.
 
 Replaces the retired daily full SSOT gate (account-ban risk from ~356 HTTP probes).
 Structural SSOT (servable ↔ priced ↔ display intent) stays in catalog-serving-drift.py
-and display-coverage-gate.py (preflight, zero HTTP). This gate adds the runtime layer:
-when a PR touches the catalog surface, probe ONLY the changed model ids via
-ops/test/gateway_model_ssot_matrix.py gate --model ….
+and display-coverage-gate.py (preflight, zero HTTP). PR CI runs this gate with
+--skip-live so new catalog/model_mapping changes do not deadlock on the old prod
+deployment. Post-deploy closeout owns live HTTP proof via endpoint-compat-audit,
+or this script can still run focused live probes when explicitly invoked without
+--skip-live.
 
 Catalog touch paths (any diff base..HEAD):
   - backend/internal/service/tk_served_models.json
@@ -15,9 +17,9 @@ Catalog touch paths (any diff base..HEAD):
 
 Subcommands:
   paths-changed  — prints true/false (for GHA step outputs)
-  needs-live     — prints true/false: catalog paths changed AND delta models need HTTP probe
-  discover       — list model ids that would be live-probed
-  check          — run focused gate (or --skip-live for preflight / offline)
+  needs-live     — prints true/false: catalog paths changed AND delta models need post-deploy HTTP proof
+  discover       — list model ids that need post-deploy HTTP proof
+  check          — list pending-live ids with --skip-live, or run focused live gate
   selftest       — fixture selftest
 
 Exit: 0 ok/skip, 1 gate fail, 2 error.
@@ -309,7 +311,7 @@ def cmd_check(args) -> int:
         return 0
     if args.skip_live:
         print(
-            f"ssot-delta-gate: skip-live ({len(models)} model(s) — CI ssot-delta-gate job runs live gate)"
+            f"ssot-delta-gate: skip-live ({len(models)} model(s) — post-deploy closeout runs live proof)"
         )
         for model in sorted(models):
             print(f"    pending-live: {model}")

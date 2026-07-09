@@ -462,7 +462,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"xai", "grok-imagine-video", true},  // 2026-07-04 post-#1198 paid gate: keep_displayed
 		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
 		{"xai", "grok-imagine-image-quality", true},
-		{"xai", "grok-4", false},              // third-party-priced / unverified legacy slug
+		{"xai", "grok-4", false}, // third-party-priced / unverified legacy slug
 		{"xai", "grok-latest", true},
 		{"xai", "grok-4-fast-reasoning", false}, // retirement redirect, priced-only
 		{"volcengine", "doubao-seedream-4-0-250828", true},

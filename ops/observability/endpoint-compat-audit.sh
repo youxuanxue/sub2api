@@ -46,7 +46,7 @@ Verdict split:
   ssot-model-matrix --gate fails unless displayed+priced rows in scope pass live probes.
   ssot-model-matrix --gate-sharded runs the gate once per platform (manual/ad hoc only; not scheduled — account-ban risk).
   ssot-model-matrix --gate --deploy-canary probes one golden path per platform for deploy closeout.
-  Catalog PRs: python3 scripts/checks/ssot-delta-gate.py check --base origin/main (CI job; delta models only).
+  Catalog PRs: python3 scripts/checks/ssot-delta-gate.py check --base origin/main --skip-live (CI job; delta models only, no prod HTTP).
   --skip-recent-file skips (model, modality) rows with recent successful usage_logs evidence (ad hoc sharded runs).
 EOF
 }

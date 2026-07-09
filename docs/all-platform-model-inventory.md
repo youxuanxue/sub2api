@@ -32,7 +32,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 | 类别 | 是什么 | 现状 | 处置 |
 |---|---|---|---|
 | `servable_unpriced`（chat） | 可服务但无价 → 计 `$0` 无扣额 | **会发 P0 告警，不是 silent**（`served_zero_cost` 探针）。本轮已处理主例：grok-4.3/4.20/build/code-fast 官方价进 overlay+allowlist，antigravity `tab_flash_lite_preview` 从默认/mapping SSOT 移除 | 新发现条目需补**官方**核实价进 overlay → 加 allowlist；或从 defaults/mapping 移除。**不要给 chat 加 fail-closed 守卫**（见下） |
-| `advertised_dead` | 在 `DefaultModels` 但实测 502/404/403 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧已改为统一 servable+priced fallback：`codex-auto-review` 2026-06-22 实测 200 后保留；2026-07-09 起 native OpenAI floor 与 `api.ainzy.net/v1` floor 分离，native 只保留 live-proven 10 个，`gpt-5`/chat/pro/search/5.1/`gpt-5.4-pro` 这批 delta gate 403 的 priced rows 不进默认面。`gpt-image-*` 与未确认的 `gpt-5.6*` 同样不进默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
+| `advertised_dead` | 在 `DefaultModels` 但实测 502/404/403 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧已改为统一 servable+priced fallback：`codex-auto-review` 2026-06-22 实测 200 后保留；2026-07-09 起 native OpenAI floor 与 `api.ainzy.net/v1` floor 分离，native 只保留 live-proven 5 个，`gpt-5`/chat/pro/search/5.1/`gpt-5.4-pro` 这批 delta gate 403 的 priced rows 不进默认面。`gpt-image-*` 与未确认的 `gpt-5.6*` 同样不进默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
 | `channel_not_onboarded` | 渠道适配器理论可达但无 TK 账号/价 | 扩展 backlog，非缺陷。openai 153+24 尾、gemini ct24/41、Moonshot/MiniMax/Zhipu… | 有客户需求时走 `tokenkey-onboard-model` 逐个上架 |
 
 **一个刻意的非对称（不要误判为缺陷）**：`media` 路径（image/video）对无价模型**先拒后服务**返回 400（一条视频上游可达 ~$22，硬失败防资损）；`chat` 路径**先服务后告警**（一条 chat 是分级成本，可用性优先，靠 `served_zero_cost` P0 兜底）。这是操作员 2026-06-12 拍板的成本加权决策（`openai_gateway_service_tk_media_unpriced_guard.go` 头注），**不是缺的守卫**。
@@ -164,7 +164,7 @@ servable allowlist 共 **15**（与公开目录、overlay xai 同源）：
 | `grok-imagine-video` | video | $0.08/s(720p+img 上限档) | success_only |
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
-- **2026-07-09 上架**：`grok-4.5`、`grok-4.5-latest`、`grok-build-latest` 已按 xAI 官方 model page / pricing 补 overlay，并经 edge-us4 原生 grok OAuth 直探 200 后进入 allowlist。
+- **2026-07-09 上架**：`grok-4.5`、`grok-4.5-latest`、`grok-build-latest` 已按 xAI 官方 model page / pricing 补 overlay，并经 edge-us4 原生 grok OAuth 直探 200 后进入 allowlist；prod `Unsupported model` 只说明当前 `model_mapping` 尚未 provision，不反证 upstream/edge 能力。
 - **官方别名（可展示）**：xAI model page 声明的 alias（如 `grok-4.3-latest`/`grok-latest`、`grok-4.5-latest`/`grok-build-latest`、`grok-code-fast`/`grok-code-fast-1-0825`）在 overlay 有价且探针 200 时进入 allowlist；退休重定向 `grok-4-fast-reasoning` 仍 priced-only。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
 - 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径。prod→edge grok 中继长期收敛为 `platform=grok,type=apikey` relay；旧 `newapi` edge-host bridge 仅作为迁移兼容形态保留。
