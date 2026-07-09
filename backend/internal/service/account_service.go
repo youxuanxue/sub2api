@@ -88,6 +88,11 @@ type AccountRepository interface {
 	// pools — e.g. kiro — where the edge is single-pool-per-platform and the
 	// anthropic "default"-group scoping does not apply).
 	SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)
+	// SumConcurrencyByPlatformAndGroupID returns Σ concurrency for schedulable
+	// accounts of the given platform in one group (surface-C: openai/grok/etc.
+	// mirror stubs query with group_scope=caller so prod mirrors the stub key's
+	// edge pool, not every row of that platform).
+	SumConcurrencyByPlatformAndGroupID(ctx context.Context, platform string, groupID int64) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
 	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0

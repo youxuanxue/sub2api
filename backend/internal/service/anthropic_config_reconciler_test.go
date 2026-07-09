@@ -39,7 +39,10 @@ func (s *reconcilerAccountStub) ListByPlatform(ctx context.Context, platform str
 	if s.byPlatform != nil {
 		return s.byPlatform[platform], nil // absent platform → empty list
 	}
-	return s.accounts, nil
+	if platform == PlatformAnthropic {
+		return s.accounts, nil
+	}
+	return nil, nil
 }
 
 func (s *reconcilerAccountStub) SumConcurrencyAnthropic(ctx context.Context) (int64, error) {
@@ -57,6 +60,13 @@ func (s *reconcilerAccountStub) SumConcurrencyAnthropicByGroup(context.Context, 
 }
 
 func (s *reconcilerAccountStub) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	if s.sumErr != nil {
+		return 0, s.sumErr
+	}
+	return s.sum, nil
+}
+
+func (s *reconcilerAccountStub) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
 	if s.sumErr != nil {
 		return 0, s.sumErr
 	}
@@ -407,6 +417,46 @@ func TestReconciler_SurfaceC_KiroStub_QueriesKiroPlatform(t *testing.T) {
 	require.Equal(t, 1, concWrites)
 }
 
+func TestReconciler_SurfaceC_OpenAIStub_QueriesOpenAIWithGroupScopeCaller(t *testing.T) {
+	stub := Account{
+		ID:          68,
+		Name:        "openai-us4",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 40,
+		Credentials: map[string]any{
+			"base_url": "https://api-us4.tokenkey.dev",
+			"api_key":  "sk-edge-key",
+		},
+	}
+	acc := &reconcilerAccountStub{
+		byPlatform: map[string][]Account{
+			PlatformAnthropic: {},
+			PlatformOpenAI:    {stub},
+		},
+		sum: 40,
+	}
+	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 40}}
+	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(true, false))
+	doer := &fakeDoer{status: 200, body: `{"code":0,"message":"ok","data":{"platform":"openai","total_concurrency":120,"ts":1}}`}
+	r.http = doer
+
+	r.runOnce(context.Background())
+
+	require.Contains(t, doer.lastURL, "platform=openai")
+	require.Contains(t, doer.lastURL, "group_scope=caller")
+
+	var concWrites int
+	for _, call := range acc.bulkCalls {
+		if call.updates.Concurrency != nil {
+			concWrites++
+			require.Equal(t, 120, *call.updates.Concurrency)
+			require.Equal(t, []int64{68}, call.ids)
+		}
+	}
+	require.Equal(t, 1, concWrites)
+}
+
 // mirrorCapacityPlatform: only empty/whitespace defaults to anthropic; any
 // non-empty value is passed through verbatim (lower/trimmed) so an unknown/typo'd
 // value reaches the edge, 4xx's, and is skipped — never silently coerced to the
@@ -419,7 +469,7 @@ func TestMirrorCapacityPlatform(t *testing.T) {
 		"Anthropic": "anthropic",
 		"kiro":      "kiro",
 		" KIRO ":    "kiro",
-		"openai":    "openai", // unsupported today → passthrough, edge will 4xx
+		"openai":    "openai",
 		"kir0":      "kir0",   // typo → passthrough, NOT coerced to anthropic
 	}
 	for raw, want := range cases {

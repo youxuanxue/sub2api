@@ -216,6 +216,27 @@ WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
 	return sum.Int64, nil
 }
 
+// SumConcurrencyByPlatformAndGroupID returns Σ concurrency for schedulable accounts
+// of the given platform in one group. Surface-C: native-platform mirror stubs
+// (openai/grok/…) query the edge with group_scope=caller so prod mirrors the
+// stub relay key's pool rather than every schedulable row of that platform.
+func (r *accountRepository) SumConcurrencyByPlatformAndGroupID(ctx context.Context, platform string, groupID int64) (int64, error) {
+	const q = `
+SELECT COALESCE(SUM(a.concurrency), 0)::bigint
+FROM accounts a
+JOIN account_groups ag ON ag.account_id = a.id
+WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
+  AND ag.group_id = $2`
+	var sum sql.NullInt64
+	if err := scanSingleRow(ctx, r.sql, q, []any{platform, groupID}, &sum); err != nil {
+		return 0, fmt.Errorf("sum concurrency by platform %q group %d: %w", platform, groupID, err)
+	}
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Int64, nil
+}
+
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	m, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
 	if err != nil {
