@@ -347,7 +347,7 @@ export default {
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: 'Leave empty to use ANTIGRAVITY_USER_AGENT_VERSION or the built-in default 1.23.2; when set, the admin setting takes precedence.',
         openaiCodexUserAgent: 'OpenAI Codex UA',
-        openaiCodexUserAgentPlaceholder: 'codex-tui/0.142.5 (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; 0.142.5)',
+        openaiCodexUserAgentPlaceholder: 'codex-tui/0.143.0 (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; 0.143.0)',
         openaiCodexUserAgentHint: 'Used to bypass Cloudflare browser-UA challenges on the OpenAI upstream. Only applies when the client User-Agent is detected as a browser (Mozilla/...). Leave empty to use the built-in default.',
         codexHardeningTitle: "Codex Settings",
         codexClientRestrictionTitle: "Codex client restriction",

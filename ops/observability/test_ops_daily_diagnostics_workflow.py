@@ -39,6 +39,13 @@ def extract_runtime_params_commands() -> list[str]:
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
+    def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
+        commands = extract_runtime_params_commands()
+        internal_start = commands.index("echo ===INTERNAL_HEALTH===")
+        internal_probe = commands[internal_start + 1]
+        self.assertIn("/health/live", internal_probe)
+        self.assertNotIn("http://localhost:8080/health;", internal_probe)
+
     def test_internal_health_probe_cannot_abort_log_signal_collection(self) -> None:
         commands = extract_runtime_params_commands()
         internal_start = commands.index("echo ===INTERNAL_HEALTH===")
@@ -66,7 +73,20 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             text,
         )
 
-    def test_ssm_transport_failure_suppresses_downstream_clustering(self) -> None:
+    def test_caddy_findings_split_stream_abort_and_access_errors(self) -> None:
+        text = workflow_text()
+        self.assertIn('"kind": "caddy_stream_abort"', text)
+        self.assertIn('"kind": "caddy_access_error"', text)
+        self.assertIn("caddy_incomplete >= 1000", text)
+        self.assertIn("caddy_access_error >= 10", text)
+        self.assertNotIn('"kind": "caddy_incomplete_response"', text)
+
+    def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
+        text = workflow_text()
+        self.assertIn("DISCOVER_TARGETS_RESULT", text)
+        self.assertIn("DIAGNOSE_TARGETS_RESULT", text)
+        self.assertIn('diagnose_result not in ("cancelled", "skipped")', text)
+
         text = workflow_text()
         init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
         send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)

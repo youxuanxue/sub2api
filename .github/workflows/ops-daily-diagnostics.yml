@@ -313,7 +313,7 @@ jobs:
               "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
               "echo ===INTERNAL_HEALTH===",
-              "if sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
+              "if sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
               "echo ===END_INTERNAL_HEALTH===",
               "SIG_OUT=/tmp/prod-ops-runtime-signals",
               "sudo rm -rf \"$SIG_OUT\" && sudo mkdir -p \"$SIG_OUT\" && sudo chmod 0777 \"$SIG_OUT\"",
@@ -400,15 +400,25 @@ jobs:
 
           caddy_incomplete = as_int("caddy_incomplete_response")
           caddy_access_error = as_int("caddy_access_error")
-          if caddy_incomplete >= 20 or caddy_access_error >= 1:
+          if caddy_incomplete >= 1000:
               findings.append({
                   "target_id": target_id,
-                  "kind": "caddy_incomplete_response",
+                  "kind": "caddy_stream_abort",
+                  "status": "warning",
+                  "severity": "info",
+                  "title": f"High Caddy streaming abort volume on {target_id}",
+                  "summary": f"Caddy logged {caddy_incomplete} incomplete streaming responses over {window}; usually client-side SSE aborts on /v1/* paths.",
+                  "signature": f"log-signal|{target_id}|caddy-stream-abort",
+              })
+          if caddy_access_error >= 10:
+              findings.append({
+                  "target_id": target_id,
+                  "kind": "caddy_access_error",
                   "status": "issue_candidate",
                   "severity": "warning",
-                  "title": f"Caddy reverse proxy anomalies on {target_id}",
-                  "summary": f"Caddy logged {caddy_incomplete} incomplete responses and {caddy_access_error} error-level access entries over {window}.",
-                  "signature": f"log-signal|{target_id}|caddy-incomplete-response",
+                  "title": f"Caddy error-level access entries on {target_id}",
+                  "summary": f"Caddy logged {caddy_access_error} error-level access entries over {window} (incomplete aborts={caddy_incomplete}, tracked separately).",
+                  "signature": f"log-signal|{target_id}|caddy-access-error",
               })
 
           with findings_path.open("a", encoding="utf-8") as fh:
@@ -604,6 +614,8 @@ jobs:
       issue_count: ${{ steps.aggregate.outputs.issue_count }}
     env:
       EXCLUDED_TARGETS: ${{ needs.discover-targets.outputs.excluded || '[]' }}
+      DISCOVER_TARGETS_RESULT: ${{ needs.discover-targets.result }}
+      DIAGNOSE_TARGETS_RESULT: ${{ needs.diagnose-targets.result }}
     steps:
       - uses: actions/download-artifact@v4
         continue-on-error: true
@@ -625,19 +637,22 @@ jobs:
           for path in sorted(root.glob("*/target-report.json")):
               reports.append(json.loads(path.read_text(encoding="utf-8")))
           excluded = json.loads(os.environ.get("EXCLUDED_TARGETS") or "[]")
+          discover_result = os.environ.get("DISCOVER_TARGETS_RESULT") or ""
+          diagnose_result = os.environ.get("DIAGNOSE_TARGETS_RESULT") or ""
           findings = []
           for report in reports:
               findings.extend(report.get("findings") or [])
           if not reports:
-              findings.append({
-                  "target_id": "prod-ops",
-                  "kind": "missing_target_reports",
-                  "status": "manual_ops",
-                  "severity": "error",
-                  "title": "Prod Ops did not produce target reports",
-                  "summary": "No target-report.json artifacts were found for this run.",
-                  "signature": "missing-target-reports",
-              })
+              if discover_result == "success" and diagnose_result not in ("cancelled", "skipped"):
+                  findings.append({
+                      "target_id": "prod-ops",
+                      "kind": "missing_target_reports",
+                      "status": "manual_ops",
+                      "severity": "error",
+                      "title": "Prod Ops did not produce target reports",
+                      "summary": "No target-report.json artifacts were found for this run.",
+                      "signature": "missing-target-reports",
+                  })
           issue_findings = [f for f in findings if f.get("status") in ("issue_candidate", "manual_ops")]
           skips = [f for f in findings if f.get("status") == "skip"]
           report = {
