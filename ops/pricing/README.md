@@ -198,6 +198,15 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   using Codex"` → unsupported. `429/502/503` → inconclusive (capacity / wrong
   protocol / no account on the probed group). `401/403` → auth_error (probe
   setup wrong, not a model signal — fix and re-run).
+- `400 Unsupported model: <id>`, `account_id=null`, empty-pool, or no upstream
+  event from a prod catalog probe is not enough to answer raw provider capability.
+  Prod accounts follow the SSOT account `model_mapping`; TokenKey can reject a
+  new model before account selection because the current mapping/floor omits it.
+  Use `ops/stage0/probe_account_model.sh` with
+  `--with ops/pricing/probe_reserved_resources.sh` on a specific prod or edge
+  account, or the platform's direct upstream probe when that is the authoritative
+  capability truth. Only promote after a target account/path returns `servable`
+  and the prod `model_mapping` path is updated/re-probed.
 - De-dup: when both a non-dated form and its dated snapshot serve
   (`-YYYYMMDD` for anthropic, `-YYYY-MM-DD` for openai), keep only the
   non-dated; drop `-thinking` pricing pseudo-entries.
@@ -214,6 +223,14 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   and `grok=4` on the target edge DB. Display names are operator-editable and
   only accepted through explicit legacy `PROBE_*_SOURCE_GROUP` overrides for
   diagnostics.
+- New-model mapping example (2026-07-08): `gpt-5.6*` is priced in overlay/fallback
+  but prod normal probes return local `Unsupported model`; edge OpenAI OAuth
+  accounts on `edge:us4` and `edge:us3` reached upstream and were rejected with
+  `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
+  Keep such models out of catalog/Menu/runtime until the target account/path
+  returns `verdict=servable`; then update/re-probe prod `model_mapping` through
+  the runtime flow before treating prod serving as ready. The same rule applies
+  to every platform now that prod accounts are mapping-scoped by SSOT.
 - Antigravity has two distinct probe surfaces: text/capability checks use
   `ANTIGRAVITY_CHAT_MODELS` on `/antigravity/v1beta`, while Studio
   gemini-native image uses `ANTIGRAVITY_IMAGE_MODELS` on `/v1/chat/completions`.
