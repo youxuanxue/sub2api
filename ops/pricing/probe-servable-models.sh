@@ -75,6 +75,8 @@
 #   ARK_ACCOUNT_ID           default 7   (accounts row holding the ark api_key + base_url)
 #   PROD_BASE                default https://api.tokenkey.dev
 #   PROBE_OPENAI_SOURCE_GROUP_ID defaults via probe_source_group_id openai
+#                            Must point at the native OpenAI pool, not the
+#                            api.ainzy.net/v1 relay account/scope.
 #   PROBE_OPENAI_SOURCE_GROUP optional legacy override by group name
 #   PROBE_ANTHROPIC_SOURCE_GROUP_ID defaults via probe_source_group_id anthropic_edge
 #                            probe runs ON an edge, NOT prod — see refresh-allowlist ANTHROPIC_EDGES)
@@ -505,9 +507,11 @@ main() {
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
-		# OpenAI catalog probing uses prod group_id=2 as the current customer
-		# serving truth. A 400 "Unsupported model: X" can mean prod mapping
-		# floor rejected the id before upstream; do not treat it as raw upstream proof.
+		# OpenAI catalog probing must use the native OpenAI serving truth. Do not
+		# bind this to account 76 / api.ainzy.net/v1: that relay has its own
+		# openai_ainzy_relay floor and must not overwrite native OpenAI.
+		# A 400 "Unsupported model: X" can mean prod mapping floor rejected the id
+		# before upstream; do not treat it as raw upstream proof.
 		probe_bind_source "$PROBE_OPENAI_SOURCE_GROUP_ID" "$PROBE_OPENAI_SOURCE_GROUP"
 		if tk_probe_catalog_key openai openai "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			okey="$REPLY_KEY"

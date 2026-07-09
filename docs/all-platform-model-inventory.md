@@ -32,7 +32,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 | 类别 | 是什么 | 现状 | 处置 |
 |---|---|---|---|
 | `servable_unpriced`（chat） | 可服务但无价 → 计 `$0` 无扣额 | **会发 P0 告警，不是 silent**（`served_zero_cost` 探针）。本轮已处理主例：grok-4.3/4.20/build/code-fast 官方价进 overlay+allowlist，antigravity `tab_flash_lite_preview` 从默认/mapping SSOT 移除 | 新发现条目需补**官方**核实价进 overlay → 加 allowlist；或从 defaults/mapping 移除。**不要给 chat 加 fail-closed 守卫**（见下） |
-| `advertised_dead` | 在 `DefaultModels` 但实测 502/404 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧已改为统一 servable+priced fallback：`codex-auto-review` 2026-06-22 实测 200 后保留，`gpt-5.2`、`gpt-5.3-codex`、`gpt-image-*` 不再进入默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
+| `advertised_dead` | 在 `DefaultModels` 但实测 502/404 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧已改为统一 servable+priced fallback：`codex-auto-review` 2026-06-22 实测 200 后保留；2026-07-09 起 native OpenAI floor 与 `api.ainzy.net/v1` floor 分离，native 保留原 15 + 新增 gpt-5.2/gpt-5.3 族，`gpt-image-*` 与未确认的 `gpt-5.6*` 不进默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
 | `channel_not_onboarded` | 渠道适配器理论可达但无 TK 账号/价 | 扩展 backlog，非缺陷。openai 153+24 尾、gemini ct24/41、Moonshot/MiniMax/Zhipu… | 有客户需求时走 `tokenkey-onboard-model` 逐个上架 |
 
 **一个刻意的非对称（不要误判为缺陷）**：`media` 路径（image/video）对无价模型**先拒后服务**返回 400（一条视频上游可达 ~$22，硬失败防资损）；`chat` 路径**先服务后告警**（一条 chat 是分级成本，可用性优先，靠 `served_zero_cost` P0 兜底）。这是操作员 2026-06-12 拍板的成本加权决策（`openai_gateway_service_tk_media_unpriced_guard.go` 头注），**不是缺的守卫**。
@@ -98,17 +98,19 @@ servable allowlist 共 **8** 个 bare canonical id（`pricing_catalog_supported_
 
 ### 2.2 openai（gpt/codex，第二平台）
 
-servable allowlist 共 **16**：
+servable allowlist 共 **20**：
 
 ```
 codex-auto-review
-gpt-5  gpt-5-chat  gpt-5-chat-latest  gpt-5-mini  gpt-5-nano  gpt-5-pro  gpt-5-search-api
-gpt-5.1  gpt-5.1-chat-latest  gpt-5.3-codex-spark  gpt-5.4  gpt-5.4-mini  gpt-5.4-pro
-gpt-5.5  gpt-5.5-pro
+gpt-5  gpt-5-codex  gpt-5-chat  gpt-5-chat-latest  gpt-5-mini  gpt-5-nano  gpt-5-pro
+gpt-5-search-api  gpt-5.1  gpt-5.1-chat-latest  gpt-5.2  gpt-5.2-pro
+gpt-5.3  gpt-5.3-codex  gpt-5.3-codex-spark  gpt-5.4  gpt-5.4-mini  gpt-5.4-pro
+gpt-5.5
 ```
 
-- 价全部来自 **litellm 镜像**（overlay 无 openai 条目）。
-- **`advertised_dead` 收敛结果（2026-06-22）**：`codex-auto-review` 经 `/v1/responses` 实测 200，已进 openai allowlist；`gpt-5.2`（OAuth 400 unsupported）、`gpt-5.3-codex`（OAuth 400 unsupported）、`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）不再进入 /v1/models fallback 或 admin 默认候选。`api.ainzy.net/v1`（prod account 76）经 2026-07-08 探测 `gpt-5.2`/`gpt-5.3-codex` 等 5 键返回 200；SSOT 使用独立 `openai_ainzy_relay` floor（不继承 canonical 15 键）。`gpt-5.4-mini` 在 ainzy 上持续 upstream access forbidden，已从该 floor 排除。
+- native OpenAI 与 `api.ainzy.net/v1` 独立：`supportedOpenAICatalogModels` 不能由 account 76 探测结果收窄；Ainzy 使用独立 `openai_ainzy_relay` floor。
+- **2026-07-09 边界**：native OpenAI 保留原 15 个模型，并加上 `gpt-5-codex`、`gpt-5.2`、`gpt-5.2-pro`、`gpt-5.3`、`gpt-5.3-codex`；`api.ainzy.net/v1` 维持当前 9 个模型，不继承 native 的 `gpt-5-pro` / `gpt-5.3-codex-spark` 等原生项。
+- **`advertised_dead` 收敛结果**：`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）、`gpt-5.6*` 和未列入 native floor 的旧镜像残留不进入 /v1/models fallback 或 admin 默认候选。
 - **codex 形** 走 `/v1/responses`；`codex-mini-latest` 被 codex normalization 重计为 `gpt-5.3-codex` 才免于 $0。
 - **channel 长尾**：ct=1（153 模型：o1/o3/o4、gpt-4*/4o*、audio/realtime/tts、embeddings、dall-e、sora-2…）与 ct=57 codex 订阅（24）**均未经原生 openai 平台服务**——是 newapi bridge 的扩展 backlog（§5）。
 
@@ -230,7 +232,7 @@ free SKU `glm-4.7-flash` / `glm-4.5-flash` 刻意不进 `model_mapping` / overla
 |---|---|---|---|---|
 | `servable_unpriced_zero_cost_p0` | grok | grok-3/2/search 未核价长尾 | 中 | grok-4.3/4.20/build/code-fast 已补官方价+allowlist；剩余项继续 leave_excluded，等官方价+200 |
 | `servable_unpriced_zero_cost_p0` | antigravity | `tab_flash_lite_preview` | 已收敛 | 已从默认/mapping SSOT 移除，静态检查阻止回写 |
-| `advertised_dead` | openai | `gpt-5.2` `gpt-5.3-codex` `gpt-image-{1,1.5,2}` | 已收敛 | `codex-auto-review` 实测 200 后加入；其余死项不再进默认可见面 |
+| `advertised_dead` | openai | `gpt-image-{1,1.5,2}` `gpt-5.6*` 旧镜像残留 | 已收敛 | native OpenAI 与 Ainzy floor 已分离；未列入 native floor 的死项不再进默认可见面 |
 | `retired_pool` | gemini native | `Google-Gemini` group 8；`gemini-eng-g2` / `gemini-am-g2` | 已收敛 | 2026-07-04 soft-delete group/accounts；deploy smoke 默认跳过 native Gemini；新池必须先 account-model probe 200 |
 | `advertised_dead` | gemini | `gemini-2.0-flash`（含 admin 测试默认）`gemini-3.x` chat | 中 | 仅在新 native 池上线后复测；用 servable-allowlist 闸 DefaultModels |
 | `channel_not_onboarded` | openai/gemini/newapi | ct1/57、ct24/41、Moonshot/MiniMax/Zhipu… | 中 | 见 §5 backlog |

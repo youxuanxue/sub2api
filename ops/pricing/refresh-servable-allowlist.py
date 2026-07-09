@@ -45,6 +45,7 @@ PROBE_LIB = REPO / "ops/pricing/probe_reserved_resources.sh"
 TRAFFIC_PROBE = REPO / "ops/pricing/probe-traffic-proven-models.sh"
 RUN_PROBE = REPO / "ops/observability/run-probe.sh"
 REPROBE_LEDGER = REPO / "ops/pricing/servable-reprobe-ledger.json"
+ALLOW_OPENAI_AINZY_SHAPED_SHRINK_ENV = "REFRESH_ALLOW_OPENAI_AINZY_SHAPED_SHRINK"
 
 # 24h-traffic short-circuit (additive optimization, gated by a flag/env so the
 # default stays the conservative full probe). A candidate model that already
@@ -249,6 +250,49 @@ def _known_allowlist_members(text: str) -> set[tuple[str, str]]:
         for match in re.finditer(r'^\s*"([^"]+)":\s*\{\},', block, flags=re.MULTILINE):
             out.add((platform, match.group(1)))
     return out
+
+
+def _go_map_members(text: str, var_name: str) -> set[str]:
+    marker = f"var {var_name} = map[string]struct{{}}{{"
+    start = text.find(marker)
+    if start < 0:
+        return set()
+    body_start = start + len(marker)
+    end = text.find("\n}", body_start)
+    if end < 0:
+        return set()
+    body = text[body_start:end]
+    return set(re.findall(r'^\s*"([^"]+)":\s*\{\},', body, flags=re.MULTILINE))
+
+
+def guard_openai_refresh_scope(final_openai: list[str], go_text: str) -> None:
+    """Prevent api.ainzy.net/v1 probe results from overwriting native OpenAI.
+
+    Native OpenAI and the account-76 Ainzy relay are separate serving scopes. A
+    prod probe accidentally bound to the Ainzy account produces a compact result
+    that is a subset of supportedOpenAIAinzyRelayCatalogModels; applying that to
+    the native openai marker would hide native-only models. Use the override only
+    after an operator has verified the probe source is genuinely native OpenAI.
+    """
+    if not final_openai or os.environ.get(ALLOW_OPENAI_AINZY_SHAPED_SHRINK_ENV) == "1":
+        return
+    proposed = set(final_openai)
+    ainzy = _go_map_members(go_text, "supportedOpenAIAinzyRelayCatalogModels")
+    current_native = {
+        model for platform, model in _known_allowlist_members(go_text)
+        if platform == "openai"
+    }
+    if not proposed or not ainzy or not current_native:
+        return
+    native_only_current = current_native - ainzy
+    if native_only_current and proposed.issubset(ainzy):
+        raise SystemExit(
+            "FATAL: openai refresh result is a subset of the api.ainzy.net/v1 "
+            "relay floor; refusing to overwrite native OpenAI. Verify "
+            "PROBE_OPENAI_SOURCE_GROUP_ID points to a native OpenAI pool, not "
+            "account 76 / api.ainzy.net/v1. If this shrink is intentional after "
+            f"manual native proof, rerun with {ALLOW_OPENAI_AINZY_SHAPED_SHRINK_ENV}=1."
+        )
 
 
 def carried_forward_rows(text: str, skip_families: set[str]) -> str:
@@ -594,6 +638,7 @@ def write_allowlists(servable: dict[str, set[str]], ledger: dict | None = None) 
     text = GO_FILE.read_text(encoding="utf-8")
     platforms = ("anthropic", "openai", "gemini")
     final = {p: dedup(servable.get(p, set())) for p in platforms}
+    guard_openai_refresh_scope(final.get("openai", []), text)
     for plat in platforms:
         if not final[plat]:
             # Empty => this platform was not probed in this run (a partial refresh,
@@ -985,6 +1030,26 @@ def selftest() -> int:
     gout = splice_go(out, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"])
     assert '"gemini-2.5-pro": {},' in gout, gout
     assert splice_go(gout, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"]) == gout, "gemini not idempotent"
+
+    # Native OpenAI and api.ainzy.net/v1 are separate scopes. Applying an
+    # Ainzy-shaped probe result to the native openai marker is almost certainly
+    # a source-group mistake, so the refresh path must fail before splicing.
+    scope_guard_sample = (
+        "var supportedOpenAICatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin openai\n"
+        '\t"gpt-5-pro": {},\n\t"gpt-5.2": {},\n'
+        "\t// servable-allowlist:end openai\n"
+        "}\n"
+        "var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{\n"
+        '\t"gpt-5.2": {},\n'
+        "}\n"
+    )
+    try:
+        guard_openai_refresh_scope(["gpt-5.2"], scope_guard_sample)
+        raise AssertionError("Ainzy-shaped OpenAI refresh must fail")
+    except SystemExit as e:
+        assert "api.ainzy.net/v1" in str(e), e
+    guard_openai_refresh_scope(["gpt-5.2", "gpt-5-pro"], scope_guard_sample)
 
     # --skip-video carry-forward: a chat/image refresh must preserve existing video
     # (veo) ids verbatim. carried_forward_rows emits ONLY the video-family members
