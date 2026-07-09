@@ -235,7 +235,15 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 
-PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+# dev-rules template check 18a omits PREFLIGHT_BASE until submodule picks up the fix.
+_dev_preflight_template="./dev-rules/templates/preflight.sh"
+if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null; then
+    _dev_preflight_template="$(mktemp "${TMPDIR:-/tmp}/preflight-dev-rules.XXXXXX")"
+    sed 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
+        ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
+    chmod +x "$_dev_preflight_template"
+fi
+PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" "$_dev_preflight_template" "$@"
 dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
