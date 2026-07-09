@@ -8,6 +8,7 @@ const {
   listGroups,
   getAllGroups,
   getModelsListCandidates,
+  createGroupApi,
   getUsageSummary,
   getCapacitySummary,
   listAccounts,
@@ -19,6 +20,7 @@ const {
   listGroups: vi.fn(),
   getAllGroups: vi.fn(),
   getModelsListCandidates: vi.fn(),
+  createGroupApi: vi.fn(),
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
   listAccounts: vi.fn(),
@@ -30,6 +32,8 @@ const {
 
 const messages: Record<string, string> = {
   'admin.groups.columnSettings': 'Column Settings',
+  'admin.groups.createGroup': 'Create Group',
+  'admin.groups.failedToCreate': 'Failed to create group',
   'admin.groups.columns.name': 'Name',
   'admin.groups.columns.platform': 'Platform',
   'admin.groups.columns.billingType': 'Billing Type',
@@ -50,7 +54,7 @@ vi.mock('@/api/admin', () => ({
       getModelsListCandidates,
       getUsageSummary,
       getCapacitySummary,
-      create: vi.fn(),
+      create: createGroupApi,
       update: vi.fn(),
       delete: vi.fn(),
       updateSortOrder: vi.fn(),
@@ -224,6 +228,7 @@ describe('admin GroupsView column settings', () => {
     listGroups.mockReset()
     getAllGroups.mockReset()
     getModelsListCandidates.mockReset()
+    createGroupApi.mockReset()
     getUsageSummary.mockReset()
     getCapacitySummary.mockReset()
     listAccounts.mockReset()
@@ -241,6 +246,7 @@ describe('admin GroupsView column settings', () => {
     })
     getAllGroups.mockResolvedValue([])
     getModelsListCandidates.mockResolvedValue([])
+    createGroupApi.mockResolvedValue(createGroup())
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
@@ -324,5 +330,24 @@ describe('admin GroupsView column settings', () => {
     await clickColumnToggle(wrapper, 'Capacity')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the backend create error message instead of the generic fallback', async () => {
+    createGroupApi.mockRejectedValueOnce({
+      status: 400,
+      code: 400,
+      message: 'rate_multiplier must be > 0',
+    })
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="group-form-name"]').setValue('bad group')
+    await wrapper.get('form#create-group-form').trigger('submit')
+    await flushPromises()
+
+    expect(createGroupApi).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('rate_multiplier must be > 0')
+    expect(showError).not.toHaveBeenCalledWith('Failed to create group')
   })
 })
