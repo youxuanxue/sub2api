@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -18,6 +19,12 @@ import (
 // ops/anthropic/prompt_surface_registry.json.
 
 const tkPromptFingerprintLogKey = "gateway.anthropic_prompt_fingerprint"
+
+// tkOAuthMimicEgressLogKey records outbound OAuth mimicry fingerprint fields
+// (ingress UA class + egress HTTP headers + system anchors) without full prompt
+// text. Emitted on every non-CC ingress (e.g. OpenAI/Python) and ~1% baseline
+// sample for CC-native traffic — see tkShouldLogOAuthMimicEgressFingerprint.
+const tkOAuthMimicEgressLogKey = "gateway.anthropic_oauth_mimic_egress"
 
 const (
 	tkIdentityAnchorAbsent  = "absent"
@@ -380,4 +387,66 @@ func promptSurfaceClassesContain(classes []tkCCPromptSurfaceClass, want tkCCProm
 		}
 	}
 	return false
+}
+
+// tkIngressUAClass buckets ingress User-Agent for OAuth mimicry observability.
+func tkIngressUAClass(userAgent string) string {
+	u := strings.ToLower(strings.TrimSpace(userAgent))
+	switch {
+	case u == "":
+		return "empty"
+	case strings.Contains(u, "claude-cli") || strings.Contains(u, "claude-code"):
+		return "claude_code"
+	case strings.Contains(u, "openai/python") || strings.Contains(u, "openai-python"):
+		return "openai_python_sdk"
+	case strings.Contains(u, "httpx/") || strings.Contains(u, "python-requests/") ||
+		strings.Contains(u, "axios/") || strings.Contains(u, "go-http-client"):
+		return "other_sdk"
+	default:
+		return "other"
+	}
+}
+
+func tkShouldLogOAuthMimicEgressFingerprint(ingressUA string, requestID string) bool {
+	if tkIngressUAClass(ingressUA) == "openai_python_sdk" || tkIngressUAClass(ingressUA) == "other_sdk" {
+		return true
+	}
+	if requestID == "" {
+		return false
+	}
+	sum := sha256.Sum256([]byte(requestID))
+	return sum[0] < 3 // ~1.2% baseline for CC-native ingress
+}
+
+// tkMaybeLogOAuthMimicEgressFingerprint logs structured egress mimicry fields
+// after outbound headers and body rewrites are finalized on the OAuth mimic path.
+func (s *GatewayService) tkMaybeLogOAuthMimicEgressFingerprint(
+	ctx context.Context,
+	ingressUA string,
+	req *http.Request,
+	body []byte,
+	mimicClaudeCode bool,
+) {
+	if s == nil || !mimicClaudeCode || req == nil {
+		return
+	}
+	requestID, _ := ctx.Value(ctxkey.RequestID).(string)
+	if !tkShouldLogOAuthMimicEgressFingerprint(ingressUA, requestID) {
+		return
+	}
+	promptFP := tkExtractAnthropicPromptFingerprint(body)
+	attrs := []any{
+		slog.String("request_id", requestID),
+		slog.String("ingress_ua_class", tkIngressUAClass(ingressUA)),
+		slog.Bool("mimic_claude_code", true),
+		slog.String("egress_user_agent", strings.TrimSpace(req.Header.Get("User-Agent"))),
+		slog.String("egress_anthropic_beta", strings.TrimSpace(req.Header.Get("anthropic-beta"))),
+		slog.String("egress_stainless_package_version", strings.TrimSpace(req.Header.Get("x-stainless-package-version"))),
+		slog.String("egress_stainless_runtime_version", strings.TrimSpace(req.Header.Get("x-stainless-runtime-version"))),
+		slog.Int("system_block_count", promptFP.SystemBlockCount),
+		slog.String("identity_anchor_id", promptFP.IdentityAnchorID),
+		slog.Bool("billing_prefix_present", promptFP.BillingPrefixPresent),
+		slog.String("surface_signature", promptFP.SurfaceSignature),
+	}
+	slog.Info(tkOAuthMimicEgressLogKey, attrs...)
 }

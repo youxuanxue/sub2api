@@ -35,7 +35,7 @@
       "rationale": "Post-construction DI setters and the per-service one-liner wrappers each route hook calls. SetPricedServingGateDeps injects the BillingService (the gate's base oracle) AND the ModelPricingResolver (the channel-price source) alongside setting/catalog/notifier — the 5-arg shape proves BOTH billing sources are wired (drop the resolver and the gate stops seeing channel_model_pricing → false-404s channel-only-priced models, re-review BLOCKER B1). tkChannelPricingProbeFromResolver mirrors GatewayService.resolveChannelPricing EXACTLY (Source==PricingSourceChannel), so gate ⟺ billing holds on the channel source too; losing it reopens B1."
     },
     {
-      "path": "backend/internal/service/openai_gateway_service.go",
+      "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
         "if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {"
       ],
@@ -72,7 +72,7 @@
       "rationale": "Route hook 6/6 — the third gemini ingress (OpenAI /v1/chat/completions onto a gemini account, forwardClaudeBodyAsChatCompletions). This route had NO gate in v1's first cut (BLOCKER2) — an OpenAI-CC client could hit a gemini account with an unpriced model and serve $0 on the launch platform. OpenAI wire envelope; judges originalModel."
     },
     {
-      "path": "backend/internal/service/gateway_service.go",
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {"
       ],

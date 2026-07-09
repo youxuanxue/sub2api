@@ -9,6 +9,7 @@ export const GROUP_IMAGE_PRICING_PLATFORMS = [
   'gemini',
   'antigravity',
   'newapi',
+  'grok',
 ] as const
 
 export type GroupImagePricingPlatform = (typeof GROUP_IMAGE_PRICING_PLATFORMS)[number]

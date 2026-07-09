@@ -118,6 +118,18 @@ _OBSERVED_UA_RE = re.compile(
     r'("user_agent":\s*"claude-cli/)(\d+\.\d+\.\d+)( \(external, cli\)")'
 )
 
+# Canonical egress pins must never regress to the TLS `-p` sdk-cli cohort (PR #1253).
+_SDK_CLI_UA_FORBIDDEN = re.compile(
+    r"claude-cli/\d+\.\d+\.\d+\s+\(external,\s*sdk-cli\)"
+)
+_CANONICAL_UA_PIN_PATHS: tuple[Path, ...] = (
+    CONSTANTS_GO,
+    IDENTITY_GO,
+    CANONICAL_TLS_JSON,
+    SMOKE_LIB_SH,
+    REPO_ROOT / "ops/stage0/probe_account_model.sh",
+)
+
 
 class CheckError(Exception):
     pass
@@ -205,6 +217,19 @@ def gather(
          "found": embedded_found, "ok": embedded_ok}
     )
     return findings
+
+
+def check_canonical_ua_suffix_cli(
+    pin_paths: tuple[Path, ...] = _CANONICAL_UA_PIN_PATHS,
+) -> list[str]:
+    """Fail if any canonical egress pin file still carries (external, sdk-cli)."""
+    violations: list[str] = []
+    for path in pin_paths:
+        if not path.is_file():
+            continue
+        if _SDK_CLI_UA_FORBIDDEN.search(_read(path)):
+            violations.append(_rel(path))
+    return violations
 
 
 def _rel(path: Path) -> str:
@@ -299,13 +324,29 @@ def run_check(args: argparse.Namespace) -> int:
     expected = load_source_version()
     findings = gather(expected)
     drift = [f for f in findings if not f["ok"]]
+    sdk_cli_hits = check_canonical_ua_suffix_cli()
 
     if args.json:
         print(json.dumps(
-            {"expected": expected, "ok": not drift, "findings": findings},
+            {
+                "expected": expected,
+                "ok": not drift and not sdk_cli_hits,
+                "findings": findings,
+                "sdk_cli_suffix_violations": sdk_cli_hits,
+            },
             indent=2, sort_keys=True,
         ))
-        return 1 if drift else 0
+        return 1 if drift or sdk_cli_hits else 0
+
+    if sdk_cli_hits:
+        print(
+            "FAIL: canonical egress UA pins must use (external, cli), not sdk-cli "
+            "(TLS `-p` capture cohort is informational only — PR #1253)",
+            file=sys.stderr,
+        )
+        for hit in sdk_cli_hits:
+            print(f"  {hit}", file=sys.stderr)
+        return 1
 
     if not drift:
         if not args.quiet:
@@ -458,6 +499,15 @@ def run_selftest() -> int:
         expect(
             embedded.read_text(encoding="utf-8") == src.read_text(encoding="utf-8"),
             "embedded mirror must be byte-identical after byte-only heal",
+        )
+
+        bad = root / "bad.go"
+        bad.write_text('UserAgent: "claude-cli/9.9.9 (external, sdk-cli)"\n', encoding="utf-8")
+        sdk_hits = check_canonical_ua_suffix_cli((bad,))
+        expect(len(sdk_hits) == 1 and sdk_hits[0].endswith("bad.go"), f"sdk-cli suffix must be flagged, got {sdk_hits}")
+        expect(
+            check_canonical_ua_suffix_cli((go_const,)) == [],
+            "cli suffix must pass sdk-cli guard",
         )
 
     if failures:

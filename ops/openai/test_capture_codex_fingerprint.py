@@ -140,7 +140,7 @@ class EmitEditsTests(unittest.TestCase):
         gw = next(e for e in edits if "openai_gateway_service.go" in e["file"])
         self.assertEqual(gw["new"], "0.143.0")
         # ua pin: only version tokens swapped, OS/terminal kept
-        ua = next(e for e in edits if "setting_service.go" in e["file"])
+        ua = next(e for e in edits if "setting_gateway_runtime.go" in e["file"])
         self.assertEqual(ua["new"], UA_TMPL.format(v="0.143.0"))
         self.assertIn("iTerm.app/3.6.11", ua["new"])
 
@@ -202,8 +202,8 @@ class LiveRepoTests(unittest.TestCase):
         # ...mutually consistent (this is exactly what the preflight gate asserts)...
         self.assertNotEqual(bl.consensus(), "", "live codex version pins disagree")
         # ...and the non-version pins are present.
-        self.assertTrue(bl.originator_pinned, "originator pin missing from gateway")
-        self.assertTrue(bl.beta_pinned, "OpenAI-Beta pin missing from gateway")
+        self.assertTrue(bl.originator_pinned, "originator pin missing from source")
+        self.assertTrue(bl.beta_pinned, "OpenAI-Beta pin missing from source")
 
     def test_live_check_consistency_passes(self):
         self.assertEqual(eng.main(["check-consistency"]), 0)

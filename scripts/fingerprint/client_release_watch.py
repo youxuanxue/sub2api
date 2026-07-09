@@ -38,7 +38,7 @@ ANTIGRAVITY_OAUTH_GO = REPO_ROOT / "backend/internal/pkg/antigravity/oauth.go"
 KIRO_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"
 GEMINI_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/geminicli/constants.go"
 XAI_OAUTH_GO = REPO_ROOT / "backend/internal/pkg/xai/oauth.go"
-SETTING_GO = REPO_ROOT / "backend/internal/service/setting_service.go"
+SETTING_GO = REPO_ROOT / "backend/internal/service/setting_gateway_runtime.go"
 
 # Platforms that mirror another platform's drift/issue signal (listed in report, no duplicate issue).
 COMPANION_OF: dict[str, str] = {
@@ -371,7 +371,7 @@ PLATFORM_SPECS: list[PlatformSpec] = [
         id="codex",
         name="Codex CLI",
         skill="tokenkey-codex-fingerprint-alignment",
-        pin_path="backend/internal/service/setting_service.go (+ 4 other pins)",
+        pin_path="backend/internal/service/setting_gateway_runtime.go (+ 4 other pins)",
         sources=[
             SourceSpec(
                 kind="npm",

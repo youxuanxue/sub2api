@@ -543,6 +543,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 		"api_key",
 		"project_id",
 		"oauth_type",
+		"plan_type",
 		"base_url",
 		"mirror_platform",
 		"pool_mode",

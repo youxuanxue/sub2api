@@ -42,11 +42,23 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "tkPricingAvailability",
-        "RecordOutcome",
-        "TkEnrichForbiddenMessage("
+        "tkPricingAvailability"
       ],
       "rationale": "gateway_service.go carries the success-path availability tap inside recordUsageCore (the 100%-hit path for all platform forwards) plus the TK 403 error-message enrichment in handleErrorResponse. Three sentinels: tkPricingAvailability (field declaration), RecordOutcome (success tap), and TkEnrichForbiddenMessage (403 client-message enrichment, replaces the default 'Upstream access forbidden, please contact administrator' with body-size hint). An upstream merge restructuring recordUsageCore or handleErrorResponse could silently remove any of these, collapsing the availability signal or regressing the 403 UX to the unhelpful default."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{"
+      ],
+      "rationale": "Success-path availability tap split from gateway_service.go into gateway_usage_billing.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_upstream_error_msg.go",
+      "must_contain": [
+        "func TkEnrichForbiddenMessage("
+      ],
+      "rationale": "403 client-message enrichment owner split from gateway_service.go."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
@@ -107,7 +119,7 @@
       "rationale": "R-003 single self-healing candidate source, shared by the admin model-whitelist selector (admin_service.GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing). tkServableCandidateIDs draws anthropic/openai/gemini from the empirical allowlist and prunes structurally-gone models (model_not_found -> unreachable) via live model_availability (tkPruneStructurallyGoneIDs / tkAvailabilityStructurallyGone); antigravity/newapi keep canonical defaults. If an upstream merge or refactor drops this file, BOTH surfaces silently revert to the canonical defaults (claude.DefaultModels etc.) that still list retired / access-gated models like claude-fable-5 — exactly the hand-maintenance toil R-003 removed. Pins the function and its self-healing primitives."
     },
     {
-      "path": "backend/internal/service/admin_service.go",
+      "path": "backend/internal/service/admin_group.go",
       "must_contain": [
         "tkServableCandidateIDs(ctx, platform, s.availability)"
       ],

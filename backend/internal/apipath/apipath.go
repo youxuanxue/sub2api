@@ -10,6 +10,7 @@ const (
 	ChatCompletions   = "/v1/chat/completions"
 	Embeddings        = "/v1/embeddings"
 	Responses         = "/v1/responses"
+	ResponsesCompact  = "/v1/responses/compact"
 	ImagesGenerations = "/v1/images/generations"
 	ImagesEdits       = "/v1/images/edits"
 	VideosGenerations = "/v1/videos/generations"

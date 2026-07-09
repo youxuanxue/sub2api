@@ -44,11 +44,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # --- alignment targets (single source of truth for "where the version lives") ---
-SETTING_GO = REPO_ROOT / "backend/internal/service/setting_service.go"
+SETTING_GO = REPO_ROOT / "backend/internal/service/setting_gateway_runtime.go"
 GATEWAY_GO = REPO_ROOT / "backend/internal/service/openai_gateway_service.go"
 USAGE_GO = REPO_ROOT / "backend/internal/service/account_usage_service.go"
-EN_TS = REPO_ROOT / "frontend/src/i18n/locales/en.ts"
-ZH_TS = REPO_ROOT / "frontend/src/i18n/locales/zh.ts"
+EN_TS = REPO_ROOT / "frontend/src/i18n/locales/en/admin/settings.ts"
+ZH_TS = REPO_ROOT / "frontend/src/i18n/locales/zh/admin/settings.ts"
+NON_VERSION_PIN_GO_FILES = (
+    REPO_ROOT / "backend/internal/service/openai_gateway_scheduling.go",
+    REPO_ROOT / "backend/internal/service/openai_gateway_forward.go",
+    REPO_ROOT / "backend/internal/service/openai_gateway_passthrough.go",
+)
 
 # Non-version pins verified (not bumped) against the installed binary's strings.
 EXPECTED_ORIGINATOR = "codex_cli_rs"
@@ -181,9 +186,11 @@ def load_baseline() -> Baseline:
             pp.version, pp.consistent_internal = extract_ua_version(ua_ph)
         bl.pins.append(pp)
 
-    # Non-version pins (sanity, not bumped).
-    bl.originator_pinned = ('"' + EXPECTED_ORIGINATOR + '"') in gateway_txt
-    bl.beta_pinned = EXPECTED_BETA in gateway_txt
+    # Non-version pins (sanity, not bumped). These live in thin companion files
+    # after the upstream merge split the gateway hot path.
+    non_version_txt = "\n".join(_read(path) for path in NON_VERSION_PIN_GO_FILES)
+    bl.originator_pinned = ('"' + EXPECTED_ORIGINATOR + '"') in non_version_txt
+    bl.beta_pinned = EXPECTED_BETA in non_version_txt
     return bl
 
 
@@ -313,9 +320,9 @@ def _print_rows(rows: list[Row], stream=sys.stdout) -> None:
 
 def _print_non_version(bl: Baseline, installed_markers: dict[str, bool] | None) -> None:
     print("\nnon-version pins (verified, never auto-bumped):")
-    print(f"  · originator pinned in gateway = {EXPECTED_ORIGINATOR!r}: "
+    print(f"  · originator pinned in source = {EXPECTED_ORIGINATOR!r}: "
           f"{'yes' if bl.originator_pinned else 'NO — investigate'}")
-    print(f"  · OpenAI-Beta pinned in gateway = {EXPECTED_BETA!r}: "
+    print(f"  · OpenAI-Beta pinned in source = {EXPECTED_BETA!r}: "
           f"{'yes' if bl.beta_pinned else 'NO — investigate'}")
     if installed_markers is None:
         print("  · binary strings: not checked (native binary not located/readable)")

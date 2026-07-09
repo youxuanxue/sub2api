@@ -21,7 +21,19 @@
 
 可作字段对照的镜像 JSON：`deploy/aws/stage0/tk_canonical_cc_oauth.json`。
 
-**HTTP 层（User-Agent / `x-stainless-*`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在 canonical observed 块（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
+**HTTP 层（User-Agent / `x-stainless-*` / `anthropic-beta`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在 canonical observed 块（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
+
+**OAuth mimicry 指纹范畴（不仅 UA）**：对非 CC 入口（如 `OpenAI/Python`）走 OAuth mimic 时，上游分类信号是 **TLS + HTTP 头 + system 多块** 的组合，不是 ingress `User-Agent`  alone：
+
+| 层 | 入口（用户 / prod 透传） | 出站（edge OAuth mimic → Anthropic） |
+|---|---|---|
+| TLS | 任意 | `tk_canonical_cc_oauth` JA3（tier 账号） |
+| HTTP UA | 常为 `OpenAI/Python 2.x` | `claude-cli/X.Y.Z (external, cli)` |
+| HTTP beta | 客户端常空或不完整 | 完整 CC mimicry 集（Sonnet/Opus/Haiku 分集） |
+| HTTP stainless | 无 | `x-stainless-package-version` / `runtime-version` 等 canonical 块 |
+| system | SDK 默认字符串，无 billing | 3-block：billing header + identity + 静态 prose |
+
+结构化出站观测（不记全文）：`gateway.anthropic_oauth_mimic_egress`（SDK ingress 全量采样）与 `gateway.anthropic_prompt_fingerprint`（system surface 类 + hash）。只读探针：`ops/observability/probe-oauth-mimicry-chain.sh`。详见 [`docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`](../spec-delta-cc-oauth-mimicry-fingerprint-scope.md)。
 
 **Profile 命名稳定性**：profile 名 `tk_canonical_cc_oauth` 不含 cc CLI patch version——TLS ClientHello 跨 cc 2.1.142 → 2.1.152 等 patch release 字节不变（同 ja3_hash），换 patch version 不需要 DB profile rename / migration。
 
@@ -33,7 +45,7 @@
 | 环境变量 | `CLAUDE_CODE_USER_AGENT_VERSION` | 进程启动期生效（重启进程，不重新部署） |
 | 编译期默认 | `DefaultClaudeCodeUserAgentVersion` 常量 | 兜底（仅当上述两层均缺失或非法） |
 
-只填**版本号**（如 `2.1.152`），prefix/suffix（`claude-cli/.../ (external, sdk-cli)`）由代码固定。Semver `^\d+\.\d+\.\d+$` 校验，非法值在 admin PATCH 阶段就被拒；下沉到 setting 后任何非法值再走 normalize fallback 到 default。
+只填**版本号**（如 `2.1.152`），prefix/suffix（`claude-cli/.../ (external, cli)`）由代码固定。Semver `^\d+\.\d+\.\d+$` 校验，非法值在 admin PATCH 阶段就被拒；下沉到 setting 后任何非法值再走 normalize fallback 到 default。
 
 **UA 变更后无需 SQL apply / Redis 清缓存**：`applyCanonicalHTTPObserved` 每次 OAuth forward 都会比对 Redis 缓存 UA 与当前 canonical UA，不一致即 in-place update。即 admin 改 setting → next request → Redis 自动 self-heal，无运维步骤。
 

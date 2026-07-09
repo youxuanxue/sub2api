@@ -156,3 +156,33 @@ func tkIsForwardableAnthropicModelName(model string) bool {
 	}
 	return strings.HasPrefix(m, "claude-")
 }
+
+func tkIsForwardableOpenAIModelName(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	m = strings.TrimPrefix(m, "models/")
+	m = strings.TrimPrefix(m, "openai/")
+	m = strings.ReplaceAll(m, " ", "")
+	if m == "" {
+		return true
+	}
+	openAIPrefixes := []string{
+		"gpt",
+		"o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9",
+		"chatgpt",
+		"codex",
+		"text-embedding",
+		"text-moderation",
+		"dall-e",
+		"tts",
+		"whisper",
+		"omni",
+		"computer-use",
+		"sora",
+	}
+	for _, prefix := range openAIPrefixes {
+		if strings.HasPrefix(m, prefix) {
+			return true
+		}
+	}
+	return false
+}

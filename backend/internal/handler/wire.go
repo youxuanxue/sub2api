@@ -304,6 +304,7 @@ func ProvideHandlers(
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
 	edgeAccountOpsHandler *EdgeAccountOpsHandler,
+	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -332,6 +333,7 @@ func ProvideHandlers(
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
 		EdgeAccountOps:   edgeAccountOpsHandler,
+		BatchImage:       batchImageHandler,
 	}
 }
 
@@ -367,6 +369,7 @@ var ProviderSet = wire.NewSet(
 	ProvideEdgeAdminSessionHandler,
 	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
 	ProvideEdgeAccountOpsHandler,
+	NewBatchImageHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

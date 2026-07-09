@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Sub2API Multi-Stage Dockerfile
 # =============================================================================
@@ -17,11 +18,13 @@ ARG ALPINE_IMAGE=alpine:3.21
 ARG POSTGRES_IMAGE=postgres:18-alpine
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
+ARG NPM_CONFIG_REGISTRY=
 
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS frontend-builder
+ARG NPM_CONFIG_REGISTRY
 
 WORKDIR /build/sub2api/frontend
 
@@ -39,7 +42,9 @@ RUN apk add --no-cache python3 && corepack enable && corepack prepare pnpm@9 --a
 
 # Install dependencies first (better caching)
 COPY sub2api/frontend/package.json sub2api/frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=sub2api-pnpm-store,target=/root/.local/share/pnpm/store \
+    if [ -n "${NPM_CONFIG_REGISTRY}" ]; then pnpm config set registry "${NPM_CONFIG_REGISTRY}"; fi && \
+    pnpm install --frozen-lockfile --prefer-offline
 
 # Copy frontend source and build
 COPY sub2api/frontend/ ./

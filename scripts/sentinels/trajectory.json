@@ -39,7 +39,7 @@
       "rationale": "consumer-side duplicate of OpsUpstreamRequestBodyKey plus the CaptureFromContext hook; either disappearing silently drops request.upstream_body / upstream_divergent from opt-in blobs"
     },
     {
-      "source": "backend/internal/service/gateway_service.go",
+      "source": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "setOpsUpstreamRequestBody(c, body)"
       ],

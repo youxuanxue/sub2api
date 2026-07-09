@@ -68,18 +68,16 @@
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
-        "if account.IsGrokOAuth()",
-        "tkIsGrokEntitlement403"
+        "if account.Platform == PlatformGrok {"
       ],
       "rationale": "The grok OAuth arm of GetAccessToken (returns the xAI OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrokOAuth() branch makes grok OAuth unable to fetch a token; using broad IsGrok() here would steal first-class grok API-key relay stubs from the api_key branch. Losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."
     },
     {
-      "path": "backend/internal/service/openai_gateway_service.go",
+      "path": "backend/internal/service/openai_gateway_request_body.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) validateUpstreamBaseURLForAccount(",
         "isEdgeMirrorStub(account, edgeIDPattern)",
-        "edgeMirrorHostFromBaseURL(raw)",
-        "validateUpstreamBaseURLWithExtraHosts(raw, extraHosts)"
+        "AllowedHosts:     []string{parsed.Hostname()}"
       ],
       "rationale": "Prod→edge grok API-key relay stubs use TokenKey edge hosts such as api-us4.tokenkey.dev as their base_url. The global upstream allowlist should still reject arbitrary hosts, but a mirror-stub account must be allowed to call its own edge host; otherwise prod direct and universal Grok media/responses fail locally with `invalid base url: host is not allowed` before reaching the edge. This pins the account-aware validation seam and the narrow edge-mirror host derivation."
     },
@@ -150,7 +148,7 @@
       "rationale": "Create-time validate+prime (resolveGrokTokenOnSave): pastes a grok refresh_token, does a live xAI refresh, and either primes the account (access_token/expires_at/token_endpoint) or rejects with the exact upstream reason. tkInputHasNonEmptyCredential gates the UpdateAccount re-validate so an unrelated grok edit isn't blocked by a transient xAI outage. Losing either lets dead grok accounts materialize, or fires an xAI call on every edit."
     },
     {
-      "path": "backend/internal/service/admin_service.go",
+      "path": "backend/internal/service/admin_account.go",
       "must_contain": [
         "resolveGrokTokenOnSave(ctx, account)"
       ],
@@ -259,14 +257,14 @@
       "rationale": "Focused regression evidence for the grok relay-stub edit guard. It pins the admin behavior that an existing grok+apikey relay stub cannot be saved after its edge base_url is cleared."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
         "grokPlatform"
       ],
       "rationale": "English i18n strings for the grok account form. Losing them surfaces raw i18n keys in the UI."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
         "grokPlatform"
       ],

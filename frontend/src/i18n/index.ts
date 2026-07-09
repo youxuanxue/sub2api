@@ -74,6 +74,9 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   // TK: Invite-to-Trial admin strings (admin.users.inviteTrial.*).
   const tkInviteTrial = await import('./tk/inviteTrial.tk')
   i18n.global.mergeLocaleMessage(locale, tkInviteTrial.default[locale] ?? {})
+  // TK: legacy single-file locale keys not present in upstream split modules.
+  const tkLegacyMissing = await import('./tk/legacyMissing.tk')
+  i18n.global.mergeLocaleMessage(locale, tkLegacyMissing.default[locale] ?? {})
   loadedLocales.add(locale)
 }
 

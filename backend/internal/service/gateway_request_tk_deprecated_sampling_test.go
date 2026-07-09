@@ -132,3 +132,24 @@ data: {"type":"message_stop"}
 	require.Equal(t, "claude-opus-4-7", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestApplyClaudeCodeOAuthMimicry_AnthropicOpus47StripsDeprecatedSamplingParams(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hello"}]}`)
+	svc := &GatewayService{}
+	account := &Account{
+		ID:       53,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+	}
+
+	got := svc.applyClaudeCodeOAuthMimicryToBody(context.Background(), nil, account, body, nil, "claude-opus-4-7")
+
+	require.False(t, gjson.GetBytes(got, "temperature").Exists(),
+		"OAuth mimicry normalize must not leave deprecated top-level temperature for Opus 4.7+")
+	require.False(t, gjson.GetBytes(got, "top_p").Exists(),
+		"OAuth mimicry normalize must not leave deprecated top-level top_p for Opus 4.7+")
+	require.False(t, gjson.GetBytes(got, "top_k").Exists(),
+		"OAuth mimicry normalize must not leave deprecated top-level top_k for Opus 4.7+")
+	require.True(t, gjson.GetBytes(got, "messages").Exists())
+	require.Equal(t, "claude-opus-4-7", gjson.GetBytes(got, "model").String())
+}

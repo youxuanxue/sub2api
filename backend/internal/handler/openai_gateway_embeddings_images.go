@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Embeddings handles POST /v1/embeddings for OpenAI-platform API keys.
-func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
+// embeddings handles POST /v1/embeddings for OpenAI-platform API keys.
+func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 

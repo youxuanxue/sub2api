@@ -1,5 +1,7 @@
 package service
 
+import "context"
+
 // openaiStickyAccountStillInGroup reports whether a sticky-bound account should
 // still be treated as a member of groupID.
 //
@@ -63,4 +65,43 @@ func openaiStickyAccountStillInGroup(account *Account, groupID int64) bool {
 	// Membership known and groupID absent → account drifted out of the group.
 	// Membership unknown (empty) → keep the binding (conservative).
 	return !known
+}
+
+func openaiStickyAccountGroupMembershipKnown(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	for _, ag := range account.AccountGroups {
+		if ag.GroupID > 0 {
+			return true
+		}
+	}
+	for _, id := range account.GroupIDs {
+		if id > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *OpenAIGatewayService) openAIStickyAccountStillInGroupForRequest(ctx context.Context, groupID *int64, platform string, account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if groupID == nil || *groupID <= 0 {
+		return openAIStickyAccountMatchesGroup(account, nil)
+	}
+	if openaiStickyAccountGroupMembershipKnown(account) {
+		return openaiStickyAccountStillInGroup(account, *groupID)
+	}
+	accounts, err := s.listOpenAICompatSchedulableAccounts(ctx, groupID, platform)
+	if err != nil {
+		return true
+	}
+	for i := range accounts {
+		if accounts[i].ID == account.ID {
+			return true
+		}
+	}
+	return false
 }

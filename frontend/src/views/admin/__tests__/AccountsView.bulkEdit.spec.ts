@@ -336,13 +336,14 @@ describe('admin AccountsView bulk edit scope', () => {
       'id',
       'today_stats',
       'proxy',
+      'scheduler_score',
       'rate_multiplier',
       'last_used_at',
       'created_at',
       'expires_at',
       'notes'
     ])
-    expect(localStorage.getItem('account-column-settings-version')).toBe('2')
+    expect(localStorage.getItem('account-column-settings-version')).toBe('3')
   })
 
   it('manual refresh also force-refreshes inline edge panels', async () => {

@@ -80,6 +80,59 @@ func applyStickyToNewAPIBridge(
 	return body
 }
 
+func applyStickyToOpenAIResponsesBody(
+	ctx context.Context,
+	c *gin.Context,
+	settingService stickyGlobalEnabledProvider,
+	account *Account,
+	body []byte,
+	upstreamModel string,
+) ([]byte, string, error) {
+	stickyReq := buildStickyInjectionRequestFromGin(ctx, c, settingService, upstreamModel, openAIStickyAccountKind(account), false)
+	if !stickyReq.Strategy.AllowsInjection() {
+		return body, "", nil
+	}
+	key := DeriveStickyKey(stickyReq, body)
+	if key.Value == "" {
+		return body, "", nil
+	}
+	injected, mutated, err := InjectOpenAIResponsesBody(body, key, stickyReq.Strategy)
+	if err != nil {
+		return body, "", err
+	}
+	if mutated {
+		return injected, key.Value, nil
+	}
+	return body, key.Value, nil
+}
+
+func applyStickyToAnthropicMessagesBody(
+	ctx context.Context,
+	c *gin.Context,
+	settingService stickyGlobalEnabledProvider,
+	account *Account,
+	body []byte,
+	upstreamModel string,
+	isClaudeCodeUA bool,
+) ([]byte, string, error) {
+	stickyReq := buildStickyInjectionRequestFromGin(ctx, c, settingService, upstreamModel, anthropicStickyAccountKind(account), isClaudeCodeUA)
+	if !stickyReq.Strategy.AllowsInjection() {
+		return body, "", nil
+	}
+	key := DeriveStickyKey(stickyReq, body)
+	if key.Value == "" {
+		return body, "", nil
+	}
+	injected, mutated, err := InjectAnthropicMessagesBody(body, key, stickyReq)
+	if err != nil {
+		return body, "", err
+	}
+	if mutated {
+		return injected, key.Value, nil
+	}
+	return body, key.Value, nil
+}
+
 // openAIStickyAccountKind classifies the account flavor for the sticky
 // injector.
 func openAIStickyAccountKind(a *Account) StickyAccountKind {
