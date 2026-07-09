@@ -57,6 +57,11 @@ var codexModelMap = map[string]string{
 	"gpt-5.2-codex":              "gpt-5.2",
 	"codex-mini-latest":          "gpt-5.3-codex",
 	"gpt-5-codex":                "gpt-5.3-codex",
+	// TK 2026-07 SSOT audit hotfix: exact-match self-mapping short-circuits
+	// normalizeKnownOpenAICodexModel's `strings.Contains(normalized, "gpt-5.3")`
+	// substring fallback (openai_model_alias.go), which would otherwise silently
+	// rewrite this id to gpt-5.3-codex before it reaches OpenAI.
+	"gpt-5.3-chat-latest": "gpt-5.3-chat-latest",
 }
 
 var codexVersionModelPrefixes = []struct {
