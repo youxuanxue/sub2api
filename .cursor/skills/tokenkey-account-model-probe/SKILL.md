@@ -109,6 +109,7 @@ When validating which Claude ids a Kiro account (native edge OAuth or prod mirro
 bash ops/observability/run-probe.sh \
   --target prod \
   --script ops/stage0/probe_kiro_claude_models.sh \
+  --with ops/stage0/probe_account_model.sh \
   --with ops/pricing/probe_reserved_resources.sh \
   --env ACCOUNT_ID=66
 ```
