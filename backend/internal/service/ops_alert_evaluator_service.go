@@ -390,7 +390,7 @@ func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
 		return false
 	}
 	switch strings.TrimSpace(rule.MetricType) {
-	case OpsAlertMetricUserVisibleFailureCount:
+	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount:
 		return true
 	default:
 		return false
