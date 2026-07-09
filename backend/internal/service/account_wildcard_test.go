@@ -430,6 +430,30 @@ func TestAccountResolveMappedModel(t *testing.T) {
 			expectedMatch:  true,
 		},
 		{
+			name:     "newapi mapping matches mixed-case client spelling and returns canonical upstream",
+			platform: PlatformNewAPI,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"deepseek-v4-pro": "deepseek-v4-pro",
+				},
+			},
+			requestedModel: "DeepSeek-V4-Pro",
+			expectedModel:  "deepseek-v4-pro",
+			expectedMatch:  true,
+		},
+		{
+			name: "case-insensitive lookup prefers exact requested spelling when configured",
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"DeepSeek-V4-Pro": "custom-upstream",
+					"deepseek-v4-pro": "deepseek-v4-pro",
+				},
+			},
+			requestedModel: "DeepSeek-V4-Pro",
+			expectedModel:  "custom-upstream",
+			expectedMatch:  true,
+		},
+		{
 			name: "wildcard passthrough mapping still counts as matched",
 			credentials: map[string]any{
 				"model_mapping": map[string]any{
@@ -438,6 +462,18 @@ func TestAccountResolveMappedModel(t *testing.T) {
 			},
 			requestedModel: "gpt-5.4",
 			expectedModel:  "gpt-5.4",
+			expectedMatch:  true,
+		},
+		{
+			name:     "wildcard mapping matches mixed-case client spelling",
+			platform: PlatformNewAPI,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"deepseek-v4-*": "deepseek-v4-flash",
+				},
+			},
+			requestedModel: "deepSeek-v4-flash",
+			expectedModel:  "deepseek-v4-flash",
 			expectedMatch:  true,
 		},
 		{
@@ -489,6 +525,29 @@ func TestAccountResolveMappedModel(t *testing.T) {
 				t.Fatalf("ResolveMappedModel(%q) = (%q, %v), want (%q, %v)", tt.requestedModel, mappedModel, matched, tt.expectedModel, tt.expectedMatch)
 			}
 		})
+	}
+}
+
+func TestAccountIsModelSupported_MixedCaseMappingLookup(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformNewAPI,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro":   "deepseek-v4-pro",
+				"deepseek-v4-flash": "deepseek-v4-flash",
+			},
+		},
+	}
+
+	for _, model := range []string{"DeepSeek-V4-Pro", "deepSeek-v4-pro", "DeepSeek-V4-Flash", "deepSeek-v4-flash"} {
+		if !account.IsModelSupported(model) {
+			t.Fatalf("IsModelSupported(%q) = false, want true", model)
+		}
+	}
+	if account.IsModelSupported("DeepSeek-V4-Max") {
+		t.Fatalf("unexpected support for unmapped mixed-case model")
 	}
 }
 
