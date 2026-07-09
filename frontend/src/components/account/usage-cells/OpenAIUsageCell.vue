@@ -1,8 +1,9 @@
 <template>
   <div ref="rootRef">
-    <div v-if="hasOpenAIUsageFallback" class="space-y-1">
+    <div class="space-y-1">
+      <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
       <UsageProgressBar
-        v-if="usageInfo?.five_hour"
+        v-if="hasOpenAIUsageFallback && usageInfo?.five_hour"
         label="5h"
         :utilization="usageInfo.five_hour.utilization"
         :resets-at="usageInfo.five_hour.resets_at"
@@ -11,7 +12,7 @@
         color="indigo"
       />
       <UsageProgressBar
-        v-if="usageInfo?.seven_day"
+        v-if="hasOpenAIUsageFallback && usageInfo?.seven_day"
         label="7d"
         :utilization="usageInfo.seven_day.utilization"
         :resets-at="usageInfo.seven_day.resets_at"
@@ -20,10 +21,24 @@
         color="emerald"
       />
       <UpstreamQuotaSummary
+        v-if="hasOpenAIUsageFallback"
         :quota="usageInfo?.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
       />
-      <OpenAIQuotaResetCell :account="account">
+      <div v-if="!hasOpenAIUsageFallback && loading" class="space-y-1.5">
+        <div class="flex items-center gap-1">
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+        <div class="flex items-center gap-1">
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+      </div>
+      <div v-else-if="!hasOpenAIUsageFallback" class="text-xs text-gray-400">-</div>
+      <OpenAIQuotaResetCell v-if="hasOpenAIUsageFallback || !loading" :account="account">
         <template #pre-actions>
           <button
             type="button"
@@ -50,22 +65,6 @@
         </template>
       </OpenAIQuotaResetCell>
     </div>
-    <div v-else-if="loading" class="space-y-1.5">
-      <div class="flex items-center gap-1">
-        <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-      </div>
-      <div class="flex items-center gap-1">
-        <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-      </div>
-    </div>
-    <div v-else>
-      <div class="text-xs text-gray-400">-</div>
-      <OpenAIQuotaResetCell :account="account" class="mt-1" />
-    </div>
   </div>
 </template>
 
@@ -75,6 +74,7 @@ import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import OpenAIQuotaResetCell from '../OpenAIQuotaResetCell.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
+import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps

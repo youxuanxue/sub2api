@@ -2,34 +2,7 @@
   <div ref="rootRef">
     <AccountQuotaInfo v-if="account.platform === 'gemini'" :account="account" />
     <div v-else class="space-y-1">
-      <div v-if="todayStats" class="mb-0.5 flex items-center">
-        <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-            {{ formatKeyRequests }} req
-          </span>
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-            {{ formatKeyTokens }}
-          </span>
-          <span
-            class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
-            :title="t('usage.accountBilled')"
-          >
-            A ${{ formatKeyCost }}
-          </span>
-          <span
-            v-if="todayStats.user_cost != null"
-            class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
-            :title="t('usage.userBilled')"
-          >
-            U ${{ formatKeyUserCost }}
-          </span>
-        </div>
-      </div>
-      <div v-else-if="todayStatsLoading" class="mb-0.5 flex items-center gap-1">
-        <div class="h-3 w-10 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-3 w-8 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-      </div>
+      <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
 
       <UsageProgressBar
         v-if="quotaDailyBar"
@@ -64,14 +37,13 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import AccountQuotaInfo from '../AccountQuotaInfo.vue'
+import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps
 } from '../accountUsageCellProps'
-import { useTodayStatsFormatters } from './useTodayStatsFormatters'
 
 interface QuotaBarInfo {
   utilization: number
@@ -80,11 +52,7 @@ interface QuotaBarInfo {
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
-const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
-
-const { formatKeyRequests, formatKeyTokens, formatKeyCost, formatKeyUserCost } =
-  useTodayStatsFormatters(props)
 
 const makeQuotaBar = (
   used: number,

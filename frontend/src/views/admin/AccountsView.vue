@@ -515,7 +515,6 @@ const TierTemplatesModal = defineAsyncComponent(() => import('@/components/admin
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { accountMatchesPlatformFilter } from '@/utils/accountPlatformFilters'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
-import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, ClaudeModel } from '@/types'
 
@@ -664,8 +663,26 @@ const exportingData = ref(false)
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = [
+  'id',
+  'today_stats',
+  'proxy',
+  'rate_multiplier',
+  'last_used_at',
+  'created_at',
+  'expires_at',
+  'notes'
+]
+const LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMNS = [
+  'today_stats',
+  'proxy',
+  'notes',
+  'priority',
+  'rate_multiplier'
+]
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
+const COLUMN_SETTINGS_VERSION_KEY = 'account-column-settings-version'
+const COLUMN_SETTINGS_VERSION = '2'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -804,13 +821,21 @@ const loadSavedColumns = () => {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as string[]
-      parsed.forEach(key => {
+      const keys = shouldMigrateLegacyDefaultColumns(parsed)
+        ? DEFAULT_HIDDEN_COLUMNS
+        : parsed
+      keys.forEach(key => {
         hiddenColumns.add(key)
       })
+      localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)
+      if (keys !== parsed) {
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+      }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
       })
+      localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
@@ -823,15 +848,21 @@ const loadSavedColumns = () => {
 const saveColumnsToStorage = () => {
   try {
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)
   } catch (e) {
     console.error('Failed to save columns:', e)
   }
 }
 
-const migrateTimestampColumnsVisibleOnce = () => {
-  if (migrateAccountTimestampColumnsVisibleOnce(hiddenColumns)) {
-    saveColumnsToStorage()
-  }
+const sameColumnSet = (a: string[], b: string[]) => {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every(key => set.has(key))
+}
+
+const shouldMigrateLegacyDefaultColumns = (keys: string[]) => {
+  if (localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) === COLUMN_SETTINGS_VERSION) return false
+  return sameColumnSet(keys, LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMNS)
 }
 
 const loadSavedAutoRefresh = () => {
@@ -865,7 +896,6 @@ const saveAutoRefreshToStorage = () => {
 
 if (typeof window !== 'undefined') {
   loadSavedColumns()
-  migrateTimestampColumnsVisibleOnce()
   loadSavedAutoRefresh()
 }
 
