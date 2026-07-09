@@ -1017,6 +1017,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
+	if apiKey != nil && apiKey.IsUniversal() && groupID == nil {
+		if models, ok := h.tkUniversalModelIDs(c.Request.Context(), apiKey, platform); ok {
+			writeModelsList(c, models)
+			return
+		}
+	}
+
 	// Get available models from account configurations, filtered to the
 	// selected group platform so cross-platform model_mapping entries on
 	// sibling accounts in the same group don't leak through.

@@ -224,7 +224,10 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.NotEmpty(t, resp.Data)
 	ids := modelIDSet(resp.Data)
 	require.True(t, ids["codex-auto-review"], "servable probe result should be visible in OpenAI admin defaults")
-	for _, dead := range []string{"gpt-5.2", "gpt-5.3-codex", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
+	for _, want := range []string{"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.5"} {
+		require.True(t, ids[want], "servable OpenAI probe result %s should appear in OpenAI admin defaults", want)
+	}
+	for _, dead := range []string{"gpt-5-pro", "gpt-5.3-codex-spark", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
 		require.False(t, ids[dead], "advertised_dead %s must not appear in OpenAI admin defaults", dead)
 	}
 }
@@ -258,7 +261,10 @@ func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *
 	ids := modelIDSet(resp.Data)
 	require.True(t, ids["gpt-5.4"], "servable OpenAI default should remain visible")
 	require.True(t, ids["codex-auto-review"], "codex-auto-review had a live 200 and should remain visible")
-	for _, dead := range []string{"gpt-5.2", "gpt-5.3-codex", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
+	for _, want := range []string{"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.5"} {
+		require.True(t, ids[want], "servable OpenAI probe result %s should appear in OpenAI admin defaults", want)
+	}
+	for _, dead := range []string{"gpt-5-pro", "gpt-5.3-codex-spark", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"} {
 		require.False(t, ids[dead], "advertised_dead %s must not appear in OpenAI admin defaults", dead)
 	}
 }

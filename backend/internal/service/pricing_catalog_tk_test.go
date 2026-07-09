@@ -399,9 +399,16 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"openai", "gpt-5.6-luna", false},
 		{"openai", "gpt-5.6", false},
 		{"openai", "gpt-5.6-chat-latest", false},
-		{"openai", "gpt-5-mini", true},   // servable extra beyond canonical
-		{"openai", "gpt-5.2", false},     // canonical but probe-unservable (502)
-		{"openai", "gpt-image-2", false}, // not servable on a probeable path
+		{"openai", "codex-auto-review", true},
+		{"openai", "gpt-5-codex", true},
+		{"openai", "gpt-5.2", true},
+		{"openai", "gpt-5.2-pro", true},
+		{"openai", "gpt-5.3", true},
+		{"openai", "gpt-5.3-codex", true},
+		{"openai", "gpt-5-mini", false},          // stale advertised id pruned
+		{"openai", "gpt-5-pro", false},           // probe-unsupported
+		{"openai", "gpt-5.3-codex-spark", false}, // inconclusive, not listed
+		{"openai", "gpt-image-2", false},         // not servable on a probeable path
 		{"openai", "gpt-4o", false},
 		{"azure_openai", "gpt-4", false},                      // azure_openai → openai platform, gated
 		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
