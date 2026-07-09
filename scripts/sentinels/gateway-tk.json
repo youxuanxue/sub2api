@@ -2838,10 +2838,11 @@
       "path": "backend/internal/service/gateway_request_tk_bare_model_alias.go",
       "must_contain": [
         "func tkDeriveBareModelAliases(set map[string]struct{}) map[string]string",
+        "func tkDeriveDottedVersionAliases(set map[string]struct{}) map[string]string",
         "func TkApplyBareModelAlias(platform string, parsed *ParsedRequest) ([]byte, string)",
-        "tkDeriveBareModelAliases(supportedAnthropicCatalogModels)"
+        "tkDeriveAnthropicModelAliases(supportedAnthropicCatalogModels)"
       ],
-      "rationale": "Bare claude family-name fallback (\"opus\"/\"sonnet\"/\"haiku\"/\"fable\"/\"claude-<family>\" → latest servable full id), derived dynamically from the servable allowlist (pricing_catalog_supported_models_tk.go) with no hand-kept family list — a servable refresh changes the answer with zero code edits. Trigger is lexical-exact only (after lower+trim and [1m] strip); full ids, dated snapshots and the retired claude-3-5-haiku-20241022 are natural byte-identical misses, so the deprecated-model interceptor and the #617 unsupported-model 400 contract are untouched. If this companion or its derivation from the real table is silently dropped by an upstream merge, bare family names regress to 'Unsupported model' 400s."
+      "rationale": "Anthropic shorthand model aliases (\"opus\"/\"sonnet\"/\"haiku\"/\"fable\"/\"claude-<family>\" → latest servable full id, plus dotted version aliases like \"opus-4.7\"/\"claude-opus-4.7\" → the catalog-backed canonical id), derived dynamically from the servable allowlist (pricing_catalog_supported_models_tk.go) with no hand-kept family list. A servable refresh changes the answer with zero code edits. Trigger is lexical-exact only (after lower+trim and [1m] strip); full ids, dated snapshots and the retired claude-3-5-haiku-20241022 are natural byte-identical misses, so the deprecated-model interceptor and unsupported-model 400 contract are untouched. If this companion or its derivation from the real table is silently dropped by an upstream merge, shorthand names regress to 'Unsupported model' 400s."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",

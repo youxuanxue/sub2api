@@ -139,7 +139,7 @@ jobs:
           prefix: unit
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -163,7 +163,7 @@ jobs:
           prefix: integration
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       - name: Integration tests
         working-directory: backend
         run: make test-integration
@@ -213,7 +213,7 @@ jobs:
           prefix: lint
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       # PR: only-new-issues (GitHub API diff). Push/workflow_dispatch: full ./... lint on backend.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
@@ -239,7 +239,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       - name: Run gosec lint
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: golangci/golangci-lint-action@v9
@@ -332,7 +332,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       - name: Run pinned new-api smoke via bump helper
         run: |
           CURRENT_PIN="$(tr -d '[:space:]' < .new-api-ref)"
@@ -386,7 +386,7 @@ jobs:
             ${{ runner.os }}-go-release-
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       # Compile cmd/server for BOTH release arches to populate the cache.
       # Flags mirror .goreleaser.yaml (CGO_ENABLED=0, linux) — but WITHOUT
       # `-tags=embed`, so no frontend dist/ is required (embed_off.go satisfies
@@ -422,7 +422,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          go version | grep -q 'go1.26.5'
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:

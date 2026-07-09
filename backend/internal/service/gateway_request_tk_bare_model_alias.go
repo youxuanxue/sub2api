@@ -10,7 +10,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
-// TokenKey: bare claude family-name fallback ("opus" → latest servable opus id).
+// TokenKey: Anthropic model aliases ("opus" → latest servable opus id,
+// "opus-4.7" → "claude-opus-4-7").
 //
 // Prod incident 2026-06-10 (user_id=16): clients send the bare family word and
 // die with the #617 unsupported-model 400. Friendlier contract: a bare family
@@ -20,10 +21,11 @@ import (
 // (new opus 4.9 row, new `claude-zenith-6` family) changes the answer with
 // ZERO code edits. Trigger is strictly LEXICAL-EXACT (after lower+trim and the
 // existing tkStripContextWindowModelAlias pass): the model must equal a family
-// word or `claude-<family>`. Everything else — full ids, dated snapshots,
-// retired names like "claude-3-5-haiku-20241022" (versioned ⇒ natural miss;
-// the deprecated-model interceptor keeps owning it), unknown families,
-// substrings — is returned byte-identical with zero rewrites. The rewrite
+// word, `claude-<family>`, or a supported dotted shorthand like `opus-4.7`.
+// Everything else — full ids, dated snapshots, retired names like
+// "claude-3-5-haiku-20241022" (versioned ⇒ natural miss; the deprecated-model
+// interceptor keeps owning it), unknown families, substrings — is returned
+// byte-identical with zero rewrites. The rewrite
 // happens at the handler throat BEFORE channel mapping / session hash /
 // scheduling / usage recording, so every downstream consumer (including the
 // originalModel billing key) sees only the resolved full id.
@@ -77,6 +79,34 @@ func tkDeriveBareModelAliases(set map[string]struct{}) map[string]string {
 	return out
 }
 
+// tkDeriveDottedVersionAliases derives compatibility aliases for clients that
+// spell Claude family versions with a dot and no required "claude-" prefix:
+// "opus-4.7" / "claude-opus-4.7" route to "claude-opus-4-7" when that
+// canonical id is actually servable.
+func tkDeriveDottedVersionAliases(set map[string]struct{}) map[string]string {
+	out := map[string]string{}
+	for id := range set {
+		m := tkBareAliasFamilyPattern.FindStringSubmatch(id)
+		if m == nil {
+			continue
+		}
+		segs := strings.Split(strings.TrimPrefix(m[2], "-"), "-")
+		if len(segs) != 2 {
+			continue
+		}
+		out[m[1]+"-"+segs[0]+"."+segs[1]] = id
+	}
+	return out
+}
+
+func tkDeriveAnthropicModelAliases(set map[string]struct{}) map[string]string {
+	out := tkDeriveBareModelAliases(set)
+	for alias, canonical := range tkDeriveDottedVersionAliases(set) {
+		out[alias] = canonical
+	}
+	return out
+}
+
 // Lazily derived once per process from the compile-time servable table.
 var (
 	tkBareModelAliasOnce sync.Once
@@ -85,14 +115,14 @@ var (
 
 func tkBareModelAliasMap() map[string]string {
 	tkBareModelAliasOnce.Do(func() {
-		tkBareModelAliases = tkDeriveBareModelAliases(supportedAnthropicCatalogModels)
+		tkBareModelAliases = tkDeriveAnthropicModelAliases(supportedAnthropicCatalogModels)
 	})
 	return tkBareModelAliases
 }
 
-// tkResolveBareModelAlias maps a bare family name to its latest servable full
-// id. Hit requires lexical-exact equality (after lower+trim and stripping a
-// trailing "[1m]"-style alias) with a family word or `claude-<family>`.
+// tkResolveBareModelAlias maps supported shorthand aliases to their servable
+// full ids. Hit requires lexical-exact equality after lower+trim and stripping
+// a trailing "[1m]"-style alias.
 func tkResolveBareModelAlias(model string, aliases map[string]string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	if normalized == "" {
@@ -135,7 +165,7 @@ func TkApplyBareModelAlias(platform string, parsed *ParsedRequest) ([]byte, stri
 	}
 	parsed.Model = resolved
 	logger.LegacyPrintf("service.gateway",
-		"[Forward] bare model alias resolved family name to latest servable id before scheduling: requested=%s resolved=%s",
+		"[Forward] anthropic model alias resolved before scheduling: requested=%s resolved=%s",
 		requested, resolved)
 	return newBody, resolved
 }
