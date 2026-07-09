@@ -13,7 +13,7 @@ import (
 //
 // Fable 5 (`claude-fable-5`) is the new tier above Opus. Captured real Claude
 // Code 2.1.170 traffic (egress 3.148.79.145, 2026-06-09; see
-// docs/spec-delta-cc-fable-5.md) shows Fable shares Opus 4.7+'s request surface:
+// docs/spec-delta/cc-fable-5.md) shows Fable shares Opus 4.7+'s request surface:
 // manual thinking (`thinking:{type:"enabled",budget_tokens:N}`) is rejected with
 // the same adaptive-required 400, and only `{type:"adaptive"}` is accepted.
 //
@@ -30,7 +30,7 @@ import (
 // so the proactive strip below gates on isFableModel, NOT on
 // requiresAdaptiveOnlyThinking. Omitting the field is the documented equivalent.
 // Precedent: the bedrock path already does exactly this (bedrock_request.go:683,
-// sanitizeBedrockThinking "disabled" case); see docs/spec-delta-cc-fable-5.md.
+// sanitizeBedrockThinking "disabled" case); see docs/spec-delta/cc-fable-5.md.
 
 // isFableModel reports whether modelID is a Claude Fable-tier model. Matches the
 // bare id, dated snapshots, the [1m] context-window alias, and the bedrock

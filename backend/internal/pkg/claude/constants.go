@@ -62,7 +62,7 @@ const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInter
 
 // HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（structured-outputs 变体）。
 // 历史观察：2026-06 / cc 2.1.160 实测 haiku 存在服务端 A/B 灰度，structured-outputs
-// 为多数态，故选它；分布详见 docs/spec-delta-cc-2.1.160.md。
+// 为多数态，故选它；分布详见 docs/spec-delta/cc-2.1.160.md。
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking + "," + BetaThinkingTokenCount + "," +
 	BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaAdvisorTool + "," +
 	BetaStructuredOutputs + "," + BetaCacheDiagnosis

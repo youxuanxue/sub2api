@@ -9,7 +9,7 @@ Subcommands:
   check   Same as diff but exits 1 when actionable mismatches exist.
   check-env  Verify cc0-here / claude0-here launchers and proxy stack are up.
   check-tls  Exit 1 when bundle TLS ja3 fields mismatch TokenKey baseline.
-  write-drift-spec  Write docs/spec-delta-cc-tls-drift-*.md from a drift bundle.
+  write-drift-spec  Write docs/spec-delta/cc-tls-drift-*.md from a drift bundle.
   bundle-from-artifacts  Build bundle JSON from TLS capture + HTTP log files.
 
 HTTP betas are recorded as a full per-model-family distribution (not last-wins):
@@ -697,7 +697,7 @@ def _system_prompt_rows(
                 else "No captured system block matches any canonical CC identity "
                 "anchor — real CC banner drifted. Update "
                 "scripts/sentinels/cc-system-prompt.json + the Go copies with "
-                "capture evidence (docs/spec-delta-cc-system-prompt.md)."
+                "capture evidence (docs/spec-delta/cc-system-prompt.md)."
             ),
         )
     )
@@ -772,7 +772,7 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
         lines.append("")
         lines.append("action: update backend/internal/pkg/claude/constants.go,")
         lines.append("  identity_service*.go, gateway_service.go mimic path; add constants_test;")
-        lines.append("  run preflight; open docs/spec-delta-cc-<patch>.md PR.")
+        lines.append("  run preflight; open docs/spec-delta/cc-<patch>.md PR.")
     tls_mismatch = any(r.field.startswith("tls.") and r.status == "mismatch" for r in rows)
     if tls_mismatch:
         lines.append("")
@@ -893,7 +893,7 @@ def run_check_env(
     gost_host = os.environ.get("CC0_GOST_HTTP_HOST", "127.0.0.1")
     gost_port = int(os.environ.get("CC0_GOST_HTTP_PORT", "11800"))
     # Fallback only — the operator's ~/.config/cc0/env CC0_EXPECT_EGRESS_IP wins.
-    # Current canonical cc0 SOCKS-chain egress (see docs/spec-delta-cc-2.1.16x.md).
+    # Current canonical cc0 SOCKS-chain egress (see docs/spec-delta/cc-2.1.16x.md).
     # 16.147.170.3 (retired EC2 us1 EIP) was decommissioned 2026-06-07; egress moved to
     # edge-ls-us-oh-3 (StaticIp-oh-3). Its public IP rotated 52.15.35.197 → 3.148.79.145
     # on 2026-06-08 (old IP was an ephemeral AWS re-adopted to *.coverahealth.com).
@@ -1008,7 +1008,7 @@ def write_tls_drift_spec(
     report = format_diff_report(rows, capture_path=str(bundle_path))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     cc_ver = bundle.get("cc_version") or "unknown"
-    out = out_path or (repo_root / f"docs/spec-delta-cc-tls-drift-{stamp}.md")
+    out = out_path or (repo_root / f"docs/spec-delta/cc-tls-drift-{stamp}.md")
     cap_tls = bundle.get("tls") or {}
     body = "\n".join(
         [
@@ -1213,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     drift = sub.add_parser(
         "write-drift-spec",
-        help="Write docs/spec-delta-cc-tls-drift-*.md from capture bundle",
+        help="Write docs/spec-delta/cc-tls-drift-*.md from capture bundle",
     )
     drift.add_argument("--bundle", required=True)
     drift.add_argument("--repo-root", default="")
