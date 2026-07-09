@@ -911,7 +911,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 // 1. gpt-5.3-codex-spark* -> gpt-5.3-codex-spark
 // 2. gpt-5.2-codex -> gpt-5.2（去掉后缀如 -codex, -mini, -max 等）
 // 3. gpt-5.2-20251222 -> gpt-5.2（去掉日期版本号）
-// 4. gpt-5.3-codex -> gpt-5.2
+// 4. gpt-5.3-codex* / gpt-5-codex -> gpt-5.3-codex-spark
 // 5. gpt-5.4* / gpt-5.4-mini* -> 业务静态兜底价
 // 6. 最终回退到 DefaultTestModel
 func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
@@ -936,9 +936,17 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	}
 
 	if strings.HasPrefix(model, "gpt-5.3-codex") {
-		if pricing, ok := s.pricingData["gpt-5.2"]; ok {
+		if pricing, ok := s.pricingData["gpt-5.3-codex-spark"]; ok {
 			logger.With(zap.String("component", "service.pricing")).
-				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.2"))
+				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.3-codex-spark"))
+			return pricing
+		}
+	}
+
+	if model == "gpt-5-codex" || strings.HasPrefix(model, "gpt-5-codex-") {
+		if pricing, ok := s.pricingData["gpt-5.3-codex-spark"]; ok {
+			logger.With(zap.String("component", "service.pricing")).
+				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.3-codex-spark"))
 			return pricing
 		}
 	}

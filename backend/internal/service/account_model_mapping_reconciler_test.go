@@ -89,7 +89,7 @@ func TestAccountModelMappingForAccount_NativePlatformsExplicit(t *testing.T) {
 		deny     string
 	}{
 		{PlatformAnthropic, "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"},
-		{PlatformOpenAI, "gpt-5.3-codex-spark", "gpt-5-pro"},
+		{PlatformOpenAI, "gpt-5.4", "gpt-5.6-sol"},
 		{PlatformGemini, "gemini-2.5-flash", "gemini-2.0-flash"},
 	}
 	for _, tc := range cases {

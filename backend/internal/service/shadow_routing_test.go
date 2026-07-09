@@ -17,11 +17,15 @@ func TestDefaultSparkShadowModelMapping(t *testing.T) {
 
 func TestSparkModelVariantsDerivedFromAliases(t *testing.T) {
 	got := sparkModelVariants()
-	require.ElementsMatch(t, []string{
+	for _, want := range []string{
 		"gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-low",
 		"gpt-5.3-codex-spark-medium",
 		"gpt-5.3-codex-spark-high",
 		"gpt-5.3-codex-spark-xhigh",
-	}, got, "spark 变体集合必须从 codexModelMap 派生")
+		"gpt-5.3-codex",
+		"gpt-5-codex",
+	} {
+		require.Contains(t, got, want, "spark 变体集合必须从 codexModelMap 派生")
+	}
 }

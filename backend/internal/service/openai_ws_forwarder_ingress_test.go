@@ -153,8 +153,8 @@ func TestStripCodexSparkImageGenerationToolFromRawPayload(t *testing.T) {
 	})
 
 	t.Run("keeps_image_generation_for_non_spark", func(t *testing.T) {
-		payload := []byte(`{"type":"response.create","model":"gpt-5.3-codex","tools":[{"type":"image_generation","output_format":"png"}]}`)
-		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.3-codex")
+		payload := []byte(`{"type":"response.create","model":"gpt-5.2","tools":[{"type":"image_generation","output_format":"png"}]}`)
+		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.2")
 		require.NoError(t, err)
 		require.False(t, changed)
 		require.Equal(t, string(payload), string(updated))
