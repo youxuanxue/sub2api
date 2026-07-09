@@ -976,7 +976,7 @@ func (s *BatchImagePublicService) listCandidateAccounts(ctx context.Context, gro
 
 func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Context, groupID *int64) error {
 	if groupID == nil || *groupID <= 0 {
-		return nil
+		return ErrBatchImageGroupDisabled
 	}
 	if s.GroupRepo == nil {
 		return ErrBatchImageSettlementPricingMissing
