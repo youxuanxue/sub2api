@@ -43,6 +43,30 @@ func TestOpenAIMirrorModel_SustainedSpark_WritesModelScopedCooldown(t *testing.T
 	require.Empty(t, repo.tempCalls)
 }
 
+func TestOpenAIMirrorModel_SustainedGrok_WritesModelScopedCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc, _ := newOpenAIMirrorModelService(repo)
+	account := grokEdgeStub(80)
+	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Upstream rate limit exceeded, please retry later"}}`)
+	before := time.Now()
+
+	for i := 0; i < 4; i++ {
+		require.True(t, svc.HandleUpstreamError(context.Background(), account,
+			http.StatusTooManyRequests, http.Header{}, body, "grok-build-0.1"))
+	}
+	after := time.Now()
+
+	require.NotEmpty(t, repo.modelRateLimitCalls)
+	first := repo.modelRateLimitCalls[0]
+	require.Equal(t, int64(80), first.accountID)
+	require.Equal(t, "grok-build-0.1", first.scope)
+	require.Equal(t, tkOpenAIMirrorDownstreamEmptyReason, first.reason)
+	require.False(t, first.resetAt.Before(before))
+	require.False(t, first.resetAt.After(after.Add(time.Duration(edgeMirrorStubSaturationWindowSeconds)*time.Second)))
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Empty(t, repo.tempCalls)
+}
+
 func TestOpenAIMirrorModel_BelowThreshold_NoCooldown(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	svc, _ := newOpenAIMirrorModelService(repo)

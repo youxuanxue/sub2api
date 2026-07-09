@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,6 +41,10 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
 
+	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
+		return true
+	}
+
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIContextWindowError("", responseBody) {
 		return false
 	}
@@ -68,6 +74,25 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
 	return shouldDisable
+}
+
+func (s *OpenAIGatewayService) handleOpenAICompatRelayDownstreamCapacityError(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel string) bool {
+	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
+	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+	if !tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
+		return false
+	}
+	reason := tkOpenAICompatDownstreamCapacityReason(statusCode, upstreamMsg, responseBody)
+	slog.Info("openai_compat_downstream_capacity_skip_penalty",
+		"account_id", account.ID,
+		"platform", account.Platform,
+		"status_code", statusCode,
+		"reason", reason)
+	if s != nil && s.rateLimitService != nil {
+		satCount := s.rateLimitService.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
+		s.rateLimitService.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, requestedModel)
+	}
+	return true
 }
 
 func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {

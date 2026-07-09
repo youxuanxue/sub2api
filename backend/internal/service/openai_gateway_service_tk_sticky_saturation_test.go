@@ -22,6 +22,16 @@ func TestShouldClearOpenAIStickyForSaturation_ThresholdBoundary(t *testing.T) {
 	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), openAIEdgeStub(64), "sess"))
 }
 
+func TestShouldClearOpenAIStickyForSaturation_GrokRelayStub(t *testing.T) {
+	resetOpenAISatCache()
+	svc := &OpenAIGatewayService{}
+	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
+		80: openAIEdgeMirrorStubSaturationThreshold,
+	}})
+
+	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), grokEdgeStub(80), "sess"))
+}
+
 func TestShouldClearOpenAIStickyForSaturation_NonEdgeStubIgnored(t *testing.T) {
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}

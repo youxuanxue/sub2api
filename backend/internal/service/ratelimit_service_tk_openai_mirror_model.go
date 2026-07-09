@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-// TK — prod-side per-model cooldown for header-less edge empty-pool 429s on OpenAI
-// edge-mirror stubs (openai-us* → api-us*.tokenkey.dev).
+// TK — prod-side per-model cooldown for header-less edge empty-pool 429s on
+// OpenAI-compatible edge-mirror stubs (openai-us*/grok-us* →
+// api-us*.tokenkey.dev).
 //
 // Mirrors ratelimit_service_tk_mirror_class_429.go for the GPT line: when edge
 // spark (or another mapped model) is dry but gpt-5.4 still has headroom on the
@@ -31,7 +32,7 @@ func (s *RateLimitService) tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(
 	if s == nil || s.accountRepo == nil || account == nil {
 		return false
 	}
-	if !tkIsOpenAIEdgeMirrorStub(account) {
+	if !tkIsOpenAICompatEdgeMirrorStub(account) {
 		return false
 	}
 	if saturationCount < edgeMirrorStubSaturationThreshold {

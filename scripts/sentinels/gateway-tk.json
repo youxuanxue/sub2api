@@ -3453,13 +3453,14 @@
       "rationale": "Write side of OpenAI saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path. Never advances handle429 / ladder — preference feed only. Dropping this file stops feeding the counter and scheduler preference becomes inert."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
       "must_contain": [
+        "func (s *RateLimitService) handleOpenAICompatDownstreamCapacityPenalty(",
         "satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
-        "s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))",
-        "openai_downstream_capacity_skip_penalty"
+        "s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, requestedModel)",
+        "openai_compat_downstream_capacity_skip_penalty"
       ],
-      "rationale": "Thin injection of OpenAI saturation counter increments at the HandleUpstreamError downstream-capacity skip branch (429 no-available / failover-exhausted on openai-us* edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched — only feeds de-prioritization preference. Upstream merge rewriting the skip branch would silently drop the feed."
+      "rationale": "Thin injection of OpenAI-compatible saturation counter increments at the downstream-capacity skip branch (429 no-available / failover-exhausted / TokenKey downstream rate-limit envelope on openai-us* and grok edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched; only feeds de-prioritization preference and optional model-scoped cooldown. Upstream merge rewriting the skip helper would silently drop the feed."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_mirror_model.go",
