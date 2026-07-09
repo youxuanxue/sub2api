@@ -35,6 +35,12 @@ ROUTING_TABLE = [
         "skill": "(compare prod fingerprints vs prompt_surface_registry.json)",
         "next_command": "bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-prompt-surface-fingerprints.sh --env SINCE=24h --env LIMIT=40",
     },
+    {
+        "signal_type": "oauth-mimic-drift",
+        "label": "oauth-mimic:edge-drift",
+        "skill": "tokenkey-cc-fingerprint-alignment",
+        "next_command": "bash ops/observability/scan-oauth-mimic-chain.sh --since 24h",
+    },
 ]
 
 
@@ -74,10 +80,12 @@ def collect_signals(
     *,
     release_report: dict[str, Any] | None,
     prompt_prod_report: dict[str, Any] | None,
+    oauth_mimic_report: dict[str, Any] | None,
     tracking_links: list[dict[str, Any]],
     release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
+    edge_oauth_mimic_result: str,
 ) -> list[dict[str, Any]]:
     signals: list[dict[str, Any]] = []
 
@@ -145,11 +153,36 @@ def collect_signals(
             sig["tracking"] = link
         signals.append(sig)
 
+    if oauth_mimic_report:
+        summary = oauth_mimic_report.get("summary") or {}
+        if summary.get("has_actionable_drift"):
+            sig = {
+                "signal_type": "oauth-mimic-drift",
+                "status": "actionable",
+                "alerts": summary.get("alerts") or [],
+                "eligible_edges": summary.get("eligible_edges") or [],
+            }
+            link = find_link(tracking_links, signal_type="oauth-mimic-drift", kind="issue")
+            if link:
+                sig["tracking"] = link
+            signals.append(sig)
+    elif edge_oauth_mimic_result == "failure" and registry_gate_result == "success":
+        sig = {
+            "signal_type": "oauth-mimic-drift",
+            "status": "actionable",
+            "detail": "edge-oauth-mimic job failed (probe/aggregate error or actionable drift)",
+        }
+        link = find_link(tracking_links, signal_type="oauth-mimic-drift", kind="issue")
+        if link:
+            sig["tracking"] = link
+        signals.append(sig)
+
     if (
         not signals
         and release_scan_result == "success"
         and registry_gate_result == "success"
         and prod_aggregate_result in {"success", "skipped"}
+        and edge_oauth_mimic_result in {"success", "skipped"}
     ):
         signals.append({"signal_type": "aligned", "status": "clear", "detail": "no actionable fidelity signals"})
 
@@ -188,6 +221,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 lines.append(f"- **prod-drift**: {', '.join(alerts)}{tracking_text}")
             else:
                 lines.append(f"- **prod-drift**: {sig.get('detail', 'actionable drift')}{tracking_text}")
+        elif st == "oauth-mimic-drift":
+            alerts = sig.get("alerts") or []
+            edges = sig.get("eligible_edges") or []
+            if alerts:
+                edge_hint = f" edges={edges}" if edges else ""
+                lines.append(f"- **oauth-mimic-drift**: {', '.join(alerts)}{edge_hint}{tracking_text}")
+            else:
+                lines.append(f"- **oauth-mimic-drift**: {sig.get('detail', 'actionable drift')}{tracking_text}")
         elif st == "aligned":
             lines.append("- **aligned**: no actionable signals")
     tracking_links = payload.get("tracking_links") or []
@@ -215,6 +256,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     prompt_md = payload.get("sections", {}).get("prompt_prod_markdown")
     if prompt_md:
         lines.extend(["## Prompt surface prod aggregate (detail)", "", prompt_md.strip(), ""])
+    oauth_md = payload.get("sections", {}).get("oauth_mimic_markdown")
+    if oauth_md:
+        lines.extend(["## OAuth mimic edge aggregate (detail)", "", oauth_md.strip(), ""])
     return "\n".join(lines) + "\n"
 
 
@@ -225,27 +269,32 @@ def build_payload(
     release_markdown: str | None,
     prompt_prod_report: dict[str, Any] | None,
     prompt_prod_markdown: str | None,
+    oauth_mimic_report: dict[str, Any] | None,
+    oauth_mimic_markdown: str | None,
     tracking_links: list[dict[str, Any]],
     cache_pr_url: str,
     release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
+    edge_oauth_mimic_result: str,
 ) -> dict[str, Any]:
     from datetime import datetime, timezone
 
     signals = collect_signals(
         release_report=release_report,
         prompt_prod_report=prompt_prod_report,
+        oauth_mimic_report=oauth_mimic_report,
         tracking_links=tracking_links,
         release_scan_result=release_scan_result,
         registry_gate_result=registry_gate_result,
         prod_aggregate_result=prod_aggregate_result,
+        edge_oauth_mimic_result=edge_oauth_mimic_result,
     )
     workflow_should_fail = any(
-        sig.get("signal_type") in {"release-scan-failure", "registry-failure", "prod-drift"}
+        sig.get("signal_type") in {"release-scan-failure", "registry-failure", "prod-drift", "oauth-mimic-drift"}
         and sig.get("status") == "actionable"
         for sig in signals
-    ) or release_scan_result == "failure" or registry_gate_result == "failure" or prod_aggregate_result == "failure"
+    ) or release_scan_result == "failure" or registry_gate_result == "failure" or prod_aggregate_result == "failure" or edge_oauth_mimic_result == "failure"
 
     return {
         "schema_version": 1,
@@ -256,6 +305,7 @@ def build_payload(
             "release-scan": release_scan_result,
             "registry-gate": registry_gate_result,
             "prod-aggregate": prod_aggregate_result,
+            "edge-oauth-mimic": edge_oauth_mimic_result,
         },
         "signals": signals,
         "tracking_links": tracking_links,
@@ -264,9 +314,11 @@ def build_payload(
         "sections": {
             "release_markdown": release_markdown,
             "prompt_prod_markdown": prompt_prod_markdown,
+            "oauth_mimic_markdown": oauth_mimic_markdown,
         },
         "release_summary": (release_report or {}).get("summary"),
         "prompt_prod_summary": (prompt_prod_report or {}).get("summary") if prompt_prod_report else None,
+        "oauth_mimic_summary": (oauth_mimic_report or {}).get("summary") if oauth_mimic_report else None,
     }
 
 
@@ -276,12 +328,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--release-report-md", type=Path)
     ap.add_argument("--prompt-prod-report-json", type=Path)
     ap.add_argument("--prompt-prod-report-md", type=Path)
+    ap.add_argument("--oauth-mimic-report-json", type=Path)
+    ap.add_argument("--oauth-mimic-report-md", type=Path)
     ap.add_argument("--release-links-json", type=Path)
     ap.add_argument("--prompt-links-json", type=Path)
+    ap.add_argument("--oauth-mimic-links-json", type=Path)
     ap.add_argument("--cache-pr-url", default="")
     ap.add_argument("--release-scan-result", default="success")
     ap.add_argument("--registry-gate-result", default="unknown")
     ap.add_argument("--prod-aggregate-result", default="unknown")
+    ap.add_argument("--edge-oauth-mimic-result", default="unknown")
     ap.add_argument("--run-url", default="")
     ap.add_argument("--report-json", type=Path, default=DEFAULT_OUT_DIR / "report.json")
     ap.add_argument("--report-md", type=Path, default=DEFAULT_OUT_DIR / "report.md")
@@ -295,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
             release_markdown=None,
             prompt_prod_report={"summary": {"has_actionable_drift": True, "alerts": ["x=1"], "count": 1}},
             prompt_prod_markdown="- alert",
+            oauth_mimic_report={"summary": {"has_actionable_drift": True, "alerts": ["us3:ingress_sdk_no_egress_fingerprint_logs"], "eligible_edges": ["us3"]}},
+            oauth_mimic_markdown="- oauth alert",
             tracking_links=[
                 {
                     "kind": "issue",
@@ -316,25 +374,30 @@ def main(argv: list[str] | None = None) -> int:
             release_scan_result="success",
             registry_gate_result="success",
             prod_aggregate_result="failure",
+            edge_oauth_mimic_result="success",
         )
         assert payload["workflow_should_fail"] is True
         assert any(s["signal_type"] == "release-drift" for s in payload["signals"])
         assert any(s["signal_type"] == "prod-drift" for s in payload["signals"])
+        assert any(s["signal_type"] == "oauth-mimic-drift" for s in payload["signals"])
         assert payload["signals"][0]["tracking"]["url"] == "https://example/issues/1"
         assert payload["cache_pr_url"] == "https://example/pull/3"
         md = render_markdown(payload)
-        assert "release-drift" in md and "prod-drift" in md and "Tracking links" in md
+        assert "release-drift" in md and "prod-drift" in md and "oauth-mimic-drift" in md and "Tracking links" in md
         failed_release = build_payload(
             run_url="https://example/run/2",
             release_report=None,
             release_markdown=None,
             prompt_prod_report=None,
             prompt_prod_markdown=None,
+            oauth_mimic_report=None,
+            oauth_mimic_markdown=None,
             tracking_links=[],
             cache_pr_url="",
             release_scan_result="failure",
             registry_gate_result="skipped",
             prod_aggregate_result="skipped",
+            edge_oauth_mimic_result="skipped",
         )
         assert failed_release["workflow_should_fail"] is True
         assert failed_release["job_results"]["release-scan"] == "failure"
@@ -344,12 +407,15 @@ def main(argv: list[str] | None = None) -> int:
 
     release_report = load_json(args.release_report_json)
     prompt_prod_report = load_json(args.prompt_prod_report_json)
+    oauth_mimic_report = load_json(args.oauth_mimic_report_json)
     tracking_links = [
         *load_links(args.release_links_json),
         *load_links(args.prompt_links_json),
+        *load_links(args.oauth_mimic_links_json),
     ]
     release_md = args.release_report_md.read_text(encoding="utf-8") if args.release_report_md and args.release_report_md.is_file() else None
     prompt_md = args.prompt_prod_report_md.read_text(encoding="utf-8") if args.prompt_prod_report_md and args.prompt_prod_report_md.is_file() else None
+    oauth_md = args.oauth_mimic_report_md.read_text(encoding="utf-8") if args.oauth_mimic_report_md and args.oauth_mimic_report_md.is_file() else None
 
     payload = build_payload(
         run_url=args.run_url,
@@ -357,11 +423,14 @@ def main(argv: list[str] | None = None) -> int:
         release_markdown=release_md,
         prompt_prod_report=prompt_prod_report,
         prompt_prod_markdown=prompt_md,
+        oauth_mimic_report=oauth_mimic_report,
+        oauth_mimic_markdown=oauth_md,
         tracking_links=tracking_links,
         cache_pr_url=args.cache_pr_url,
         release_scan_result=args.release_scan_result,
         registry_gate_result=args.registry_gate_result,
         prod_aggregate_result=args.prod_aggregate_result,
+        edge_oauth_mimic_result=args.edge_oauth_mimic_result,
     )
     args.report_json.parent.mkdir(parents=True, exist_ok=True)
     args.report_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

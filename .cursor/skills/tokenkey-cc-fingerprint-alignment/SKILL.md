@@ -73,7 +73,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | HTTP 漂移修复 + spec-delta PR | 机械 | 分支 + commit + `gh pr create`（见 §5） |
 | 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
-| OAuth mimicry chain (SDK ingress → egress headers+system) | 机械 | `ops/observability/probe-oauth-mimicry-chain.sh` on edge; log `gateway.anthropic_oauth_mimic_egress` |
+| OAuth mimicry chain (SDK ingress → egress headers+system) | 机械 | `ops/observability/probe-oauth-mimicry-chain.sh` on edge; log `gateway.anthropic_oauth_mimic_egress`; **日检** `client-fidelity-watch` → `edge-oauth-mimic-aggregate` |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
 | 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 7 份副本，§4.1）|

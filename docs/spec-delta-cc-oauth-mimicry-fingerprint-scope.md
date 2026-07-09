@@ -26,7 +26,18 @@ reading `usage_logs.user_agent` (ingress only).
   ~1% baseline sample for CC-native ingress.
 - Read-only probe `ops/observability/probe-oauth-mimicry-chain.sh` (+ unit test) to
   correlate ingress SDK UA with egress mimic fields via SSM.
+- Daily **client-fidelity-watch** job `edge-oauth-mimic-aggregate`: auto-discovers edges
+  with schedulable Anthropic OAuth (`edge_anthropic_oauth_schedulable_probe.sh`), runs
+  `scan-oauth-mimic-chain.sh`, aggregates ratios (`oauth_mimic_aggregate.py`), opens
+  GitHub issues on drift (`open_oauth_mimic_watch_issues.py`).
 - Fingerprint scope table in `docs/accounts/anthropic-oauth-edge-guidelines.md`.
+
+### REMOVED
+
+- Scheduled `.github/workflows/edge-health-watch.yml` (15min Feishu on edge posture).
+  Rationale: user-visible failures are covered by prod pool-exhaust Feishu +
+  client-fidelity-watch; intermediate edge manual adjustments should not page. Manual
+  triage remains: `scan-edge-health.sh` + `edge-health-alert.py`.
 
 ### MODIFIED
 
@@ -69,6 +80,9 @@ reading `usage_logs.user_agent` (ingress only).
 
 ```bash
 python3 -m unittest ops.observability.test_probe_oauth_mimicry_chain -v
+python3 ops/observability/oauth_mimic_aggregate.py --selftest
+python3 -m unittest ops.observability.test_open_oauth_mimic_watch_issues -q
+python3 scripts/fingerprint/client_fidelity_watch_report.py --selftest
 go test -tags=unit ./backend/internal/service/ -run 'TestTkIngressUAClass|TestTkShouldLogOAuthMimicEgress' -count=1
 
 # Post-deploy (edge with anthropic oauth traffic):

@@ -936,6 +936,34 @@ else
     echo "  ok: prompt surface drift tooling"
 fi
 
+# ---- sub2api: oauth mimic edge aggregate self-test -------------------------
+echo ""
+echo "=== sub2api: oauth mimic edge aggregate ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for oauth mimic aggregate check)"
+    errors=$((errors + 1))
+elif ! bash -n ./ops/observability/scan-oauth-mimic-chain.sh; then
+    echo "  FAIL: scan-oauth-mimic-chain.sh syntax"
+    errors=$((errors + 1))
+elif ! bash -n ./ops/stage0/edge_anthropic_oauth_schedulable_probe.sh; then
+    echo "  FAIL: edge_anthropic_oauth_schedulable_probe.sh syntax"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/oauth_mimic_aggregate.py --selftest >/dev/null; then
+    echo "  FAIL: oauth_mimic_aggregate.py selftest"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_scan_oauth_mimic_chain -q; then
+    echo "  FAIL: scan oauth mimic chain tests"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_open_oauth_mimic_watch_issues -q; then
+    echo "  FAIL: open oauth mimic watch issue tests"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_probe_oauth_mimicry_chain -q; then
+    echo "  FAIL: probe oauth mimicry chain tests"
+    errors=$((errors + 1))
+else
+    echo "  ok: oauth mimic edge watch tooling"
+fi
+
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version is pinned in 5 places that must
 # carry the SAME version: the UA default (setting_service.go), the gateway
@@ -1356,12 +1384,11 @@ else
 fi
 
 # ---- sub2api: edge-health alert decision selftest --------------------------
-# The edge-health-watch alert logic (actionable-set + state-diff dedup + Feishu
-# message) lives in edge-health-alert.py and is the decision half of
-# .github/workflows/edge-health-watch.yml. Its fixtures pin the 2026-06-07 incident
-# shapes + the dedup behavior (no re-spam on a steady incident, alert on escalation /
-# recovery, chronic thin does not trigger), so a logic regression fails preflight
-# instead of silently re-spamming or going silent. Read-only, no AWS / no HTTP.
+# The edge-health alert decision logic (actionable-set + state-diff dedup) lives in
+# edge-health-alert.py for manual triage via scan-edge-health.sh. Scheduled
+# edge-health-watch workflow was retired (2026-07): prod pool-exhaust Feishu + daily
+# client-fidelity-watch cover user-visible failures; intermediate edge posture churn
+# is intentionally manual. Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
 echo ""
 echo "=== sub2api: edge-health alert decision selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
