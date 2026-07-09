@@ -194,6 +194,8 @@ if [ -z "$template_base" ] && has_merge_base_with_head HEAD; then
     template_base="HEAD"
 fi
 
+export PREFLIGHT_BASE="${template_base:-origin/main}"
+
 # ---- TK: spawn the expensive independent gates early --------------------------
 # Spawned BEFORE the dev-rules template so the heavy jobs (QA go test, the
 # unittest-discover suites, the dockerized Caddyfile adapt) overlap with the
@@ -1062,7 +1064,8 @@ echo "=== sub2api: upstream override marker (advisory locally) ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for upstream override marker check)"
     errors=$((errors + 1))
-elif ! MARKER_GATE_ADVISORY=1 python3 ./scripts/checks/upstream-override-marker.py --quiet; then
+elif ! MARKER_GATE_ADVISORY=1 PREFLIGHT_BASE="${PREFLIGHT_BASE:-origin/main}" \
+    python3 ./scripts/checks/upstream-override-marker.py --base "${PREFLIGHT_BASE:-origin/main}" --quiet; then
     # advisory mode never returns non-zero; this branch only fires on a hard
     # script error (exit 2 — git failure).
     errors=$((errors + 1))
@@ -2422,8 +2425,8 @@ fi
 echo ""
 echo "=== sub2api: Ent generation staleness ==="
 _ent_schema_changed=0
-if git rev-parse --verify origin/main >/dev/null 2>&1 && \
-   git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^backend/ent/schema/'; then
+if has_merge_base_with_head "${PREFLIGHT_BASE:-origin/main}" && \
+   git diff --name-only "${PREFLIGHT_BASE:-origin/main}...HEAD" 2>/dev/null | grep -q '^backend/ent/schema/'; then
     _ent_schema_changed=1
 fi
 if ! command -v go >/dev/null 2>&1; then
