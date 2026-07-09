@@ -1350,7 +1350,7 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 			phase = "request"
 		}
 	}
-	phase = tkOpsClassifyFinalClientValidationPhase(phase, upstreamError, routingCapacityLimited, errType, message, status)
+	phase = tkOpsClassifyFinalClientValidationPhase(phase, upstreamError, routingCapacityLimited, errType, message, code, status)
 	errorOwner = classifyOpsErrorOwner(phase, message)
 	errorSource = classifyOpsErrorSource(phase, message)
 	return phase, errorOwner, errorSource
