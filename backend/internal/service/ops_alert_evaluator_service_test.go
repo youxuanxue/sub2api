@@ -608,15 +608,15 @@ func TestIsEdgeNode(t *testing.T) {
 }
 
 // TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
-// edge. The retired routing-capacity rule stays defensively suppressed, and the
-// prod-only user-visible P0 is suppressed as a notification backstop. Capacity/
-// error signals that ARE meaningful on an edge must still page.
+// edge. The retired routing-capacity rule stays defensively suppressed, and both
+// real-user experience rules (P0 user-visible + P1 client-visible) are prod-only.
+// Capacity/error signals that ARE meaningful on an edge must still page.
 func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	t.Parallel()
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "  routing_capacity_rejection_count  "}))
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}))
-	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}))
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "pool_load_rate"}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "upstream_error_rate"}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "group_available_accounts"}))
@@ -632,7 +632,7 @@ func TestShouldEvaluateAlertRuleOnNode(t *testing.T) {
 
 	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
 	require.False(t, edge.shouldEvaluateAlertRuleOnNode(userVisibleRule), "user-visible P0 is prod-only")
-	require.True(t, edge.shouldEvaluateAlertRuleOnNode(clientVisibleRule), "client-owned P1 remains edge-evaluable")
+	require.False(t, edge.shouldEvaluateAlertRuleOnNode(clientVisibleRule), "client-visible P1 is prod-only")
 	require.True(t, edge.shouldEvaluateAlertRuleOnNode(routingRule), "retired routing rule is not changed at evaluator level")
 
 	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
@@ -641,21 +641,31 @@ func TestShouldEvaluateAlertRuleOnNode(t *testing.T) {
 }
 
 // TestMaybeSendAlertNotificationsEdgeSuppression verifies the composed gate: on an
-// edge node the routing-rejection rule short-circuits before any email/feishu
-// attempt and reports nothing sent. The prod counterpart (same rule) does NOT
-// short-circuit on the edge predicate — it proceeds into the notify paths (which
-// then no-op here only because no notifier config is wired), proving the gate is
-// edge-scoped, not a blanket drop.
+// edge node prod-only rules short-circuit before any email/feishu attempt and
+// report nothing sent. The prod counterpart does NOT short-circuit on the edge
+// predicate — it proceeds into the notify paths (which then no-op here only
+// because no notifier config is wired), proving the gate is edge-scoped, not a
+// blanket drop.
 func TestMaybeSendAlertNotificationsEdgeSuppression(t *testing.T) {
 	t.Parallel()
-	rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
-
 	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
-	require.True(t, edge.isEdgeNode() && isEdgeSuppressedAlertRule(rule), "precondition: edge + suppressed rule")
-	res := edge.maybeSendAlertNotifications(context.Background(), nil, rule, &OpsAlertEvent{})
-	require.False(t, res.EmailSent)
-	require.False(t, res.FeishuSent)
-
 	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
-	require.False(t, prod.isEdgeNode(), "prod must NOT be edge-suppressed for this rule")
+	require.True(t, edge.isEdgeNode())
+
+	for _, metricType := range []string{
+		"routing_capacity_rejection_count",
+		OpsAlertMetricUserVisibleFailureCount,
+		OpsAlertMetricClientVisibleFailureCount,
+	} {
+		metricType := metricType
+		t.Run(metricType, func(t *testing.T) {
+			t.Parallel()
+			rule := &OpsAlertRule{MetricType: metricType}
+			require.True(t, isEdgeSuppressedAlertRule(rule), "precondition: suppressed on edge")
+			res := edge.maybeSendAlertNotifications(context.Background(), nil, rule, &OpsAlertEvent{})
+			require.False(t, res.EmailSent)
+			require.False(t, res.FeishuSent)
+			require.False(t, prod.isEdgeNode(), "prod must NOT be edge-suppressed")
+		})
+	}
 }

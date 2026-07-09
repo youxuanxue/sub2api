@@ -62,15 +62,19 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 }
 
 // isEdgeSuppressedAlertRule reports whether a rule's notifications are pure noise
-// on a prod→edge mirror-relay edge and should be silenced there. Most prod-only
-// rules are skipped earlier by the evaluator; this predicate is the defensive
-// notification-layer gate for any event created by an older binary or manual path.
+// on a prod→edge mirror-relay edge and should be silenced there. Real-user
+// experience rules (P0 user_visible + P1 client_visible) are prod-only; edge
+// local traffic must not page. Most prod-only rules are skipped earlier by the
+// evaluator; this predicate is the defensive notification-layer gate for any
+// event created by an older binary or manual path.
 func isEdgeSuppressedAlertRule(rule *OpsAlertRule) bool {
 	if rule == nil {
 		return false
 	}
 	switch strings.TrimSpace(rule.MetricType) {
-	case OpsAlertMetricRoutingCapacityRejectionCount, OpsAlertMetricUserVisibleFailureCount:
+	case OpsAlertMetricRoutingCapacityRejectionCount,
+		OpsAlertMetricUserVisibleFailureCount,
+		OpsAlertMetricClientVisibleFailureCount:
 		return true
 	default:
 		return false
