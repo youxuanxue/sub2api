@@ -10,9 +10,9 @@ import (
 )
 
 // TestSeededAlertRuleStateAfterMigrations pins the enabled-alert-rule contract
-// after all migrations apply: the routing-capacity P0 (tk_035) ships enabled,
-// and the never-wired latency rules (tk_036) ship disabled — so every enabled
-// rule has a working evaluator path (no silent dead rules).
+// after all migrations apply: tk_060 seeds user-visible failure P0/P1, tk_061
+// retires routing_capacity_rejection_count (replaced by user_visible_failure_count),
+// and tk_036 latency rules ship disabled — every enabled rule has a working path.
 func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	ctx := context.Background()
 
@@ -26,9 +26,23 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 		return enabled
 	}
 
-	// tk_035: the routing-capacity-rejection P0 is on by default (this PR's core).
-	require.True(t, enabledFor("routing_capacity_rejection_count"),
-		"tk_035 routing_capacity_rejection_count rule must be enabled")
+	absentFor := func(metricType string) {
+		var id int64
+		err := integrationDB.QueryRowContext(ctx,
+			`SELECT id FROM ops_alert_rules WHERE metric_type = $1 ORDER BY id LIMIT 1`,
+			metricType,
+		).Scan(&id)
+		require.Error(t, err, "metric_type %s should be removed", metricType)
+	}
+
+	// tk_060: user-experience-first P0/P1 guardrails.
+	require.True(t, enabledFor("user_visible_failure_count"),
+		"tk_060 user_visible_failure_count rule must be enabled")
+	require.True(t, enabledFor("client_visible_failure_count"),
+		"tk_060 client_visible_failure_count rule must be enabled")
+
+	// tk_061: routing-capacity P0 retired to avoid double-paging the same incident.
+	absentFor("routing_capacity_rejection_count")
 
 	// tk_036: the unimplemented latency rules are disabled — they never fired
 	// (no evaluator case) and their full-request-duration thresholds (2000/3000ms)
