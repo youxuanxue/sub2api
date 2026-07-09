@@ -125,7 +125,7 @@ describe('AccountActionMenu — anchored positioning', () => {
 
     const originalRaf = window.requestAnimationFrame
     const originalCancelRaf = window.cancelAnimationFrame
-    window.requestAnimationFrame = ((cb: FrameRequestCallback) => window.setTimeout(() => cb(Date.now()), 0)) as typeof window.requestAnimationFrame
+    window.requestAnimationFrame = ((cb: (time: number) => void) => window.setTimeout(() => cb(Date.now()), 0)) as typeof window.requestAnimationFrame
     window.cancelAnimationFrame = ((handle: number) => window.clearTimeout(handle)) as typeof window.cancelAnimationFrame
 
     const wrapper = mountMenu(

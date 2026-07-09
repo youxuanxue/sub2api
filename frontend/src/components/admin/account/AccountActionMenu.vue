@@ -86,7 +86,8 @@ const menuStyle = ref<Record<string, string>>({ top: '0px', left: '0px' })
 let positionRaf = 0
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
-const requestPositionFrame = (callback: FrameRequestCallback) => {
+type AnimationFrameHandler = (time: number) => void
+const requestPositionFrame = (callback: AnimationFrameHandler) => {
   if (typeof window.requestAnimationFrame === 'function') {
     return window.requestAnimationFrame(callback)
   }
