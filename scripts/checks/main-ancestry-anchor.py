@@ -123,7 +123,7 @@ def main() -> int:
     # Any other exit code is a git / IO failure.
     print(f"  err: `git merge-base --is-ancestor` failed (exit {res.returncode})")
     if res.stderr:
-        print(f"  err: stderr: {res.stderr.decode('utf-8', errors='replace').strip()}")
+        print(f"  err: stderr: {res.stderr.strip()}")
     return 2
 
 
