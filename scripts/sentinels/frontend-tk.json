@@ -267,14 +267,14 @@
     {
       "path": "frontend/src/views/admin/AccountsView.vue",
       "must_contain": [
-        "const DEFAULT_HIDDEN_COLUMNS = [\n  'id',\n  'today_stats',\n  'proxy',\n  'rate_multiplier',\n  'last_used_at',\n  'created_at',\n  'expires_at',\n  'notes'\n]",
-        "const LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMNS = [\n  'today_stats',\n  'proxy',\n  'notes',\n  'priority',\n  'rate_multiplier'\n]",
+        "const DEFAULT_HIDDEN_COLUMNS = [\n  'id',\n  'today_stats',\n  'proxy',\n  'scheduler_score',\n  'rate_multiplier',\n  'last_used_at',\n  'created_at',\n  'expires_at',\n  'notes'\n]",
+        "const LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMN_SETS = [\n  ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier'],\n  ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']\n]",
         "const COLUMN_SETTINGS_VERSION_KEY = 'account-column-settings-version'",
-        "const COLUMN_SETTINGS_VERSION = '2'",
+        "const COLUMN_SETTINGS_VERSION = '3'",
         "shouldMigrateLegacyDefaultColumns(parsed)",
         "localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)"
       ],
-      "rationale": "Admin account-table default visible columns are TK operator workflow, not upstream defaults: platform/type, capacity, status, schedulable, groups, usage, and priority should be visible on a fresh profile, while legacy auto-saved defaults from version 1 migrate once. The exact DEFAULT_HIDDEN_COLUMNS block pins the new default so an upstream merge cannot silently hide priority or usage-adjacent operational columns again; the version-key and migration anchors keep old localStorage snapshots from resetting operators back to the old column set after refresh."
+      "rationale": "Admin account-table default visible columns are TK operator workflow, not upstream defaults: platform/type, capacity, status, schedulable, groups, usage, and priority should be visible on a fresh profile, while scheduler_score stays hidden by default because showing it opts into heavy backend scoring. Legacy auto-saved defaults from version 1 or the scheduler-score migration version migrate once. The exact DEFAULT_HIDDEN_COLUMNS block pins the combined default so an upstream merge cannot silently hide priority or show scheduler_score again; the version-key and migration anchors keep old localStorage snapshots from resetting operators back to stale column sets after refresh."
     },
     {
       "path": "frontend/src/views/admin/GroupsView.vue",
