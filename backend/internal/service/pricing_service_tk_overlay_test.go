@@ -146,6 +146,27 @@ func TestTKPricingOverlay_ZeroPlaceholderIsReplaced(t *testing.T) {
 	require.InDelta(t, 3.625e-9, pro.CacheReadInputTokenCost, 1e-15)
 }
 
+func TestApplyTKPricingOverlay_GLMAuthoritativeOverLitellm(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"glm-5.2": {
+			"input_cost_per_token": 1.4e-06,
+			"output_cost_per_token": 4.4e-06,
+			"cache_read_input_token_cost": 2.6e-07,
+			"litellm_provider": "zhipu",
+			"mode": "chat"
+		}
+	}`)
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	glm := data["glm-5.2"]
+	require.NotNil(t, glm)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(8), glm.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(28), glm.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(2), glm.CacheReadInputTokenCost, 1e-15)
+}
+
 // TestTKIsEffectivelyUnpriced pins the predicate: zero-everything (and nil) are
 // unpriced; any single non-zero cost field — token, cache, or media — counts as
 // priced, so media entries (per-image / per-second only) are never mistaken for

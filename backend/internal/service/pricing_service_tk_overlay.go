@@ -176,15 +176,36 @@ func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 	return tkOverlayEffective
 }
 
+// tkOverlayOverridesLitellmSource reports whether a TK overlay row is the
+// authoritative official list price and must replace a non-zero litellm-mirror
+// entry. GLM chat models use BigModel.cn as the sole pricing source; the
+// litellm mirror often carries stale USD guesses (e.g. glm-5.2 at $1.4/$4.4 per
+// Mtok) that must not win over the curated overlay.
+func tkOverlayOverridesLitellmSource(modelID string, overlay *LiteLLMModelPricing) bool {
+	if overlay == nil {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(overlay.LiteLLMProvider)) != "zhipu" {
+		return false
+	}
+	m := strings.ToLower(strings.TrimSpace(modelID))
+	if !strings.HasPrefix(m, "glm-") {
+		return false
+	}
+	return isTkCuratedNewAPIModelListed(modelID)
+}
+
 // applyTKPricingOverlay fills in TK-owned pricing for models the loaded source
 // does not already carry — or carries only as an effectively-unpriced (all-zero)
-// placeholder. Real source prices are never overwritten (see file header).
+// placeholder. Real source prices are never overwritten (see file header),
+// except for GLM rows where the overlay is the authoritative BigModel list price.
 func applyTKPricingOverlay(result map[string]*LiteLLMModelPricing) {
 	if result == nil {
 		return
 	}
 	for name, pricing := range loadTKPricingOverlay() {
-		if existing, ok := result[name]; ok && !tkIsEffectivelyUnpriced(existing) {
+		existing, ok := result[name]
+		if ok && !tkIsEffectivelyUnpriced(existing) && !tkOverlayOverridesLitellmSource(name, pricing) {
 			continue
 		}
 		result[name] = pricing
