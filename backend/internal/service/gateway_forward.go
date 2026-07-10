@@ -232,11 +232,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 最低缓存门槛，导致系统级缓存失效）。
 	//
 	// 对于非 Claude Code 的第三方客户端（opencode 等），仍然走完整 mimicry。
-	userAgent := ""
-	if c != nil && c.Request != nil {
-		userAgent = c.GetHeader("User-Agent")
+	var clientUserAgent string
+	if c != nil {
+		clientUserAgent = c.GetHeader("User-Agent")
 	}
-	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(userAgent, parsed.MetadataUserID)
+	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(clientUserAgent, parsed.MetadataUserID)
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
 
 	if shouldMimicClaudeCode {

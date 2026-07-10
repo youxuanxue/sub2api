@@ -23,7 +23,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
-	"github.com/Wei-Shaw/sub2api/ent/modelavailability"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -31,14 +30,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
-	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
-	"github.com/Wei-Shaw/sub2api/ent/tier"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -117,35 +113,35 @@ func init() {
 	// apikey.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	apikey.StatusValidator = apikeyDescStatus.Validators[0].(func(string) error)
 	// apikeyDescQuota is the schema descriptor for quota field.
-	apikeyDescQuota := apikeyFields[9].Descriptor()
+	apikeyDescQuota := apikeyFields[8].Descriptor()
 	// apikey.DefaultQuota holds the default value on creation for the quota field.
 	apikey.DefaultQuota = apikeyDescQuota.Default.(float64)
 	// apikeyDescQuotaUsed is the schema descriptor for quota_used field.
-	apikeyDescQuotaUsed := apikeyFields[10].Descriptor()
+	apikeyDescQuotaUsed := apikeyFields[9].Descriptor()
 	// apikey.DefaultQuotaUsed holds the default value on creation for the quota_used field.
 	apikey.DefaultQuotaUsed = apikeyDescQuotaUsed.Default.(float64)
 	// apikeyDescRateLimit5h is the schema descriptor for rate_limit_5h field.
-	apikeyDescRateLimit5h := apikeyFields[12].Descriptor()
+	apikeyDescRateLimit5h := apikeyFields[11].Descriptor()
 	// apikey.DefaultRateLimit5h holds the default value on creation for the rate_limit_5h field.
 	apikey.DefaultRateLimit5h = apikeyDescRateLimit5h.Default.(float64)
 	// apikeyDescRateLimit1d is the schema descriptor for rate_limit_1d field.
-	apikeyDescRateLimit1d := apikeyFields[13].Descriptor()
+	apikeyDescRateLimit1d := apikeyFields[12].Descriptor()
 	// apikey.DefaultRateLimit1d holds the default value on creation for the rate_limit_1d field.
 	apikey.DefaultRateLimit1d = apikeyDescRateLimit1d.Default.(float64)
 	// apikeyDescRateLimit7d is the schema descriptor for rate_limit_7d field.
-	apikeyDescRateLimit7d := apikeyFields[14].Descriptor()
+	apikeyDescRateLimit7d := apikeyFields[13].Descriptor()
 	// apikey.DefaultRateLimit7d holds the default value on creation for the rate_limit_7d field.
 	apikey.DefaultRateLimit7d = apikeyDescRateLimit7d.Default.(float64)
 	// apikeyDescUsage5h is the schema descriptor for usage_5h field.
-	apikeyDescUsage5h := apikeyFields[15].Descriptor()
+	apikeyDescUsage5h := apikeyFields[14].Descriptor()
 	// apikey.DefaultUsage5h holds the default value on creation for the usage_5h field.
 	apikey.DefaultUsage5h = apikeyDescUsage5h.Default.(float64)
 	// apikeyDescUsage1d is the schema descriptor for usage_1d field.
-	apikeyDescUsage1d := apikeyFields[16].Descriptor()
+	apikeyDescUsage1d := apikeyFields[15].Descriptor()
 	// apikey.DefaultUsage1d holds the default value on creation for the usage_1d field.
 	apikey.DefaultUsage1d = apikeyDescUsage1d.Default.(float64)
 	// apikeyDescUsage7d is the schema descriptor for usage_7d field.
-	apikeyDescUsage7d := apikeyFields[17].Descriptor()
+	apikeyDescUsage7d := apikeyFields[16].Descriptor()
 	// apikey.DefaultUsage7d holds the default value on creation for the usage_7d field.
 	apikey.DefaultUsage7d = apikeyDescUsage7d.Default.(float64)
 	accountMixin := schema.Account{}.Mixin()
@@ -259,10 +255,6 @@ func init() {
 	accountDescSessionWindowStatus := accountFields[25].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
-	// accountDescChannelType is the schema descriptor for channel_type field.
-	accountDescChannelType := accountFields[26].Descriptor()
-	// account.DefaultChannelType holds the default value on creation for the channel_type field.
-	account.DefaultChannelType = accountDescChannelType.Default.(int)
 	accountgroupFields := schema.AccountGroup{}.Fields()
 	_ = accountgroupFields
 	// accountgroupDescPriority is the schema descriptor for priority field.
@@ -722,12 +714,6 @@ func init() {
 	channelmonitor.DefaultBodyOverrideMode = channelmonitorDescBodyOverrideMode.Default.(string)
 	// channelmonitor.BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.
 	channelmonitor.BodyOverrideModeValidator = channelmonitorDescBodyOverrideMode.Validators[0].(func(string) error)
-	// channelmonitorDescSeedSource is the schema descriptor for seed_source field.
-	channelmonitorDescSeedSource := channelmonitorFields[18].Descriptor()
-	// channelmonitor.DefaultSeedSource holds the default value on creation for the seed_source field.
-	channelmonitor.DefaultSeedSource = channelmonitorDescSeedSource.Default.(string)
-	// channelmonitor.SeedSourceValidator is a validator for the "seed_source" field. It is called by the builders before save.
-	channelmonitor.SeedSourceValidator = channelmonitorDescSeedSource.Validators[0].(func(string) error)
 	channelmonitordailyrollupFields := schema.ChannelMonitorDailyRollup{}.Fields()
 	_ = channelmonitordailyrollupFields
 	// channelmonitordailyrollupDescModel is the schema descriptor for model field.
@@ -1049,54 +1035,62 @@ func init() {
 	groupDescBatchImageHoldMultiplier := groupFields[23].Descriptor()
 	// group.DefaultBatchImageHoldMultiplier holds the default value on creation for the batch_image_hold_multiplier field.
 	group.DefaultBatchImageHoldMultiplier = groupDescBatchImageHoldMultiplier.Default.(float64)
+	// groupDescVideoRateIndependent is the schema descriptor for video_rate_independent field.
+	groupDescVideoRateIndependent := groupFields[24].Descriptor()
+	// group.DefaultVideoRateIndependent holds the default value on creation for the video_rate_independent field.
+	group.DefaultVideoRateIndependent = groupDescVideoRateIndependent.Default.(bool)
+	// groupDescVideoRateMultiplier is the schema descriptor for video_rate_multiplier field.
+	groupDescVideoRateMultiplier := groupFields[25].Descriptor()
+	// group.DefaultVideoRateMultiplier holds the default value on creation for the video_rate_multiplier field.
+	group.DefaultVideoRateMultiplier = groupDescVideoRateMultiplier.Default.(float64)
 	// groupDescClaudeCodeOnly is the schema descriptor for claude_code_only field.
-	groupDescClaudeCodeOnly := groupFields[24].Descriptor()
+	groupDescClaudeCodeOnly := groupFields[29].Descriptor()
 	// group.DefaultClaudeCodeOnly holds the default value on creation for the claude_code_only field.
 	group.DefaultClaudeCodeOnly = groupDescClaudeCodeOnly.Default.(bool)
 	// groupDescModelRoutingEnabled is the schema descriptor for model_routing_enabled field.
-	groupDescModelRoutingEnabled := groupFields[28].Descriptor()
+	groupDescModelRoutingEnabled := groupFields[33].Descriptor()
 	// group.DefaultModelRoutingEnabled holds the default value on creation for the model_routing_enabled field.
 	group.DefaultModelRoutingEnabled = groupDescModelRoutingEnabled.Default.(bool)
 	// groupDescMcpXMLInject is the schema descriptor for mcp_xml_inject field.
-	groupDescMcpXMLInject := groupFields[29].Descriptor()
+	groupDescMcpXMLInject := groupFields[34].Descriptor()
 	// group.DefaultMcpXMLInject holds the default value on creation for the mcp_xml_inject field.
 	group.DefaultMcpXMLInject = groupDescMcpXMLInject.Default.(bool)
 	// groupDescSupportedModelScopes is the schema descriptor for supported_model_scopes field.
-	groupDescSupportedModelScopes := groupFields[30].Descriptor()
+	groupDescSupportedModelScopes := groupFields[35].Descriptor()
 	// group.DefaultSupportedModelScopes holds the default value on creation for the supported_model_scopes field.
 	group.DefaultSupportedModelScopes = groupDescSupportedModelScopes.Default.([]string)
 	// groupDescSortOrder is the schema descriptor for sort_order field.
-	groupDescSortOrder := groupFields[31].Descriptor()
+	groupDescSortOrder := groupFields[36].Descriptor()
 	// group.DefaultSortOrder holds the default value on creation for the sort_order field.
 	group.DefaultSortOrder = groupDescSortOrder.Default.(int)
 	// groupDescAllowMessagesDispatch is the schema descriptor for allow_messages_dispatch field.
-	groupDescAllowMessagesDispatch := groupFields[32].Descriptor()
+	groupDescAllowMessagesDispatch := groupFields[37].Descriptor()
 	// group.DefaultAllowMessagesDispatch holds the default value on creation for the allow_messages_dispatch field.
 	group.DefaultAllowMessagesDispatch = groupDescAllowMessagesDispatch.Default.(bool)
 	// groupDescRequireOauthOnly is the schema descriptor for require_oauth_only field.
-	groupDescRequireOauthOnly := groupFields[33].Descriptor()
+	groupDescRequireOauthOnly := groupFields[38].Descriptor()
 	// group.DefaultRequireOauthOnly holds the default value on creation for the require_oauth_only field.
 	group.DefaultRequireOauthOnly = groupDescRequireOauthOnly.Default.(bool)
 	// groupDescRequirePrivacySet is the schema descriptor for require_privacy_set field.
-	groupDescRequirePrivacySet := groupFields[34].Descriptor()
+	groupDescRequirePrivacySet := groupFields[39].Descriptor()
 	// group.DefaultRequirePrivacySet holds the default value on creation for the require_privacy_set field.
 	group.DefaultRequirePrivacySet = groupDescRequirePrivacySet.Default.(bool)
 	// groupDescDefaultMappedModel is the schema descriptor for default_mapped_model field.
-	groupDescDefaultMappedModel := groupFields[35].Descriptor()
+	groupDescDefaultMappedModel := groupFields[40].Descriptor()
 	// group.DefaultDefaultMappedModel holds the default value on creation for the default_mapped_model field.
 	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
 	// groupDescMessagesDispatchModelConfig is the schema descriptor for messages_dispatch_model_config field.
-	groupDescMessagesDispatchModelConfig := groupFields[36].Descriptor()
+	groupDescMessagesDispatchModelConfig := groupFields[41].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.
 	group.DefaultMessagesDispatchModelConfig = groupDescMessagesDispatchModelConfig.Default.(domain.OpenAIMessagesDispatchModelConfig)
 	// groupDescModelsListConfig is the schema descriptor for models_list_config field.
-	groupDescModelsListConfig := groupFields[37].Descriptor()
+	groupDescModelsListConfig := groupFields[42].Descriptor()
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[39].Descriptor()
+	groupDescRpmLimit := groupFields[43].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
@@ -1161,53 +1155,6 @@ func init() {
 	identityadoptiondecisionDescDecidedAt := identityadoptiondecisionFields[4].Descriptor()
 	// identityadoptiondecision.DefaultDecidedAt holds the default value on creation for the decided_at field.
 	identityadoptiondecision.DefaultDecidedAt = identityadoptiondecisionDescDecidedAt.Default.(func() time.Time)
-	modelavailabilityMixin := schema.ModelAvailability{}.Mixin()
-	modelavailabilityMixinFields0 := modelavailabilityMixin[0].Fields()
-	_ = modelavailabilityMixinFields0
-	modelavailabilityFields := schema.ModelAvailability{}.Fields()
-	_ = modelavailabilityFields
-	// modelavailabilityDescCreatedAt is the schema descriptor for created_at field.
-	modelavailabilityDescCreatedAt := modelavailabilityMixinFields0[0].Descriptor()
-	// modelavailability.DefaultCreatedAt holds the default value on creation for the created_at field.
-	modelavailability.DefaultCreatedAt = modelavailabilityDescCreatedAt.Default.(func() time.Time)
-	// modelavailabilityDescUpdatedAt is the schema descriptor for updated_at field.
-	modelavailabilityDescUpdatedAt := modelavailabilityMixinFields0[1].Descriptor()
-	// modelavailability.DefaultUpdatedAt holds the default value on creation for the updated_at field.
-	modelavailability.DefaultUpdatedAt = modelavailabilityDescUpdatedAt.Default.(func() time.Time)
-	// modelavailability.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
-	modelavailability.UpdateDefaultUpdatedAt = modelavailabilityDescUpdatedAt.UpdateDefault.(func() time.Time)
-	// modelavailabilityDescModelID is the schema descriptor for model_id field.
-	modelavailabilityDescModelID := modelavailabilityFields[1].Descriptor()
-	// modelavailability.ModelIDValidator is a validator for the "model_id" field. It is called by the builders before save.
-	modelavailability.ModelIDValidator = func() func(string) error {
-		validators := modelavailabilityDescModelID.Validators
-		fns := [...]func(string) error{
-			validators[0].(func(string) error),
-			validators[1].(func(string) error),
-		}
-		return func(model_id string) error {
-			for _, fn := range fns {
-				if err := fn(model_id); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-	}()
-	// modelavailabilityDescLastFailureKind is the schema descriptor for last_failure_kind field.
-	modelavailabilityDescLastFailureKind := modelavailabilityFields[5].Descriptor()
-	// modelavailability.DefaultLastFailureKind holds the default value on creation for the last_failure_kind field.
-	modelavailability.DefaultLastFailureKind = modelavailabilityDescLastFailureKind.Default.(string)
-	// modelavailability.LastFailureKindValidator is a validator for the "last_failure_kind" field. It is called by the builders before save.
-	modelavailability.LastFailureKindValidator = modelavailabilityDescLastFailureKind.Validators[0].(func(string) error)
-	// modelavailabilityDescSampleOk24h is the schema descriptor for sample_ok_24h field.
-	modelavailabilityDescSampleOk24h := modelavailabilityFields[8].Descriptor()
-	// modelavailability.DefaultSampleOk24h holds the default value on creation for the sample_ok_24h field.
-	modelavailability.DefaultSampleOk24h = modelavailabilityDescSampleOk24h.Default.(int)
-	// modelavailabilityDescSampleTotal24h is the schema descriptor for sample_total_24h field.
-	modelavailabilityDescSampleTotal24h := modelavailabilityFields[9].Descriptor()
-	// modelavailability.DefaultSampleTotal24h holds the default value on creation for the sample_total_24h field.
-	modelavailability.DefaultSampleTotal24h = modelavailabilityDescSampleTotal24h.Default.(int)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.
@@ -1640,127 +1587,6 @@ func init() {
 	proxyDescExpiryWarnDays := proxyFields[10].Descriptor()
 	// proxy.DefaultExpiryWarnDays holds the default value on creation for the expiry_warn_days field.
 	proxy.DefaultExpiryWarnDays = proxyDescExpiryWarnDays.Default.(int)
-	qaexportjobMixin := schema.QAExportJob{}.Mixin()
-	qaexportjobMixinFields0 := qaexportjobMixin[0].Fields()
-	_ = qaexportjobMixinFields0
-	qaexportjobFields := schema.QAExportJob{}.Fields()
-	_ = qaexportjobFields
-	// qaexportjobDescCreatedAt is the schema descriptor for created_at field.
-	qaexportjobDescCreatedAt := qaexportjobMixinFields0[0].Descriptor()
-	// qaexportjob.DefaultCreatedAt holds the default value on creation for the created_at field.
-	qaexportjob.DefaultCreatedAt = qaexportjobDescCreatedAt.Default.(func() time.Time)
-	// qaexportjobDescUpdatedAt is the schema descriptor for updated_at field.
-	qaexportjobDescUpdatedAt := qaexportjobMixinFields0[1].Descriptor()
-	// qaexportjob.DefaultUpdatedAt holds the default value on creation for the updated_at field.
-	qaexportjob.DefaultUpdatedAt = qaexportjobDescUpdatedAt.Default.(func() time.Time)
-	// qaexportjob.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
-	qaexportjob.UpdateDefaultUpdatedAt = qaexportjobDescUpdatedAt.UpdateDefault.(func() time.Time)
-	// qaexportjobDescJobID is the schema descriptor for job_id field.
-	qaexportjobDescJobID := qaexportjobFields[0].Descriptor()
-	// qaexportjob.JobIDValidator is a validator for the "job_id" field. It is called by the builders before save.
-	qaexportjob.JobIDValidator = qaexportjobDescJobID.Validators[0].(func(string) error)
-	// qaexportjobDescStatus is the schema descriptor for status field.
-	qaexportjobDescStatus := qaexportjobFields[3].Descriptor()
-	// qaexportjob.DefaultStatus holds the default value on creation for the status field.
-	qaexportjob.DefaultStatus = qaexportjobDescStatus.Default.(string)
-	// qaexportjobDescExportKind is the schema descriptor for export_kind field.
-	qaexportjobDescExportKind := qaexportjobFields[4].Descriptor()
-	// qaexportjob.DefaultExportKind holds the default value on creation for the export_kind field.
-	qaexportjob.DefaultExportKind = qaexportjobDescExportKind.Default.(string)
-	// qaexportjobDescFormat is the schema descriptor for format field.
-	qaexportjobDescFormat := qaexportjobFields[5].Descriptor()
-	// qaexportjob.DefaultFormat holds the default value on creation for the format field.
-	qaexportjob.DefaultFormat = qaexportjobDescFormat.Default.(string)
-	// qaexportjobDescStorageKey is the schema descriptor for storage_key field.
-	qaexportjobDescStorageKey := qaexportjobFields[8].Descriptor()
-	// qaexportjob.DefaultStorageKey holds the default value on creation for the storage_key field.
-	qaexportjob.DefaultStorageKey = qaexportjobDescStorageKey.Default.(string)
-	// qaexportjobDescRecordCount is the schema descriptor for record_count field.
-	qaexportjobDescRecordCount := qaexportjobFields[9].Descriptor()
-	// qaexportjob.DefaultRecordCount holds the default value on creation for the record_count field.
-	qaexportjob.DefaultRecordCount = qaexportjobDescRecordCount.Default.(int)
-	qarecordFields := schema.QARecord{}.Fields()
-	_ = qarecordFields
-	// qarecordDescRequestID is the schema descriptor for request_id field.
-	qarecordDescRequestID := qarecordFields[0].Descriptor()
-	// qarecord.RequestIDValidator is a validator for the "request_id" field. It is called by the builders before save.
-	qarecord.RequestIDValidator = qarecordDescRequestID.Validators[0].(func(string) error)
-	// qarecordDescPlatform is the schema descriptor for platform field.
-	qarecordDescPlatform := qarecordFields[6].Descriptor()
-	// qarecord.DefaultPlatform holds the default value on creation for the platform field.
-	qarecord.DefaultPlatform = qarecordDescPlatform.Default.(string)
-	// qarecordDescRequestedModel is the schema descriptor for requested_model field.
-	qarecordDescRequestedModel := qarecordFields[9].Descriptor()
-	// qarecord.DefaultRequestedModel holds the default value on creation for the requested_model field.
-	qarecord.DefaultRequestedModel = qarecordDescRequestedModel.Default.(string)
-	// qarecordDescInboundEndpoint is the schema descriptor for inbound_endpoint field.
-	qarecordDescInboundEndpoint := qarecordFields[11].Descriptor()
-	// qarecord.DefaultInboundEndpoint holds the default value on creation for the inbound_endpoint field.
-	qarecord.DefaultInboundEndpoint = qarecordDescInboundEndpoint.Default.(string)
-	// qarecordDescStatusCode is the schema descriptor for status_code field.
-	qarecordDescStatusCode := qarecordFields[13].Descriptor()
-	// qarecord.DefaultStatusCode holds the default value on creation for the status_code field.
-	qarecord.DefaultStatusCode = qarecordDescStatusCode.Default.(int)
-	// qarecordDescSuccess is the schema descriptor for success field.
-	qarecordDescSuccess := qarecordFields[14].Descriptor()
-	// qarecord.DefaultSuccess holds the default value on creation for the success field.
-	qarecord.DefaultSuccess = qarecordDescSuccess.Default.(bool)
-	// qarecordDescDurationMs is the schema descriptor for duration_ms field.
-	qarecordDescDurationMs := qarecordFields[15].Descriptor()
-	// qarecord.DefaultDurationMs holds the default value on creation for the duration_ms field.
-	qarecord.DefaultDurationMs = qarecordDescDurationMs.Default.(int64)
-	// qarecordDescStream is the schema descriptor for stream field.
-	qarecordDescStream := qarecordFields[17].Descriptor()
-	// qarecord.DefaultStream holds the default value on creation for the stream field.
-	qarecord.DefaultStream = qarecordDescStream.Default.(bool)
-	// qarecordDescToolCallsPresent is the schema descriptor for tool_calls_present field.
-	qarecordDescToolCallsPresent := qarecordFields[18].Descriptor()
-	// qarecord.DefaultToolCallsPresent holds the default value on creation for the tool_calls_present field.
-	qarecord.DefaultToolCallsPresent = qarecordDescToolCallsPresent.Default.(bool)
-	// qarecordDescMultimodalPresent is the schema descriptor for multimodal_present field.
-	qarecordDescMultimodalPresent := qarecordFields[19].Descriptor()
-	// qarecord.DefaultMultimodalPresent holds the default value on creation for the multimodal_present field.
-	qarecord.DefaultMultimodalPresent = qarecordDescMultimodalPresent.Default.(bool)
-	// qarecordDescInputTokens is the schema descriptor for input_tokens field.
-	qarecordDescInputTokens := qarecordFields[20].Descriptor()
-	// qarecord.DefaultInputTokens holds the default value on creation for the input_tokens field.
-	qarecord.DefaultInputTokens = qarecordDescInputTokens.Default.(int)
-	// qarecordDescOutputTokens is the schema descriptor for output_tokens field.
-	qarecordDescOutputTokens := qarecordFields[21].Descriptor()
-	// qarecord.DefaultOutputTokens holds the default value on creation for the output_tokens field.
-	qarecord.DefaultOutputTokens = qarecordDescOutputTokens.Default.(int)
-	// qarecordDescCachedTokens is the schema descriptor for cached_tokens field.
-	qarecordDescCachedTokens := qarecordFields[22].Descriptor()
-	// qarecord.DefaultCachedTokens holds the default value on creation for the cached_tokens field.
-	qarecord.DefaultCachedTokens = qarecordDescCachedTokens.Default.(int)
-	// qarecordDescRequestSha256 is the schema descriptor for request_sha256 field.
-	qarecordDescRequestSha256 := qarecordFields[23].Descriptor()
-	// qarecord.DefaultRequestSha256 holds the default value on creation for the request_sha256 field.
-	qarecord.DefaultRequestSha256 = qarecordDescRequestSha256.Default.(string)
-	// qarecordDescResponseSha256 is the schema descriptor for response_sha256 field.
-	qarecordDescResponseSha256 := qarecordFields[24].Descriptor()
-	// qarecord.DefaultResponseSha256 holds the default value on creation for the response_sha256 field.
-	qarecord.DefaultResponseSha256 = qarecordDescResponseSha256.Default.(string)
-	// qarecordDescRedactionVersion is the schema descriptor for redaction_version field.
-	qarecordDescRedactionVersion := qarecordFields[29].Descriptor()
-	// qarecord.DefaultRedactionVersion holds the default value on creation for the redaction_version field.
-	qarecord.DefaultRedactionVersion = qarecordDescRedactionVersion.Default.(string)
-	// qarecordDescCaptureStatus is the schema descriptor for capture_status field.
-	qarecordDescCaptureStatus := qarecordFields[30].Descriptor()
-	// qarecord.DefaultCaptureStatus holds the default value on creation for the capture_status field.
-	qarecord.DefaultCaptureStatus = qarecordDescCaptureStatus.Default.(string)
-	// qarecordDescTags is the schema descriptor for tags field.
-	qarecordDescTags := qarecordFields[31].Descriptor()
-	// qarecord.DefaultTags holds the default value on creation for the tags field.
-	qarecord.DefaultTags = qarecordDescTags.Default.([]string)
-	// qarecordDescDialogSynth is the schema descriptor for dialog_synth field.
-	qarecordDescDialogSynth := qarecordFields[35].Descriptor()
-	// qarecord.DefaultDialogSynth holds the default value on creation for the dialog_synth field.
-	qarecord.DefaultDialogSynth = qarecordDescDialogSynth.Default.(bool)
-	// qarecordDescCreatedAt is the schema descriptor for created_at field.
-	qarecordDescCreatedAt := qarecordFields[36].Descriptor()
-	// qarecord.DefaultCreatedAt holds the default value on creation for the created_at field.
-	qarecord.DefaultCreatedAt = qarecordDescCreatedAt.Default.(func() time.Time)
 	redeemcodeFields := schema.RedeemCode{}.Fields()
 	_ = redeemcodeFields
 	// redeemcodeDescCode is the schema descriptor for code field.
@@ -1967,79 +1793,6 @@ func init() {
 	tlsfingerprintprofileDescEnableGrease := tlsfingerprintprofileFields[2].Descriptor()
 	// tlsfingerprintprofile.DefaultEnableGrease holds the default value on creation for the enable_grease field.
 	tlsfingerprintprofile.DefaultEnableGrease = tlsfingerprintprofileDescEnableGrease.Default.(bool)
-	tierMixin := schema.Tier{}.Mixin()
-	tierMixinFields0 := tierMixin[0].Fields()
-	_ = tierMixinFields0
-	tierFields := schema.Tier{}.Fields()
-	_ = tierFields
-	// tierDescCreatedAt is the schema descriptor for created_at field.
-	tierDescCreatedAt := tierMixinFields0[0].Descriptor()
-	// tier.DefaultCreatedAt holds the default value on creation for the created_at field.
-	tier.DefaultCreatedAt = tierDescCreatedAt.Default.(func() time.Time)
-	// tierDescUpdatedAt is the schema descriptor for updated_at field.
-	tierDescUpdatedAt := tierMixinFields0[1].Descriptor()
-	// tier.DefaultUpdatedAt holds the default value on creation for the updated_at field.
-	tier.DefaultUpdatedAt = tierDescUpdatedAt.Default.(func() time.Time)
-	// tier.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
-	tier.UpdateDefaultUpdatedAt = tierDescUpdatedAt.UpdateDefault.(func() time.Time)
-	// tierDescName is the schema descriptor for name field.
-	tierDescName := tierFields[0].Descriptor()
-	// tier.NameValidator is a validator for the "name" field. It is called by the builders before save.
-	tier.NameValidator = func() func(string) error {
-		validators := tierDescName.Validators
-		fns := [...]func(string) error{
-			validators[0].(func(string) error),
-			validators[1].(func(string) error),
-		}
-		return func(name string) error {
-			for _, fn := range fns {
-				if err := fn(name); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-	}()
-	// tierDescConcurrency is the schema descriptor for concurrency field.
-	tierDescConcurrency := tierFields[2].Descriptor()
-	// tier.DefaultConcurrency holds the default value on creation for the concurrency field.
-	tier.DefaultConcurrency = tierDescConcurrency.Default.(int)
-	// tierDescPriority is the schema descriptor for priority field.
-	tierDescPriority := tierFields[3].Descriptor()
-	// tier.DefaultPriority holds the default value on creation for the priority field.
-	tier.DefaultPriority = tierDescPriority.Default.(int)
-	// tierDescRateMultiplier is the schema descriptor for rate_multiplier field.
-	tierDescRateMultiplier := tierFields[4].Descriptor()
-	// tier.DefaultRateMultiplier holds the default value on creation for the rate_multiplier field.
-	tier.DefaultRateMultiplier = tierDescRateMultiplier.Default.(float64)
-	// tierDescBaseRpm is the schema descriptor for base_rpm field.
-	tierDescBaseRpm := tierFields[5].Descriptor()
-	// tier.DefaultBaseRpm holds the default value on creation for the base_rpm field.
-	tier.DefaultBaseRpm = tierDescBaseRpm.Default.(int)
-	// tierDescMaxSessions is the schema descriptor for max_sessions field.
-	tierDescMaxSessions := tierFields[6].Descriptor()
-	// tier.DefaultMaxSessions holds the default value on creation for the max_sessions field.
-	tier.DefaultMaxSessions = tierDescMaxSessions.Default.(int)
-	// tierDescRpmStickyBuffer is the schema descriptor for rpm_sticky_buffer field.
-	tierDescRpmStickyBuffer := tierFields[7].Descriptor()
-	// tier.DefaultRpmStickyBuffer holds the default value on creation for the rpm_sticky_buffer field.
-	tier.DefaultRpmStickyBuffer = tierDescRpmStickyBuffer.Default.(int)
-	// tierDescSessionIdleTimeoutMinutes is the schema descriptor for session_idle_timeout_minutes field.
-	tierDescSessionIdleTimeoutMinutes := tierFields[8].Descriptor()
-	// tier.DefaultSessionIdleTimeoutMinutes holds the default value on creation for the session_idle_timeout_minutes field.
-	tier.DefaultSessionIdleTimeoutMinutes = tierDescSessionIdleTimeoutMinutes.Default.(int)
-	// tierDescCacheTTLOverrideEnabled is the schema descriptor for cache_ttl_override_enabled field.
-	tierDescCacheTTLOverrideEnabled := tierFields[9].Descriptor()
-	// tier.DefaultCacheTTLOverrideEnabled holds the default value on creation for the cache_ttl_override_enabled field.
-	tier.DefaultCacheTTLOverrideEnabled = tierDescCacheTTLOverrideEnabled.Default.(bool)
-	// tierDescCacheTTLOverrideTarget is the schema descriptor for cache_ttl_override_target field.
-	tierDescCacheTTLOverrideTarget := tierFields[10].Descriptor()
-	// tier.CacheTTLOverrideTargetValidator is a validator for the "cache_ttl_override_target" field. It is called by the builders before save.
-	tier.CacheTTLOverrideTargetValidator = tierDescCacheTTLOverrideTarget.Validators[0].(func(string) error)
-	// tierDescTLSProfileName is the schema descriptor for tls_profile_name field.
-	tierDescTLSProfileName := tierFields[11].Descriptor()
-	// tier.TLSProfileNameValidator is a validator for the "tls_profile_name" field. It is called by the builders before save.
-	tier.TLSProfileNameValidator = tierDescTLSProfileName.Validators[0].(func(string) error)
 	usagecleanuptaskMixin := schema.UsageCleanupTask{}.Mixin()
 	usagecleanuptaskMixinFields0 := usagecleanuptaskMixin[0].Fields()
 	_ = usagecleanuptaskMixinFields0
@@ -2223,12 +1976,20 @@ func init() {
 	usagelogDescImageSizeSource := usagelogFields[37].Descriptor()
 	// usagelog.ImageSizeSourceValidator is a validator for the "image_size_source" field. It is called by the builders before save.
 	usagelog.ImageSizeSourceValidator = usagelogDescImageSizeSource.Validators[0].(func(string) error)
+	// usagelogDescVideoCount is the schema descriptor for video_count field.
+	usagelogDescVideoCount := usagelogFields[39].Descriptor()
+	// usagelog.DefaultVideoCount holds the default value on creation for the video_count field.
+	usagelog.DefaultVideoCount = usagelogDescVideoCount.Default.(int)
+	// usagelogDescVideoResolution is the schema descriptor for video_resolution field.
+	usagelogDescVideoResolution := usagelogFields[40].Descriptor()
+	// usagelog.VideoResolutionValidator is a validator for the "video_resolution" field. It is called by the builders before save.
+	usagelog.VideoResolutionValidator = usagelogDescVideoResolution.Validators[0].(func(string) error)
 	// usagelogDescCacheTTLOverridden is the schema descriptor for cache_ttl_overridden field.
-	usagelogDescCacheTTLOverridden := usagelogFields[40].Descriptor()
+	usagelogDescCacheTTLOverridden := usagelogFields[42].Descriptor()
 	// usagelog.DefaultCacheTTLOverridden holds the default value on creation for the cache_ttl_overridden field.
 	usagelog.DefaultCacheTTLOverridden = usagelogDescCacheTTLOverridden.Default.(bool)
 	// usagelogDescCreatedAt is the schema descriptor for created_at field.
-	usagelogDescCreatedAt := usagelogFields[41].Descriptor()
+	usagelogDescCreatedAt := usagelogFields[43].Descriptor()
 	// usagelog.DefaultCreatedAt holds the default value on creation for the created_at field.
 	usagelog.DefaultCreatedAt = usagelogDescCreatedAt.Default.(func() time.Time)
 	userMixin := schema.User{}.Mixin()
@@ -2347,13 +2108,9 @@ func init() {
 	// user.DefaultTotalRecharged holds the default value on creation for the total_recharged field.
 	user.DefaultTotalRecharged = userDescTotalRecharged.Default.(float64)
 	// userDescRpmLimit is the schema descriptor for rpm_limit field.
-	userDescRpmLimit := userFields[21].Descriptor()
+	userDescRpmLimit := userFields[20].Descriptor()
 	// user.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	user.DefaultRpmLimit = userDescRpmLimit.Default.(int)
-	// userDescTrajExportEnabled is the schema descriptor for traj_export_enabled field.
-	userDescTrajExportEnabled := userFields[22].Descriptor()
-	// user.DefaultTrajExportEnabled holds the default value on creation for the traj_export_enabled field.
-	user.DefaultTrajExportEnabled = userDescTrajExportEnabled.Default.(bool)
 	userallowedgroupFields := schema.UserAllowedGroup{}.Fields()
 	_ = userallowedgroupFields
 	// userallowedgroupDescCreatedAt is the schema descriptor for created_at field.

@@ -175,8 +175,10 @@ type UsageLog struct {
 	ImageSizeBreakdown map[string]int
 	MediaType          *string
 
-	// VideoDurationSeconds 视频生成计费秒数（异步视频按秒计费；nil = 非视频请求或历史行）
-	VideoDurationSeconds *int64
+	// 视频生成字段（Grok 视频按秒计费；video_count>0 的行不要求 image_size）
+	VideoCount           int
+	VideoResolution      *string
+	VideoDurationSeconds *int
 
 	CreatedAt time.Time
 

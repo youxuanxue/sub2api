@@ -47,6 +47,7 @@ const (
 	openAIWSRetryBackoffMaxDefault     = 2 * time.Second
 	openAIWSRetryJitterRatioDefault    = 0.2
 	openAICompactSessionSeedKey        = "openai_compact_session_seed"
+	codexCLIVersion                    = "0.144.1"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
 	// 配额自动暂停时，超过该时长仍未刷新的 used% 快照视为陈旧，不再据此暂停账号。
@@ -127,26 +128,24 @@ type OpenAIForwardResult struct {
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ReasoningEffort      *string
-	EnableThinking       bool
-	StopReason           string
-	IncompleteReason     string
-	ContentTextLen       int
-	CompactCandidate     bool
-	Stream               bool
-	OpenAIWSMode         bool
-	ResponseHeaders      http.Header
-	Duration             time.Duration
-	FirstTokenMs         *int
-	ClientDisconnect     bool
-	ImageCount           int
-	ImageSize            string
-	ImageInputSize       string
-	ImageOutputSize      string
-	ImageOutputSizes     []string
-	ImageSizeSource      string
-	ImageSizeBreakdown   map[string]int
-	VideoDurationSeconds *int64
+	ReasoningEffort    *string
+	Stream             bool
+	OpenAIWSMode       bool
+	ResponseHeaders    http.Header
+	Duration           time.Duration
+	FirstTokenMs       *int
+	ClientDisconnect   bool
+	ImageCount         int
+	ImageSize          string
+	ImageInputSize     string
+	ImageOutputSize    string
+	ImageOutputSizes   []string
+	ImageSizeSource    string
+	ImageSizeBreakdown map[string]int
+	VideoCount         int
+	VideoResolution    string
+	// VideoDurationSeconds 是提交时请求的生成时长（xAI 按输出秒数计费），已归一化到 1-15 秒。
+	VideoDurationSeconds int
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool

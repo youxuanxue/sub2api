@@ -803,6 +803,7 @@ async function loadSettings() {
       gatewayPanelRef.value.openaiFastPolicyForm.rules =
         settings.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
+          user_ids: rule.user_ids ? [...rule.user_ids] : [],
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
@@ -1228,6 +1229,10 @@ async function saveSettings() {
             service_tier: rule.service_tier,
             action: rule.action,
             scope: rule.scope,
+            user_ids:
+              rule.user_ids && rule.user_ids.length > 0
+                ? [...rule.user_ids]
+                : undefined,
             error_message:
               rule.action === "block" ? rule.error_message : undefined,
             model_whitelist: hasWhitelist ? whitelist : undefined,
@@ -1304,6 +1309,7 @@ async function saveSettings() {
       gw.openaiFastPolicyForm.rules =
         updated.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
+          user_ids: rule.user_ids ? [...rule.user_ids] : [],
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
@@ -1324,6 +1330,832 @@ async function saveSettings() {
     saving.value = false;
   }
 }
+
+
+async function testSmtpConnection() {
+  testingSmtp.value = true;
+  try {
+    const smtpPasswordForTest = smtpPasswordManuallyEdited.value
+      ? form.smtp_password
+      : "";
+    const result = await adminAPI.settings.testSmtpConnection({
+      smtp_host: form.smtp_host,
+      smtp_port: form.smtp_port,
+      smtp_username: form.smtp_username,
+      smtp_password: smtpPasswordForTest,
+      smtp_use_tls: form.smtp_use_tls,
+    });
+    // API returns { message: "..." } on success, errors are thrown as exceptions
+    appStore.showSuccess(
+      result.message || t("admin.settings.smtpConnectionSuccess"),
+    );
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.failedToTestSmtp")),
+    );
+  } finally {
+    testingSmtp.value = false;
+  }
+}
+
+async function sendTestEmail() {
+  if (!testEmailAddress.value) {
+    appStore.showError(t("admin.settings.testEmail.enterRecipientHint"));
+    return;
+  }
+
+  sendingTestEmail.value = true;
+  try {
+    const smtpPasswordForSend = smtpPasswordManuallyEdited.value
+      ? form.smtp_password
+      : "";
+    const result = await adminAPI.settings.sendTestEmail({
+      email: testEmailAddress.value,
+      smtp_host: form.smtp_host,
+      smtp_port: form.smtp_port,
+      smtp_username: form.smtp_username,
+      smtp_password: smtpPasswordForSend,
+      smtp_from_email: form.smtp_from_email,
+      smtp_from_name: form.smtp_from_name,
+      smtp_use_tls: form.smtp_use_tls,
+    });
+    // API returns { message: "..." } on success, errors are thrown as exceptions
+    appStore.showSuccess(result.message || t("admin.settings.testEmailSent"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.failedToSendTestEmail")),
+    );
+  } finally {
+    sendingTestEmail.value = false;
+  }
+}
+
+// Admin API Key 方法
+async function loadAdminApiKey() {
+  adminApiKeyLoading.value = true;
+  try {
+    const status = await adminAPI.settings.getAdminApiKey();
+    adminApiKeyExists.value = status.exists;
+    adminApiKeyMasked.value = status.masked_key;
+  } catch (_error: unknown) {
+    // Silent fail - admin API key status is non-critical
+  } finally {
+    adminApiKeyLoading.value = false;
+  }
+}
+
+async function createAdminApiKey() {
+  adminApiKeyOperating.value = true;
+  try {
+    const result = await adminAPI.settings.regenerateAdminApiKey();
+    newAdminApiKey.value = result.key;
+    adminApiKeyExists.value = true;
+    adminApiKeyMasked.value =
+      result.key.substring(0, 10) + "..." + result.key.slice(-4);
+    appStore.showSuccess(t("admin.settings.adminApiKey.keyGenerated"));
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t("common.error")));
+  } finally {
+    adminApiKeyOperating.value = false;
+  }
+}
+
+async function regenerateAdminApiKey() {
+  if (!confirm(t("admin.settings.adminApiKey.regenerateConfirm"))) return;
+  await createAdminApiKey();
+}
+
+async function deleteAdminApiKey() {
+  if (!confirm(t("admin.settings.adminApiKey.deleteConfirm"))) return;
+  adminApiKeyOperating.value = true;
+  try {
+    await adminAPI.settings.deleteAdminApiKey();
+    adminApiKeyExists.value = false;
+    adminApiKeyMasked.value = "";
+    newAdminApiKey.value = "";
+    appStore.showSuccess(t("admin.settings.adminApiKey.keyDeleted"));
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t("common.error")));
+  } finally {
+    adminApiKeyOperating.value = false;
+  }
+}
+
+function copyNewKey() {
+  navigator.clipboard
+    .writeText(newAdminApiKey.value)
+    .then(() => {
+      appStore.showSuccess(t("admin.settings.adminApiKey.keyCopied"));
+    })
+    .catch(() => {
+      appStore.showError(t("common.copyFailed"));
+    });
+}
+
+// Overload Cooldown 方法
+async function loadOverloadCooldownSettings() {
+  overloadCooldownLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getOverloadCooldownSettings();
+    Object.assign(overloadCooldownForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    overloadCooldownLoading.value = false;
+  }
+}
+
+async function saveOverloadCooldownSettings() {
+  overloadCooldownSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateOverloadCooldownSettings({
+      enabled: overloadCooldownForm.enabled,
+      cooldown_minutes: overloadCooldownForm.cooldown_minutes,
+    });
+    Object.assign(overloadCooldownForm, updated);
+    appStore.showSuccess(t("admin.settings.overloadCooldown.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.overloadCooldown.saveFailed"),
+      ),
+    );
+  } finally {
+    overloadCooldownSaving.value = false;
+  }
+}
+
+// Rate Limit Cooldown (429) 方法
+async function loadRateLimit429CooldownSettings() {
+  rateLimit429CooldownLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getRateLimit429CooldownSettings();
+    Object.assign(rateLimit429CooldownForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    rateLimit429CooldownLoading.value = false;
+  }
+}
+
+async function saveRateLimit429CooldownSettings() {
+  rateLimit429CooldownSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateRateLimit429CooldownSettings({
+      enabled: rateLimit429CooldownForm.enabled,
+      cooldown_seconds: rateLimit429CooldownForm.cooldown_seconds,
+    });
+    Object.assign(rateLimit429CooldownForm, updated);
+    appStore.showSuccess(t("admin.settings.rateLimit429Cooldown.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.rateLimit429Cooldown.saveFailed"),
+      ),
+    );
+  } finally {
+    rateLimit429CooldownSaving.value = false;
+  }
+}
+
+// Stream Timeout 方法
+async function loadStreamTimeoutSettings() {
+  streamTimeoutLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getStreamTimeoutSettings();
+    Object.assign(streamTimeoutForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    streamTimeoutLoading.value = false;
+  }
+}
+
+async function saveStreamTimeoutSettings() {
+  streamTimeoutSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateStreamTimeoutSettings({
+      enabled: streamTimeoutForm.enabled,
+      action: streamTimeoutForm.action,
+      temp_unsched_minutes: streamTimeoutForm.temp_unsched_minutes,
+      threshold_count: streamTimeoutForm.threshold_count,
+      threshold_window_minutes: streamTimeoutForm.threshold_window_minutes,
+    });
+    Object.assign(streamTimeoutForm, updated);
+    appStore.showSuccess(t("admin.settings.streamTimeout.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.streamTimeout.saveFailed"),
+      ),
+    );
+  } finally {
+    streamTimeoutSaving.value = false;
+  }
+}
+
+// Rectifier 方法
+async function loadRectifierSettings() {
+  rectifierLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getRectifierSettings();
+    Object.assign(rectifierForm, settings);
+    // 确保 patterns 是数组（旧数据可能为 null）
+    if (!Array.isArray(rectifierForm.apikey_signature_patterns)) {
+      rectifierForm.apikey_signature_patterns = [];
+    }
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    rectifierLoading.value = false;
+  }
+}
+
+async function saveRectifierSettings() {
+  rectifierSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateRectifierSettings({
+      enabled: rectifierForm.enabled,
+      thinking_signature_enabled: rectifierForm.thinking_signature_enabled,
+      thinking_budget_enabled: rectifierForm.thinking_budget_enabled,
+      apikey_signature_enabled: rectifierForm.apikey_signature_enabled,
+      apikey_signature_patterns: rectifierForm.apikey_signature_patterns.filter(
+        (p) => p.trim() !== "",
+      ),
+    });
+    Object.assign(rectifierForm, updated);
+    if (!Array.isArray(rectifierForm.apikey_signature_patterns)) {
+      rectifierForm.apikey_signature_patterns = [];
+    }
+    appStore.showSuccess(t("admin.settings.rectifier.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.rectifier.saveFailed")),
+    );
+  } finally {
+    rectifierSaving.value = false;
+  }
+}
+
+const betaPolicyActionOptions = computed(() => [
+  { value: "pass", label: t("admin.settings.betaPolicy.actionPass") },
+  { value: "filter", label: t("admin.settings.betaPolicy.actionFilter") },
+  { value: "block", label: t("admin.settings.betaPolicy.actionBlock") },
+]);
+
+const betaPolicyScopeOptions = computed(() => [
+  { value: "all", label: t("admin.settings.betaPolicy.scopeAll") },
+  { value: "oauth", label: t("admin.settings.betaPolicy.scopeOAuth") },
+  { value: "apikey", label: t("admin.settings.betaPolicy.scopeAPIKey") },
+  { value: "bedrock", label: t("admin.settings.betaPolicy.scopeBedrock") },
+]);
+
+// Beta Policy 方法
+const betaDisplayNames: Record<string, string> = {
+  "fast-mode-2026-02-01": "Fast Mode",
+  "context-1m-2025-08-07": "Context 1M",
+};
+
+// 快捷预设：按 beta_token 定义预设方案
+const betaPresets: Record<
+  string,
+  Array<{
+    label: string;
+    description: string;
+    action: "pass" | "filter" | "block";
+    model_whitelist: string[];
+    fallback_action: "pass" | "filter" | "block";
+  }>
+> = {
+  "context-1m-2025-08-07": [
+    {
+      label: t("admin.settings.betaPolicy.presetOpusOnly"),
+      description: t("admin.settings.betaPolicy.presetOpusOnlyDesc"),
+      action: "pass",
+      model_whitelist: ["claude-opus-4-6"],
+      fallback_action: "filter",
+    },
+  ],
+};
+
+// 常用模型模式（具体 ID + 通配符示例）
+const commonModelPatterns = [
+  "claude-opus-4-6",
+  "claude-sonnet-4-6",
+  "claude-opus-*",
+  "claude-sonnet-*",
+];
+
+function getBetaDisplayName(token: string): string {
+  return betaDisplayNames[token] || token;
+}
+
+function applyBetaPreset(
+  rule: (typeof betaPolicyForm.rules)[number],
+  preset: {
+    action: "pass" | "filter" | "block";
+    model_whitelist: string[];
+    fallback_action: "pass" | "filter" | "block";
+  },
+) {
+  rule.action = preset.action;
+  rule.model_whitelist = [...preset.model_whitelist];
+  rule.fallback_action = preset.fallback_action;
+}
+
+function addQuickPattern(
+  rule: (typeof betaPolicyForm.rules)[number],
+  pattern: string,
+) {
+  if (!rule.model_whitelist) rule.model_whitelist = [];
+  if (!rule.model_whitelist.includes(pattern)) {
+    rule.model_whitelist.push(pattern);
+  }
+}
+
+async function loadBetaPolicySettings() {
+  betaPolicyLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getBetaPolicySettings();
+    betaPolicyForm.rules = settings.rules;
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    betaPolicyLoading.value = false;
+  }
+}
+
+// ==================== OpenAI Fast/Flex Policy ====================
+
+const openaiFastPolicyTierOptions = computed(() => [
+  { value: "all", label: t("admin.settings.openaiFastPolicy.tierAll") },
+  {
+    value: "priority",
+    label: t("admin.settings.openaiFastPolicy.tierPriority"),
+  },
+  { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+]);
+
+const openaiFastPolicyActionOptions = computed(() => [
+  { value: "pass", label: t("admin.settings.openaiFastPolicy.actionPass") },
+  { value: "filter", label: t("admin.settings.openaiFastPolicy.actionFilter") },
+  {
+    value: "force_priority",
+    label: t("admin.settings.openaiFastPolicy.actionForcePriority"),
+  },
+  { value: "block", label: t("admin.settings.openaiFastPolicy.actionBlock") },
+]);
+
+const openaiFastPolicyScopeOptions = computed(() => [
+  { value: "all", label: t("admin.settings.openaiFastPolicy.scopeAll") },
+  { value: "oauth", label: t("admin.settings.openaiFastPolicy.scopeOAuth") },
+  { value: "apikey", label: t("admin.settings.openaiFastPolicy.scopeAPIKey") },
+  {
+    value: "bedrock",
+    label: t("admin.settings.openaiFastPolicy.scopeBedrock"),
+  },
+]);
+
+function addOpenAIFastPolicyRule() {
+  openaiFastPolicyForm.rules.push({
+    service_tier: "priority",
+    action: "filter",
+    scope: "all",
+    user_ids: [],
+    error_message: "",
+    model_whitelist: [],
+    fallback_action: "pass",
+    fallback_error_message: "",
+  });
+}
+
+function removeOpenAIFastPolicyRule(index: number) {
+  openaiFastPolicyForm.rules.splice(index, 1);
+}
+
+function addOpenAIFastPolicyUserID(rule: OpenAIFastPolicyRule) {
+  if (!rule.user_ids) rule.user_ids = [];
+  rule.user_ids.push(0);
+}
+
+function removeOpenAIFastPolicyUserID(
+  rule: OpenAIFastPolicyRule,
+  idx: number,
+) {
+  rule.user_ids?.splice(idx, 1);
+}
+
+function addOpenAIFastPolicyModelPattern(rule: OpenAIFastPolicyRule) {
+  if (!rule.model_whitelist) rule.model_whitelist = [];
+  rule.model_whitelist.push("");
+}
+
+function removeOpenAIFastPolicyModelPattern(
+  rule: OpenAIFastPolicyRule,
+  idx: number,
+) {
+  rule.model_whitelist?.splice(idx, 1);
+}
+
+async function saveBetaPolicySettings() {
+  betaPolicySaving.value = true;
+  try {
+    // Clean up empty patterns before saving
+    const cleanedRules = betaPolicyForm.rules.map((rule) => {
+      const whitelist = rule.model_whitelist?.filter((p) => p.trim() !== "");
+      const hasWhitelist = whitelist && whitelist.length > 0;
+      return {
+        beta_token: rule.beta_token,
+        action: rule.action,
+        scope: rule.scope,
+        error_message: rule.error_message,
+        model_whitelist: hasWhitelist ? whitelist : undefined,
+        fallback_action: hasWhitelist
+          ? rule.fallback_action || "pass"
+          : undefined,
+        fallback_error_message:
+          hasWhitelist && rule.fallback_action === "block"
+            ? rule.fallback_error_message
+            : undefined,
+      };
+    });
+    const updated = await adminAPI.settings.updateBetaPolicySettings({
+      rules: cleanedRules,
+    });
+    betaPolicyForm.rules = updated.rules;
+    appStore.showSuccess(t("admin.settings.betaPolicy.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.betaPolicy.saveFailed")),
+    );
+  } finally {
+    betaPolicySaving.value = false;
+  }
+}
+
+// ==================== Provider Management ====================
+
+const allPaymentTypes = computed(() => [
+  { value: "easypay", label: t("payment.methods.easypay") },
+  { value: "alipay", label: t("payment.methods.alipay") },
+  { value: "wxpay", label: t("payment.methods.wxpay") },
+  { value: "stripe", label: t("payment.methods.stripe") },
+  { value: "airwallex", label: t("payment.methods.airwallex") },
+]);
+
+function isPaymentTypeEnabled(type: string): boolean {
+  return form.payment_enabled_types.includes(type);
+}
+
+const hasAnyPaymentTypeEnabled = computed(
+  () => form.payment_enabled_types.length > 0,
+);
+
+function togglePaymentType(type: string) {
+  if (form.payment_enabled_types.includes(type)) {
+    form.payment_enabled_types = form.payment_enabled_types.filter(
+      (t) => t !== type,
+    );
+    // Disable all provider instances matching this type
+    disableProvidersByType(type);
+  } else {
+    form.payment_enabled_types = [...form.payment_enabled_types, type];
+  }
+}
+
+async function disableProvidersByType(type: string) {
+  const matching = providers.value.filter(
+    (p) => p.provider_key === type && p.enabled,
+  );
+  for (const p of matching) {
+    try {
+      await adminAPI.payment.updateProvider(p.id, { enabled: false });
+      p.enabled = false;
+    } catch (err: unknown) {
+      slog("disable provider failed", p.id, err);
+    }
+  }
+}
+
+function slog(...args: unknown[]) {
+  console.warn("[payment]", ...args);
+}
+
+const providersLoading = ref(false);
+const providerSaving = ref(false);
+const providers = ref<ProviderInstance[]>([]);
+const showProviderDialog = ref(false);
+const showDeleteProviderDialog = ref(false);
+const editingProvider = ref<ProviderInstance | null>(null);
+const deletingProviderId = ref<number | null>(null);
+const providerDialogRef = ref<InstanceType<
+  typeof PaymentProviderDialog
+> | null>(null);
+
+const providerKeyOptions = computed(() => [
+  { value: "easypay", label: t("admin.settings.payment.providerEasypay") },
+  { value: "alipay", label: t("admin.settings.payment.providerAlipay") },
+  { value: "wxpay", label: t("admin.settings.payment.providerWxpay") },
+  { value: "stripe", label: t("admin.settings.payment.providerStripe") },
+  { value: "airwallex", label: t("admin.settings.payment.providerAirwallex") },
+]);
+
+const enabledProviderKeyOptions = computed(() => {
+  const enabled = form.payment_enabled_types;
+  return providerKeyOptions.value.filter((opt) => enabled.includes(opt.value));
+});
+
+const loadBalanceOptions = computed(() => [
+  {
+    value: "round-robin",
+    label: t("admin.settings.payment.strategyRoundRobin"),
+  },
+  {
+    value: "least-amount",
+    label: t("admin.settings.payment.strategyLeastAmount"),
+  },
+]);
+
+const cancelRateLimitUnitOptions = computed(() => [
+  {
+    value: "minute",
+    label: t("admin.settings.payment.cancelRateLimitUnitMinute"),
+  },
+  { value: "hour", label: t("admin.settings.payment.cancelRateLimitUnitHour") },
+  { value: "day", label: t("admin.settings.payment.cancelRateLimitUnitDay") },
+]);
+
+const cancelRateLimitModeOptions = computed(() => [
+  {
+    value: "rolling",
+    label: t("admin.settings.payment.cancelRateLimitWindowModeRolling"),
+  },
+  {
+    value: "fixed",
+    label: t("admin.settings.payment.cancelRateLimitWindowModeFixed"),
+  },
+]);
+
+type ProviderEnablementCandidate = Pick<
+  ProviderInstance,
+  "id" | "provider_key" | "supported_types" | "enabled" | "name"
+>;
+
+function getProviderVisibleMethods(
+  provider: ProviderEnablementCandidate,
+): Array<"alipay" | "wxpay"> {
+  if (!provider.enabled) {
+    return [];
+  }
+
+  const supportedTypes = Array.isArray(provider.supported_types)
+    ? provider.supported_types
+    : [];
+  const methods = new Set<"alipay" | "wxpay">();
+  const addMethod = (type: string) => {
+    const method = normalizeVisibleMethod(type);
+    if (method === "alipay" || method === "wxpay") {
+      methods.add(method);
+    }
+  };
+
+  if (provider.provider_key === "alipay") {
+    if (supportedTypes.length === 0) {
+      methods.add("alipay");
+    } else {
+      supportedTypes.forEach((type) => {
+        if (normalizeVisibleMethod(type) === "alipay") {
+          methods.add("alipay");
+        }
+      });
+    }
+  } else if (provider.provider_key === "wxpay") {
+    if (supportedTypes.length === 0) {
+      methods.add("wxpay");
+    } else {
+      supportedTypes.forEach((type) => {
+        if (normalizeVisibleMethod(type) === "wxpay") {
+          methods.add("wxpay");
+        }
+      });
+    }
+  } else if (provider.provider_key === "easypay") {
+    supportedTypes.forEach(addMethod);
+  }
+
+  return Array.from(methods);
+}
+
+function findProviderEnablementConflict(
+  candidate: ProviderEnablementCandidate,
+): { method: "alipay" | "wxpay"; conflicting: ProviderInstance } | null {
+  const claimedMethods = getProviderVisibleMethods(candidate);
+  if (claimedMethods.length === 0) {
+    return null;
+  }
+
+  for (const other of providers.value) {
+    if (other.id === candidate.id || !other.enabled) {
+      continue;
+    }
+
+    const otherMethods = getProviderVisibleMethods(other);
+    const matchedMethod = claimedMethods.find((method) =>
+      otherMethods.includes(method),
+    );
+    if (matchedMethod) {
+      return {
+        method: matchedMethod,
+        conflicting: other,
+      };
+    }
+  }
+
+  return null;
+}
+
+function showProviderEnablementConflict(
+  conflict: { method: "alipay" | "wxpay"; conflicting: ProviderInstance },
+) {
+  appStore.showError(
+    t("admin.settings.payment.enableConflict", {
+      method: t(`payment.methods.${conflict.method}`),
+      provider: conflict.conflicting.name,
+    }),
+  );
+}
+
+async function loadProviders() {
+  providersLoading.value = true;
+  try {
+    const res = await adminAPI.payment.getProviders();
+    // Normalize supported_types: backend returns null when the list is empty
+    // (Go nil slice → JSON null). Without this, ProviderCard's isSelected()
+    // throws TypeError on null.includes(), causing the card to vanish.
+    providers.value = (res.data || []).map((p) => ({
+      ...p,
+      supported_types: Array.isArray(p.supported_types)
+        ? p.supported_types
+        : [],
+    }));
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  } finally {
+    providersLoading.value = false;
+  }
+}
+
+function openCreateProvider() {
+  editingProvider.value = null;
+  providerDialogRef.value?.reset(
+    enabledProviderKeyOptions.value[0]?.value || "easypay",
+  );
+  showProviderDialog.value = true;
+}
+
+function openEditProvider(provider: ProviderInstance) {
+  editingProvider.value = provider;
+  providerDialogRef.value?.loadProvider(provider);
+  showProviderDialog.value = true;
+}
+
+async function handleSaveProvider(payload: Partial<ProviderInstance>) {
+  providerSaving.value = true;
+  try {
+    const candidate: ProviderEnablementCandidate = {
+      id: editingProvider.value?.id ?? 0,
+      provider_key:
+        payload.provider_key ?? editingProvider.value?.provider_key ?? "",
+      supported_types:
+        payload.supported_types ?? editingProvider.value?.supported_types ?? [],
+      enabled: payload.enabled ?? editingProvider.value?.enabled ?? false,
+      name: payload.name ?? editingProvider.value?.name ?? "",
+    };
+    const conflict = findProviderEnablementConflict(candidate);
+    if (conflict) {
+      showProviderEnablementConflict(conflict);
+      return;
+    }
+
+    if (editingProvider.value) {
+      await adminAPI.payment.updateProvider(editingProvider.value.id, payload);
+    } else {
+      await adminAPI.payment.createProvider(payload);
+    }
+    showProviderDialog.value = false;
+    // Reload full list (API returns decrypted/formatted data with correct sort order)
+    await loadProviders();
+    // Auto-save settings so provider changes take effect immediately
+    await saveSettings();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  } finally {
+    providerSaving.value = false;
+  }
+}
+
+async function handleToggleField(
+  provider: ProviderInstance,
+  field: "enabled" | "refund_enabled" | "allow_user_refund",
+) {
+  let newValue: boolean;
+  if (field === "enabled") newValue = !provider.enabled;
+  else if (field === "refund_enabled") newValue = !provider.refund_enabled;
+  else newValue = !provider.allow_user_refund;
+
+  if (field === "enabled" && newValue) {
+    const conflict = findProviderEnablementConflict({
+      id: provider.id,
+      provider_key: provider.provider_key,
+      supported_types: provider.supported_types,
+      enabled: true,
+      name: provider.name,
+    });
+    if (conflict) {
+      showProviderEnablementConflict(conflict);
+      return;
+    }
+  }
+
+  const payload: Record<string, boolean> = { [field]: newValue };
+  // Cascade: turning off refund_enabled also turns off allow_user_refund
+  if (field === "refund_enabled" && !newValue) {
+    payload.allow_user_refund = false;
+  }
+  try {
+    await adminAPI.payment.updateProvider(provider.id, payload);
+    await loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  }
+}
+
+async function handleToggleType(provider: ProviderInstance, type: string) {
+  const currentTypes = Array.isArray(provider.supported_types)
+    ? provider.supported_types
+    : [];
+  const updated = currentTypes.includes(type)
+    ? currentTypes.filter((t) => t !== type)
+    : [...currentTypes, type];
+  const conflict = findProviderEnablementConflict({
+    id: provider.id,
+    provider_key: provider.provider_key,
+    supported_types: updated,
+    enabled: provider.enabled,
+    name: provider.name,
+  });
+  if (conflict) {
+    showProviderEnablementConflict(conflict);
+    return;
+  }
+  try {
+    await adminAPI.payment.updateProvider(provider.id, {
+      supported_types: updated,
+    } as any);
+    await loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  }
+}
+
+function confirmDeleteProvider(provider: ProviderInstance) {
+  deletingProviderId.value = provider.id;
+  showDeleteProviderDialog.value = true;
+}
+
+async function handleReorderProviders(
+  updates: { id: number; sort_order: number }[],
+) {
+  try {
+    await Promise.all(
+      updates.map((u) =>
+        adminAPI.payment.updateProvider(u.id, {
+          sort_order: u.sort_order,
+        } as Partial<ProviderInstance>),
+      ),
+    );
+    await loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+    loadProviders();
+  }
+}
+
+async function handleDeleteProvider() {
+  if (!deletingProviderId.value) return;
+  try {
+    await adminAPI.payment.deleteProvider(deletingProviderId.value);
+    appStore.showSuccess(t("common.deleted"));
+    showDeleteProviderDialog.value = false;
+    loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  }
+}
+
 // ── Lifecycle ──
 
 onMounted(() => {

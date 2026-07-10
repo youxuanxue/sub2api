@@ -49,6 +49,9 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "image_output_size", "character varying", 32, true)
 	requireColumn(t, tx, "usage_logs", "image_size_source", "character varying", 16, true)
 	requireColumn(t, tx, "usage_logs", "image_size_breakdown", "jsonb", 0, true)
+	requireColumn(t, tx, "usage_logs", "video_count", "integer", 0, false)
+	requireColumn(t, tx, "usage_logs", "video_resolution", "character varying", 10, true)
+	requireColumn(t, tx, "usage_logs", "video_duration_seconds", "integer", 0, true)
 	requireColumn(t, tx, "usage_dashboard_group_daily", "total_requests", "bigint", 0, false)
 	requireColumn(t, tx, "usage_dashboard_group_daily", "input_tokens", "bigint", 0, false)
 	requireColumn(t, tx, "usage_dashboard_group_daily", "output_tokens", "bigint", 0, false)
@@ -74,6 +77,9 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 		"usage_logs",
 		"usage_logs_image_billing_size_check",
 		"image_count",
+		"billing_mode",
+		"'video'",
+		"video_count",
 		"image_size IS NOT NULL",
 		"'1K'",
 		"'2K'",

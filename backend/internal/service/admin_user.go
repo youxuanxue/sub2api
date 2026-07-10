@@ -153,6 +153,11 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if balance > 0 {
 		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, user.ID, balance, BalanceGrantNoteAdminOpening, "service.admin")
 	}
+	// 创建管理员属权限敏感操作，落审计日志（含操作者），便于事后追溯。
+	if user.Role == RoleAdmin {
+		logger.LegacyPrintf("service.admin", "audit: admin user created actor_admin_id=%d target_user_id=%d",
+			input.ActorAdminID, user.ID)
+	}
 	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
 }

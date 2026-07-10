@@ -859,8 +859,8 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 		FROM accounts
 		WHERE deleted_at IS NULL
 			AND status = 'active'
-			AND type = 'oauth'
-			AND platform = ANY($1)
+			AND type IN ('oauth', 'setup-token')
+			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity')
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''
 			AND (
@@ -868,7 +868,7 @@ func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]s
 				AND temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'
 			) IS NOT TRUE
 		ORDER BY priority ASC, id ASC
-	`, pq.Array(engine.OAuthRefreshPlatforms()))
+	`)
 	if err != nil {
 		return nil, err
 	}

@@ -50,7 +50,16 @@ func RegisterGatewayRoutes(
 		// /v1/messages/count_tokens: OpenAI uses Anthropic-compat bridge; other
 		// OpenAI-compatible platforms keep the prior unsupported response.
 		gateway.POST("/messages/count_tokens", tkOpenAICompatCountTokensPOST(h))
-		gateway.GET("/models", h.Gateway.Models)
+		// Codex CLI / Codex app refresh their model picker from the provider's
+		// /models endpoint with a client_version query and expect the ChatGPT
+		// Codex manifest format; other clients keep the OpenAI-style list.
+		gateway.GET("/models", func(c *gin.Context) {
+			if isOpenAIGatewayPlatform(c) && c.Query("client_version") != "" {
+				h.OpenAIGateway.CodexModels(c)
+				return
+			}
+			h.Gateway.Models(c)
+		})
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", tkOpenAICompatResponsesPOST(h))
@@ -113,7 +122,10 @@ func RegisterGatewayRoutes(
 	{
 		codexDirect.POST("/responses", responsesHandler)
 		codexDirect.POST("/responses/*subpath", responsesHandler)
-		codexDirect.GET("/responses", tkOpenAICompatResponsesWebSocketGET(h))
+		codexDirect.GET("/responses", func(c *gin.Context) {
+			h.OpenAIGateway.ResponsesWebSocket(c)
+		})
+		codexDirect.GET("/models", h.OpenAIGateway.CodexModels)
 	}
 
 	// Antigravity 模型列表

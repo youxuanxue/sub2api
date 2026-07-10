@@ -92,6 +92,10 @@ const (
 	FieldImageSizeSource = "image_size_source"
 	// FieldImageSizeBreakdown holds the string denoting the image_size_breakdown field in the database.
 	FieldImageSizeBreakdown = "image_size_breakdown"
+	// FieldVideoCount holds the string denoting the video_count field in the database.
+	FieldVideoCount = "video_count"
+	// FieldVideoResolution holds the string denoting the video_resolution field in the database.
+	FieldVideoResolution = "video_resolution"
 	// FieldVideoDurationSeconds holds the string denoting the video_duration_seconds field in the database.
 	FieldVideoDurationSeconds = "video_duration_seconds"
 	// FieldCacheTTLOverridden holds the string denoting the cache_ttl_overridden field in the database.
@@ -189,6 +193,8 @@ var Columns = []string{
 	FieldImageOutputSize,
 	FieldImageSizeSource,
 	FieldImageSizeBreakdown,
+	FieldVideoCount,
+	FieldVideoResolution,
 	FieldVideoDurationSeconds,
 	FieldCacheTTLOverridden,
 	FieldCreatedAt,
@@ -263,6 +269,10 @@ var (
 	ImageOutputSizeValidator func(string) error
 	// ImageSizeSourceValidator is a validator for the "image_size_source" field. It is called by the builders before save.
 	ImageSizeSourceValidator func(string) error
+	// DefaultVideoCount holds the default value on creation for the "video_count" field.
+	DefaultVideoCount int
+	// VideoResolutionValidator is a validator for the "video_resolution" field. It is called by the builders before save.
+	VideoResolutionValidator func(string) error
 	// DefaultCacheTTLOverridden holds the default value on creation for the "cache_ttl_overridden" field.
 	DefaultCacheTTLOverridden bool
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
@@ -465,6 +475,16 @@ func ByImageOutputSize(opts ...sql.OrderTermOption) OrderOption {
 // ByImageSizeSource orders the results by the image_size_source field.
 func ByImageSizeSource(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldImageSizeSource, opts...).ToFunc()
+}
+
+// ByVideoCount orders the results by the video_count field.
+func ByVideoCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVideoCount, opts...).ToFunc()
+}
+
+// ByVideoResolution orders the results by the video_resolution field.
+func ByVideoResolution(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVideoResolution, opts...).ToFunc()
 }
 
 // ByVideoDurationSeconds orders the results by the video_duration_seconds field.
