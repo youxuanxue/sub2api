@@ -222,6 +222,8 @@ Gateway flow, prod↔edge topology, disaster recovery, full PR checklist: [`docs
 
 Model serving SSOT (prod `model_mapping` + catalog/pricing alignment; edge keeps empty mapping; official upstream aliases display when priced+servable): [`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot-model_mapping-catalog-prod-vs-edge).
 
+Model/catalog tests must derive positive and negative model sets from that SSOT (`ServableClientFacingIDs`, platform allowlist helpers, manifest/overlay parsers, runtime mapping helpers). Do not hand-maintain duplicate model lists in tests; only hardcode true boundary samples such as unknown IDs, cross-platform IDs, compatibility aliases, or priced-but-hidden examples.
+
 Treat `internal/integration/newapi/` and `internal/relay/bridge/` as implementation source of truth; external planning docs may lag the code.
 
 **Before push:** run `./scripts/preflight.sh` + `make test`. PR checklist detail in agent-reference doc above.

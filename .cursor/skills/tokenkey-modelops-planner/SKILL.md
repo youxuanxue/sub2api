@@ -35,6 +35,12 @@ description: >-
 
 设计基线：`docs/approved/served-model-reconcile-planner.md` · 脚本表：`ops/pricing/README.md`
 
+测试原则：model ops 改动若触达 catalog/menu/model_mapping/pricing，测试必须从下方「四事实」owner
+派生正向/负向集合（例如 `ServableClientFacingIDs`、`supportedCatalogModelIDsForPlatform`、
+manifest/overlay parser 或 runtime desired layer helper）。禁止在测试、skill 或 PR 模板里手写一套
+会随模型上架同步变动的模型清单；手写样本只保留未知 ID、跨平台 ID、兼容别名、priced-but-hidden
+等真实边界，并说明它不是 owner 副本。
+
 ---
 
 ## 0) 路由（先做，再跑命令）
