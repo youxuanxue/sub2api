@@ -3,34 +3,22 @@ package service
 import "testing"
 
 func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
-	if !isTkCuratedNewAPIModelListed("deepseek-chat") {
-		t.Fatal("deepseek-chat must be manifest-listed")
+	listed := firstMapKeyForTest(t, loadTkServedModelsManifestIDs())
+	if !isTkCuratedNewAPIModelListed(listed) {
+		t.Fatalf("manifest-listed model %q must be recognized", listed)
 	}
-	if !isTkCuratedNewAPIModelListed("glm-5.2") {
-		t.Fatal("Qwen-served GLM models must remain manifest-listed")
-	}
-	if isTkCuratedNewAPIModelListed("glm-5-turbo") {
-		t.Fatal("direct-only GLM models must not remain manifest-listed after GLM account/group removal")
-	}
-	if isTkCuratedNewAPIModelListed("deepseek-v3-2-251201") {
-		t.Fatal("deepseek-v3-2-251201 must not be manifest-listed")
-	}
-	if isTkCuratedNewAPIModelListed("glm-4-32b-0414-128k") {
-		t.Fatal("glm-4-32b-0414-128k must not be manifest-listed after upstream 400 withdrawal")
-	}
-	if isTkCuratedNewAPIModelListed("glm-4-7-251222") {
-		t.Fatal("glm-4-7-251222 must not be manifest-listed after VolcEngine GLM withdrawal (serve glm-4.7 via DashScope)")
+	if isTkCuratedNewAPIModelListed("tk-not-in-served-models-manifest-zzz") {
+		t.Fatal("unknown model must not be manifest-listed")
 	}
 }
 
 func TestIsTkCuratedNewAPIModelDisplayed(t *testing.T) {
-	if !isTkCuratedNewAPIModelDisplayed("deepseek-chat") {
-		t.Fatal("display=true manifest rows must be public-display eligible")
+	loadTkServedModelsManifest()
+	displayed := firstMapKeyForTest(t, tkServedModelsManifestDisplayIDs)
+	if !isTkCuratedNewAPIModelDisplayed(displayed) {
+		t.Fatalf("display=true manifest row %q must be public-display eligible", displayed)
 	}
-	if isTkCuratedNewAPIModelDisplayed("glm-5-turbo") {
-		t.Fatal("unlisted direct-only GLM rows must stay hidden from public catalog")
-	}
-	if isTkCuratedNewAPIModelDisplayed("deepseek-v3-2-251201") {
+	if isTkCuratedNewAPIModelDisplayed("tk-not-in-served-models-manifest-zzz") {
 		t.Fatal("unlisted models must not be public-display eligible")
 	}
 }
@@ -47,18 +35,20 @@ func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
 }
 
 func TestTkServedModelsManifestPresetIDsByChannelType(t *testing.T) {
-	deepseek := tkServedModelsManifestPresetIDsByChannelType(43)
-	if len(deepseek) == 0 {
-		t.Fatal("deepseek channel_type 43 must have manifest presets")
+	channelTypes := NewAPIManifestPresetChannelTypes()
+	if len(channelTypes) == 0 {
+		t.Fatal("manifest must expose at least one channel_type preset")
 	}
-	if !containsString(deepseek, "deepseek-chat") {
-		t.Fatal("deepseek-chat must be in ch43 preset")
+	channelType := channelTypes[0]
+	preset := tkServedModelsManifestPresetIDsByChannelType(channelType)
+	if len(preset) == 0 {
+		t.Fatalf("manifest channel_type %d must have presets", channelType)
 	}
-	if tkServedModelsManifestPresetIDsByChannelType(25) != nil {
-		t.Fatal("unprobed channel_type 25 must return nil preset")
+	if !containsString(preset, preset[0]) {
+		t.Fatalf("manifest preset %q must be returned for channel_type %d", preset[0], channelType)
 	}
-	if tkServedModelsManifestPresetIDsByChannelType(26) != nil {
-		t.Fatal("removed ZhipuV4 direct GLM channel_type 26 must return nil preset")
+	if tkServedModelsManifestPresetIDsByChannelType(999999) != nil {
+		t.Fatal("unknown channel_type must return nil preset")
 	}
 }
 

@@ -48,6 +48,14 @@ jobs:
         with:
           fetch-depth: 1
 
+      - uses: ./.github/actions/cache-and-checkout-new-api
+
+      - name: Setup Go for account model_mapping SSOT gate
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
       - name: Validate tag + resolve stack name
         id: stack
         run: |
@@ -168,6 +176,14 @@ jobs:
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
           echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
+
+      - name: Pre-deploy account model_mapping SSOT gate
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+          python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate \
+            --prod-instance-id "$INSTANCE_ID"
 
       - name: Deploy via SSM Run-Command
         id: ssm

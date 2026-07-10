@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"sort"
+	"testing"
+)
 
 func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) {
 	t.Parallel()
@@ -160,6 +163,25 @@ func TestDefaultAntigravityModelMapping_DropsStructuralDeadAliases(t *testing.T)
 	}
 }
 
+func TestAntigravityBlockedModelMappingKeyExports(t *testing.T) {
+	t.Parallel()
+
+	structural := AntigravityStructuralDeadModelMappingKeys()
+	if !sort.StringsAreSorted(structural) {
+		t.Fatalf("structural-dead export must be sorted: %v", structural)
+	}
+	if !containsString(structural, "gemini-3-pro-high") {
+		t.Fatalf("structural-dead export must include gemini-3-pro-high")
+	}
+	unpriced := AntigravityUnpricedModelMappingKeys()
+	if !sort.StringsAreSorted(unpriced) {
+		t.Fatalf("unpriced export must be sorted: %v", unpriced)
+	}
+	if !containsString(unpriced, "tab_flash_lite_preview") {
+		t.Fatalf("unpriced export must include tab_flash_lite_preview")
+	}
+}
+
 func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 
@@ -177,4 +199,13 @@ func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 			t.Fatalf("unexpected Bedrock mapping for %q: got %q want %q", from, got, want)
 		}
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }

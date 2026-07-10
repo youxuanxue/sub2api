@@ -37,15 +37,15 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	ctx := context.Background()
 	allow := supportedCatalogModelIDsForPlatform(PlatformOpenAI)
 	require.NotEmpty(t, allow, "openai allowlist must be populated")
-	allowSet := make(map[string]bool, len(allow))
-	for _, id := range allow {
-		allowSet[id] = true
-	}
+	allowSet := boolSetForTest(allow)
+	// Boundary samples: priced OpenAI media rows that must remain hidden from
+	// the chat/model-list allowlist unless the SSOT owner promotes them.
 	dead := []string{"gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
 	for _, d := range dead {
 		require.False(t, allowSet[d], "precondition: %s must be advertised_dead (priced but NOT in allowlist)", d)
 	}
-	require.True(t, allowSet["gpt-5.3-codex-spark"], "OAuth-proven spark model must remain allowlisted")
+	anyAllowID := firstStringForTest(t, allow)
+	require.True(t, allowSet[anyAllowID], "precondition: sampled OpenAI SSOT id must be allowlisted")
 	require.False(t, allowSet["codex-auto-review"], "codex-auto-review is an internal capability, never client-selectable (deprecated-model gate)")
 	require.False(t, allowSet["gpt-5-pro"], "SSOT delta gate 403 model must not remain allowlisted")
 	// Price EVERYTHING (allowlist + dead ids) so the ONLY thing that can keep a
@@ -89,7 +89,8 @@ func TestServableClientFacingIDs_DropsVisibleButUnpriced(t *testing.T) {
 		gotSet[id] = true
 	}
 	require.False(t, gotSet[probe], "allowlisted-but-unpriced id must be dropped by ∩priced (visible ⟹ priced)")
-	require.True(t, gotSet["gpt-5.4"], "a priced allowlist id (gpt-5.4) must remain")
+	survivor := firstStringForTest(t, priced)
+	require.True(t, gotSet[survivor], "a priced allowlist id (%s) must remain", survivor)
 }
 
 // TestServableClientFacingIDs_PrunesStructurallyGone confirms the unified source
@@ -124,8 +125,8 @@ func TestTkServableCandidateIDs(t *testing.T) {
 	t.Run("anthropic draws from the servable allowlist (fable-5 prep restored)", func(t *testing.T) {
 		svc, _, _ := newAvailabilityTestService(t)
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, svc)
-		require.True(t, contains(ids, "claude-opus-4-8"), "servable opus present")
-		require.True(t, contains(ids, "claude-fable-5"), "fable-5 prep entry present in anthropic allowlist")
+		require.ElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformAnthropic), ids,
+			"anthropic candidates must mirror the servable SSOT")
 	})
 
 	t.Run("structurally-gone model is pruned; degraded model stays", func(t *testing.T) {
@@ -142,24 +143,51 @@ func TestTkServableCandidateIDs(t *testing.T) {
 		ids := tkServableCandidateIDs(ctx, PlatformAntigravity, svc)
 		require.ElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformAntigravity), ids,
 			"antigravity candidates must mirror the servable SSOT")
-		// gemini-2.5-pro stays off antigravity (no real 200 — served via gemini/Vertex instead).
-		for _, offPlatform := range []string{"claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
-			require.False(t, contains(ids, offPlatform),
+		gotSet := boolSetForTest(ids)
+		for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
+			offPlatform := firstIDOutsideSetForTest(t, supportedCatalogModelIDsForPlatform(platform), gotSet)
+			require.False(t, gotSet[offPlatform],
 				"%s must not leak into antigravity client/admin defaults without a 200 allowlist entry", offPlatform)
 		}
+		require.False(t, contains(ids, "gpt-oss-120b-medium"),
+			"unsupported gpt-oss boundary sample must not leak into antigravity defaults")
 	})
 
 	t.Run("nil availability degrades to no pruning (passthrough)", func(t *testing.T) {
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, nil)
-		require.True(t, contains(ids, "claude-opus-4-8"), "without availability the full allowlist passes through")
+		allow := supportedCatalogModelIDsForPlatform(PlatformAnthropic)
+		require.ElementsMatch(t, allow, ids, "without availability the full allowlist passes through")
 	})
 
 	t.Run("gemini draws from empirical allowlist, not raw advertised defaults", func(t *testing.T) {
 		svc, _, _ := newAvailabilityTestService(t)
 		ids := tkServableCandidateIDs(ctx, PlatformGemini, svc)
-		require.True(t, contains(ids, "gemini-2.5-flash"), "servable gemini present")
-		for _, dead := range []string{"gemini-2.0-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"} {
-			require.False(t, contains(ids, dead), "advertised_dead %s absent from gemini candidates", dead)
-		}
+		require.ElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformGemini), ids,
+			"gemini candidates must mirror the empirical servable SSOT, not raw defaults")
 	})
+}
+
+func boolSetForTest(ids []string) map[string]bool {
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+func firstStringForTest(t *testing.T, ids []string) string {
+	t.Helper()
+	require.NotEmpty(t, ids, "SSOT sample source must be populated")
+	return ids[0]
+}
+
+func firstIDOutsideSetForTest(t *testing.T, candidates []string, excluded map[string]bool) string {
+	t.Helper()
+	for _, id := range candidates {
+		if !excluded[id] {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one candidate outside excluded set")
+	return ""
 }

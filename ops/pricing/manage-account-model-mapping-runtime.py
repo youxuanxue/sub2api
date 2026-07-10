@@ -14,7 +14,9 @@ accounts. Use ``check-accounts`` to diff live accounts against the Go SSOT, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
 wants to overwrite persisted mappings.
 
-Post-release gate is **prod only** (default). Edge accounts keep empty
+Release gate is **prod only** (default) and runs before the prod deploy swaps the
+image: it compares live prod account mappings to this checkout's Go SSOT and
+fails closed when the DB is behind the tag. Edge accounts keep empty
 ``model_mapping`` because traffic is user → prod → edge relay; prod already
 enforces the floor. Do not treat edge empty mappings as drift unless
 ``--include-edges`` is explicitly requested for troubleshooting. See
@@ -41,6 +43,7 @@ import gzip
 import importlib.util
 import io
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -51,38 +54,6 @@ from typing import Any, NoReturn
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTING_KEY = "tk_account_model_mapping_runtime"
 MANAGED_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok")
-
-ANTIGRAVITY_CANONICAL_SCOPES = {"claude", "gemini_text", "gemini_image"}
-ANTIGRAVITY_LIVE_CLAUDE_MAPPING = {
-    "claude-sonnet-4-6": "claude-sonnet-4-6",
-    "claude-opus-4-6": "claude-opus-4-6-thinking",
-    "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
-}
-ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS = {
-    "gemini-2.5-flash-image-preview",
-    "gemini-3-flash-preview",
-    "gemini-3-pro-high",
-    "gemini-3-pro-image-preview",
-    "gemini-3-pro-low",
-    "gemini-3-pro-preview",
-    "gemini-3.1-pro-high",
-    "gemini-3.1-pro-preview",
-}
-ANTIGRAVITY_UNPRICED_MODEL_MAPPING_KEYS = {"tab_flash_lite_preview"}
-GROK_REQUIRED_ALIASES = {
-    "grok": "grok-4.3",
-    "grok-latest": "grok-4.3",
-    "grok-build": "grok-build-0.1",
-    "grok-4-fast-reasoning": "grok-4.3",
-    "grok-4.3-latest": "grok-4.3",
-    "grok-4.5-latest": "grok-4.5",
-    "grok-build-latest": "grok-4.5",
-    "grok-code-fast": "grok-build-0.1",
-    "grok-code-fast-1-0825": "grok-build-0.1",
-    "grok-4.20-reasoning": "grok-4.20-0309-reasoning",
-    "grok-4.20-non-reasoning": "grok-4.20-0309-non-reasoning",
-}
-KIRO_REQUIRED_MODELS = {"claude-sonnet-4-5", "claude-sonnet-5"}
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
@@ -328,12 +299,25 @@ def _run_check_sql_json(region: str, instance_id: str, label: str) -> dict[str, 
         raise RuntimeError(f"{label}: failed to decode SQL JSON bundle: {e}") from e
 
 
-def _resolve_check_targets(skip_prod: bool, include_edges: bool = False) -> list[tuple[str, str, str]]:
+def _normalize_instance_id(raw: str | None, label: str) -> str | None:
+    if raw is None or str(raw).strip() == "":
+        return None
+    instance_id = str(raw).strip()
+    if not re.match(r"^i-[0-9a-f]{17}$", instance_id):
+        fail(f"{label}: invalid EC2 instance id {instance_id!r}")
+    return instance_id
+
+
+def _resolve_check_targets(
+    skip_prod: bool,
+    include_edges: bool = False,
+    prod_instance_id: str | None = None,
+) -> list[tuple[str, str, str]]:
     ec2_matrix = _ROUTING.load_matrix(REPO_ROOT / "deploy/aws/stage0/edge-targets.json")
     ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
     targets: list[tuple[str, str, str]] = []
     if not skip_prod:
-        targets.append(("prod", _SSM.PROD_REGION, _SSM.resolve_prod_instance()))
+        targets.append(("prod", _SSM.PROD_REGION, prod_instance_id or _SSM.resolve_prod_instance()))
     if skip_prod or include_edges:
         for eid in _ROUTING.iter_effective_deployable_edge_ids(ec2_matrix, ls_targets):
             ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
@@ -470,53 +454,24 @@ def _account_scope(row: dict[str, Any]) -> str:
     return platform
 
 
-def _account_invariant_violations(row: dict[str, Any]) -> list[str]:
+def _mapping_policy_violations(row: dict[str, Any], floor: dict[str, Any]) -> list[str]:
     scope = _account_scope(row)
     mm, err = _model_mapping(row)
     if err:
         return [f"{err} (scope={scope})"]
     reasons: list[str] = []
 
-    if scope == "antigravity":
-        missing = sorted(k for k in ANTIGRAVITY_LIVE_CLAUDE_MAPPING if k not in mm)
-        if missing:
-            reasons.append("missing live Antigravity Claude keys: " + ", ".join(missing))
-        bad_targets = sorted(
-            k for k, want in ANTIGRAVITY_LIVE_CLAUDE_MAPPING.items()
-            if k in mm and mm[k] != want
-        )
-        if bad_targets:
-            reasons.append("bad Antigravity Claude remaps: " + ", ".join(
-                f"{k}->{mm[k]!r} want {ANTIGRAVITY_LIVE_CLAUDE_MAPPING[k]!r}" for k in bad_targets
-            ))
-        leaked = sorted(
-            k for k in mm
-            if (k.startswith("claude-") and k not in ANTIGRAVITY_LIVE_CLAUDE_MAPPING)
-            or k.startswith("gpt-oss-")
-        )
-        if leaked:
-            reasons.append("serves unsupported Antigravity models: " + ", ".join(leaked))
-        stale = sorted(k for k in mm if k in ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS)
-        if stale:
-            reasons.append("contains structural-dead Antigravity aliases: " + ", ".join(stale))
-        unpriced = sorted(k for k in mm if k in ANTIGRAVITY_UNPRICED_MODEL_MAPPING_KEYS)
-        if unpriced:
-            reasons.append("contains unpriced Antigravity $0-risk models: " + ", ".join(unpriced))
+    forbidden_by_scope = floor.get("forbidden_model_mapping_keys") or {}
+    forbidden = set(forbidden_by_scope.get(scope) or [])
+    forbidden_keys = sorted(k for k in mm if k in forbidden)
+    if forbidden_keys:
+        reasons.append("contains forbidden model_mapping keys from Go SSOT: " + ", ".join(forbidden_keys))
 
-    if scope == "grok":
-        missing_aliases = sorted(k for k in GROK_REQUIRED_ALIASES if k not in mm)
-        if missing_aliases:
-            reasons.append("missing Grok compatibility aliases: " + ", ".join(missing_aliases))
-        bad_aliases = sorted(k for k, want in GROK_REQUIRED_ALIASES.items() if k in mm and mm[k] != want)
-        if bad_aliases:
-            reasons.append("bad Grok alias remaps: " + ", ".join(
-                f"{k}->{mm[k]!r} want {GROK_REQUIRED_ALIASES[k]!r}" for k in bad_aliases
-            ))
-
-    if scope == "kiro":
-        missing_kiro = sorted(k for k in KIRO_REQUIRED_MODELS if k not in mm)
-        if missing_kiro:
-            reasons.append("missing Kiro required model keys: " + ", ".join(missing_kiro))
+    forbidden_prefix_by_scope = floor.get("forbidden_model_mapping_prefixes") or {}
+    prefixes = [str(p) for p in (forbidden_prefix_by_scope.get(scope) or []) if str(p)]
+    prefixed = sorted(k for k in mm if any(k.startswith(p) for p in prefixes))
+    if prefixed:
+        reasons.append("contains forbidden model_mapping prefixes from Go SSOT: " + ", ".join(prefixed))
 
     return reasons
 
@@ -587,10 +542,10 @@ def _account_plan(row: dict[str, Any], floor: dict[str, Any]) -> dict[str, Any] 
     else:
         diff = _mapping_diff(got, want)
         if not _has_mapping_diff(diff):
-            invariants = _account_invariant_violations(row)
-            if not invariants:
+            policy = _mapping_policy_violations(row, floor)
+            if not policy:
                 return None
-            reason = "; ".join(invariants)
+            reason = "; ".join(policy)
         else:
             reason = _format_mapping_diff_reason(scope, diff)
     return {
@@ -606,16 +561,33 @@ def _account_plan(row: dict[str, Any], floor: dict[str, Any]) -> dict[str, Any] 
     }
 
 
-def _group_violation(row: dict[str, Any]) -> str | None:
+def _desired_antigravity_group_scopes(floor: dict[str, Any]) -> list[str]:
+    scopes = floor.get("antigravity_group_scopes")
+    if not isinstance(scopes, list) or not scopes:
+        raise RuntimeError("Go account model_mapping SSOT helper omitted antigravity_group_scopes")
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in scopes:
+        scope = str(raw).strip()
+        if scope and scope not in seen:
+            out.append(scope)
+            seen.add(scope)
+    if not out:
+        raise RuntimeError("Go account model_mapping SSOT helper emitted empty antigravity_group_scopes")
+    return out
+
+
+def _group_violation(row: dict[str, Any], floor: dict[str, Any]) -> str | None:
+    desired_scopes = set(_desired_antigravity_group_scopes(floor))
     scopes = row.get("scopes")
     if not scopes or not isinstance(scopes, list):
         return "empty/missing supported_model_scopes"
     got = {str(s).strip() for s in scopes}
-    if got == ANTIGRAVITY_CANONICAL_SCOPES:
+    if got == desired_scopes:
         return None
     parts: list[str] = []
-    extra = sorted(got - ANTIGRAVITY_CANONICAL_SCOPES)
-    missing = sorted(ANTIGRAVITY_CANONICAL_SCOPES - got)
+    extra = sorted(got - desired_scopes)
+    missing = sorted(desired_scopes - got)
     if extra:
         parts.append("unexpected: " + ", ".join(extra))
     if missing:
@@ -656,22 +628,11 @@ def _check_target(label: str, region: str, instance_id: str) -> tuple[list[dict[
     for row in bundle.get("accounts") or []:
         plan = _account_plan(row, floor)
         if not plan:
-            for reason in _account_invariant_violations(row):
-                violations.append({
-                    "target": label,
-                    "kind": "account",
-                    "id": row.get("id"),
-                    "name": row.get("name"),
-                    "platform": row.get("platform"),
-                    "type": row.get("type"),
-                    "scope": _account_scope(row),
-                    "reason": reason,
-                })
             continue
         plan["target"] = label
         violations.append(plan)
     for row in bundle.get("antigravity_groups") or []:
-        reason = _group_violation(row)
+        reason = _group_violation(row, floor)
         if reason:
             violations.append({
                 "target": label,
@@ -698,9 +659,9 @@ def _collect_apply_plan(label: str, region: str, instance_id: str) -> dict[str, 
             account_changes.append(plan)
 
     group_changes: list[dict[str, Any]] = []
-    desired_scopes = list(floor.get("antigravity_group_scopes") or sorted(ANTIGRAVITY_CANONICAL_SCOPES))
+    desired_scopes = _desired_antigravity_group_scopes(floor)
     for row in bundle.get("antigravity_groups") or []:
-        reason = _group_violation(row)
+        reason = _group_violation(row, floor)
         if not reason:
             continue
         group_changes.append({
@@ -768,7 +729,9 @@ def _render_apply_sql(plan: dict[str, Any]) -> str:
     group_changes = plan.get("group_changes") or []
     if group_changes:
         group_ids = _ids_sql([int(g["id"]) for g in group_changes])
-        scopes = group_changes[0].get("desired_supported_model_scopes") or sorted(ANTIGRAVITY_CANONICAL_SCOPES)
+        scopes = group_changes[0].get("desired_supported_model_scopes")
+        if not scopes:
+            raise ValueError("group change missing desired_supported_model_scopes from Go SSOT")
         scopes_b64 = _json_b64(scopes)
         lines.append(
             "UPDATE groups "
@@ -861,11 +824,21 @@ def cmd_check(args) -> int:
     return 1 if report["drift_count"] else 0
 
 
-def cmd_check_accounts(args) -> int:
-    targets = _resolve_check_targets(args.skip_prod, include_edges=args.include_edges)
+def _account_check_report(
+    *,
+    skip_prod: bool,
+    include_edges: bool,
+    parallel: int,
+    prod_instance_id: str | None = None,
+) -> dict[str, Any]:
+    targets = _resolve_check_targets(
+        skip_prod,
+        include_edges=include_edges,
+        prod_instance_id=_normalize_instance_id(prod_instance_id, "--prod-instance-id"),
+    )
     violations: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as ex:
         futs = {ex.submit(_check_target, *t): t for t in targets}
         for fut in as_completed(futs):
             label = futs[fut][0]
@@ -888,6 +861,18 @@ def cmd_check_accounts(args) -> int:
         "violations": sorted(violations, key=sort_key),
         "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
     }
+    return report
+
+
+def cmd_check_accounts(args) -> int:
+    report = _account_check_report(
+        skip_prod=args.skip_prod,
+        include_edges=args.include_edges,
+        parallel=args.parallel,
+        prod_instance_id=getattr(args, "prod_instance_id", None),
+    )
+    errors = report["errors"]
+    violations = report["violations"]
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     elif errors:
@@ -907,6 +892,66 @@ def cmd_check_accounts(args) -> int:
     if errors:
         return 2
     return 1 if violations else 0
+
+
+def _release_gate_remediation() -> list[str]:
+    return [
+        "python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run",
+        f"python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --confirm {APPLY_CONFIRM}",
+    ]
+
+
+def _release_gate_status(report: dict[str, Any]) -> str:
+    if report.get("error_count"):
+        return "error"
+    if report.get("violation_count"):
+        return "violation"
+    return "ok"
+
+
+def _print_release_gate_human(report: dict[str, Any]) -> None:
+    status = _release_gate_status(report)
+    if status == "ok":
+        print("OK: prod account model_mapping matches this checkout's Go SSOT. Release may proceed.")
+        return
+    if status == "error":
+        print("ERROR: release gate could not read prod account model_mapping.")
+        for e in report["errors"]:
+            print(f"  [{e['target']}] {e['error']}")
+        print("This gate is read-only; fix AWS/OIDC/SSM access and rerun deploy.")
+        return
+
+    print("FAIL: prod account model_mapping is behind this checkout's Go SSOT.")
+    print("The image was not deployed. Review and apply the SSOT diff, then rerun deploy:")
+    for cmd in _release_gate_remediation():
+        print(f"  {cmd}")
+    print("First violations:")
+    for v in report["violations"][:8]:
+        print(f"  [{v['target']}] {v['kind']} {v.get('id')} ({v.get('name')}): {v['reason']}")
+    remaining = report["violation_count"] - min(report["violation_count"], 8)
+    if remaining > 0:
+        print(f"  ... (+{remaining} more)")
+
+
+def cmd_release_gate(args) -> int:
+    report = _account_check_report(
+        skip_prod=False,
+        include_edges=args.include_edges,
+        parallel=args.parallel,
+        prod_instance_id=args.prod_instance_id,
+    )
+    status = _release_gate_status(report)
+    if args.json:
+        print(json.dumps({
+            "status": status,
+            "remediation": _release_gate_remediation() if status == "violation" else [],
+            **report,
+        }, ensure_ascii=False, indent=2))
+    else:
+        _print_release_gate_human(report)
+    if status == "error":
+        return 2
+    return 1 if status == "violation" else 0
 
 
 def cmd_apply_accounts(args) -> int:
@@ -1118,50 +1163,85 @@ def cmd_selftest(_args) -> int:
             assert e.code == 2
         else:
             raise AssertionError("empty mapping accepted")
-    assert _account_invariant_violations({
+    floor = {
+        "platforms": {
+            "openai": {
+                "gpt-5.6": "gpt-5.6",
+                "gpt-5.6-luna": "gpt-5.6-luna",
+                "gpt-5.6-sol": "gpt-5.6-sol",
+                "gpt-5.6-terra": "gpt-5.6-terra",
+            },
+            "grok": {
+                "grok": "grok-4.3",
+                "grok-latest": "grok-4.3",
+                "grok-build": "grok-build-0.1",
+                "grok-4.3": "grok-4.3",
+            },
+            "antigravity": {
+                "claude-sonnet-4-6": "claude-sonnet-4-6",
+                "claude-opus-4-6": "claude-opus-4-6-thinking",
+                "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+            },
+            "kiro": {
+                "claude-sonnet-4-5": "claude-sonnet-4-5",
+                "claude-sonnet-5": "claude-sonnet-5",
+            },
+        },
+        "newapi_channel_types": {},
+        "antigravity_group_scopes": ["claude", "gemini_text", "gemini_image"],
+        "forbidden_model_mapping_keys": {"antigravity": ["gemini-3-pro-high"]},
+        "forbidden_model_mapping_prefixes": {"antigravity": ["gpt-oss-"]},
+    }
+    openai_plan = _account_plan(
+        {
+            "id": 2,
+            "platform": "openai",
+            "type": "oauth",
+            "model_mapping": {
+                "gpt-5.6": "gpt-5.6",
+                "gpt-5.6-luna": "gpt-5.6-luna",
+                "gpt-5.6-terra": "gpt-5.6-terra",
+            },
+        },
+        floor,
+    )
+    assert openai_plan and openai_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
+    assert _account_plan({
         "platform": "openai",
         "type": "oauth",
         "model_mapping": {},
-    })
-    assert not _account_invariant_violations({
-        "platform": "grok",
-        "type": "oauth",
-        "model_mapping": {**GROK_REQUIRED_ALIASES, "grok-4.3": "grok-4.3"},
-    })
-    assert _account_invariant_violations({
-        "platform": "grok",
-        "type": "oauth",
-        "model_mapping": {"grok": "grok-4.3"},
-    })
-    assert _account_invariant_violations({
-        "platform": "antigravity",
-        "type": "oauth",
-        "model_mapping": {**ANTIGRAVITY_LIVE_CLAUDE_MAPPING, "claude-sonnet-5": "claude-sonnet-5"},
-    })
-    assert not _account_invariant_violations({
-        "platform": "kiro",
-        "type": "oauth",
-        "model_mapping": {"claude-sonnet-4-5": "claude-sonnet-4-5", "claude-sonnet-5": "claude-sonnet-5"},
-    })
-    assert _account_invariant_violations({
-        "platform": "anthropic",
-        "type": "apikey",
-        "name": "kiro-us6",
-        "base_url": "https://api-us6.tokenkey.dev",
-        "model_mapping": {"claude-sonnet-4-5": "claude-sonnet-4-5"},
-    })
+    }, floor)
     plan = _account_plan(
         {"id": 1, "platform": "grok", "type": "oauth", "model_mapping": {"grok": "grok-4.3"}},
-        {"platforms": {"grok": {**GROK_REQUIRED_ALIASES, "grok-4.3": "grok-4.3"}}, "newapi_channel_types": {}},
+        floor,
     )
     assert plan and plan["desired_model_mapping"]["grok-latest"] == "grok-4.3"
+    assert _account_plan({
+        "platform": "antigravity",
+        "type": "oauth",
+        "model_mapping": {
+            "claude-sonnet-4-6": "claude-sonnet-4-6",
+            "claude-opus-4-6": "claude-opus-4-6-thinking",
+            "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+            "claude-sonnet-5": "claude-sonnet-5",
+        },
+    }, floor)
+    policy_floor = {
+        **floor,
+        "platforms": {"antigravity": {"gemini-3-pro-high": "gemini-pro-agent"}},
+    }
+    assert _mapping_policy_violations({
+        "platform": "antigravity",
+        "type": "oauth",
+        "model_mapping": {"gemini-3-pro-high": "gemini-pro-agent", "gpt-oss-120b": "gpt-oss-120b"},
+    }, policy_floor)
     sql = _render_apply_sql({
         "account_changes": [plan],
         "group_changes": [{"id": 7, "desired_supported_model_scopes": ["claude", "gemini_text", "gemini_image"]}],
     })
     assert "account_bulk_changed" in sql and "group_changed" in sql
-    assert _group_violation({"scopes": ["gemini_text"]})
-    assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}) is None
+    assert _group_violation({"scopes": ["gemini_text"]}, floor)
+    assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}, floor) is None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
     assert _runtime_setting_violation('{"platforms":{"grok":{"grok":"grok-4.3"}}}') is None
     assert _is_openai_ainzy_relay({
@@ -1179,8 +1259,16 @@ def cmd_selftest(_args) -> int:
         "type": "apikey",
         "base_url": "https://api.openai.com/v1",
     })
-    prod_only = _resolve_check_targets(skip_prod=False, include_edges=False)
+    prod_only = _resolve_check_targets(
+        skip_prod=False,
+        include_edges=False,
+        prod_instance_id="i-00000000000000000",
+    )
     assert len(prod_only) == 1 and prod_only[0][0] == "prod"
+    violation_report = {"violation_count": 1, "error_count": 0}
+    ok_report = {"violation_count": 0, "error_count": 0}
+    assert _release_gate_status(violation_report) == "violation"
+    assert _release_gate_status(ok_report) == "ok"
     print("selftest ok")
     return 0
 
@@ -1200,6 +1288,12 @@ def main() -> int:
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
     sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
+    sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
+    sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
+    sp = sub.add_parser("release-gate", help="pre-deploy hard gate: prod account model_mapping must match this checkout's Go SSOT")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
+    sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
     sp.add_argument("--target", required=True, help="prod, edge:<id>, or all-deployable-and-prod")
@@ -1225,6 +1319,8 @@ def main() -> int:
         return cmd_check(args)
     if args.cmd == "check-accounts":
         return cmd_check_accounts(args)
+    if args.cmd == "release-gate":
+        return cmd_release_gate(args)
     if args.cmd == "apply-accounts":
         return cmd_apply_accounts(args)
     if args.cmd == "sync-runtime":

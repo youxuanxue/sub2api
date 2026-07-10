@@ -64,13 +64,22 @@ on the target account/path, it belongs in the public catalog/menu — not only t
 stable bare id. Legacy retirement redirects and third-party slugs without an
 official declaration stay **priced-only** (explicit requests must not bill `$0`).
 
-**prod is the only post-release gate.** Run:
+**prod is the only release gate.** `deploy-stage0.yml` runs this before the SSM
+image swap:
 
 ```bash
-python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
+python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
 ```
 
-Default scope is prod only; `violation_count` must be `0` before treating prod serving as ready.
+Default scope is prod only. If it fails, review the diff and converge prod via:
+
+```bash
+python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run
+python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --confirm yes-apply-account-model-mapping
+```
+
+`check-accounts --json` remains the read-only diagnostic form; `violation_count`
+must be `0` before treating prod serving as ready.
 
 **Edge accounts keep empty `model_mapping`.** User traffic is `client → prod gateway → edge relay → upstream`; prod already selects the model and routes to the edge mirror/OAuth account. Edge-side mapping is therefore platform-level passthrough (empty = unrestricted). Do **not** treat edge empty mappings as drift, do **not** bulk-apply prod floors to edges, and do **not** fail release checks because `--include-edges` shows violations. Use `--include-edges` only for explicit edge-specific troubleshooting.
 

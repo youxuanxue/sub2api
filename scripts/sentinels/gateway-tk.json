@@ -2028,6 +2028,8 @@
       "must_contain": [
         "func parseAccountModelMappingRuntime(",
         "runtime.newAPIChannelTypes[account.ChannelType]",
+        "ForbiddenModelMappingKeys",
+        "ForbiddenModelMappingPrefixes",
         "func accountModelMappingForAccount(",
         "case PlatformOpenAI:",
         "IsOpenAIAinzyRelay()",
@@ -2051,6 +2053,8 @@
         "\"claude-sonnet-4-6\":",
         "antigravityStructuralDeadModelMappingKeys",
         "antigravityUnpricedModelMappingKeys",
+        "func AntigravityStructuralDeadModelMappingKeys() []string",
+        "func AntigravityUnpricedModelMappingKeys() []string",
         "func IsAntigravityStructuralDeadModelMappingKey("
       ],
       "rationale": "DefaultAntigravityModelMapping is the compatibility base for Antigravity account mappings; the account model_mapping SSOT filters it through served+priced+displayable IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The #1265 live Claude subset (claude-sonnet-4-6 plus claude-opus-4-6[-thinking]) must remain explicit, while PR #921 structural-dead aliases and unpriced $0-risk models must remain machine-classified so post-release check/apply keeps persisted mappings clean."
@@ -2123,11 +2127,13 @@
       "must_contain": [
         "APPLY_CONFIRM = \"yes-apply-account-model-mapping\"",
         "GO_HELPER = [\"go\", \"run\", \"./cmd/account-model-mapping\", \"floors\", \"--runtime-json\", \"-\"]",
+        "def cmd_release_gate(",
         "def cmd_apply_accounts(",
+        "forbidden_model_mapping_keys",
         "\"account_bulk_changed\"",
         "\"group_changed\""
       ],
-      "rationale": "Explicit ops apply surface for account model_mapping. The script must call the Go SSOT helper for desired mappings, require a human confirmation phrase before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events so live snapshots refresh. Dropping any of these anchors either forks the SSOT into Python or makes reviewed apply unsafe/no-op."
+      "rationale": "Explicit ops apply surface and pre-deploy release gate for account model_mapping. The script must call the Go SSOT helper for desired mappings/policy metadata, fail releases before image swap when prod accounts lag the checkout's floor, require a human confirmation phrase before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events so live snapshots refresh. Dropping any of these anchors either forks the SSOT into Python or makes reviewed apply unsafe/no-op."
     },
     {
       "path": "backend/cmd/account-model-mapping/main.go",

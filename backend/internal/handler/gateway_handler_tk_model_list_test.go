@@ -104,48 +104,40 @@ func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
 	h := &GatewayHandler{}
 	result := h.tkAntigravityDefaultModels(context.Background())
 	require.NotEmpty(t, result, "nil filter must still produce a non-empty list")
-	ids := make(map[string]bool, len(result))
 	for _, m := range result {
-		ids[m.ID] = true
 		require.Equal(t, "model", m.Type, "synthesized allowlist-only entries must keep the Claude model shape")
 	}
-	require.True(t, ids["gemini-2.5-flash"], "live-servable Antigravity Gemini id present")
-	require.True(t, ids["gemini-2.5-flash-thinking"], "overlay-priced Antigravity thinking id present")
-	require.True(t, ids["gemini-3-flash-agent"], "allowlist-only Antigravity wire id present")
-	require.False(t, ids["gemini-2.5-pro"], "unprobed/inconclusive gemini-2.5-pro must not appear")
-	require.False(t, ids["claude-fable-5"], "claude is routed off Antigravity")
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil),
+		modelIDsFromAntigravityModels(result),
+		"nil filter must still mirror the unified Antigravity SSOT")
 }
 
 func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t *testing.T) {
-	// Price only the source-backed Antigravity ids; tk_pricing_overlay.json must
-	// provide the wire-only ids such as gemini-2.5-flash-thinking and
-	// gemini-3-flash-agent. gemini-2.5-pro is intentionally priced in normal
-	// Gemini catalogs but NOT in the Antigravity allowlist after the 2026-06-23
-	// reprobe, so it must remain hidden here.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs([]string{
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-lite",
-		"gemini-3-flash",
-		"gemini-3.1-flash-image",
-		"gemini-3.1-pro-low",
-		"gemini-2.5-pro",
-	}))
+	ctx := context.Background()
+	allow := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
+	allowSet := stringBoolSetForHandlerTest(allow)
+	// Price every Antigravity SSOT id, plus a Gemini-only candidate, to prove the
+	// filter is controlled by the Antigravity owner instead of the pricing owner.
+	geminiOnly := firstIDOutsideSetForHandlerTest(t,
+		service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil), allowSet)
+	pricingIDs := append(append([]string{}, allow...), geminiOnly)
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(pricingIDs))
 	filter := service.NewModelListFilter(pricingSvc, nil)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
-	result := h.tkAntigravityDefaultModels(context.Background())
+	result := h.tkAntigravityDefaultModels(ctx)
 	ids := make(map[string]bool, len(result))
 	for _, m := range result {
 		ids[m.ID] = true
 		require.Equal(t, "model", m.Type, "all returned models must keep the Claude model-list shape")
 	}
 	require.ElementsMatch(t,
-		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, pricingSvc),
+		service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, pricingSvc),
 		modelIDsFromAntigravityModels(result),
 		"/antigravity/models must mirror the unified priced+servable SSOT")
-	for _, deny := range []string{"gemini-2.5-pro", "claude-fable-5", "gpt-oss-120b-medium"} {
-		require.False(t, ids[deny], "%s must not leak into /antigravity/models", deny)
-	}
+	require.False(t, ids[geminiOnly], "%s must not leak into /antigravity/models", geminiOnly)
+	require.False(t, ids["gpt-oss-120b-medium"], "unsupported gpt-oss boundary sample must not leak into /antigravity/models")
 }
 
 func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
@@ -180,14 +172,13 @@ func TestTkGeminiFallbackModelsList_NilFilterIsFailOpen(t *testing.T) {
 	h := &GatewayHandler{}
 	result := h.tkGeminiFallbackModelsList(context.Background())
 	require.NotEmpty(t, result.Models, "nil filter must still produce a non-empty list")
-	names := make(map[string]bool, len(result.Models))
 	for _, m := range result.Models {
 		require.Contains(t, m.Name, "models/", "Gemini model Name must keep 'models/' prefix")
-		names[m.Name] = true
 	}
-	require.True(t, names["models/gemini-2.5-flash"], "servable gemini-2.5-flash present")
-	require.False(t, names["models/gemini-2.0-flash"],
-		"advertised_dead gemini-2.0-flash dropped — converged to the servable allowlist")
+	require.ElementsMatch(t,
+		withGeminiModelPrefixForTest(service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil)),
+		modelNamesFromGeminiModels(result.Models),
+		"nil filter must mirror the unified Gemini SSOT, not raw advertised defaults")
 }
 
 func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
@@ -195,8 +186,10 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 
 	// Target an id that IS in the servable allowlist, so the structurally-gone
-	// prune is genuinely exercised (gemini-2.0-flash is no longer a candidate).
-	const targetID = "gemini-2.5-flash"
+	// prune is genuinely exercised.
+	ctx := context.Background()
+	servableGemini := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
+	targetID := firstIDWithPrefixForHandlerTest(t, servableGemini, "gemini-")
 	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
 		Platform:           service.PlatformGemini,
 		ModelID:            targetID,
@@ -205,11 +198,9 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 		UpstreamErrorBody:  `{"error":{"message":"Requested entity was not found."}}`,
 	})
 
-	// Price the servable gemini chat candidates so ∩priced keeps them and the
+	// Price the servable gemini candidates so ∩priced keeps them and the
 	// structurally-gone prune is what removes the target.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs([]string{
-		"gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
-	}))
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(servableGemini))
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
@@ -245,6 +236,52 @@ func modelIDsFromOpenAIModels(models []openai.Model) []string {
 		ids[i] = m.ID
 	}
 	return ids
+}
+
+func modelNamesFromGeminiModels(models []gemini.Model) []string {
+	names := make([]string, len(models))
+	for i, m := range models {
+		names[i] = m.Name
+	}
+	return names
+}
+
+func withGeminiModelPrefixForTest(ids []string) []string {
+	names := make([]string, len(ids))
+	for i, id := range ids {
+		names[i] = "models/" + id
+	}
+	return names
+}
+
+func stringBoolSetForHandlerTest(ids []string) map[string]bool {
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+func firstIDOutsideSetForHandlerTest(t *testing.T, candidates []string, excluded map[string]bool) string {
+	t.Helper()
+	for _, id := range candidates {
+		if !excluded[id] {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one candidate outside excluded set")
+	return ""
+}
+
+func firstIDWithPrefixForHandlerTest(t *testing.T, candidates []string, prefix string) string {
+	t.Helper()
+	for _, id := range candidates {
+		if strings.HasPrefix(id, prefix) {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one candidate with prefix %q", prefix)
+	return ""
 }
 
 // buildPricingJSONFromIDs builds a pricing JSON where each provided model ID

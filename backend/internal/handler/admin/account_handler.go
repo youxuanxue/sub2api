@@ -2367,6 +2367,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	if account.IsGrok() {
+		if !accountHasExplicitModelMapping(account) {
+			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
+			return
+		}
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
 			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
@@ -2388,71 +2392,12 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			}
 			return ids[i] < ids[j]
 		})
-		models := make([]openai.Model, 0, len(ids))
-		for _, requestedModel := range ids {
-			models = append(models, openai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				Type:        "model",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
+		response.Success(c, xai.ModelsForIDs(ids))
 		return
 	}
 
 	if account.IsKiro() || account.IsKiroMirrorStub() {
 		response.Success(c, service.KiroAdminTestModels())
-		return
-	}
-
-	// Handle Grok accounts
-	if account.Platform == service.PlatformGrok {
-		defaultModels := xai.DefaultModels()
-
-		hasExplicitMapping := false
-		switch rawMapping := account.Credentials["model_mapping"].(type) {
-		case map[string]any:
-			hasExplicitMapping = len(rawMapping) > 0
-		case map[string]string:
-			hasExplicitMapping = len(rawMapping) > 0
-		}
-		if !hasExplicitMapping {
-			response.Success(c, defaultModels)
-			return
-		}
-
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, defaultModels)
-			return
-		}
-
-		defaultByID := make(map[string]xai.Model, len(defaultModels))
-		for _, model := range defaultModels {
-			defaultByID[model.ID] = model
-		}
-
-		requestedModels := make([]string, 0, len(mapping))
-		for requestedModel := range mapping {
-			requestedModels = append(requestedModels, requestedModel)
-		}
-		sort.Strings(requestedModels)
-
-		var models []xai.Model
-		for _, requestedModel := range requestedModels {
-			if defaultModel, found := defaultByID[requestedModel]; found {
-				models = append(models, defaultModel)
-				continue
-			}
-			models = append(models, xai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				OwnedBy:     "xai",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
 		return
 	}
 
@@ -2508,7 +2453,7 @@ func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
 	return openai.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil))
 }
 
-func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
+func tkGrokAdminDefaultModels(ctx context.Context) []xai.Model {
 	ids := service.ServableClientFacingIDs(ctx, service.PlatformGrok, nil, nil)
 	sort.SliceStable(ids, func(i, j int) bool {
 		if ids[i] == service.GrokDefaultTestModelID {
@@ -2519,7 +2464,21 @@ func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
 		}
 		return ids[i] < ids[j]
 	})
-	return openai.ModelsForIDs(ids)
+	return xai.ModelsForIDs(ids)
+}
+
+func accountHasExplicitModelMapping(account *service.Account) bool {
+	if account == nil {
+		return false
+	}
+	switch rawMapping := account.Credentials["model_mapping"].(type) {
+	case map[string]any:
+		return len(rawMapping) > 0
+	case map[string]string:
+		return len(rawMapping) > 0
+	default:
+		return false
+	}
 }
 
 func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {

@@ -47,6 +47,8 @@ func TestNonKiroTLSGateUnchanged(t *testing.T) {
 }
 
 func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
+	kiroIDs := firstNKiroAdminTestModelIDsForAccountTest(t, 2)
+	unsupportedKiro := firstAnthropicModelOutsideKiroCatalogForAccountTest(t)
 	stub := &Account{
 		Name:     "kiro-us6",
 		Platform: PlatformAnthropic,
@@ -58,13 +60,13 @@ func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
 	if !stub.IsKiroMirrorStub() {
 		t.Fatal("fixture must be a Kiro mirror stub")
 	}
-	if !stub.IsModelSupported("claude-sonnet-4-5") {
+	if !stub.IsModelSupported(kiroIDs[0]) {
 		t.Fatal("Kiro mirror stub must support Kiro-served Claude ids")
 	}
-	if !stub.IsModelSupported("claude-opus-4-8") {
+	if !stub.IsModelSupported(kiroIDs[1]) {
 		t.Fatal("Kiro mirror stub must support Kiro-served Opus ids")
 	}
-	for _, denied := range []string{"claude-fable-5", "claude-opus-4-1"} {
+	for _, denied := range []string{unsupportedKiro, "claude-not-kiro-zzz"} {
 		if stub.IsModelSupported(denied) {
 			t.Fatalf("Kiro mirror stub must not claim unsupported model %q", denied)
 		}
@@ -72,6 +74,8 @@ func TestKiroMirrorStubModelSupportUsesKiroCatalog(t *testing.T) {
 }
 
 func TestKiroMirrorStubModelSupportWorksWithSchedulerMetadata(t *testing.T) {
+	kiroID := firstNKiroAdminTestModelIDsForAccountTest(t, 1)[0]
+	unsupportedKiro := firstAnthropicModelOutsideKiroCatalogForAccountTest(t)
 	stub := &Account{
 		Name:     "kiro-us5",
 		Platform: PlatformAnthropic,
@@ -80,10 +84,10 @@ func TestKiroMirrorStubModelSupportWorksWithSchedulerMetadata(t *testing.T) {
 	if !stub.IsKiroMirrorStub() {
 		t.Fatal("kiro-* anthropic api-key scheduler metadata must still identify a Kiro mirror stub")
 	}
-	if !stub.IsModelSupported("claude-sonnet-4-6") {
+	if !stub.IsModelSupported(kiroID) {
 		t.Fatal("Kiro scheduler metadata stub must support Kiro-served Claude ids")
 	}
-	for _, denied := range []string{"claude-fable-5", "claude-opus-4-1"} {
+	for _, denied := range []string{unsupportedKiro, "claude-not-kiro-zzz"} {
 		if stub.IsModelSupported(denied) {
 			t.Fatalf("Kiro scheduler metadata stub must not claim unsupported model %q", denied)
 		}
@@ -91,6 +95,7 @@ func TestKiroMirrorStubModelSupportWorksWithSchedulerMetadata(t *testing.T) {
 }
 
 func TestKiroMirrorStubNameFallbackDoesNotCatchNonEdgeAPIKey(t *testing.T) {
+	unsupportedKiro := firstAnthropicModelOutsideKiroCatalogForAccountTest(t)
 	account := &Account{
 		Name:     "kiro-lab",
 		Platform: PlatformAnthropic,
@@ -102,20 +107,22 @@ func TestKiroMirrorStubNameFallbackDoesNotCatchNonEdgeAPIKey(t *testing.T) {
 	if account.IsKiroMirrorStub() {
 		t.Fatal("kiro-* name alone must not mark a non-edge Anthropic API key as Kiro mirror")
 	}
-	if !account.IsModelSupported("claude-fable-5") {
+	if !account.IsModelSupported(unsupportedKiro) {
 		t.Fatal("non-edge Anthropic API key should keep normal passthrough model support")
 	}
 }
 
 func TestNativeKiroAccountModelSupportUsesKiroCatalog(t *testing.T) {
+	kiroID := firstNKiroAdminTestModelIDsForAccountTest(t, 1)[0]
+	unsupportedKiro := firstAnthropicModelOutsideKiroCatalogForAccountTest(t)
 	kiro := &Account{
 		Platform: PlatformKiro,
 		Type:     AccountTypeOAuth,
 	}
-	if !kiro.IsModelSupported("claude-sonnet-4-6") {
+	if !kiro.IsModelSupported(kiroID) {
 		t.Fatal("native Kiro account must support Kiro-served Claude ids")
 	}
-	for _, denied := range []string{"claude-fable-5", "claude-opus-4-1"} {
+	for _, denied := range []string{unsupportedKiro, "claude-not-kiro-zzz"} {
 		if kiro.IsModelSupported(denied) {
 			t.Fatalf("native Kiro account must not claim unsupported model %q", denied)
 		}
@@ -128,6 +135,34 @@ func newTLSSvcWithProfiles(profiles ...*model.TLSFingerprintProfile) *TLSFingerp
 		m[int64(i+1)] = p
 	}
 	return &TLSFingerprintProfileService{localCache: m}
+}
+
+func firstNKiroAdminTestModelIDsForAccountTest(t *testing.T, n int) []string {
+	t.Helper()
+	models := KiroAdminTestModels()
+	if len(models) < n {
+		t.Fatalf("Kiro admin model SSOT has %d ids, need %d", len(models), n)
+	}
+	out := make([]string, 0, n)
+	for _, m := range models[:n] {
+		out = append(out, m.ID)
+	}
+	return out
+}
+
+func firstAnthropicModelOutsideKiroCatalogForAccountTest(t *testing.T) string {
+	t.Helper()
+	kiro := make(map[string]struct{}, len(KiroAdminTestModels()))
+	for _, m := range KiroAdminTestModels() {
+		kiro[m.ID] = struct{}{}
+	}
+	for _, id := range supportedCatalogModelIDsForPlatform(PlatformAnthropic) {
+		if _, ok := kiro[id]; !ok {
+			return id
+		}
+	}
+	t.Fatal("Anthropic SSOT must contain at least one model outside the Kiro catalog for mirror-stub gating")
+	return ""
 }
 
 // When the canonical Kiro profile is seeded, a default Kiro account resolves it by

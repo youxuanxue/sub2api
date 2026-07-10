@@ -91,6 +91,16 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	requireIdentityMappingForIDs(t, canonical, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
 }
 
+func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
+	t.Parallel()
+	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"claude", "gemini_text", "gemini_image"}, doc.AntigravityScopes)
+	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAntigravity], "gemini-3-pro-high")
+	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAntigravity], "tab_flash_lite_preview")
+	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
+}
+
 func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
 	t.Parallel()
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{

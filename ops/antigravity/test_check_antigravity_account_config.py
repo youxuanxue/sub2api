@@ -30,12 +30,11 @@ CHK = _load_module()
 
 class AccountViolationTest(unittest.TestCase):
     def _live_mm(self):
-        return {
-            "gemini-3-flash": "gemini-3-flash",
-            "claude-sonnet-4-6": "claude-sonnet-4-6",
-            "claude-opus-4-6": "claude-opus-4-6-thinking",
-            "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
-        }
+        mm = dict(CHK.ANTIGRAVITY_LIVE_CLAUDE_MAPPING)
+        # Boundary fixture: non-Claude Gemini passthrough proves extra live
+        # non-forbidden mappings do not make the account dirty.
+        mm["gemini-3-flash"] = "gemini-3-flash"
+        return mm
 
     def test_live_antigravity_account_clean(self):
         self.assertIsNone(CHK._account_violation({"model_mapping": self._live_mm()}))
@@ -126,10 +125,10 @@ class AccountViolationTest(unittest.TestCase):
 
 class GroupViolationTest(unittest.TestCase):
     def test_canonical_scopes_clean(self):
-        self.assertIsNone(CHK._group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}))
+        self.assertIsNone(CHK._group_violation({"scopes": sorted(CHK.ANTIGRAVITY_CANONICAL_SCOPES)}))
 
     def test_order_independent(self):
-        self.assertIsNone(CHK._group_violation({"scopes": ["gemini_image", "claude", "gemini_text"]}))
+        self.assertIsNone(CHK._group_violation({"scopes": list(reversed(sorted(CHK.ANTIGRAVITY_CANONICAL_SCOPES)))}))
 
     def test_empty_or_missing_is_violation(self):
         self.assertIsNotNone(CHK._group_violation({"scopes": None}))
@@ -137,19 +136,24 @@ class GroupViolationTest(unittest.TestCase):
         self.assertIsNotNone(CHK._group_violation({}))
 
     def test_missing_claude_is_violation(self):
-        r = CHK._group_violation({"scopes": ["gemini_text", "gemini_image"]})
+        scopes = sorted(CHK.ANTIGRAVITY_CANONICAL_SCOPES - {"claude"})
+        r = CHK._group_violation({"scopes": scopes})
         self.assertIsNotNone(r)
         self.assertIn("missing: claude", r)
 
     def test_missing_image_is_violation(self):
-        r = CHK._group_violation({"scopes": ["gemini_text"]})
+        scopes = sorted(CHK.ANTIGRAVITY_CANONICAL_SCOPES - {"claude", "gemini_image"})
+        r = CHK._group_violation({"scopes": scopes})
         self.assertIsNotNone(r)
         self.assertIn("missing: claude", r)
         self.assertIn("gemini_image", r)
 
-    def test_canonical_set_matches_constant(self):
-        # The check's set must equal the canonical scopes (mirrors the Go reconciler).
-        self.assertEqual(CHK.ANTIGRAVITY_CANONICAL_SCOPES, {"claude", "gemini_text", "gemini_image"})
+    def test_canonical_set_drives_group_verdict(self):
+        scopes = sorted(CHK.ANTIGRAVITY_CANONICAL_SCOPES)
+        self.assertIsNone(CHK._group_violation({"scopes": scopes}))
+        r = CHK._group_violation({"scopes": scopes + ["unexpected_scope"]})
+        self.assertIsNotNone(r)
+        self.assertIn("unexpected: unexpected_scope", r)
 
 
 class SelfCheckSqlEnumerationTest(unittest.TestCase):

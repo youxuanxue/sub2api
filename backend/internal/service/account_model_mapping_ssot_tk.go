@@ -34,9 +34,11 @@ type accountModelMappingRuntimeDoc struct {
 // AccountModelMappingFloorDoc is the ops-facing export of the effective
 // account model_mapping floor. Platform/newapi scopes are full replacements.
 type AccountModelMappingFloorDoc struct {
-	Platforms          map[string]map[string]string `json:"platforms"`
-	NewAPIChannelTypes map[string]map[string]string `json:"newapi_channel_types"`
-	AntigravityScopes  []string                     `json:"antigravity_group_scopes"`
+	Platforms                     map[string]map[string]string `json:"platforms"`
+	NewAPIChannelTypes            map[string]map[string]string `json:"newapi_channel_types"`
+	AntigravityScopes             []string                     `json:"antigravity_group_scopes"`
+	ForbiddenModelMappingKeys     map[string][]string          `json:"forbidden_model_mapping_keys,omitempty"`
+	ForbiddenModelMappingPrefixes map[string][]string          `json:"forbidden_model_mapping_prefixes,omitempty"`
 }
 
 func parseAccountModelMappingRuntime(raw string) (*accountModelMappingRuntime, error) {
@@ -158,6 +160,18 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		Platforms:          make(map[string]map[string]string),
 		NewAPIChannelTypes: make(map[string]map[string]string),
 		AntigravityScopes:  append([]string(nil), canonicalAntigravityModelScopes...),
+		ForbiddenModelMappingKeys: map[string][]string{
+			PlatformAntigravity: append(
+				domain.AntigravityStructuralDeadModelMappingKeys(),
+				domain.AntigravityUnpricedModelMappingKeys()...,
+			),
+		},
+		ForbiddenModelMappingPrefixes: map[string][]string{
+			PlatformAntigravity: {"gpt-oss-"},
+		},
+	}
+	for _, keys := range out.ForbiddenModelMappingKeys {
+		sort.Strings(keys)
 	}
 	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKiro} {
 		mapping, ok := accountModelMappingForAccount(ctx, &Account{Platform: platform}, nil, nil, runtime)

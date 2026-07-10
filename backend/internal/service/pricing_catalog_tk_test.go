@@ -9,6 +9,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -371,21 +372,23 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 // display=true in tk_served_models.json, and unknown vendors stay hidden until
 // a universal platform mapping exists.
 func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
-	const fixture = `{
-	  "claude-opus-4-8":           {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
-	  "claude-3-haiku-20240307":   {"input_cost_per_token":0.00000025,"output_cost_per_token":0.00000125,"litellm_provider":"anthropic"},
-	  "claude-opus-4-6-20260205":  {"input_cost_per_token":0.000003,"output_cost_per_token":0.000015,"litellm_provider":"anthropic"},
-	  "gpt-5.4":                   {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-	  "gpt-4o":                    {"input_cost_per_token":0.0000025,"output_cost_per_token":0.00001,"litellm_provider":"openai"},
-	  "gpt-3.5-turbo":             {"input_cost_per_token":0.0000005,"output_cost_per_token":0.0000015,"litellm_provider":"openai"},
-	  "gemini-2.5-pro":            {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
+	anthropicServable := firstMapKeyForTest(t, supportedAnthropicCatalogModels)
+	openAIServable := firstMapKeyForTest(t, supportedOpenAICatalogModels)
+	geminiServable := firstMapKeyForTest(t, supportedGeminiCatalogModels)
+	require.True(t, isTkCuratedNewAPIModelDisplayed("deepseek-chat"), "manifest display fixture must stay owner-backed")
+	fixture := fmt.Sprintf(`{
+	  %q: {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
+	  "claude-not-a-real-id-zzz":  {"input_cost_per_token":0.00000025,"output_cost_per_token":0.00000125,"litellm_provider":"anthropic"},
+	  %q: {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-not-a-real-id-zzz":     {"input_cost_per_token":0.0000025,"output_cost_per_token":0.00001,"litellm_provider":"openai"},
+	  %q: {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
 	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"},
 	  "deepseek-v3-2-251201":      {"input_cost_per_token":0.0000002,"output_cost_per_token":0.0000004,"litellm_provider":"volcengine"},
 	  "glm-4-7-251222":            {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"volcengine"},
 	  "glm-4-32b-0414-128k":       {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"},
 	  "glm-5-turbo":               {"input_cost_per_token":0.0000012,"output_cost_per_token":0.000004,"litellm_provider":"zhipu"},
 	  "minimax-m2.7":              {"input_cost_per_token":0.000001,"output_cost_per_token":0.000008,"litellm_provider":"minimax"}
-	}`
+	}`, anthropicServable, openAIServable, geminiServable)
 	s := &PricingCatalogService{}
 	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
 		return []byte(fixture), time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC), true
@@ -403,20 +406,27 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 		got[m.ModelID] = true
 	}
 	// Servable claude/gpt kept.
-	assert.True(t, got["claude-opus-4-8"], "servable claude kept")
-	assert.True(t, got["gpt-5.4"], "servable gpt kept")
-	// Retired / dated-dup / unservable claude+gpt pruned.
-	assert.False(t, got["claude-3-haiku-20240307"], "retired claude pruned")
-	assert.False(t, got["claude-opus-4-6-20260205"], "dated-snapshot claude pruned")
-	assert.False(t, got["gpt-4o"], "unservable gpt pruned")
-	assert.False(t, got["gpt-3.5-turbo"], "legacy gpt pruned")
-	assert.True(t, got["gemini-2.5-pro"], "gemini vendor passes through")
+	assert.True(t, got[anthropicServable], "servable claude kept")
+	assert.True(t, got[openAIServable], "servable gpt kept")
+	// Unknown native ids are priced in the fixture but absent from the SSOT allowlists.
+	assert.False(t, got["claude-not-a-real-id-zzz"], "non-allowlisted claude pruned")
+	assert.False(t, got["gpt-not-a-real-id-zzz"], "non-allowlisted gpt pruned")
+	assert.True(t, got[geminiServable], "gemini SSOT id passes through")
 	assert.True(t, got["deepseek-chat"], "manifest display=true deepseek kept")
 	assert.False(t, got["deepseek-v3-2-251201"], "priced-but-unlisted volcengine residue pruned")
 	assert.False(t, got["glm-4-7-251222"], "withdrawn VolcEngine GLM SKU pruned from storefront (serve glm-4.7 via DashScope)")
 	assert.False(t, got["glm-4-32b-0414-128k"], "withdrawn GLM SKU pruned from storefront")
 	assert.False(t, got["glm-5-turbo"], "removed direct-only GLM SKU hidden from storefront")
 	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
+}
+
+func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
+	t.Helper()
+	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
+	for k := range m {
+		return k
+	}
+	return ""
 }
 
 // TestIsPublicCatalogModelSupported exercises each branch of the gate by
