@@ -8,11 +8,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-// The load-bearing property of the overdraft fix: the hold estimate must be an
-// UPPER BOUND on whatever the request can actually be billed. If any reachable
-// token distribution (input ≤ prompt, output ≤ max_tokens) costs more than the
-// hold, the "balance never goes negative" guarantee is void. These tests pin
-// that property across token splits and service tiers.
+// Explicit token ceilings still get the strong overdraft property: the hold is
+// an UPPER BOUND on whatever the request can actually be billed. These tests
+// pin that property across token splits and service tiers for the path where
+// maxOut is a real client ceiling.
 
 func TestEstimateTokenHold_IsUpperBoundOverDistributions(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil) // fallback pricing, no pricingService

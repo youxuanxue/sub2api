@@ -12,13 +12,15 @@ import (
 // TK: pre-flight balance HOLD wiring for the OpenAI-compatible gateway (chat /
 // responses / messages / embeddings / images / video — the balance-billed
 // overdraft surface; Anthropic-native traffic is predominantly subscription,
-// which does not touch balance). Estimates an upper bound, reserves it
-// atomically before forward, and releases at request end. See
-// usage_billing_hold_tk.go for the invariant and billing_service_tk_hold.go
-// for the upper-bound formulas.
+// which does not touch balance). Estimates a request reserve, deducts it
+// atomically before forward, and releases at request end. Explicit output
+// ceilings can be reserved as upper bounds; omitted token ceilings use the
+// handler's low default reserve to protect UX. See usage_billing_hold_tk.go
+// for the concurrency argument and billing_service_tk_hold.go for the pricing
+// formulas.
 
-// tkReserveBalanceHold reserves an upper-bound hold via the repository's narrow
-// hold capability. Returns:
+// tkReserveBalanceHold reserves a hold via the repository's narrow hold
+// capability. Returns:
 //   - held=true            → balance reserved; the caller owns the release
 //     (request-end refund, or hand-off to settlement).
 //   - held=false, reject=true  → insufficient balance; caller rejects with 403.
@@ -59,7 +61,7 @@ func tkReleaseBalanceHold(ctx context.Context, repo UsageBillingRepository, requ
 }
 
 // tkHoldRateMultiplier resolves the SAME user×group rate multiplier the billing
-// path applies to the balance, so the hold cannot under-estimate via a smaller
+// path applies to the balance, so the hold is not reduced by a smaller
 // multiplier. Mirrors the resolution in RecordUsage (openai_gateway_service.go).
 func (s *OpenAIGatewayService) tkHoldRateMultiplier(ctx context.Context, user *User, apiKey *APIKey) float64 {
 	multiplier := 1.0
@@ -83,11 +85,13 @@ func (s *OpenAIGatewayService) tkHoldGatingDisabled() bool {
 	return s.cfg != nil && s.cfg.RunMode == config.RunModeSimple
 }
 
-// TkReserveTokenHold estimates an upper-bound token cost and reserves it.
+// TkReserveTokenHold estimates a token-cost reserve and deducts it.
 // requestID must be derived from the usage-billing request id
 // (TkResolveUsageBillingRequestID) so reconciliation can anchor a hold to its
 // request. promptTokens must be an UPPER BOUND on the request's input tokens
-// (callers over-estimate); embeddings pass maxOutputTokens=0.
+// (callers over-estimate). maxOutputTokens is an upper bound only when callers
+// pass an explicit client ceiling; omitted output ceilings may use a low
+// default reserve. Embeddings pass maxOutputTokens=0.
 //
 // Returns held (caller owns the release) and reject (caller returns 403). A
 // pricing/DB failure is fail-open (held=false, reject=false) + an ALERT log: a
