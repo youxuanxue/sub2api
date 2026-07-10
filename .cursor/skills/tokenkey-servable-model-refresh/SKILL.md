@@ -23,6 +23,11 @@ description: >-
 
 所以本 skill 只刷新这个共享集合；不要再为菜单维护第二份列表。
 
+测试也必须消费这个共享集合：新增/移除 servable 模型时，正向覆盖应从
+`ServableClientFacingIDs` / `supportedCatalogModelIDsForPlatform` / allowlist owner 派生；负向只保留
+真实边界样本（未知 ID、priced-but-hidden、跨平台 ID、兼容别名）。不要在测试里复制一份会随
+allowlist 同步更新的模型正/负清单。
+
 ## 确定性基线（机械化 vs 真判断）
 
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill

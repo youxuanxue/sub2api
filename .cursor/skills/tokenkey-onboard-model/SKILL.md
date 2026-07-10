@@ -21,6 +21,10 @@ description: >-
 manifest 与 `tk_pricing_overlay.json` 同目录（`backend/internal/service/`），所以同一个 Go 包能 `//go:embed`
 两者、同一个 preflight 能解析两者；选址理由见 manifest 头注 `_doc`。
 
+测试必须从 manifest / overlay / Go allowlist owner 派生集合断言；上架一个模型不应导致多处测试手写
+正向/负向清单同步。手写测试样本只用于 SSOT 无法推导的边界（未知 ID、跨平台 ID、兼容别名、
+priced-but-hidden 等），并在测试里标明边界含义。
+
 ## 范围（严格，越界=类别错误）
 
 **只**覆盖 TK 策展、经账号 `model_mapping` 白名单服务的 **newapi 第五平台长尾**，当前两个专用单账号组：
