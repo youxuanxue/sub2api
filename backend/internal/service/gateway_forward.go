@@ -403,7 +403,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models before upstream.
-	if err := replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return nil, err
 	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept
@@ -510,6 +510,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr == nil {
 				_ = resp.Body.Close()
+				tkRecordAnthropicSamplingParamRuleFrom400(account, reqModel, body, resp.StatusCode, respBody)
+				tkRecordAnthropicThinkingRuleFrom400(account, reqModel, body, resp.StatusCode, respBody)
 
 				if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -708,6 +710,53 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				}
 
 				errMsg := extractUpstreamErrorMessage(respBody)
+				if isThinkingTypeAdaptiveRequiredError(errMsg) {
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: resp.StatusCode,
+						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+						Kind:               "thinking_adaptive_error",
+						Message:            errMsg,
+						Detail: func() string {
+							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+							}
+							return ""
+						}(),
+					})
+
+					rectifiedBody, applied := RectifyThinkingTypeAdaptive(body)
+					if applied && time.Since(retryStart) < maxRetryElapsed {
+						logger.LegacyPrintf("service.gateway", "Account %d: detected thinking.type adaptive-only error, retrying with adaptive thinking", account.ID)
+						adaptiveRetryCtx, releaseAdaptiveRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						adaptiveRetryReq, adaptiveWireBody, buildErr := s.buildUpstreamRequest(adaptiveRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
+						releaseAdaptiveRetryCtx()
+						if buildErr == nil {
+							adaptiveRetryResp, retryErr := s.httpUpstream.DoWithTLS(adaptiveRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							if retryErr == nil {
+								if adaptiveRetryResp.StatusCode < 400 {
+									lastWireBody = adaptiveWireBody
+									if err := replaceBody(adaptiveWireBody); err != nil {
+										_ = adaptiveRetryResp.Body.Close()
+										return nil, err
+									}
+									setOpsUpstreamRequestBody(c, adaptiveWireBody)
+								}
+								resp = adaptiveRetryResp
+								break
+							}
+							if adaptiveRetryResp != nil && adaptiveRetryResp.Body != nil {
+								_ = adaptiveRetryResp.Body.Close()
+							}
+							logger.LegacyPrintf("service.gateway", "Account %d: thinking adaptive retry failed: %v", account.ID, retryErr)
+						} else {
+							logger.LegacyPrintf("service.gateway", "Account %d: thinking adaptive retry build failed: %v", account.ID, buildErr)
+						}
+					}
+				}
 				if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,

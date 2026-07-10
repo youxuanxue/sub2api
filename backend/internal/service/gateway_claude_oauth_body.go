@@ -430,7 +430,7 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 		body = applyToolsLastCacheBreakpoint(body)
 	}
 
-	return tkStripDeprecatedSamplingParams(body)
+	return tkApplyAnthropicRequestCompatibilityRules(account, body)
 }
 
 // buildOAuthMetadataUserIDFromBody 是 buildOAuthMetadataUserID 的变体，
