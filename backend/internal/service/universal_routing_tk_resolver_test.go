@@ -195,6 +195,9 @@ func TestUniversalModelPlatformHint(t *testing.T) {
 }
 
 func TestUniversalRequestPlatformHint_OpenAICompatVertexMedia(t *testing.T) {
+	if got := universalRequestPlatformHint(ShapeOpenAIChat, "claude-sonnet-4-6"); got != PlatformAnthropic {
+		t.Fatalf("claude on OpenAI chat should keep anthropic hint, got %q", got)
+	}
 	if got := universalRequestPlatformHint(ShapeOpenAIImages, "imagen-4.0-generate-001"); got != PlatformNewAPI {
 		t.Fatalf("imagen on OpenAI images should hint newapi vertex, got %q", got)
 	}

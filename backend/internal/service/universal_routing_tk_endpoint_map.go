@@ -212,6 +212,9 @@ func universalRequestPlatformHint(shape UniversalShape, model string) string {
 	}
 	switch shape {
 	case ShapeOpenAIChat:
+		if universalModelPlatformHint(m) == PlatformAnthropic {
+			return PlatformAnthropic
+		}
 		if universalAntigravityTextModel(m) {
 			return PlatformAntigravity
 		}
