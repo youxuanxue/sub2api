@@ -535,7 +535,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           body,
 			ResponseHeaders:        resp.Header.Clone(),
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, body, false),
 		}
 	}
 

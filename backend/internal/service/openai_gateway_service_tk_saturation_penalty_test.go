@@ -17,6 +17,13 @@ func openAIEdgeCandidate(id int64, score float64) openAIAccountCandidateScore {
 	}
 }
 
+func grokEdgeCandidate(id int64, score float64) openAIAccountCandidateScore {
+	return openAIAccountCandidateScore{
+		account: grokEdgeStub(id),
+		score:   score,
+	}
+}
+
 func TestComputeOpenAISaturationPenalties_DeprioritizesSaturatedStub(t *testing.T) {
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
@@ -28,6 +35,23 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesSaturatedStub(t *testing.
 	candidates := []openAIAccountCandidateScore{
 		openAIEdgeCandidate(63, 3.0),
 		openAIEdgeCandidate(68, 2.0),
+	}
+	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
+	require.Equal(t, openAISaturationScorePenalty, candidates[0].saturationScorePenalty)
+	require.Equal(t, 0.0, candidates[1].saturationScorePenalty)
+	require.Less(t, candidates[0].score-candidates[0].saturationScorePenalty, candidates[1].score)
+}
+
+func TestComputeOpenAISaturationPenalties_DeprioritizesGrokRelayStub(t *testing.T) {
+	resetOpenAISatCache()
+	svc := &OpenAIGatewayService{}
+	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
+		80: openAIEdgeMirrorStubSaturationThreshold,
+	}})
+
+	candidates := []openAIAccountCandidateScore{
+		grokEdgeCandidate(80, 3.0),
+		grokEdgeCandidate(81, 2.0),
 	}
 	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
 	require.Equal(t, openAISaturationScorePenalty, candidates[0].saturationScorePenalty)

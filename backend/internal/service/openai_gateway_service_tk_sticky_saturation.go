@@ -6,13 +6,14 @@ import (
 )
 
 // tkShouldClearOpenAIStickyForSaturation clears a sticky binding when the bound
-// OpenAI edge-mirror stub is SUSTAINEDLY returning downstream capacity signals,
-// mirroring gateway_service_tk_sticky_saturation.go for the GPT scheduler.
+// OpenAI-compatible edge-mirror stub is SUSTAINEDLY returning downstream
+// capacity signals, mirroring gateway_service_tk_sticky_saturation.go for the
+// GPT scheduler.
 func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(ctx context.Context, account *Account, sessionHash string) bool {
 	if s == nil || s.tkOpenAISaturationCounter == nil || account == nil {
 		return false
 	}
-	if !tkIsOpenAIEdgeMirrorStub(account) {
+	if !tkIsOpenAICompatEdgeMirrorStub(account) {
 		return false
 	}
 	if s.settingService != nil && !s.settingService.IsOpenAISaturatedStubDeprioritizeEnabled(ctx) {
