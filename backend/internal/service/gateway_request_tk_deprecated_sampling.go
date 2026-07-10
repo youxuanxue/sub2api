@@ -81,6 +81,8 @@ func tkClaudeFamilyVersionAtLeast(modelID, family string, minMajor, minMinor int
 // Anthropic models that now reject them, and removes top_p for current Claude
 // models that reject temperature+top_p in the same request. Nested JSON-schema
 // properties with the same names must remain intact.
+//
+//nolint:unused // sentinel/test wrapper; production paths use the account-aware variant below.
 func tkStripDeprecatedSamplingParams(body []byte) []byte {
 	return tkStripDeprecatedSamplingParamsForAccount(nil, body)
 }
