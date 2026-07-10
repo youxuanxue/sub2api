@@ -702,11 +702,10 @@ func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 	assert.InDelta(t, 0.0025, *byID[openAIIDs[1]].YourPrice.InputPer1K, 1e-9, "0.0025 catalog 官方价")
 }
 
-// TestBuildForUser_ChannelAndAccount_ChannelWins guards the "channel
-// price is authoritative on conflict" rule. The catalog input for the
-// shared model is set to a very different number than the channel price
-// so a regression that overwrote channel rows would be obvious.
-func TestBuildForUser_ChannelAndAccount_ChannelWins(t *testing.T) {
+// TestBuildForUser_ChannelAndAccount_CatalogPriceWins guards the current
+// pricing-page contract: channels decide whether the target group can serve a
+// model, but displayed prices come from the public catalog when present.
+func TestBuildForUser_ChannelAndAccount_CatalogPriceWins(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
 	openAIIDs := firstNPlatformModelIDsForMePricingTest(t, PlatformOpenAI, 2)
@@ -735,10 +734,48 @@ func TestBuildForUser_ChannelAndAccount_ChannelWins(t *testing.T) {
 		byID[m.ModelID] = m
 	}
 	require.NotNil(t, byID[openAIIDs[0]].YourPrice.InputPer1K)
-	assert.InDelta(t, 1.0, *byID[openAIIDs[0]].YourPrice.InputPer1K, 1e-9,
-		"0.001 channel × 1000 (per-token → per-1k) × 1.0 rate; catalog 0.999 MUST NOT win")
+	assert.InDelta(t, 0.999, *byID[openAIIDs[0]].YourPrice.InputPer1K, 1e-9,
+		"catalog official price must win over stale channel pricing")
 	require.NotNil(t, byID[openAIIDs[1]].YourPrice.InputPer1K)
 	assert.InDelta(t, 0.0025, *byID[openAIIDs[1]].YourPrice.InputPer1K, 1e-9, "account-only row uses catalog price × 1.0 rate")
+}
+
+func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
+	gNewapi := mkGroupForMe(50, "zhipu", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 7, "zhipu-key", ptrI(50))
+	channel := mkChannelWithModel(100, "stale-zhipu-channel",
+		[]AvailableGroupRef{{ID: 50, Platform: "newapi"}},
+		[]SupportedModel{mkSupportedModel("glm-5.2", "newapi", mkPricing(0.000001484, 0.000004664, 0.000000276))},
+	)
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel(
+				"glm-5.2",
+				"zhipu",
+				tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier*1000,
+				tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier*1000,
+				tkCNYPerMTokToUSDPerToken(2)*tkOfficialListBaseTaxMultiplier*1000,
+			),
+		},
+	}
+	svc := newService(
+		&fakeKeyAccess{groups: []Group{gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{channels: []AvailableChannel{channel}},
+		&fakeCatalogProvider{resp: catalog},
+	)
+
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	row := resp.Models[0]
+	assert.Equal(t, "glm-5.2", row.ModelID)
+	assert.Equal(t, "zhipu", row.Vendor)
+	require.NotNil(t, row.YourPrice.InputPer1K)
+	require.NotNil(t, row.YourPrice.OutputPer1K)
+	require.NotNil(t, row.YourPrice.CacheReadPer1K)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier*1000, *row.YourPrice.InputPer1K, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier*1000, *row.YourPrice.OutputPer1K, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(2)*tkOfficialListBaseTaxMultiplier*1000, *row.YourPrice.CacheReadPer1K, 1e-12)
 }
 
 // TestBuildForUser_AuthorizedGroups_CrossGroup pins the "授权分组" column: each

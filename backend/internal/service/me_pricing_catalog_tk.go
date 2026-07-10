@@ -30,9 +30,9 @@ package service
 // HideUserRateOverrides), but it is NO LONGER applied to model prices.
 //
 // Multi-channel dedupe rule: when the same model_id appears on multiple
-// active channels mapped to the target group, we keep the row with the
-// LOWEST combined input+output (official) price — the headline price equals
-// the cheapest catalog path for that model.
+// active channels mapped to the target group, public-catalog prices win when
+// present. For channel-only/custom rows with no public-catalog entry, we keep
+// the row with the LOWEST combined input+output channel price.
 
 import (
 	"context"
@@ -565,7 +565,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 					if m.Platform != targetGroup.Platform {
 						continue
 					}
-					candidate := buildModelEntry(m, effectiveRate)
+					candidate := buildChannelServedEntry(m, effectiveRate, metaByID)
 					if existing, ok := bestByModel[m.Name]; ok {
 						bestByModel[m.Name] = pickCheaperModel(existing, candidate)
 					} else {
@@ -938,14 +938,39 @@ func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string
 		YourPrice:    MePricingPrice{Currency: "USD"},
 		Capabilities: []string{},
 	}
-	meta, ok := metaByID[modelID]
-	if !ok {
-		if stripped, stripOK := stripVendorPrefixForCatalogLookup(modelID); stripOK {
-			meta, ok = metaByID[stripped]
-		}
-	}
+	meta, ok := lookupMePricingCatalogModel(modelID, metaByID)
 	if !ok {
 		return entry
+	}
+	applyCatalogMetaToMePricingModel(&entry, meta, rate)
+	return entry
+}
+
+func buildChannelServedEntry(m SupportedModel, rate float64, metaByID map[string]PublicCatalogModel) MePricingModel {
+	entry := buildModelEntry(m, rate)
+	if meta, ok := lookupMePricingCatalogModel(m.Name, metaByID); ok {
+		applyCatalogMetaToMePricingModel(&entry, meta, rate)
+	}
+	return entry
+}
+
+func lookupMePricingCatalogModel(modelID string, metaByID map[string]PublicCatalogModel) (PublicCatalogModel, bool) {
+	meta, ok := metaByID[modelID]
+	if ok {
+		return meta, true
+	}
+	if stripped, stripOK := stripVendorPrefixForCatalogLookup(modelID); stripOK {
+		meta, ok = metaByID[stripped]
+		if ok {
+			return meta, true
+		}
+	}
+	return PublicCatalogModel{}, false
+}
+
+func applyCatalogMetaToMePricingModel(entry *MePricingModel, meta PublicCatalogModel, rate float64) {
+	if entry == nil {
+		return
 	}
 	entry.Vendor = meta.Vendor
 	if meta.Pricing.BillingMode != "" {
@@ -958,7 +983,6 @@ func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string
 	// Media units (nil when 0 — non-media models stay token-only).
 	entry.YourPrice.PerImage = scaleCatalogPrice(meta.Pricing.OutputCostPerImage, rate)
 	entry.YourPrice.PerSecond = scaleCatalogPrice(meta.Pricing.OutputCostPerSecond, rate)
-	return entry
 }
 
 // scaleCatalogPrice multiplies a PublicCatalogPricing value (already in
