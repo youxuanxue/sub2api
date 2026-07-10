@@ -130,6 +130,7 @@
       "must_contain": [
         "TestPublicCatalog_FiltersUnservableClaudeAndGpt",
         "TestIsPublicCatalogModelSupported",
+        "TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay",
         "withdrawn VolcEngine GLM SKU pruned from storefront",
         "TestSupportedCatalogModelIDsForPlatform_Antigravity",
         "TestSupportedCatalogModelIDsForPlatform_Grok"
@@ -137,9 +138,19 @@
       "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, Antigravity exposes only its live served+priced set (including the #1265 Claude subset while excluding gpt-oss/dead/unpriced rows), curated newapi display=false rows are hidden, and unknown/unmapped vendors stay hidden until a universal mapping exists. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
     },
     {
+      "path": "backend/internal/service/pricing_tk_base_tax_test.go",
+      "must_contain": [
+        "TestPricingService_GetModelPricing_AppliesBaseTaxOnLookup",
+        "tkCNYPerMTokToUSDPerToken(8)",
+        "manifest-listed GLM uses BigModel overlay"
+      ],
+      "rationale": "Pins billing/catalog base-tax lookup regression for CN-origin providers, including the GLM authoritative-overlay path: GetModelPricing must apply zhipu 1.06 tax on the BigModel-sourced overlay rate even when litellm mirror carries a different non-zero glm-5.2 row."
+    },
+    {
       "path": "backend/internal/service/pricing_catalog_tk.go",
       "must_contain": [
         "func applyCatalogOverlayPricing",
+        "tkOverlayOverridesLitellmSource",
         "applyCatalogOverlayPricing(resp)",
         "func (s *PricingCatalogService) InvalidateCache"
       ],
@@ -216,6 +227,8 @@
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
       "must_contain": [
         "func parseTKOverlayBytes",
+        "func tkOverlayOverridesLitellmSource",
+        "func applyTKPricingOverlay",
         "func rebuildTKOverlayUnion",
         "tkOverlayMu",
         "tkOverlayEffective"
