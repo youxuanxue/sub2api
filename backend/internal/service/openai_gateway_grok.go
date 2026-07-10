@@ -713,9 +713,9 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 	case http.StatusForbidden:
 		s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok entitlement or subscription tier denied")
 	case http.StatusTooManyRequests:
-		cooldown := 2 * time.Minute
-		if snapshot := xai.ParseQuotaHeaders(headers, statusCode); snapshot != nil && snapshot.RetryAfterSeconds != nil && *snapshot.RetryAfterSeconds > 0 {
-			cooldown = time.Duration(*snapshot.RetryAfterSeconds) * time.Second
+		cooldown, ok := s.grok429Cooldown(ctx, account, headers)
+		if !ok {
+			return
 		}
 		s.tempUnscheduleGrok(ctx, account, cooldown, "grok rate limited")
 	default:
@@ -724,6 +724,16 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 		}
 	}
 	_ = responseBody
+}
+
+func (s *OpenAIGatewayService) grok429Cooldown(ctx context.Context, account *Account, headers http.Header) (time.Duration, bool) {
+	if snapshot := xai.ParseQuotaHeaders(headers, http.StatusTooManyRequests); snapshot != nil && snapshot.RetryAfterSeconds != nil && *snapshot.RetryAfterSeconds > 0 {
+		return time.Duration(*snapshot.RetryAfterSeconds) * time.Second, true
+	}
+	if s != nil && s.rateLimitService != nil {
+		return s.rateLimitService.get429FallbackCooldown(ctx, account)
+	}
+	return openAIOAuth429FallbackCooldown, true
 }
 
 func (s *OpenAIGatewayService) tempUnscheduleGrok(ctx context.Context, account *Account, cooldown time.Duration, reason string) {

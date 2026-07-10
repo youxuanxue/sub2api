@@ -1136,6 +1136,13 @@ func TestHandleGrokAccountUpstreamErrorTempUnschedulesReadinessStates(t *testing
 			wantMinCooldown: 44 * time.Second,
 			wantMaxCooldown: 46 * time.Second,
 		},
+		{
+			name:            "rate limited without retry after uses openai fallback",
+			status:          http.StatusTooManyRequests,
+			wantReason:      "grok rate limited",
+			wantMinCooldown: openAIOAuth429FallbackCooldown - time.Second,
+			wantMaxCooldown: openAIOAuth429FallbackCooldown + time.Second,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1155,6 +1162,26 @@ func TestHandleGrokAccountUpstreamErrorTempUnschedulesReadinessStates(t *testing
 			require.True(t, repo.lastTempUnschedUntil.Before(before.Add(tt.wantMaxCooldown)))
 		})
 	}
+}
+
+func TestHandleGrokAccountUpstreamErrorUsesConfigured429Fallback(t *testing.T) {
+	repo := &grokQuotaAccountRepo{}
+	settingRepo := newMockSettingRepo()
+	data, _ := json.Marshal(RateLimit429CooldownSettings{Enabled: true, CooldownSeconds: 12})
+	settingRepo.data[SettingKeyRateLimit429CooldownSettings] = string(data)
+	rateLimitSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimitSvc.SetSettingService(NewSettingService(settingRepo, &config.Config{}))
+	svc := &OpenAIGatewayService{accountRepo: repo, rateLimitService: rateLimitSvc}
+	account := &Account{ID: 61, Platform: PlatformGrok, Type: AccountTypeOAuth}
+
+	before := time.Now()
+	svc.handleGrokAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, nil)
+	after := time.Now()
+
+	require.Equal(t, 1, repo.tempUnschedCalls)
+	require.Equal(t, "grok rate limited", repo.lastTempUnschedReason)
+	require.False(t, repo.lastTempUnschedUntil.Before(before.Add(12*time.Second)))
+	require.False(t, repo.lastTempUnschedUntil.After(after.Add(12*time.Second)))
 }
 
 func TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown(t *testing.T) {
