@@ -367,10 +367,12 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 			// 文件源已有该行：仅当它是全零占位（litellm "cost unknown"，与计费
 			// 侧 tkIsEffectivelyUnpriced 同语义）时用 overlay 价覆盖展示，保持
 			// 展示=计费；行内 context window 等元数据保留文件源的值。真实非零
-			// 文件价永不覆盖。
+			// 文件价永不覆盖，除非 overlay 是 GLM 的 BigModel 官方价（litellm
+			// 镜像里的 USD 猜测会漂移）。
 			row := &resp.Data[idx]
-			if row.Pricing.InputPer1KTokens != 0 || row.Pricing.OutputPer1KTokens != 0 ||
-				row.Pricing.CacheReadPer1K != 0 || row.Pricing.CacheWritePer1K != 0 {
+			hasFilePrice := row.Pricing.InputPer1KTokens != 0 || row.Pricing.OutputPer1KTokens != 0 ||
+				row.Pricing.CacheReadPer1K != 0 || row.Pricing.CacheWritePer1K != 0
+			if hasFilePrice && !tkOverlayOverridesLitellmSource(name, p) {
 				continue
 			}
 			row.Pricing.InputPer1KTokens = p.InputCostPerToken * 1000

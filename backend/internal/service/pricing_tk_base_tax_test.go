@@ -90,6 +90,9 @@ func TestPricingService_GetModelPricing_AppliesBaseTaxOnLookup(t *testing.T) {
 
 	glm := svc.GetModelPricing("glm-5.2")
 	require.NotNil(t, glm)
-	assert.InDelta(t, 3e-6*tkOfficialListBaseTaxMultiplier, glm.InputCostPerToken, 1e-15)
-	assert.InDelta(t, 4e-6*tkOfficialListBaseTaxMultiplier, glm.OutputCostPerToken, 1e-15)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier, glm.InputCostPerToken, 1e-15,
+		"manifest-listed GLM uses BigModel overlay, not litellm mirror")
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier, glm.OutputCostPerToken, 1e-15)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(8), data["glm-5.2"].InputCostPerToken, 1e-15,
+		"parsePricingData overlay replaces litellm glm row with BigModel pre-tax rate")
 }

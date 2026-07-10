@@ -220,6 +220,40 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		"source price wins over overlay (fill-only); base tax applies on top of source")
 }
 
+// TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay pins that
+// stale litellm USD guesses for manifest-listed GLM models do not win over the
+// BigModel-sourced overlay (prod symptom: glm-5.2 at $1.4/$4.4 per Mtok).
+func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *testing.T) {
+	const fixture = `{
+	  "glm-5.2": {
+	    "input_cost_per_token": 1.4e-06,
+	    "output_cost_per_token": 4.4e-06,
+	    "cache_read_input_token_cost": 2.6e-07,
+	    "litellm_provider": "zhipu",
+	    "mode": "chat"
+	  }
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), true
+	})
+
+	resp := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, m := range resp.Data {
+		byID[m.ModelID] = m
+	}
+	glm52, ok := byID["glm-5.2"]
+	require.True(t, ok)
+	cnyPer1K := func(cny float64) float64 {
+		return tkCNYPerMTokToUSDPerToken(cny) * 1_000
+	}
+	assert.InDelta(t, cnyPer1K(8)*tkOfficialListBaseTaxMultiplier, glm52.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, cnyPer1K(28)*tkOfficialListBaseTaxMultiplier, glm52.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, cnyPer1K(2)*tkOfficialListBaseTaxMultiplier, glm52.Pricing.CacheReadPer1K, 1e-12)
+}
+
 // TestPricingCatalogService_AttachesOverlayTiers pins that input-token interval
 // (阶梯) pricing from tk_pricing_overlay.json is surfaced on Pricing.Tiers of the
 // public catalog (the fix for "公开接口拍平丢掉阶梯价"), and that the flat price is
