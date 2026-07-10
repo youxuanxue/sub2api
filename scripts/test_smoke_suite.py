@@ -82,13 +82,13 @@ class SoftDegradeOrExitTest(unittest.TestCase):
     """
 
     @staticmethod
-    def _run(suite: str, http: str, body: dict) -> tuple[int, str]:
+    def _run(suite: str, http: str, body: dict, label: str = "/v1/x") -> tuple[int, str]:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(body, f)
             resp_path = f.name
         script = (
             f'source "{SMOKE_LIB}"\n'
-            f'if soft_degrade_or_exit "/v1/x" "{http}" "{resp_path}"; then\n'
+            f'if soft_degrade_or_exit "{label}" "{http}" "{resp_path}"; then\n'
             f'  echo MARKER=continue\n'
             f'else\n'
             f'  echo MARKER=softskip\n'
@@ -140,6 +140,27 @@ class SoftDegradeOrExitTest(unittest.TestCase):
     def test_full_403_unrelated_hard_fails(self) -> None:
         rc, out = self._run(
             "full", "403", {"error": {"message": "invalid api key"}},
+        )
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("MARKER=continue", out)
+
+    def test_full_chat_400_unsupported_model_soft_skips(self) -> None:
+        rc, out = self._run(
+            "full",
+            "400",
+            {"error": {"message": "Unsupported model: claude-sonnet-4-6"}},
+            label="/v1/chat/completions",
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("MARKER=softskip", out)
+        self.assertIn("unsupported_model on chat shape", out)
+
+    def test_full_messages_400_unsupported_model_hard_fails(self) -> None:
+        rc, out = self._run(
+            "full",
+            "400",
+            {"error": {"message": "Unsupported model: claude-sonnet-4-6"}},
+            label="/v1/messages",
         )
         self.assertEqual(rc, 1, out)
         self.assertNotIn("MARKER=continue", out)
