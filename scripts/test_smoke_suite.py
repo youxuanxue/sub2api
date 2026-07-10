@@ -144,16 +144,15 @@ class SoftDegradeOrExitTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertNotIn("MARKER=continue", out)
 
-    def test_full_chat_400_unsupported_model_soft_skips(self) -> None:
+    def test_full_chat_400_unsupported_model_hard_fails(self) -> None:
         rc, out = self._run(
             "full",
             "400",
             {"error": {"message": "Unsupported model: claude-sonnet-4-6"}},
             label="/v1/chat/completions",
         )
-        self.assertEqual(rc, 0, out)
-        self.assertIn("MARKER=softskip", out)
-        self.assertIn("unsupported_model on chat shape", out)
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("MARKER=continue", out)
 
     def test_full_messages_400_unsupported_model_hard_fails(self) -> None:
         rc, out = self._run(

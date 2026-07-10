@@ -165,23 +165,6 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             echo "tk_post_deploy_smoke: ${label} section soft-skipped (universal_no_entitled_group; /v1/messages probe is the canonical signal)"
             return 1
             ;;
-          *"Unsupported model"*)
-            if [[ "${label}" == "/v1/chat/completions" ]]; then
-              # Anthropic universal-key topology: a chat-shaped Claude probe can
-              # hit a non-Anthropic backing pool and surface local 400
-              # "Unsupported model" before the canonical /v1/messages probe runs.
-              echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} Unsupported model — deferring Anthropic validation to /v1/messages probe." >&2
-              if [[ -n "${err_msg}" ]]; then
-                echo "  gateway message: ${err_msg}" >&2
-              fi
-              jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-              echo "tk_post_deploy_smoke: ${label} section soft-skipped (unsupported_model on chat shape; /v1/messages probe is the canonical signal)"
-              return 1
-            fi
-            echo "tk_post_deploy_smoke: ${label} failed" >&2
-            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-            exit 1
-            ;;
           *"restricted to Claude Code clients"*|*"/v1/messages only"*)
             # claude_code_only group policy: the configured Anthropic key is
             # bound to a group that allows /v1/messages with a Claude Code UA

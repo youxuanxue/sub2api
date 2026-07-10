@@ -502,6 +502,25 @@ func TestResolve_ClaudeOpenAIShapePicksAnthropic(t *testing.T) {
 	}
 }
 
+func TestResolve_ClaudeOpenAIShapePrefersAnthropicOverCompatClaudeMapping(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(1, PlatformAnthropic, 50, false),
+		grp(2, PlatformOpenAI, 1, false),
+		grp(11, PlatformNewAPI, 2, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		2:  {"claude-sonnet-4-6"},
+		11: {"claude-sonnet-4-6"},
+		// gid=1(anthropic)缺席 → native nil served; claude-* hint must keep it eligible.
+	}))
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIChat, "claude-sonnet-4-6", "")
+	if err != nil || g == nil || g.ID != 1 {
+		t.Fatalf("claude @openai-shape must prefer native anthropic over compat mappings, got=%v err=%v", g, err)
+	}
+}
+
 func TestResolve_GeminiAnthropicShapePicksGemini(t *testing.T) {
 	ctx := context.Background()
 	span := []Group{
