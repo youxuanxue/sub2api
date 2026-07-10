@@ -15,10 +15,12 @@ accounts. Use ``check-accounts`` to diff live accounts against the Go SSOT, then
 wants to overwrite persisted mappings.
 
 Release gate is **prod only** (default) and runs before the prod deploy swaps the
-image: it compares live prod account mappings to this checkout's Go SSOT and
-fails closed when the DB is behind the tag. Edge accounts keep empty
-``model_mapping`` because traffic is user → prod → edge relay; prod already
-enforces the floor. Do not treat edge empty mappings as drift unless
+image: it compares live prod account mappings to the release checkout's Go SSOT
+floor and fails closed when the DB is behind the tag. Live prod may be ahead for
+preheating or rollback, but forbidden keys/prefixes from the release SSOT still
+fail the gate. Edge accounts keep empty ``model_mapping`` because traffic is
+user → prod → edge relay; prod already enforces the floor. Do not treat edge
+empty mappings as drift unless
 ``--include-edges`` is explicitly requested for troubleshooting. See
 ``docs/global/agent-reference.md`` § Model serving SSOT.
 
@@ -44,6 +46,7 @@ import importlib.util
 import io
 import json
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -353,6 +356,22 @@ def _runtime_scope_summary(doc: dict) -> dict[str, list[str]]:
 
 _FLOOR_CACHE: dict[str, dict[str, Any]] = {}
 _FLOOR_LOCK = threading.Lock()
+_SSOT_REPO_ROOT = REPO_ROOT
+
+
+def _set_ssot_repo_root(raw: str | None) -> Path:
+    global _SSOT_REPO_ROOT
+    if raw is None or not str(raw).strip():
+        return _SSOT_REPO_ROOT
+    root = Path(str(raw)).expanduser().resolve()
+    helper = root / "backend" / "cmd" / "account-model-mapping" / "main.go"
+    gomod = root / "backend" / "go.mod"
+    if not gomod.exists():
+        fail(f"--ssot-repo-root {root}: missing backend/go.mod")
+    if not helper.exists():
+        fail(f"--ssot-repo-root {root}: missing backend/cmd/account-model-mapping/main.go")
+    _SSOT_REPO_ROOT = root
+    return _SSOT_REPO_ROOT
 
 
 def _runtime_cache_key(raw: Any) -> str:
@@ -367,14 +386,16 @@ def _runtime_cache_key(raw: Any) -> str:
 
 def _load_effective_floor(runtime_raw: Any) -> dict[str, Any]:
     key = _runtime_cache_key(runtime_raw)
+    ssot_root = _SSOT_REPO_ROOT
+    cache_key = f"{ssot_root}:{key}"
     with _FLOOR_LOCK:
-        cached = _FLOOR_CACHE.get(key)
+        cached = _FLOOR_CACHE.get(cache_key)
         if cached is not None:
             return cached
 
     proc = subprocess.run(
         GO_HELPER,
-        cwd=REPO_ROOT / "backend",
+        cwd=ssot_root / "backend",
         input=key,
         text=True,
         stdout=subprocess.PIPE,
@@ -395,7 +416,7 @@ def _load_effective_floor(runtime_raw: Any) -> dict[str, Any]:
     if not isinstance(floor.get("newapi_channel_types"), dict):
         raise RuntimeError("Go account model_mapping SSOT helper omitted newapi_channel_types")
     with _FLOOR_LOCK:
-        _FLOOR_CACHE[key] = floor
+        _FLOOR_CACHE[cache_key] = floor
     return floor
 
 
@@ -486,9 +507,9 @@ def _desired_mapping_for_account(row: dict[str, Any], floor: dict[str, Any]) -> 
     return mapping if isinstance(mapping, dict) else None, scope
 
 
-def _mapping_diff(got: dict[str, str], want: dict[str, str]) -> dict[str, Any]:
+def _mapping_diff(got: dict[str, str], want: dict[str, str], *, allow_extra: bool = False) -> dict[str, Any]:
     missing = sorted(k for k in want if k not in got)
-    extra = sorted(k for k in got if k not in want)
+    extra = [] if allow_extra else sorted(k for k in got if k not in want)
     bad = sorted(k for k in want if k in got and got[k] != want[k])
     return {
         "missing_keys": missing,
@@ -525,7 +546,12 @@ def _format_mapping_diff_reason(scope: str, diff: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def _account_plan(row: dict[str, Any], floor: dict[str, Any]) -> dict[str, Any] | None:
+def _account_plan(
+    row: dict[str, Any],
+    floor: dict[str, Any],
+    *,
+    allow_extra_model_mapping: bool = False,
+) -> dict[str, Any] | None:
     want, scope = _desired_mapping_for_account(row, floor)
     if not want:
         return None
@@ -540,7 +566,7 @@ def _account_plan(row: dict[str, Any], floor: dict[str, Any]) -> dict[str, Any] 
         }
         reason = f"{err}; will replace with SSOT (scope={scope}, desired_count={len(want)})"
     else:
-        diff = _mapping_diff(got, want)
+        diff = _mapping_diff(got, want, allow_extra=allow_extra_model_mapping)
         if not _has_mapping_diff(diff):
             policy = _mapping_policy_violations(row, floor)
             if not policy:
@@ -611,7 +637,12 @@ def _runtime_setting_violation(raw: Any) -> str | None:
     return None
 
 
-def _check_target(label: str, region: str, instance_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _check_target(
+    label: str,
+    region: str,
+    instance_id: str,
+    allow_extra_model_mapping: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     bundle = _run_check_sql_json(region, instance_id, label)
     violations: list[dict[str, Any]] = []
     runtime_reason = _runtime_setting_violation(bundle.get("runtime_setting"))
@@ -626,7 +657,7 @@ def _check_target(label: str, region: str, instance_id: str) -> tuple[list[dict[
         return violations, []
     floor = _load_effective_floor(bundle.get("runtime_setting"))
     for row in bundle.get("accounts") or []:
-        plan = _account_plan(row, floor)
+        plan = _account_plan(row, floor, allow_extra_model_mapping=allow_extra_model_mapping)
         if not plan:
             continue
         plan["target"] = label
@@ -830,6 +861,7 @@ def _account_check_report(
     include_edges: bool,
     parallel: int,
     prod_instance_id: str | None = None,
+    allow_extra_model_mapping: bool = False,
 ) -> dict[str, Any]:
     targets = _resolve_check_targets(
         skip_prod,
@@ -839,7 +871,7 @@ def _account_check_report(
     violations: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as ex:
-        futs = {ex.submit(_check_target, *t): t for t in targets}
+        futs = {ex.submit(_check_target, *t, allow_extra_model_mapping): t for t in targets}
         for fut in as_completed(futs):
             label = futs[fut][0]
             try:
@@ -855,6 +887,8 @@ def _account_check_report(
     report = {
         "targets": [t[0] for t in targets],
         "target_count": len(targets),
+        "ssot_repo_root": str(_SSOT_REPO_ROOT),
+        "allow_extra_model_mapping": allow_extra_model_mapping,
         "managed_platforms": list(MANAGED_PLATFORMS),
         "violation_count": len(violations),
         "error_count": len(errors),
@@ -865,12 +899,15 @@ def _account_check_report(
 
 
 def cmd_check_accounts(args) -> int:
+    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
     report = _account_check_report(
         skip_prod=args.skip_prod,
         include_edges=args.include_edges,
         parallel=args.parallel,
         prod_instance_id=getattr(args, "prod_instance_id", None),
+        allow_extra_model_mapping=args.allow_extra_model_mapping,
     )
+    target_count = report["target_count"]
     errors = report["errors"]
     violations = report["violations"]
     if args.json:
@@ -884,20 +921,41 @@ def cmd_check_accounts(args) -> int:
             for v in report["violations"]:
                 print(f"  [{v['target']}] {v['kind']} {v.get('id')} ({v.get('name')}): {v['reason']}")
     elif violations:
-        print(f"FAIL: {len(violations)} account model_mapping violation(s) across {len(targets)} target(s):")
+        print(f"FAIL: {len(violations)} account model_mapping violation(s) across {target_count} target(s):")
         for v in report["violations"]:
             print(f"  [{v['target']}] {v['kind']} {v.get('id')} ({v.get('name')}): {v['reason']}")
     else:
-        print(f"OK: all managed account model_mapping scopes explicit across {len(targets)} target(s).")
+        print(f"OK: all managed account model_mapping scopes explicit across {target_count} target(s).")
     if errors:
         return 2
     return 1 if violations else 0
 
 
+def _command_with_ssot_root(parts: list[str]) -> str:
+    if _SSOT_REPO_ROOT != REPO_ROOT:
+        parts.extend(["--ssot-repo-root", str(_SSOT_REPO_ROOT)])
+    return " ".join(shlex.quote(part) for part in parts)
+
+
 def _release_gate_remediation() -> list[str]:
     return [
-        "python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run",
-        f"python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --confirm {APPLY_CONFIRM}",
+        _command_with_ssot_root([
+            "python3",
+            "ops/pricing/manage-account-model-mapping-runtime.py",
+            "apply-accounts",
+            "--target",
+            "prod",
+            "--dry-run",
+        ]),
+        _command_with_ssot_root([
+            "python3",
+            "ops/pricing/manage-account-model-mapping-runtime.py",
+            "apply-accounts",
+            "--target",
+            "prod",
+            "--confirm",
+            APPLY_CONFIRM,
+        ]),
     ]
 
 
@@ -912,7 +970,7 @@ def _release_gate_status(report: dict[str, Any]) -> str:
 def _print_release_gate_human(report: dict[str, Any]) -> None:
     status = _release_gate_status(report)
     if status == "ok":
-        print("OK: prod account model_mapping matches this checkout's Go SSOT. Release may proceed.")
+        print("OK: prod account model_mapping covers this release's Go SSOT floor. Release may proceed.")
         return
     if status == "error":
         print("ERROR: release gate could not read prod account model_mapping.")
@@ -921,7 +979,7 @@ def _print_release_gate_human(report: dict[str, Any]) -> None:
         print("This gate is read-only; fix AWS/OIDC/SSM access and rerun deploy.")
         return
 
-    print("FAIL: prod account model_mapping is behind this checkout's Go SSOT.")
+    print("FAIL: prod account model_mapping is behind this release's Go SSOT floor.")
     print("The image was not deployed. Review and apply the SSOT diff, then rerun deploy:")
     for cmd in _release_gate_remediation():
         print(f"  {cmd}")
@@ -934,11 +992,13 @@ def _print_release_gate_human(report: dict[str, Any]) -> None:
 
 
 def cmd_release_gate(args) -> int:
+    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
     report = _account_check_report(
         skip_prod=False,
         include_edges=args.include_edges,
         parallel=args.parallel,
         prod_instance_id=args.prod_instance_id,
+        allow_extra_model_mapping=True,
     )
     status = _release_gate_status(report)
     if args.json:
@@ -955,6 +1015,7 @@ def cmd_release_gate(args) -> int:
 
 
 def cmd_apply_accounts(args) -> int:
+    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
     if not args.dry_run and args.confirm != APPLY_CONFIRM:
         fail(f"apply-accounts requires --confirm {APPLY_CONFIRM}")
     targets = _resolve_apply_targets(args.target)
@@ -1211,6 +1272,39 @@ def cmd_selftest(_args) -> int:
         "type": "oauth",
         "model_mapping": {},
     }, floor)
+    strict_extra = _account_plan(
+        {
+            "id": 3,
+            "platform": "openai",
+            "type": "oauth",
+            "model_mapping": {
+                "gpt-5.6": "gpt-5.6",
+                "gpt-5.6-luna": "gpt-5.6-luna",
+                "gpt-5.6-sol": "gpt-5.6-sol",
+                "gpt-5.6-terra": "gpt-5.6-terra",
+                "future-model": "future-model",
+            },
+        },
+        floor,
+    )
+    assert strict_extra and strict_extra["diff"]["extra_keys"] == ["future-model"]
+    assert _account_plan(
+        {
+            "id": 3,
+            "platform": "openai",
+            "type": "oauth",
+            "model_mapping": {
+                "gpt-5.6": "gpt-5.6",
+                "gpt-5.6-luna": "gpt-5.6-luna",
+                "gpt-5.6-sol": "gpt-5.6-sol",
+                "gpt-5.6-terra": "gpt-5.6-terra",
+                "future-model": "future-model",
+            },
+        },
+        floor,
+        allow_extra_model_mapping=True,
+    ) is None
+    _set_ssot_repo_root(str(REPO_ROOT))
     plan = _account_plan(
         {"id": 1, "platform": "grok", "type": "oauth", "model_mapping": {"grok": "grok-4.3"}},
         floor,
@@ -1289,16 +1383,24 @@ def main() -> int:
     sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
     sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
+    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
+    sp.add_argument(
+        "--allow-extra-model-mapping",
+        action="store_true",
+        help="treat live mappings as a superset floor check instead of exact equality",
+    )
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
-    sp = sub.add_parser("release-gate", help="pre-deploy hard gate: prod account model_mapping must match this checkout's Go SSOT")
+    sp = sub.add_parser("release-gate", help="pre-deploy hard gate: prod account model_mapping must cover this release's Go SSOT floor")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
+    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
     sp.add_argument("--target", required=True, help="prod, edge:<id>, or all-deployable-and-prod")
     sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")
     sp.add_argument("--dry-run", action="store_true", help="print the planned account/group changes without writing")
+    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
     sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
     sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to runtime settings")
     sp.add_argument("--file", type=Path, required=True)

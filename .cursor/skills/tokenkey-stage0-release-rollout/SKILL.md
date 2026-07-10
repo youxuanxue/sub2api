@@ -34,7 +34,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
 | 发版后 tick 探针（hook 计数 + 流量/5xx/panic） | 机械 | `ops/observability/probe-post-release-tick.sh`（经 `run-probe.sh` 投递；默认 `CONTAINER=auto` 自动识别 prod blue/green active container；`HOOK_PATTERNS` 里的 hook 关键词由模型按 Step A 命名——命名是判断，计数是机械） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
-| **发版前 Account model_mapping SSOT gate** | 机械 | `deploy-stage0.yml` 在 SSM 换镜像前跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate`（默认 prod only；edge 保持空 mapping 不纳入门禁，见 §「发版前 Account model_mapping SSOT 硬门禁」） |
+| **发版前 Account model_mapping SSOT gate** | 机械 | `deploy-stage0.yml` 在 SSM 换镜像前跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate`，并把 SSOT 绑定到待发布 `v<tag>` checkout（默认 prod only；edge 保持空 mapping 不纳入门禁，见 §「发版前 Account model_mapping SSOT 硬门禁」） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
@@ -57,7 +57,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
 | `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
-| `account_model_mapping_check` | prod deploy workflow 固定执行前置 `release-gate`（不可跳过）：只读 diff prod 显式 `model_mapping` 与当前 tag 的 Go SSOT，红灯则不换镜像。`account_model_mapping_check=false` 只跳过额外 post-release 摘要，不跳过 workflow hard gate。edge 空 mapping 不纳入门禁；需显式 `--include-edges` 才查 edge。 |
+| `account_model_mapping_check` | prod deploy workflow 固定执行前置 `release-gate`（不可跳过）：只读检查 prod 显式 `model_mapping` 覆盖待发布 tag 的 Go SSOT floor，红灯则不换镜像。live prod 可以因预热/回滚比 tag 多，但不能少 key / 错 target / 含 forbidden key。`account_model_mapping_check=false` 只跳过额外 post-release 摘要，不跳过 workflow hard gate。edge 空 mapping 不纳入门禁；需显式 `--include-edges` 才查 edge。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
@@ -607,7 +607,7 @@ next: none | /tokenkey-anthropic-oauth-config <plan kind>
 - `operation=release`（非 check / smoke-only / rollback）
 - `target=prod` 或 `target=all` 触发 `deploy-stage0.yml`
 
-**做什么 / 不做什么**：本段**只读硬门禁**——`deploy-stage0.yml` 在 SSM 换镜像前，默认仅 prod 经 SSM 读 active 账号和 Antigravity active groups，使用当前 tag 的 Go SSOT 生成期望 mapping 并输出 diff，验证所有受管平台账号都已显式配置非空 `credentials.model_mapping`，且 Antigravity group scopes 与 Go SSOT 一致。Python 工具不维护 Grok alias、Kiro 模型、Antigravity live Claude 等“应包含”清单；这些全部来自 `backend/cmd/account-model-mapping` 导出的 floor。edge 账号 `model_mapping` 保持空（全路由），不纳入 release gate；需显式 `--include-edges` 才查 deployable edges。不写任何库；runtime setting 只做合法性校验并作为 desired layer 参与 diff。服务进程不会在启动、`settings_updated` fan-out 或周期 tick 中批量覆盖账号配置；写入必须走 `/tokenkey-modelops-planner` 分支 D 的显式 `apply-accounts --confirm yes-apply-account-model-mapping`。
+**做什么 / 不做什么**：本段**只读硬门禁**——`deploy-stage0.yml` 在 SSM 换镜像前，默认仅 prod 经 SSM 读 active 账号和 Antigravity active groups，使用待发布 `v<tag>` checkout 的 Go SSOT 生成 release floor 并输出 diff，验证所有受管平台账号都已显式配置非空 `credentials.model_mapping`，且覆盖该 floor；live prod 可以为预热/回滚保留额外 mapping，但不能缺 key、错 target 或包含 Go SSOT 明确 forbidden 的 key/prefix。Antigravity group scopes 仍要求与 Go SSOT 一致。Python 工具不维护 Grok alias、Kiro 模型、Antigravity live Claude 等“应包含”清单；这些全部来自 `backend/cmd/account-model-mapping` 导出的 floor。edge 账号 `model_mapping` 保持空（全路由），不纳入 release gate；需显式 `--include-edges` 才查 deployable edges。不写任何库；runtime setting 只做合法性校验并作为 desired layer 参与 diff。服务进程不会在启动、`settings_updated` fan-out 或周期 tick 中批量覆盖账号配置；写入必须走 `/tokenkey-modelops-planner` 分支 D 的显式 `apply-accounts --confirm yes-apply-account-model-mapping`。
 
 **机械化命令**：
 
@@ -625,7 +625,7 @@ MODEL_MAPPING_RC=${PIPESTATUS[0]}
 
 | rc | 摘要 verdict | 动作 |
 |---|---|---|
-| 0 | **green** — 所有受管平台账号 `model_mapping` 与 SSOT 一致 | 继续 deploy |
+| 0 | **green** — prod 账号 `model_mapping` 覆盖待发布 tag 的 SSOT floor | 继续 deploy |
 | 1 | **red** — 有账号/Antigravity group/runtime setting 不满足 SSOT diff | **不换镜像**；审 diff 后走 `/tokenkey-modelops-planner` 分支 D 的 `apply-accounts --confirm yes-apply-account-model-mapping`，再重跑 deploy |
 | 2 | **red** — SSM/OIDC 只读失败 | **不换镜像**；补 OIDC/实例在线后重跑 deploy |
 
@@ -703,7 +703,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
 | 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |
 | 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
-| 发版前 Account model_mapping `release-gate` 报 violation | prod 镜像尚未切换；审 workflow log 里的账号/group diff。确认要覆盖 live 配置时走 `/tokenkey-modelops-planner` 分支 D：必要时 `validate/check/sync-runtime` 更新 desired layer，然后 `apply-accounts --target prod --confirm yes-apply-account-model-mapping`，再重跑 deploy。 |
+| 发版前 Account model_mapping `release-gate` 报 violation | prod 镜像尚未切换；审 workflow log 里的账号/group diff。新增模型通常先走 `/tokenkey-modelops-planner` 分支 D 预热 prod 账号物化层：必要时 `validate/check/sync-runtime` 更新 desired layer，然后 `apply-accounts --target prod --confirm yes-apply-account-model-mapping`，再重跑 deploy。 |
 | 发版前 Account model_mapping `release-gate` SSM 失败 | prod 镜像尚未切换；补 OIDC/实例在线后重跑 deploy。只读诊断可手动跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`；仅排障 edge 时加 `--include-edges` 或 `--skip-prod`。 |
 
 ## 扩展阅读（按需打开）

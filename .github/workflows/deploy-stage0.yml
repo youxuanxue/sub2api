@@ -48,14 +48,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: ./.github/actions/cache-and-checkout-new-api
-
-      - name: Setup Go for account model_mapping SSOT gate
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: backend/go.mod
-          cache: false
-
       - name: Validate tag + resolve stack name
         id: stack
         run: |
@@ -177,13 +169,30 @@ jobs:
           echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
           echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
 
+      - name: Checkout release source for account model_mapping SSOT
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ format('v{0}', env.INPUT_TAG) }}
+          fetch-depth: 1
+          path: .cache/release-source
+
+      - name: Checkout release new-api sibling for account model_mapping SSOT
+        run: bash scripts/ci/ensure-new-api-sibling.sh "$GITHUB_WORKSPACE/.cache/release-source"
+
+      - name: Setup Go for account model_mapping SSOT gate
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: .cache/release-source/backend/go.mod
+          cache: false
+
       - name: Pre-deploy account model_mapping SSOT gate
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
         run: |
           set -euo pipefail
           python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate \
-            --prod-instance-id "$INSTANCE_ID"
+            --prod-instance-id "$INSTANCE_ID" \
+            --ssot-repo-root "$GITHUB_WORKSPACE/.cache/release-source"
 
       - name: Deploy via SSM Run-Command
         id: ssm

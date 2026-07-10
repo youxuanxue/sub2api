@@ -65,7 +65,8 @@ stable bare id. Legacy retirement redirects and third-party slugs without an
 official declaration stay **priced-only** (explicit requests must not bill `$0`).
 
 **prod is the only release gate.** `deploy-stage0.yml` runs this before the SSM
-image swap:
+image swap. The workflow checks out `v${INPUT_TAG}` separately and uses that
+release tag's Go floor, not the workflow branch checkout:
 
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
@@ -77,6 +78,11 @@ Default scope is prod only. If it fails, review the diff and converge prod via:
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --confirm yes-apply-account-model-mapping
 ```
+
+The gate is a release-floor check. Prod account mappings may be ahead of the tag
+for preheating or rollback, but they must cover the tag's required keys and must
+not contain keys/prefixes the tag's Go SSOT explicitly forbids. For new models,
+preheat prod `model_mapping` first, then deploy the tag that displays/routes it.
 
 `check-accounts --json` remains the read-only diagnostic form; `violation_count`
 must be `0` before treating prod serving as ready.

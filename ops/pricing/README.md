@@ -143,9 +143,11 @@ the compiled floor.
 align on prod: catalog allowlists, pricing overlay/channel rows, and prod
 `accounts.credentials.model_mapping` (plus optional runtime replacement). The prod
 deploy workflow runs `release-gate` **before** the SSM image swap, using the
-release checkout's Go SSOT helper against live prod accounts. Modelops diagnostics
-use `check-accounts` **without** `--include-edges`; `violation_count` must be `0`
-on prod.
+release checkout's Go SSOT helper against live prod accounts. The gate is a
+release-floor check: prod may already contain extra preheated mappings, but it
+must not be behind the tag being deployed or contain keys/prefixes forbidden by
+that tag's Go SSOT. Modelops diagnostics use `check-accounts` **without**
+`--include-edges`; `violation_count` must be `0` on prod for strict convergence.
 
 **Official upstream aliases:** when a managed platform or newapi channel's provider
 model page declares an id/alias and TokenKey has priced + probe-verified servability,
@@ -177,6 +179,13 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
   --target all-deployable-and-prod \
   --confirm yes-apply-account-model-mapping
 ```
+
+For a newly served model, preheat the live materialization first, then deploy the
+tag whose Go floor exposes it. That ordering is intentional: the old image does
+not publicly display the new model until pricing/display/catalog code ships, and
+the deploy gate prevents the new image from exposing a model that prod accounts
+cannot route yet. Rollback is not trapped by preheated extras because
+`release-gate` accepts a live superset unless the release SSOT forbids a key.
 
 ## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
 
