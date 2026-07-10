@@ -32,6 +32,7 @@ Exit 0 ok, 1 violation, 2 missing dep / file / unparseable.
 
 from __future__ import annotations
 
+import argparse
 import json
 import pathlib
 import sys
@@ -64,13 +65,21 @@ THINKING_ANCHORS = ("qwen3-8b", "qwen3-14b", "qwen3-32b")
 
 
 def main() -> int:
-    quiet = "--quiet" in sys.argv
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--quiet", action="store_true", help="suppress success output")
+    ap.add_argument("--path", type=pathlib.Path, default=OVERLAY,
+                    help="overlay JSON to validate (default: repo embedded overlay)")
+    args = ap.parse_args()
+    quiet = args.quiet
+    overlay = args.path
+    if not overlay.is_absolute():
+        overlay = REPO_ROOT / overlay
 
-    if not OVERLAY.is_file():
-        print(f"  FAIL: pricing overlay not found: {OVERLAY}", flush=True)
+    if not overlay.is_file():
+        print(f"  FAIL: pricing overlay not found: {overlay}", flush=True)
         return 2
     try:
-        data = json.loads(OVERLAY.read_text(encoding="utf-8"))
+        data = json.loads(overlay.read_text(encoding="utf-8"))
     except (ValueError, OSError) as exc:
         print(f"  FAIL: pricing overlay unparseable: {exc}", flush=True)
         return 2

@@ -25,6 +25,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
+| **prod pricing overlay runtime sync** | 机械 | `deploy-stage0.yml` 在镜像切换 + external health 后，从部署 tag 的 `tk_pricing_overlay.json` 自动执行 `ops/pricing/manage-overlay-runtime.py sync-runtime --overlay-path …`；失败阻断后续 smoke |
 | prod 镜像预热（deploy 前，把 ~150s pull 移出关键路径） | 机械 | `gh workflow run warm-image-stage0.yml` + `approve-github-run-env.sh` + watch（只读、非致命；见 §「部署目标矩阵 → prod」） |
 | prod / warm Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（批不批、何时批是判断） |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
@@ -111,7 +112,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 
 ## 一次性跑完（原则）
 
-- **顺序做完**：`release-bump-and-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **watch 到 deploy/smoke 成功** → **Anthropic OAuth snapshot/check + Account model_mapping check（默认）** → **再做本地/日志验收 / followup**。不要在 workflow 绿灯后就结束会话。
+- **顺序做完**：`release-bump-and-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **deploy-stage0 自动同步 pricing overlay runtime 并完成 smoke** → **Anthropic OAuth snapshot/check + Account model_mapping check（默认）** → **再做本地/日志验收 / followup**。不要在 workflow 绿灯后就结束会话。
 - **永远不在共享 checkout 里 bump/tag**：`release-bump-and-tag.sh` 自带 worktree 隔离与 fetch，不需要也不应该先 `git checkout main && git pull`（并行 agent 可能正占用 checkout——见 §「决策 + bump + tag」）。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
 - **Environment approval 不是失败**：`prod` / `edge-<edge_id>` run 卡在 `waiting` 时，按 §「部署目标矩阵 → prod」的 approval 命令在 canary 绿后自批（执行账号非 reviewer 时回落人工）；批准后继续 watch。
@@ -214,6 +215,12 @@ gh run list --workflow=deploy-stage0.yml --limit 3 --json databaseId,event,creat
 gh workflow run deploy-stage0.yml \
   -f tag="$TARGET_TAG"
 ```
+
+`deploy-stage0.yml` 会在 SSM 换镜像且 external health 通过后，自动从 `v$TARGET_TAG` 读取
+`backend/internal/service/tk_pricing_overlay.json` 并同步到 prod
+`settings.tk_pricing_overlay_runtime`，随后才跑完整 smoke。价格改动不需要人工另跑
+`manage-overlay-runtime.py sync-runtime`；若该步骤失败，部署 run 会在 smoke 前失败，按日志修
+sync 脚本或 AWS/SSM/DB 通道后重跑 deploy。
 
 **Environment approval（机械命令，时机是判断）**：canary full smoke 绿后再批 prod deploy：
 
