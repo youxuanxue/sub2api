@@ -26,6 +26,21 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 		return enabled
 	}
 
+	type seededRule struct {
+		enabled       bool
+		threshold     float64
+		windowMinutes int
+	}
+	ruleFor := func(metricType string) seededRule {
+		var rule seededRule
+		err := integrationDB.QueryRowContext(ctx,
+			`SELECT enabled, threshold, window_minutes FROM ops_alert_rules WHERE metric_type = $1 ORDER BY id LIMIT 1`,
+			metricType,
+		).Scan(&rule.enabled, &rule.threshold, &rule.windowMinutes)
+		require.NoError(t, err, "metric_type %s should be seeded", metricType)
+		return rule
+	}
+
 	absentFor := func(metricType string) {
 		var id int64
 		err := integrationDB.QueryRowContext(ctx,
@@ -36,8 +51,13 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	}
 
 	// tk_060: user-experience-first P0/P1 guardrails.
-	require.True(t, enabledFor("user_visible_failure_count"),
+	userVisibleFailureRule := ruleFor("user_visible_failure_count")
+	require.True(t, userVisibleFailureRule.enabled,
 		"tk_060 user_visible_failure_count rule must be enabled")
+	require.Equal(t, 50.0, userVisibleFailureRule.threshold,
+		"tk_064 raises the prod P0 user-visible threshold to 50 failures")
+	require.Equal(t, 5, userVisibleFailureRule.windowMinutes,
+		"prod P0 user-visible threshold is evaluated over 5 minutes")
 	require.True(t, enabledFor("client_visible_failure_count"),
 		"tk_060 client_visible_failure_count rule must be enabled")
 
