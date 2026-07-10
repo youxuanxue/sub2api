@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import base64
 import gzip
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -126,17 +127,24 @@ def read_runtime_blob(instance_id: str) -> dict:
         fail(f"runtime settings blob decode failed (host gzip|base64 read-back): {e}")
 
 
-def load_repo_overlay() -> dict:
+def overlay_path(args) -> Path:
+    p = Path(getattr(args, "overlay_path", "") or OVERLAY_PATH)
+    if not p.is_absolute():
+        p = REPO_ROOT / p
+    return p
+
+
+def load_repo_overlay(path: Path = OVERLAY_PATH) -> dict:
     try:
-        return json.loads(OVERLAY_PATH.read_text())
+        return json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as e:
-        fail(f"cannot read repo overlay {OVERLAY_PATH}: {e}")
+        fail(f"cannot read repo overlay {path}: {e}")
 
 
 # --- subcommands --------------------------------------------------------------
 
 def cmd_check(_args) -> int:
-    repo = load_repo_overlay()
+    repo = load_repo_overlay(overlay_path(_args))
     inst = _SSM.resolve_prod_instance()
     runtime = read_runtime_blob(inst)
     drift = compute_overlay_drift(repo, runtime)
@@ -155,11 +163,19 @@ def cmd_check(_args) -> int:
 
 
 def cmd_sync_runtime(args) -> int:
-    # 1. validate the repo overlay with the SAME gate the PR ran.
-    gate = subprocess.run([sys.executable, str(OVERLAY_GATE)], cwd=str(REPO_ROOT))
-    if gate.returncode != 0:
-        fail("pricing-overlay.py gate failed; refusing to push an invalid overlay")
-    overlay_bytes = OVERLAY_PATH.read_bytes()
+    # 1. validate the repo overlay with the SAME gate the PR ran. When deploying
+    # a historical tag, the caller passes a temp overlay extracted from that tag;
+    # do not run today's stricter anchor set against an older artifact (rollback
+    # must not be blocked by anchors added after the target tag). That tag's CI
+    # already validated its overlay; here we still parse + require non-empty below.
+    path = overlay_path(args)
+    if path.resolve() == OVERLAY_PATH.resolve():
+        gate = subprocess.run([sys.executable, str(OVERLAY_GATE), "--path", str(path)], cwd=str(REPO_ROOT))
+        if gate.returncode != 0:
+            fail("pricing-overlay.py gate failed; refusing to push an invalid overlay")
+    else:
+        print(f"  note: validating non-default overlay path with parse/non-empty checks only: {path}")
+    overlay_bytes = path.read_bytes()
     # sanity: must parse + be non-empty
     doc = json.loads(overlay_bytes)
     if not overlay_entries(doc):
@@ -189,25 +205,26 @@ def cmd_sync_runtime(args) -> int:
     # Decode on the host, re-base64 the plain JSON, decode that inside Postgres. The stored
     # `value` is the exact overlay JSON (byte-identical to the old :'v' path); `check` reads
     # it back unchanged.
-    upsert = (
+    expected_len = len(overlay_bytes.decode("utf-8"))
+    expected_md5 = hashlib.md5(overlay_bytes).hexdigest()
+    shell = (
+        "set -euo pipefail\n"
+        f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
+        f"echo \"json_b64_len=${{#JSON_B64}} expected_raw_b64_len={len(base64.b64encode(overlay_bytes).decode())}\"\n"
+        "echo '=== upsert tk_pricing_overlay_runtime ==='\n"
+        f"{PSQL} <<SQL\n"
         f"INSERT INTO settings (key, value, updated_at) VALUES "
         f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
-        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();"
-    )
-    shell = (
-        "set -uo pipefail\n"
-        f"PSQL='{PSQL}'\n"
-        f"RC='{REDISCLI}'\n"
-        f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
-        "echo '=== upsert tk_pricing_overlay_runtime ==='\n"
-        f"$PSQL -c \"{upsert}\" </dev/null && echo UPSERT_OK\n"
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();\n"
+        f"SELECT key || '|' || length(value)::text || '|' || md5(value) "
+        f"FROM settings WHERE key='{SETTING_KEY}';\n"
+        "SQL\n"
+        "echo UPSERT_OK\n"
         "echo '=== publish settings_updated (fan-out reload) ==='\n"
         # Best-effort: the UPSERT above is the durable truth; PUBLISH only makes the reload
         # immediate. Surface (don't swallow) a failure so the operator knows replicas will
         # lag to the poll interval instead of reloading now.
-        "$RC PUBLISH settings_updated refresh </dev/null || echo 'WARN: redis PUBLISH failed; replicas reload within the pricing poll interval, not immediately'\n"
-        "echo '=== settings_after ==='\n"
-        f"$PSQL -c \"SELECT key, length(value) AS bytes FROM settings WHERE key='{SETTING_KEY}';\" </dev/null\n"
+        f"{REDISCLI} PUBLISH settings_updated refresh </dev/null || echo 'WARN: redis PUBLISH failed; replicas reload within the pricing poll interval, not immediately'\n"
     )
     b64 = base64.b64encode(shell.encode()).decode()
     if len(b64) > 90_000:  # headroom under the 97KB SSM SendCommand parameter ceiling
@@ -217,6 +234,9 @@ def cmd_sync_runtime(args) -> int:
     print(out)
     if "UPSERT_OK" not in out:
         fail("UPSERT did not report success — inspect the SSM output above (psql error? guard?)")
+    expected_line = f"{SETTING_KEY}|{expected_len}|{expected_md5}"
+    if expected_line not in out:
+        fail(f"UPSERT read-back mismatch: expected {expected_line!r} in SSM output")
     # Post-sync verify: re-read the settings row (DB truth, not the in-memory replica cache)
     # and confirm it now matches git. Catches a silently-partial/failed write that still
     # returned Success (the SSM stdout-truncation class of bug that motivated this hardening).
@@ -281,9 +301,13 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--selftest", action="store_true", help="offline drift-logic test")
     sub = ap.add_subparsers(dest="cmd")
-    sub.add_parser("check", help="read-only drift audit (git vs prod runtime)")
+    cp = sub.add_parser("check", help="read-only drift audit (git vs prod runtime)")
+    cp.add_argument("--overlay-path", default=str(OVERLAY_PATH),
+                    help="pricing overlay JSON to compare (default: repo embedded overlay)")
     sp = sub.add_parser("sync-runtime", help="hot-push repo overlay to prod settings")
     sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--overlay-path", default=str(OVERLAY_PATH),
+                    help="pricing overlay JSON to push (default: repo embedded overlay)")
     args = ap.parse_args()
 
     if args.selftest:
