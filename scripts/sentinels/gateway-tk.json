@@ -1514,7 +1514,8 @@
         "func SetClaudeCodeUserAgentResolver(",
         "func GetCanonicalUserAgentForContext(ctx context.Context) string",
         "canonicalUAPrefix = \"claude-cli/\"",
-        "canonicalUASuffix = \" (external, cli)\""
+        "canonicalUASuffix = \" (external, cli)\"",
+        "DefaultClaudeCodeUserAgentVersion = \"2.1.206\""
       ],
       "rationale": "Canonical Claude Code OAuth HTTP identity pinning. Anchors three independent guarantees: (1) the TLS profile id is stable (`tk_canonical_cc_oauth`) and never embeds cc CLI patch version — bumping cc UA never triggers DB profile rename + migration; (2) the UA is sourced through the 3-layer resolver (admin setting via SetClaudeCodeUserAgentResolver → CLAUDE_CODE_USER_AGENT_VERSION env → compile default), so a cc patch bump is an admin-UI change, not a code change + redeploy + SQL apply; (3) the prefix/suffix wrap (`claude-cli/...(external, cli)`) is fixed by design — only the version-only middle field is configurable. The two-arg signature of applyCanonicalHTTPObserved (fp + userAgent) is pinned because an upstream refactor that drops the userAgent parameter would silently fall back to a hardcoded literal and reintroduce the patch-version-bound regression."
     },
@@ -1578,7 +1579,8 @@
       "must_contain": [
         "\"sonnet_opus\"",
         "\"haiku\"",
-        "\"cc_version\""
+        "\"cc_version\"",
+        "2.1.206"
       ],
       "rationale": "Single JSON source for HTTP mimicry runtime sync (plan-http-mimicry-sync / sync-runtime). Bumped with cc capture PR; applied to edges without image release."
     },
@@ -2192,7 +2194,9 @@
       "path": "backend/internal/pkg/claude/constants.go",
       "must_contain": [
         "(external, cli)",
-        "v26.3.0"
+        "v26.3.0",
+        "CLICurrentVersion = \"2.1.206\"",
+        "claude-cli/2.1.206"
       ],
       "rationale": "Single-source-of-truth for the Claude Code mimicry identity: DefaultHeaders must carry the canonical UA suffix (external, cli) and node v26.3.0 so a fingerprint-fallback request stays consistent with the single canonical TLS ClientHello. An upstream merge reverting these to the old Linux/(external, cli)/v24.13.0 values reintroduces a self-contradicting TLS-vs-HTTP fingerprint. Also locked by identity_canonical_consistency_test.go."
     },
@@ -2200,7 +2204,8 @@
       "path": "backend/internal/service/identity_service.go",
       "must_contain": [
         "(external, cli)",
-        "v26.3.0"
+        "v26.3.0",
+        "claude-cli/2.1.206"
       ],
       "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, cli) and node v26.3.0. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
     },
