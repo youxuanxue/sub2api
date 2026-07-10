@@ -21,7 +21,10 @@ func tkIsOpenAICompatEdgeMirrorStub(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey || !isEdgeMirrorStub(account, edgeIDPattern) {
 		return false
 	}
-	return account.Platform == PlatformOpenAI || account.Platform == PlatformGrok
+	if account.Platform == PlatformOpenAI || account.Platform == PlatformGrok {
+		return account.Platform == PlatformGrok || tkIsOpenAIEdgeMirrorStub(account)
+	}
+	return false
 }
 
 func tkIsDownstreamRateLimitEnvelope(statusCode int, upstreamMsg string, responseBody []byte) bool {
