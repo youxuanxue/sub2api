@@ -3,7 +3,7 @@ package service
 import "testing"
 
 func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
-	listed := firstMapKeyForTest(t, loadTkServedModelsManifestIDs())
+	listed := firstServedManifestKeyForTest(t, loadTkServedModelsManifestIDs())
 	if !isTkCuratedNewAPIModelListed(listed) {
 		t.Fatalf("manifest-listed model %q must be recognized", listed)
 	}
@@ -14,7 +14,7 @@ func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
 
 func TestIsTkCuratedNewAPIModelDisplayed(t *testing.T) {
 	loadTkServedModelsManifest()
-	displayed := firstMapKeyForTest(t, tkServedModelsManifestDisplayIDs)
+	displayed := firstServedManifestKeyForTest(t, tkServedModelsManifestDisplayIDs)
 	if !isTkCuratedNewAPIModelDisplayed(displayed) {
 		t.Fatalf("display=true manifest row %q must be public-display eligible", displayed)
 	}
@@ -59,4 +59,13 @@ func containsString(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func firstServedManifestKeyForTest(t *testing.T, m map[string]struct{}) string {
+	t.Helper()
+	for k := range m {
+		return k
+	}
+	t.Fatal("expected non-empty manifest set")
+	return ""
 }
