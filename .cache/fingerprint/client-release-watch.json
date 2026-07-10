@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-10T00:13:31Z",
-  "git_sha": "d889ece885080258b5a5dacbe9c4b770a0ac27de",
+  "updated_at": "2026-07-10T04:03:55Z",
+  "git_sha": "bca9400121fed37a205a2bcc742d9ea66571004d",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.205",
+      "pinned": "2.1.206",
       "upstream_latest": "2.1.206",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.205",
-          "published_at": "2026-07-08T21:22:06Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.205",
-          "raw_tag": "v2.1.205"
+          "version": "2.1.206",
+          "published_at": "2026-07-10T01:45:26Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.206",
+          "raw_tag": "v2.1.206"
         },
         "npm @anthropic-ai/claude-code": {
           "version": "2.1.206",
@@ -40,9 +40,9 @@
       }
     },
     "codex": {
-      "pinned": "0.143.0",
+      "pinned": "0.144.1",
       "upstream_latest": "0.144.1",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -61,9 +61,9 @@
       }
     },
     "codex-vscode": {
-      "pinned": "0.143.0",
+      "pinned": "0.144.1",
       "upstream_latest": "0.144.1",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
