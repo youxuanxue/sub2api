@@ -165,7 +165,7 @@ def read_pinned_claude_code() -> str:
 
 def read_pinned_codex() -> str:
     text = _read_text(SETTING_GO)
-    m = re.search(r'codex-tui/(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)', text)
+    m = re.search(r'DefaultOpenAICodexVersion\s*=\s*"([^"]+)"', text)
     return normalize_version(m.group(1)) if m else ""
 
 
@@ -371,7 +371,7 @@ PLATFORM_SPECS: list[PlatformSpec] = [
         id="codex",
         name="Codex CLI",
         skill="tokenkey-codex-fingerprint-alignment",
-        pin_path="backend/internal/service/setting_gateway_runtime.go (+ 4 other pins)",
+        pin_path="backend/internal/service/setting_gateway_runtime.go DefaultOpenAICodexVersion",
         sources=[
             SourceSpec(
                 kind="npm",

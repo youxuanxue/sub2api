@@ -47,8 +47,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTING_GO = REPO_ROOT / "backend/internal/service/setting_gateway_runtime.go"
 GATEWAY_GO = REPO_ROOT / "backend/internal/service/openai_gateway_service.go"
 USAGE_GO = REPO_ROOT / "backend/internal/service/account_usage_service.go"
-EN_TS = REPO_ROOT / "frontend/src/i18n/locales/en/admin/settings.ts"
-ZH_TS = REPO_ROOT / "frontend/src/i18n/locales/zh/admin/settings.ts"
 NON_VERSION_PIN_GO_FILES = (
     REPO_ROOT / "backend/internal/service/openai_gateway_scheduling.go",
     REPO_ROOT / "backend/internal/service/openai_gateway_forward.go",
@@ -72,7 +70,7 @@ class Pin:
 
     key: str
     path: Path
-    kind: str  # "bare" (value IS the version) | "ua" (version embedded in a UA literal)
+    kind: str  # "bare" (value IS the version) | "ua" (version embedded) | "alias" (derives from source)
     raw: str = ""  # the full literal as found (UA string, or bare version)
     version: str = ""  # the extracted codex version
     consistent_internal: bool = True  # UA prefix/suffix versions agree
@@ -157,6 +155,15 @@ def _find1(text: str, pattern: str) -> str:
     return m.group(1) if m else ""
 
 
+def _alias_pin(key: str, path: Path, symbol: str, text: str, source_version: str) -> Pin:
+    literal = _find1(text, rf'{symbol}\s*=\s*"([^"]+)"')
+    if literal:
+        return Pin(key, path, "bare", raw=literal, version=literal, found=True)
+    if re.search(rf"{symbol}\s*=\s*DefaultOpenAICodexVersion\b", text):
+        return Pin(key, path, "alias", raw="DefaultOpenAICodexVersion", version=source_version, found=bool(source_version))
+    return Pin(key, path, "alias", found=False)
+
+
 # --------------------------------------------------------------------------- #
 # baseline (read the live repo pins)
 # --------------------------------------------------------------------------- #
@@ -164,27 +171,24 @@ def load_baseline() -> Baseline:
     bl = Baseline()
 
     setting_txt = _read(SETTING_GO)
-    ua = _find1(setting_txt, r'DefaultOpenAICodexUserAgent\s*=\s*"([^"]+)"')
-    p = Pin("ua_default", SETTING_GO, "ua", raw=ua, found=bool(ua))
-    if ua:
-        p.version, p.consistent_internal = extract_ua_version(ua)
-    bl.pins.append(p)
+    source_version = _find1(setting_txt, r'DefaultOpenAICodexVersion\s*=\s*"([^"]+)"')
+    bl.pins.append(Pin("version_source", SETTING_GO, "bare", raw=source_version, version=source_version, found=bool(source_version)))
 
-    gateway_txt = _read(GATEWAY_GO)
-    gv = _find1(gateway_txt, r'codexCLIVersion\s*=\s*"([^"]+)"')
-    bl.pins.append(Pin("gateway_version", GATEWAY_GO, "bare", raw=gv, version=gv, found=bool(gv)))
+    ua_expr = _find1(setting_txt, r"DefaultOpenAICodexUserAgent\s*=\s*([^\n]+)")
+    ua_uses_source = ua_expr.count("DefaultOpenAICodexVersion") >= 2
+    bl.pins.append(Pin(
+        "ua_default",
+        SETTING_GO,
+        "alias",
+        raw=ua_expr,
+        version=source_version if ua_uses_source else "",
+        found=bool(ua_expr),
+        consistent_internal=ua_uses_source,
+    ))
 
-    usage_txt = _read(USAGE_GO)
-    pv = _find1(usage_txt, r'openAICodexProbeVersion\s*=\s*"([^"]+)"')
-    bl.pins.append(Pin("probe_version", USAGE_GO, "bare", raw=pv, version=pv, found=bool(pv)))
-
-    for key, path in (("placeholder_en", EN_TS), ("placeholder_zh", ZH_TS)):
-        txt = _read(path)
-        ua_ph = _find1(txt, r"openaiCodexUserAgentPlaceholder:\s*'([^']+)'")
-        pp = Pin(key, path, "ua", raw=ua_ph, found=bool(ua_ph))
-        if ua_ph:
-            pp.version, pp.consistent_internal = extract_ua_version(ua_ph)
-        bl.pins.append(pp)
+    service_txt = "\n".join((setting_txt, _read(GATEWAY_GO), _read(USAGE_GO)))
+    bl.pins.append(_alias_pin("gateway_version", SETTING_GO, "codexCLIVersion", service_txt, source_version))
+    bl.pins.append(_alias_pin("probe_version", SETTING_GO, "openAICodexProbeVersion", service_txt, source_version))
 
     # Non-version pins (sanity, not bumped). These live in thin companion files
     # after the upstream merge split the gateway hot path.
@@ -258,9 +262,9 @@ def diff_pins(bl: Baseline, installed: str) -> list[Row]:
             rows.append(Row(p.key, "", installed, "missing", critical=True,
                             note=f"could not read pin in {p.rel}"))
             continue
-        if p.kind == "ua" and not p.consistent_internal:
+        if not p.consistent_internal:
             rows.append(Row(p.key, p.version, installed, "mismatch", critical=True,
-                            note="UA prefix/suffix versions disagree (half-done edit)"))
+                            note="version derivation is incomplete (half-done edit)"))
             continue
         if not installed:
             rows.append(Row(p.key, p.version, "", "info", note="codex CLI not installed"))
@@ -283,9 +287,9 @@ def consistency_rows(bl: Baseline) -> list[Row]:
             rows.append(Row(p.key, "", consensus, "missing", critical=True,
                             note=f"could not read pin in {p.rel}"))
             continue
-        if p.kind == "ua" and not p.consistent_internal:
+        if not p.consistent_internal:
             rows.append(Row(p.key, p.version, consensus, "mismatch", critical=True,
-                            note="UA prefix/suffix versions disagree"))
+                            note="version derivation is incomplete"))
             continue
         status = "match" if consensus and p.version == consensus else "mismatch"
         rows.append(Row(p.key, p.version, consensus, status, critical=(status != "match")))
@@ -296,6 +300,8 @@ def emit_edits(bl: Baseline, new_version: str) -> list[dict]:
     edits = []
     for p in bl.pins:
         if not p.found or p.version == new_version and p.consistent_internal:
+            continue
+        if p.kind == "alias":
             continue
         if p.kind == "bare":
             edits.append({"file": p.rel, "old": p.raw, "new": new_version})
@@ -417,9 +423,9 @@ def cmd_check_consistency(_args) -> int:
         print("Codex version pins are NOT mutually consistent:", file=sys.stderr)
         _print_rows(rows, sys.stderr)
         consensus = bl.consensus()
-        print("\nAll five pins must carry the SAME codex version. Re-run a full bump "
-              "(ops/openai/capture-codex-fingerprint.sh emit-edits) so the UA default, "
-              "gateway version, probe version, and en/zh placeholders agree.", file=sys.stderr)
+        print("\nThe service Codex pins must derive from DefaultOpenAICodexVersion. "
+              "Re-run a full bump (ops/openai/capture-codex-fingerprint.sh emit-edits) "
+              "so the version source, UA default, gateway version, and probe version agree.", file=sys.stderr)
         return 1
     print(f"codex version pins consistent: all = {bl.consensus()}")
     return 0
