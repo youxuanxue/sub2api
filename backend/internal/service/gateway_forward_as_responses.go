@@ -117,7 +117,7 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
-	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(anthropicBody)
+	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(account, anthropicBody)
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
@@ -166,8 +166,8 @@ func (s *GatewayService) ForwardAsResponses(
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		if resp.StatusCode == http.StatusBadRequest {
-			tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, mappedModel, resp.StatusCode, respBody)
-			tkRecordAnthropicThinkingRuleFrom400(account.Platform, mappedModel, resp.StatusCode, respBody)
+			tkRecordAnthropicSamplingParamRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
+			tkRecordAnthropicThinkingRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))

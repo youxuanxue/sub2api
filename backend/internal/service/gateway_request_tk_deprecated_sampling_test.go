@@ -171,17 +171,17 @@ func TestTkSamplingParamRuleFromAnthropic400(t *testing.T) {
 	unsupportedBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"temperature: Extra inputs are not permitted"}}`)
 	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unsupportedBody)
 	require.True(t, ok)
-	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+	require.Equal(t, tkSamplingParamRuleStripTemperature, rule)
 
 	unknownParamBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Unknown parameter: top_k"}}`)
 	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unknownParamBody)
 	require.True(t, ok)
-	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+	require.Equal(t, tkSamplingParamRuleStripTopK, rule)
 
 	unrecognizedParamBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Unrecognized request argument supplied: top_p"}}`)
 	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unrecognizedParamBody)
 	require.True(t, ok)
-	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+	require.Equal(t, tkSamplingParamRuleStripTopP, rule)
 
 	nonSamplingUnknownParamBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Unknown parameter: max_tokens"}}`)
 	_, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, nonSamplingUnknownParamBody)
@@ -234,13 +234,40 @@ func TestTkStripDeprecatedSamplingParams_UsesCachedSamplingRule(t *testing.T) {
 	tkSamplingParamRules.Flush()
 	defer tkSamplingParamRules.Flush()
 
+	account := &Account{ID: 77, Platform: PlatformAnthropic}
 	body := []byte(`{"model":"claude-next-preview","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`)
-	require.Equal(t, body, tkStripDeprecatedSamplingParams(body))
+	require.Equal(t, body, tkStripDeprecatedSamplingParamsForAccount(account, body))
 
-	tkPutCachedSamplingParamRule("claude-next-preview", tkSamplingParamRuleStripTopPWithTemperature)
-	got := tkStripDeprecatedSamplingParams(body)
+	tkPutCachedSamplingParamRule(account, "claude-next-preview", body, tkSamplingParamRuleStripTopPWithTemperature)
+	got := tkStripDeprecatedSamplingParamsForAccount(account, body)
 	require.True(t, gjson.GetBytes(got, "temperature").Exists())
 	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.True(t, gjson.GetBytes(got, "top_k").Exists())
+}
+
+func TestTkStripDeprecatedSamplingParams_CachedRuleScopedByAccountAndRequestShape(t *testing.T) {
+	tkSamplingParamRules.Flush()
+	defer tkSamplingParamRules.Flush()
+
+	account := &Account{ID: 78, Platform: PlatformAnthropic}
+	otherAccount := &Account{ID: 79, Platform: PlatformAnthropic}
+	failedShape := []byte(`{"model":"claude-next-preview","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`)
+	tkPutCachedSamplingParamRule(account, "claude-next-preview", failedShape, tkSamplingParamRuleStripTemperature)
+
+	noSampling := []byte(`{"model":"claude-next-preview","messages":[]}`)
+	require.Equal(t, noSampling, tkStripDeprecatedSamplingParamsForAccount(account, noSampling),
+		"model-level cache must not touch requests without the failed sampling shape")
+
+	differentShape := []byte(`{"model":"claude-next-preview","top_p":0.9,"messages":[]}`)
+	require.Equal(t, differentShape, tkStripDeprecatedSamplingParamsForAccount(account, differentShape),
+		"same model with different sampling fields must remain untouched")
+
+	require.Equal(t, failedShape, tkStripDeprecatedSamplingParamsForAccount(otherAccount, failedShape),
+		"sampling compatibility cache must not cross account boundaries")
+
+	got := tkStripDeprecatedSamplingParamsForAccount(account, failedShape)
+	require.False(t, gjson.GetBytes(got, "temperature").Exists())
+	require.True(t, gjson.GetBytes(got, "top_p").Exists())
 	require.True(t, gjson.GetBytes(got, "top_k").Exists())
 }
 
@@ -248,14 +275,19 @@ func TestTkApplyAnthropicRequestCompatibilityRules_UsesCachedAdaptiveThinkingRul
 	tkAnthropicThinkingRules.Flush()
 	defer tkAnthropicThinkingRules.Flush()
 
+	account := &Account{ID: 80, Platform: PlatformAnthropic}
 	body := []byte(`{"model":"claude-next-preview","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048,"messages":[]}`)
-	require.Equal(t, body, tkApplyAnthropicRequestCompatibilityRules(body))
+	require.Equal(t, body, tkApplyAnthropicRequestCompatibilityRules(account, body))
 
-	tkPutCachedAnthropicThinkingRule("claude-next-preview", tkAnthropicThinkingRuleAdaptiveOnly)
-	got := tkApplyAnthropicRequestCompatibilityRules(body)
+	tkPutCachedAnthropicThinkingRule(account, "claude-next-preview", body, tkAnthropicThinkingRuleAdaptiveOnly)
+	got := tkApplyAnthropicRequestCompatibilityRules(account, body)
 	require.Equal(t, "adaptive", gjson.GetBytes(got, "thinking.type").String())
 	require.False(t, gjson.GetBytes(got, "thinking.budget_tokens").Exists())
 	require.Equal(t, "claude-next-preview", gjson.GetBytes(got, "model").String())
+
+	withoutThinking := []byte(`{"model":"claude-next-preview","messages":[]}`)
+	require.Equal(t, withoutThinking, tkApplyAnthropicRequestCompatibilityRules(account, withoutThinking),
+		"thinking cache must not touch normal requests without the failed thinking shape")
 }
 
 func TestRectifyAnthropicPassthrough400_SamplingParamRetryCachesRule(t *testing.T) {
@@ -265,7 +297,7 @@ func TestRectifyAnthropicPassthrough400_SamplingParamRetryCachesRule(t *testing.
 	body := []byte(`{"model":"claude-next-preview","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[]}`)
 	respBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You should either alter temperature or top_p, but not both."}}`)
 	svc := &GatewayService{}
-	account := &Account{Platform: PlatformAnthropic}
+	account := &Account{ID: 81, Platform: PlatformAnthropic}
 
 	got, kind, ok := svc.rectifyAnthropicPassthrough400(context.Background(), account, body, "claude-next-preview", respBody)
 
@@ -274,7 +306,7 @@ func TestRectifyAnthropicPassthrough400_SamplingParamRetryCachesRule(t *testing.
 	require.True(t, gjson.GetBytes(got, "temperature").Exists())
 	require.False(t, gjson.GetBytes(got, "top_p").Exists())
 	require.True(t, gjson.GetBytes(got, "top_k").Exists())
-	rule, exists := tkGetCachedSamplingParamRule("claude-next-preview")
+	rule, exists := tkGetCachedSamplingParamRule(account, "claude-next-preview", body)
 	require.True(t, exists)
 	require.Equal(t, tkSamplingParamRuleStripTopPWithTemperature, rule)
 }

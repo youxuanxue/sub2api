@@ -71,7 +71,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models.
-	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return err
 	}
 
@@ -232,8 +232,8 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
 	if resp.StatusCode == 400 {
-		tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, reqModel, resp.StatusCode, respBody)
-		tkRecordAnthropicThinkingRuleFrom400(account.Platform, reqModel, resp.StatusCode, respBody)
+		tkRecordAnthropicSamplingParamRuleFrom400(account, reqModel, body, resp.StatusCode, respBody)
+		tkRecordAnthropicThinkingRuleFrom400(account, reqModel, body, resp.StatusCode, respBody)
 	}
 	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
@@ -396,8 +396,8 @@ func (s *GatewayService) forwardCountTokensAnthropicPassthrough(ctx context.Cont
 	if resp.StatusCode >= 400 {
 		if resp.StatusCode == 400 {
 			model := gjson.GetBytes(body, "model").String()
-			tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, model, resp.StatusCode, respBody)
-			tkRecordAnthropicThinkingRuleFrom400(account.Platform, model, resp.StatusCode, respBody)
+			tkRecordAnthropicSamplingParamRuleFrom400(account, model, body, resp.StatusCode, respBody)
+			tkRecordAnthropicThinkingRuleFrom400(account, model, body, resp.StatusCode, respBody)
 		}
 		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
 			logger.LegacyPrintf("service.gateway",

@@ -82,6 +82,10 @@ func tkClaudeFamilyVersionAtLeast(modelID, family string, minMajor, minMinor int
 // models that reject temperature+top_p in the same request. Nested JSON-schema
 // properties with the same names must remain intact.
 func tkStripDeprecatedSamplingParams(body []byte) []byte {
+	return tkStripDeprecatedSamplingParamsForAccount(nil, body)
+}
+
+func tkStripDeprecatedSamplingParamsForAccount(account *Account, body []byte) []byte {
 	if len(body) == 0 {
 		return body
 	}
@@ -92,10 +96,8 @@ func tkStripDeprecatedSamplingParams(body []byte) []byte {
 		return tkStripTopLevelSamplingFields(out, body)
 	}
 
-	if cachedRule, ok := tkGetCachedSamplingParamRule(model); ok {
+	if cachedRule, ok := tkGetCachedSamplingParamRule(account, model, body); ok {
 		switch cachedRule {
-		case tkSamplingParamRuleStripAll:
-			return tkStripTopLevelSamplingFields(out, body)
 		case tkSamplingParamRuleStripTopPWithTemperature:
 			if gjson.GetBytes(out, "temperature").Exists() && gjson.GetBytes(out, "top_p").Exists() {
 				stripped, err := sjson.DeleteBytes(out, "top_p")
@@ -105,6 +107,12 @@ func tkStripDeprecatedSamplingParams(body []byte) []byte {
 				out = stripped
 			}
 			return out
+		case tkSamplingParamRuleStripTemperature:
+			return tkStripTopLevelSamplingField(out, body, "temperature")
+		case tkSamplingParamRuleStripTopP:
+			return tkStripTopLevelSamplingField(out, body, "top_p")
+		case tkSamplingParamRuleStripTopK:
+			return tkStripTopLevelSamplingField(out, body, "top_k")
 		}
 	}
 
@@ -118,6 +126,17 @@ func tkStripDeprecatedSamplingParams(body []byte) []byte {
 		out = stripped
 	}
 	return out
+}
+
+func tkStripTopLevelSamplingField(body []byte, fallback []byte, field string) []byte {
+	if !gjson.GetBytes(body, field).Exists() {
+		return body
+	}
+	stripped, err := sjson.DeleteBytes(body, field)
+	if err != nil {
+		return fallback
+	}
+	return stripped
 }
 
 func tkStripTopLevelSamplingFields(body []byte, fallback []byte) []byte {

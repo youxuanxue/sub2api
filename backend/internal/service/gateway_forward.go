@@ -403,7 +403,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models before upstream.
-	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
 		return nil, err
 	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept
@@ -510,8 +510,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr == nil {
 				_ = resp.Body.Close()
-				tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, reqModel, resp.StatusCode, respBody)
-				tkRecordAnthropicThinkingRuleFrom400(account.Platform, reqModel, resp.StatusCode, respBody)
+				tkRecordAnthropicSamplingParamRuleFrom400(account, reqModel, body, resp.StatusCode, respBody)
+				tkRecordAnthropicThinkingRuleFrom400(account, reqModel, body, resp.StatusCode, respBody)
 
 				if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

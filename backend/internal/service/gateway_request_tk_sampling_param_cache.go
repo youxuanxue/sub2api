@@ -3,6 +3,7 @@ package service
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,24 +20,54 @@ type tkSamplingParamRule string
 
 const (
 	tkSamplingParamRuleStripTopPWithTemperature tkSamplingParamRule = "strip_top_p_with_temperature"
-	tkSamplingParamRuleStripAll                 tkSamplingParamRule = "strip_all_sampling"
+	tkSamplingParamRuleStripTemperature         tkSamplingParamRule = "strip_temperature"
+	tkSamplingParamRuleStripTopP                tkSamplingParamRule = "strip_top_p"
+	tkSamplingParamRuleStripTopK                tkSamplingParamRule = "strip_top_k"
 )
 
 var tkSamplingParamRules = gocache.New(tkSamplingParamRuleCacheTTL, tkSamplingParamRuleCacheCleanup)
 
-func tkSamplingParamRuleCacheKey(model string) string {
+func tkAnthropicCompatibilityCacheScope(account *Account) string {
+	if account == nil || account.ID <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(account.ID, 10)
+}
+
+func tkSamplingParamRuleCacheKey(account *Account, model string, body []byte) string {
+	scope := tkAnthropicCompatibilityCacheScope(account)
+	if scope == "" {
+		return ""
+	}
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "" {
 		return ""
 	}
-	return model
+	shape := tkSamplingParamRuleRequestShape(body)
+	if shape == "" {
+		return ""
+	}
+	return scope + "|" + model + "|" + shape
 }
 
-func tkGetCachedSamplingParamRule(model string) (tkSamplingParamRule, bool) {
+func tkSamplingParamRuleRequestShape(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var fields []string
+	for _, field := range tkDeprecatedSamplingTopLevelFields {
+		if gjson.GetBytes(body, field).Exists() {
+			fields = append(fields, field)
+		}
+	}
+	return strings.Join(fields, ",")
+}
+
+func tkGetCachedSamplingParamRule(account *Account, model string, body []byte) (tkSamplingParamRule, bool) {
 	if tkSamplingParamRules == nil {
 		return "", false
 	}
-	key := tkSamplingParamRuleCacheKey(model)
+	key := tkSamplingParamRuleCacheKey(account, model, body)
 	if key == "" {
 		return "", false
 	}
@@ -48,29 +79,31 @@ func tkGetCachedSamplingParamRule(model string) (tkSamplingParamRule, bool) {
 	return rule, ok
 }
 
-func tkPutCachedSamplingParamRule(model string, rule tkSamplingParamRule) {
+func tkPutCachedSamplingParamRule(account *Account, model string, requestBody []byte, rule tkSamplingParamRule) {
 	if tkSamplingParamRules == nil || rule == "" {
 		return
 	}
-	key := tkSamplingParamRuleCacheKey(model)
+	key := tkSamplingParamRuleCacheKey(account, model, requestBody)
 	if key == "" {
 		return
 	}
 	tkSamplingParamRules.Set(key, rule, gocache.DefaultExpiration)
 }
 
-func tkRecordAnthropicSamplingParamRuleFrom400(platform, model string, status int, body []byte) (tkSamplingParamRule, bool) {
-	if platform != PlatformAnthropic {
+func tkRecordAnthropicSamplingParamRuleFrom400(account *Account, model string, requestBody []byte, status int, body []byte) (tkSamplingParamRule, bool) {
+	if account == nil || account.Platform != PlatformAnthropic {
 		return "", false
 	}
 	rule, ok := tkSamplingParamRuleFromAnthropic400(model, status, body)
 	if !ok {
 		return "", false
 	}
-	tkPutCachedSamplingParamRule(model, rule)
+	tkPutCachedSamplingParamRule(account, model, requestBody, rule)
 	slog.Info("tk_anthropic_sampling_param_rule_cache_populate",
+		"account_id", account.ID,
 		"model", strings.ToLower(strings.TrimSpace(model)),
 		"rule", string(rule),
+		"shape", tkSamplingParamRuleRequestShape(requestBody),
 		"ttl", tkSamplingParamRuleCacheTTL.String())
 	return rule, true
 }
@@ -86,8 +119,8 @@ func tkSamplingParamRuleFromAnthropic400(model string, status int, body []byte) 
 	if tkIsTemperatureTopPConflictMessage(msg) {
 		return tkSamplingParamRuleStripTopPWithTemperature, true
 	}
-	if tkIsUnsupportedSamplingParamMessage(msg) {
-		return tkSamplingParamRuleStripAll, true
+	if rule, ok := tkUnsupportedSamplingParamRuleFromMessage(msg); ok {
+		return rule, true
 	}
 	return "", false
 }
@@ -109,6 +142,22 @@ func tkIsTemperatureTopPConflictMessage(lowerMessage string) bool {
 		(strings.Contains(compact, "eitheraltertemperatureortop_p") && strings.Contains(compact, "notboth"))
 }
 
+func tkUnsupportedSamplingParamRuleFromMessage(lowerMessage string) (tkSamplingParamRule, bool) {
+	if !tkIsUnsupportedSamplingParamMessage(lowerMessage) {
+		return "", false
+	}
+	switch {
+	case strings.Contains(lowerMessage, "temperature"):
+		return tkSamplingParamRuleStripTemperature, true
+	case strings.Contains(lowerMessage, "top_p"):
+		return tkSamplingParamRuleStripTopP, true
+	case strings.Contains(lowerMessage, "top_k"):
+		return tkSamplingParamRuleStripTopK, true
+	default:
+		return "", false
+	}
+}
+
 func tkIsUnsupportedSamplingParamMessage(lowerMessage string) bool {
 	hasSamplingParam := strings.Contains(lowerMessage, "temperature") ||
 		strings.Contains(lowerMessage, "top_p") ||
@@ -125,6 +174,6 @@ func tkIsUnsupportedSamplingParamMessage(lowerMessage string) bool {
 		strings.Contains(lowerMessage, "unrecognized parameter")
 }
 
-func tkApplyAnthropicRequestCompatibilityRules(body []byte) []byte {
-	return tkApplyCachedAnthropicThinkingRule(tkStripDeprecatedSamplingParams(body))
+func tkApplyAnthropicRequestCompatibilityRules(account *Account, body []byte) []byte {
+	return tkApplyCachedAnthropicThinkingRule(account, tkStripDeprecatedSamplingParamsForAccount(account, body))
 }

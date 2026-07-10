@@ -1311,7 +1311,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequire
 		settingService:   settingSvc,
 	}
 
-	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-opus-4-8", "claude-opus-4-8", false, time.Now())
+	account := newAnthropicAPIKeyAccountForTest()
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, account, body, "claude-opus-4-8", "claude-opus-4-8", false, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, upstreamJSON, rec.Body.String())
@@ -1319,11 +1320,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequire
 	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
 	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
-	rule, exists := tkGetCachedAnthropicThinkingRule("claude-opus-4-8")
+	rule, exists := tkGetCachedAnthropicThinkingRule(account, "claude-opus-4-8", body)
 	require.True(t, exists)
 	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
 
-	cached := tkApplyAnthropicRequestCompatibilityRules(body)
+	cached := tkApplyAnthropicRequestCompatibilityRules(account, body)
 	require.Equal(t, "adaptive", gjson.GetBytes(cached, "thinking.type").String())
 	require.False(t, gjson.GetBytes(cached, "thinking.budget_tokens").Exists(), "subsequent requests should be rectified before upstream")
 }
@@ -1371,7 +1372,7 @@ func TestGatewayService_AnthropicMainForward_AdaptiveRequired400RetriesWithAdapt
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
 	require.Equal(t, 3, result.Usage.InputTokens)
 	require.Equal(t, 2, result.Usage.OutputTokens)
-	rule, exists := tkGetCachedAnthropicThinkingRule("claude-opus-4-8")
+	rule, exists := tkGetCachedAnthropicThinkingRule(account, "claude-opus-4-8", body)
 	require.True(t, exists)
 	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
 }
