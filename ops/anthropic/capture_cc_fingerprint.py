@@ -11,6 +11,7 @@ Subcommands:
   check-tls  Exit 1 when bundle TLS ja3 fields mismatch TokenKey baseline.
   write-drift-spec  Write docs/spec-delta/cc-tls-drift-*.md from a drift bundle.
   bundle-from-artifacts  Build bundle JSON from TLS capture + HTTP log files.
+  tls-observed-from-pcap  Build tls-observed.json from a passive-pcap tshark TSV.
 
 HTTP betas are recorded as a full per-model-family distribution (not last-wins):
 cc is bimodal on Haiku — two beta sets alternate across requests in one session
@@ -23,6 +24,7 @@ stdlib-only except when invoked as __main__ with no network.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -1160,6 +1162,59 @@ def cmd_bundle_from_artifacts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_kiro_ja3_engine() -> Any:
+    """Reuse the Kiro engine's tshark/JA3 helpers (same wire format, no network)."""
+    kiro_py = REPO_ROOT / "ops/kiro/capture_kiro_fingerprint.py"
+    spec = importlib.util.spec_from_file_location("capture_kiro_fingerprint", kiro_py)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load kiro JA3 engine from {kiro_py}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def tls_observed_from_tshark_tsv(
+    tsv_text: str,
+    *,
+    cc_version: str = "",
+    source: str = "passive-pcap",
+) -> dict[str, Any]:
+    """Parse one ClientHello row and return collector-shaped tls-observed JSON."""
+    kiro = _load_kiro_ja3_engine()
+    fields = kiro.parse_tshark_tsv(tsv_text)
+    ja3_raw, ja3_hash = kiro.compute_ja3(
+        fields["version"],
+        fields["ciphers"],
+        fields["extensions"],
+        fields["curves"],
+        fields["point_formats"],
+    )
+    ua = f"claude-cli/{cc_version} (external, cli)" if cc_version else ""
+    return {
+        "ja3_hash": ja3_hash,
+        "ja3_raw": ja3_raw,
+        "user_agent": ua,
+        "server_name": fields.get("server_name", ""),
+        "source": source,
+    }
+
+
+def cmd_tls_observed_from_pcap(args: argparse.Namespace) -> int:
+    tsv_text = Path(args.tshark_tsv).read_text(encoding="utf-8")
+    observed = tls_observed_from_tshark_tsv(
+        tsv_text,
+        cc_version=args.cc_version or "",
+        source=args.source or "passive-pcap",
+    )
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(observed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(out)
+    print(f"ja3_hash={observed['ja3_hash']}")
+    return 0
+
+
 def cmd_show_baseline(_args: argparse.Namespace) -> int:
     baseline = load_tokenkey_baseline()
     print(json.dumps(baseline, indent=2, sort_keys=True))
@@ -1230,6 +1285,16 @@ def build_parser() -> argparse.ArgumentParser:
     bfa.add_argument("--collector", default="")
     bfa.add_argument("--out", required=True)
     bfa.set_defaults(func=cmd_bundle_from_artifacts)
+
+    pcap = sub.add_parser(
+        "tls-observed-from-pcap",
+        help="Build tls-observed.json from passive-pcap tshark TSV (JA3 ground truth)",
+    )
+    pcap.add_argument("--tshark-tsv", required=True)
+    pcap.add_argument("--out", required=True)
+    pcap.add_argument("--cc-version", default="")
+    pcap.add_argument("--source", default="passive-pcap")
+    pcap.set_defaults(func=cmd_tls_observed_from_pcap)
 
     show = sub.add_parser("show-baseline", help="Print TokenKey baseline JSON")
     show.set_defaults(func=cmd_show_baseline)

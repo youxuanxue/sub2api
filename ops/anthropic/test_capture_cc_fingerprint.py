@@ -149,6 +149,57 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
         self.assertEqual(ja3_row.status, "mismatch")
 
+class TLSObservedFromPcapTests(unittest.TestCase):
+    def test_builds_observed_json_from_tshark_tsv(self) -> None:
+        kiro = mod._load_kiro_ja3_engine()
+        header = "\t".join(kiro.TSHARK_FIELDS)
+        row = "\t".join(
+            [
+                "0x0303",
+                "4865,4866,4867",
+                "0,23,65281",
+                "29,23,24",
+                "0",
+                "0x0403,0x0804",
+                "h2,http/1.1",
+                "0x0304,0x0303",
+                "29",
+                "1",
+                "api.anthropic.com",
+            ]
+        )
+        source_cc = json.loads(
+            (mod.REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+            .read_text(encoding="utf-8")
+        )["cc_version"]
+        observed = mod.tls_observed_from_tshark_tsv(
+            header + "\n" + row + "\n",
+            cc_version=source_cc,
+            source="passive-pcap:test",
+        )
+        self.assertEqual(observed["user_agent"], f"claude-cli/{source_cc} (external, cli)")
+        self.assertEqual(observed["server_name"], "api.anthropic.com")
+        self.assertEqual(observed["source"], "passive-pcap:test")
+        self.assertRegex(observed["ja3_hash"], r"^[a-f0-9]{32}$")
+        self.assertTrue(observed["ja3_raw"].startswith("771,"))
+
+    def test_diff_matches_baseline_ja3_from_pcap_observed(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = {
+            "schema_version": 1,
+            "cc_version": baseline["canonical_http"]["default_version"],
+            "tls": {
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+            },
+            "http": {},
+        }
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
+        self.assertEqual(ja3_row.status, "match")
+
+
+class BundleRoundtripTests(unittest.TestCase):
     def test_bundle_roundtrip_write_and_load(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         bundle = mod.bundle_from_artifacts(
