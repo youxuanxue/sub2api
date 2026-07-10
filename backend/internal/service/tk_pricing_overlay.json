@@ -29,7 +29,7 @@
     "input_cost_per_token": 1.25e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2.5e-06,
-    "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-4.3 input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200 for grok-4.3, grok-4.3-latest and grok-latest; only the stable bare id is public-listed."
+    "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-4.3 input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200 for grok-4.3, grok-4.3-latest and grok-latest; 2026-07-10 direct upstream reprobe confirmed the alias family remains public-listable."
   },
   "grok-4.5": {
     "litellm_provider": "xai",
@@ -37,7 +37,7 @@
     "input_cost_per_token": 2e-06,
     "cache_read_input_token_cost": 5e-07,
     "output_cost_per_token": 6e-06,
-    "source": "xAI official pricing (docs.x.ai/developers/pricing + docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5 input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Priced-only after 2026-07-10 edge-us4 probe returned 400 Unsupported model with account_id=null; do not public-list until a live probe returns 200."
+    "source": "xAI official pricing (docs.x.ai/developers/pricing + docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5 input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200, so this id is public-listable."
   },
   "grok-4.5-latest": {
     "litellm_provider": "xai",
@@ -45,7 +45,7 @@
     "input_cost_per_token": 2e-06,
     "cache_read_input_token_cost": 5e-07,
     "output_cost_per_token": 6e-06,
-    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Priced-only after 2026-07-10 edge-us4 probe returned 400 Unsupported model with account_id=null; do not public-list until a live probe returns 200."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-4.5, so this alias is public-listable."
   },
   "grok-build-latest": {
     "litellm_provider": "xai",
@@ -53,7 +53,7 @@
     "input_cost_per_token": 2e-06,
     "cache_read_input_token_cost": 5e-07,
     "output_cost_per_token": 6e-06,
-    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-build-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Priced-only after 2026-07-10 edge-us4 probe returned 400 Unsupported model with account_id=null; do not public-list until a live probe returns 200."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-build-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-4.5, so this alias is public-listable."
   },
   "grok-4.3-latest": {
     "litellm_provider": "xai",
@@ -61,7 +61,7 @@
     "input_cost_per_token": 1.25e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2.5e-06,
-    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.3, captured 2026-07-09): grok-4.3-latest maps to grok-4.3 at input $1.25/Mtok, cached $0.20/Mtok, output $2.50/Mtok. Priced-only after 2026-07-10 edge-us4 probe returned 400 Unsupported model with account_id=null; do not public-list until a live probe returns 200."
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.3, captured 2026-07-09): grok-4.3-latest maps to grok-4.3 at input $1.25/Mtok, cached $0.20/Mtok, output $2.50/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-4.3, so this alias is public-listable."
   },
   "grok-latest": {
     "litellm_provider": "xai",
@@ -109,7 +109,7 @@
     "input_cost_per_token": 1e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2e-06,
-    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Priced-only after 2026-07-10 edge-us4 probe returned 400 Unsupported model with account_id=null; do not public-list until a live probe returns 200."
+    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-build-0.1, so this alias is public-listable."
   },
   "grok-code-fast-1-0825": {
     "litellm_provider": "xai",
@@ -117,7 +117,7 @@
     "input_cost_per_token": 1e-06,
     "cache_read_input_token_cost": 2e-07,
     "output_cost_per_token": 2e-06,
-    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast-1-0825 maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Priced-only after 2026-07-10 edge-us4 probe returned 400 Unsupported model with account_id=null; do not public-list until a live probe returns 200."
+    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast-1-0825 maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-build-0.1, so this alias is public-listable."
   },
   "grok-code-fast-1": {
     "litellm_provider": "xai",
@@ -1587,7 +1587,7 @@
     "supports_vision": true,
     "supports_pdf_input": true,
     "supports_reasoning": true,
-    "source": "TokenKey display alias for bare gpt-5.3 from account-76 mapping; price/context mirror litellm gpt-5.3-chat-latest captured via apply-pricing-hotfix.py lookup on 2026-07-09 (same token rate as gpt-5.3-codex)."
+    "source": "TokenKey pricing-only non-display alias for bare gpt-5.3; requests normalize to gpt-5.3-codex-spark after 2026-07-10 native OAuth probes found gpt-5.3-chat-latest upstream-rejected. Price/context mirror litellm gpt-5.3-chat-latest captured via apply-pricing-hotfix.py lookup on 2026-07-09 (same token rate as gpt-5.3-codex)."
   },
   "gpt-5.4": {
     "litellm_provider": "openai",

@@ -916,19 +916,19 @@ func TestNormalizeCodexModel_Gpt53(t *testing.T) {
 		"gpt5.4-mini":               "gpt-5.4-mini",
 		"gpt5.4mini":                "gpt-5.4-mini",
 		"gpt 5.4 mini":              "gpt-5.4-mini",
-		"gpt-5.3":                   "gpt-5.3-chat-latest",
-		"gpt5.3":                    "gpt-5.3-chat-latest",
-		"gpt-5.3-codex":             "gpt-5.3-codex",
-		"gpt5.3-codex":              "gpt-5.3-codex",
-		"gpt5.3codex":               "gpt-5.3-codex",
-		"gpt-5.3-codex-xhigh":       "gpt-5.3-codex",
+		"gpt-5.3":                   "gpt-5.3-codex-spark",
+		"gpt5.3":                    "gpt-5.3-codex-spark",
+		"gpt-5.3-codex":             "gpt-5.3-codex-spark",
+		"gpt5.3-codex":              "gpt-5.3-codex-spark",
+		"gpt5.3codex":               "gpt-5.3-codex-spark",
+		"gpt-5.3-codex-xhigh":       "gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark",
 		"gpt5.3-codex-spark":        "gpt-5.3-codex-spark",
 		"gpt5.3codexspark":          "gpt-5.3-codex-spark",
 		"gpt 5.3 codex spark":       "gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
-		"gpt 5.3 codex":             "gpt-5.3-codex",
+		"gpt 5.3 codex":             "gpt-5.3-codex-spark",
 	}
 
 	for input, expected := range cases {
@@ -950,7 +950,7 @@ func TestNormalizeCodexModel_RemovedModelsFallbackToSupportedTargets(t *testing.
 		"gpt-5.1-codex-mini": "gpt-5.3-codex-spark",
 		"gpt-5.2-codex":      "gpt-5.2",
 		"codex-mini-latest":  "gpt-5.3-codex-spark",
-		"gpt-5-codex":        "gpt-5-codex",
+		"gpt-5-codex":        "gpt-5.3-codex-spark",
 	}
 
 	for input, expected := range cases {

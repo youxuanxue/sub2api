@@ -271,11 +271,11 @@ func TestRejectDeprecatedOpenAICompatModel(t *testing.T) {
 		h := &OpenAIGatewayHandler{}
 		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
 
-		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5-codex", true))
+		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5.2", true))
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		require.Equal(t, "error", gjson.GetBytes(rec.Body.Bytes(), "type").String())
 		require.Equal(t, service.TkDeprecatedOpenAIErrorType, gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "gpt-5.3-codex-spark")
+		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "gpt-5.5")
 		require.True(t, hasOpsClientRequestRejected(c))
 	})
 
@@ -285,7 +285,7 @@ func TestRejectDeprecatedOpenAICompatModel(t *testing.T) {
 		h := &OpenAIGatewayHandler{}
 		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformGrok}}
 
-		require.False(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5-codex", false))
+		require.False(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5.2", false))
 		require.Empty(t, rec.Body.String())
 		require.False(t, hasOpsClientRequestRejected(c))
 	})

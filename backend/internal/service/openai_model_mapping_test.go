@@ -246,6 +246,9 @@ func TestNormalizeCodexModel(t *testing.T) {
 		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark", // exact prefix match
 		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark", // suffix stripped via codexVersionModelPrefixes
 		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
+		"gpt-5.3-codex":             "gpt-5.3-codex-spark", // non-display legacy alias
+		"gpt-5.3-codex-high":        "gpt-5.3-codex-spark",
+		"gpt-5-codex-xhigh":         "gpt-5.3-codex-spark",
 		"gpt-image-2":               "gpt-image-2",     // image-generation models pass through unmapped
 		"gpt-5.4-nano-high":         "gpt-5.4-nano",    // unknown reasoning-effort suffix stripped
 		"gpt6":                      "gpt6",            // unknown gpt model passes through unchanged
@@ -297,16 +300,16 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
-			name:    "oauth preserves legacy gpt-5.3-codex for deprecated gate",
+			name:    "oauth maps legacy gpt-5.3-codex alias to spark",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3-codex",
-			want:    "gpt-5.3-codex",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
-			name:    "oauth maps bare gpt-5.3 alias to official chat id",
+			name:    "oauth maps bare gpt-5.3 alias to spark",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3",
-			want:    "gpt-5.3-chat-latest",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
 			name:    "oauth normalizes codex-mini-latest alias to spark via codexModelMap",

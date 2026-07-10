@@ -75,18 +75,15 @@ var openAICompatRoutingAliases = map[string]string{
 	"gpt-5-chat":        "gpt-5.5",
 	"gpt-5-chat-latest": "gpt-5.5",
 	// Non-display compatibility alias: clients that type the bare official
-	// family id should reach the official chat wire id when that id is
-	// provisioned, without advertising bare gpt-5.3 in the catalog.
-	"gpt-5.3": "gpt-5.3-chat-latest",
+	// family id should reach the live-proven Codex Spark wire id, without
+	// advertising bare gpt-5.3 in the catalog.
+	"gpt-5.3": "gpt-5.3-codex-spark",
 }
 
 func resolveOpenAICompatRoutingAlias(model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return ""
-	}
-	if matched, _, ok := tkLookupDeprecatedOpenAIModelWithoutRouting(model); ok {
-		return matched
 	}
 	if target, ok := openAICompatRoutingAliases[model]; ok {
 		return target
@@ -102,10 +99,6 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	if normalized == "" {
 		return ""
 	}
-	if matched, _, ok := tkLookupDeprecatedOpenAIModelWithoutRouting(normalized); ok {
-		return matched
-	}
-
 	if mapped := getNormalizedCodexModel(normalized); mapped != "" {
 		return mapped
 	}
@@ -137,9 +130,11 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	case strings.Contains(normalized, "gpt-5.3-codex-spark"):
 		return "gpt-5.3-codex-spark"
 	case strings.Contains(normalized, "gpt-5.3-codex"):
-		return "gpt-5.3-codex"
+		return "gpt-5.3-codex-spark"
+	case strings.Contains(normalized, "gpt-5-codex"):
+		return "gpt-5.3-codex-spark"
 	case normalized == "gpt-5.3":
-		return "gpt-5.3-chat-latest"
+		return "gpt-5.3-codex-spark"
 	case strings.Contains(normalized, "codex"):
 		return "gpt-5.3-codex-spark"
 	case strings.Contains(normalized, "gpt-5-chat"):

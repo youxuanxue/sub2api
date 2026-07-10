@@ -74,6 +74,11 @@ GROK_REQUIRED_ALIASES = {
     "grok-latest": "grok-4.3",
     "grok-build": "grok-build-0.1",
     "grok-4-fast-reasoning": "grok-4.3",
+    "grok-4.3-latest": "grok-4.3",
+    "grok-4.5-latest": "grok-4.5",
+    "grok-build-latest": "grok-4.5",
+    "grok-code-fast": "grok-build-0.1",
+    "grok-code-fast-1-0825": "grok-build-0.1",
     "grok-4.20-reasoning": "grok-4.20-0309-reasoning",
     "grok-4.20-non-reasoning": "grok-4.20-0309-non-reasoning",
 }

@@ -100,8 +100,8 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 		require.True(t, account.IsModelSupported(model), "known routing alias should match the OpenAI floor")
 	}
 	require.True(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark itself remains served")
-	require.False(t, account.IsModelSupported("gpt-5.3-codex"), "legacy codex id must hit the deprecated-model gate")
-	require.False(t, account.IsModelSupported("gpt-5-codex"), "legacy codex id must hit the deprecated-model gate")
+	require.True(t, account.IsModelSupported("gpt-5.3-codex"), "legacy codex id should alias to spark without display")
+	require.True(t, account.IsModelSupported("gpt-5-codex"), "legacy GPT-5 Codex id should alias to spark without display")
 	require.False(t, account.IsModelSupported("gpt-5.6"), "unsupported upstream-rejected family must stay out of the floor")
 }
 

@@ -1,5 +1,7 @@
 package service
 
+import "strings"
+
 // parentHealthyForShadow 报告 spark 影子账号的母账号凭据是否可用(影子据此可被调度)。
 //
 // 非影子账号直接返回 true（不受此检查约束）。
@@ -30,11 +32,20 @@ func parentHealthyForShadow(account *Account, lookup func(int64) *Account) bool 
 func sparkModelVariants() []string {
 	out := make([]string, 0, 1)
 	for alias, target := range codexModelMap {
-		if target == "gpt-5.3-codex-spark" {
+		if target == "gpt-5.3-codex-spark" && !isNonDisplaySparkRoutingAlias(alias) {
 			out = append(out, alias)
 		}
 	}
 	return out
+}
+
+func isNonDisplaySparkRoutingAlias(alias string) bool {
+	switch alias {
+	case "gpt-5.3", "gpt-5.3-none", "gpt-5.3-low", "gpt-5.3-medium", "gpt-5.3-high", "gpt-5.3-xhigh":
+		return true
+	}
+	return strings.HasPrefix(alias, "gpt-5.3-codex") && !strings.HasPrefix(alias, "gpt-5.3-codex-spark") ||
+		strings.HasPrefix(alias, "gpt-5-codex")
 }
 
 // defaultSparkShadowModelMapping 返回 spark 影子账号的默认 model_mapping。

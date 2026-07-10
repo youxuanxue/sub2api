@@ -34,8 +34,9 @@ import (
 //     gpt-5-chat-latest remain priced for billing but are hidden from /pricing
 //     and /models; clients may still request them and are routed through
 //     CanonicalizeOpenAICompatRoutingModel to a served floor id. Retired /
-//     never-selectable ids such as gpt-5.2, gpt-5.3-codex, gpt-5-codex, and
-//     codex-auto-review take the deprecated-model 400 path instead.
+//     never-selectable ids such as gpt-5.2 and codex-auto-review take the
+//     deprecated-model 400 path instead; non-display aliases such as
+//     gpt-5.3-codex route to their canonical supported target.
 //     codex-auto-review is deliberately EXCLUDED from both sets even though it
 //     returns a live 200: it is an internal ChatGPT-Codex capability, not a
 //     directly-selectable model, so it is routed through the hard-rejection gate
@@ -202,8 +203,14 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-4.20-0309-non-reasoning": {},
 	"grok-4.20-0309-reasoning":     {},
 	"grok-4.3":                     {},
+	"grok-4.3-latest":              {},
+	"grok-4.5":                     {},
+	"grok-4.5-latest":              {},
 	"grok-build-0.1":               {},
+	"grok-build-latest":            {},
+	"grok-code-fast":               {},
 	"grok-code-fast-1":             {},
+	"grok-code-fast-1-0825":        {},
 	"grok-imagine-image":           {},
 	"grok-imagine-image-quality":   {},
 	"grok-imagine-video":           {},

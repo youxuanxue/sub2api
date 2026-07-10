@@ -4,7 +4,7 @@
 >
 > **数据来源（repo-grounded，非线上探测）**：本清单由仓库内的权威源推导——5 个 Go servable-allowlist map、`tk_served_models.json` 清单、`tk_pricing_overlay.json` 价格 overlay、各平台 `DefaultModels`、newapi 渠道适配器目录、`model_mapping` 迁移。
 >
-> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist，2026-07-04 退休 native Gemini Google One pool，2026-07-10 复测 OpenAI / Ainzy / Gemini / Grok 新模型边界。实测探针基线：claude/gpt 2026-06-05，OpenAI SSOT audit 2026-07-10（`codex-auto-review` 改判为内部能力、deprecated-model 400）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，2026-07-04 `gemini-eng-g2` / `gemini-am-g2` 直接账号探针仍为上游 429，group 8 已软删除）、antigravity 2026-06-23、grok 2026-07-10（`grok-4.5*` 与若干 alias 未拿到 live 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
+> **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist，2026-07-04 退休 native Gemini Google One pool，2026-07-10 复测 OpenAI / Ainzy / Gemini / Grok 新模型边界。实测探针基线：claude/gpt 2026-06-05，OpenAI SSOT audit 2026-07-10（`codex-auto-review` 改判为内部能力、deprecated-model 400；`gpt-5.3*` legacy Codex 写法改为非展示 alias 到 spark）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，2026-07-04 `gemini-eng-g2` / `gemini-am-g2` 直接账号探针仍为上游 429，group 8 已软删除）、antigravity 2026-06-23、grok 2026-07-10（direct xAI upstream account probe 证实 `grok-4.5*` 与若干 alias 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
 >
 > **如何重生成渠道目录**（附录 A）：在 `backend/` 写一个 `//go:build unit` 临时 test 调 `newapi.ChannelTypeModels()` / `ListChannelTypes()` 打印即可（本清单即如此抓取，用后删除）。
 
@@ -105,9 +105,9 @@ gpt-5.3-codex-spark  gpt-5.4  gpt-5.4-mini  gpt-5.5
 ```
 
 - native OpenAI 与 `api.ainzy.net/v1` 独立：`supportedOpenAICatalogModels` 不能由 account 76 探测结果覆盖；Ainzy 使用独立 `openai_ainzy_relay` floor。
-- **2026-07-10 边界**：native OpenAI / `api.ainzy.net/v1` floor 收敛为 4 个实测可服务 id（见 `ops/pricing/examples/openai-oauth-proven.json`）；`gpt-5.2*`、`gpt-5.3-codex` / `gpt-5-codex` legacy id、`codex-auto-review`、`gpt-5`、chat/pro/search/5.1、`gpt-5.4-pro` 暂不进入 public/menu/default catalog。可路由 legacy GPT-5 写法（如 `gpt-5.4-high`、`codex-mini-latest`、`gpt-5-chat-latest`）在账号选择前归一到上述 floor id；裸 `gpt-5.3` 只作为非展示 alias 指向 `gpt-5.3-chat-latest`，需该官方 id 经 live proof 后才展示；不可服务族（如 `gpt-5.6*`）仍拒绝。
+- **2026-07-10 边界**：native OpenAI / `api.ainzy.net/v1` floor 收敛为 4 个实测可服务 id（见 `ops/pricing/examples/openai-oauth-proven.json`）；`gpt-5.2*`、`codex-auto-review`、`gpt-5`、chat/pro/search/5.1、`gpt-5.4-pro` 暂不进入 public/menu/default catalog。可路由 legacy GPT-5 写法（如 `gpt-5.4-high`、`codex-mini-latest`、`gpt-5-chat-latest`）在账号选择前归一到上述 floor id；裸 `gpt-5.3`、`gpt-5.3-codex*`、`gpt-5-codex*` 均作为非展示 alias 指向 `gpt-5.3-codex-spark`。`gpt-5.3-chat-latest` 与 `gpt-5.5-pro` 于 2026-07-10 通过 edge-us4 account 7 / edge-us3 account 5 到达 ChatGPT Codex 上游，但均返回 400 `not supported when using Codex with a ChatGPT account`，所以不展示、不进 floor；不可服务族（如 `gpt-5.6*`）仍拒绝。
 - **`advertised_dead` 收敛结果**：`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）、`gpt-5.6*` 和未列入 native floor 的旧镜像残留不进入 /v1/models fallback 或 admin 默认候选。
-- **codex 形** 走 `/v1/responses`；`codex-mini-latest` 被 codex normalization 重计为 `gpt-5.3-codex-spark` 才免于 $0；`gpt-5.3-codex*` / `gpt-5-codex` 改走 deprecated-model 400，不再静默映到 spark。
+- **codex 形** 走 `/v1/responses`；`codex-mini-latest`、`gpt-5.3-codex*`、`gpt-5-codex*` 均被 codex normalization 重计为 `gpt-5.3-codex-spark` 才免于 $0；这些旧写法不展示、不作为 auto-probe 候选。
 - **channel 长尾**：ct=1（153 模型：o1/o3/o4、gpt-4*/4o*、audio/realtime/tts、embeddings、dall-e、sora-2…）与 ct=57 codex 订阅（24）**均未经原生 openai 平台服务**——是 newapi bridge 的扩展 backlog（§5）。
 
 ### 2.3 gemini / Vertex（第三平台）
@@ -146,22 +146,24 @@ gemini-3.5-flash-low       gemini-pro-agent
 
 ### 2.5 grok（第七平台，xAI）
 
-servable allowlist 共 **9**（与公开目录、overlay xai 同源）：
+servable allowlist 共 **15**（与公开目录、overlay xai 同源）：
 
 | model_id | mode | 价(overlay xai) | failure_billing |
 |---|---|---|---|
 | `grok-code-fast-1` | chat | $0.20/$1.50 /Mtok | — |
 | `grok-build-0.1` | chat | $1/$2 /Mtok | — |
 | `grok-4.3` | chat | $1.25/$2.50 /Mtok | — |
-| `grok-latest` | chat alias → `grok-4.3` | $1.25/$2.50 /Mtok | — |
+| `grok-latest` / `grok-4.3-latest` | chat alias → `grok-4.3` | $1.25/$2.50 /Mtok | — |
+| `grok-4.5` / `grok-4.5-latest` / `grok-build-latest` | chat / alias → `grok-4.5` | $2/$6 /Mtok | — |
+| `grok-code-fast` / `grok-code-fast-1-0825` | chat alias → `grok-build-0.1` | $1/$2 /Mtok | — |
 | `grok-4.20-0309-reasoning` / `-non-reasoning` | chat | $1.25/$2.50 /Mtok | — |
 | `grok-imagine-image` | image | $0.02/img | — |
 | `grok-imagine-image-quality` | image | $0.07/img(2K 保守档) | — |
 | `grok-imagine-video` | video | $0.08/s(720p+img 上限档) | success_only |
 
 - **2026-06-22 收敛**：`grok-4.3`、`grok-4.20-0309-*`、`grok-build-0.1`、`grok-code-fast-1` 已用 docs.x.ai 官方价补 overlay，并经 edge-us4 原生 grok 探针实测 200 后进入 allowlist。未官方定价或未 200 的 grok-3 / grok-2-vision / search 变体仍保持 `policy` 排除，不臆造价格。
-- **2026-07-10 复测**：`grok-4.5`、`grok-4.5-latest`、`grok-build-latest`、`grok-4.3-latest`、`grok-code-fast`、`grok-code-fast-1-0825` 在 edge-us4 原生 grok probe 均为 `400 inconclusive`；`probe-caps PLATFORM=grok` 显示 `account_id=null` / `Unsupported model`，不能作为上游能力负证据，但也没有 live 200 正证据。上述 id 保留 overlay 价格用于历史/兼容计价，暂不进入 public allowlist / account model_mapping floor。
-- **官方别名（可展示）**：xAI model page 声明的 alias 只有在 overlay 有价且探针 200 时进入 allowlist；本轮仍 200 的别名是 `grok-latest`，退休重定向 `grok-4-fast-reasoning` 仍 priced-only。
+- **2026-07-10 复测**：普通 TokenKey grok probe 先被当前 gateway floor 拦为 `400 Unsupported model` / `account_id=null`，不能当作上游负证据；随后用 `ops/stage0/probe_grok_upstream_model.sh` 直连 xAI upstream，edge-us4 account 6 对 `grok-4.3`、`grok-latest`、`grok-code-fast-1`、`grok-4.5`、`grok-4.5-latest`、`grok-build-latest`、`grok-4.3-latest`、`grok-code-fast`、`grok-code-fast-1-0825` 均返回 200。因此这些官方 id/alias 恢复 public allowlist / account model_mapping floor。
+- **官方别名（可展示）**：xAI model page 声明的 alias 只有在 overlay 有价且探针 200 时进入 allowlist；退休重定向 `grok-4-fast-reasoning` 仍 priced-only。
 - 视频原生异步臂（submit/poll），`expired` 故意非终态防退款资损。
 - 原生 grok 臂 与 newapi ch48 聚合中继是两条到 xAI 的不同路径。prod→edge grok 中继长期收敛为 `platform=grok,type=apikey` relay；旧 `newapi` edge-host bridge 仅作为迁移兼容形态保留。
 
@@ -290,7 +292,7 @@ glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 
 1. **永久 skip-list**：`ops/pricing/servable-reprobe-ledger.json.skiplist` 会从 `refresh-servable-allowlist.py candidates/probe/run` 的候选中排除条目；只放「死因与容量/端点无关」或当前 project-scoped 明确不可服务的项。
 2. **reprobe watchlist**：`watchlist[].auto_probe=true` 的 native refresh 三元组（anthropic/openai/gemini）会自动并入探测候选；例如未定论的 OpenAI codex 旧支线与 gemini image wrong-surface 条目会按 `probe_family` 走正确 endpoint。`auto_probe=false` 的 antigravity/grok/newapi 长尾仍由 owner 轻量复测并更新同一 JSON。
-3. **deadlist**：已退役、替代明确或产品上明确不可选的 id 进入 `deadlist`，并由 apply gate 阻止新的 probe 结果把它们直接写回 allowlist。2026-07-10 起 `gpt-5.2` / `gpt-5.2-pro` / `gpt-5.3-codex*` / `gpt-5-codex*` / `codex-auto-review` 属于 deprecated-model gate，不再作为 auto-probe watchlist。
+3. **deadlist**：已退役、替代明确或产品上明确不可选的 id 进入 `deadlist`，并由 apply gate 阻止新的 probe 结果把它们直接写回 allowlist。2026-07-10 起 `gpt-5.2` / `gpt-5.2-pro` / `codex-auto-review` 属于 deprecated-model gate；`gpt-5.3` / `gpt-5.3-codex*` / `gpt-5-codex*` 属于非展示 alias，走 `skiplist` 而非 hard reject。
 4. **机械护栏**：`refresh-servable-allowlist.py selftest` 校验 watch/skip/dead 双成员、skip/dead 与 servable allowlist 双成员、watchlist freshness；`scripts/preflight.sh` 已调用该 selftest。
 
 ---

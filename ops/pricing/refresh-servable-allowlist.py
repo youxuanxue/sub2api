@@ -1075,8 +1075,9 @@ def selftest() -> int:
     real_members = _candidate_members(real_cands)
     assert ("openai", "gpt-5.2") not in real_members, "deprecated gpt-5.2 must not be probed back into allowlist"
     assert ("openai", "gpt-5.2-pro") not in real_members, "deprecated gpt-5.2-pro must not be probed back into allowlist"
-    assert ("openai", "gpt-5.3-codex") not in real_members, "deprecated gpt-5.3-codex must not be probed back into allowlist"
-    assert ("openai", "gpt-5-codex") not in real_members, "deprecated gpt-5-codex must not be probed back into allowlist"
+    assert ("openai", "gpt-5.3") not in real_members, "non-display bare gpt-5.3 alias must not be probed back into allowlist"
+    assert ("openai", "gpt-5.3-codex") not in real_members, "non-display gpt-5.3-codex alias must not be probed back into allowlist"
+    assert ("openai", "gpt-5-codex") not in real_members, "non-display gpt-5-codex alias must not be probed back into allowlist"
     assert ("openai", "codex-auto-review") not in real_members, "internal codex-auto-review must not be probed back into allowlist"
     assert ("gemini", "gemini-3-pro-preview") not in real_members, "skiplist gemini chat must be excluded"
     # gemini-*-image route to the gemini_chat_image family (chat/generateContent

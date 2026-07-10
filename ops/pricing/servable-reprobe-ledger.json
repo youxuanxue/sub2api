@@ -350,6 +350,21 @@
       "reason": "Stable 400: not supported with a ChatGPT account; codex normalization maps legacy requests away from this id."
     },
     {
+      "platform": "openai",
+      "model": "gpt-5.3",
+      "reason": "2026-07-10 native OpenAI OAuth account probes for gpt-5.3-chat-latest reached upstream and returned 400; bare gpt-5.3 remains a non-display alias to gpt-5.3-codex-spark and must not be auto-probed into the public allowlist."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.3-codex",
+      "reason": "2026-07-10 operator decision: legacy GPT-5.3 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5-codex",
+      "reason": "2026-07-10 operator decision: legacy GPT-5 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+    },
+    {
       "platform": "gemini",
       "model": "gemini-2.0-flash",
       "reason": "Project-scoped 502 on the current Vertex project; keep out of the native gemini allowlist until a new probe on an enabled project says otherwise."
@@ -440,16 +455,6 @@
       "platform": "openai",
       "model": "gpt-5.2-pro",
       "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.2 Pro is intentionally hard-rejected via openai_deprecated_model_tk.go; do not advertise or auto-probe as a selectable model."
-    },
-    {
-      "platform": "openai",
-      "model": "gpt-5.3-codex",
-      "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.3 Codex ids now return the deprecated-model 400 path instead of silently routing to gpt-5.3-codex-spark."
-    },
-    {
-      "platform": "openai",
-      "model": "gpt-5-codex",
-      "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5 Codex ids now return the deprecated-model 400 path instead of silently routing to gpt-5.3-codex-spark."
     },
     {
       "platform": "openai",

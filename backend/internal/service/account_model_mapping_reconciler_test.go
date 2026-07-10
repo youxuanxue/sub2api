@@ -74,12 +74,12 @@ func TestAccountModelMappingForAccount_GrokPreservesAliases(t *testing.T) {
 	require.Equal(t, "grok-build-0.1", mapping["grok-build"])
 	require.Equal(t, "grok-4.20-0309-reasoning", mapping["grok-4.20-reasoning"])
 	require.Equal(t, "grok-4.20-0309-non-reasoning", mapping["grok-4.20-non-reasoning"])
-	require.NotContains(t, mapping, "grok-4.3-latest")
-	require.NotContains(t, mapping, "grok-4.5")
-	require.NotContains(t, mapping, "grok-4.5-latest")
-	require.NotContains(t, mapping, "grok-build-latest")
-	require.NotContains(t, mapping, "grok-code-fast")
-	require.NotContains(t, mapping, "grok-code-fast-1-0825")
+	require.Equal(t, "grok-4.3", mapping["grok-4.3-latest"])
+	require.Equal(t, "grok-4.5", mapping["grok-4.5"])
+	require.Equal(t, "grok-4.5", mapping["grok-4.5-latest"])
+	require.Equal(t, "grok-4.5", mapping["grok-build-latest"])
+	require.Equal(t, "grok-build-0.1", mapping["grok-code-fast"])
+	require.Equal(t, "grok-build-0.1", mapping["grok-code-fast-1-0825"])
 	require.Contains(t, mapping, "grok-imagine-video")
 }
 

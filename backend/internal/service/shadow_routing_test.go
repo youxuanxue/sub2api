@@ -26,6 +26,6 @@ func TestSparkModelVariantsDerivedFromAliases(t *testing.T) {
 	} {
 		require.Contains(t, got, want, "spark 变体集合必须从 codexModelMap 派生")
 	}
-	require.NotContains(t, got, "gpt-5.3-codex", "legacy codex id is deprecated, not a spark shadow variant")
-	require.NotContains(t, got, "gpt-5-codex", "legacy codex id is deprecated, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5.3-codex", "legacy codex id is a non-display alias, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5-codex", "legacy codex id is a non-display alias, not a spark shadow variant")
 }

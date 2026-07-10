@@ -14,13 +14,10 @@ import (
 // surface (chat/completions, /v1/responses, /v1/messages-shaped OpenAI requests).
 //
 // Why this exists: 2026-07 SSOT audit directive #2/#5. Without this gate, a
-// request for one of these IDs either (a) silently succeeds against the wrong
-// model via the routing-alias substring fallback (legacy gpt-5.3-codex /
-// gpt-5-codex used to collapse to gpt-5.3-codex-spark), or (b) falls through to
-// the generic "no available accounts" 429/400 once every
-// pool candidate rejects the name, which reads as a capacity problem rather
-// than "this id can never work." This gate returns a clear client-facing 400
-// with a migration suggestion instead.
+// request for one of these IDs falls through to the generic "no available
+// accounts" 429/400 once every pool candidate rejects the name, which reads as
+// a capacity problem rather than "this id can never work." This gate returns a
+// clear client-facing 400 with a migration suggestion instead.
 //
 // Table keys are RAW client-facing model names. gpt-5.2-pro is silently
 // rewritten to gpt-5.2 by the routing-alias substring fallback
@@ -41,8 +38,7 @@ import (
 // the exact class of bug this audit exists to fix. Update this constant to
 // tkDeprecatedOpenAIReplacementGPT55Pro once directive #7 lands gpt-5.5-pro.
 const (
-	tkDeprecatedOpenAIReplacementGPT55      = "gpt-5.5"
-	tkDeprecatedOpenAIReplacementCodexSpark = "gpt-5.3-codex-spark"
+	tkDeprecatedOpenAIReplacementGPT55 = "gpt-5.5"
 	// TkDeprecatedOpenAIErrorType — OpenAI-compat error envelope's inner type.
 	TkDeprecatedOpenAIErrorType = "invalid_request_error"
 )
@@ -61,8 +57,6 @@ var ErrDeprecatedOpenAIModel = errors.New("deprecated openai model")
 var tkDeprecatedOpenAIModels = map[string]string{
 	"gpt-5.2":           tkDeprecatedOpenAIReplacementGPT55,
 	"gpt-5.2-pro":       tkDeprecatedOpenAIReplacementGPT55,
-	"gpt-5.3-codex":     tkDeprecatedOpenAIReplacementCodexSpark,
-	"gpt-5-codex":       tkDeprecatedOpenAIReplacementCodexSpark,
 	"codex-auto-review": "",
 }
 
@@ -88,15 +82,6 @@ func tkLookupDeprecatedOpenAIModelWithoutRouting(model string) (matchedModel, re
 	for _, candidate := range candidates {
 		if replacement, ok := tkIsDeprecatedOpenAIModel(candidate); ok {
 			return candidate, replacement, true
-		}
-		switch {
-		case strings.HasPrefix(candidate, "gpt-5.3-codex-") &&
-			!strings.HasPrefix(candidate, "gpt-5.3-codex-spark"):
-			replacement, _ := tkIsDeprecatedOpenAIModel("gpt-5.3-codex")
-			return "gpt-5.3-codex", replacement, true
-		case strings.HasPrefix(candidate, "gpt-5-codex-"):
-			replacement, _ := tkIsDeprecatedOpenAIModel("gpt-5-codex")
-			return "gpt-5-codex", replacement, true
 		}
 	}
 	return "", "", false

@@ -1099,7 +1099,7 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
   // allowlist + public catalog + Your Menu. codex-mini-latest is intentionally
   // LEFT for now: it carries a codex-ws ChatGPT-OAuth reverse-mapping
   // (normalizeOpenAIModelForUpstream, scripts/sentinels/gateway-tk.json).
-  // gpt-5.3-codex now uses the deprecated-model gate and is not shown here.
+  // gpt-5.3-codex is a non-display alias to spark and is not shown here.
   const openaiModels = {
     'gpt-5.5': {
       name: 'GPT-5.5',

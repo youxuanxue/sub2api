@@ -17,12 +17,12 @@ func TestTkIsDeprecatedOpenAIModel(t *testing.T) {
 	}{
 		{"gpt-5.2 deprecated -> gpt-5.5", "gpt-5.2", true, "gpt-5.5"},
 		{"gpt-5.2-pro deprecated -> gpt-5.5", "gpt-5.2-pro", true, "gpt-5.5"},
-		{"gpt-5.3-codex deprecated -> spark", "gpt-5.3-codex", true, "gpt-5.3-codex-spark"},
-		{"gpt-5-codex deprecated -> spark", "gpt-5-codex", true, "gpt-5.3-codex-spark"},
 		{"codex-auto-review deprecated -> no replacement", "codex-auto-review", true, ""},
 
 		{"gpt-5.4 current passes", "gpt-5.4", false, ""},
 		{"gpt-5.5 current passes", "gpt-5.5", false, ""},
+		{"gpt-5.3-codex alias passes", "gpt-5.3-codex", false, ""},
+		{"gpt-5-codex alias passes", "gpt-5-codex", false, ""},
 		{"gpt-5.3-codex-spark current passes", "gpt-5.3-codex-spark", false, ""},
 		{"gpt-5.3-chat-latest current passes", "gpt-5.3-chat-latest", false, ""},
 		{"empty string passes", "", false, ""},
@@ -54,13 +54,11 @@ func TestTkLookupDeprecatedOpenAIModel(t *testing.T) {
 	// lookup order.
 	matched, replacement, ok = TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.2-pro"))
 	require.True(t, ok)
-	require.Equal(t, "gpt-5.2-pro", matched)
+	require.Equal(t, "gpt-5.2", matched)
 	require.Equal(t, "gpt-5.5", replacement)
 
-	matched, replacement, ok = TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex-xhigh"))
-	require.True(t, ok)
-	require.Equal(t, "gpt-5.3-codex", matched)
-	require.Equal(t, "gpt-5.3-codex-spark", replacement)
+	_, _, ok = TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex-xhigh"))
+	require.False(t, ok)
 
 	_, _, ok = TkLookupDeprecatedOpenAIModel("gpt-5.4")
 	require.False(t, ok)
@@ -86,8 +84,6 @@ func TestTkDeprecatedOpenAIModelsTableIsExhaustive(t *testing.T) {
 	expected := map[string]struct{}{
 		"gpt-5.2":           {},
 		"gpt-5.2-pro":       {},
-		"gpt-5.3-codex":     {},
-		"gpt-5-codex":       {},
 		"codex-auto-review": {},
 	}
 	require.Len(t, tkDeprecatedOpenAIModels, len(expected),
@@ -107,7 +103,7 @@ func TestTkDeprecatedOpenAISelectionFailure(t *testing.T) {
 	require.ErrorIs(t, err, ErrDeprecatedOpenAIModel)
 
 	err = tkDeprecatedOpenAISelectionFailure("gpt-5-codex")
-	require.ErrorIs(t, err, ErrDeprecatedOpenAIModel)
+	require.NoError(t, err)
 
 	err = tkDeprecatedOpenAISelectionFailure("gpt-5.4")
 	require.NoError(t, err)
