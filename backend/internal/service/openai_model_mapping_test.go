@@ -297,16 +297,16 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
-			name:    "oauth routes legacy gpt-5.3-codex to spark",
+			name:    "oauth preserves legacy gpt-5.3-codex for deprecated gate",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3-codex",
-			want:    "gpt-5.3-codex-spark",
+			want:    "gpt-5.3-codex",
 		},
 		{
-			name:    "oauth normalizes gpt-5.3 alias to spark via codexModelMap",
+			name:    "oauth maps bare gpt-5.3 alias to official chat id",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3",
-			want:    "gpt-5.3-codex-spark",
+			want:    "gpt-5.3-chat-latest",
 		},
 		{
 			name:    "oauth normalizes codex-mini-latest alias to spark via codexModelMap",

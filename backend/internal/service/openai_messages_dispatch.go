@@ -4,7 +4,7 @@ import "strings"
 
 const (
 	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.5"
-	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.3-codex"
+	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.3-codex-spark"
 	defaultOpenAIMessagesDispatchHaikuMappedModel  = "gpt-5.4-mini"
 )
 

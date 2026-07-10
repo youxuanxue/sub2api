@@ -27,14 +27,19 @@ import (
 //     relay (account #54 key). Kept the IDs that returned 200; dropped
 //     deprecated-gate 400s, upstream-rejected 502s, and dated snapshots whose
 //     non-dated form also serves.
-//   - openai: 2026-07-09 prod OAuth account-model probes (accounts 9/73, isolated
-//     probe_account_model.sh). Native ChatGPT-OAuth servable set is exactly the
-//     runtime floor in ops/pricing/examples/openai-oauth-proven.json (5 models).
-//     Legacy Codex/GPT-5 ids such as gpt-5.3-codex, gpt-5.4-high, and
-//     codex-mini-latest remain priced for billing but are hidden from /pricing
+//   - openai: 2026-07-10 SSOT audit probes (prod OAuth accounts + account 76
+//     Ainzy relay checks). Native ChatGPT-OAuth servable set is exactly the
+//     curated floor in ops/pricing/examples/openai-oauth-proven.json (4 models).
+//     Compatibility GPT-5 spellings such as gpt-5.4-high, codex-mini-latest, and
+//     gpt-5-chat-latest remain priced for billing but are hidden from /pricing
 //     and /models; clients may still request them and are routed through
-//     CanonicalizeOpenAICompatRoutingModel to a served floor id. Ainzy relay
-//     uses the same curated display set below until a separate probe says otherwise.
+//     CanonicalizeOpenAICompatRoutingModel to a served floor id. Retired /
+//     never-selectable ids such as gpt-5.2, gpt-5.3-codex, gpt-5-codex, and
+//     codex-auto-review take the deprecated-model 400 path instead.
+//     codex-auto-review is deliberately EXCLUDED from both sets even though it
+//     returns a live 200: it is an internal ChatGPT-Codex capability, not a
+//     directly-selectable model, so it is routed through the hard-rejection gate
+//     (openai_deprecated_model_tk.go) instead of being advertised or scheduled.
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
 //     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
@@ -83,7 +88,7 @@ import (
 // `servable-allowlist:begin/end <platform>` markers are the splice anchors the
 // generator rewrites between — keep them intact, and hand-edits inside those
 // three blocks will be overwritten on the next refresh. Last claude probe:
-// 2026-06-05. Last native openai replay: 2026-07-09. The antigravity block is
+// 2026-06-05. Last native openai audit replay: 2026-07-10. The antigravity block is
 // hand-maintained from the empirical probe above: the refresh tool's platforms
 // tuple is anthropic/openai/gemini and its
 // GEMINI_EXCLUDE_RE drops antigravity from the google catch-all, so it never
@@ -107,9 +112,13 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 }
 
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
+//
+// codex-auto-review deliberately excluded: it is an internal, non-selectable
+// capability, not a client-facing chat model (2026-07 SSOT audit directive
+// #5). It is hard-rejected via tkDeprecatedOpenAIModels
+// (openai_deprecated_model_tk.go) rather than advertised here.
 var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
-	"codex-auto-review":   {},
 	"gpt-5.3-codex-spark": {},
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
@@ -120,9 +129,9 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 // supportedOpenAIAinzyRelayCatalogModels — gpt IDs kept in the compiled
 // model_mapping floor for prod account 76 (api.ainzy.net/v1). Mirrors the
 // operator-applied 2026-07-09 runtime mapping so deploys do not re-narrow the
-// account back to the stale 5-model floor.
+// account back to a stale floor. codex-auto-review excluded — see
+// supportedOpenAICatalogModels.
 var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
-	"codex-auto-review":   {},
 	"gpt-5.3-codex-spark": {},
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
@@ -193,14 +202,8 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-4.20-0309-non-reasoning": {},
 	"grok-4.20-0309-reasoning":     {},
 	"grok-4.3":                     {},
-	"grok-4.3-latest":              {},
-	"grok-4.5":                     {},
-	"grok-4.5-latest":              {},
 	"grok-build-0.1":               {},
-	"grok-build-latest":            {},
-	"grok-code-fast":               {},
 	"grok-code-fast-1":             {},
-	"grok-code-fast-1-0825":        {},
 	"grok-imagine-image":           {},
 	"grok-imagine-image-quality":   {},
 	"grok-imagine-video":           {},

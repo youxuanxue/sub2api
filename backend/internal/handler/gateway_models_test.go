@@ -596,7 +596,11 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"gpt-5.5", "gpt-5.3-codex-spark", "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-5.2", "gpt-5.4"},
+				// codex-auto-review is an internal capability, not directly
+				// selectable (2026-07 SSOT audit #5) — it must be filtered out
+				// here just like the other non-servable ids, even though the
+				// admin explicitly listed it.
+				Models: []string{"gpt-5.5", "gpt-5.3-codex-spark", "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-5.2", "gpt-5.4"},
 			},
 		},
 	})
@@ -607,7 +611,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.3-codex-spark", "codex-auto-review", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {

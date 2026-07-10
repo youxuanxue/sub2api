@@ -25,22 +25,17 @@ var codexModelMap = map[string]string{
 	"gpt-5.4-high":               "gpt-5.4",
 	"gpt-5.4-xhigh":              "gpt-5.4",
 	"gpt-5.4-chat-latest":        "gpt-5.4",
-	"gpt-5.3":                    "gpt-5.3-codex-spark",
-	"gpt-5.3-none":               "gpt-5.3-codex-spark",
-	"gpt-5.3-low":                "gpt-5.3-codex-spark",
-	"gpt-5.3-medium":             "gpt-5.3-codex-spark",
-	"gpt-5.3-high":               "gpt-5.3-codex-spark",
-	"gpt-5.3-xhigh":              "gpt-5.3-codex-spark",
-	"gpt-5.3-codex":              "gpt-5.3-codex-spark",
+	"gpt-5.3":                    "gpt-5.3-chat-latest",
+	"gpt-5.3-none":               "gpt-5.3-chat-latest",
+	"gpt-5.3-low":                "gpt-5.3-chat-latest",
+	"gpt-5.3-medium":             "gpt-5.3-chat-latest",
+	"gpt-5.3-high":               "gpt-5.3-chat-latest",
+	"gpt-5.3-xhigh":              "gpt-5.3-chat-latest",
 	"gpt-5.3-codex-spark":        "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-low":    "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-medium": "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-high":   "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-xhigh":  "gpt-5.3-codex-spark",
-	"gpt-5.3-codex-low":          "gpt-5.3-codex-spark",
-	"gpt-5.3-codex-medium":       "gpt-5.3-codex-spark",
-	"gpt-5.3-codex-high":         "gpt-5.3-codex-spark",
-	"gpt-5.3-codex-xhigh":        "gpt-5.3-codex-spark",
 	"gpt-5.2":                    "gpt-5.2",
 	"gpt-5.2-none":               "gpt-5.2",
 	"gpt-5.2-low":                "gpt-5.2",
@@ -58,11 +53,9 @@ var codexModelMap = map[string]string{
 	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
 	"gpt-5.2-codex":              "gpt-5.2",
 	"codex-mini-latest":          "gpt-5.3-codex-spark",
-	"gpt-5-codex":                "gpt-5.3-codex-spark",
-	// TK 2026-07 SSOT audit hotfix: exact-match self-mapping short-circuits
-	// normalizeKnownOpenAICodexModel's `strings.Contains(normalized, "gpt-5.3")`
-	// substring fallback (openai_model_alias.go), which would otherwise silently
-	// rewrite this id to gpt-5.3-codex-spark before it reaches OpenAI.
+	// TK 2026-07 SSOT audit: exact-match self-mapping keeps this official chat
+	// wire id distinct from legacy Codex ids, which are now rejected via the
+	// deprecated-model gate instead of silently routing to spark.
 	"gpt-5.3-chat-latest": "gpt-5.3-chat-latest",
 }
 
@@ -74,7 +67,6 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.3-codex-spark", target: "gpt-5.3-codex-spark"},
-	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5.4-mini", target: "gpt-5.4-mini"},
 	{prefix: "gpt-5.4-nano", target: "gpt-5.4-nano"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},

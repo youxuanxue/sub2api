@@ -249,6 +249,48 @@ func TestShouldLogOpenAIForwardFailureAsWarn(t *testing.T) {
 	})
 }
 
+func TestRejectDeprecatedOpenAICompatModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("openai_shape", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		h := &OpenAIGatewayHandler{}
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+
+		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "codex-auto-review", false))
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, service.TkDeprecatedOpenAIErrorType, gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "not directly selectable")
+		require.True(t, hasOpsClientRequestRejected(c))
+	})
+
+	t.Run("anthropic_messages_shape", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		h := &OpenAIGatewayHandler{}
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+
+		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5-codex", true))
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, "error", gjson.GetBytes(rec.Body.Bytes(), "type").String())
+		require.Equal(t, service.TkDeprecatedOpenAIErrorType, gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "gpt-5.3-codex-spark")
+		require.True(t, hasOpsClientRequestRejected(c))
+	})
+
+	t.Run("grok_platform_ignored", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		h := &OpenAIGatewayHandler{}
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformGrok}}
+
+		require.False(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5-codex", false))
+		require.Empty(t, rec.Body.String())
+		require.False(t, hasOpsClientRequestRejected(c))
+	})
+}
+
 func TestOpenAIRecoverResponsesPanic_WritesFallbackResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -424,7 +466,7 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	t.Run("uses_family_default_when_no_override", func(t *testing.T) {
 		apiKey := &service.APIKey{Group: &service.Group{}}
 		require.Equal(t, "gpt-5.5", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
-		require.Equal(t, "gpt-5.3-codex", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
 		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
 	})
 
@@ -463,7 +505,7 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 			},
 		}
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "gpt-5.4"))
-		require.Equal(t, "gpt-5.3-codex", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
 	})
 }
 

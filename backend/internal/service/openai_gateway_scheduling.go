@@ -164,6 +164,9 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 }
 
 func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, platforms ...string) error {
+	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}

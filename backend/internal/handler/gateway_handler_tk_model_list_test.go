@@ -166,7 +166,7 @@ func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
 	for _, m := range result {
 		ids[m.ID] = true
 	}
-	for _, want := range []string{"codex-auto-review", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"} {
+	for _, want := range []string{"gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"} {
 		require.True(t, ids[want], "servable OpenAI probe result %s should remain visible", want)
 	}
 	for _, hidden := range []string{
@@ -174,6 +174,7 @@ func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
 		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest",
 		"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-pro",
 		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
+		"codex-auto-review", // internal capability, never client-selectable (deprecated-model gate)
 	} {
 		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not reach /v1/models fallback", hidden)
 	}

@@ -45,9 +45,8 @@ func TestAccount_IsOpenAIAinzyRelay(t *testing.T) {
 func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	t.Parallel()
 	mapping := openAIAinzyRelayAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 5)
+	require.Len(t, mapping, 4)
 	for _, model := range []string{
-		"codex-auto-review",
 		"gpt-5.3-codex-spark",
 		"gpt-5.4",
 		"gpt-5.4-mini",
@@ -55,6 +54,7 @@ func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	} {
 		require.Contains(t, mapping, model)
 	}
+	require.NotContains(t, mapping, "codex-auto-review")
 	require.NotContains(t, mapping, "gpt-5-pro")
 	require.NotContains(t, mapping, "gpt-5-codex")
 	require.NotContains(t, mapping, "gpt-5.3-codex")
@@ -63,9 +63,8 @@ func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	t.Parallel()
 	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 5)
+	require.Len(t, mapping, 4)
 	for _, model := range []string{
-		"codex-auto-review",
 		"gpt-5.3-codex-spark",
 		"gpt-5.4",
 		"gpt-5.4-mini",
@@ -73,6 +72,7 @@ func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	} {
 		require.Contains(t, mapping, model)
 	}
+	require.NotContains(t, mapping, "codex-auto-review")
 	require.NotContains(t, mapping, "gpt-5")
 	require.NotContains(t, mapping, "gpt-5-pro")
 	require.NotContains(t, mapping, "gpt-5.5-pro")
@@ -95,11 +95,13 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 		"gpt-5-chat-latest",
 		"gpt-5-mini",
 		"gpt-5.4-high",
-		"gpt-5.3-codex-xhigh",
 		"codex-mini-latest",
 	} {
-		require.True(t, account.IsModelSupported(model), "known routing alias should match the five-model OpenAI floor")
+		require.True(t, account.IsModelSupported(model), "known routing alias should match the OpenAI floor")
 	}
+	require.True(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark itself remains served")
+	require.False(t, account.IsModelSupported("gpt-5.3-codex"), "legacy codex id must hit the deprecated-model gate")
+	require.False(t, account.IsModelSupported("gpt-5-codex"), "legacy codex id must hit the deprecated-model gate")
 	require.False(t, account.IsModelSupported("gpt-5.6"), "unsupported upstream-rejected family must stay out of the floor")
 }
 
@@ -109,15 +111,17 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	require.NoError(t, err)
 	ainzy, ok := doc.Platforms[accountModelMappingPlatformOpenAIAinzyRelay]
 	require.True(t, ok)
-	require.Len(t, ainzy, 5)
+	require.Len(t, ainzy, 4)
 	require.Contains(t, ainzy, "gpt-5.4-mini")
 	require.NotContains(t, ainzy, "gpt-5-pro")
 	require.NotContains(t, ainzy, "gpt-5.2")
+	require.NotContains(t, ainzy, "codex-auto-review")
 	canonical, ok := doc.Platforms[PlatformOpenAI]
 	require.True(t, ok)
-	require.Len(t, canonical, 5)
+	require.Len(t, canonical, 4)
 	require.Contains(t, canonical, "gpt-5.3-codex-spark")
 	require.NotContains(t, canonical, "gpt-5-pro")
+	require.NotContains(t, canonical, "codex-auto-review")
 }
 
 func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
@@ -130,6 +134,7 @@ func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
 		},
 	}, nil, nil, nil)
 	require.True(t, ok)
-	require.Len(t, mapping, 5)
+	require.Len(t, mapping, 4)
 	require.Contains(t, mapping, "gpt-5.4-mini")
+	require.NotContains(t, mapping, "codex-auto-review")
 }
