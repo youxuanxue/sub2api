@@ -809,7 +809,7 @@
         "grok-4.3",
         "grok-code-fast-1"
       ],
-      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.5/gpt-5.3-codex/gpt-5.4-mini; grok groups prefilled with grok-4.3/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
+      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.5/gpt-5.3-codex-spark/gpt-5.4-mini; grok groups prefilled with grok-4.3/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",

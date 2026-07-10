@@ -74,6 +74,9 @@ func tkOpenAICompatChannelPricingRestrictionError(requestedModel string) error {
 }
 
 func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactBlocked bool, accounts []Account, excludedIDs map[int64]struct{}, eval *openAICompatNoCandidateEval) error {
+	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if requestedModel != "" {
 		var stats selectionFailureStats
 		if eval != nil && eval.svc != nil && eval.ctx != nil {

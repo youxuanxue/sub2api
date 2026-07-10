@@ -219,6 +219,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if h.rejectDeprecatedOpenAICompatModel(c, apiKey, reqModel, false) {
+		return
+	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -272,11 +275,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	if channelMapping.Mapped && h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, channelMapping.MappedModel, false) {
+		return
+	}
 	// TK: /v1/responses 入口补套 group messages-dispatch 模型映射（claude 家族名 →
 	// 配置的 gpt 模型），与 /v1/messages、/v1/chat/completions 同源。否则裸 claude 名
 	// 透传 Codex/ChatGPT 后端会被上游拒为 400 "model not supported"。
 	// 见 openai_gateway_handler_tk_responses_dispatch.go。
 	forwardBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)
+	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, gjson.GetBytes(forwardBody, "model").String(), false) {
+		return
+	}
 
 	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
 	if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
@@ -782,8 +791,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if h.rejectDeprecatedOpenAICompatModel(c, apiKey, reqModel, true) {
+		return
+	}
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, preferredMappedModel, true) {
+		return
+	}
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
@@ -794,6 +809,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if channelMappingMsg.Mapped && h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, channelMappingMsg.MappedModel, true) {
+		return
+	}
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。

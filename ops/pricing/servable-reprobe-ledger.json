@@ -22,42 +22,6 @@
     },
     {
       "platform": "openai",
-      "model": "gpt-5.2",
-      "reason": "2026-06-23 prod /v1/chat/completions reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-23",
-      "freshness_days": 30,
-      "auto_probe": true,
-      "probe_family": "openai_chat"
-    },
-    {
-      "platform": "openai",
-      "model": "gpt-5.3-codex",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported after this contract had flipped during 2026-05-28/29.",
-      "last_probe": "2026-06-23",
-      "freshness_days": 30,
-      "auto_probe": true,
-      "probe_family": "openai_responses"
-    },
-    {
-      "platform": "openai",
-      "model": "codex-auto-review",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 200 on the OpenAI responses path; keep auto-probing until the new allowlist entry soaks.",
-      "last_probe": "2026-06-23",
-      "freshness_days": 30,
-      "auto_probe": true,
-      "probe_family": "openai_responses"
-    },
-    {
-      "platform": "openai",
-      "model": "gpt-5-codex",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-23",
-      "freshness_days": 30,
-      "auto_probe": true,
-      "probe_family": "openai_responses"
-    },
-    {
-      "platform": "openai",
       "model": "gpt-5.1-codex",
       "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
       "last_probe": "2026-06-23",
@@ -386,6 +350,31 @@
       "reason": "Stable 400: not supported with a ChatGPT account; codex normalization maps legacy requests away from this id."
     },
     {
+      "platform": "openai",
+      "model": "gpt-5.3",
+      "reason": "2026-07-10 native OpenAI OAuth account probes for gpt-5.3-chat-latest reached upstream and returned 400; bare gpt-5.3 remains a non-display alias to gpt-5.3-codex-spark and must not be auto-probed into the public allowlist."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.3-chat-latest",
+      "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.3-codex-spark, not a public catalog row."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.3-codex",
+      "reason": "2026-07-10 operator decision: legacy GPT-5.3 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5-codex",
+      "reason": "2026-07-10 operator decision: legacy GPT-5 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.5-pro",
+      "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.5, not a public catalog row."
+    },
+    {
       "platform": "gemini",
       "model": "gemini-2.0-flash",
       "reason": "Project-scoped 502 on the current Vertex project; keep out of the native gemini allowlist until a new probe on an enabled project says otherwise."
@@ -467,6 +456,21 @@
     }
   ],
   "deadlist": [
+    {
+      "platform": "openai",
+      "model": "gpt-5.2",
+      "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.2 is intentionally hard-rejected via openai_deprecated_model_tk.go; keep priced for historical billing but never auto-probe back into the servable allowlist."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.2-pro",
+      "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.2 Pro is intentionally hard-rejected via openai_deprecated_model_tk.go; do not advertise or auto-probe as a selectable model."
+    },
+    {
+      "platform": "openai",
+      "model": "codex-auto-review",
+      "reason": "2026-07-10 SSOT audit directive #5: internal ChatGPT-Codex review capability, never directly selectable; hard-rejected via openai_deprecated_model_tk.go even if a probe can produce 200."
+    },
     {
       "platform": "grok",
       "model": "grok-imagine-image-pro",

@@ -283,11 +283,17 @@ func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogSe
 	displaySet := stringSet(displayIDs)
 	out := identityModelMapping(displayIDs)
 	for from, to := range xai.DefaultModelMapping() {
+		if _, publicListed := displaySet[from]; publicListed {
+			continue
+		}
 		if _, ok := displaySet[to]; ok {
 			out[from] = to
 		}
 	}
 	for from, to := range tkGrokCompatibilityAliases {
+		if _, publicListed := displaySet[from]; publicListed {
+			continue
+		}
 		if _, ok := displaySet[to]; ok {
 			out[from] = to
 		}
@@ -296,8 +302,10 @@ func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogSe
 }
 
 var tkGrokCompatibilityAliases = map[string]string{
-	"grok-4.3-latest":       "grok-4.3",
 	"grok-4-fast-reasoning": "grok-4.3",
+	"grok-4.3-latest":       "grok-4.3",
+	"grok-4.5-latest":       "grok-4.5",
+	"grok-build-latest":     "grok-4.5",
 	"grok-code-fast":        "grok-build-0.1",
 	"grok-code-fast-1-0825": "grok-build-0.1",
 }

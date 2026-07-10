@@ -17,11 +17,17 @@ func TestDefaultSparkShadowModelMapping(t *testing.T) {
 
 func TestSparkModelVariantsDerivedFromAliases(t *testing.T) {
 	got := sparkModelVariants()
-	require.ElementsMatch(t, []string{
+	for _, want := range []string{
 		"gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-low",
 		"gpt-5.3-codex-spark-medium",
 		"gpt-5.3-codex-spark-high",
 		"gpt-5.3-codex-spark-xhigh",
-	}, got, "spark 变体集合必须从 codexModelMap 派生")
+	} {
+		require.Contains(t, got, want, "spark 变体集合必须从 codexModelMap 派生")
+	}
+	require.NotContains(t, got, "gpt-5.3-codex", "legacy codex id is a non-display alias, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5-codex", "legacy codex id is a non-display alias, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5.3", "bare official id is a non-display alias, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5.3-chat-latest", "official chat id is a non-display alias, not a spark shadow variant")
 }

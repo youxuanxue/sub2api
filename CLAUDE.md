@@ -220,6 +220,8 @@ Owner table + extension rules: [`docs/global/agent-reference.md`](docs/global/ag
 
 Gateway flow, prod↔edge topology, disaster recovery, full PR checklist: [`docs/global/agent-reference.md`](docs/global/agent-reference.md).
 
+Model serving SSOT (prod `model_mapping` + catalog/pricing alignment; edge keeps empty mapping; official upstream aliases display when priced+servable): [`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot-model_mapping-catalog-prod-vs-edge).
+
 Treat `internal/integration/newapi/` and `internal/relay/bridge/` as implementation source of truth; external planning docs may lag the code.
 
 **Before push:** run `./scripts/preflight.sh` + `make test`. PR checklist detail in agent-reference doc above.

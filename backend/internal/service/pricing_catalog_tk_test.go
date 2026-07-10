@@ -419,169 +419,130 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
 }
 
+// TestIsPublicCatalogModelSupported exercises each branch of the gate by
+// reference to its backing SSOT (the supported*CatalogModels maps in
+// pricing_catalog_supported_models_tk.go / the served-models manifest), not by
+// duplicating their model lists here — populating or refreshing an allowlist
+// there must not require a matching edit in this test.
 func TestIsPublicCatalogModelSupported(t *testing.T) {
+	anySSOTKey := func(t *testing.T, m map[string]struct{}) string {
+		t.Helper()
+		require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
+		for k := range m {
+			return k
+		}
+		return ""
+	}
+
+	t.Run("anthropic membership follows supportedAnthropicCatalogModels", func(t *testing.T) {
+		id := anySSOTKey(t, supportedAnthropicCatalogModels)
+		assert.True(t, isPublicCatalogModelSupported("anthropic", id))
+		assert.False(t, isPublicCatalogModelSupported("anthropic", "claude-not-a-real-id-zzz"))
+	})
+
+	t.Run("openai membership follows supportedOpenAICatalogModels", func(t *testing.T) {
+		id := anySSOTKey(t, supportedOpenAICatalogModels)
+		assert.True(t, isPublicCatalogModelSupported("openai", id))
+		assert.False(t, isPublicCatalogModelSupported("openai", "gpt-not-a-real-id-zzz"))
+	})
+
+	t.Run("azure_openai vendor infers the openai platform gate", func(t *testing.T) {
+		id := anySSOTKey(t, supportedOpenAICatalogModels)
+		assert.True(t, isPublicCatalogModelSupported("azure_openai", id), "azure_openai must gate through the same openai allowlist")
+	})
+
+	t.Run("gemini membership follows supportedGeminiCatalogModels (or passes through when empty)", func(t *testing.T) {
+		if len(supportedGeminiCatalogModels) == 0 {
+			assert.True(t, isPublicCatalogModelSupported("vertex_ai-language-models", "anything-unprobed"), "empty (unprobed) set must passthrough")
+			return
+		}
+		id := anySSOTKey(t, supportedGeminiCatalogModels)
+		assert.True(t, isPublicCatalogModelSupported("vertex_ai-language-models", id))
+		assert.False(t, isPublicCatalogModelSupported("vertex_ai-language-models", "gemini-not-a-real-id-zzz"))
+	})
+
+	t.Run("antigravity membership follows supportedAntigravityCatalogModels (or passes through when empty)", func(t *testing.T) {
+		if len(supportedAntigravityCatalogModels) == 0 {
+			assert.True(t, isPublicCatalogModelSupported("antigravity", "anything-unprobed"), "empty (unprobed) set must passthrough")
+			return
+		}
+		id := anySSOTKey(t, supportedAntigravityCatalogModels)
+		assert.True(t, isPublicCatalogModelSupported("antigravity", id))
+		assert.False(t, isPublicCatalogModelSupported("antigravity", "claude-not-a-real-id-zzz"))
+	})
+
+	t.Run("grok membership follows supportedGrokCatalogModels (or passes through when empty)", func(t *testing.T) {
+		if len(supportedGrokCatalogModels) == 0 {
+			assert.True(t, isPublicCatalogModelSupported("xai", "grok-anything-unprobed"), "empty (unprobed) set must passthrough")
+			return
+		}
+		id := anySSOTKey(t, supportedGrokCatalogModels)
+		assert.True(t, isPublicCatalogModelSupported("xai", id))
+		assert.False(t, isPublicCatalogModelSupported("xai", "grok-not-a-real-id-zzz"))
+		// openrouter-style "x-ai" alias must resolve to the same grok gate as "xai".
+		assert.Equal(t, isPublicCatalogModelSupported("xai", id), isPublicCatalogModelSupported("x-ai", id))
+	})
+
+	t.Run("dual-listed antigravity+gemini ids pass under either vendor tag", func(t *testing.T) {
+		dual := ""
+		for id := range supportedAntigravityCatalogModels {
+			if _, ok := supportedGeminiCatalogModels[id]; ok {
+				dual = id
+				break
+			}
+		}
+		if dual == "" {
+			t.Skip("no dual-listed id in the current SSOT snapshot")
+		}
+		assert.True(t, isPublicCatalogModelSupported("antigravity", dual))
+		assert.True(t, isPublicCatalogModelSupported("vertex_ai-language-models", dual))
+	})
+
+	t.Run("newapi long-tail vendor requires manifest display=true", func(t *testing.T) {
+		assert.True(t, isPublicCatalogModelSupported("deepseek", "deepseek-chat"), "deepseek-chat is manifest display=true")
+		assert.False(t, isPublicCatalogModelSupported("deepseek", "deepseek-totally-unlisted-zzz"))
+	})
+
+	t.Run("unmapped vendor stays hidden until a universal platform mapping exists", func(t *testing.T) {
+		assert.False(t, isPublicCatalogModelSupported("minimax", "minimax-m2.7"))
+		assert.False(t, isPublicCatalogModelSupported("", "anything"))
+	})
+}
+
+// TestSupportedCatalogModelIDsForPlatform pins that the function returns
+// exactly the keys of each platform's SSOT allowlist (no duplicates, no
+// omissions) by comparing against the map itself — never by copying its model
+// list into this test — so an SSOT refresh never requires editing this file.
+// Regression coverage for the 2026-06-20 empty-grok-group bug (grok branch)
+// and PR #1265 (antigravity branch): both platforms must actually reach their
+// SSOT map, not silently fall back to the empty/unpopulated path.
+func TestSupportedCatalogModelIDsForPlatform(t *testing.T) {
 	cases := []struct {
-		vendor, model string
-		want          bool
+		name     string
+		platform string
+		ssot     map[string]struct{}
 	}{
-		{"anthropic", "claude-opus-4-8", true},
-		{"anthropic", "claude-fable-5", true},
-		{"anthropic", "claude-opus-4-1", true},
-		{"anthropic", "claude-3-haiku-20240307", false},
-		{"anthropic", "claude-opus-4-6-20260205", false},
-		{"openai", "gpt-5.4", true},
-		{"openai", "gpt-5.5-pro", false},
-		{"openai", "gpt-5.6-sol", false},
-		{"openai", "gpt-5.6-terra", false},
-		{"openai", "gpt-5.6-luna", false},
-		{"openai", "gpt-5.6", false},
-		{"openai", "gpt-5.6-chat-latest", false},
-		{"openai", "codex-auto-review", true},
-		{"openai", "gpt-5", false},
-		{"openai", "gpt-5-codex", true},
-		{"openai", "gpt-5-chat", false},
-		{"openai", "gpt-5-chat-latest", false},
-		{"openai", "gpt-5-mini", false},
-		{"openai", "gpt-5-nano", false},
-		{"openai", "gpt-5-pro", false},
-		{"openai", "gpt-5-search-api", false},
-		{"openai", "gpt-5.1", false},
-		{"openai", "gpt-5.1-chat-latest", false},
-		{"openai", "gpt-5.2", true},
-		{"openai", "gpt-5.2-pro", true},
-		{"openai", "gpt-5.3", true},
-		{"openai", "gpt-5.3-codex", true},
-		{"openai", "gpt-5.3-codex-spark", true},
-		{"openai", "gpt-5.4-pro", false},
-		{"openai", "gpt-image-2", false}, // not servable on a probeable path
-		{"openai", "gpt-4o", false},
-		{"azure_openai", "gpt-4", false},                      // azure_openai → openai platform, gated
-		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
-		{"deepseek", "deepseek-chat", true},
-		{"volcengine", "deepseek-v3-2-251201", false},
-		{"volcengine", "glm-4-7-251222", false},
-		{"zhipu", "glm-4-32b-0414-128k", false},
-		{"zhipu", "glm-5.2", true},
-		{"zhipu", "glm-5-turbo", false}, // direct-only GLM pool removed; no manifest display path
-		// antigravity: Gemini empirical set + PR #1265 live Claude subset.
-		{"antigravity", "gemini-2.5-flash", true},
-		{"antigravity", "gemini-2.5-flash-lite", true},
-		{"antigravity", "gemini-2.5-flash-thinking", true},
-		{"antigravity", "gemini-3-flash", true},
-		{"antigravity", "gemini-3.5-flash", true}, // 2026-06-27 prod 200 → added to antigravity
-		{"antigravity", "gemini-3.5-flash-low", true},
-		{"antigravity", "claude-sonnet-4-6", true}, // PR #1265 live Antigravity Claude subset
-		{"antigravity", "claude-opus-4-6", true},   // client alias → thinking wire id in account mapping
-		{"antigravity", "claude-opus-4-6-thinking", true},
-		{"antigravity", "gpt-oss-120b-medium", false}, // gpt-oss off antigravity
-		{"antigravity", "claude-opus-4-8", false},     // upstream 404 on PR #1265 probe
-		{"antigravity", "gemini-2.5-pro", false},      // 000 timeout at 2026-06-23/06-27 reprobe, not in antigravity set
-		// gemini-*-image probed servable through the ANTIGRAVITY pool (2026-06-27) →
-		// listed under antigravity (group-serving rule), NOT the gemini/Vertex set
-		// (Vertex's constrained 7-key mapping does not serve them).
-		{"antigravity", "gemini-2.5-flash-image", true},
-		{"antigravity", "gemini-3-pro-image", true},
-		{"antigravity", "gemini-3.1-flash-image", true},
-		{"antigravity", "gemini-3.1-flash-image-preview", true},
-		{"vertex_ai-language-models", "gemini-3.1-flash-image", false}, // not served by gemini/Vertex accounts
-		{"vertex_ai", "veo-3.1-generate-001", true},                    // 2026-07-04 post-#1198 paid gate: keep_displayed
-		// grok (xai vendor → grok platform): gated to the paid-gate-verified native set.
-		{"xai", "grok-4.3", true},
-		{"xai", "grok-4.20-0309-reasoning", true},
-		{"xai", "grok-build-0.1", true},
-		{"xai", "grok-code-fast-1", true},
-		{"xai", "grok-imagine-video", true},  // 2026-07-04 post-#1198 paid gate: keep_displayed
-		{"x-ai", "grok-imagine-image", true}, // openrouter-style x-ai alias maps too
-		{"xai", "grok-imagine-image-quality", true},
-		{"xai", "grok-4", false},      // third-party-priced / unverified legacy slug
-		{"xai", "grok-latest", false}, // priced alias, not public-listed
-		{"volcengine", "doubao-seedream-4-0-250828", true},
-		{"volcengine", "doubao-seedance-1-0-pro-250528", true},
-		{"", "anything", false},             // unknown vendor: hidden
-		{"minimax", "minimax-m2.7", false},  // priced but not mapped to universal platform
-		{"moonshot", "kimi-k2.6", false},    // priced but not mapped to universal platform
-		{"bedrock", "bedrock-model", false}, // priced but not mapped to universal platform
+		{"anthropic", PlatformAnthropic, supportedAnthropicCatalogModels},
+		{"openai", PlatformOpenAI, supportedOpenAICatalogModels},
+		{"antigravity", PlatformAntigravity, supportedAntigravityCatalogModels},
+		{"grok", PlatformGrok, supportedGrokCatalogModels},
 	}
 	for _, c := range cases {
-		assert.Equalf(t, c.want, isPublicCatalogModelSupported(c.vendor, c.model),
-			"vendor=%q model=%q", c.vendor, c.model)
+		t.Run(c.name, func(t *testing.T) {
+			require.NotEmpty(t, c.ssot, "SSOT map must be populated for this assertion to be meaningful")
+			ids := supportedCatalogModelIDsForPlatform(c.platform)
+			require.Len(t, ids, len(c.ssot), "must return exactly one entry per SSOT key (no duplicates/omissions)")
+			got := make(map[string]struct{}, len(ids))
+			for _, id := range ids {
+				got[id] = struct{}{}
+			}
+			assert.Equal(t, c.ssot, got, "must mirror the platform SSOT map exactly")
+		})
 	}
-}
 
-// 直接固化 supportedCatalogModelIDsForPlatform 的 antigravity 契约：实测 Gemini
-// 集合 + PR #1265 live Claude 子集（gpt-oss 已从 antigravity 移除）。gateway
-// /antigravity/models、显式账号 mapping 和 admin selector 都消费这份集合。
-func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
-	ids := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
-	require.NotEmpty(t, ids)
-	set := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		set[id] = struct{}{}
-	}
-	for _, want := range []string{
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-image", // 2026-06-27 antigravity image probe 200 → added
-		"gemini-2.5-flash-lite",
-		"gemini-2.5-flash-thinking",
-		"gemini-3-flash",
-		"gemini-3-flash-agent",
-		"gemini-3-pro-image",             // 2026-06-27 antigravity image probe 200 → added
-		"gemini-3.1-flash-image",         // served via antigravity pool
-		"gemini-3.1-flash-image-preview", // 2026-06-27 antigravity image probe 200 → added
-		"gemini-3.1-pro-low",
-		"gemini-3.5-flash", // 2026-06-27 prod 200 → added
-		"gemini-3.5-flash-extra-low",
-		"gemini-3.5-flash-low",
-		"gemini-pro-agent",
-		"claude-sonnet-4-6",
-		"claude-opus-4-6",
-		"claude-opus-4-6-thinking",
-	} {
-		_, ok := set[want]
-		assert.Truef(t, ok, "expected antigravity menu to advertise %q", want)
-	}
-	// gemini-2.5-pro stays off antigravity (no real 200 — probe timeout 06-23 & 06-27);
-	// it is served via the gemini/Vertex pool instead.
-	for _, deny := range []string{"claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
-		_, ok := set[deny]
-		assert.Falsef(t, ok, "antigravity menu must not advertise %q (routed off antigravity)", deny)
-	}
-}
-
-// TestSupportedCatalogModelIDsForPlatform_Grok pins the grok served set used by
-// the per-user menu fallback (platformDefaultModelIDs) AND the admin
-// model-whitelist selector (tkServableCandidateIDs): priced grok overlay models
-// whose native-grok live probe returned 200. Regression for the 2026-06-20
-// empty-grok-group bug.
-func TestSupportedCatalogModelIDsForPlatform_Grok(t *testing.T) {
-	ids := supportedCatalogModelIDsForPlatform(PlatformGrok)
-	require.NotEmpty(t, ids)
-	set := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		set[id] = struct{}{}
-	}
-	for _, want := range []string{
-		"grok-4.3",
-		"grok-4.20-0309-reasoning",
-		"grok-4.20-0309-non-reasoning",
-		"grok-build-0.1",
-		"grok-code-fast-1",
-		"grok-imagine-image",
-		"grok-imagine-image-quality",
-		"grok-imagine-video",
-	} {
-		_, ok := set[want]
-		assert.Truef(t, ok, "expected grok menu to advertise %q", want)
-	}
-	for _, deny := range []string{
-		"grok-4",
-		"grok-latest",
-		"grok-code-fast-1-0825",
-		"claude-opus-4-8",
-	} {
-		_, ok := set[deny]
-		assert.Falsef(t, ok, "grok menu must not advertise %q (unpriced/off-platform)", deny)
-	}
+	t.Run("unknown platform returns nil", func(t *testing.T) {
+		assert.Nil(t, supportedCatalogModelIDsForPlatform("not-a-real-platform"))
+	})
 }
 
 func TestPricingCatalogService_EmptyOrUnparseableSourceReturnsEmptyList(t *testing.T) {

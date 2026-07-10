@@ -142,17 +142,30 @@ func TestGetModelPricing_Gpt53CodexSparkUsesDedicatedSparkPricing(t *testing.T) 
 	require.Same(t, sparkPricing, got)
 }
 
-func TestGetModelPricing_Gpt53CodexFallbackUsesGpt52(t *testing.T) {
-	gpt52Pricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+func TestGetModelPricing_Gpt53CodexFallbackUsesSpark(t *testing.T) {
+	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.2": gpt52Pricing,
+			"gpt-5.3-codex-spark": sparkPricing,
 		},
 	}
 
 	got := svc.GetModelPricing("gpt-5.3-codex")
-	require.Same(t, gpt52Pricing, got)
+	require.Same(t, sparkPricing, got)
+}
+
+func TestGetModelPricing_Gpt5CodexFallbackUsesSpark(t *testing.T) {
+	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.3-codex-spark": sparkPricing,
+		},
+	}
+
+	got := svc.GetModelPricing("gpt-5-codex")
+	require.Same(t, sparkPricing, got)
 }
 
 func TestCalculateCost_ClaudeDotFormMatchesDashFormFamilyPricing(t *testing.T) {
@@ -180,18 +193,18 @@ func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
-	gpt52Pricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.2": gpt52Pricing,
+			"gpt-5.3-codex-spark": sparkPricing,
 		},
 	}
 
 	got := svc.GetModelPricing("gpt-5.3-codex")
-	require.Same(t, gpt52Pricing, got)
+	require.Same(t, sparkPricing, got)
 
-	require.True(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.2", "info"))
-	require.False(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.2", "warn"))
+	require.True(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.3-codex-spark", "info"))
+	require.False(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.3-codex-spark", "warn"))
 }
 
 func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) {

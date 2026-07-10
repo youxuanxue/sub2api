@@ -18,7 +18,7 @@ import (
 func nonzeroDispatchConfig() OpenAIMessagesDispatchModelConfig {
 	return OpenAIMessagesDispatchModelConfig{
 		OpusMappedModel:   "gpt-5.4",
-		SonnetMappedModel: "gpt-5.3-codex",
+		SonnetMappedModel: "gpt-5.3-codex-spark",
 		HaikuMappedModel:  "gpt-5.4-mini",
 		ExactModelMappings: map[string]string{
 			"claude-foo": "gpt-bar",

@@ -19,7 +19,7 @@ on:
           - security
           - weekly-smoke
       ssot_base:
-        description: Optional git ref/SHA for manual SSOT delta live gate
+        description: Optional git ref/SHA for manual SSOT delta offline gate
         required: false
         type: string
   schedule:
@@ -74,12 +74,12 @@ jobs:
           fi
 
   ssot-delta-gate:
-    # Live SSOT proof for catalog diffs only (replaces retired daily full-matrix gate).
-    # No `environment: prod` — that env has deploy/OIDC approval gates; this job only
-    # probes public prod API and needs TK_FULLTEST_KEY as a repository Actions secret.
+    # Offline SSOT delta guard for catalog diffs. It intentionally does not hit
+    # prod: new catalog/model_mapping changes can only become live after deploy,
+    # so prod HTTP proof belongs to the post-deploy canary/closeout gate.
     if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ssot_base != '')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -112,38 +112,15 @@ jobs:
           set -euo pipefail
           changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "${{ steps.catalog_base.outputs.base }}")
           echo "changed=${changed}" >> "$GITHUB_OUTPUT"
-      - name: Needs live SSOT probe (delta models only)
-        id: needs_live
+      - name: SSOT delta gate (offline, post-deploy live gate owns prod proof)
         if: steps.touch.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          needs=$(python3 scripts/checks/ssot-delta-gate.py needs-live --base "${{ steps.catalog_base.outputs.base }}")
-          echo "needs=${needs}" >> "$GITHUB_OUTPUT"
-      - name: SSOT gate skip (catalog metadata / config only)
-        if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs != 'true'
+          python3 scripts/checks/ssot-delta-gate.py check --base "${{ steps.catalog_base.outputs.base }}" --skip-live
+      - name: SSOT gate skip (catalog surface unchanged)
+        if: steps.touch.outputs.changed != 'true'
         run: |
-          echo "ssot-delta-gate: ok (catalog paths changed; no delta models require live probe)"
-      - name: Validate TK_FULLTEST_KEY (repository secret)
-        if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs == 'true'
-        env:
-          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${TK_FULLTEST_KEY:-}" ]; then
-            echo "::error::TK_FULLTEST_KEY is not set as a repository Actions secret."
-            echo "::error::ssot-delta-gate cannot use the prod Environment secret without deployment approval."
-            echo "::error::Add the same key under Settings → Secrets and variables → Actions → Repository secrets."
-            exit 1
-          fi
-      - name: Focused SSOT gate (delta models only)
-        if: steps.touch.outputs.changed == 'true' && steps.needs_live.outputs.needs == 'true'
-        env:
-          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
-          TK_FULLTEST_BASE_URL: https://api.tokenkey.dev
-          TK_FULLTEST_TIMEOUT: "30"
-        run: |
-          set -euo pipefail
-          python3 scripts/checks/ssot-delta-gate.py check --base "${{ steps.catalog_base.outputs.base }}"
+          echo "ssot-delta-gate: ok (no catalog-surface paths changed)"
 
   test-unit:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))

@@ -2508,9 +2508,10 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "promptCacheKey, resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel))"
+        "dispatchMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)",
+        "promptCacheKey, dispatchMappedModel)"
       ],
-      "rationale": "/v1/chat/completions must pass the messages-dispatch claude fallback (exact overrides > group family overrides > code-default family constants via Group.ResolveMessagesDispatchModel) into ForwardAsChatCompletionsDispatched instead of a hardcoded empty string. The fallback only fires for claude-family model names when account-level model_mapping misses (service resolveOpenAIForwardModel), so dropping this one-line hook compiles clean but silently regresses claude-named requests on openai groups back to verbatim upstream forwarding (ChatGPT/Codex 400). The anchor includes the surrounding args because the same helper name also appears legitimately on the /v1/messages dispatch path."
+      "rationale": "/v1/chat/completions must pass the messages-dispatch claude fallback (exact overrides > group family overrides > code-default family constants via Group.ResolveMessagesDispatchModel) into ForwardAsChatCompletionsDispatched instead of a hardcoded empty string. The fallback only fires for claude-family model names when account-level model_mapping misses (service resolveOpenAIForwardModel), so dropping this hook compiles clean but silently regresses claude-named requests on openai groups back to verbatim upstream forwarding (ChatGPT/Codex 400). The dispatchMappedModel variable is also checked by the deprecated-model preflight gate, so the sentinel anchors both the helper resolution and the forwarding argument."
     },
     {
       "path": "backend/internal/service/openai_messages_dispatch.go",

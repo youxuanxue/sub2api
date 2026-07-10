@@ -72,6 +72,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if h.rejectDeprecatedOpenAICompatModel(c, apiKey, reqModel, false) {
+		return
+	}
 	routingModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -101,6 +104,13 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if channelMapping.Mapped && h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, channelMapping.MappedModel, false) {
+		return
+	}
+	dispatchMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, dispatchMappedModel, false) {
+		return
+	}
 
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
@@ -218,7 +228,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			// TK: claude 系模型名落到 openai 组且账号级映射未命中时，复用
 			// /v1/messages dispatch 的解析链（精确覆盖 > 组级家族覆写 > 代码
 			// 常量默认）作为兜底，代码默认值全网生效、无需节点配置。
-			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel))
+			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)
 		}()
 		cyberBlockKeyChat := ""
 		if service.GetOpsCyberPolicy(c) != nil {

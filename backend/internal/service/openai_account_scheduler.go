@@ -366,8 +366,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	stickyWaitPlan := false
 	if !req.StickyWeighted {
 		var escapedSticky bool
+		var escapedStickyAccountID int64
 		var err error
-		stickySel, escapedSticky, err = s.selectBySessionHash(ctx, req)
+		stickySel, escapedSticky, escapedStickyAccountID, err = s.selectBySessionHash(ctx, req)
 		if err != nil {
 			return nil, decision, err
 		}
@@ -387,6 +388,13 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 		if escapedSticky {
 			req.PreserveStickyBinding = true
+			if escapedStickyAccountID > 0 {
+				req.ExcludedIDs = cloneExcludedAccountIDs(req.ExcludedIDs)
+				if req.ExcludedIDs == nil {
+					req.ExcludedIDs = make(map[int64]struct{})
+				}
+				req.ExcludedIDs[escapedStickyAccountID] = struct{}{}
+			}
 		}
 	}
 
@@ -457,10 +465,10 @@ func (s *defaultOpenAIAccountScheduler) stickySlotFullEscapeEnabled(ctx context.
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
-) (*AccountSelectionResult, bool, error) {
+) (*AccountSelectionResult, bool, int64, error) {
 	sessionHash := strings.TrimSpace(req.SessionHash)
 	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 
 	accountID := req.StickyAccountID
@@ -468,29 +476,29 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		var err error
 		accountID, err = s.service.getStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		if err != nil || accountID <= 0 {
-			return nil, false, nil
+			return nil, false, 0, nil
 		}
 	}
 	if accountID <= 0 {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	if req.ExcludedIDs != nil {
 		if _, excluded := req.ExcludedIDs[accountID]; excluded {
-			return nil, false, nil
+			return nil, false, 0, nil
 		}
 	}
 
 	account, err := s.service.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	if shouldClearStickySession(account, req.RequestedModel) || !account.IsOpenAICompatPoolMember(req.GroupPlatform) || !account.IsSchedulable() {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	// TK window guard (isSticky=true): a sticky-bound account keeps serving its
 	// own session up to NotSchedulable; only once it is essentially at its codex
@@ -498,20 +506,20 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	// binding is left intact (NOT deleted) so the session resumes on this account
 	// after its window resets — unlike the hard-invalidation branches around it.
 	if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	if s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupPlatform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
@@ -521,14 +529,14 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			"error_rate", errorRate,
 			"ttft", ttft,
 		)
-		return nil, true, nil
+		return nil, true, accountID, nil
 	}
 	// TK (upstream#1934): symmetric with tryStickySessionHit — invalidate sticky
 	// bindings whose bound account has drifted out of this group (group switch /
 	// removed from group). See openaiStickyAccountStillInGroup.
 	if !s.service.openAIStickyAccountStillInGroupForRequest(ctx, req.GroupID, req.GroupPlatform, account) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 	// P0-1: 与 tryStickySessionHit 对称——upstream 渠道限制（BillingModelSourceUpstream）
 	// 必须在 sticky HIT 后再校验一次；否则上游已对该模型限流的 sticky-bound 账号
@@ -536,7 +544,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	if req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
 		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, false, 0, nil
 	}
 
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
@@ -546,7 +554,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			Account:     account,
 			Acquired:    true,
 			ReleaseFunc: result.ReleaseFunc,
-		}, false, nil
+		}, false, 0, nil
 	}
 
 	cfg := s.service.schedulingConfig()
@@ -571,11 +579,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			)
 			// Return WaitPlan as a fallback in case the pool is also full;
 			// escapedSticky=true signals the outer scheduler to try the pool first.
-			return waitPlan, true, nil
+			return waitPlan, true, accountID, nil
 		}
-		return waitPlan, false, nil
+		return waitPlan, false, 0, nil
 	}
-	return nil, false, nil
+	return nil, false, 0, nil
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {

@@ -15,7 +15,7 @@ var codexModelMap = map[string]string{
 	"gpt-5.6-luna":               "gpt-5.6-luna",
 	"gpt-5.6-chat-latest":        "gpt-5.6-chat-latest",
 	"gpt-5.5":                    "gpt-5.5",
-	"gpt-5.5-pro":                "gpt-5.5-pro",
+	"gpt-5.5-pro":                "gpt-5.5",
 	"codex-auto-review":          "codex-auto-review",
 	"gpt-5.4":                    "gpt-5.4",
 	"gpt-5.4-mini":               "gpt-5.4-mini",
@@ -25,43 +25,49 @@ var codexModelMap = map[string]string{
 	"gpt-5.4-high":               "gpt-5.4",
 	"gpt-5.4-xhigh":              "gpt-5.4",
 	"gpt-5.4-chat-latest":        "gpt-5.4",
-	"gpt-5.3":                    "gpt-5.3-codex",
-	"gpt-5.3-none":               "gpt-5.3-codex",
-	"gpt-5.3-low":                "gpt-5.3-codex",
-	"gpt-5.3-medium":             "gpt-5.3-codex",
-	"gpt-5.3-high":               "gpt-5.3-codex",
-	"gpt-5.3-xhigh":              "gpt-5.3-codex",
-	"gpt-5.3-codex":              "gpt-5.3-codex",
+	"gpt-5.3":                    "gpt-5.3-codex-spark",
+	"gpt-5.3-none":               "gpt-5.3-codex-spark",
+	"gpt-5.3-low":                "gpt-5.3-codex-spark",
+	"gpt-5.3-medium":             "gpt-5.3-codex-spark",
+	"gpt-5.3-high":               "gpt-5.3-codex-spark",
+	"gpt-5.3-xhigh":              "gpt-5.3-codex-spark",
+	"gpt-5.3-codex":              "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-none":         "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-low":          "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-medium":       "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-high":         "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-xhigh":        "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark":        "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-low":    "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-medium": "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-high":   "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-xhigh":  "gpt-5.3-codex-spark",
-	"gpt-5.3-codex-low":          "gpt-5.3-codex",
-	"gpt-5.3-codex-medium":       "gpt-5.3-codex",
-	"gpt-5.3-codex-high":         "gpt-5.3-codex",
-	"gpt-5.3-codex-xhigh":        "gpt-5.3-codex",
 	"gpt-5.2":                    "gpt-5.2",
 	"gpt-5.2-none":               "gpt-5.2",
 	"gpt-5.2-low":                "gpt-5.2",
 	"gpt-5.2-medium":             "gpt-5.2",
 	"gpt-5.2-high":               "gpt-5.2",
 	"gpt-5.2-xhigh":              "gpt-5.2",
-	"gpt-5":                      "gpt-5.4",
+	"gpt-5":                      "gpt-5.5",
+	"gpt-5-chat":                 "gpt-5.5",
+	"gpt-5-chat-latest":          "gpt-5.5",
+	"gpt-5-codex":                "gpt-5.3-codex-spark",
+	"gpt-5-codex-none":           "gpt-5.3-codex-spark",
+	"gpt-5-codex-low":            "gpt-5.3-codex-spark",
+	"gpt-5-codex-medium":         "gpt-5.3-codex-spark",
+	"gpt-5-codex-high":           "gpt-5.3-codex-spark",
+	"gpt-5-codex-xhigh":          "gpt-5.3-codex-spark",
 	"gpt-5-mini":                 "gpt-5.4",
 	"gpt-5-nano":                 "gpt-5.4",
 	"gpt-5.1":                    "gpt-5.4",
-	"gpt-5.1-codex":              "gpt-5.3-codex",
-	"gpt-5.1-codex-max":          "gpt-5.3-codex",
-	"gpt-5.1-codex-mini":         "gpt-5.3-codex",
+	"gpt-5.1-codex":              "gpt-5.3-codex-spark",
+	"gpt-5.1-codex-max":          "gpt-5.3-codex-spark",
+	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
 	"gpt-5.2-codex":              "gpt-5.2",
-	"codex-mini-latest":          "gpt-5.3-codex",
-	"gpt-5-codex":                "gpt-5.3-codex",
-	// TK 2026-07 SSOT audit hotfix: exact-match self-mapping short-circuits
-	// normalizeKnownOpenAICodexModel's `strings.Contains(normalized, "gpt-5.3")`
-	// substring fallback (openai_model_alias.go), which would otherwise silently
-	// rewrite this id to gpt-5.3-codex before it reaches OpenAI.
-	"gpt-5.3-chat-latest": "gpt-5.3-chat-latest",
+	"codex-mini-latest":          "gpt-5.3-codex-spark",
+	// TK 2026-07 SSOT audit: upstream rejected this official chat id for
+	// ChatGPT-account Codex; keep it as a non-display compatibility alias.
+	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
 }
 
 var codexVersionModelPrefixes = []struct {
@@ -72,7 +78,8 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.3-codex-spark", target: "gpt-5.3-codex-spark"},
-	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex"},
+	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex-spark"},
+	{prefix: "gpt-5-codex", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5.4-mini", target: "gpt-5.4-mini"},
 	{prefix: "gpt-5.4-nano", target: "gpt-5.4-nano"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
@@ -80,7 +87,7 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-chat-latest"},
 	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
-	{prefix: "gpt-5.5-pro", target: "gpt-5.5-pro"},
+	{prefix: "gpt-5.5-pro", target: "gpt-5.5"},
 	{prefix: "gpt-5.5", target: "gpt-5.5"},
 	{prefix: "gpt-5.4", target: "gpt-5.4"},
 	{prefix: "gpt-5.2", target: "gpt-5.2"},
@@ -987,11 +994,9 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 //     "gpt-5.3-codex-spark" streams 200 — the OAuth backend currently serves
 //     a narrower model set than the platform API (not enumerated here).
 //
-// Even though bare "gpt-5.3-codex" is also rejected today, dropping the stale
-// rewrite still matters: clients now receive the upstream's real, actionable
-// 400 (passed through by the caller-fault 400 catch-all in
-// openai_gateway_service.go) instead of an error about a model name they
-// never sent because of a silent rewrite.
+// Bare "gpt-5.3-codex" is now normalized earlier as a non-display compatibility
+// alias to gpt-5.3-codex-spark. This seam remains for future ChatGPT OAuth
+// contract flips of the canonical names that survive normalization.
 var chatGPTOAuthUpstreamModelNames = map[string]string{}
 
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {

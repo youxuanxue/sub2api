@@ -639,6 +639,9 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	}
 	if IsOpenAICompatPlatform(platform) {
 		if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
+			if alias := resolveOpenAICompatRoutingAlias(canonical); alias != "" {
+				return alias
+			}
 			return canonical
 		}
 	}

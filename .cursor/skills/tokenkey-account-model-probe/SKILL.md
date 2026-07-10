@@ -33,6 +33,20 @@ bash ops/observability/run-probe.sh \
   --env ENDPOINT=messages
 ```
 
+When the question is raw provider capability rather than TokenKey-path serving,
+use a direct upstream probe on the same target host:
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target edge:<edge_id> \
+  --script ops/stage0/probe_direct_upstream_model.sh \
+  --with ops/stage0/probe_openai_upstream_model.sh \
+  --with ops/stage0/probe_grok_upstream_model.sh \
+  --env PLATFORM=<openai|grok> \
+  --env ACCOUNT_ID=<account_id> \
+  --env MODEL=<model>
+```
+
 Useful options:
 
 - `ENDPOINT=messages|chat|responses` chooses `/v1/messages`, `/v1/chat/completions`, or `/v1/responses`.
@@ -71,9 +85,11 @@ For modelops, distinguish TokenKey's current production serving floor from raw u
 - `upstream_rejected` means the upstream provider path was reached and the upstream account/model/request
   combination rejected it. The exact text is platform-specific, for example OpenAI OAuth can return
   `not supported when using Codex with a ChatGPT account`.
-- A model is promotable to catalog/Menu or runtime `model_mapping` only after the platform-appropriate
-  account probe returns `verdict=servable` with `usage_match.account_id == ACCOUNT_ID`, and the prod
-  `model_mapping` path has been updated/re-probed through the modelops flow when prod serving is the goal.
+- A direct upstream probe proves only raw provider account capability. A gateway account probe proves
+  TokenKey-path serving and usage attribution. A model is promotable to catalog/Menu or runtime
+  `model_mapping` only after the platform-appropriate probe returns `verdict=servable`, the gateway
+  account probe confirms `usage_match.account_id == ACCOUNT_ID`, and the prod `model_mapping` path has
+  been updated/re-probed through the modelops flow when prod serving is the goal.
 
 Example from 2026-07-08: prod normal probes for `gpt-5.6*` returned local
 `Unsupported model` with `account_id=null`; edge OpenAI OAuth accounts on `edge:us4` and `edge:us3`
@@ -88,7 +104,7 @@ account capability still has to return `verdict=servable`.
 - Default reuse mode intentionally leaves at most one reserved probe group/key per platform on each target host, disables it after cleanup, and removes account binding after the request.
 - Probe groups must stay exclusive, grant `user_allowed_groups` only to the probe key owner, and remain direct probe-key only; they must not enter universal-key routing candidates.
 - Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, and `responses` for Codex/OpenAI responses.
-- If the goal is "can the raw upstream credential serve this model" for an API-key-compatible account, direct upstream curl can be a follow-up, but the default gateway probe is the authoritative TokenKey-path proof.
+- If the goal is "can the raw upstream credential serve this model", use the platform direct upstream probe. The default gateway probe remains the authoritative TokenKey-path proof.
 
 ## Follow-Up Checks
 

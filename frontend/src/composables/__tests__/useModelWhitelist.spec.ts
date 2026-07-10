@@ -37,6 +37,8 @@ describe('useModelWhitelist', () => {
     const newapiModels = getModelsByPlatform('newapi')
     expect(newapiModels).toContain('gpt-5.4')
     expect(newapiModels).toContain('gpt-5.3-codex-spark')
+    expect(newapiModels).not.toContain('gpt-5.3-codex')
+    expect(newapiModels).not.toContain('codex-auto-review')
   })
 
   it('newapi picker offers the qwen3 dense ids (PR-B: dropdown discoverability)', () => {

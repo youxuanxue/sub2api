@@ -95,7 +95,7 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 			expectedModel:      "gpt-5.5",
 		},
 		{
-			name: "preserves gpt-5.5-pro instead of group default",
+			name: "preserves gpt-5.5-pro before upstream normalization",
 			account: &Account{
 				Credentials: map[string]any{},
 			},
@@ -235,18 +235,24 @@ func TestResolveOpenAICompactForwardModel(t *testing.T) {
 	}
 }
 
+// TestNormalizeCodexModel pins the algorithm branches (version-prefix suffix
+// stripping, image-generation passthrough, unknown-model passthrough) — NOT
+// the codexModelMap alias table itself, which TestNormalizeOpenAIModelForUpstream
+// already exercises through the OAuth path for the specific aliases that
+// matter (gpt-5.3, codex-mini-latest, ...). Duplicating those literal map
+// entries here would just mirror the SSOT table instead of testing behavior.
 func TestNormalizeCodexModel(t *testing.T) {
 	cases := map[string]string{
-		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark",
-		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark",
+		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark", // exact prefix match
+		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark", // suffix stripped via codexVersionModelPrefixes
 		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
-		"gpt-5.3":                   "gpt-5.3-codex",
-		"gpt-5.3-chat-latest":       "gpt-5.3-chat-latest",
-		"gpt-image-2":               "gpt-image-2",
-		"gpt-5.4-nano":              "gpt-5.4-nano",
-		"gpt-5.4-nano-high":         "gpt-5.4-nano",
-		"gpt6":                      "gpt6",
-		"claude-opus-4-6":           "claude-opus-4-6",
+		"gpt-5.3-codex":             "gpt-5.3-codex-spark", // non-display legacy alias
+		"gpt-5.3-codex-high":        "gpt-5.3-codex-spark",
+		"gpt-5-codex-xhigh":         "gpt-5.3-codex-spark",
+		"gpt-image-2":               "gpt-image-2",     // image-generation models pass through unmapped
+		"gpt-5.4-nano-high":         "gpt-5.4-nano",    // unknown reasoning-effort suffix stripped
+		"gpt6":                      "gpt6",            // unknown gpt model passes through unchanged
+		"claude-opus-4-6":           "claude-opus-4-6", // non-gpt model passes through unchanged
 	}
 
 	for input, expected := range cases {
@@ -282,10 +288,10 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "gpt-5.4",
 		},
 		{
-			name:    "oauth preserves GPT-5.5 Pro model",
+			name:    "oauth routes GPT-5.5 Pro alias to GPT-5.5",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "openai/gpt-5.5-pro",
-			want:    "gpt-5.5-pro",
+			want:    "gpt-5.5",
 		},
 		{
 			name:    "oauth preserves codex auto review model",
@@ -294,28 +300,28 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
-			name:    "oauth keeps canonical gpt-5.3-codex unrewritten (ChatGPT backend contract reversed 2026-05-29)",
+			name:    "oauth maps legacy gpt-5.3-codex alias to spark",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3-codex",
-			want:    "gpt-5.3-codex",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
-			name:    "oauth normalizes gpt-5.3 alias to gpt-5.3-codex via codexModelMap",
+			name:    "oauth maps bare gpt-5.3 alias to spark",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3",
-			want:    "gpt-5.3-codex",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
-			name:    "oauth normalizes codex-mini-latest alias to gpt-5.3-codex via codexModelMap",
+			name:    "oauth normalizes codex-mini-latest alias to spark via codexModelMap",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "codex-mini-latest",
-			want:    "gpt-5.3-codex",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
-			name:    "oauth keeps gpt-5.3-chat-latest unrewritten (SSOT audit hotfix: substring fallback would otherwise misclassify it as gpt-5.3-codex)",
+			name:    "oauth routes gpt-5.3-chat-latest alias to spark",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3-chat-latest",
-			want:    "gpt-5.3-chat-latest",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
 			name:    "oauth spark model not remapped",
@@ -387,10 +393,10 @@ func TestUsageBillingModelCandidatesPreserveCodexAutoReviewModel(t *testing.T) {
 	}
 }
 
-func TestUsageBillingModelCandidatesPreserveGPT55ProModel(t *testing.T) {
+func TestUsageBillingModelCandidatesRouteGPT55ProAlias(t *testing.T) {
 	candidates := usageBillingModelCandidates("openai/gpt-5.5-pro")
 
-	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro"}
+	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro", "gpt-5.5"}
 	if len(candidates) != len(expected) {
 		t.Fatalf("usageBillingModelCandidates(openai/gpt-5.5-pro) = %#v, want %#v", candidates, expected)
 	}

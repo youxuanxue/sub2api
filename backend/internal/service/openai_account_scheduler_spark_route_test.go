@@ -46,7 +46,7 @@ func TestSparkRoutingByModel(t *testing.T) {
 			Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Credentials: sparkCreds}
 		s := newScheduler(map[int64]*Account{100: parent})
 		require.True(t, s.isAccountRequestCompatible(ctx, shadow, sparkReq), "影子配 spark + 健康母 → 接 spark")
-		require.False(t, s.isAccountRequestCompatible(ctx, shadow, normalReq), "影子（仅 spark mapping）→ 拒非 spark")
+		require.True(t, s.isAccountRequestCompatible(ctx, shadow, normalReq), "legacy gpt-5.3-codex aliases to spark without display")
 	})
 
 	t.Run("empty_model_shadow_is_eligible_under_a2", func(t *testing.T) {

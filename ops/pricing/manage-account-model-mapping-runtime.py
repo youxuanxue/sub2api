@@ -14,6 +14,12 @@ accounts. Use ``check-accounts`` to diff live accounts against the Go SSOT, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
 wants to overwrite persisted mappings.
 
+Post-release gate is **prod only** (default). Edge accounts keep empty
+``model_mapping`` because traffic is user → prod → edge relay; prod already
+enforces the floor. Do not treat edge empty mappings as drift unless
+``--include-edges`` is explicitly requested for troubleshooting. See
+``docs/global/agent-reference.md`` § Model serving SSOT.
+
 Runtime JSON shape:
 
 {
@@ -67,12 +73,14 @@ GROK_REQUIRED_ALIASES = {
     "grok": "grok-4.3",
     "grok-latest": "grok-4.3",
     "grok-build": "grok-build-0.1",
-    "grok-4.3-latest": "grok-4.3",
     "grok-4-fast-reasoning": "grok-4.3",
-    "grok-4.20-reasoning": "grok-4.20-0309-reasoning",
-    "grok-4.20-non-reasoning": "grok-4.20-0309-non-reasoning",
+    "grok-4.3-latest": "grok-4.3",
+    "grok-4.5-latest": "grok-4.5",
+    "grok-build-latest": "grok-4.5",
     "grok-code-fast": "grok-build-0.1",
     "grok-code-fast-1-0825": "grok-build-0.1",
+    "grok-4.20-reasoning": "grok-4.20-0309-reasoning",
+    "grok-4.20-non-reasoning": "grok-4.20-0309-non-reasoning",
 }
 KIRO_REQUIRED_MODELS = {"claude-sonnet-4-5", "claude-sonnet-5"}
 

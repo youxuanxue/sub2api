@@ -79,6 +79,14 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 		}
 		return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType, "Model is retired or scheduled for sunset by Anthropic"
 	}
+	if errors.Is(err, service.ErrDeprecatedOpenAIModel) {
+		markOpsClientRequestRejected(c)
+		if _, replacement, ok := service.TkLookupDeprecatedOpenAIModel(reqModel); ok {
+			return http.StatusBadRequest, service.TkDeprecatedOpenAIErrorType,
+				service.TkBuildDeprecatedOpenAIModelMessage(reqModel, replacement)
+		}
+		return http.StatusBadRequest, service.TkDeprecatedOpenAIErrorType, "Model is retired or not selectable"
+	}
 	if errors.Is(err, service.ErrUnsupportedModel) {
 		// Own this to the client in ops regardless of the response envelope
 		// (/responses carries the type in `code`, not `type`).

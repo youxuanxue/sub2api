@@ -131,7 +131,7 @@ func TestSparkShadowIntegration(t *testing.T) {
 		pid := int64(1)
 		sparkShadow := &Account{ID: 2, ParentAccountID: &pid, Platform: PlatformOpenAI, Credentials: sparkCreds}
 		require.True(t, sparkShadow.IsModelSupported(sparkModel), "影子配 spark → 接 spark")
-		require.False(t, sparkShadow.IsModelSupported(normalModel), "影子（仅 spark mapping）→ 拒非 spark")
+		require.True(t, sparkShadow.IsModelSupported(normalModel), "legacy gpt-5.3-codex aliases to spark without display")
 
 		normalWithSpark := &Account{ID: 3, Platform: PlatformOpenAI, Credentials: sparkCreds}
 		require.True(t, normalWithSpark.IsModelSupported(sparkModel), "普通账号配 spark → 接 spark（不再按类型排除）")

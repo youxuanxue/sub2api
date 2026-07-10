@@ -18,7 +18,7 @@ export interface MessagesDispatchFormState {
 
 export const OPENAI_MESSAGES_DISPATCH_DEFAULTS = {
   opus_mapped_model: "gpt-5.5",
-  sonnet_mapped_model: "gpt-5.3-codex",
+  sonnet_mapped_model: "gpt-5.3-codex-spark",
   haiku_mapped_model: "gpt-5.4-mini",
 } as const;
 
