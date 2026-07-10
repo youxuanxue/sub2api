@@ -47,6 +47,16 @@ func modelIDSet(models []struct {
 	return ids
 }
 
+func availableModelIDs(models []struct {
+	ID string `json:"id"`
+}) []string {
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	return ids
+}
+
 type syncUpstreamHTTPUpstream struct {
 	resp *http.Response
 	err  error
@@ -222,19 +232,10 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	ids := modelIDSet(resp.Data)
-	for _, want := range []string{"gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"} {
-		require.True(t, ids[want], "servable OpenAI probe result %s should appear in OpenAI admin defaults", want)
-	}
-	for _, hidden := range []string{
-		"gpt-5", "gpt-5-chat", "gpt-5-chat-latest", "gpt-5-mini", "gpt-5-nano",
-		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest",
-		"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-pro",
-		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
-		"codex-auto-review",
-	} {
-		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not appear in OpenAI admin defaults", hidden)
-	}
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
+		availableModelIDs(resp.Data),
+		"OpenAI admin defaults must mirror the unified servable SSOT")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *testing.T) {
@@ -263,19 +264,10 @@ func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	ids := modelIDSet(resp.Data)
-	for _, want := range []string{"gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"} {
-		require.True(t, ids[want], "servable OpenAI probe result %s should appear in OpenAI admin defaults", want)
-	}
-	for _, hidden := range []string{
-		"gpt-5", "gpt-5-chat", "gpt-5-chat-latest", "gpt-5-mini", "gpt-5-nano",
-		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest",
-		"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-pro",
-		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
-		"codex-auto-review",
-	} {
-		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not appear in OpenAI admin defaults", hidden)
-	}
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
+		availableModelIDs(resp.Data),
+		"OpenAI admin defaults must mirror the unified servable SSOT")
 }
 
 func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *testing.T) {

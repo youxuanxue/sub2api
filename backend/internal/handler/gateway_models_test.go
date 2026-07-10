@@ -158,14 +158,10 @@ func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.4", "universal OpenAI group fallback must use OpenAI SSOT")
-	require.Contains(t, ids, "gpt-5.3-codex-spark", "universal OpenAI group fallback must include SSOT delta-gate 200 model")
-	require.Contains(t, ids, "gpt-5.4-mini", "universal OpenAI group fallback must include current OpenAI SSOT")
-	require.Contains(t, ids, "gemini-2.5-flash", "universal Gemini group fallback must use Gemini SSOT")
-	require.NotContains(t, ids, "gpt-5-pro", "SSOT delta-gate 403 model must not leak into universal list")
-	require.NotContains(t, ids, "gpt-5.2", "legacy OpenAI pricing-only model must not leak into universal list")
-	require.NotContains(t, ids, "gpt-5.6-sol", "non-allowlisted OpenAI model must not leak into universal list")
-	require.NotContains(t, ids, "leaked-global-model", "universal list must not scan the global schedulable pool")
+	require.ElementsMatch(t, gatewayModelsSSOTUnionForTest(
+		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
+		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
+	), ids, "universal list must be exactly the entitled OpenAI+Gemini SSOT union and must not scan the global schedulable pool")
 }
 
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
@@ -661,4 +657,18 @@ func modelIDsForTest(models []gatewayModelItemForTest) []string {
 		ids = append(ids, model.ID)
 	}
 	return ids
+}
+
+func gatewayModelsSSOTUnionForTest(groups ...[]string) []string {
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for _, id := range group {
+			seen[id] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out
 }

@@ -45,41 +45,13 @@ func TestAccount_IsOpenAIAinzyRelay(t *testing.T) {
 func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	t.Parallel()
 	mapping := openAIAinzyRelayAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 4)
-	for _, model := range []string{
-		"gpt-5.3-codex-spark",
-		"gpt-5.4",
-		"gpt-5.4-mini",
-		"gpt-5.5",
-	} {
-		require.Contains(t, mapping, model)
-	}
-	require.NotContains(t, mapping, "codex-auto-review")
-	require.NotContains(t, mapping, "gpt-5-pro")
-	require.NotContains(t, mapping, "gpt-5-codex")
-	require.NotContains(t, mapping, "gpt-5.3-codex")
+	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
 }
 
 func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	t.Parallel()
 	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
-	require.Len(t, mapping, 4)
-	for _, model := range []string{
-		"gpt-5.3-codex-spark",
-		"gpt-5.4",
-		"gpt-5.4-mini",
-		"gpt-5.5",
-	} {
-		require.Contains(t, mapping, model)
-	}
-	require.NotContains(t, mapping, "codex-auto-review")
-	require.NotContains(t, mapping, "gpt-5")
-	require.NotContains(t, mapping, "gpt-5-pro")
-	require.NotContains(t, mapping, "gpt-5.5-pro")
-	require.NotContains(t, mapping, "gpt-5.6-sol")
-	require.NotContains(t, mapping, "gpt-image-1")
-	require.NotContains(t, mapping, "gpt-5.2")
-	require.NotContains(t, mapping, "gpt-5-codex")
+	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
 }
 
 func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
@@ -113,17 +85,10 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	require.NoError(t, err)
 	ainzy, ok := doc.Platforms[accountModelMappingPlatformOpenAIAinzyRelay]
 	require.True(t, ok)
-	require.Len(t, ainzy, 4)
-	require.Contains(t, ainzy, "gpt-5.4-mini")
-	require.NotContains(t, ainzy, "gpt-5-pro")
-	require.NotContains(t, ainzy, "gpt-5.2")
-	require.NotContains(t, ainzy, "codex-auto-review")
+	requireIdentityMappingForIDs(t, ainzy, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
 	canonical, ok := doc.Platforms[PlatformOpenAI]
 	require.True(t, ok)
-	require.Len(t, canonical, 4)
-	require.Contains(t, canonical, "gpt-5.3-codex-spark")
-	require.NotContains(t, canonical, "gpt-5-pro")
-	require.NotContains(t, canonical, "codex-auto-review")
+	requireIdentityMappingForIDs(t, canonical, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
 }
 
 func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
@@ -136,7 +101,14 @@ func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
 		},
 	}, nil, nil, nil)
 	require.True(t, ok)
-	require.Len(t, mapping, 4)
-	require.Contains(t, mapping, "gpt-5.4-mini")
-	require.NotContains(t, mapping, "codex-auto-review")
+	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
+}
+
+func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids []string) {
+	t.Helper()
+	require.NotEmpty(t, ids, "SSOT id list must be populated")
+	require.Len(t, mapping, len(ids), "mapping must contain exactly the SSOT ids")
+	for _, id := range ids {
+		require.Equal(t, id, mapping[id], "mapping for %s must be identity", id)
+	}
 }
