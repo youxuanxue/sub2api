@@ -967,15 +967,12 @@ else
 fi
 
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
-# The Codex (OpenAI-platform) client version is pinned in 5 places that must
-# carry the SAME version: the UA default (setting_service.go), the gateway
-# `version` header (openai_gateway_service.go), the usage-probe `Version`
-# (account_usage_service.go), and the en/zh admin-UI placeholders. A bump that
-# updates only some of them (the en/zh placeholders were nearly forgotten in
-# PR #1013) silently desyncs the forged fingerprint. This gate proves the 5
-# pins agree AMONG THEMSELVES — it never compares to a moving upstream codex
-# release, so it cannot break CI when codex ships a new version. Real upstream
-# drift is detected on-demand by skill tokenkey-codex-fingerprint-alignment.
+# The Codex (OpenAI-platform) client version has one service source:
+# DefaultOpenAICodexVersion. The UA default, gateway `version` header, and
+# usage-probe `Version` must derive from it. This gate proves the service pins
+# agree AMONG THEMSELVES — it never compares to a moving upstream codex release,
+# so it cannot break CI when codex ships a new version. Real upstream drift is
+# detected on-demand by skill tokenkey-codex-fingerprint-alignment.
 echo ""
 echo "=== sub2api: codex fingerprint pin consistency ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -989,7 +986,7 @@ elif ! python3 ./ops/openai/capture_codex_fingerprint.py check-consistency >/dev
     # is the success line, suppressed here); a single run surfaces it, no re-run.
     errors=$((errors + 1))
 else
-    echo "  ok: codex version pins mutually consistent across UA/gateway/probe/en/zh"
+    echo "  ok: codex service version pins derive from one source"
 fi
 
 # ---- sub2api: client release watch -------------------------------------------

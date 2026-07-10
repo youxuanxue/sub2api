@@ -85,8 +85,18 @@ const antigravityUserAgentVersionCacheTTL = 60 * time.Second
 const antigravityUserAgentVersionErrorTTL = 5 * time.Second
 const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 
+// DefaultOpenAICodexVersion is the single source for the forged Codex client
+// version: UA, gateway version header, and usage probe header must all derive
+// from it.
+const DefaultOpenAICodexVersion = "0.144.1"
+
 // DefaultOpenAICodexUserAgent OpenAI Codex 默认 User-Agent。
-const DefaultOpenAICodexUserAgent = "codex-tui/0.143.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.143.0)"
+const DefaultOpenAICodexUserAgent = "codex-tui/" + DefaultOpenAICodexVersion + " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; " + DefaultOpenAICodexVersion + ")"
+
+const (
+	codexCLIVersion         = DefaultOpenAICodexVersion
+	openAICodexProbeVersion = DefaultOpenAICodexVersion
+)
 
 // cachedOpenAICodexUserAgent 缓存 OpenAI Codex UA（进程内缓存，60s TTL）
 type cachedOpenAICodexUserAgent struct {

@@ -31,7 +31,7 @@ func tkBuildPricedServiceForTest(t *testing.T, ids []string) *PricingCatalogServ
 // invariant for the gateway /v1/models fallback source: every advertised id is
 // (a) within the platform servable allowlist (the /pricing candidate gate) AND
 // (b) priced (billable) — visible ⟹ priced ∧ candidate. Negative pin:
-// priced-but-not-allowlisted ids (advertised_dead like gpt-5.6-sol / gpt-image-1)
+// priced-but-not-allowlisted ids (advertised_dead like gpt-image-1)
 // never appear, even when priced.
 func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	ctx := context.Background()
@@ -41,7 +41,7 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	for _, id := range allow {
 		allowSet[id] = true
 	}
-	dead := []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
+	dead := []string{"gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
 	for _, d := range dead {
 		require.False(t, allowSet[d], "precondition: %s must be advertised_dead (priced but NOT in allowlist)", d)
 	}

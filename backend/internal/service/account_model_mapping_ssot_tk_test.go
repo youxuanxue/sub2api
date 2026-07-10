@@ -76,7 +76,7 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 	require.True(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark itself remains served")
 	require.True(t, account.IsModelSupported("gpt-5.3-codex"), "legacy codex id should alias to spark without display")
 	require.True(t, account.IsModelSupported("gpt-5-codex"), "legacy GPT-5 Codex id should alias to spark without display")
-	require.False(t, account.IsModelSupported("gpt-5.6"), "unsupported upstream-rejected family must stay out of the floor")
+	require.False(t, account.IsModelSupported("gpt-not-a-real-id-zzz"), "unknown OpenAI ids must stay out of the floor")
 }
 
 func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {

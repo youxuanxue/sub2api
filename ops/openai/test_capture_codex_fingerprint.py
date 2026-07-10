@@ -21,11 +21,10 @@ UA_TMPL = "codex-tui/{v} (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; {v}
 
 
 _PATHS = {
+    "version_source": eng.SETTING_GO,
     "ua_default": eng.SETTING_GO,
-    "gateway_version": eng.GATEWAY_GO,
-    "probe_version": eng.USAGE_GO,
-    "placeholder_en": eng.EN_TS,
-    "placeholder_zh": eng.ZH_TS,
+    "gateway_version": eng.SETTING_GO,
+    "probe_version": eng.SETTING_GO,
 }
 
 
@@ -35,22 +34,20 @@ def _pin(key, kind, version, raw, consistent=True, found=True):
 
 
 def _baseline(versions):
-    """Synthesise a Baseline with the 5 pins set to the given versions dict."""
+    """Synthesise a Baseline with the service pins set to the given versions dict."""
     bl = eng.Baseline(originator_pinned=True, beta_pinned=True)
     bl.pins = [
-        _pin("ua_default", "ua", versions["ua_default"], UA_TMPL.format(v=versions["ua_default"])),
-        _pin("gateway_version", "bare", versions["gateway_version"], versions["gateway_version"]),
-        _pin("probe_version", "bare", versions["probe_version"], versions["probe_version"]),
-        _pin("placeholder_en", "ua", versions["placeholder_en"], UA_TMPL.format(v=versions["placeholder_en"])),
-        _pin("placeholder_zh", "ua", versions["placeholder_zh"], UA_TMPL.format(v=versions["placeholder_zh"])),
+        _pin("version_source", "bare", versions["version_source"], versions["version_source"]),
+        _pin("ua_default", "alias", versions["ua_default"], "DefaultOpenAICodexVersion"),
+        _pin("gateway_version", "alias", versions["gateway_version"], "DefaultOpenAICodexVersion"),
+        _pin("probe_version", "alias", versions["probe_version"], "DefaultOpenAICodexVersion"),
     ]
     return bl
 
 
 def _aligned(v="0.142.2"):
     return _baseline({k: v for k in
-                      ("ua_default", "gateway_version", "probe_version",
-                       "placeholder_en", "placeholder_zh")})
+                      ("version_source", "ua_default", "gateway_version", "probe_version")})
 
 
 class ParseVersionTests(unittest.TestCase):
@@ -118,8 +115,7 @@ class ConsistencyTests(unittest.TestCase):
 
     def test_no_consensus_when_one_pin_lags(self):
         bl = _aligned("0.142.2")
-        bl.pins[3].version = "0.142.0"      # en placeholder forgotten
-        bl.pins[3].raw = UA_TMPL.format(v="0.142.0")
+        bl.pins[2].version = "0.142.0"      # gateway alias/source drift
         self.assertEqual(bl.consensus(), "")
         rows = eng.consistency_rows(bl)
         self.assertTrue(any(r.status == "mismatch" for r in rows))
@@ -135,14 +131,11 @@ class EmitEditsTests(unittest.TestCase):
     def test_emits_one_edit_per_lagging_pin(self):
         bl = _aligned("0.142.2")
         edits = eng.emit_edits(bl, "0.143.0")
-        self.assertEqual(len(edits), 5)
-        # bare pin: whole value replaced
-        gw = next(e for e in edits if "openai_gateway_service.go" in e["file"])
-        self.assertEqual(gw["new"], "0.143.0")
-        # ua pin: only version tokens swapped, OS/terminal kept
-        ua = next(e for e in edits if "setting_gateway_runtime.go" in e["file"])
-        self.assertEqual(ua["new"], UA_TMPL.format(v="0.143.0"))
-        self.assertIn("iTerm.app/3.6.11", ua["new"])
+        self.assertEqual(edits, [{
+            "file": "backend/internal/service/setting_gateway_runtime.go",
+            "old": "0.142.2",
+            "new": "0.143.0",
+        }])
 
     def test_no_edits_when_already_aligned(self):
         self.assertEqual(eng.emit_edits(_aligned("0.142.2"), "0.142.2"), [])
@@ -194,8 +187,8 @@ class LiveRepoTests(unittest.TestCase):
 
     def test_live_baseline_loads_and_is_consistent(self):
         bl = eng.load_baseline()
-        # All five pins must be found...
-        self.assertEqual(len(bl.pins), 5)
+        # All service pins must be found...
+        self.assertEqual(len(bl.pins), 4)
         for p in bl.pins:
             self.assertTrue(p.found, f"{p.key} not found via regex in {p.rel}")
             self.assertRegex(p.version, r"^\d+\.\d+\.\d+")

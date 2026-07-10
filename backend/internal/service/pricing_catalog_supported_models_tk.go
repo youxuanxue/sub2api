@@ -28,15 +28,15 @@ import (
 //     deprecated-gate 400s, upstream-rejected 502s, and dated snapshots whose
 //     non-dated form also serves.
 //   - openai: 2026-07-10 SSOT audit probes (prod OAuth accounts + account 76
-//     Ainzy relay checks). Native ChatGPT-OAuth servable set is exactly the
-//     curated floor in ops/pricing/examples/openai-oauth-proven.json (4 models).
-//     Compatibility GPT-5 spellings such as gpt-5.4-high, codex-mini-latest, and
-//     gpt-5-chat-latest remain priced for billing but are hidden from /pricing
-//     and /models; clients may still request them and are routed through
-//     CanonicalizeOpenAICompatRoutingModel to a served floor id. Retired /
-//     never-selectable ids such as gpt-5.2 and codex-auto-review take the
-//     deprecated-model 400 path instead; non-display aliases such as
-//     gpt-5.3-codex route to their canonical supported target.
+//     Ainzy relay checks). Native ChatGPT-OAuth servable set is the curated
+//     floor in ops/pricing/examples/openai-oauth-proven.json plus the
+//     GPT-pro1-verified GPT-5.6 family. Compatibility GPT-5 spellings such as
+//     gpt-5.4-high, codex-mini-latest, and gpt-5-chat-latest remain priced for
+//     billing but hidden from /pricing and /models; clients may still request
+//     them and are routed through CanonicalizeOpenAICompatRoutingModel to a
+//     served floor id. Retired / never-selectable ids such as gpt-5.2 and
+//     codex-auto-review take the deprecated-model 400 path instead; non-display
+//     aliases such as gpt-5.3-codex route to their canonical supported target.
 //     codex-auto-review is deliberately EXCLUDED from both sets even though it
 //     returns a live 200: it is an internal ChatGPT-Codex capability, not a
 //     directly-selectable model, so it is routed through the hard-rejection gate
@@ -124,6 +124,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
 	"gpt-5.5":             {},
+	"gpt-5.6":             {},
+	"gpt-5.6-luna":        {},
+	"gpt-5.6-sol":         {},
+	"gpt-5.6-terra":       {},
 	// servable-allowlist:end openai
 }
 
