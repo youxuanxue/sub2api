@@ -12,7 +12,6 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,31 +68,12 @@ func TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset(t *testing.T)
 	require.NotContains(t, mapping, "gpt-oss-120b-medium")
 }
 
-func TestAccountModelMappingForAccount_GrokPreservesAliases(t *testing.T) {
+func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testing.T) {
 	t.Parallel()
 
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformGrok}, nil, nil, nil)
 	require.True(t, ok)
-	for _, id := range supportedCatalogModelIDsForPlatform(PlatformGrok) {
-		require.Equal(t, id, mapping[id], "Grok served id %s must keep identity mapping", id)
-	}
-	displaySet := stringSet(supportedCatalogModelIDsForPlatform(PlatformGrok))
-	for from, to := range xai.DefaultModelMapping() {
-		if _, publicListed := displaySet[from]; publicListed {
-			continue
-		}
-		if _, ok := displaySet[to]; ok {
-			require.Equal(t, to, mapping[from], "xAI compatibility alias %s must be preserved", from)
-		}
-	}
-	for from, to := range tkGrokCompatibilityAliases {
-		if _, publicListed := displaySet[from]; publicListed {
-			continue
-		}
-		if _, ok := displaySet[to]; ok {
-			require.Equal(t, to, mapping[from], "TokenKey Grok compatibility alias %s must be preserved", from)
-		}
-	}
+	requireGrokDisplayBackedCompatibilityAliases(t, mapping)
 }
 
 func TestAccountModelMappingForAccount_NativePlatformsExplicit(t *testing.T) {

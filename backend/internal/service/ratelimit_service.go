@@ -2915,6 +2915,14 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if account.Platform == PlatformAnthropic {
 		return false
 	}
+	// TK: ChatGPT OAuth accounts share a subscription-tier catalog; when the
+	// operator floor already maps the requested model, a 404 is a wire/config
+	// fault (missing Codex Version header, stale mapping rollout) — not a
+	// per-account catalog gap. Cooling account×model here blocks the only OAuth
+	// account for 30m after a transient false positive (gpt-5.6-luna P0).
+	if account.Platform == PlatformOpenAI && account.IsOAuth() && account.IsModelSupported(requestedModel) {
+		return false
+	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
 	if modelKey == "" {
 		return false

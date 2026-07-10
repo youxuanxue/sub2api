@@ -262,14 +262,14 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   and `grok=4` on the target edge DB. Display names are operator-editable and
   only accepted through explicit legacy `PROBE_*_SOURCE_GROUP` overrides for
   diagnostics.
-- New-model mapping example (2026-07-08): `gpt-5.6*` is priced in overlay/fallback
-  but prod normal probes return local `Unsupported model`; edge OpenAI OAuth
-  accounts on `edge:us4` and `edge:us3` reached upstream and were rejected with
-  `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
-  Keep such models out of catalog/Menu/runtime until the target account/path
-  returns `verdict=servable`; then update/re-probe prod `model_mapping` through
-  the runtime flow before treating prod serving as ready. The same rule applies
-  to every platform now that prod accounts are mapping-scoped by SSOT.
+- GPT-5.6 family (#1322, 2026-07-10): `gpt-5.6` / `gpt-5.6-sol` / `gpt-5.6-terra` /
+  `gpt-5.6-luna` are in `supportedOpenAICatalogModels` and
+  `ops/pricing/examples/openai-oauth-proven.json` after GPT-pro1 (#9) direct
+  upstream proof with Codex `0.144.1`. Bare `gpt-5.6` is a compatibility alias
+  (wire transform → `gpt-5.6-sol`); keep `gpt-5.6-chat-latest` out of the
+  allowlist. After code SSOT changes, sync `tk_account_model_mapping_runtime`
+  and run `apply-accounts` — a stale runtime overlay will otherwise narrow
+  OAuth accounts back below the compiled floor.
 - Antigravity has two distinct probe surfaces: text/capability checks use
   `ANTIGRAVITY_CHAT_MODELS` on `/antigravity/v1beta`, while Studio
   gemini-native image uses `ANTIGRAVITY_IMAGE_MODELS` on `/v1/chat/completions`.

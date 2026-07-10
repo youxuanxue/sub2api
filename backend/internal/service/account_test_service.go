@@ -653,8 +653,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
-	// account model mapping, and compact mode applies compact-only mapping on top.
+	// account model mapping, Codex OAuth upstream normalization, and compact mode
+	// applies compact-only mapping on top.
 	testModelID = account.GetMappedModel(testModelID)
+	testModelID = normalizeOpenAIModelForUpstream(account, testModelID)
 	if mode == AccountTestModeCompact {
 		testModelID = resolveOpenAICompactForwardModel(account, testModelID)
 		return s.testOpenAICompactConnection(c, account, testModelID)
@@ -749,6 +751,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		req.Header.Set("accept", "text/event-stream")
 		req.Header.Set("OpenAI-Beta", "responses=experimental")
 		req.Header.Set("Originator", "codex_cli_rs")
+		req.Header.Set("Version", codexCLIVersion)
 		if customUA := strings.TrimSpace(credentialAccount.GetOpenAIUserAgent()); customUA != "" {
 			req.Header.Set("User-Agent", customUA)
 		} else {

@@ -206,6 +206,21 @@ jobs:
           API_URL: ${{ steps.instance.outputs.api_url }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
+      - name: Sync pricing overlay runtime
+        # The compiled-in tk_pricing_overlay.json is the pricing SSOT, but prod
+        # also has a hot runtime layer for no-release model pricing. A stale
+        # runtime row wins over the newly deployed binary unless deploy syncs it.
+        # Use the overlay from the DEPLOYED tag, not the workflow checkout's
+        # current main, so rollback deploys restore the matching runtime price set.
+        run: |
+          set -euo pipefail
+          TARGET_REF="v${INPUT_TAG}"
+          git fetch origin "refs/tags/${TARGET_REF}:refs/tags/${TARGET_REF}" --force
+          git show "${TARGET_REF}:backend/internal/service/tk_pricing_overlay.json" > /tmp/tk_pricing_overlay_runtime.json
+          python3 scripts/checks/pricing-overlay.py --path /tmp/tk_pricing_overlay_runtime.json
+          python3 ops/pricing/manage-overlay-runtime.py sync-runtime \
+            --overlay-path /tmp/tk_pricing_overlay_runtime.json
+
       - name: Post-deploy data invariant check (exclusive-group orphans)
         # ADVISORY ONLY — never blocks the deploy. Reads (read-only) whether any
         # API key is bound to an exclusive standard group whose user is NOT in

@@ -130,6 +130,36 @@ func TestRateLimitService_HandleUpstreamError_AnthropicModelNotFoundSkipsModelRa
 	require.Zero(t, repo.tempCalls)
 }
 
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuthMappedModelNotFoundSkipsModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.6-luna": "gpt-5.6-luna",
+			},
+		},
+	}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusNotFound,
+		http.Header{},
+		[]byte(`{"error":{"message":"Model not found gpt-5.6-luna"}}`),
+		"gpt-5.6-luna",
+	)
+
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
+}
+
 func openAIModelNotFoundTempAccount() *Account {
 	return &Account{
 		ID:          101,
