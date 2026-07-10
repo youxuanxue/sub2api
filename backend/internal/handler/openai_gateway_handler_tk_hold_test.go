@@ -33,8 +33,8 @@ func TestTkParseMaxOutputTokens(t *testing.T) {
 }
 
 func TestTkDefaultOutputReserveTokens_StaysLow(t *testing.T) {
-	if tkHoldDefaultOutputReserveTokens > 4096 {
-		t.Fatalf("default output reserve = %d, want <= 4096", tkHoldDefaultOutputReserveTokens)
+	if tkHoldDefaultOutputReserveTokens != 256 {
+		t.Fatalf("default output reserve = %d, want 256", tkHoldDefaultOutputReserveTokens)
 	}
 	if tkParseMaxOutputTokens([]byte(`{}`)) != tkHoldDefaultOutputReserveTokens {
 		t.Fatal("omitted max token fields must use the low default reserve")

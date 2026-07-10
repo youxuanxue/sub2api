@@ -36,7 +36,7 @@ const tkInsufficientBalanceForHoldMsg = "Insufficient account balance to reserve
 // Explicit client ceilings are still honored as hard reserve inputs; only the
 // omitted-ceiling path uses this lower estimate so a short-lived auth/balance
 // cache snapshot does not reject hundreds of ordinary requests.
-const tkHoldDefaultOutputReserveTokens = 4096
+const tkHoldDefaultOutputReserveTokens = 256
 
 // tkParseMaxOutputTokens extracts the output-token ceiling from the request,
 // falling back to a low default reserve when the client omits it. Field names
