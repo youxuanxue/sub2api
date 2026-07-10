@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,6 +103,44 @@ func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {
 	}, nil, nil, nil)
 	require.True(t, ok)
 	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
+}
+
+func TestGrokAccountModelMappingFloor_AppliesCompatibilityAliasesOverIdentity(t *testing.T) {
+	t.Parallel()
+	mapping := grokAccountModelMappingFloor(context.Background(), nil, nil)
+	requireGrokDisplayBackedCompatibilityAliases(t, mapping)
+}
+
+func requireGrokDisplayBackedCompatibilityAliases(t *testing.T, mapping map[string]string) {
+	t.Helper()
+	expected := grokDisplayBackedCompatibilityAliases()
+	require.NotEmpty(t, expected, "Grok alias SSOT must include display-listed compatibility aliases")
+	for from, to := range expected {
+		require.Equal(t, to, mapping[from], "display-listed Grok alias %s must map through compatibility SSOT", from)
+	}
+}
+
+func grokDisplayBackedCompatibilityAliases() map[string]string {
+	displaySet := stringSet(supportedCatalogModelIDsForPlatform(PlatformGrok))
+	out := make(map[string]string)
+	add := func(from, to string) {
+		if from == to {
+			return
+		}
+		if _, ok := displaySet[from]; !ok {
+			return
+		}
+		if _, ok := displaySet[to]; ok {
+			out[from] = to
+		}
+	}
+	for from, to := range xai.DefaultModelMapping() {
+		add(from, to)
+	}
+	for from, to := range tkGrokCompatibilityAliases {
+		add(from, to)
+	}
+	return out
 }
 
 func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids []string) {

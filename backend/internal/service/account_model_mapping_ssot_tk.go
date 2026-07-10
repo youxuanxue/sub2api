@@ -282,18 +282,15 @@ func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogSe
 	}
 	displaySet := stringSet(displayIDs)
 	out := identityModelMapping(displayIDs)
+	// Compatibility aliases win over identity even when the alias id is also
+	// servable/display-listed (e.g. grok-4.5-latest → grok-4.5). Skipping
+	// public-listed keys left identity remaps that violate GROK_REQUIRED_ALIASES.
 	for from, to := range xai.DefaultModelMapping() {
-		if _, publicListed := displaySet[from]; publicListed {
-			continue
-		}
 		if _, ok := displaySet[to]; ok {
 			out[from] = to
 		}
 	}
 	for from, to := range tkGrokCompatibilityAliases {
-		if _, publicListed := displaySet[from]; publicListed {
-			continue
-		}
 		if _, ok := displaySet[to]; ok {
 			out[from] = to
 		}
