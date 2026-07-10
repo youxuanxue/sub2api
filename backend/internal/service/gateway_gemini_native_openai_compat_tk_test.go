@@ -11,9 +11,21 @@ func TestUsesGeminiNativeOpenAICompat(t *testing.T) {
 		}
 	})
 
-	t.Run("antigravity text uses compat bridge", func(t *testing.T) {
+	t.Run("antigravity gemini text uses compat bridge", func(t *testing.T) {
 		if !UsesGeminiNativeOpenAICompat(PlatformAntigravity, "gemini-3.5-flash") {
 			t.Fatalf("expected antigravity text to use compat bridge")
+		}
+	})
+
+	t.Run("antigravity claude uses messages bridge", func(t *testing.T) {
+		if UsesGeminiNativeOpenAICompat(PlatformAntigravity, "claude-sonnet-4-6") {
+			t.Fatalf("expected antigravity Claude model to use messages bridge")
+		}
+	})
+
+	t.Run("antigravity models-prefixed gemini text uses compat bridge", func(t *testing.T) {
+		if !UsesGeminiNativeOpenAICompat(PlatformAntigravity, "models/gemini-pro-agent") {
+			t.Fatalf("expected prefixed antigravity Gemini text to use compat bridge")
 		}
 	})
 
