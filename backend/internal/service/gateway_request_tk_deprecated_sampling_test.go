@@ -174,6 +174,32 @@ func TestTkSamplingParamRuleFromAnthropic400(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestTkAnthropicThinkingRuleFrom400(t *testing.T) {
+	adaptiveBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`)
+	rule, ok := tkAnthropicThinkingRuleFrom400("claude-next-preview", http.StatusBadRequest, adaptiveBody)
+	require.True(t, ok)
+	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
+
+	budgetBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"thinking.budget_tokens: Input should be greater than or equal to 1024"}}`)
+	_, ok = tkAnthropicThinkingRuleFrom400("claude-sonnet-4-5", http.StatusBadRequest, budgetBody)
+	require.False(t, ok)
+
+	prefillBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Prefilling assistant messages is not supported for this model."}}`)
+	_, ok = tkAnthropicThinkingRuleFrom400("claude-opus-4-8", http.StatusBadRequest, prefillBody)
+	require.False(t, ok)
+
+	signatureBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0: Invalid signature in thinking block"}}`)
+	_, ok = tkAnthropicThinkingRuleFrom400("claude-sonnet-4-5", http.StatusBadRequest, signatureBody)
+	require.False(t, ok)
+
+	overloadedBody := []byte(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+	_, ok = tkAnthropicThinkingRuleFrom400("claude-next-preview", http.StatusBadRequest, overloadedBody)
+	require.False(t, ok)
+
+	_, ok = tkAnthropicThinkingRuleFrom400("claude-next-preview", http.StatusTooManyRequests, adaptiveBody)
+	require.False(t, ok)
+}
+
 func TestTkStripDeprecatedSamplingParams_UsesCachedSamplingRule(t *testing.T) {
 	tkSamplingParamRules.Flush()
 	defer tkSamplingParamRules.Flush()
@@ -186,6 +212,20 @@ func TestTkStripDeprecatedSamplingParams_UsesCachedSamplingRule(t *testing.T) {
 	require.True(t, gjson.GetBytes(got, "temperature").Exists())
 	require.False(t, gjson.GetBytes(got, "top_p").Exists())
 	require.True(t, gjson.GetBytes(got, "top_k").Exists())
+}
+
+func TestTkApplyAnthropicRequestCompatibilityRules_UsesCachedAdaptiveThinkingRule(t *testing.T) {
+	tkAnthropicThinkingRules.Flush()
+	defer tkAnthropicThinkingRules.Flush()
+
+	body := []byte(`{"model":"claude-next-preview","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048,"messages":[]}`)
+	require.Equal(t, body, tkApplyAnthropicRequestCompatibilityRules(body))
+
+	tkPutCachedAnthropicThinkingRule("claude-next-preview", tkAnthropicThinkingRuleAdaptiveOnly)
+	got := tkApplyAnthropicRequestCompatibilityRules(body)
+	require.Equal(t, "adaptive", gjson.GetBytes(got, "thinking.type").String())
+	require.False(t, gjson.GetBytes(got, "thinking.budget_tokens").Exists())
+	require.Equal(t, "claude-next-preview", gjson.GetBytes(got, "model").String())
 }
 
 func TestRectifyAnthropicPassthrough400_SamplingParamRetryCachesRule(t *testing.T) {

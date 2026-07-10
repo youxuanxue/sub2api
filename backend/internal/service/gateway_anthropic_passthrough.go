@@ -108,7 +108,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models.
-	input.Body = tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
+	input.Body = tkApplyAnthropicRequestCompatibilityRules(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))
 	if input.Parsed != nil {
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
 			return nil, err
@@ -501,6 +501,7 @@ func (s *GatewayService) rectifyAnthropicPassthrough400(ctx context.Context, acc
 
 	errMsg := extractUpstreamErrorMessage(respBody)
 	if isThinkingTypeAdaptiveRequiredError(errMsg) {
+		tkRecordAnthropicThinkingRuleFrom400(platform, model, http.StatusBadRequest, respBody)
 		if rectified, ok := RectifyThinkingTypeAdaptive(body); ok {
 			return rectified, "thinking_adaptive_retry", true
 		}

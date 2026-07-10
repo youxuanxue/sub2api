@@ -118,7 +118,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
-	anthropicBody = tkStripDeprecatedSamplingParams(anthropicBody)
+	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(anthropicBody)
 
 	// TK: thread gemini-native image aspect ratio (extra_body.google.image_config.
 	// aspect_ratio) from the raw CC body onto the relayed Anthropic body; the antigravity
@@ -173,6 +173,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		if resp.StatusCode == http.StatusBadRequest {
 			tkRecordAnthropicSamplingParamRuleFrom400(account.Platform, mappedModel, resp.StatusCode, respBody)
+			tkRecordAnthropicThinkingRuleFrom400(account.Platform, mappedModel, resp.StatusCode, respBody)
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))

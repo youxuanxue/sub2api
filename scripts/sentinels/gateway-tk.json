@@ -734,7 +734,7 @@
       "path": "backend/internal/service/gateway_claude_oauth_body.go",
       "must_contain": [
         "!strings.Contains(strings.ToLower(modelID), \"haiku\")",
-        "return tkStripDeprecatedSamplingParams(body)"
+        "return tkApplyAnthropicRequestCompatibilityRules(body)"
       ]
     },
     {
@@ -3046,11 +3046,32 @@
       "rationale": "Proactive pre-send strip of top-level sampling params for Anthropic Opus 4.7+ and Sonnet 5+ models. Prod/edge traces on 2026-07-08 showed claude-opus-4-7 upstream 400s first for 'temperature is deprecated for this model' and then for '`top_p` is deprecated for this model' after the gateway preserved or injected those fields; Anthropic compatibility notes group temperature/top_p/top_k together for this model surface. The gate keeps older Claude families and non-Anthropic bodies unchanged, while only the top-level fields are deleted so nested JSON-schema properties survive. Dropping this companion silently re-opens platform-owned internal 400s for chat/messages/responses/count_tokens paths."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_sampling_param_cache.go",
+      "must_contain": [
+        "func tkRecordAnthropicSamplingParamRuleFrom400(platform, model string, status int, body []byte)",
+        "func tkApplyAnthropicRequestCompatibilityRules(body []byte) []byte",
+        "tkApplyCachedAnthropicThinkingRule(tkStripDeprecatedSamplingParams(body))",
+        "tkSamplingParamRuleCacheTTL     = 60 * time.Second"
+      ],
+      "rationale": "Short-lived Anthropic request-compatibility cache entry point. Sampling-param 400s populate model-scoped rules for the exact deprecated/unsupported parameter messages, and the unified apply hook composes static sampling stripping with cached thinking-shape repair before the next upstream call. Dropping this companion or bypassing tkApplyAnthropicRequestCompatibilityRules silently reverts repeated 400s to hitting upstream every time."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_thinking_rule_cache.go",
+      "must_contain": [
+        "func tkRecordAnthropicThinkingRuleFrom400(platform, model string, status int, body []byte)",
+        "isThinkingTypeAdaptiveRequiredError(errMsg)",
+        "RectifyThinkingTypeAdaptive(body)",
+        "tkAnthropicThinkingRuleCacheTTL     = 60 * time.Second"
+      ],
+      "rationale": "Short-lived Anthropic adaptive-thinking compatibility cache. Only 400 invalid_request_error messages that explicitly say thinking.type.enabled is not supported learn the adaptive-only rule; budget, prefill, signature, 429 and overloaded errors must not become model-level rewrites. Dropping this companion makes Opus/Fable-style adaptive-required 400s repeat for every request until static model rules catch up."
+    },
+    {
       "path": "backend/internal/service/gateway_request_tk_deprecated_sampling_test.go",
       "must_contain": [
         "TestTkStripDeprecatedSamplingParams_StripIsTopLevelOnly",
         "TestTkStripDeprecatedSamplingParams_NoTouchForOlderClaudeModels",
         "TestTkModelDeprecatesSamplingParams",
+        "TestTkAnthropicThinkingRuleFrom400",
         "TestForwardAsChatCompletions_AnthropicOpus47StripsDeprecatedSamplingParams",
         "TestApplyClaudeCodeOAuthMimicry_AnthropicOpus47StripsDeprecatedSamplingParams"
       ],
@@ -3076,23 +3097,23 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
+        "replaceBody(tkApplyAnthropicRequestCompatibilityRules(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
       ],
-      "rationale": "The native Forward pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedSamplingParams so explicit thinking.type=disabled never reaches fable upstreams and top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams. An upstream merge that restores the bare two-function chain silently reverts either fix and surfaces raw upstream 400s again."
+      "rationale": "The native Forward pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkApplyAnthropicRequestCompatibilityRules so explicit thinking.type=disabled never reaches fable upstreams, top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams, and short-cached adaptive-thinking rules apply before the next upstream call. An upstream merge that restores the bare two-function chain silently reverts these fixes and surfaces raw upstream 400s again."
     },
     {
       "path": "backend/internal/service/gateway_count_tokens.go",
       "must_contain": [
-        "replaceBody(tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
+        "replaceBody(tkApplyAnthropicRequestCompatibilityRules(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
       ],
-      "rationale": "The count_tokens pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkStripDeprecatedSamplingParams so explicit thinking.type=disabled never reaches fable upstreams and top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams."
+      "rationale": "The count_tokens pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkApplyAnthropicRequestCompatibilityRules so explicit thinking.type=disabled never reaches fable upstreams, top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams, and short-cached compatibility rules reduce repeated upstream 400s."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
-        "input.Body = tkStripDeprecatedSamplingParams(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))"
+        "input.Body = tkApplyAnthropicRequestCompatibilityRules(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))))"
       ],
-      "rationale": "Passthrough sanitize chain split from gateway_service.go must retain both fable-disabled-thinking and Opus 4.7+/Sonnet 5+ deprecated sampling-param stripping."
+      "rationale": "Passthrough sanitize chain split from gateway_service.go must retain fable-disabled-thinking stripping, Opus 4.7+/Sonnet 5+ deprecated sampling-param stripping, and short-cached adaptive-thinking compatibility rewrites."
     },
     {
       "path": "backend/internal/handler/api_key_handler.go",

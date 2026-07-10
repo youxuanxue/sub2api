@@ -1281,6 +1281,9 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_Signature400Ret
 // Parity with the main Forward() path: the passthrough path must also self-heal the
 // Opus 4.7+ "thinking.type.enabled is not supported" 400 by retrying with adaptive.
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequired400RetriesWithAdaptive(t *testing.T) {
+	tkAnthropicThinkingRules.Flush()
+	defer tkAnthropicThinkingRules.Flush()
+
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -1316,6 +1319,61 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequire
 	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
 	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
+	rule, exists := tkGetCachedAnthropicThinkingRule("claude-opus-4-8")
+	require.True(t, exists)
+	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
+
+	cached := tkApplyAnthropicRequestCompatibilityRules(body)
+	require.Equal(t, "adaptive", gjson.GetBytes(cached, "thinking.type").String())
+	require.False(t, gjson.GetBytes(cached, "thinking.budget_tokens").Exists(), "subsequent requests should be rectified before upstream")
+}
+
+func TestGatewayService_AnthropicMainForward_AdaptiveRequired400RetriesWithAdaptive(t *testing.T) {
+	tkAnthropicThinkingRules.Flush()
+	defer tkAnthropicThinkingRules.Flush()
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-opus-4-8","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-8", Stream: false}
+	upstreamJSON := `{"id":"msg_adaptive_ok","type":"message","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-main-adaptive-bad"}},
+			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-main-adaptive-ok"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		},
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+		deferredService:  &DeferredService{},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+	account.Extra = nil
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
+	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	rule, exists := tkGetCachedAnthropicThinkingRule("claude-opus-4-8")
+	require.True(t, exists)
+	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
 }
 
 // Parity with the main Forward() path: the passthrough path must also self-heal a

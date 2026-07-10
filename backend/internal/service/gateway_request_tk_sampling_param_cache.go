@@ -120,3 +120,7 @@ func tkIsUnsupportedSamplingParamMessage(lowerMessage string) bool {
 		strings.Contains(lowerMessage, "extra inputs are not permitted") ||
 		strings.Contains(lowerMessage, "unsupported parameter")
 }
+
+func tkApplyAnthropicRequestCompatibilityRules(body []byte) []byte {
+	return tkApplyCachedAnthropicThinkingRule(tkStripDeprecatedSamplingParams(body))
+}
