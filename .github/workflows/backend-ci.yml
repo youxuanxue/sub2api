@@ -243,14 +243,15 @@ jobs:
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
           go version | grep -Fq "go${expected}"
-      # PR: only-new-issues (GitHub API diff). Push/workflow_dispatch: full ./... lint on backend.
+      # Full lint on PR and push. `only-new-issues` masked base/main lint debt:
+      # PRs stayed green while push-to-main full lint failed after merge.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.9
           args: --concurrency=4 --timeout=30m
           working-directory: backend
-          only-new-issues: ${{ github.event_name == 'pull_request' }}
+          only-new-issues: false
 
   backend-security:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))
