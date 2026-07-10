@@ -17,12 +17,12 @@ var tkDeprecatedSamplingTopLevelFields = []string{
 // tkModelDeprecatesSamplingParams reports whether Anthropic rejects non-default
 // top-level sampling params for this model. Live prod/edge traces on 2026-07-08
 // showed claude-opus-4-7 returning HTTP 400 for both `temperature` and `top_p`;
-// Anthropic's compatibility notes list temperature/top_p/top_k together for
-// Opus 4.7+, Sonnet 4.6+, and Sonnet 5+.
+// Anthropic's compatibility notes list temperature/top_p/top_k as removed for
+// Opus 4.7+ and Sonnet 5+. Sonnet 4.6 keeps the older temperature+top_p
+// mutual-exclusion behavior handled below.
 func tkModelDeprecatesSamplingParams(modelID string) bool {
 	return isOpus47OrNewer(modelID) ||
 		tkClaudeFamilyMajorAtLeast(modelID, "opus", 5) ||
-		tkClaudeFamilyVersionAtLeast(modelID, "sonnet", 4, 6) ||
 		tkClaudeFamilyMajorAtLeast(modelID, "sonnet", 5)
 }
 

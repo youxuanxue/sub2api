@@ -59,6 +59,18 @@ func TestTkStripDeprecatedSamplingParams_StripsTopPWhenTemperatureAlsoPresent(t 
 	require.True(t, gjson.ValidBytes(got))
 }
 
+func TestTkStripDeprecatedSamplingParams_StripsTopPForSonnet46(t *testing.T) {
+	input := []byte(`{"model":"claude-sonnet-4-6","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hi"}]}`)
+
+	got := tkStripDeprecatedSamplingParams(input)
+
+	require.True(t, gjson.GetBytes(got, "temperature").Exists())
+	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.True(t, gjson.GetBytes(got, "top_k").Exists())
+	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(got, "model").String())
+	require.True(t, gjson.ValidBytes(got))
+}
+
 func TestTkStripDeprecatedSamplingParams_StripsTopPForOpus41(t *testing.T) {
 	input := []byte(`{"model":"claude-opus-4-1-20250805","temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hi"}]}`)
 
@@ -86,6 +98,9 @@ func TestTkStripDeprecatedSamplingParams_DoesNotStripSingleSamplingParamFor45(t 
 	cases := []string{
 		`{"model":"claude-sonnet-4-5","temperature":0.7,"messages":[]}`,
 		`{"model":"claude-haiku-4-5","top_p":0.9,"messages":[]}`,
+		`{"model":"claude-sonnet-4-6","temperature":0.7,"messages":[]}`,
+		`{"model":"claude-sonnet-4-6","top_p":0.9,"messages":[]}`,
+		`{"model":"claude-sonnet-4-6","top_k":40,"messages":[]}`,
 	}
 	for _, body := range cases {
 		t.Run(gjson.Get(body, "model").String(), func(t *testing.T) {
@@ -103,8 +118,8 @@ func TestTkModelDeprecatesSamplingParams(t *testing.T) {
 		{"claude-opus-4-7", true},
 		{"claude-opus-4.8", true},
 		{"anthropic.claude-opus-5-v1:0", true},
-		{"claude-sonnet-4-6", true},
-		{"claude-sonnet-4-6-20260708", true},
+		{"claude-sonnet-4-6", false},
+		{"claude-sonnet-4-6-20260708", false},
 		{"claude-sonnet-5", true},
 		{"claude-sonnet-5-20260708", true},
 		{"anthropic.claude-sonnet-5-v1:0", true},
@@ -134,7 +149,8 @@ func TestTkModelRejectsTemperatureTopPCombination(t *testing.T) {
 		{"anthropic.claude-opus-4-5-v1:0", true},
 		{"claude-opus-4-6", true},
 		{"claude-opus-4-7", false},
-		{"claude-sonnet-4-6", false},
+		{"claude-sonnet-4-6", true},
+		{"claude-sonnet-4-6-20260708", true},
 		{"claude-sonnet-5", false},
 		{"claude-3-5-sonnet-20241022", false},
 		{"gpt-5.5", false},
@@ -156,6 +172,20 @@ func TestTkSamplingParamRuleFromAnthropic400(t *testing.T) {
 	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unsupportedBody)
 	require.True(t, ok)
 	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+
+	unknownParamBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Unknown parameter: top_k"}}`)
+	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unknownParamBody)
+	require.True(t, ok)
+	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+
+	unrecognizedParamBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Unrecognized request argument supplied: top_p"}}`)
+	rule, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, unrecognizedParamBody)
+	require.True(t, ok)
+	require.Equal(t, tkSamplingParamRuleStripAll, rule)
+
+	nonSamplingUnknownParamBody := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Unknown parameter: max_tokens"}}`)
+	_, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, nonSamplingUnknownParamBody)
+	require.False(t, ok)
 
 	overloadedBody := []byte(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
 	_, ok = tkSamplingParamRuleFromAnthropic400("claude-next", http.StatusBadRequest, overloadedBody)

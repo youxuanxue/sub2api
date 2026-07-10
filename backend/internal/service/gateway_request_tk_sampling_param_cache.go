@@ -118,7 +118,11 @@ func tkIsUnsupportedSamplingParamMessage(lowerMessage string) bool {
 	}
 	return strings.Contains(lowerMessage, "not supported for this model") ||
 		strings.Contains(lowerMessage, "extra inputs are not permitted") ||
-		strings.Contains(lowerMessage, "unsupported parameter")
+		strings.Contains(lowerMessage, "unsupported parameter") ||
+		strings.Contains(lowerMessage, "unknown parameter") ||
+		strings.Contains(lowerMessage, "unknown_parameter") ||
+		strings.Contains(lowerMessage, "unrecognized request argument") ||
+		strings.Contains(lowerMessage, "unrecognized parameter")
 }
 
 func tkApplyAnthropicRequestCompatibilityRules(body []byte) []byte {
